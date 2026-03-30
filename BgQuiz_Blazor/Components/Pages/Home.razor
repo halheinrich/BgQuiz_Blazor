@@ -1,0 +1,22 @@
+@page "/"
+@rendermode InteractiveServer
+
+@using BgDiag_Razor.Components
+@using BackgammonDiagram_Lib
+
+<PageTitle>BgQuiz</PageTitle>
+
+<h1>BgQuiz — Click Test</h1>
+
+<div class="board-container">
+    <BackgammonDiagram Request="_request"
+                       Options="_options"
+                       OnPointClicked="HandlePointClicked"
+                       OnBarClicked="HandleBarClicked"
+                       OnCubeClicked="HandleCubeClicked"
+                       OnTrayClicked="HandleTrayClicked" />
+</div>
+
+<div class="click-report">
+    <p>@_clickMessage</p>
+</div>

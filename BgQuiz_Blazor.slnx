@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="../BgDiag_Razor/BgDiag_Razor/BgDiag_Razor.csproj" />
+  <Project Path="BgQuiz_Blazor/BgQuiz_Blazor.csproj" />
+</Solution>
