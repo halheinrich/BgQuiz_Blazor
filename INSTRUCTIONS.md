@@ -39,8 +39,7 @@ BgQuiz_Blazor/
 │       ├── Home.razor
 │       └── Home.razor.cs
 ├── wwwroot/
-│   └── css/
-│       └── app.css
+│   └── app.css
 ├── Properties/
 │   └── launchSettings.json
 ├── Program.cs
@@ -51,10 +50,20 @@ BgQuiz_Blazor/
 ```
 
 ## Current state
-- Milestone 1 stub: renders a BackgammonDiagram with a hardcoded position
-  and reports click events (point, bar, cube, tray) as text below the board.
-- `CreateOpeningPosition()` in Home.razor.cs is a TODO — needs actual
-  DiagramRequest construction matching the lib's API.
+- Milestone 1 complete: renders a `BackgammonDiagram` with a hardcoded empty
+  position, reports click events (point, bar, cube, tray) as text below the board.
+- Board is responsive — scales to fit viewport using `min()` in CSS.
+- "About" link removed from `MainLayout.razor`.
+- Orientation toggle button present (`_onRollBearsOffRight` / `ToggleOrientation()`),
+  wired correctly in C# but board SVG does not re-render on toggle.
+  Bug traced to `DiagramRenderer` in `BackgammonDiagram_Lib` — handoff written for `BgDiag_Razor`.
+- `CreateOpeningPosition()` still TODO — `DiagramRequest` constructed with defaults only.
+
+## Known issues
+- Orientation toggle: `OnParametersSet()` in `BgDiag_Razor` calls
+  `_renderer.GetHitRegions(Options)` without passing `Request`. Suspected
+  caching in `DiagramRenderer.RenderSvg()` prevents SVG regeneration when
+  only `Orientation` changes. See `BgDiag_Razor` handoff.
 
 ## Session start
 1. Fetch AGENTS.md from umbrella root.
@@ -63,12 +72,13 @@ BgQuiz_Blazor/
 
 ### Source file URLs
 ```
-https://raw.githack.com/halheinrich/BgQuiz_Blazor/{hash}/Components/Pages/Home.razor
-https://raw.githack.com/halheinrich/BgQuiz_Blazor/{hash}/Components/Pages/Home.razor.cs
-https://raw.githack.com/halheinrich/BgQuiz_Blazor/{hash}/Program.cs
+https://raw.githack.com/halheinrich/BgQuiz_Blazor/2b747f3/BgQuiz_Blazor/Components/Pages/Home.razor
+https://raw.githack.com/halheinrich/BgQuiz_Blazor/2b747f3/BgQuiz_Blazor/Components/Pages/Home.razor.cs
+https://raw.githack.com/halheinrich/BgQuiz_Blazor/2b747f3/BgQuiz_Blazor/wwwroot/app.css
 ```
 
 ## Commit log
 | Date | Hash | Summary |
 |------|------|---------|
-| 2026-03-30 | `TBD` | Milestone 1 stub: diagram + click reporting |
+| 2026-03-30 | `b8ef2f2` | Milestone 1 stub: diagram + click reporting |
+| 2026-03-30 | `2b747f3` | Milestone 1: responsive board sizing, remove About link, orientation toggle stub |
