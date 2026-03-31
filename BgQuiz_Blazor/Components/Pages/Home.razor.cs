@@ -7,21 +7,21 @@ public partial class Home : ComponentBase
 {
     private string _clickMessage = "Click a point, the bar, cube, or tray.";
 
-    private bool _flipped = false;
+    private bool _onRollBearsOffRight = true;
 
     private DiagramRequest _request = new DiagramRequest
     {
-        Orientation = DiagramOrientation.OnRollRight
+        HomeBoardOnRight = true
     };
 
     private readonly DiagramOptions _options = new();
 
     private void ToggleOrientation()
     {
-        _flipped = !_flipped;
+        _onRollBearsOffRight = !_onRollBearsOffRight;
         _request = new DiagramRequest
         {
-            Orientation = _flipped ? DiagramOrientation.OpponentRight : DiagramOrientation.OnRollRight
+            HomeBoardOnRight = _onRollBearsOffRight
         };
     }
 
