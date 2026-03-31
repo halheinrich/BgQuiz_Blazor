@@ -54,16 +54,17 @@ BgQuiz_Blazor/
   position, reports click events (point, bar, cube, tray) as text below the board.
 - Board is responsive — scales to fit viewport using `min()` in CSS.
 - "About" link removed from `MainLayout.razor`.
-- Orientation toggle button present (`_onRollBearsOffRight` / `ToggleOrientation()`),
-  wired correctly in C# but board SVG does not re-render on toggle.
-  Bug traced to `DiagramRenderer` in `BackgammonDiagram_Lib` — handoff written for `BgDiag_Razor`.
-- `CreateOpeningPosition()` still TODO — `DiagramRequest` constructed with defaults only.
+- Orientation toggle implemented via `_onRollBearsOffRight` / `ToggleOrientation()`.
+  Board SVG flips correctly. Hit regions do not flip — bug in `BgDiag_Razor`
+  (`GetHitRegions` not receiving `Request`). Handoff written for `BgDiag_Razor`.
+- `DiagramOrientation` enum replaced by `HomeBoardOnRight` bool on `DiagramRequest`
+  as of `BackgammonDiagram_Lib` commit `01432a7`.
+- `CreateOpeningPosition()` removed — `DiagramRequest` constructed with defaults only.
 
 ## Known issues
-- Orientation toggle: `OnParametersSet()` in `BgDiag_Razor` calls
-  `_renderer.GetHitRegions(Options)` without passing `Request`. Suspected
-  caching in `DiagramRenderer.RenderSvg()` prevents SVG regeneration when
-  only `Orientation` changes. See `BgDiag_Razor` handoff.
+- Hit regions don't reflect `HomeBoardOnRight` after toggle. `GetHitRegions(Options)`
+  in `BackgammonDiagram.razor.cs` does not receive `Request`, so point-to-rectangle
+  mapping is always computed for the default orientation. See `BgDiag_Razor` handoff.
 
 ## Session start
 1. Fetch AGENTS.md from umbrella root.
@@ -72,9 +73,9 @@ BgQuiz_Blazor/
 
 ### Source file URLs
 ```
-https://raw.githack.com/halheinrich/BgQuiz_Blazor/2b747f3/BgQuiz_Blazor/Components/Pages/Home.razor
-https://raw.githack.com/halheinrich/BgQuiz_Blazor/2b747f3/BgQuiz_Blazor/Components/Pages/Home.razor.cs
-https://raw.githack.com/halheinrich/BgQuiz_Blazor/2b747f3/BgQuiz_Blazor/wwwroot/app.css
+https://raw.githack.com/halheinrich/BgQuiz_Blazor/4ce6ded/BgQuiz_Blazor/Components/Pages/Home.razor
+https://raw.githack.com/halheinrich/BgQuiz_Blazor/4ce6ded/BgQuiz_Blazor/Components/Pages/Home.razor.cs
+https://raw.githack.com/halheinrich/BgQuiz_Blazor/4ce6ded/BgQuiz_Blazor/wwwroot/app.css
 ```
 
 ## Commit log
@@ -82,3 +83,4 @@ https://raw.githack.com/halheinrich/BgQuiz_Blazor/2b747f3/BgQuiz_Blazor/wwwroot/
 |------|------|---------|
 | 2026-03-30 | `b8ef2f2` | Milestone 1 stub: diagram + click reporting |
 | 2026-03-30 | `2b747f3` | Milestone 1: responsive board sizing, remove About link, orientation toggle stub |
+| 2026-03-31 | `4ce6ded` | Fix: update DiagramRequest to use HomeBoardOnRight, remove DiagramOrientation |
