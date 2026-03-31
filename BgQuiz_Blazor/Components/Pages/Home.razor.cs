@@ -7,9 +7,23 @@ public partial class Home : ComponentBase
 {
     private string _clickMessage = "Click a point, the bar, cube, or tray.";
 
-    // Hardcoded opening position for the test stub
-    private readonly DiagramRequest _request = CreateOpeningPosition();
+    private bool _flipped = false;
+
+    private DiagramRequest _request = new DiagramRequest
+    {
+        Orientation = DiagramOrientation.OnRollRight
+    };
+
     private readonly DiagramOptions _options = new();
+
+    private void ToggleOrientation()
+    {
+        _flipped = !_flipped;
+        _request = new DiagramRequest
+        {
+            Orientation = _flipped ? DiagramOrientation.OpponentRight : DiagramOrientation.OnRollRight
+        };
+    }
 
     private Task HandlePointClicked(int pointNumber)
     {
@@ -33,19 +47,5 @@ public partial class Home : ComponentBase
     {
         _clickMessage = "You clicked the tray.";
         return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Standard backgammon opening position.
-    /// Adjust if DiagramRequest's API differs from this shape.
-    /// </summary>
-    private static DiagramRequest CreateOpeningPosition()
-    {
-        // TODO: Replace with actual DiagramRequest construction.
-        // This assumes a constructor or factory that accepts point counts.
-        // The opening position is:
-        //   Player: 2 on 24, 5 on 13, 3 on 8, 5 on 6
-        //   Opponent: 2 on 1, 5 on 12, 3 on 17, 5 on 19
-        return new DiagramRequest();
     }
 }
