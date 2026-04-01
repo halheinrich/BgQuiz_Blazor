@@ -9,20 +9,22 @@ public partial class Home : ComponentBase
 
     private bool _onRollBearsOffRight = true;
 
-    private DiagramRequest _request = new DiagramRequest
+    private DiagramRequest _request = new DiagramRequest.Builder
     {
-        HomeBoardOnRight = true
-    };
+        HomeBoardOnRight = true,
+        Dice = [1, 1]
+    }.Build();
 
     private readonly DiagramOptions _options = new();
 
     private void ToggleOrientation()
     {
         _onRollBearsOffRight = !_onRollBearsOffRight;
-        _request = new DiagramRequest
+        _request = new DiagramRequest.Builder
         {
-            HomeBoardOnRight = _onRollBearsOffRight
-        };
+            HomeBoardOnRight = _onRollBearsOffRight,
+            Dice = [1, 1] // TODO: replace with actual dice when CreateOpeningPosition() is implemented
+        }.Build();
     }
 
     private Task HandlePointClicked(int pointNumber)
