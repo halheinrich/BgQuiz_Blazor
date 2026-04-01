@@ -78,6 +78,21 @@ https://raw.githack.com/halheinrich/BgQuiz_Blazor/2d9b415/BgQuiz_Blazor/Componen
 https://raw.githack.com/halheinrich/BgQuiz_Blazor/2d9b415/BgQuiz_Blazor/Program.cs
 ```
 
+## Dependency files
+
+### BackgammonDiagram_Lib
+Files needed from this dependency (fetch URLs from umbrella INSTRUCTIONS.md):
+* Models/DiagramRequest.cs
+* Models/DiagramOptions.cs
+* Models/Enums.cs
+* Models/BoardHitRegions.cs
+* Rendering/DiagramRenderer.cs
+
+### BgDiag_Razor
+Files needed from this dependency (fetch URLs from umbrella INSTRUCTIONS.md):
+* Components/BackgammonDiagram.razor
+* Components/BackgammonDiagram.razor.cs
+
 ## Commit log
 | Date | Hash | Summary |
 |------|------|---------|
