@@ -483,3 +483,6 @@ $RECYCLE.BIN/
 
 **/wwwroot/lib/
 
+# Claude Code session state
+.claude/
+
