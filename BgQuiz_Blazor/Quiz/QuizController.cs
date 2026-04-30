@@ -3,7 +3,6 @@ namespace BgQuiz_Blazor.Quiz;
 using BgDataTypes_Lib;
 using BgGame_Lib;
 using BgMoveGen;
-using Microsoft.Extensions.Options;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 
@@ -22,12 +21,12 @@ using XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
-/// <b>Status:</b> <see cref="SubmitPlayAsync"/> is currently blocked on a
-/// cross-submodule arc that adds <c>Play</c> to <see cref="PlayCandidate"/>;
-/// see that method's xmldoc for the session sequence. The rest of the state
-/// machine (<see cref="StartAsync"/>, <see cref="SkipCurrentAsync"/>,
-/// <see cref="RestartAsync"/>, <see cref="AdvanceAsync"/>, auto-pass detection)
-/// is unblocked.
+/// The <see cref="IProblemSetSource"/> is constructed via an injected
+/// <see cref="ProblemSetSourceFactory"/> delegate, registered in
+/// <c>Program.cs</c>. Phase 1 wires this to <see cref="ServerDiskProblemSetSource"/>;
+/// future Phase 2+ implementations (upload, deployed bundles, curated
+/// libraries) plug in by registering a different factory without controller
+/// changes. Tests substitute a fake source the same way.
 /// </para>
 ///
 /// <para>
@@ -41,19 +40,19 @@ using XgFilter_Lib.Filtering;
 /// </summary>
 public sealed class QuizController : IAsyncDisposable
 {
-    private readonly IOptions<QuizOptions> _options;
+    private readonly ProblemSetSourceFactory _sourceFactory;
     private readonly List<SubmittedPlay> _history = [];
 
     private DecisionFilterSet? _userFilters;
-    private ServerDiskProblemSetSource? _source;
+    private IProblemSetSource? _source;
     private IAsyncEnumerator<BgDecisionData>? _enumerator;
 
-    public QuizController(IOptions<QuizOptions> options)
+    public QuizController(ProblemSetSourceFactory sourceFactory)
     {
-        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _sourceFactory = sourceFactory ?? throw new ArgumentNullException(nameof(sourceFactory));
     }
 
-    /// <summary>Source name (directory name) once started; null otherwise.</summary>
+    /// <summary>Source name once started; null otherwise.</summary>
     public string? Name => _source?.Name;
 
     /// <summary>The decision currently being shown to the user; null before start or after finish.</summary>
@@ -82,17 +81,10 @@ public sealed class QuizController : IAsyncDisposable
     public event Action? StateChanged;
 
     /// <summary>
-    /// Begin a fresh quiz against <paramref name="userFilters"/> and the
-    /// configured <c>Quiz:ProblemSetDirectory</c>. Augments the filter set
-    /// with Phase 1's CheckerPlaysOnly policy. Resets score / history /
+    /// Begin a fresh quiz against <paramref name="userFilters"/>. Augments the
+    /// filter set with Phase 1's CheckerPlaysOnly policy. Resets score / history /
     /// skipped-count and advances to the first non-pass problem.
     /// </summary>
-    /// <exception cref="InvalidOperationException">
-    /// <c>Quiz:ProblemSetDirectory</c> is not configured.
-    /// </exception>
-    /// <exception cref="DirectoryNotFoundException">
-    /// The configured directory does not exist on disk.
-    /// </exception>
     public async Task StartAsync(DecisionFilterSet userFilters)
     {
         ArgumentNullException.ThrowIfNull(userFilters);
@@ -106,49 +98,62 @@ public sealed class QuizController : IAsyncDisposable
     }
 
     /// <summary>
-    /// Score and advance. <b>BLOCKED — not implemented.</b>
+    /// Score the user's <paramref name="play"/> against <see cref="Current"/>'s
+    /// candidate list and advance.
     ///
     /// <para>
-    /// Matching the user's submitted <see cref="Play"/> against the position's
-    /// <see cref="PlayCandidate"/>s requires a structural comparison via
-    /// <see cref="Play.DeduplicationKey"/>. <see cref="PlayCandidate"/> currently
-    /// carries only <c>MoveNotation</c> (string). String equality on the
-    /// formatter output is unreliable — different strings can represent the
-    /// same logical play, producing false-negative misses on score.
+    /// Matching is structural: <see cref="Play.DeduplicationKey"/> on the
+    /// submitted play is compared to each candidate's
+    /// <see cref="PlayCandidate.Play"/> key in list order; the first match
+    /// scores. <see cref="PlayCandidate.EquityLoss"/> <c>== 0.0</c> identifies
+    /// best-play candidates (the established convention — multiple may share
+    /// zero loss; <see cref="DecisionData.BestPlayIndex"/> is the canonical
+    /// representative when one is needed).
     /// </para>
     ///
     /// <para>
-    /// Resolution: the cross-submodule arc tracked in the umbrella
-    /// <c>INSTRUCTIONS.md</c> Deferred section, per <c>CLAUDE.md</c>
-    /// "API breakage bias":
-    /// <list type="number">
-    ///   <item>BgDataTypes_Lib — add <c>Play Play { get; init; }</c> to
-    ///         <see cref="PlayCandidate"/> (introduces a BgMoveGen project
-    ///         reference); change <c>EquityLoss</c> convention from
-    ///         "null = best play" to "0.0 = best play" (type becomes
-    ///         non-nullable).</item>
-    ///   <item>ConvertXgToJson_Lib — populate <c>Play</c> and
-    ///         <c>EquityLoss = 0.0</c> at the construction site
-    ///         (<c>XgDecisionIterator</c> ~line 346).</item>
-    ///   <item>BackgammonDiagram_Lib — sweep for <c>EquityLoss == null</c>
-    ///         consumers in the analysis-panel renderer.</item>
-    ///   <item>ExtractFromXgToCsv — verify CSV output handling of the new
-    ///         convention.</item>
-    ///   <item>Umbrella — coordinated submodule pointer bump.</item>
-    ///   <item>BgQuiz_Blazor (this) — replace this method body with a
-    ///         direct <see cref="Play.DeduplicationKey"/> lookup over
-    ///         <c>PlayCandidate.Play</c>; drop the <c>?? 0.0</c>
-    ///         unwrapping.</item>
-    /// </list>
+    /// Off-list submission (the user assembled a structurally-legal play that
+    /// doesn't appear in the analyzer's candidate list) counts as a skip
+    /// rather than a scoring miss — there is no equity-loss to record. This
+    /// is rare on well-analyzed positions and signals an analysis omission
+    /// rather than a user error.
     /// </para>
+    ///
+    /// <para>No-op when <see cref="Current"/> is null or <see cref="IsFinished"/>.</para>
     /// </summary>
-    public Task SubmitPlayAsync(Play play)
+    public async Task SubmitPlayAsync(Play play)
     {
-        _ = play;
-        throw new NotImplementedException(
-            "SubmitPlayAsync is blocked on the BgDataTypes_Lib cross-submodule " +
-            "arc that adds Play to PlayCandidate. See class xmldoc for the " +
-            "session sequence.");
+        if (Current is null || IsFinished) return;
+
+        var key = play.DeduplicationKey();
+        int? matchedIdx = null;
+        var plays = Current.Decision.Plays;
+        for (int i = 0; i < plays.Count; i++)
+        {
+            if (plays[i].Play.DeduplicationKey().Equals(key))
+            {
+                matchedIdx = i;
+                break;
+            }
+        }
+
+        if (matchedIdx is int idx)
+        {
+            var candidate = plays[idx];
+            var submitted = new SubmittedPlay(
+                play,
+                idx,
+                candidate.EquityLoss,
+                candidate.EquityLoss == 0.0);
+            _history.Add(submitted);
+            Score = Score.Plus(submitted);
+        }
+        else
+        {
+            SkippedCount++;
+        }
+
+        await AdvanceAsync();
     }
 
     /// <summary>Skip the current problem without recording; advance.</summary>
@@ -180,14 +185,9 @@ public sealed class QuizController : IAsyncDisposable
 
     private async Task ResetAndAdvanceAsync()
     {
-        var dir = _options.Value.ProblemSetDirectory;
-        if (string.IsNullOrWhiteSpace(dir))
-            throw new InvalidOperationException(
-                "Quiz:ProblemSetDirectory is not configured.");
-
         await DisposeEnumeratorAsync();
 
-        _source = new ServerDiskProblemSetSource(dir, _userFilters!);
+        _source = _sourceFactory(_userFilters!);
         _enumerator = _source.EnumerateAsync().GetAsyncEnumerator();
 
         Score = QuizScore.Empty;
@@ -240,6 +240,16 @@ public sealed class QuizController : IAsyncDisposable
         var board = BoardState.FromMop(data.Position.Mop);
         var dice = data.Decision.Dice;
         var legal = MoveGenerator.GeneratePlays(board, dice[0], dice[1]);
-        return legal.Count == 0;
+        // BgMoveGen's no-legal-play sentinel: a single Play with zero moves
+        // (the dice are forfeited). Empty `legal` is not used.
+        return legal.Count == 1 && legal[0].Count == 0;
     }
 }
+
+/// <summary>
+/// Factory delegate for constructing the active <see cref="IProblemSetSource"/>
+/// from a user-supplied filter set. Phase 1's <c>Program.cs</c> registers a
+/// closure over <see cref="ServerDiskProblemSetSource"/>; tests substitute a
+/// fake source via the same delegate shape.
+/// </summary>
+public delegate IProblemSetSource ProblemSetSourceFactory(DecisionFilterSet filters);

@@ -1,0 +1,33 @@
+@using BgGame_Lib
+
+@code {
+    [Parameter, EditorRequired] public QuizScore Score { get; set; } = QuizScore.Empty;
+    [Parameter] public int Skipped { get; set; }
+    [Parameter] public string? Source { get; set; }
+    [Parameter] public string? Heading { get; set; }
+
+    private double PercentCorrect => Score.Submitted > 0
+        ? 100.0 * Score.Correct / Score.Submitted
+        : 0.0;
+}
+
+<div class="score-panel mb-2 small text-muted">
+    @if (!string.IsNullOrEmpty(Heading))
+    {
+        <strong class="me-2">@Heading</strong>
+    }
+    @if (!string.IsNullOrEmpty(Source))
+    {
+        <span class="me-3">Set: <code>@Source</code></span>
+    }
+    <span class="me-3">Submitted: <strong>@Score.Submitted</strong></span>
+    <span class="me-3">
+        Correct: <strong>@Score.Correct</strong>
+        @if (Score.Submitted > 0)
+        {
+            <text> (@PercentCorrect.ToString("0")%)</text>
+        }
+    </span>
+    <span class="me-3">Skipped: <strong>@Skipped</strong></span>
+    <span>Avg loss: <strong>@Score.AverageEquityLoss.ToString("0.000")</strong></span>
+</div>

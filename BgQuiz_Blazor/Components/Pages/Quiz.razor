@@ -1,0 +1,59 @@
+@page "/quiz"
+@rendermode InteractiveServer
+
+@using BgDataTypes_Lib
+@using BackgammonDiagram_Lib
+@using BgDiag_Razor.Components
+@using BgQuiz_Blazor.Quiz
+
+@inject QuizController Controller
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>BgQuiz — In progress</PageTitle>
+
+<div class="container py-3">
+    @if (!Controller.HasStarted)
+    {
+        <div class="alert alert-warning" role="alert">
+            No quiz in progress. <a href="/">Pick filters and start a quiz.</a>
+        </div>
+    }
+    else if (Controller.Current is { } current)
+    {
+        <ScorePanel Score="Controller.Score"
+                    Skipped="Controller.SkippedCount"
+                    Source="@Controller.Name" />
+
+        <div class="board-container my-3">
+            <BackgammonPlayEntry @ref="_playEntry"
+                                 Request="BuildRenderRequest(current)"
+                                 Options="_diagramOptions"
+                                 OnPlayCompleted="HandlePlayCompleted" />
+        </div>
+
+        <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-primary"
+                    disabled="@(_completedPlay is null)"
+                    @onclick="SubmitAsync">
+                Submit
+            </button>
+            <button class="btn btn-outline-secondary" @onclick="SkipAsync">
+                Skip
+            </button>
+            <button class="btn btn-outline-secondary"
+                    disabled="@(_playEntry is null)"
+                    @onclick="UndoLast">
+                Undo last
+            </button>
+            <button class="btn btn-outline-secondary"
+                    disabled="@(_playEntry is null)"
+                    @onclick="UndoAll">
+                Undo all
+            </button>
+            <button class="btn btn-outline-warning ms-auto" @onclick="RestartAsync">
+                Restart
+            </button>
+        </div>
+    }
+</div>

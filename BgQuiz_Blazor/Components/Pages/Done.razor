@@ -1,0 +1,31 @@
+@page "/done"
+@rendermode InteractiveServer
+
+@using BgQuiz_Blazor.Quiz
+
+@inject QuizController Controller
+@inject NavigationManager Nav
+
+<PageTitle>BgQuiz — Done</PageTitle>
+
+<div class="container py-3">
+    <h1>Quiz complete</h1>
+
+    <ScorePanel Score="Controller.Score"
+                Skipped="Controller.SkippedCount"
+                Source="@Controller.Name"
+                Heading="Final" />
+
+    <p class="text-muted">
+        Total problems shown: <strong>@(Controller.Score.Submitted + Controller.SkippedCount)</strong>.
+    </p>
+
+    <div class="d-flex flex-wrap gap-2">
+        <button class="btn btn-primary" @onclick="RestartAsync">
+            Restart with same filters
+        </button>
+        <button class="btn btn-outline-secondary" @onclick="StartOver">
+            Start over (new filters)
+        </button>
+    </div>
+</div>

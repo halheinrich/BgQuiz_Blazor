@@ -7,4 +7,5 @@
   <Project Path="../XgFilter_Lib/XgFilter_Lib/XgFilter_Lib.csproj" />
   <Project Path="../XgFilter_Razor/XgFilter_Razor/XgFilter_Razor.csproj" />
   <Project Path="BgQuiz_Blazor/BgQuiz_Blazor.csproj" />
+  <Project Path="BgQuiz_Blazor.Tests/BgQuiz_Blazor.Tests.csproj" />
 </Solution>
