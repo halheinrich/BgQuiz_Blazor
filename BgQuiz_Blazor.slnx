@@ -1,4 +1,10 @@
 <Solution>
+  <Project Path="../BgDataTypes_Lib/BgDataTypes_Lib/BgDataTypes_Lib.csproj" />
   <Project Path="../BgDiag_Razor/BgDiag_Razor/BgDiag_Razor.csproj" />
+  <Project Path="../BgGame_Lib/BgGame_Lib/BgGame_Lib.csproj" />
+  <Project Path="../BgMoveGen/BgMoveGen/BgMoveGen.csproj" />
+  <Project Path="../ConvertXgToJson_Lib/ConvertXgToJson_Lib/ConvertXgToJson_Lib.csproj" />
+  <Project Path="../XgFilter_Lib/XgFilter_Lib/XgFilter_Lib.csproj" />
+  <Project Path="../XgFilter_Razor/XgFilter_Razor/XgFilter_Razor.csproj" />
   <Project Path="BgQuiz_Blazor/BgQuiz_Blazor.csproj" />
 </Solution>

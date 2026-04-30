@@ -1,26 +1,58 @@
 @page "/"
 @rendermode InteractiveServer
 
-@using BgDiag_Razor.Components
-@using BackgammonDiagram_Lib
+@using BgQuiz_Blazor.Quiz
+@using XgFilter_Razor.Components
+@using XgFilter_Lib.Filtering
+@using Microsoft.Extensions.Options
+
+@inject IOptions<QuizOptions> QuizOpts
+@inject NavigationManager Nav
+@inject QuizController Controller
 
 <PageTitle>BgQuiz</PageTitle>
 
-<h1>BgQuiz — Click Test</h1>
+<div class="container py-3">
+    <h1>BgQuiz</h1>
 
-<div class="board-container">
-    <BackgammonDiagram Request="_request"
-                       Options="_options"
-                       OnPointClicked="HandlePointClicked"
-                       OnBarClicked="HandleBarClicked"
-                       OnCubeClicked="HandleCubeClicked"
-                       OnTrayClicked="HandleTrayClicked" />
-</div>
+    <div class="alert alert-info" role="alert">
+        <strong>Phase 1:</strong> cube decisions are not yet supported — quizzes
+        run on checker plays only, regardless of the Decision-type filter below.
+    </div>
 
-<div>
-    <button @onclick="ToggleOrientation">Flip Orientation</button>
-</div>
+    @if (string.IsNullOrWhiteSpace(QuizOpts.Value.ProblemSetDirectory))
+    {
+        <div class="alert alert-danger" role="alert">
+            <strong>No problem-set directory configured.</strong>
+            Set <code>Quiz:ProblemSetDirectory</code> in
+            <code>appsettings.json</code> or via environment variable.
+        </div>
+    }
+    else
+    {
+        <p class="text-muted">
+            Problem set: <code>@QuizOpts.Value.ProblemSetDirectory</code>
+        </p>
+    }
 
-<div class="click-report">
-    <p>@_clickMessage</p>
+    <FilterPanel OnFiltersChanged="HandleFiltersApplied"
+                 OnFilterDirty="HandleFiltersDirty" />
+
+    <button class="btn btn-primary"
+            disabled="@(!CanStart)"
+            @onclick="StartQuizAsync">
+        Start Quiz
+    </button>
+
+    @if (!_filtersApplied)
+    {
+        <small class="text-muted ms-2">Apply the filters above to enable Start.</small>
+    }
+
+    @if (!string.IsNullOrEmpty(_startError))
+    {
+        <div class="alert alert-danger mt-3" role="alert">
+            <strong>Could not start quiz:</strong> @_startError
+        </div>
+    }
 </div>

@@ -7,7 +7,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\BgDataTypes_Lib\BgDataTypes_Lib\BgDataTypes_Lib.csproj" />
     <ProjectReference Include="..\..\BgDiag_Razor\BgDiag_Razor\BgDiag_Razor.csproj" />
+    <ProjectReference Include="..\..\BgGame_Lib\BgGame_Lib\BgGame_Lib.csproj" />
+    <ProjectReference Include="..\..\BgMoveGen\BgMoveGen\BgMoveGen.csproj" />
+    <ProjectReference Include="..\..\ConvertXgToJson_Lib\ConvertXgToJson_Lib\ConvertXgToJson_Lib.csproj" />
+    <ProjectReference Include="..\..\XgFilter_Lib\XgFilter_Lib\XgFilter_Lib.csproj" />
+    <ProjectReference Include="..\..\XgFilter_Razor\XgFilter_Razor\XgFilter_Razor.csproj" />
   </ItemGroup>
 
 </Project>

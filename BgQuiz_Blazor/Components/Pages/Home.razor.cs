@@ -1,53 +1,56 @@
+using BgQuiz_Blazor.Quiz;
 using Microsoft.AspNetCore.Components;
-using BackgammonDiagram_Lib;
+using XgFilter_Lib.Filtering;
 
 namespace BgQuiz_Blazor.Components.Pages;
 
+/// <summary>
+/// Phase 1 landing page: filter selection and quiz-start gate.
+///
+/// <para>
+/// Hosts the shared <c>FilterPanel</c> from XgFilter_Razor and a Start Quiz
+/// button gated on (a) Apply having been clicked at least once and (b) a
+/// configured <c>Quiz:ProblemSetDirectory</c>. On Start, hands the captured
+/// <c>DecisionFilterSet</c> to the scoped <see cref="QuizController"/>
+/// (which appends Phase 1's CheckerPlaysOnly cube policy) and navigates to
+/// <c>/quiz</c>.
+/// </para>
+/// </summary>
 public partial class Home : ComponentBase
 {
-    private string _clickMessage = "Click a point, the bar, cube, or tray.";
+    private DecisionFilterSet? _filterSet;
+    private bool _filtersApplied;
+    private string? _startError;
 
-    private bool _onRollBearsOffRight = true;
+    private bool CanStart =>
+        _filtersApplied
+        && !string.IsNullOrWhiteSpace(QuizOpts.Value.ProblemSetDirectory);
 
-    private DiagramRequest _request = new DiagramRequest.Builder
+    private void HandleFiltersApplied(DecisionFilterSet set)
     {
-        HomeBoardOnRight = true,
-        Dice = [1, 1]
-    }.Build();
+        _filterSet = set;
+        _filtersApplied = true;
+        _startError = null;
+    }
 
-    private readonly DiagramOptions _options = new();
-
-    private void ToggleOrientation()
+    private void HandleFiltersDirty()
     {
-        _onRollBearsOffRight = !_onRollBearsOffRight;
-        _request = new DiagramRequest.Builder
+        _filtersApplied = false;
+    }
+
+    private async Task StartQuizAsync()
+    {
+        if (_filterSet is null) return;
+        try
         {
-            HomeBoardOnRight = _onRollBearsOffRight,
-            Dice = [1, 1] // TODO: replace with actual dice when CreateOpeningPosition() is implemented
-        }.Build();
-    }
-
-    private Task HandlePointClicked(int pointNumber)
-    {
-        _clickMessage = $"You clicked point {pointNumber}.";
-        return Task.CompletedTask;
-    }
-
-    private Task HandleBarClicked()
-    {
-        _clickMessage = "You clicked the bar.";
-        return Task.CompletedTask;
-    }
-
-    private Task HandleCubeClicked()
-    {
-        _clickMessage = "You clicked the cube.";
-        return Task.CompletedTask;
-    }
-
-    private Task HandleTrayClicked()
-    {
-        _clickMessage = "You clicked the tray.";
-        return Task.CompletedTask;
+            await Controller.StartAsync(_filterSet);
+            Nav.NavigateTo("/quiz");
+        }
+        catch (Exception ex)
+        {
+            // Configured directory missing, etc. Surface to the user rather
+            // than crashing the circuit.
+            _startError = ex.Message;
+        }
     }
 }
