@@ -30,12 +30,21 @@ using XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
+/// Filter ownership: <see cref="StartAsync"/> takes a <see cref="FilterConfig"/>
+/// (the wire DTO emitted by <c>FilterPanel</c>) rather than a materialized
+/// <see cref="DecisionFilterSet"/>. The controller materializes via
+/// <see cref="FilterConfig.Build"/> and owns the resulting set end-to-end —
+/// no shared mutable state between page and controller.
+/// </para>
+///
+/// <para>
 /// Phase 1 cube policy: a <see cref="DecisionTypeFilter"/> with
-/// <see cref="DecisionTypeOption.CheckerPlaysOnly"/> is appended to the user's
-/// filter set on <see cref="StartAsync"/>. AND-semantics with the user's
-/// existing decision-type choice means CheckerPlaysOnly always wins (or, if
-/// the user picked CubeOnly, the intersection is empty — the
-/// <c>Home.razor</c> banner has set that expectation).
+/// <see cref="DecisionTypeOption.CheckerPlaysOnly"/> is added to the
+/// controller's own filter pipeline on <see cref="StartAsync"/>.
+/// AND-semantics with the user's <see cref="FilterConfig.DecisionType"/>
+/// choice means CheckerPlaysOnly always wins (or, if the user picked
+/// CubeOnly, the intersection is empty — the <c>Home.razor</c> banner has
+/// set that expectation).
 /// </para>
 /// </summary>
 public sealed class QuizController : IAsyncDisposable
@@ -43,7 +52,7 @@ public sealed class QuizController : IAsyncDisposable
     private readonly ProblemSetSourceFactory _sourceFactory;
     private readonly List<SubmittedPlay> _history = [];
 
-    private DecisionFilterSet? _userFilters;
+    private DecisionFilterSet? _filterPipeline;
     private IProblemSetSource? _source;
     private IAsyncEnumerator<BgDecisionData>? _enumerator;
 
@@ -81,18 +90,27 @@ public sealed class QuizController : IAsyncDisposable
     public event Action? StateChanged;
 
     /// <summary>
-    /// Begin a fresh quiz against <paramref name="userFilters"/>. Augments the
-    /// filter set with Phase 1's CheckerPlaysOnly policy. Resets score / history /
-    /// skipped-count and advances to the first non-pass problem.
+    /// Begin a fresh quiz against <paramref name="userConfig"/>. Materializes
+    /// the user's <see cref="FilterConfig"/> into a <see cref="DecisionFilterSet"/>
+    /// owned entirely by this controller, augments it with Phase 1's
+    /// CheckerPlaysOnly cube policy, and advances to the first non-pass problem.
+    /// Resets score / history / skipped-count.
     /// </summary>
-    public async Task StartAsync(DecisionFilterSet userFilters)
+    /// <exception cref="ArgumentNullException"><paramref name="userConfig"/> is null.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="userConfig"/> contains a malformed value — propagated
+    /// from <see cref="FilterConfig.Build"/>.
+    /// </exception>
+    public async Task StartAsync(FilterConfig userConfig)
     {
-        ArgumentNullException.ThrowIfNull(userFilters);
+        ArgumentNullException.ThrowIfNull(userConfig);
 
-        // Stash the user's set; augment once with the Phase 1 cube policy.
-        // Restart re-uses the augmented set without re-adding.
-        _userFilters = userFilters;
-        _userFilters.Add(new DecisionTypeFilter(DecisionTypeOption.CheckerPlaysOnly));
+        // Build a fresh, controller-owned pipeline from the immutable DTO and
+        // augment with the Phase 1 cube policy. Restart re-uses the augmented
+        // pipeline without re-building.
+        var pipeline = userConfig.Build();
+        pipeline.Add(new DecisionTypeFilter(DecisionTypeOption.CheckerPlaysOnly));
+        _filterPipeline = pipeline;
 
         await ResetAndAdvanceAsync();
     }
@@ -166,11 +184,11 @@ public sealed class QuizController : IAsyncDisposable
 
     /// <summary>
     /// Restart the quiz from the beginning of the source using the existing
-    /// (already-augmented) filter set. No-op when no quiz has been started.
+    /// (already-augmented) filter pipeline. No-op when no quiz has been started.
     /// </summary>
     public async Task RestartAsync()
     {
-        if (_userFilters is null) return;
+        if (_filterPipeline is null) return;
         await ResetAndAdvanceAsync();
     }
 
@@ -187,7 +205,7 @@ public sealed class QuizController : IAsyncDisposable
     {
         await DisposeEnumeratorAsync();
 
-        _source = _sourceFactory(_userFilters!);
+        _source = _sourceFactory(_filterPipeline!);
         _enumerator = _source.EnumerateAsync().GetAsyncEnumerator();
 
         Score = QuizScore.Empty;

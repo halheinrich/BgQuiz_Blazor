@@ -5,10 +5,12 @@ using Bunit;
 using Bunit.TestDoubles;
 using Microsoft.Extensions.DependencyInjection;
 using XgFilter_Lib.Filtering;
+using XgFilter_Razor.Components;
 
 // `BgQuiz_Blazor.Quiz` is a namespace; `BgQuiz_Blazor.Components.Pages.Quiz`
 // is the page type — the using-import above shadows the type. Aliases keep
 // the test calls (Render<QuizPage>()) unambiguous without renaming the page.
+using HomePage = BgQuiz_Blazor.Components.Pages.Home;
 using QuizPage = BgQuiz_Blazor.Components.Pages.Quiz;
 using DonePage = BgQuiz_Blazor.Components.Pages.Done;
 
@@ -25,6 +27,80 @@ public class PageTests : BunitContext
         var controller = new QuizController(_ => fake);
         Services.AddSingleton(controller);
         return controller;
+    }
+
+    private void ConfigureProblemSetDirectory(string dir = "TestDir") =>
+        Services.Configure<QuizOptions>(o => o.ProblemSetDirectory = dir);
+
+    // -----------------------------------------------------------------------
+    //  Home.razor
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Home_BeforeFilterApply_StartButtonDisabled()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        ConfigureProblemSetDirectory();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        Assert.True(startBtn.HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_FilterPanelEmitsConfig_EnablesStartButton()
+    {
+        // Regression test for the FilterPanel binding bug: prior to the fix,
+        // Home subscribed to a non-existent `OnFiltersChanged` event with a
+        // `DecisionFilterSet` payload. The correct binding is
+        // `OnFilterConfigChanged` with a `FilterConfig` payload. Without it,
+        // the user's Apply-click never reached the Home handler — the Start
+        // button stayed disabled forever.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        ConfigureProblemSetDirectory();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var fp = cut.FindComponent<FilterPanel>();
+
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        Assert.False(startBtn.HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_StartClick_HandsUserFilterConfigToControllerPipeline()
+    {
+        // End-to-end check that the Apply → Start flow actually narrows the
+        // decision stream by the user's selections. Captures the
+        // DecisionFilterSet the controller hands to its source factory and
+        // asserts the user's PlayerFilter (Players=["Alice"]) survives the
+        // FilterConfig.Build() materialization.
+        DecisionFilterSet? capturedPipeline = null;
+        var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
+        var controller = new QuizController(set => { capturedPipeline = set; return fake; });
+        Services.AddSingleton(controller);
+        ConfigureProblemSetDirectory();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(
+                new FilterConfig { Players = ["Alice"] }));
+
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        await startBtn.ClickAsync(new());
+
+        Assert.NotNull(capturedPipeline);
+        var aliceData = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), onRoll: "Alice");
+        var bobData = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), onRoll: "Bob");
+        Assert.True(capturedPipeline.Matches(aliceData));
+        Assert.False(capturedPipeline.Matches(bobData));
     }
 
     // -----------------------------------------------------------------------
@@ -46,7 +122,7 @@ public class PageTests : BunitContext
     public async Task Quiz_AlreadyFinished_RedirectsToDone()
     {
         var c = WithController(); // empty source → exhausts immediately
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
         Assert.True(c.IsFinished);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
@@ -59,7 +135,7 @@ public class PageTests : BunitContext
     public async Task Quiz_Active_RendersScorePanelAndButtons()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
 
         var cut = Render<QuizPage>();
 
@@ -74,7 +150,7 @@ public class PageTests : BunitContext
     public async Task Quiz_SubmitButton_DisabledBeforePlayCompleted()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
 
         var cut = Render<QuizPage>();
 
@@ -88,7 +164,7 @@ public class PageTests : BunitContext
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = WithController(d1, d2);
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
 
         var cut = Render<QuizPage>();
         var skipButton = cut.FindAll("button").First(b => b.TextContent.Trim() == "Skip");
@@ -102,7 +178,7 @@ public class PageTests : BunitContext
     public async Task Quiz_FinishedAfterSubmit_RedirectsToDone()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
         var cut = Render<QuizPage>();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
@@ -133,7 +209,7 @@ public class PageTests : BunitContext
     public async Task Done_RendersFinalScoreAndBothButtons()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
         await c.SubmitPlayAsync(BestPlay()); // exhausts → IsFinished
 
         var cut = Render<DonePage>();
@@ -150,7 +226,7 @@ public class PageTests : BunitContext
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
         await c.SubmitPlayAsync(BestPlay());
         await c.SubmitPlayAsync(BestPlay());
         Assert.True(c.IsFinished);
@@ -170,7 +246,7 @@ public class PageTests : BunitContext
     public async Task Done_StartOverClick_NavigatesHome()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
         await c.SubmitPlayAsync(BestPlay());
 
         var cut = Render<DonePage>();

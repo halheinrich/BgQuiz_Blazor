@@ -11,14 +11,15 @@ namespace BgQuiz_Blazor.Components.Pages;
 /// Hosts the shared <c>FilterPanel</c> from XgFilter_Razor and a Start Quiz
 /// button gated on (a) Apply having been clicked at least once and (b) a
 /// configured <c>Quiz:ProblemSetDirectory</c>. On Start, hands the captured
-/// <c>DecisionFilterSet</c> to the scoped <see cref="QuizController"/>
-/// (which appends Phase 1's CheckerPlaysOnly cube policy) and navigates to
-/// <c>/quiz</c>.
+/// <see cref="FilterConfig"/> (the wire DTO emitted by FilterPanel) to the
+/// scoped <see cref="QuizController"/>, which materializes it into a
+/// controller-owned <see cref="DecisionFilterSet"/> and appends Phase 1's
+/// CheckerPlaysOnly cube policy. Then navigates to <c>/quiz</c>.
 /// </para>
 /// </summary>
 public partial class Home : ComponentBase
 {
-    private DecisionFilterSet? _filterSet;
+    private FilterConfig? _filterConfig;
     private bool _filtersApplied;
     private string? _startError;
 
@@ -26,9 +27,9 @@ public partial class Home : ComponentBase
         _filtersApplied
         && !string.IsNullOrWhiteSpace(QuizOpts.Value.ProblemSetDirectory);
 
-    private void HandleFiltersApplied(DecisionFilterSet set)
+    private void HandleFilterConfigApplied(FilterConfig cfg)
     {
-        _filterSet = set;
+        _filterConfig = cfg;
         _filtersApplied = true;
         _startError = null;
     }
@@ -40,16 +41,16 @@ public partial class Home : ComponentBase
 
     private async Task StartQuizAsync()
     {
-        if (_filterSet is null) return;
+        if (_filterConfig is null) return;
         try
         {
-            await Controller.StartAsync(_filterSet);
+            await Controller.StartAsync(_filterConfig);
             Nav.NavigateTo("/quiz");
         }
         catch (Exception ex)
         {
-            // Configured directory missing, etc. Surface to the user rather
-            // than crashing the circuit.
+            // Configured directory missing, FilterConfig.Build() validation
+            // failure, etc. Surface to the user rather than crashing the circuit.
             _startError = ex.Message;
         }
     }

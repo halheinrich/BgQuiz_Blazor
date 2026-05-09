@@ -113,10 +113,19 @@ is registered as a singleton in `Program.cs`. Phase 2+ alternatives
 a different factory; the controller is unchanged. Unit tests substitute a
 fake source the same way.
 
-**Cube policy.** `StartAsync` augments the user's filter set with a
-`DecisionTypeFilter(CheckerPlaysOnly)` once. Restart re-uses the augmented
-set without re-adding. AND-semantics: if the user picked CubeOnly the
-intersection is empty (the Home banner sets that expectation).
+**Filter ownership.** `StartAsync` takes a `FilterConfig` (the wire DTO
+emitted by `XgFilter_Razor.FilterPanel.OnFilterConfigChanged`), not a
+materialized `DecisionFilterSet`. The controller calls `FilterConfig.Build()`
+to produce its own filter pipeline, which it owns end-to-end — no shared
+mutable state ever exists between the page and the controller. The
+`ProblemSetSourceFactory` delegate still takes the runtime
+`DecisionFilterSet` (the source's contract is the runtime pipeline; the
+controller is the authority on assembling it).
+
+**Cube policy.** `StartAsync` adds a `DecisionTypeFilter(CheckerPlaysOnly)`
+to its own pipeline once, after `Build()`. Restart re-uses the augmented
+pipeline without re-building. AND-semantics: if the user picked CubeOnly
+the intersection is empty (the Home banner sets that expectation).
 
 **Pass-position auto-skip.** Each `AdvanceAsync` step pulls the next
 decision and tests it with `MoveGenerator.GeneratePlays(board, d1, d2)`.
@@ -136,11 +145,18 @@ omission rather than a user mistake.
 
 ### `ServerDiskProblemSetSource` — Phase 1 source
 
-Wraps `XgFilter_Lib.FilteredDecisionIterator.IterateXgDirectoryDiagrams`.
-Each call to `EnumerateAsync` reads the directory fresh, so re-iteration
-is the trivial case. `Count` is null (computing it would mean a full
-pre-pass through a potentially large filtered iterator). `Name` returns
-the directory's leaf name.
+Wraps `XgFilter_Lib.FilteredDecisionIterator.IterateXgDirectoryDiagrams`
+(both `*.xg` match files and `*.xgp` position files). The constructor
+takes `(directory, filters, ILoggerFactory)` and builds a single
+`FilteredDecisionIterator` instance held for the source's lifetime;
+`ILoggerFactory` is preferred over `ILogger<FilteredDecisionIterator>`
+so the source's contract doesn't leak the inner type.
+
+Each call to `EnumerateAsync` invokes the iterator's instance method
+(itself a lazy `IEnumerable`), so directory walks remain per-call and
+re-iteration is the trivial case. `Count` is null (computing it would
+mean a full pre-pass through a potentially large filtered iterator).
+`Name` returns the directory's leaf name.
 
 The directory is configured via `Quiz:ProblemSetDirectory` in
 `appsettings.json` (or any standard ASP.NET Core configuration source).
@@ -150,10 +166,11 @@ stays disabled until both filters are applied and configuration is set.
 ### Pages
 
 - **`Home.razor`** — `FilterPanel` from XgFilter_Razor, Start gated on
-  Apply-clicked + non-empty config. Captures the `DecisionFilterSet` and
+  Apply-clicked + non-empty config. Subscribes to `OnFilterConfigChanged`
+  (the panel's emit-event after Apply), captures the `FilterConfig`, and
   hands it to `Controller.StartAsync`. Catches start-time exceptions
-  (missing directory, etc.) and surfaces them as a banner instead of
-  crashing the circuit.
+  (missing directory, `FilterConfig.Build()` validation failure, etc.)
+  and surfaces them as a banner instead of crashing the circuit.
 - **`Quiz.razor`** — hosts `BackgammonPlayEntry` (click-driven play
   assembly) over `DiagramRequest.FromDecisionData(Current, DiagramMode.Problem)`.
   Subscribes to `Controller.StateChanged` in `OnInitialized`,
@@ -201,11 +218,20 @@ endpoints. The externally visible surface is the route map:
 - **State is per-circuit.** A page reload tears down the SignalR circuit
   and the scoped `QuizController`; the active quiz is lost. Persistence
   is a future concern — for Phase 1 the user starts over after reload.
-- **Cube decisions are filtered at the source.** The controller appends
-  `DecisionTypeFilter(CheckerPlaysOnly)` on `StartAsync`;
-  `BackgammonPlayEntry` would throw `NotImplementedException` on a cube
-  decision but in practice never sees one. A future cube-entry sibling
-  component (BgDiag_Razor Deferred entry) lifts this limitation.
+- **Cube decisions are filtered at the source.** The controller adds
+  `DecisionTypeFilter(CheckerPlaysOnly)` to its own pipeline on
+  `StartAsync`; `BackgammonPlayEntry` would throw `NotImplementedException`
+  on a cube decision but in practice never sees one. A future cube-entry
+  sibling component (BgDiag_Razor Deferred entry) lifts this limitation.
+- **Razor silently drops bindings to non-existent component parameters.**
+  `<FilterPanel OnFiltersChanged="..."/>` against a panel that exposes
+  `OnFilterConfigChanged` does not fail at build or render time — the
+  binding is simply never invoked. Symptom is a callback that "obviously"
+  fires never firing. When wiring an event from an RCL-imported
+  component, verify the parameter name against the source. Phase 1's
+  filter-not-applied bug landed via exactly this mechanism; the bUnit
+  regression test in `PageTests.Home_FilterPanelEmitsConfig_EnablesStartButton`
+  now guards against it.
 - **Off-list submission semantics.** A structurally-legal play that
   doesn't appear in the analyzer's candidate list counts as a skip, not
   a scoring miss. This is rare on well-analyzed positions and signals
@@ -237,14 +263,6 @@ endpoints. The externally visible surface is the route map:
 
 ## Subproject-internal next steps
 
-- **Filter not applied — investigate.** Browser verification surfaced
-  that the user-selected filter (set via FilterPanel and passed through
-  `Controller.StartAsync`) does not narrow the decision stream as
-  expected; "every decision is being presented" regardless of the UI
-  selection. The DI flow looks correct on paper (FilterPanel → Home →
-  `Controller.StartAsync` → `ServerDiskProblemSetSource` →
-  `FilteredDecisionIterator`); the bug is somewhere along that chain.
-  Repro starts from manual click-through of `/`. Open ahead of Phase 2+.
 - **Empty-collection UX.** When a filter set produces zero decisions,
   the current flow bounces Start through `/quiz` straight to `/done`
   with a 0/0 score, with no feedback that the filter was empty. Add a

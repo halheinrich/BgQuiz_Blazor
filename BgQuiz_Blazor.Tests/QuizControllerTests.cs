@@ -1,6 +1,7 @@
 using BgDataTypes_Lib;
 using BgGame_Lib;
 using BgQuiz_Blazor.Quiz;
+using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 
 namespace BgQuiz_Blazor.Tests;
@@ -11,6 +12,22 @@ public class QuizControllerTests
     {
         var fake = new FakeProblemSetSource(items);
         return new QuizController(_ => fake);
+    }
+
+    /// <summary>
+    /// Constructs a controller whose source factory captures the
+    /// <see cref="DecisionFilterSet"/> it receives, exposed via
+    /// <paramref name="captured"/>. Lets tests assert what the controller
+    /// hands the source after its FilterConfig materialization + cube-policy
+    /// augmentation.
+    /// </summary>
+    private static QuizController MakeCapturing(
+        out Func<DecisionFilterSet?> captured, params BgDecisionData[] items)
+    {
+        var fake = new FakeProblemSetSource(items);
+        DecisionFilterSet? holder = null;
+        captured = () => holder;
+        return new QuizController(set => { holder = set; return fake; });
     }
 
     private static Play BestPlay() => TestFixtures.MakePlay((8, 5), (8, 5));
@@ -57,7 +74,7 @@ public class QuizControllerTests
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d);
 
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
 
         Assert.True(c.HasStarted);
         Assert.False(c.IsFinished);
@@ -68,22 +85,44 @@ public class QuizControllerTests
     [Fact]
     public async Task StartAsync_AppendsCheckerPlaysOnlyFilter()
     {
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        var filters = new DecisionFilterSet();
-        // Pre-condition: a fresh empty set passes any data, including a cube
-        // decision. Behavioral assertion below verifies StartAsync mutates the
-        // caller's set such that cube data is now rejected.
+        // The controller materializes its own DecisionFilterSet from the
+        // FilterConfig DTO and augments with the cube policy — the user's
+        // FilterConfig is never mutated. To verify augmentation, capture the
+        // pipeline the controller hands to the source factory and assert it
+        // rejects cube data while accepting checker-play data.
+        var c = MakeCapturing(out var captured,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         var cubeData = new BgDecisionData
         {
             Position = new PositionData { Mop = TestFixtures.StandardMop() },
             Decision = new DecisionData { IsCube = true },
             Descriptive = new DescriptiveData { OnRollName = "Alice", OpponentName = "Bob" },
         };
-        Assert.True(filters.Matches(cubeData));
 
-        await c.StartAsync(filters);
+        await c.StartAsync(new FilterConfig());
 
-        Assert.False(filters.Matches(cubeData));
+        var pipeline = captured();
+        Assert.NotNull(pipeline);
+        Assert.False(pipeline.Matches(cubeData));
+    }
+
+    [Fact]
+    public async Task StartAsync_DoesNotMutateCallerConfig()
+    {
+        // FilterConfig is a wire DTO — the controller materializes via
+        // FilterConfig.Build() and owns the resulting set. The caller's
+        // config must be untouched by StartAsync.
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var cfg = new FilterConfig
+        {
+            Players = ["Alice"],
+            DecisionType = DecisionTypeOption.Both,
+        };
+
+        await c.StartAsync(cfg);
+
+        Assert.Equal(["Alice"], cfg.Players);
+        Assert.Equal(DecisionTypeOption.Both, cfg.DecisionType);
     }
 
     [Fact]
@@ -93,7 +132,7 @@ public class QuizControllerTests
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(pass, d);
 
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
 
         // Pass auto-skipped silently — counts on user-driven skips only.
         Assert.Equal(0, c.SkippedCount);
@@ -107,7 +146,7 @@ public class QuizControllerTests
         var fired = 0;
         c.StateChanged += () => fired++;
 
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
 
         Assert.True(fired >= 1);
     }
@@ -116,7 +155,7 @@ public class QuizControllerTests
     public async Task StartAsync_EmptySource_FlipsIsFinishedImmediately()
     {
         var c = Make();
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
 
         Assert.True(c.HasStarted);
         Assert.True(c.IsFinished);
@@ -131,7 +170,7 @@ public class QuizControllerTests
     public async Task SubmitPlayAsync_BestPlay_Scores_IsCorrect()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
 
         await c.SubmitPlayAsync(BestPlay());
 
@@ -149,7 +188,7 @@ public class QuizControllerTests
     public async Task SubmitPlayAsync_NonBestPlay_Scores_NotCorrect()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
 
         await c.SubmitPlayAsync(AltPlay());
 
@@ -166,7 +205,7 @@ public class QuizControllerTests
     public async Task SubmitPlayAsync_OffList_CountsAsSkip_NoHistoryEntry()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
 
         await c.SubmitPlayAsync(UnknownPlay());
 
@@ -181,7 +220,7 @@ public class QuizControllerTests
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d1, d2);
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
         Assert.Same(d1, c.Current);
 
         await c.SubmitPlayAsync(BestPlay());
@@ -194,7 +233,7 @@ public class QuizControllerTests
     public async Task SubmitPlayAsync_LastProblem_FlipsIsFinished()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
 
         await c.SubmitPlayAsync(BestPlay());
 
@@ -217,7 +256,7 @@ public class QuizControllerTests
     public async Task SubmitPlayAsync_AfterFinish_NoOp()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
         await c.SubmitPlayAsync(BestPlay()); // exhausts
 
         var historyBefore = c.History.Count;
@@ -232,7 +271,7 @@ public class QuizControllerTests
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.10),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.30));
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
 
         await c.SubmitPlayAsync(AltPlay());
         await c.SubmitPlayAsync(AltPlay());
@@ -253,7 +292,7 @@ public class QuizControllerTests
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d1, d2);
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
 
         await c.SkipCurrentAsync();
 
@@ -273,7 +312,7 @@ public class QuizControllerTests
     public async Task SkipCurrentAsync_AfterFinish_NoOp()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
         await c.SubmitPlayAsync(BestPlay()); // exhaust
         Assert.True(c.IsFinished);
 
@@ -300,7 +339,7 @@ public class QuizControllerTests
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
         await c.SubmitPlayAsync(BestPlay());
         await c.SkipCurrentAsync();
         Assert.Single(c.History);
@@ -322,7 +361,7 @@ public class QuizControllerTests
         var fake = new FakeProblemSetSource([d]);
         var c = new QuizController(_ => fake);
 
-        await c.StartAsync(new DecisionFilterSet());
+        await c.StartAsync(new FilterConfig());
         Assert.Equal(1, fake.EnumerateCallCount);
 
         await c.RestartAsync();
@@ -342,7 +381,7 @@ public class QuizControllerTests
         var fires = 0;
         c.StateChanged += () => fires++;
 
-        await c.StartAsync(new DecisionFilterSet()); // 1
+        await c.StartAsync(new FilterConfig()); // 1
         await c.SubmitPlayAsync(BestPlay());         // 2
         await c.SkipCurrentAsync();                  // 3
 
