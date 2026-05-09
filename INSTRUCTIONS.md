@@ -263,6 +263,18 @@ endpoints. The externally visible surface is the route map:
 
 ## Subproject-internal next steps
 
+- **Post-submit solution feedback.** `Quiz.razor` renders
+  `BackgammonPlayEntry` over `DiagramRequest.FromDecisionData(Current,
+  DiagramMode.Problem)`; Problem mode hides the analysis panel by design,
+  and `SubmitPlayAsync` advances directly to the next problem. The user
+  sees their running score in `ScorePanel` but never sees per-problem
+  feedback — what the best play was, what their equity loss was, why a
+  candidate was preferred. Phase 1 ships without this; surfaced during
+  the (β) consumer-adaptation session's smoke verification. Likely needs
+  an intermediate "review" state in `QuizController` (not just
+  `Current`/`IsFinished`/`SkippedCount`) and a corresponding render
+  branch in `Quiz.razor` that flips to a solution view post-submit and
+  back to the entry form on a Continue click.
 - **Empty-collection UX.** When a filter set produces zero decisions,
   the current flow bounces Start through `/quiz` straight to `/done`
   with a 0/0 score, with no feedback that the filter was empty. Add a
