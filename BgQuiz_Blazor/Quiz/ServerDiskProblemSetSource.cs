@@ -3,16 +3,18 @@ namespace BgQuiz_Blazor.Quiz;
 using System.Runtime.CompilerServices;
 using BgDataTypes_Lib;
 using BgGame_Lib;
+using Microsoft.Extensions.Logging;
 using XgFilter_Lib;
 using XgFilter_Lib.Filtering;
 
 /// <summary>
 /// <see cref="IProblemSetSource"/> backed by a server-side directory of
-/// <c>.xg</c> files, walked through <see cref="FilteredDecisionIterator.IterateXgDirectoryDiagrams"/>.
+/// XG-format files (<c>.xg</c> match files and <c>.xgp</c> position files),
+/// walked through <see cref="FilteredDecisionIterator.IterateXgDirectoryDiagrams"/>.
 ///
 /// <para>
 /// Re-iterability is satisfied trivially: each call to <see cref="EnumerateAsync"/>
-/// invokes the underlying iterator factory fresh, so two concurrent or sequential
+/// invokes the underlying iterator fresh, so two concurrent or sequential
 /// enumerations are independent.
 /// </para>
 ///
@@ -27,35 +29,40 @@ using XgFilter_Lib.Filtering;
 /// <c>DecisionTypeFilter(CheckerPlaysOnly)</c> appended to <paramref name="filters"/>
 /// before construction. This source does not inject one.
 /// </para>
-///
-/// <para>
-/// <b>Pitfall:</b> the underlying iterator currently enumerates <c>*.xg</c> only,
-/// not <c>*.xgp</c>; this is a known XgFilter_Lib limitation tracked on the
-/// umbrella Deferred list.
-/// </para>
 /// </summary>
 public sealed class ServerDiskProblemSetSource : IProblemSetSource
 {
     private readonly string _directory;
-    private readonly DecisionFilterSet _filters;
+    private readonly FilteredDecisionIterator _iterator;
 
     /// <summary>
     /// Construct a source over <paramref name="directory"/> applying
-    /// <paramref name="filters"/> on each enumeration.
+    /// <paramref name="filters"/> on each enumeration. Per-file read failures
+    /// inside the underlying iterator are logged through a
+    /// <see cref="FilteredDecisionIterator"/> logger created from
+    /// <paramref name="loggerFactory"/>.
     /// </summary>
     /// <exception cref="ArgumentException"><paramref name="directory"/> is null, empty, or whitespace.</exception>
-    /// <exception cref="ArgumentNullException"><paramref name="filters"/> is null.</exception>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="filters"/> or <paramref name="loggerFactory"/> is null.
+    /// </exception>
     /// <exception cref="DirectoryNotFoundException"><paramref name="directory"/> does not exist on disk.</exception>
-    public ServerDiskProblemSetSource(string directory, DecisionFilterSet filters)
+    public ServerDiskProblemSetSource(
+        string directory,
+        DecisionFilterSet filters,
+        ILoggerFactory loggerFactory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
         ArgumentNullException.ThrowIfNull(filters);
+        ArgumentNullException.ThrowIfNull(loggerFactory);
         if (!Directory.Exists(directory))
             throw new DirectoryNotFoundException(
                 $"Problem-set directory not found: {directory}");
 
         _directory = directory;
-        _filters = filters;
+        _iterator = new FilteredDecisionIterator(
+            filters,
+            loggerFactory.CreateLogger<FilteredDecisionIterator>());
     }
 
     /// <inheritdoc />
@@ -69,7 +76,7 @@ public sealed class ServerDiskProblemSetSource : IProblemSetSource
     public async IAsyncEnumerable<BgDecisionData> EnumerateAsync(
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        foreach (var decision in FilteredDecisionIterator.IterateXgDirectoryDiagrams(_directory, _filters))
+        foreach (var decision in _iterator.IterateXgDirectoryDiagrams(_directory))
         {
             cancellationToken.ThrowIfCancellationRequested();
             yield return decision;

@@ -22,7 +22,8 @@ builder.Services.AddSingleton<ProblemSetSourceFactory>(sp => filters =>
     if (string.IsNullOrWhiteSpace(dir))
         throw new InvalidOperationException(
             "Quiz:ProblemSetDirectory is not configured.");
-    return new ServerDiskProblemSetSource(dir, filters);
+    var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+    return new ServerDiskProblemSetSource(dir, filters, loggerFactory);
 });
 
 // Per-circuit quiz state. Pages observe via QuizController.StateChanged.

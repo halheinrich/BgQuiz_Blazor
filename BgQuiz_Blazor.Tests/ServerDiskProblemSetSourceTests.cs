@@ -1,4 +1,5 @@
 using BgQuiz_Blazor.Quiz;
+using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Filtering;
 
 namespace BgQuiz_Blazor.Tests;
@@ -15,32 +16,43 @@ public class ServerDiskProblemSetSourceTests
             Path.Combine(AppContext.BaseDirectory,
                 "..", "..", "..", "..", "..", "TestData", "xg"));
 
+    private static ServerDiskProblemSetSource MakeSource(
+        string directory, DecisionFilterSet? filters = null) =>
+        new(directory, filters ?? new DecisionFilterSet(), NullLoggerFactory.Instance);
+
     [Fact]
     public void Ctor_NullDirectory_Throws()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new ServerDiskProblemSetSource(null!, new DecisionFilterSet()));
+            new ServerDiskProblemSetSource(null!, new DecisionFilterSet(), NullLoggerFactory.Instance));
     }
 
     [Fact]
     public void Ctor_EmptyDirectory_Throws()
     {
         Assert.Throws<ArgumentException>(() =>
-            new ServerDiskProblemSetSource(string.Empty, new DecisionFilterSet()));
+            new ServerDiskProblemSetSource(string.Empty, new DecisionFilterSet(), NullLoggerFactory.Instance));
     }
 
     [Fact]
     public void Ctor_WhitespaceDirectory_Throws()
     {
         Assert.Throws<ArgumentException>(() =>
-            new ServerDiskProblemSetSource("   ", new DecisionFilterSet()));
+            new ServerDiskProblemSetSource("   ", new DecisionFilterSet(), NullLoggerFactory.Instance));
     }
 
     [Fact]
     public void Ctor_NullFilters_Throws()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new ServerDiskProblemSetSource(CorpusDirectory, null!));
+            new ServerDiskProblemSetSource(CorpusDirectory, null!, NullLoggerFactory.Instance));
+    }
+
+    [Fact]
+    public void Ctor_NullLoggerFactory_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            new ServerDiskProblemSetSource(CorpusDirectory, new DecisionFilterSet(), null!));
     }
 
     [Fact]
@@ -48,27 +60,27 @@ public class ServerDiskProblemSetSourceTests
     {
         var phantom = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Assert.Throws<DirectoryNotFoundException>(() =>
-            new ServerDiskProblemSetSource(phantom, new DecisionFilterSet()));
+            MakeSource(phantom));
     }
 
     [Fact]
     public void Name_IsDirectoryLeaf()
     {
-        var src = new ServerDiskProblemSetSource(CorpusDirectory, new DecisionFilterSet());
+        var src = MakeSource(CorpusDirectory);
         Assert.Equal("xg", src.Name);
     }
 
     [Fact]
     public void Name_StripsTrailingSeparator()
     {
-        var src = new ServerDiskProblemSetSource(CorpusDirectory + Path.DirectorySeparatorChar, new DecisionFilterSet());
+        var src = MakeSource(CorpusDirectory + Path.DirectorySeparatorChar);
         Assert.Equal("xg", src.Name);
     }
 
     [Fact]
     public void Count_IsNull()
     {
-        var src = new ServerDiskProblemSetSource(CorpusDirectory, new DecisionFilterSet());
+        var src = MakeSource(CorpusDirectory);
         Assert.Null(src.Count);
     }
 
@@ -79,7 +91,7 @@ public class ServerDiskProblemSetSourceTests
             !Directory.EnumerateFiles(CorpusDirectory, "*.xg").Any())
             return; // corpus may be empty in CI; this is a shape-level test only
 
-        var src = new ServerDiskProblemSetSource(CorpusDirectory, new DecisionFilterSet());
+        var src = MakeSource(CorpusDirectory);
         var count = 0;
         await foreach (var d in src.EnumerateAsync())
         {
@@ -98,7 +110,7 @@ public class ServerDiskProblemSetSourceTests
             !Directory.EnumerateFiles(CorpusDirectory, "*.xg").Any())
             return;
 
-        var src = new ServerDiskProblemSetSource(CorpusDirectory, new DecisionFilterSet());
+        var src = MakeSource(CorpusDirectory);
 
         var firstPass = await TakeFirstAsync(src);
         var secondPass = await TakeFirstAsync(src);
@@ -118,7 +130,7 @@ public class ServerDiskProblemSetSourceTests
         var filters = new DecisionFilterSet();
         filters.Add(new PlayerFilter(["zzz_no_such_player_zzz"]));
 
-        var src = new ServerDiskProblemSetSource(CorpusDirectory, filters);
+        var src = MakeSource(CorpusDirectory, filters);
         var any = false;
         await foreach (var _ in src.EnumerateAsync())
         {

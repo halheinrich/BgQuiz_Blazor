@@ -225,10 +225,6 @@ endpoints. The externally visible surface is the route map:
   `Quiz:ProblemSetDirectory` only at invocation time. Pages that merely
   observe state (Done, etc.) load even with bad config; the throw fires
   on `Controller.StartAsync` and the Home page surfaces it as a banner.
-- **Directory iteration is `*.xg` only.** `XgFilter_Lib`'s directory
-  iterator does not enumerate `*.xgp` (umbrella Deferred). A
-  Phase 1 problem-set directory that mixes both formats silently drops
-  the position files.
 - **Render mode propagates from `<Routes>`, not from `@page`.** Setting
   `@rendermode InteractiveServer` only on the page directive leaves
   RCL-imported child components (`FilterPanel`, `BackgammonPlayEntry`)
