@@ -31,8 +31,9 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   the underlying `BackgammonDiagram` (read-only board view).
 - **BackgammonDiagram_Lib** — `DiagramRequest` + `DiagramOptions` +
   `DiagramRequest.FromDecisionData(BgDecisionData, DiagramMode.Problem)`,
-  the canonical data-to-renderer mapping. Picked up transitively via
-  BgDiag_Razor; referenced directly here so the page can call the factory.
+  the canonical data-to-renderer mapping. Direct `<ProjectReference>` —
+  the page calls the factory by name, so the dependency is made explicit
+  rather than relying on BgDiag_Razor's transitive surface.
 - **XgFilter_Lib** — `DecisionFilterSet`, `DecisionTypeFilter`,
   `DecisionTypeOption.CheckerPlaysOnly` for the Phase 1 cube-policy filter
   the controller appends.
@@ -71,7 +72,7 @@ BgQuiz_Blazor/
       ScorePanel.razor              — shared header strip
       Error.razor
       NotFound.razor
-  wwwroot/
+  wwwroot/                          — static assets (favicon, app.css, Bootstrap)
 BgQuiz_Blazor.Tests/
   BgQuiz_Blazor.Tests.csproj
   TestFixtures.cs
@@ -152,8 +153,9 @@ takes `(directory, filters, ILoggerFactory)` and builds a single
 `ILoggerFactory` is preferred over `ILogger<FilteredDecisionIterator>`
 so the source's contract doesn't leak the inner type.
 
-Each call to `EnumerateAsync` invokes the iterator's instance method
-(itself a lazy `IEnumerable`), so directory walks remain per-call and
+Each call to `EnumerateAsync` (an async `IAsyncEnumerable` iterator)
+re-walks the inner sync `IterateXgDirectoryDiagrams` (a lazy
+`IEnumerable`) fresh, so directory walks remain per-call and
 re-iteration is the trivial case. `Count` is null (computing it would
 mean a full pre-pass through a potentially large filtered iterator).
 `Name` returns the directory's leaf name.
