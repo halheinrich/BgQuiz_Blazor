@@ -101,10 +101,10 @@ BgQuiz_Blazor.Tests/
 
 Scoped DI lifetime — one instance per Blazor Server circuit. Holds the
 active `IProblemSetSource` enumerator, the running `QuizScore`, the per-
-problem `SubmittedPlay` history, and a `SkippedCount` for user-driven
-non-scoring outcomes. Pages observe state transitions via the
-`StateChanged` event; the controller fires it after every `AdvanceAsync`
-(start, submit, skip, restart).
+problem `SubmittedPlay` history, and a `SkippedCount` for non-scoring
+outcomes (off-list submissions, explicit Skip). Pages observe state
+transitions via the `StateChanged` event; the controller fires it after
+every `AdvanceAsync` (start, submit, skip, restart).
 
 **Source construction is factory-injected.** The controller takes a
 `ProblemSetSourceFactory` delegate (`DecisionFilterSet → IProblemSetSource`)
@@ -116,7 +116,7 @@ fake source the same way.
 
 **Filter ownership.** `StartAsync` takes a `FilterConfig` (the wire DTO
 emitted by `XgFilter_Razor.FilterPanel.OnFilterConfigChanged`), not a
-materialized `DecisionFilterSet`. The controller calls `FilterConfig.Build()`
+runtime `DecisionFilterSet`. The controller calls `FilterConfig.Build()`
 to produce its own filter pipeline, which it owns end-to-end — no shared
 mutable state ever exists between the page and the controller. The
 `ProblemSetSourceFactory` delegate still takes the runtime
@@ -137,12 +137,12 @@ count toward `SkippedCount`.
 
 **Off-list submission.** `SubmitPlayAsync(Play)` matches the user's play
 against `Current.Decision.Plays` by comparing `Play.DeduplicationKey()`
-tuples. An in-list match scores: `EquityLoss == 0.0` is the "best play"
-test (matching the established `PlayCandidate` convention — multiple
-candidates may share zero loss). An off-list match counts as a skip
-(`SkippedCount++`, no history entry, score unchanged) — there's no equity
-loss to record, and off-list submissions usually signal an analysis
-omission rather than a user mistake.
+tuples. An in-list match contributes to the score: `EquityLoss == 0.0`
+is the "best play" test (matching the established `PlayCandidate`
+convention — multiple candidates may share zero loss). An off-list match
+counts as a skip (`SkippedCount++`, no history entry, score unchanged).
+There's no equity loss to record, and off-list submissions usually signal
+an analysis omission rather than a user mistake.
 
 ### `ServerDiskProblemSetSource` — Phase 1 source
 
@@ -154,16 +154,17 @@ takes `(directory, filters, ILoggerFactory)` and builds a single
 so the source's contract doesn't leak the inner type.
 
 Each call to `EnumerateAsync` (an async `IAsyncEnumerable` iterator)
-re-walks the inner sync `IterateXgDirectoryDiagrams` (a lazy
-`IEnumerable`) fresh, so directory walks remain per-call and
-re-iteration is the trivial case. `Count` is null (computing it would
-mean a full pre-pass through a potentially large filtered iterator).
+freshly re-walks the inner sync `IterateXgDirectoryDiagrams` (a lazy
+`IEnumerable`), so directory walks remain per-call and re-iteration is
+the trivial case. `Count` is null (computing it would mean a full
+pre-pass through a potentially large filtered iterator).
 `Name` returns the directory's leaf name.
 
 The directory is configured via `Quiz:ProblemSetDirectory` in
 `appsettings.json` (or any standard ASP.NET Core configuration source).
-Empty / whitespace surfaces as a friendly banner on `/`; the Start button
-stays disabled until both filters are applied and configuration is set.
+Empty / whitespace surfaces as a friendly banner on `/`; the Start
+button stays disabled until the filter has been applied and the
+directory is configured.
 
 ### Pages
 
@@ -178,11 +179,11 @@ stays disabled until both filters are applied and configuration is set.
   Subscribes to `Controller.StateChanged` in `OnInitialized`,
   unsubscribes in `IDisposable.Dispose`. Submit is gated on
   `OnPlayCompleted` having fired; resets to disabled on every transition.
-  Undo last / Undo all delegate to `BackgammonPlayEntry.UndoLast()` /
-  `UndoAll()` and clear the latched completed play (the component does
-  not notify the consumer on undo).
+  The Undo last and Undo all buttons delegate to
+  `BackgammonPlayEntry.UndoLast()` / `UndoAll()` and clear the latched
+  completed play (the component does not notify the consumer on undo).
 - **`Done.razor`** — final ScorePanel + total problems shown +
-  Restart-with-same-filters / Start-over.
+  Restart with same filters / Start over.
 - **`ScorePanel.razor`** — single dense status strip used by both Quiz
   and Done. Renders Submitted / Correct (with %) / Skipped / average
   equity loss; optional Source name and Heading.
@@ -196,13 +197,14 @@ quiz. Pre-Azure-deployment will revisit render mode and persistence.
 
 The render mode is set **globally** on `<Routes @rendermode="InteractiveServer" />`
 in `App.razor`. Page-level `@rendermode InteractiveServer` directives
-(`Home.razor`, `Quiz.razor`, `Done.razor`) are kept for documentation
-but are redundant — the global Routes setting is what propagates
-interactivity to RCL-imported child components like `FilterPanel`
-(XgFilter_Razor) and `BackgammonPlayEntry` (BgDiag_Razor). A page-level
-directive alone does not reliably cross RCL assembly boundaries; without
-the global `<Routes>` setting, those child components prerender static
-HTML and `@onclick` handlers silently fail. See Pitfalls.
+(`Home.razor`, `Quiz.razor`, `Done.razor`) are kept as documentation
+but are redundant in practice — the global Routes setting is what
+propagates interactivity to RCL-imported (Razor Class Library) child
+components like `FilterPanel` (XgFilter_Razor) and `BackgammonPlayEntry`
+(BgDiag_Razor). A page-level directive alone does not reliably cross
+RCL assembly boundaries; without the global `<Routes>` setting, those
+child components prerender static HTML and `@onclick` handlers silently
+fail. See Pitfalls.
 
 ## Public API
 
@@ -230,10 +232,9 @@ endpoints. The externally visible surface is the route map:
   `OnFilterConfigChanged` does not fail at build or render time — the
   binding is simply never invoked. Symptom is a callback that "obviously"
   fires never firing. When wiring an event from an RCL-imported
-  component, verify the parameter name against the source. Phase 1's
-  filter-not-applied bug landed via exactly this mechanism; the bUnit
-  regression test in `PageTests.Home_FilterPanelEmitsConfig_EnablesStartButton`
-  now guards against it.
+  component, verify the parameter name against the source. The bUnit
+  regression test `PageTests.Home_FilterPanelEmitsConfig_EnablesStartButton`
+  guards against this trap.
 - **Off-list submission semantics.** A structurally-legal play that
   doesn't appear in the analyzer's candidate list counts as a skip, not
   a scoring miss. This is rare on well-analyzed positions and signals
@@ -259,9 +260,9 @@ endpoints. The externally visible surface is the route map:
   rendered as static prerender HTML. Their `@onclick` handlers wire up
   in JS but never dispatch over SignalR — clicks silently no-op. The
   fix is `<Routes @rendermode="InteractiveServer" />` in `App.razor`,
-  which propagates interactivity across RCL boundaries. Discovered
-  during Phase 1 browser verification; the bUnit page tests do not
-  exercise render-mode dispatch and therefore did not catch it.
+  which propagates interactivity across RCL boundaries. The bUnit page
+  tests do not exercise render-mode dispatch, so they will not catch
+  this — verify interactivity in a real browser.
 
 ## Subproject-internal next steps
 
@@ -271,9 +272,8 @@ endpoints. The externally visible surface is the route map:
   and `SubmitPlayAsync` advances directly to the next problem. The user
   sees their running score in `ScorePanel` but never sees per-problem
   feedback — what the best play was, what their equity loss was, why a
-  candidate was preferred. Phase 1 ships without this; surfaced during
-  the (β) consumer-adaptation session's smoke verification. Likely needs
-  an intermediate "review" state in `QuizController` (not just
+  candidate was preferred. Phase 1 ships without this. Likely needs an
+  intermediate "review" state in `QuizController` (not just
   `Current`/`IsFinished`/`SkippedCount`) and a corresponding render
   branch in `Quiz.razor` that flips to a solution view post-submit and
   back to the entry form on a Continue click.
@@ -281,13 +281,12 @@ endpoints. The externally visible surface is the route map:
   the current flow bounces Start through `/quiz` straight to `/done`
   with a 0/0 score, with no feedback that the filter was empty. Add a
   pre-flight check (or post-Start `IsFinished` detection) and surface a
-  "no decisions match these filters" banner on `/` instead. User-
-  suggested during Phase 1 verification.
+  "no decisions match these filters" banner on `/` instead.
 - **Phase 2+ design.** Answer tracking with weighted re-recurrence on
   wrong answers; the three two-agent modes (user-vs-user, user-vs-bot,
   bot-vs-bot tournament). All three queue behind the umbrella's
-  decision-identification scheme (umbrella queue item 2) — Phase 2+
-  needs stable per-decision IDs to track correctness over time.
+  decision-identification scheme — Phase 2+ needs stable per-decision
+  IDs to track correctness over time.
 - **Persistence.** Quiz state currently dies with the SignalR circuit.
   When the app moves toward Azure deployment, decide between
   cookie-based session keys, an in-memory cache survival across reloads,
