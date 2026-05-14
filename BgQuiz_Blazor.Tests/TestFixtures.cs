@@ -53,6 +53,7 @@ internal static class TestFixtures
     {
         return new BgDecisionData
         {
+            Id = new XgpDecisionId("test.xgp"),
             Position = new PositionData { Mop = StandardMop() },
             Decision = new DecisionData
             {
@@ -73,6 +74,7 @@ internal static class TestFixtures
     {
         return new BgDecisionData
         {
+            Id = new XgpDecisionId("test.xgp"),
             Position = new PositionData { Mop = ClosedOutMop() },
             Decision = new DecisionData
             {

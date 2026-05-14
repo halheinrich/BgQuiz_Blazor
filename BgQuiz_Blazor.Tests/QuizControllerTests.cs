@@ -94,6 +94,7 @@ public class QuizControllerTests
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         var cubeData = new BgDecisionData
         {
+            Id = new XgpDecisionId("test.xgp"),
             Position = new PositionData { Mop = TestFixtures.StandardMop() },
             Decision = new DecisionData { IsCube = true },
             Descriptive = new DescriptiveData { OnRollName = "Alice", OpponentName = "Bob" },
