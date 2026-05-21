@@ -4,9 +4,9 @@
 @using BgQuiz_Blazor.Quiz
 @using XgFilter_Razor.Components
 @using XgFilter_Lib.Filtering
-@using Microsoft.Extensions.Options
 
-@inject IOptions<QuizOptions> QuizOpts
+@inject ProblemSetSelection Selection
+@inject IJSRuntime JS
 @inject NavigationManager Nav
 @inject QuizController Controller
 
@@ -20,20 +20,22 @@
         run on checker plays only, regardless of the Decision-type filter below.
     </div>
 
-    @if (string.IsNullOrWhiteSpace(QuizOpts.Value.ProblemSetDirectory))
-    {
-        <div class="alert alert-danger" role="alert">
-            <strong>No problem-set directory configured.</strong>
-            Set <code>Quiz:ProblemSetDirectory</code> in
-            <code>appsettings.json</code> or via environment variable.
-        </div>
-    }
-    else
-    {
-        <p class="text-muted">
-            Problem set: <code>@QuizOpts.Value.ProblemSetDirectory</code>
-        </p>
-    }
+    <div class="mb-3" style="max-width:800px">
+        <label class="form-label" for="problemSetDir">
+            Problem-set directory
+            <small class="text-muted">(folder of .xg / .xgp files)</small>
+        </label>
+        <input id="problemSetDir" class="form-control"
+               placeholder="e.g. D:\xg\quiz-positions"
+               value="@Selection.Directory"
+               @onchange="HandleDirectoryChangedAsync" />
+        @if (!string.IsNullOrWhiteSpace(Selection.Directory) && !_directoryExists)
+        {
+            <div class="text-danger small mt-1">
+                Directory not found.
+            </div>
+        }
+    </div>
 
     <FilterPanel OnFilterConfigChanged="HandleFilterConfigApplied"
                  OnFilterDirty="HandleFiltersDirty" />
@@ -47,6 +49,10 @@
     @if (!_filtersApplied)
     {
         <small class="text-muted ms-2">Apply the filters above to enable Start.</small>
+    }
+    else if (string.IsNullOrWhiteSpace(Selection.Directory))
+    {
+        <small class="text-muted ms-2">Enter a problem-set directory to enable Start.</small>
     }
 
     @if (!string.IsNullOrEmpty(_startError))

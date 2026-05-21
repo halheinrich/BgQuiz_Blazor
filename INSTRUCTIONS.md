@@ -56,7 +56,9 @@ BgQuiz_Blazor/
   Quiz/
     QuizController.cs
     QuizOptions.cs
+    ProblemSetSelection.cs
     ServerDiskProblemSetSource.cs
+    ServerDiskProblemSetSourceFactory.cs
   Components/
     _Imports.razor
     App.razor
@@ -79,6 +81,7 @@ BgQuiz_Blazor.Tests/
   FakeProblemSetSource.cs
   QuizControllerTests.cs
   ServerDiskProblemSetSourceTests.cs
+  ServerDiskProblemSetSourceFactoryTests.cs
   PageTests.cs
 ```
 
@@ -108,11 +111,11 @@ every `AdvanceAsync` (start, submit, skip, restart).
 
 **Source construction is factory-injected.** The controller takes a
 `ProblemSetSourceFactory` delegate (`DecisionFilterSet → IProblemSetSource`)
-rather than constructing `ServerDiskProblemSetSource` directly. The factory
-is registered as a singleton in `Program.cs`. Phase 2+ alternatives
-(uploaded files, deployed bundles, curated libraries) plug in by registering
-a different factory; the controller is unchanged. Unit tests substitute a
-fake source the same way.
+rather than constructing `ServerDiskProblemSetSource` directly. `Program.cs`
+registers the delegate scoped, bound to `ServerDiskProblemSetSourceFactory.Create`.
+Phase 2+ alternatives (uploaded files, deployed bundles, curated libraries)
+plug in by registering a different factory; the controller is unchanged.
+Unit tests substitute a fake source the same way.
 
 **Filter ownership.** `StartAsync` takes a `FilterConfig` (the wire DTO
 emitted by `XgFilter_Razor.FilterPanel.OnFilterConfigChanged`), not a
@@ -160,20 +163,48 @@ the trivial case. `Count` is null (computing it would mean a full
 pre-pass through a potentially large filtered iterator).
 `Name` returns the directory's leaf name.
 
-The directory is configured via `Quiz:ProblemSetDirectory` in
-`appsettings.json` (or any standard ASP.NET Core configuration source).
-Empty / whitespace surfaces as a friendly banner on `/`; the Start
-button stays disabled until the filter has been applied and the
-directory is configured.
+The directory is supplied by the caller (see *Problem-set source
+selection* below), not read from configuration — the constructor is
+directory-agnostic.
+
+### Problem-set source selection
+
+The source directory is chosen in the UI on `/`, not captured from
+configuration at startup.
+
+- **`ProblemSetSelection`** — a per-circuit (`Scoped`) mutable holder
+  with a single `string Directory`. Seeded at construction from the
+  configured `Quiz:ProblemSetDirectory` default; `Home.razor` overrides
+  it from the user's localStorage-persisted choice and writes back on
+  every edit. A bare holder by design — directory validity is enforced
+  by its readers, not by the holder.
+- **`ServerDiskProblemSetSourceFactory`** — the Phase 1
+  `ProblemSetSourceFactory` implementation (`Scoped`). `Create` reads
+  `ProblemSetSelection.Directory` at invocation time (quiz-start, not
+  DI-registration), throws `InvalidOperationException` on a blank
+  directory, and builds a `ServerDiskProblemSetSource`. `Program.cs`
+  binds `Create` as the `ProblemSetSourceFactory` delegate.
+
+`Quiz:ProblemSetDirectory` in `appsettings.json` is the *default seed*
+for a fresh circuit, not the runtime authority.
 
 ### Pages
 
-- **`Home.razor`** — `FilterPanel` from XgFilter_Razor, Start gated on
-  Apply-clicked + non-empty config. Subscribes to `OnFilterConfigChanged`
-  (the panel's emit-event after Apply), captures the `FilterConfig`, and
-  hands it to `Controller.StartAsync`. Catches start-time exceptions
-  (missing directory, `FilterConfig.Build()` validation failure, etc.)
-  and surfaces them as a banner instead of crashing the circuit.
+- **`Home.razor`** — a problem-set directory text input above the
+  `FilterPanel` from XgFilter_Razor. The directory lives in the
+  per-circuit `ProblemSetSelection`; the input writes through on
+  `@onchange` and persists to localStorage (key
+  `bgquiz_problemsetdirectory`), and `OnAfterRenderAsync` rehydrates
+  from localStorage on first render. Start is gated on three
+  conditions: filters Applied at least once, a non-blank directory, and
+  that directory existing on the server. The existence check is a
+  filesystem call, so it runs once per edit (and once after
+  rehydration), cached in a field — `CanStart` is read every render and
+  does no I/O. Subscribes to `OnFilterConfigChanged` (the panel's
+  emit-event after Apply), captures the `FilterConfig`, and hands it to
+  `Controller.StartAsync`. Catches start-time exceptions (directory
+  removed since validation, `FilterConfig.Build()` validation failure,
+  etc.) and surfaces them as a banner instead of crashing the circuit.
 - **`Quiz.razor`** — hosts `BackgammonPlayEntry` (click-driven play
   assembly) over `DiagramRequest.FromDecisionData(Current, DiagramMode.Problem)`.
   Subscribes to `Controller.StateChanged` in `OnInitialized`,
@@ -249,11 +280,15 @@ endpoints. The externally visible surface is the route map:
   `Render<Quiz>()` after `using BgQuiz_Blazor.Quiz;` hits a CS0118
   ambiguity. Test files use a `using QuizPage = ...` alias to
   disambiguate.
-- **Source factory throws lazily.** `Program.cs` registers a
-  `ProblemSetSourceFactory` whose closure validates
-  `Quiz:ProblemSetDirectory` only at invocation time. Pages that merely
-  observe state (Done, etc.) load even with bad config; the throw fires
-  on `Controller.StartAsync` and the Home page surfaces it as a banner.
+- **Source factory throws lazily.** `ServerDiskProblemSetSourceFactory.Create`
+  validates the selected directory only at invocation time — a blank
+  directory throws `InvalidOperationException`, a non-existent one
+  throws `DirectoryNotFoundException` from the source constructor.
+  Pages that merely observe state (Done, etc.) load even with no
+  selection; the throw fires on `Controller.StartAsync` and the Home
+  page surfaces it as a banner. `Home.razor`'s Start gate normally
+  pre-empts both throws, so they are a backstop for the
+  validated-then-removed race, not the primary error path.
 - **Render mode propagates from `<Routes>`, not from `@page`.** Setting
   `@rendermode InteractiveServer` only on the page directive leaves
   RCL-imported child components (`FilterPanel`, `BackgammonPlayEntry`)
@@ -296,6 +331,14 @@ endpoints. The externally visible surface is the route map:
   controller's scoped lifetime and the source factory abstraction were
   designed so render-mode migration only touches Program.cs registration
   and page lifecycle, not the state machine.
+- **Directory picker is local-mode-only.** The `Home.razor` problem-set
+  directory input picks a folder on the host filesystem — meaningful
+  only when the app runs on the same machine as the user's `.xg` files
+  (local / self-hosted). An Azure deployment has the user's data
+  elsewhere, so a path picker is meaningless there; the source would be
+  upload-based instead (a Phase 2+ source kind). When an upload/remote
+  source and a mode concept land, the picker's visibility must be gated
+  — shown in local mode, hidden in remote mode.
 - **Cube-decision support.** Awaits the cube-entry sibling component in
   BgDiag_Razor (Deferred). Once that lands, drop the
   `CheckerPlaysOnly` auto-append from `StartAsync` and route cube vs.
