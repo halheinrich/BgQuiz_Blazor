@@ -266,8 +266,8 @@ public sealed class QuizController : IAsyncDisposable
 
 /// <summary>
 /// Factory delegate for constructing the active <see cref="IProblemSetSource"/>
-/// from a user-supplied filter set. Phase 1's <c>Program.cs</c> registers a
-/// closure over <see cref="ServerDiskProblemSetSource"/>; tests substitute a
+/// from a user-supplied filter set. Phase 1's <c>Program.cs</c> binds this to
+/// <see cref="ServerDiskProblemSetSourceFactory.Create"/>; tests substitute a
 /// fake source via the same delegate shape.
 /// </summary>
 public delegate IProblemSetSource ProblemSetSourceFactory(DecisionFilterSet filters);

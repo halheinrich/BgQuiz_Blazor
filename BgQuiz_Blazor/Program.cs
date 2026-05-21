@@ -10,21 +10,23 @@ builder.Services.AddRazorComponents()
 builder.Services.AddOptions<QuizOptions>()
     .Bind(builder.Configuration.GetSection("Quiz"));
 
-// Phase 1 source: server-disk directory configured via Quiz:ProblemSetDirectory.
-// Phase 2+ alternatives (upload, deployed bundles, curated libraries) plug in
-// by registering a different factory; the controller is unchanged. The empty-
-// config throw fires at invocation time (StartAsync), not at controller resolution
-// — so pages that merely observe state (Done, etc.) load even with bad config and
-// Home.razor's friendly empty-config banner still gates Start.
-builder.Services.AddSingleton<ProblemSetSourceFactory>(sp => filters =>
+// Per-circuit problem-set selection. Seeded at construction from the configured
+// Quiz:ProblemSetDirectory default; Home.razor overrides it from the user's
+// localStorage-persisted choice and writes back on every edit.
+builder.Services.AddScoped<ProblemSetSelection>(sp => new ProblemSetSelection
 {
-    var dir = sp.GetRequiredService<IOptions<QuizOptions>>().Value.ProblemSetDirectory;
-    if (string.IsNullOrWhiteSpace(dir))
-        throw new InvalidOperationException(
-            "Quiz:ProblemSetDirectory is not configured.");
-    var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-    return new ServerDiskProblemSetSource(dir, filters, loggerFactory);
+    Directory = sp.GetRequiredService<IOptions<QuizOptions>>().Value.ProblemSetDirectory,
 });
+
+// Phase 1 source: a server-disk directory drawn from the per-circuit
+// ProblemSetSelection. Phase 2+ alternatives (upload, deployed bundles, curated
+// libraries) plug in by registering a different factory; the controller is
+// unchanged. The no-directory-selected throw fires at invocation time
+// (StartAsync), not at controller resolution — so pages that merely observe
+// state (Done, etc.) load even with no selection, and Home.razor gates Start.
+builder.Services.AddScoped<ServerDiskProblemSetSourceFactory>();
+builder.Services.AddScoped<ProblemSetSourceFactory>(sp =>
+    sp.GetRequiredService<ServerDiskProblemSetSourceFactory>().Create);
 
 // Per-circuit quiz state. Pages observe via QuizController.StateChanged.
 builder.Services.AddScoped<QuizController>();

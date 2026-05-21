@@ -8,9 +8,12 @@ namespace BgQuiz_Blazor.Quiz;
 public sealed class QuizOptions
 {
     /// <summary>
-    /// Absolute path to a directory of <c>.xg</c> files used as the problem-set
-    /// source. Empty string means "not configured" — the landing page surfaces
-    /// this as a blocking message and disables the Start Quiz button.
+    /// Default problem-set directory used to seed a fresh circuit's
+    /// <see cref="ProblemSetSelection"/>. Not the runtime authority — the user
+    /// edits the directory on the landing page, and that choice (persisted to
+    /// localStorage) overrides this seed. Empty string means "no default": the
+    /// landing page then starts with an unset directory and gates the Start
+    /// Quiz button until the user supplies one.
     /// </summary>
     public string ProblemSetDirectory { get; set; } = string.Empty;
 }
