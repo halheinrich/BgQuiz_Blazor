@@ -7,16 +7,26 @@ using Microsoft.AspNetCore.Components;
 namespace BgQuiz_Blazor.Components.Pages;
 
 /// <summary>
-/// Phase 1 quiz page: hosts <see cref="BackgammonPlayEntry"/> against the
-/// scoped <see cref="QuizController"/>'s current decision and exposes the
-/// Submit / Skip / Undo / Restart action row.
+/// Quiz page: hosts either <see cref="BackgammonPlayEntry"/> (checker plays)
+/// or <see cref="BackgammonCubeEntry"/> (cube decisions) against the scoped
+/// <see cref="QuizController"/>'s current decision, routing by
+/// <c>Decision.IsCube</c>, and exposes the per-kind action row.
 ///
 /// <para>
-/// <b>Submit gating.</b> <see cref="BackgammonPlayEntry"/> fires
-/// <c>OnPlayCompleted</c> only when all dice have been consumed legally;
-/// the page latches that play in <see cref="_completedPlay"/> and enables
-/// the Submit button. After submission (or undo, or advance), the latch
-/// clears.
+/// <b>Submit gating.</b> Each entry component fires its completion callback
+/// only when the answer is complete — <see cref="BackgammonPlayEntry"/>'s
+/// <c>OnPlayCompleted</c> once all dice are consumed legally;
+/// <see cref="BackgammonCubeEntry"/>'s <c>OnCubeDecisionCompleted</c> once both
+/// cube halves are chosen. The page latches the result
+/// (<see cref="_completedPlay"/> / <see cref="_completedCube"/>) and enables
+/// Submit. Both latches clear on any controller transition (advance / restart)
+/// via <see cref="HandleStateChanged"/>; the play latch also clears on undo.
+/// </para>
+///
+/// <para>
+/// <b>Action row by kind.</b> Checker decisions offer Submit / Skip / Undo
+/// last / Undo all / Restart; cube decisions offer Submit / Skip / Restart
+/// (a cube answer has no partial-move state, so Undo does not apply).
 /// </para>
 ///
 /// <para>
@@ -30,6 +40,7 @@ public partial class Quiz : ComponentBase, IDisposable
 {
     private BackgammonPlayEntry? _playEntry;
     private Play? _completedPlay;
+    private CubeDecisionPair? _completedCube;
     private readonly DiagramOptions _diagramOptions = new();
 
     protected override void OnInitialized()
@@ -53,8 +64,9 @@ public partial class Quiz : ComponentBase, IDisposable
     private void HandleStateChanged()
     {
         // Any controller transition advances or restarts the problem; the
-        // previously latched play no longer applies.
+        // previously latched answers no longer apply.
         _completedPlay = null;
+        _completedCube = null;
 
         if (Controller.IsFinished)
         {
@@ -77,11 +89,29 @@ public partial class Quiz : ComponentBase, IDisposable
         StateHasChanged();
     }
 
+    private void HandleCubeCompleted(CubeDecisionPair answer)
+    {
+        // BackgammonCubeEntry re-fires on every post-completion change, so this
+        // always holds the latest complete pair; the user can revise before
+        // Submit.
+        _completedCube = answer;
+        StateHasChanged();
+    }
+
     private async Task SubmitAsync()
     {
-        if (_completedPlay is not { } play) return;
-        await Controller.SubmitPlayAsync(play);
-        // _completedPlay is cleared by HandleStateChanged; nothing else to do.
+        // Route by which answer is latched. The current decision's kind
+        // determines which entry component rendered and therefore which latch
+        // is set; the latches are mutually exclusive per problem.
+        if (_completedCube is { } cube)
+        {
+            await Controller.SubmitCubeActionAsync(cube);
+        }
+        else if (_completedPlay is { } play)
+        {
+            await Controller.SubmitPlayAsync(play);
+        }
+        // The relevant latch is cleared by HandleStateChanged; nothing else to do.
     }
 
     private async Task SkipAsync()

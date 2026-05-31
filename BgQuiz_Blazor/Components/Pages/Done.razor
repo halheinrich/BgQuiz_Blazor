@@ -16,8 +16,10 @@
                 Source="@Controller.Name"
                 Heading="Final" />
 
+    <ScoreBreakdown Score="Controller.Score" Heading="Detailed evaluation" />
+
     <p class="text-muted">
-        Total problems shown: <strong>@(Controller.Score.Total.Submitted + Controller.SkippedCount)</strong>.
+        Total problems shown: <strong>@(ProblemsShown)</strong>.
     </p>
 
     <div class="d-flex flex-wrap gap-2">

@@ -13,6 +13,23 @@ namespace BgQuiz_Blazor.Components.Pages;
 /// </summary>
 public partial class Done : ComponentBase
 {
+    /// <summary>
+    /// Number of distinct problems the user was shown: one per scored checker
+    /// play, one per scored cube position, plus user-driven skips.
+    ///
+    /// <para>
+    /// A cube position folds into the score as two decisions (one Double + one
+    /// Take), so <c>Score.Total.Submitted</c> counts <em>decisions</em>, not
+    /// problems — each cube would be double-counted. Counting checker plays
+    /// plus <em>doubler</em> decisions (exactly one per cube position) recovers
+    /// the problem count.
+    /// </para>
+    /// </summary>
+    private int ProblemsShown =>
+        Controller.Score.PlayDecisions.Submitted
+        + Controller.Score.DoubleDecisions.Submitted
+        + Controller.SkippedCount;
+
     protected override void OnInitialized()
     {
         if (!Controller.HasStarted)

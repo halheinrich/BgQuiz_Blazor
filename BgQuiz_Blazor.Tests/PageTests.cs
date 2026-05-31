@@ -1,4 +1,5 @@
 using BgDataTypes_Lib;
+using BgDiag_Razor.Components;
 using BgGame_Lib;
 using BgQuiz_Blazor.Quiz;
 using Bunit;
@@ -271,6 +272,61 @@ public class PageTests : BunitContext
         Assert.EndsWith("/done", nav.Uri);
     }
 
+    [Fact]
+    public async Task Quiz_CubeDecision_RendersCubeEntryAndCubeActionRow()
+    {
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+
+        var cut = Render<QuizPage>();
+
+        // Cube entry's two button groups render their labels.
+        Assert.Contains("No Double", cut.Markup);
+        Assert.Contains("Take", cut.Markup);
+        Assert.Contains("Submit", cut.Markup);
+        Assert.Contains("Skip", cut.Markup);
+        // Cube decisions have no partial-move state, so no Undo row.
+        Assert.DoesNotContain("Undo", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_CubeSubmit_DisabledBeforeCubeCompleted()
+    {
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+
+        var cut = Render<QuizPage>();
+
+        var submit = cut.Find("button.btn-primary");
+        Assert.True(submit.HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Quiz_CubeComplete_ThenSubmit_ScoresIntoCubeSegments()
+    {
+        // The parent → child → handler wire for cube: the cube entry fires
+        // OnCubeDecisionCompleted, the page latches it and enables Submit, and
+        // the Submit click routes to SubmitCubeActionAsync, scoring both halves
+        // into the Double / Take segments.
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        var cubeEntry = cut.FindComponent<BackgammonCubeEntry>();
+        await cut.InvokeAsync(() =>
+            cubeEntry.Instance.OnCubeDecisionCompleted.InvokeAsync(
+                new CubeDecisionPair(CubeAction.Double, CubeAction.Take)));
+
+        var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
+        await submit.ClickAsync(new());
+
+        Assert.Single(c.CubeHistory);
+        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
+        Assert.Equal(1, c.Score.DoubleDecisions.Correct);
+        Assert.Equal(1, c.Score.TakeDecisions.Submitted);
+        Assert.Equal(1, c.Score.TakeDecisions.Correct);
+    }
+
     // -----------------------------------------------------------------------
     //  Done.razor
     // -----------------------------------------------------------------------
@@ -337,5 +393,34 @@ public class PageTests : BunitContext
         await startOver.ClickAsync(new());
 
         Assert.EndsWith("/", nav.Uri);
+    }
+
+    [Fact]
+    public async Task Done_MixedRun_RendersFourWayBreakdownAndProblemCount()
+    {
+        // One cube position + one checker play. The cube folds as +1 Double and
+        // +1 Take, so Total.Submitted is 3 decisions — but only 2 problems were
+        // shown. Pins both the four-way breakdown rows and the corrected count
+        // (which must not double-count the cube position).
+        var c = WithController(
+            TestFixtures.CubeDecision(),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await c.SubmitPlayAsync(BestPlay());
+        Assert.True(c.IsFinished);
+
+        var cut = Render<DonePage>();
+
+        // Four-way breakdown rows.
+        Assert.Contains("Play", cut.Markup);
+        Assert.Contains("Double", cut.Markup);
+        Assert.Contains("Take", cut.Markup);
+        Assert.Contains("Total", cut.Markup);
+
+        // Total.Submitted counts 3 decisions, but problems-shown is 2.
+        Assert.Equal(3, c.Score.Total.Submitted);
+        Assert.Contains("Total problems shown", cut.Markup);
+        Assert.Contains("<strong>2</strong>", cut.Markup);
     }
 }

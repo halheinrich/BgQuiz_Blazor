@@ -69,6 +69,33 @@ internal static class TestFixtures
         };
     }
 
+    /// <summary>
+    /// Deterministic cube decision. With the defaults
+    /// (<paramref name="noDoubleEquity"/> 0.5, <paramref name="doubleTakeEquity"/>
+    /// 0.7) the best answer is (<c>Double</c>, <c>Take</c>) at zero loss on both
+    /// halves; the opposite answer loses
+    /// <c>doubleTakeEquity - noDoubleEquity</c> (0.20) on the doubler half and
+    /// <c>1 - doubleTakeEquity</c> (0.30) on the taker half. Dice are left at the
+    /// data-layer cube invariant ([0, 0]).
+    /// </summary>
+    public static BgDecisionData CubeDecision(
+        double noDoubleEquity = 0.5, double doubleTakeEquity = 0.7,
+        string onRoll = "Alice", string opp = "Bob")
+    {
+        return new BgDecisionData
+        {
+            Id = new XgpDecisionId("test.xgp"),
+            Position = new PositionData { Mop = StandardMop() },
+            Decision = new DecisionData
+            {
+                IsCube = true,
+                NoDoubleEquity = noDoubleEquity,
+                DoubleTakeEquity = doubleTakeEquity,
+            },
+            Descriptive = new DescriptiveData { OnRollName = onRoll, OpponentName = opp },
+        };
+    }
+
     /// <summary>Pass-position decision — controller must auto-skip silently.</summary>
     public static BgDecisionData PassDecision()
     {

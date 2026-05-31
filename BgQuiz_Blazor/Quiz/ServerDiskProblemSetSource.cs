@@ -25,9 +25,11 @@ using XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
-/// Cube-decision exclusion is the consumer's responsibility — typically a
-/// <c>DecisionTypeFilter(CheckerPlaysOnly)</c> appended to <paramref name="filters"/>
-/// before construction. This source does not inject one.
+/// Decision-type admission is governed by the supplied
+/// <paramref name="filters"/> set — the controller materializes it from the
+/// user's <c>FilterConfig</c>, including any <c>DecisionTypeFilter</c> the
+/// user's choice implies. This source applies whatever set it is handed and
+/// injects no policy of its own.
 /// </para>
 /// </summary>
 public sealed class ServerDiskProblemSetSource : IProblemSetSource

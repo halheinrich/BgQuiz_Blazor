@@ -18,8 +18,7 @@ public class QuizControllerTests
     /// Constructs a controller whose source factory captures the
     /// <see cref="DecisionFilterSet"/> it receives, exposed via
     /// <paramref name="captured"/>. Lets tests assert what the controller
-    /// hands the source after its FilterConfig materialization + cube-policy
-    /// augmentation.
+    /// hands the source after materializing the user's <c>FilterConfig</c>.
     /// </summary>
     private static QuizController MakeCapturing(
         out Func<DecisionFilterSet?> captured, params BgDecisionData[] items)
@@ -83,28 +82,56 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task StartAsync_AppendsCheckerPlaysOnlyFilter()
+    public async Task StartAsync_DoesNotForceCheckerPlaysOnly_CubeDataFlows()
     {
-        // The controller materializes its own DecisionFilterSet from the
-        // FilterConfig DTO and augments with the cube policy — the user's
-        // FilterConfig is never mutated. To verify augmentation, capture the
-        // pipeline the controller hands to the source factory and assert it
-        // rejects cube data while accepting checker-play data.
+        // Regression: the controller previously appended a CheckerPlaysOnly
+        // DecisionTypeFilter that silently dropped every cube decision. After
+        // the lift, the user's FilterConfig.DecisionType governs — a default
+        // config (DecisionType.Both) adds no decision-type filter, so cube data
+        // flows. Capture the pipeline the controller hands the source factory
+        // and assert it admits cube data.
         var c = MakeCapturing(out var captured,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        var cubeData = new BgDecisionData
-        {
-            Id = new XgpDecisionId("test.xgp"),
-            Position = new PositionData { Mop = TestFixtures.StandardMop() },
-            Decision = new DecisionData { IsCube = true },
-            Descriptive = new DescriptiveData { OnRollName = "Alice", OpponentName = "Bob" },
-        };
 
         await c.StartAsync(new FilterConfig());
 
         var pipeline = captured();
         Assert.NotNull(pipeline);
-        Assert.False(pipeline.Matches(cubeData));
+        Assert.True(pipeline.Matches(TestFixtures.CubeDecision()));
+    }
+
+    [Fact]
+    public async Task StartAsync_UserCubeOnly_AdmitsCubeRejectsChecker()
+    {
+        // The user's DecisionType choice governs in both directions: a CubeOnly
+        // config admits cube decisions and rejects checker plays. Confirms the
+        // lift handed control to the user's filter rather than dropping the
+        // policy entirely.
+        var c = MakeCapturing(out var captured, TestFixtures.CubeDecision());
+
+        await c.StartAsync(new FilterConfig { DecisionType = DecisionTypeOption.CubeOnly });
+
+        var pipeline = captured();
+        Assert.NotNull(pipeline);
+        Assert.True(pipeline.Matches(TestFixtures.CubeDecision()));
+        Assert.False(pipeline.Matches(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())));
+    }
+
+    [Fact]
+    public async Task StartAsync_CubeDecision_IsSurfacedNotAutoSkipped()
+    {
+        // A cube decision carries Dice [0, 0]; without the IsCube guard in
+        // IsPassPosition that hits the no-legal-play sentinel and is silently
+        // auto-skipped, making the whole cube feature invisible. The guard must
+        // surface the cube decision as the current problem.
+        var cube = TestFixtures.CubeDecision();
+        var c = Make(cube);
+
+        await c.StartAsync(new FilterConfig());
+
+        Assert.Same(cube, c.Current);
+        Assert.False(c.IsFinished);
+        Assert.Equal(0, c.SkippedCount);
     }
 
     [Fact]
@@ -281,6 +308,123 @@ public class QuizControllerTests
         Assert.Equal(0, c.Score.Total.Correct);
         Assert.Equal(0.40, c.Score.Total.TotalEquityLoss, 6);
         Assert.Equal(0.20, c.Score.Total.AverageEquityLoss, 6);
+    }
+
+    // -----------------------------------------------------------------------
+    //  SubmitCubeActionAsync — scoring
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task SubmitCubeActionAsync_BestAnswer_ScoresBothHalvesCorrect()
+    {
+        var c = Make(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+
+        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+
+        Assert.Single(c.CubeHistory);
+        var sub = c.CubeHistory[0];
+        Assert.True(sub.DoublerCorrect);
+        Assert.True(sub.TakerCorrect);
+        Assert.Equal(0.0, sub.DoublerEquityLoss, 6);
+        Assert.Equal(0.0, sub.TakerEquityLoss, 6);
+
+        // One Double + one Take decision folded into their own segments; the
+        // play segment is untouched.
+        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
+        Assert.Equal(1, c.Score.DoubleDecisions.Correct);
+        Assert.Equal(1, c.Score.TakeDecisions.Submitted);
+        Assert.Equal(1, c.Score.TakeDecisions.Correct);
+        Assert.Equal(0, c.Score.PlayDecisions.Submitted);
+        Assert.Equal(2, c.Score.Total.Submitted);
+        Assert.Empty(c.History);
+    }
+
+    [Fact]
+    public async Task SubmitCubeActionAsync_WrongAnswer_ScoresPerHalfLoss()
+    {
+        var c = Make(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+
+        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
+
+        var sub = c.CubeHistory[0];
+        Assert.False(sub.DoublerCorrect);
+        Assert.False(sub.TakerCorrect);
+        Assert.Equal(0.20, sub.DoublerEquityLoss, 6);
+        Assert.Equal(0.30, sub.TakerEquityLoss, 6);
+
+        Assert.Equal(0, c.Score.DoubleDecisions.Correct);
+        Assert.Equal(0.20, c.Score.DoubleDecisions.TotalEquityLoss, 6);
+        Assert.Equal(0, c.Score.TakeDecisions.Correct);
+        Assert.Equal(0.30, c.Score.TakeDecisions.TotalEquityLoss, 6);
+    }
+
+    [Fact]
+    public async Task SubmitCubeActionAsync_AdvancesToNext()
+    {
+        var d1 = TestFixtures.CubeDecision();
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = Make(d1, d2);
+        await c.StartAsync(new FilterConfig());
+        Assert.Same(d1, c.Current);
+
+        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+
+        Assert.Same(d2, c.Current);
+        Assert.False(c.IsFinished);
+    }
+
+    [Fact]
+    public async Task SubmitCubeActionAsync_LastProblem_FlipsIsFinished()
+    {
+        var c = Make(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+
+        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+
+        Assert.True(c.IsFinished);
+        Assert.Null(c.Current);
+    }
+
+    [Fact]
+    public async Task SubmitCubeActionAsync_BeforeStart_NoOp()
+    {
+        var c = Make();
+
+        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+
+        Assert.Empty(c.CubeHistory);
+        Assert.Equal(QuizScore.Empty, c.Score);
+    }
+
+    [Fact]
+    public async Task SubmitCubeActionAsync_AfterFinish_NoOp()
+    {
+        var c = Make(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take)); // exhausts
+        Assert.True(c.IsFinished);
+
+        var countBefore = c.CubeHistory.Count;
+        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+
+        Assert.Equal(countBefore, c.CubeHistory.Count);
+    }
+
+    [Fact]
+    public async Task RestartAsync_ClearsCubeHistory()
+    {
+        var c = Make(
+            TestFixtures.CubeDecision(),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        Assert.Single(c.CubeHistory);
+
+        await c.RestartAsync();
+
+        Assert.Empty(c.CubeHistory);
     }
 
     // -----------------------------------------------------------------------

@@ -20,23 +20,32 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
 ## Depends on
 
 - **BgGame_Lib** — substrate. `IProblemSetSource`, `SubmittedPlay`,
-  `QuizScore`. The controller talks to the source through this interface and
-  scores via `QuizScore.Plus(SubmittedPlay)`.
+  `SubmittedCubeAction`, `QuizScore` (segmented: `PlayDecisions` /
+  `DoubleDecisions` / `TakeDecisions` + derived `Total`). The controller
+  talks to the source through this interface and scores via
+  `QuizScore.Plus(SubmittedPlay)` / `QuizScore.Plus(SubmittedCubeAction)`.
 - **BgDataTypes_Lib** — data types. `BgDecisionData`, `Play`,
-  `PlayCandidate`, `BoardState`. The structural matcher hashes
-  `Play.DeduplicationKey()` against each `PlayCandidate.Play`'s key.
+  `PlayCandidate`, `BoardState`, `CubeDecisionPair`, `CubeAction`. The
+  structural matcher hashes `Play.DeduplicationKey()` against each
+  `PlayCandidate.Play`'s key; cube scoring reads `DecisionData`'s
+  `BestDoublerAction` / `BestTakerAction` / `DoublerActionError` /
+  `TakerActionError`.
 - **BgMoveGen** — `MoveGenerator.GeneratePlays`, used by the controller's
   pass-position auto-skip detection.
-- **BgDiag_Razor** — `BackgammonPlayEntry` (click-driven play assembly) +
-  the underlying `BackgammonDiagram` (read-only board view).
+- **BgDiag_Razor** — `BackgammonPlayEntry` (click-driven play assembly) and
+  `BackgammonCubeEntry` (two-group cube-decision entry, emitting
+  `CubeDecisionPair` via `OnCubeDecisionCompleted`) + the underlying
+  `BackgammonDiagram` (read-only board view).
 - **BackgammonDiagram_Lib** — `DiagramRequest` + `DiagramOptions` +
   `DiagramRequest.FromDecisionData(BgDecisionData, DiagramMode.Problem)`,
-  the canonical data-to-renderer mapping. Direct `<ProjectReference>` —
-  the page calls the factory by name, so the dependency is made explicit
-  rather than relying on BgDiag_Razor's transitive surface.
-- **XgFilter_Lib** — `DecisionFilterSet`, `DecisionTypeFilter`,
-  `DecisionTypeOption.CheckerPlaysOnly` for the Phase 1 cube-policy filter
-  the controller appends.
+  the canonical data-to-renderer mapping (Problem mode blanks the analysis
+  panel for both play and cube decisions, so it never leaks the answer).
+  Direct `<ProjectReference>` — the page calls the factory by name, so the
+  dependency is made explicit rather than relying on BgDiag_Razor's
+  transitive surface.
+- **XgFilter_Lib** — `DecisionFilterSet`, `FilterConfig`,
+  `DecisionTypeFilter` / `DecisionTypeOption` (materialized from the user's
+  decision-type choice; the controller adds no filter of its own).
 - **XgFilter_Razor** — `FilterPanel.razor`. Hosted on `/` so quiz-start
   filters share the same UI used by `ExtractFromXgToCsv`.
 - **ConvertXgToJson_Lib** — picked up transitively via the filter pipeline
@@ -69,9 +78,10 @@ BgQuiz_Blazor/
       ReconnectModal.razor / .razor.css / .razor.js
     Pages/
       Home.razor / .razor.cs        — landing: filter panel + Start
-      Quiz.razor / .razor.cs        — active problem
+      Quiz.razor / .razor.cs        — active problem (play or cube)
       Done.razor / .razor.cs        — final summary
-      ScorePanel.razor              — shared header strip
+      ScorePanel.razor              — compact header strip (Total only)
+      ScoreBreakdown.razor          — four-way Play/Double/Take/Total table
       Error.razor
       NotFound.razor
   wwwroot/                          — static assets (favicon, app.css, Bootstrap)
@@ -87,27 +97,35 @@ BgQuiz_Blazor.Tests/
 
 ## Architecture
 
-### Phase 1 quiz flow
+### Quiz flow
 
 ```
 /        Home.razor    → FilterPanel + Start Quiz button
                           on Start: Controller.StartAsync(filters), Nav→/quiz
 
-/quiz    Quiz.razor    → BackgammonPlayEntry over Controller.Current
-                          + Submit / Skip / Undo last / Undo all / Restart
+/quiz    Quiz.razor    → routes by Controller.Current.Decision.IsCube:
+                          checker → BackgammonPlayEntry
+                                    + Submit / Skip / Undo last / Undo all / Restart
+                          cube    → BackgammonCubeEntry
+                                    + Submit / Skip / Restart (no Undo)
                           IsFinished → Nav→/done
 
-/done    Done.razor    → ScorePanel (final) + Restart / Start over
+/done    Done.razor    → ScorePanel (Total) + ScoreBreakdown (four-way)
+                          + Restart / Start over
 ```
 
 ### `QuizController` — per-circuit state machine
 
 Scoped DI lifetime — one instance per Blazor Server circuit. Holds the
 active `IProblemSetSource` enumerator, the running `QuizScore`, the per-
-problem `SubmittedPlay` history, and a `SkippedCount` for non-scoring
-outcomes (off-list submissions, explicit Skip). Pages observe state
-transitions via the `StateChanged` event; the controller fires it after
-every `AdvanceAsync` (start, submit, skip, restart).
+problem `SubmittedPlay` (`History`) and `SubmittedCubeAction`
+(`CubeHistory`) histories, and a `SkippedCount` for non-scoring outcomes
+(off-list submissions, explicit Skip). The two histories are kept separate
+(mirroring `_history`/`History`) because the two scored-result types are
+distinct shapes — a unified history would force consumers to type-test.
+Pages observe state transitions via the `StateChanged` event; the
+controller fires it after every `AdvanceAsync` (start, submit, skip,
+restart).
 
 **Source construction is factory-injected.** The controller takes a
 `ProblemSetSourceFactory` delegate (`DecisionFilterSet → IProblemSetSource`)
@@ -126,10 +144,20 @@ mutable state ever exists between the page and the controller. The
 `DecisionFilterSet` (the source's contract is the runtime pipeline; the
 controller is the authority on assembling it).
 
-**Cube policy.** `StartAsync` adds a `DecisionTypeFilter(CheckerPlaysOnly)`
-to its own pipeline once, after `Build()`. Restart re-uses the augmented
-pipeline without re-building. AND-semantics: if the user picked CubeOnly
-the intersection is empty (the Home banner sets that expectation).
+**Decision-type policy.** The user's `FilterConfig.DecisionType` choice
+governs which decisions the quiz admits — checker plays, cube decisions, or
+both. `FilterConfig.Build()` adds a `DecisionTypeFilter` only for a
+non-`Both` choice; the controller adds none of its own. Both checker plays
+(`SubmitPlayAsync`) and cube decisions (`SubmitCubeActionAsync`) flow when
+the user's filter admits them.
+
+**Cube scoring.** A cube position is two independent atomic decisions — the
+doubler's offer and the taker's response. `SubmitCubeActionAsync(CubeDecisionPair)`
+always scores both halves (no off-list / skip path, unlike plays): per-half
+equity loss via `DecisionData.DoublerActionError` / `TakerActionError` and
+per-half correctness against `BestDoublerAction` / `BestTakerAction`,
+folded into the score's `DoubleDecisions` and `TakeDecisions` segments via
+`QuizScore.Plus(SubmittedCubeAction)`.
 
 **Pass-position auto-skip.** Each `AdvanceAsync` step pulls the next
 decision and tests it with `MoveGenerator.GeneratePlays(board, d1, d2)`.
@@ -205,19 +233,36 @@ for a fresh circuit, not the runtime authority.
   `Controller.StartAsync`. Catches start-time exceptions (directory
   removed since validation, `FilterConfig.Build()` validation failure,
   etc.) and surfaces them as a banner instead of crashing the circuit.
-- **`Quiz.razor`** — hosts `BackgammonPlayEntry` (click-driven play
-  assembly) over `DiagramRequest.FromDecisionData(Current, DiagramMode.Problem)`.
-  Subscribes to `Controller.StateChanged` in `OnInitialized`,
-  unsubscribes in `IDisposable.Dispose`. Submit is gated on
-  `OnPlayCompleted` having fired; resets to disabled on every transition.
-  The Undo last and Undo all buttons delegate to
-  `BackgammonPlayEntry.UndoLast()` / `UndoAll()` and clear the latched
-  completed play (the component does not notify the consumer on undo).
-- **`Done.razor`** — final ScorePanel + total problems shown +
-  Restart with same filters / Start over.
-- **`ScorePanel.razor`** — single dense status strip used by both Quiz
-  and Done. Renders Submitted / Correct (with %) / Skipped / average
-  equity loss; optional Source name and Heading.
+- **`Quiz.razor`** — routes by `Current.Decision.IsCube` over
+  `DiagramRequest.FromDecisionData(Current, DiagramMode.Problem)`: checker
+  decisions to `BackgammonPlayEntry` (click-driven play assembly), cube
+  decisions to `BackgammonCubeEntry` (two atomic button groups). Both entry
+  components are strict — each throws `NotImplementedException` on the other
+  half's decision type, so the route must be exact. Subscribes to
+  `Controller.StateChanged` in `OnInitialized`, unsubscribes in
+  `IDisposable.Dispose`. Submit is gated on the relevant completion callback
+  having fired (`OnPlayCompleted` → `_completedPlay`,
+  `OnCubeDecisionCompleted` → `_completedCube`); both latches reset on every
+  transition. `BackgammonCubeEntry` re-fires on every post-completion change,
+  so `_completedCube` always holds the latest pair and the user can revise
+  before Submit. The action row varies by kind: cube has no Undo (no
+  partial-move state); checker keeps Undo last / Undo all (clearing the
+  latched play, since the component does not notify on undo).
+- **`Done.razor`** — final `ScorePanel` (Total) + `ScoreBreakdown`
+  (four-way) + total problems shown + Restart with same filters / Start
+  over. "Problems shown" is `PlayDecisions.Submitted +
+  DoubleDecisions.Submitted + SkippedCount` — **not** `Total.Submitted`,
+  which counts decisions and so double-counts each cube position (one
+  Double + one Take).
+- **`ScorePanel.razor`** — compact status strip used by both Quiz and Done.
+  Renders the `Total` segment: Submitted / Correct (with %) / Skipped /
+  average equity loss; optional Source name and Heading. Kept Total-only to
+  avoid mid-quiz clutter.
+- **`ScoreBreakdown.razor`** — the four-way detailed evaluation, hosted on
+  Done. A Play / Double / Take / Total table (Submitted · Correct (%) · Avg
+  loss per row), reading the three `QuizScore` segments and the derived
+  `Total`. Kept separate from `ScorePanel` rather than a `Detailed` flag so
+  each component owns one layout.
 
 ### Render mode
 
@@ -253,11 +298,21 @@ endpoints. The externally visible surface is the route map:
 - **State is per-circuit.** A page reload tears down the SignalR circuit
   and the scoped `QuizController`; the active quiz is lost. Persistence
   is a future concern — for Phase 1 the user starts over after reload.
-- **Cube decisions are filtered at the source.** The controller adds
-  `DecisionTypeFilter(CheckerPlaysOnly)` to its own pipeline on
-  `StartAsync`; `BackgammonPlayEntry` would throw `NotImplementedException`
-  on a cube decision but in practice never sees one. A future cube-entry
-  sibling component (BgDiag_Razor Deferred entry) lifts this limitation.
+- **Cube decisions carry `Dice == [0, 0]` — never auto-skip them.**
+  `IsPassPosition` runs `MoveGenerator.GeneratePlays` on the dice; a cube
+  decision's `[0, 0]` produces the no-legal-play sentinel, so without the
+  `if (data.Decision.IsCube) return false;` guard at the top of
+  `IsPassPosition`, every cube decision is silently auto-skipped and the
+  whole cube feature is invisible. The guard is the first line; don't
+  remove it.
+- **Entry components are strict on decision type.** `BackgammonPlayEntry`
+  throws `NotImplementedException` on a cube decision and
+  `BackgammonCubeEntry` throws on a play decision. `Quiz.razor`'s
+  `IsCube` route must be exact; a mis-route fails loudly at render.
+- **`OnCubeDecisionCompleted` is `[EditorRequired]`.** Omitting the binding
+  on `BackgammonCubeEntry` surfaces as `RZ2012` (→ error under
+  `-warnaserror`), not a silent splat — unlike the play side's
+  `OnPlayCompleted`. Keep the binding present.
 - **Razor silently drops bindings to non-existent component parameters.**
   `<FilterPanel OnFiltersChanged="..."/>` against a panel that exposes
   `OnFilterConfigChanged` does not fail at build or render time — the
@@ -301,13 +356,13 @@ endpoints. The externally visible surface is the route map:
 
 ## Subproject-internal next steps
 
-- **Post-submit solution feedback.** `Quiz.razor` renders
-  `BackgammonPlayEntry` over `DiagramRequest.FromDecisionData(Current,
-  DiagramMode.Problem)`; Problem mode hides the analysis panel by design,
-  and `SubmitPlayAsync` advances directly to the next problem. The user
-  sees their running score in `ScorePanel` but never sees per-problem
-  feedback — what the best play was, what their equity loss was, why a
-  candidate was preferred. Phase 1 ships without this. Likely needs an
+- **Post-submit solution feedback.** `Quiz.razor` renders the entry
+  components over `DiagramRequest.FromDecisionData(Current,
+  DiagramMode.Problem)`; Problem mode hides the analysis panel by design
+  (for both play and cube decisions), and submit advances directly to the
+  next problem. The user sees their running score in `ScorePanel` but never
+  sees per-problem feedback — the best play/action, their equity loss, why
+  a candidate was preferred. Ships without this. Likely needs an
   intermediate "review" state in `QuizController` (not just
   `Current`/`IsFinished`/`SkippedCount`) and a corresponding render
   branch in `Quiz.razor` that flips to a solution view post-submit and
@@ -339,7 +394,9 @@ endpoints. The externally visible surface is the route map:
   upload-based instead (a Phase 2+ source kind). When an upload/remote
   source and a mode concept land, the picker's visibility must be gated
   — shown in local mode, hidden in remote mode.
-- **Cube-decision support.** Awaits the cube-entry sibling component in
-  BgDiag_Razor (Deferred). Once that lands, drop the
-  `CheckerPlaysOnly` auto-append from `StartAsync` and route cube vs.
-  checker decisions to the appropriate entry component.
+- **Cube detailed-evaluation review UI.** The four-way `ScoreBreakdown`
+  reports aggregate Play/Double/Take/Total accuracy on Done, but there is
+  no per-cube-problem review (which half the user got wrong, the equity gap,
+  the best action). This is the cube analog of the post-submit solution
+  feedback above and would share the same intermediate "review" state in
+  `QuizController`.

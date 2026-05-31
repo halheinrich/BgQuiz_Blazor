@@ -1,0 +1,56 @@
+@using BgGame_Lib
+
+@code {
+    [Parameter, EditorRequired] public QuizScore Score { get; set; } = QuizScore.Empty;
+    [Parameter] public string? Heading { get; set; }
+
+    // The four reported rows: the three independently-tracked segments plus the
+    // derived Total. Order mirrors a cube position's decision flow (play, then
+    // the doubler's offer, then the taker's response), with Total last.
+    private IEnumerable<(string Label, ScoreSegment Segment, bool IsTotal)> Rows =>
+    [
+        ("Play", Score.PlayDecisions, false),
+        ("Double", Score.DoubleDecisions, false),
+        ("Take", Score.TakeDecisions, false),
+        ("Total", Score.Total, true),
+    ];
+
+    // Accuracy is library-provided in [0, 1]; the ×100 percentage rendering is a
+    // display concern that lives here (per ScoreSegment's documented split).
+    private static string Percent(ScoreSegment segment) =>
+        (segment.Accuracy * 100).ToString("0");
+}
+
+<div class="score-breakdown">
+    @if (!string.IsNullOrEmpty(Heading))
+    {
+        <h2 class="h6">@Heading</h2>
+    }
+    <table class="table table-sm">
+        <thead>
+            <tr>
+                <th scope="col">Decision</th>
+                <th scope="col" class="text-end">Submitted</th>
+                <th scope="col" class="text-end">Correct</th>
+                <th scope="col" class="text-end">Avg loss</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var (label, segment, isTotal) in Rows)
+            {
+                <tr class="@(isTotal ? "fw-bold border-top" : null)">
+                    <th scope="row">@label</th>
+                    <td class="text-end">@segment.Submitted</td>
+                    <td class="text-end">
+                        @segment.Correct
+                        @if (segment.Submitted > 0)
+                        {
+                            <text> (@Percent(segment)%)</text>
+                        }
+                    </td>
+                    <td class="text-end">@segment.AverageEquityLoss.ToString("0.000")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>

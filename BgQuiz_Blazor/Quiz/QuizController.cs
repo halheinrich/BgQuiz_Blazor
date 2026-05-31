@@ -3,16 +3,16 @@ namespace BgQuiz_Blazor.Quiz;
 using BgDataTypes_Lib;
 using BgGame_Lib;
 using BgMoveGen;
-using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 
 /// <summary>
 /// Per-circuit quiz state machine. Owns the active <see cref="IProblemSetSource"/>
 /// enumerator, the running <see cref="QuizScore"/>, and the per-problem
-/// <see cref="SubmittedPlay"/> history. Pages observe state via
-/// <see cref="StateChanged"/> and drive transitions via
+/// <see cref="SubmittedPlay"/> / <see cref="SubmittedCubeAction"/> histories.
+/// Pages observe state via <see cref="StateChanged"/> and drive transitions via
 /// <see cref="StartAsync"/> / <see cref="SubmitPlayAsync"/> /
-/// <see cref="SkipCurrentAsync"/> / <see cref="RestartAsync"/>.
+/// <see cref="SubmitCubeActionAsync"/> / <see cref="SkipCurrentAsync"/> /
+/// <see cref="RestartAsync"/>.
 ///
 /// <para>
 /// Lifetime: <b>Scoped</b> — one instance per Blazor Server circuit. State is
@@ -38,19 +38,19 @@ using XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
-/// Phase 1 cube policy: a <see cref="DecisionTypeFilter"/> with
-/// <see cref="DecisionTypeOption.CheckerPlaysOnly"/> is added to the
-/// controller's own filter pipeline on <see cref="StartAsync"/>.
-/// AND-semantics with the user's <see cref="FilterConfig.DecisionType"/>
-/// choice means CheckerPlaysOnly always wins (or, if the user picked
-/// CubeOnly, the intersection is empty — the <c>Home.razor</c> banner has
-/// set that expectation).
+/// Decision-type policy: the user's <see cref="FilterConfig.DecisionType"/>
+/// choice governs which decisions the quiz admits — checker plays, cube
+/// decisions, or both. The controller adds no decision-type filter of its
+/// own; both checker plays (scored via <see cref="SubmitPlayAsync"/>) and
+/// cube decisions (scored via <see cref="SubmitCubeActionAsync"/>) flow when
+/// the user's filter admits them.
 /// </para>
 /// </summary>
 public sealed class QuizController : IAsyncDisposable
 {
     private readonly ProblemSetSourceFactory _sourceFactory;
     private readonly List<SubmittedPlay> _history = [];
+    private readonly List<SubmittedCubeAction> _cubeHistory = [];
 
     private DecisionFilterSet? _filterPipeline;
     private IProblemSetSource? _source;
@@ -70,8 +70,11 @@ public sealed class QuizController : IAsyncDisposable
     /// <summary>Cumulative running score. Resets on <see cref="StartAsync"/> / <see cref="RestartAsync"/>.</summary>
     public QuizScore Score { get; private set; } = QuizScore.Empty;
 
-    /// <summary>Per-problem in-list submission history.</summary>
+    /// <summary>Per-problem in-list checker-play submission history.</summary>
     public IReadOnlyList<SubmittedPlay> History => _history;
+
+    /// <summary>Per-problem cube-decision submission history.</summary>
+    public IReadOnlyList<SubmittedCubeAction> CubeHistory => _cubeHistory;
 
     /// <summary>True once the underlying source has been fully consumed.</summary>
     public bool IsFinished { get; private set; }
@@ -92,9 +95,8 @@ public sealed class QuizController : IAsyncDisposable
     /// <summary>
     /// Begin a fresh quiz against <paramref name="userConfig"/>. Materializes
     /// the user's <see cref="FilterConfig"/> into a <see cref="DecisionFilterSet"/>
-    /// owned entirely by this controller, augments it with Phase 1's
-    /// CheckerPlaysOnly cube policy, and advances to the first non-pass problem.
-    /// Resets score / history / skipped-count.
+    /// owned entirely by this controller and advances to the first non-pass
+    /// problem. Resets score / histories / skipped-count.
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="userConfig"/> is null.</exception>
     /// <exception cref="ArgumentException">
@@ -105,12 +107,11 @@ public sealed class QuizController : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(userConfig);
 
-        // Build a fresh, controller-owned pipeline from the immutable DTO and
-        // augment with the Phase 1 cube policy. Restart re-uses the augmented
-        // pipeline without re-building.
-        var pipeline = userConfig.Build();
-        pipeline.Add(new DecisionTypeFilter(DecisionTypeOption.CheckerPlaysOnly));
-        _filterPipeline = pipeline;
+        // Build a fresh, controller-owned pipeline from the immutable DTO. The
+        // user's DecisionType choice governs decision-type admission; the
+        // controller adds no filter of its own. Restart re-uses this pipeline
+        // without re-building.
+        _filterPipeline = userConfig.Build();
 
         await ResetAndAdvanceAsync();
     }
@@ -174,6 +175,42 @@ public sealed class QuizController : IAsyncDisposable
         await AdvanceAsync();
     }
 
+    /// <summary>
+    /// Score the user's cube <paramref name="answer"/> against
+    /// <see cref="Current"/>'s analysis and advance.
+    ///
+    /// <para>
+    /// A cube position is two independent atomic decisions — the doubler's
+    /// offer choice and the taker's response choice — so this always scores
+    /// both halves: the per-half equity loss
+    /// (<see cref="DecisionData.DoublerActionError"/> /
+    /// <see cref="DecisionData.TakerActionError"/>) and per-half correctness
+    /// (against <see cref="DecisionData.BestDoublerAction"/> /
+    /// <see cref="DecisionData.BestTakerAction"/>). Unlike
+    /// <see cref="SubmitPlayAsync"/> there is no off-list / skip path — every
+    /// cube answer is a complete, scorable pair (the doubler and taker button
+    /// groups can only yield in-range actions).
+    /// </para>
+    ///
+    /// <para>No-op when <see cref="Current"/> is null or <see cref="IsFinished"/>.</para>
+    /// </summary>
+    public async Task SubmitCubeActionAsync(CubeDecisionPair answer)
+    {
+        if (Current is null || IsFinished) return;
+
+        var d = Current.Decision;
+        var submitted = new SubmittedCubeAction(
+            answer,
+            d.DoublerActionError(answer.Doubler),
+            d.TakerActionError(answer.Taker),
+            answer.Doubler == d.BestDoublerAction,
+            answer.Taker == d.BestTakerAction);
+        _cubeHistory.Add(submitted);
+        Score = Score.Plus(submitted);
+
+        await AdvanceAsync();
+    }
+
     /// <summary>Skip the current problem without recording; advance.</summary>
     public async Task SkipCurrentAsync()
     {
@@ -210,6 +247,7 @@ public sealed class QuizController : IAsyncDisposable
 
         Score = QuizScore.Empty;
         _history.Clear();
+        _cubeHistory.Clear();
         SkippedCount = 0;
         IsFinished = false;
         Current = null;
@@ -255,6 +293,12 @@ public sealed class QuizController : IAsyncDisposable
 
     private static bool IsPassPosition(BgDecisionData data)
     {
+        // Cube decisions are always shown — never auto-skipped. They carry no
+        // dice ([0, 0] by the data-layer invariant), which would otherwise hit
+        // the no-legal-play sentinel below and silently skip every cube
+        // position.
+        if (data.Decision.IsCube) return false;
+
         var board = BoardState.FromMop(data.Position.Mop);
         var dice = data.Decision.Dice;
         var legal = MoveGenerator.GeneratePlays(board, dice[0], dice[1]);
