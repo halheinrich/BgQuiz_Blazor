@@ -180,9 +180,9 @@ public class QuizControllerTests
         Assert.True(first.IsCorrect);
         Assert.Equal(0.0, first.EquityLoss);
         Assert.Equal(0, first.MatchedCandidateIndex);
-        Assert.Equal(1, c.Score.Submitted);
-        Assert.Equal(1, c.Score.Correct);
-        Assert.Equal(0.0, c.Score.TotalEquityLoss);
+        Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.Equal(1, c.Score.Total.Correct);
+        Assert.Equal(0.0, c.Score.Total.TotalEquityLoss);
     }
 
     [Fact]
@@ -197,9 +197,9 @@ public class QuizControllerTests
         Assert.False(c.History[0].IsCorrect);
         Assert.Equal(0.05, c.History[0].EquityLoss, 6);
         Assert.Equal(1, c.History[0].MatchedCandidateIndex);
-        Assert.Equal(1, c.Score.Submitted);
-        Assert.Equal(0, c.Score.Correct);
-        Assert.Equal(0.05, c.Score.TotalEquityLoss, 6);
+        Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.Equal(0, c.Score.Total.Correct);
+        Assert.Equal(0.05, c.Score.Total.TotalEquityLoss, 6);
     }
 
     [Fact]
@@ -277,10 +277,10 @@ public class QuizControllerTests
         await c.SubmitPlayAsync(AltPlay());
         await c.SubmitPlayAsync(AltPlay());
 
-        Assert.Equal(2, c.Score.Submitted);
-        Assert.Equal(0, c.Score.Correct);
-        Assert.Equal(0.40, c.Score.TotalEquityLoss, 6);
-        Assert.Equal(0.20, c.Score.AverageEquityLoss, 6);
+        Assert.Equal(2, c.Score.Total.Submitted);
+        Assert.Equal(0, c.Score.Total.Correct);
+        Assert.Equal(0.40, c.Score.Total.TotalEquityLoss, 6);
+        Assert.Equal(0.20, c.Score.Total.AverageEquityLoss, 6);
     }
 
     // -----------------------------------------------------------------------
