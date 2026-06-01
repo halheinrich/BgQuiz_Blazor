@@ -1,6 +1,6 @@
 # BgQuiz_Blazor
 
-> Session conventions: [`../CLAUDE.md`](../CLAUDE.md)
+> Collaboration contract: [`../AGENTS.md`](../AGENTS.md)
 > Umbrella status & dependency graph: [`../INSTRUCTIONS.md`](../INSTRUCTIONS.md)
 > Mission & principles: [`../VISION.md`](../VISION.md)
 
