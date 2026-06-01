@@ -10,9 +10,21 @@ using XgFilter_Lib.Filtering;
 /// enumerator, the running <see cref="QuizScore"/>, and the per-problem
 /// <see cref="SubmittedPlay"/> / <see cref="SubmittedCubeAction"/> histories.
 /// Pages observe state via <see cref="StateChanged"/> and drive transitions via
-/// <see cref="StartAsync"/> / <see cref="SubmitPlayAsync"/> /
-/// <see cref="SubmitCubeActionAsync"/> / <see cref="SkipCurrentAsync"/> /
-/// <see cref="RestartAsync"/>.
+/// <see cref="StartAsync"/> / <see cref="SubmitPlay"/> /
+/// <see cref="SubmitCubeAction"/> / <see cref="ContinueAsync"/> /
+/// <see cref="SkipCurrentAsync"/> / <see cref="RestartAsync"/>.
+///
+/// <para>
+/// <b>Three-state per-problem flow.</b> Each problem moves through
+/// <i>answering</i> → <i>review</i> → <i>advance</i>. Submit
+/// (<see cref="SubmitPlay"/> / <see cref="SubmitCubeAction"/>) scores the answer
+/// and sets <see cref="Review"/> without advancing — the page flips to a static
+/// solution view. <see cref="ContinueAsync"/> then clears <see cref="Review"/>
+/// and pulls the next problem. Skip (<see cref="SkipCurrentAsync"/>) bypasses
+/// review and advances immediately. The split lets the page show the filled
+/// analysis panel (the same view the PPTX exporter renders in
+/// <c>DiagramMode.Solution</c>) before moving on.
+/// </para>
 ///
 /// <para>
 /// Lifetime: <b>Scoped</b> — one instance per Blazor Server circuit. State is
@@ -41,8 +53,8 @@ using XgFilter_Lib.Filtering;
 /// Decision-type policy: the user's <see cref="FilterConfig.DecisionType"/>
 /// choice governs which decisions the quiz admits — checker plays, cube
 /// decisions, or both. The controller adds no decision-type filter of its
-/// own; both checker plays (scored via <see cref="SubmitPlayAsync"/>) and
-/// cube decisions (scored via <see cref="SubmitCubeActionAsync"/>) flow when
+/// own; both checker plays (scored via <see cref="SubmitPlay"/>) and
+/// cube decisions (scored via <see cref="SubmitCubeAction"/>) flow when
 /// the user's filter admits them.
 /// </para>
 /// </summary>
@@ -66,6 +78,15 @@ public sealed class QuizController : IAsyncDisposable
 
     /// <summary>The decision currently being shown to the user; null before start or after finish.</summary>
     public BgDecisionData? Current { get; private set; }
+
+    /// <summary>
+    /// The scored outcome of the just-submitted problem, set by Submit and
+    /// cleared by <see cref="ContinueAsync"/> (and on start / restart). Non-null
+    /// marks the <i>review</i> state: <see cref="Current"/> still points at the
+    /// answered problem, and the page shows the solution view rather than the
+    /// entry form. Null in the <i>answering</i> state and after finish.
+    /// </summary>
+    public ProblemReview? Review { get; private set; }
 
     /// <summary>Cumulative running score. Resets on <see cref="StartAsync"/> / <see cref="RestartAsync"/>.</summary>
     public QuizScore Score { get; private set; } = QuizScore.Empty;
@@ -118,7 +139,9 @@ public sealed class QuizController : IAsyncDisposable
 
     /// <summary>
     /// Score the user's <paramref name="play"/> against <see cref="Current"/>'s
-    /// candidate list and advance.
+    /// candidate list and enter the <i>review</i> state — set
+    /// <see cref="Review"/> and fire <see cref="StateChanged"/> without
+    /// advancing. <see cref="ContinueAsync"/> moves to the next problem.
     ///
     /// <para>
     /// Matching is structural: <see cref="Play.DeduplicationKey"/> on the
@@ -135,14 +158,19 @@ public sealed class QuizController : IAsyncDisposable
     /// doesn't appear in the analyzer's candidate list) counts as a skip
     /// rather than a scoring miss — there is no equity-loss to record. This
     /// is rare on well-analyzed positions and signals an analysis omission
-    /// rather than a user error.
+    /// rather than a user error. It still produces a <see cref="Review"/>
+    /// (<see cref="ProblemReview.Play.OffList"/> true, index <c>-1</c>) so the
+    /// user sees the best play on the solution diagram.
     /// </para>
     ///
-    /// <para>No-op when <see cref="Current"/> is null or <see cref="IsFinished"/>.</para>
+    /// <para>
+    /// No-op when <see cref="Current"/> is null, <see cref="IsFinished"/>, or
+    /// already in the review state (<see cref="Review"/> set — Continue first).
+    /// </para>
     /// </summary>
-    public async Task SubmitPlayAsync(Play play)
+    public void SubmitPlay(Play play)
     {
-        if (Current is null || IsFinished) return;
+        if (Current is null || IsFinished || Review is not null) return;
 
         var key = play.DeduplicationKey();
         int? matchedIdx = null;
@@ -166,18 +194,22 @@ public sealed class QuizController : IAsyncDisposable
                 candidate.EquityLoss == 0.0);
             _history.Add(submitted);
             Score = Score.Plus(submitted);
+            Review = new ProblemReview.Play(idx, candidate.EquityLoss, submitted.IsCorrect, OffList: false);
         }
         else
         {
             SkippedCount++;
+            Review = new ProblemReview.Play(UserPlayIndex: -1, EquityLoss: 0.0, IsCorrect: false, OffList: true);
         }
 
-        await AdvanceAsync();
+        StateChanged?.Invoke();
     }
 
     /// <summary>
     /// Score the user's cube <paramref name="answer"/> against
-    /// <see cref="Current"/>'s analysis and advance.
+    /// <see cref="Current"/>'s analysis and enter the <i>review</i> state — set
+    /// <see cref="Review"/> and fire <see cref="StateChanged"/> without
+    /// advancing. <see cref="ContinueAsync"/> moves to the next problem.
     ///
     /// <para>
     /// A cube position is two independent atomic decisions — the doubler's
@@ -187,16 +219,21 @@ public sealed class QuizController : IAsyncDisposable
     /// <see cref="DecisionData.TakerActionError"/>) and per-half correctness
     /// (against <see cref="DecisionData.BestDoublerAction"/> /
     /// <see cref="DecisionData.BestTakerAction"/>). Unlike
-    /// <see cref="SubmitPlayAsync"/> there is no off-list / skip path — every
+    /// <see cref="SubmitPlay"/> there is no off-list / skip path — every
     /// cube answer is a complete, scorable pair (the doubler and taker button
-    /// groups can only yield in-range actions).
+    /// groups can only yield in-range actions). The two per-half losses are
+    /// carried on <see cref="ProblemReview.Cube"/> and drive the solution
+    /// diagram's "Actual" banner.
     /// </para>
     ///
-    /// <para>No-op when <see cref="Current"/> is null or <see cref="IsFinished"/>.</para>
+    /// <para>
+    /// No-op when <see cref="Current"/> is null, <see cref="IsFinished"/>, or
+    /// already in the review state (<see cref="Review"/> set — Continue first).
+    /// </para>
     /// </summary>
-    public async Task SubmitCubeActionAsync(CubeDecisionPair answer)
+    public void SubmitCubeAction(CubeDecisionPair answer)
     {
-        if (Current is null || IsFinished) return;
+        if (Current is null || IsFinished || Review is not null) return;
 
         var d = Current.Decision;
         var submitted = new SubmittedCubeAction(
@@ -207,14 +244,36 @@ public sealed class QuizController : IAsyncDisposable
             answer.Taker == d.BestTakerAction);
         _cubeHistory.Add(submitted);
         Score = Score.Plus(submitted);
+        Review = new ProblemReview.Cube(
+            submitted.DoublerEquityLoss,
+            submitted.TakerEquityLoss,
+            submitted.DoublerCorrect,
+            submitted.TakerCorrect);
 
+        StateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Leave the <i>review</i> state and advance to the next problem, clearing
+    /// <see cref="Review"/>. No-op outside the review state (when
+    /// <see cref="Review"/> is null). This is the only path out of review;
+    /// exhausting the source here flips <see cref="IsFinished"/>.
+    /// </summary>
+    public async Task ContinueAsync()
+    {
+        if (Review is null) return;
+        Review = null;
         await AdvanceAsync();
     }
 
-    /// <summary>Skip the current problem without recording; advance.</summary>
+    /// <summary>
+    /// Skip the current problem without recording; advance immediately (no
+    /// review). No-op outside the <i>answering</i> state — before start, after
+    /// finish, or while a <see cref="Review"/> is showing.
+    /// </summary>
     public async Task SkipCurrentAsync()
     {
-        if (Current is null || IsFinished) return;
+        if (Current is null || IsFinished || Review is not null) return;
         SkippedCount++;
         await AdvanceAsync();
     }
@@ -251,6 +310,7 @@ public sealed class QuizController : IAsyncDisposable
         SkippedCount = 0;
         IsFinished = false;
         Current = null;
+        Review = null;
 
         await AdvanceAsync();
     }

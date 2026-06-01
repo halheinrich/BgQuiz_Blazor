@@ -191,16 +191,16 @@ public class QuizControllerTests
     }
 
     // -----------------------------------------------------------------------
-    //  SubmitPlayAsync — scoring
+    //  SubmitPlay — scoring (enters review; ContinueAsync advances)
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task SubmitPlayAsync_BestPlay_Scores_IsCorrect()
+    public async Task SubmitPlay_BestPlay_Scores_IsCorrect()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
         await c.StartAsync(new FilterConfig());
 
-        await c.SubmitPlayAsync(BestPlay());
+        c.SubmitPlay(BestPlay());
 
         Assert.Single(c.History);
         var first = c.History[0];
@@ -213,12 +213,12 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task SubmitPlayAsync_NonBestPlay_Scores_NotCorrect()
+    public async Task SubmitPlay_NonBestPlay_Scores_NotCorrect()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
         await c.StartAsync(new FilterConfig());
 
-        await c.SubmitPlayAsync(AltPlay());
+        c.SubmitPlay(AltPlay());
 
         Assert.Single(c.History);
         Assert.False(c.History[0].IsCorrect);
@@ -230,79 +230,150 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task SubmitPlayAsync_OffList_CountsAsSkip_NoHistoryEntry()
+    public async Task SubmitPlay_SetsPlayReview_DoesNotAdvance()
     {
+        // Submit scores and enters the review state without advancing: Current
+        // still points at the answered problem and Review carries the matched
+        // candidate index that drives the solution diagram's UserPlayIndex marker.
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05);
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = Make(d1, d2);
+        await c.StartAsync(new FilterConfig());
+
+        c.SubmitPlay(AltPlay());
+
+        Assert.Same(d1, c.Current); // unchanged — no advance
+        Assert.False(c.IsFinished);
+        var review = Assert.IsType<ProblemReview.Play>(c.Review);
+        Assert.Equal(1, review.UserPlayIndex);
+        Assert.False(review.OffList);
+        Assert.False(review.IsCorrect);
+        Assert.Equal(0.05, review.EquityLoss, 6);
+    }
+
+    [Fact]
+    public async Task SubmitPlay_OffList_CountsAsSkip_SetsOffListReview()
+    {
+        // Off-list: counted as a skip (no History entry, score unchanged), but a
+        // Review is still produced — OffList true, index -1 (no marker drawn) —
+        // so the user sees the best play on the solution diagram.
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig());
 
-        await c.SubmitPlayAsync(UnknownPlay());
+        c.SubmitPlay(UnknownPlay());
 
         Assert.Empty(c.History);
         Assert.Equal(QuizScore.Empty, c.Score);
         Assert.Equal(1, c.SkippedCount);
+        var review = Assert.IsType<ProblemReview.Play>(c.Review);
+        Assert.True(review.OffList);
+        Assert.Equal(-1, review.UserPlayIndex);
     }
 
     [Fact]
-    public async Task SubmitPlayAsync_AdvancesToNext()
+    public async Task ContinueAsync_AdvancesAndClearsReview()
     {
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d1, d2);
         await c.StartAsync(new FilterConfig());
+        c.SubmitPlay(BestPlay());
+        Assert.NotNull(c.Review);
         Assert.Same(d1, c.Current);
 
-        await c.SubmitPlayAsync(BestPlay());
+        await c.ContinueAsync();
 
+        Assert.Null(c.Review);
         Assert.Same(d2, c.Current);
         Assert.False(c.IsFinished);
     }
 
     [Fact]
-    public async Task SubmitPlayAsync_LastProblem_FlipsIsFinished()
+    public async Task ContinueAsync_OutsideReview_NoOp()
+    {
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        Assert.Null(c.Review);
+
+        await c.ContinueAsync(); // no Review set — must not advance
+
+        Assert.NotNull(c.Current);
+        Assert.False(c.IsFinished);
+    }
+
+    [Fact]
+    public async Task SubmitPlay_WhileReviewSet_NoOp()
+    {
+        // Once in review, a second Submit must be ignored — Continue is the only
+        // way forward. Guards against a double-click double-scoring the problem.
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
+        await c.StartAsync(new FilterConfig());
+        c.SubmitPlay(BestPlay());
+        var reviewBefore = c.Review;
+
+        c.SubmitPlay(AltPlay());
+
+        Assert.Same(reviewBefore, c.Review); // unchanged
+        Assert.Single(c.History);
+        Assert.Equal(1, c.Score.Total.Submitted);
+    }
+
+    [Fact]
+    public async Task SubmitThenContinue_LastProblem_FlipsIsFinished()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig());
 
-        await c.SubmitPlayAsync(BestPlay());
+        c.SubmitPlay(BestPlay());
+        Assert.False(c.IsFinished); // review first — not yet advanced
+        Assert.NotNull(c.Current);
+
+        await c.ContinueAsync();
 
         Assert.True(c.IsFinished);
         Assert.Null(c.Current);
+        Assert.Null(c.Review);
     }
 
     [Fact]
-    public async Task SubmitPlayAsync_BeforeStart_NoOp()
+    public async Task SubmitPlay_BeforeStart_NoOp()
     {
         var c = Make();
 
-        await c.SubmitPlayAsync(BestPlay());
+        c.SubmitPlay(BestPlay());
 
         Assert.Empty(c.History);
         Assert.Equal(0, c.SkippedCount);
+        Assert.Null(c.Review);
     }
 
     [Fact]
-    public async Task SubmitPlayAsync_AfterFinish_NoOp()
+    public async Task SubmitPlay_AfterFinish_NoOp()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig());
-        await c.SubmitPlayAsync(BestPlay()); // exhausts
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync(); // exhausts → IsFinished
+        Assert.True(c.IsFinished);
 
         var historyBefore = c.History.Count;
-        await c.SubmitPlayAsync(BestPlay());
+        c.SubmitPlay(BestPlay());
 
         Assert.Equal(historyBefore, c.History.Count);
     }
 
     [Fact]
-    public async Task SubmitPlayAsync_AccumulatesEquityLossAcrossMultiple()
+    public async Task SubmitPlay_AccumulatesEquityLossAcrossMultiple()
     {
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.10),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.30));
         await c.StartAsync(new FilterConfig());
 
-        await c.SubmitPlayAsync(AltPlay());
-        await c.SubmitPlayAsync(AltPlay());
+        c.SubmitPlay(AltPlay());
+        await c.ContinueAsync();
+        c.SubmitPlay(AltPlay());
+        await c.ContinueAsync();
 
         Assert.Equal(2, c.Score.Total.Submitted);
         Assert.Equal(0, c.Score.Total.Correct);
@@ -311,16 +382,16 @@ public class QuizControllerTests
     }
 
     // -----------------------------------------------------------------------
-    //  SubmitCubeActionAsync — scoring
+    //  SubmitCubeAction — scoring (enters review; ContinueAsync advances)
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task SubmitCubeActionAsync_BestAnswer_ScoresBothHalvesCorrect()
+    public async Task SubmitCubeAction_BestAnswer_ScoresBothHalvesCorrect()
     {
         var c = Make(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig());
 
-        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
 
         Assert.Single(c.CubeHistory);
         var sub = c.CubeHistory[0];
@@ -341,12 +412,12 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task SubmitCubeActionAsync_WrongAnswer_ScoresPerHalfLoss()
+    public async Task SubmitCubeAction_WrongAnswer_ScoresPerHalfLoss()
     {
         var c = Make(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig());
 
-        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
 
         var sub = c.CubeHistory[0];
         Assert.False(sub.DoublerCorrect);
@@ -361,70 +432,115 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task SubmitCubeActionAsync_AdvancesToNext()
+    public async Task SubmitCubeAction_SetsCubeReview_CarryingBothErrors_DoesNotAdvance()
+    {
+        // Submit scores and enters review without advancing; Review.Cube carries
+        // the two per-half equity losses that drive the solution diagram's
+        // "Actual" banner.
+        var d1 = TestFixtures.CubeDecision();
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = Make(d1, d2);
+        await c.StartAsync(new FilterConfig());
+
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
+
+        Assert.Same(d1, c.Current); // unchanged — no advance
+        Assert.False(c.IsFinished);
+        var review = Assert.IsType<ProblemReview.Cube>(c.Review);
+        Assert.Equal(0.20, review.DoublerEquityLoss, 6);
+        Assert.Equal(0.30, review.TakerEquityLoss, 6);
+        Assert.False(review.DoublerCorrect);
+        Assert.False(review.TakerCorrect);
+    }
+
+    [Fact]
+    public async Task ContinueAsync_AfterCubeSubmit_Advances()
     {
         var d1 = TestFixtures.CubeDecision();
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d1, d2);
         await c.StartAsync(new FilterConfig());
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
         Assert.Same(d1, c.Current);
 
-        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await c.ContinueAsync();
 
+        Assert.Null(c.Review);
         Assert.Same(d2, c.Current);
         Assert.False(c.IsFinished);
     }
 
     [Fact]
-    public async Task SubmitCubeActionAsync_LastProblem_FlipsIsFinished()
+    public async Task SubmitCubeAction_WhileReviewSet_NoOp()
+    {
+        var c = Make(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        var reviewBefore = c.Review;
+
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
+
+        Assert.Same(reviewBefore, c.Review);
+        Assert.Single(c.CubeHistory);
+    }
+
+    [Fact]
+    public async Task SubmitCubeThenContinue_LastProblem_FlipsIsFinished()
     {
         var c = Make(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig());
 
-        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        Assert.False(c.IsFinished); // review first
+
+        await c.ContinueAsync();
 
         Assert.True(c.IsFinished);
         Assert.Null(c.Current);
     }
 
     [Fact]
-    public async Task SubmitCubeActionAsync_BeforeStart_NoOp()
+    public async Task SubmitCubeAction_BeforeStart_NoOp()
     {
         var c = Make();
 
-        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
 
         Assert.Empty(c.CubeHistory);
         Assert.Equal(QuizScore.Empty, c.Score);
+        Assert.Null(c.Review);
     }
 
     [Fact]
-    public async Task SubmitCubeActionAsync_AfterFinish_NoOp()
+    public async Task SubmitCubeAction_AfterFinish_NoOp()
     {
         var c = Make(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig());
-        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take)); // exhausts
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await c.ContinueAsync(); // exhausts
         Assert.True(c.IsFinished);
 
         var countBefore = c.CubeHistory.Count;
-        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
 
         Assert.Equal(countBefore, c.CubeHistory.Count);
     }
 
     [Fact]
-    public async Task RestartAsync_ClearsCubeHistory()
+    public async Task RestartAsync_ClearsCubeHistoryAndReview()
     {
         var c = Make(
             TestFixtures.CubeDecision(),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig());
-        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
         Assert.Single(c.CubeHistory);
+        Assert.NotNull(c.Review);
 
         await c.RestartAsync();
 
         Assert.Empty(c.CubeHistory);
+        Assert.Null(c.Review);
     }
 
     // -----------------------------------------------------------------------
@@ -458,12 +574,32 @@ public class QuizControllerTests
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig());
-        await c.SubmitPlayAsync(BestPlay()); // exhaust
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync(); // exhaust
         Assert.True(c.IsFinished);
 
         await c.SkipCurrentAsync();
 
         Assert.Equal(0, c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task SkipCurrentAsync_WhileReviewSet_NoOp()
+    {
+        // Skip bypasses review, but only from the answering state. While a
+        // Review is showing, Continue is the only exit — Skip must not advance.
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = Make(d1, d2);
+        await c.StartAsync(new FilterConfig());
+        c.SubmitPlay(BestPlay());
+        Assert.NotNull(c.Review);
+
+        await c.SkipCurrentAsync();
+
+        Assert.Equal(0, c.SkippedCount);
+        Assert.Same(d1, c.Current); // not advanced
+        Assert.NotNull(c.Review);
     }
 
     // -----------------------------------------------------------------------
@@ -485,7 +621,8 @@ public class QuizControllerTests
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig());
-        await c.SubmitPlayAsync(BestPlay());
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
         await c.SkipCurrentAsync();
         Assert.Single(c.History);
         Assert.Equal(1, c.SkippedCount);
@@ -518,7 +655,7 @@ public class QuizControllerTests
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task StateChanged_FiresOnEachAdvance()
+    public async Task StateChanged_FiresOnSubmitAndEachAdvance()
     {
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
@@ -526,10 +663,11 @@ public class QuizControllerTests
         var fires = 0;
         c.StateChanged += () => fires++;
 
-        await c.StartAsync(new FilterConfig()); // 1
-        await c.SubmitPlayAsync(BestPlay());         // 2
-        await c.SkipCurrentAsync();                  // 3
+        await c.StartAsync(new FilterConfig()); // 1 — advance to first
+        c.SubmitPlay(BestPlay());               // 2 — score + enter review
+        await c.ContinueAsync();                // 3 — advance to second
+        await c.SkipCurrentAsync();             // 4 — skip + advance (exhausts)
 
-        Assert.Equal(3, fires);
+        Assert.Equal(4, fires);
     }
 }

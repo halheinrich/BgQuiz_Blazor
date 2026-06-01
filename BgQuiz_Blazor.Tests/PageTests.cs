@@ -257,19 +257,58 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_FinishedAfterSubmit_RedirectsToDone()
+    public async Task Quiz_FinishedAfterContinue_RedirectsToDone()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig());
         var cut = Render<QuizPage>();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
-        // Drive the controller directly past the source's tail; the page is
-        // subscribed to StateChanged and should redirect to /done.
-        await c.SubmitPlayAsync(BestPlay());
+        // Submit enters review (no redirect yet); Continue drives past the
+        // source's tail. The page is subscribed to StateChanged and should
+        // redirect to /done once IsFinished flips on Continue.
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.False(c.IsFinished);
+        await c.ContinueAsync();
 
         Assert.True(c.IsFinished);
         Assert.EndsWith("/done", nav.Uri);
+    }
+
+    [Fact]
+    public async Task Quiz_AfterSubmit_ShowsSolutionView_ContinueReturnsToEntry()
+    {
+        // The review branch: after Submit the page shows the solution view —
+        // Continue is offered and the Submit / Skip action row is gone. Continue
+        // advances to the next problem and the entry row returns. Driven through
+        // the wire (cube entry callback → Submit click → Continue click).
+        var c = WithController(
+            TestFixtures.CubeDecision(),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        var cubeEntry = cut.FindComponent<BackgammonCubeEntry>();
+        await cut.InvokeAsync(() =>
+            cubeEntry.Instance.OnCubeDecisionCompleted.InvokeAsync(
+                new CubeDecisionPair(CubeAction.Double, CubeAction.Take)));
+        var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
+        await submit.ClickAsync(new());
+
+        // Review view: Continue present, Submit / Skip gone.
+        var reviewButtons = cut.FindAll("button").Select(b => b.TextContent.Trim()).ToList();
+        Assert.Contains("Continue", reviewButtons);
+        Assert.DoesNotContain("Submit", reviewButtons);
+        Assert.DoesNotContain("Skip", reviewButtons);
+
+        var continueBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Continue");
+        await continueBtn.ClickAsync(new());
+
+        // Back to the answering view for the next problem.
+        var entryButtons = cut.FindAll("button").Select(b => b.TextContent.Trim()).ToList();
+        Assert.Contains("Submit", entryButtons);
+        Assert.Contains("Skip", entryButtons);
+        Assert.DoesNotContain("Continue", entryButtons);
     }
 
     [Fact]
@@ -306,7 +345,7 @@ public class PageTests : BunitContext
     {
         // The parent → child → handler wire for cube: the cube entry fires
         // OnCubeDecisionCompleted, the page latches it and enables Submit, and
-        // the Submit click routes to SubmitCubeActionAsync, scoring both halves
+        // the Submit click routes to SubmitCubeAction, scoring both halves
         // into the Double / Take segments.
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig());
@@ -347,7 +386,8 @@ public class PageTests : BunitContext
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig());
-        await c.SubmitPlayAsync(BestPlay()); // exhausts → IsFinished
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync(); // exhausts → IsFinished
 
         var cut = Render<DonePage>();
 
@@ -364,8 +404,10 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig());
-        await c.SubmitPlayAsync(BestPlay());
-        await c.SubmitPlayAsync(BestPlay());
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
         Assert.True(c.IsFinished);
 
         var cut = Render<DonePage>();
@@ -384,7 +426,8 @@ public class PageTests : BunitContext
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig());
-        await c.SubmitPlayAsync(BestPlay());
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
 
         var cut = Render<DonePage>();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
@@ -406,8 +449,10 @@ public class PageTests : BunitContext
             TestFixtures.CubeDecision(),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig());
-        await c.SubmitCubeActionAsync(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
-        await c.SubmitPlayAsync(BestPlay());
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await c.ContinueAsync();
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
         Assert.True(c.IsFinished);
 
         var cut = Render<DonePage>();
