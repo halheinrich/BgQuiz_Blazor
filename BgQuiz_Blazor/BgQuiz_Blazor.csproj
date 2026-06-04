@@ -7,6 +7,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Hosts the WASM client; its _Imports assembly is also registered as an
+         additional routable-component source in Program.cs. -->
+    <ProjectReference Include="..\BgQuiz_Blazor.Client\BgQuiz_Blazor.Client.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\BackgammonDiagram_Lib\BackgammonDiagram_Lib\BackgammonDiagram_Lib.csproj" />
     <ProjectReference Include="..\..\BgDataTypes_Lib\BgDataTypes_Lib\BgDataTypes_Lib.csproj" />
     <ProjectReference Include="..\..\BgDiag_Razor\BgDiag_Razor\BgDiag_Razor.csproj" />

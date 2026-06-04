@@ -1,0 +1,51 @@
+@page "/wasm-board"
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+
+@using BgDataTypes_Lib
+@using BackgammonDiagram_Lib
+@using BgDiag_Razor.Components
+
+@*
+    Phase 2a feasibility probe — the ONLY job of this page is to prove that
+    BackgammonDiagram (BgDiag_Razor → BackgammonDiagram_Lib.RenderSvg) renders
+    inside the browser-wasm runtime, with SkiaSharp/QuestPDF/OpenXml present in
+    the dependency closure as never-loaded dead weight.
+
+    No filters, no quiz flow, no file picker — one hardcoded board. The render
+    runs entirely client-side (prerender:false), so a visible SVG here means the
+    native-bundling library closure is WASM-viable. The board data is the
+    standard opening position, built via DiagramRequest.Builder exactly as
+    BgDiag_Razor's own tests do.
+*@
+
+<PageTitle>BgQuiz — WASM board spike</PageTitle>
+
+<div class="container py-3">
+    <h1>WASM board spike</h1>
+
+    <p class="text-muted">
+        Rendered client-side in WebAssembly via
+        <code>BackgammonDiagram_Lib.DiagramRenderer.RenderSvg</code>. If you can
+        see the board below, the bundled-native-deps closure is WASM-viable.
+    </p>
+
+    <div class="board-container my-3" style="max-width:800px">
+        <BackgammonDiagram Request="_request" Options="_options" />
+    </div>
+</div>
+
+@code {
+    private readonly DiagramOptions _options = new();
+
+    // Standard opening position in MOP (mover's-own-perspective) board form:
+    // index 0 = opponent bar, 1–24 = points, 25 = on-roll bar; positive = on-roll.
+    private static readonly DiagramRequest _request = new DiagramRequest.Builder
+    {
+        Mop = [0, 2, 0, 0, 0, 0, -5, 0, -3, 0, 0, 0, 5, -5, 0, 0, 0, 3, 0, 5, 0, 0, 0, 0, -2, 0],
+        OnRollName = "Player",
+        OpponentName = "Opponent",
+        Dice = [3, 1],
+        CubeSize = 1,
+        CubeOwner = CubeOwner.Centered,
+    }.Build();
+}

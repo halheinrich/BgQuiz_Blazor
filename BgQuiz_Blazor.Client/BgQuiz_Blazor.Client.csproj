@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>BgQuiz_Blazor.Client</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Phase 2a feasibility probe: the .Client references ONLY BgDiag_Razor and
+         lets it transitively pull BackgammonDiagram_Lib (DiagramRequest /
+         DiagramRenderer.RenderSvg) and BgDataTypes_Lib. That transitive closure
+         is exactly what this spike tests against browser-wasm — BackgammonDiagram_Lib
+         bundles SkiaSharp + QuestPDF + OpenXml, and only RenderSvg is managed.
+         Do NOT add a direct BackgammonDiagram_Lib reference here. -->
+    <ProjectReference Include="..\..\BgDiag_Razor\BgDiag_Razor\BgDiag_Razor.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,14 @@
+{
+  // BgQuiz_Blazor.Client — WebAssembly client project.
+  // This project is NOT launched directly. It is hosted by the server project
+  // (BgQuiz_Blazor); launch that instead.
+  "profiles": {
+    "BgQuiz_Blazor.Client": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

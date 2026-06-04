@@ -5,7 +5,8 @@ using Microsoft.Extensions.Options;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents()
+    .AddInteractiveWebAssemblyComponents();
 
 builder.Services.AddOptions<QuizOptions>()
     .Bind(builder.Configuration.GetSection("Quiz"));
@@ -42,8 +43,13 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseAntiforgery();
 app.UseStaticFiles();
+// Serves the WASM client's fingerprinted static web assets (the _framework boot
+// files); also backs the @Assets[...] lookups in App.razor.
+app.MapStaticAssets();
 
 app.MapRazorComponents<App>()
-    .AddInteractiveServerRenderMode();
+    .AddInteractiveServerRenderMode()
+    .AddInteractiveWebAssemblyRenderMode()
+    .AddAdditionalAssemblies(typeof(BgQuiz_Blazor.Client._Imports).Assembly);
 
 app.Run();
