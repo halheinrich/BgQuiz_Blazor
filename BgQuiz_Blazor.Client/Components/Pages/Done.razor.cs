@@ -1,7 +1,7 @@
-using BgQuiz_Blazor.Quiz;
+using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
 
-namespace BgQuiz_Blazor.Components.Pages;
+namespace BgQuiz_Blazor.Client.Components.Pages;
 
 /// <summary>
 /// Phase 1 final-summary page rendered after the active

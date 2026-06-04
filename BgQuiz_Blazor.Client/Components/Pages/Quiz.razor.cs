@@ -1,10 +1,10 @@
 using BackgammonDiagram_Lib;
 using BgDataTypes_Lib;
 using BgDiag_Razor.Components;
-using BgQuiz_Blazor.Quiz;
+using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
 
-namespace BgQuiz_Blazor.Components.Pages;
+namespace BgQuiz_Blazor.Client.Components.Pages;
 
 /// <summary>
 /// Quiz page: hosts either <see cref="BackgammonPlayEntry"/> (checker plays)

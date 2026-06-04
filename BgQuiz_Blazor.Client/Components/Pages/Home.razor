@@ -1,0 +1,43 @@
+@page "/"
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+
+@using BgQuiz_Blazor.Client.Quiz
+@using XgFilter_Razor.Components
+@using XgFilter_Lib.Filtering
+
+@inject NavigationManager Nav
+@inject QuizController Controller
+
+<PageTitle>BgQuiz</PageTitle>
+
+<div class="container py-3">
+    <h1>BgQuiz</h1>
+
+    <div class="alert alert-info" role="alert" style="max-width:800px">
+        <strong>Preview build.</strong> The quiz currently draws from a small
+        built-in sample set. Picking your own local <code>.xg</code> /
+        <code>.xgp</code> files — parsed in your browser, never uploaded — lands
+        in the next step.
+    </div>
+
+    <FilterPanel OnFilterConfigChanged="HandleFilterConfigApplied"
+                 OnFilterDirty="HandleFiltersDirty" />
+
+    <button class="btn btn-primary"
+            disabled="@(!CanStart)"
+            @onclick="StartQuizAsync">
+        Start Quiz
+    </button>
+
+    @if (!_filtersApplied)
+    {
+        <small class="text-muted ms-2">Apply the filters above to enable Start.</small>
+    }
+
+    @if (!string.IsNullOrEmpty(_startError))
+    {
+        <div class="alert alert-danger mt-3" role="alert">
+            <strong>Could not start quiz:</strong> @_startError
+        </div>
+    }
+</div>

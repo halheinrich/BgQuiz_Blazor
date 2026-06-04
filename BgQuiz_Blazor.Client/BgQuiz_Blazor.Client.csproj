@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -12,13 +12,23 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Phase 2a feasibility probe: the .Client references ONLY BgDiag_Razor and
-         lets it transitively pull BackgammonDiagram_Lib (DiagramRequest /
-         DiagramRenderer.RenderSvg) and BgDataTypes_Lib. That transitive closure
-         is exactly what this spike tests against browser-wasm — BackgammonDiagram_Lib
-         bundles SkiaSharp + QuestPDF + OpenXml, and only RenderSvg is managed.
-         Do NOT add a direct BackgammonDiagram_Lib reference here. -->
+    <!-- The interactive quiz surface runs entirely in the browser-wasm runtime:
+         board rendering (BgDiag_Razor -> BackgammonDiagram_Lib core, native-free),
+         filter UI (XgFilter_Razor), in-browser .xg/.xgp parsing + filtering
+         (XgFilter_Lib + ConvertXgToJson_Lib), move generation (BgMoveGen), and the
+         quiz/scoring domain (BgGame_Lib). A direct reference to the
+         BackgammonDiagram_Lib *core* is intentional and safe now that the core is
+         native-free (split bdc952f). The native raster/export sibling
+         (BackgammonDiagram_Lib.ExportRaster: SkiaSharp / QuestPDF / OpenXml) is
+         deliberately NOT referenced; the quiz renders SVG only. -->
+    <ProjectReference Include="..\..\BackgammonDiagram_Lib\BackgammonDiagram_Lib\BackgammonDiagram_Lib.csproj" />
+    <ProjectReference Include="..\..\BgDataTypes_Lib\BgDataTypes_Lib\BgDataTypes_Lib.csproj" />
     <ProjectReference Include="..\..\BgDiag_Razor\BgDiag_Razor\BgDiag_Razor.csproj" />
+    <ProjectReference Include="..\..\BgGame_Lib\BgGame_Lib\BgGame_Lib.csproj" />
+    <ProjectReference Include="..\..\BgMoveGen\BgMoveGen\BgMoveGen.csproj" />
+    <ProjectReference Include="..\..\ConvertXgToJson_Lib\ConvertXgToJson_Lib\ConvertXgToJson_Lib.csproj" />
+    <ProjectReference Include="..\..\XgFilter_Lib\XgFilter_Lib\XgFilter_Lib.csproj" />
+    <ProjectReference Include="..\..\XgFilter_Razor\XgFilter_Razor\XgFilter_Razor.csproj" />
   </ItemGroup>
 
 </Project>

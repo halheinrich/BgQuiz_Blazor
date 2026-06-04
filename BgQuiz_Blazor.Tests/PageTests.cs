@@ -1,7 +1,7 @@
 using BgDataTypes_Lib;
 using BgDiag_Razor.Components;
 using BgGame_Lib;
-using BgQuiz_Blazor.Quiz;
+using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
 using Bunit.TestDoubles;
 using Microsoft.AspNetCore.Components;
@@ -9,12 +9,12 @@ using Microsoft.Extensions.DependencyInjection;
 using XgFilter_Lib.Filtering;
 using XgFilter_Razor.Components;
 
-// `BgQuiz_Blazor.Quiz` is a namespace; `BgQuiz_Blazor.Components.Pages.Quiz`
+// `BgQuiz_Blazor.Client.Quiz` is a namespace; `BgQuiz_Blazor.Client.Components.Pages.Quiz`
 // is the page type — the using-import above shadows the type. Aliases keep
 // the test calls (Render<QuizPage>()) unambiguous without renaming the page.
-using HomePage = BgQuiz_Blazor.Components.Pages.Home;
-using QuizPage = BgQuiz_Blazor.Components.Pages.Quiz;
-using DonePage = BgQuiz_Blazor.Components.Pages.Done;
+using HomePage = BgQuiz_Blazor.Client.Components.Pages.Home;
+using QuizPage = BgQuiz_Blazor.Client.Components.Pages.Quiz;
+using DonePage = BgQuiz_Blazor.Client.Components.Pages.Done;
 
 namespace BgQuiz_Blazor.Tests;
 
@@ -31,20 +31,6 @@ public class PageTests : BunitContext
         return controller;
     }
 
-    /// <summary>A directory guaranteed to exist — the test's own bin folder.</summary>
-    private static string ExistingDirectory => AppContext.BaseDirectory;
-
-    /// <summary>
-    /// Register a <see cref="ProblemSetSelection"/> with the given directory so
-    /// the rendered <c>Home</c> page resolves it. Returned for assertions.
-    /// </summary>
-    private ProblemSetSelection WithSelection(string directory)
-    {
-        var selection = new ProblemSetSelection { Directory = directory };
-        Services.AddSingleton(selection);
-        return selection;
-    }
-
     // -----------------------------------------------------------------------
     //  Home.razor
     // -----------------------------------------------------------------------
@@ -52,8 +38,9 @@ public class PageTests : BunitContext
     [Fact]
     public void Home_BeforeFilterApply_StartButtonDisabled()
     {
+        // The built-in sample source is always available, so filters-applied is
+        // now the sole Start gate (no problem-set directory to choose).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithSelection(ExistingDirectory);
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -65,14 +52,10 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_FilterPanelEmitsConfig_EnablesStartButton()
     {
-        // Regression test for the FilterPanel binding bug: prior to the fix,
-        // Home subscribed to a non-existent `OnFiltersChanged` event with a
-        // `DecisionFilterSet` payload. The correct binding is
-        // `OnFilterConfigChanged` with a `FilterConfig` payload. Without it,
-        // the user's Apply-click never reached the Home handler — the Start
-        // button stayed disabled forever.
+        // FilterPanel binding contract: Home subscribes to OnFilterConfigChanged
+        // (FilterConfig payload). Applying filters must enable Start — that is
+        // the only remaining gate.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithSelection(ExistingDirectory);
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -97,7 +80,6 @@ public class PageTests : BunitContext
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         var controller = new QuizController(set => { capturedPipeline = set; return fake; });
         Services.AddSingleton(controller);
-        WithSelection(ExistingDirectory);
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -114,75 +96,6 @@ public class PageTests : BunitContext
         var bobData = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), onRoll: "Bob");
         Assert.True(capturedPipeline.Matches(aliceData));
         Assert.False(capturedPipeline.Matches(bobData));
-    }
-
-    [Fact]
-    public async Task Home_DirectoryInputChange_ThreadsToSelection()
-    {
-        // The picker → ProblemSetSelection half of the source-selection wire;
-        // ServerDiskProblemSetSourceFactoryTests pins the other half
-        // (selection → source).
-        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        var selection = WithSelection(string.Empty);
-        JSInterop.Mode = JSRuntimeMode.Loose;
-
-        var cut = Render<HomePage>();
-        var input = cut.Find("input#problemSetDir");
-        await input.ChangeAsync(new ChangeEventArgs { Value = ExistingDirectory });
-
-        Assert.Equal(ExistingDirectory, selection.Directory);
-    }
-
-    [Fact]
-    public void Home_LocalStorageValue_OverridesSeededDirectory()
-    {
-        // localStorage rehydration: a persisted choice survives a reload and
-        // overrides the appsettings-seeded default.
-        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        var selection = WithSelection("seeded-default");
-        JSInterop.Mode = JSRuntimeMode.Loose;
-        JSInterop.Setup<string?>("localStorage.getItem", "bgquiz_problemsetdirectory")
-            .SetResult(ExistingDirectory);
-
-        Render<HomePage>();
-
-        Assert.Equal(ExistingDirectory, selection.Directory);
-    }
-
-    [Fact]
-    public async Task Home_EmptyDirectory_StartButtonDisabled()
-    {
-        // Filters applied but no directory chosen → Start stays disabled.
-        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithSelection(string.Empty);
-        JSInterop.Mode = JSRuntimeMode.Loose;
-
-        var cut = Render<HomePage>();
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
-
-        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
-        Assert.True(startBtn.HasAttribute("disabled"));
-    }
-
-    [Fact]
-    public async Task Home_NonexistentDirectory_StartButtonDisabled()
-    {
-        // Filters applied and a directory chosen, but it does not exist on the
-        // server → Start stays disabled.
-        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        var phantom = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        WithSelection(phantom);
-        JSInterop.Mode = JSRuntimeMode.Loose;
-
-        var cut = Render<HomePage>();
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
-
-        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
-        Assert.True(startBtn.HasAttribute("disabled"));
     }
 
     // -----------------------------------------------------------------------

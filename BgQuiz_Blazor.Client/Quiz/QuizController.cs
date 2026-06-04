@@ -1,4 +1,4 @@
-namespace BgQuiz_Blazor.Quiz;
+namespace BgQuiz_Blazor.Client.Quiz;
 
 using BgDataTypes_Lib;
 using BgGame_Lib;
@@ -6,7 +6,7 @@ using BgMoveGen;
 using XgFilter_Lib.Filtering;
 
 /// <summary>
-/// Per-circuit quiz state machine. Owns the active <see cref="IProblemSetSource"/>
+/// Per-app quiz state machine. Owns the active <see cref="IProblemSetSource"/>
 /// enumerator, the running <see cref="QuizScore"/>, and the per-problem
 /// <see cref="SubmittedPlay"/> / <see cref="SubmittedCubeAction"/> histories.
 /// Pages observe state via <see cref="StateChanged"/> and drive transitions via
@@ -27,18 +27,23 @@ using XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
-/// Lifetime: <b>Scoped</b> — one instance per Blazor Server circuit. State is
-/// lost on reload (server-side circuit teardown). Pre-Azure-deployment
-/// follow-up will revisit render mode and persistence.
+/// Lifetime: <b>Scoped</b> — but in the WebAssembly client "scoped" resolves to
+/// a single instance per app lifetime (one browser tab / one loaded app), not
+/// per Blazor Server circuit. The practical effect: quiz state <i>survives
+/// in-app navigation</i> between <c>/</c>, <c>/quiz</c>, and <c>/done</c>, and is
+/// reset only by a full page reload (which tears down and re-boots the WASM
+/// runtime, constructing a fresh instance). Reload-survival (persistence) is a
+/// later phase and out of scope here.
 /// </para>
 ///
 /// <para>
 /// The <see cref="IProblemSetSource"/> is constructed via an injected
-/// <see cref="ProblemSetSourceFactory"/> delegate, registered in
-/// <c>Program.cs</c>. Phase 1 wires this to <see cref="ServerDiskProblemSetSource"/>;
-/// future Phase 2+ implementations (upload, deployed bundles, curated
-/// libraries) plug in by registering a different factory without controller
-/// changes. Tests substitute a fake source the same way.
+/// <see cref="ProblemSetSourceFactory"/> delegate, registered in the client's
+/// <c>Program.cs</c>. The delegate seam keeps the controller agnostic to where
+/// problems come from: any source implementation (the in-browser file picker,
+/// bundled samples, future curated libraries) plugs in by registering a
+/// different factory without controller changes. Tests substitute a fake source
+/// the same way.
 /// </para>
 ///
 /// <para>
@@ -370,8 +375,8 @@ public sealed class QuizController : IAsyncDisposable
 
 /// <summary>
 /// Factory delegate for constructing the active <see cref="IProblemSetSource"/>
-/// from a user-supplied filter set. Phase 1's <c>Program.cs</c> binds this to
-/// <see cref="ServerDiskProblemSetSourceFactory.Create"/>; tests substitute a
-/// fake source via the same delegate shape.
+/// from a user-supplied filter set. The client's <c>Program.cs</c> binds this to
+/// the in-browser source for the current run (the picked-files source, or a
+/// bundled sample); tests substitute a fake source via the same delegate shape.
 /// </summary>
 public delegate IProblemSetSource ProblemSetSourceFactory(DecisionFilterSet filters);

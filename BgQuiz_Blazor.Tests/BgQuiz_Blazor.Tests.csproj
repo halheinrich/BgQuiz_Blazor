@@ -18,7 +18,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The interactive surface under test (pages, QuizController, problem
+         sources) now lives in the WASM client; the server host is referenced for
+         the remaining server-side types (ServerDisk* problem-set source). -->
     <ProjectReference Include="..\BgQuiz_Blazor\BgQuiz_Blazor.csproj" />
+    <ProjectReference Include="..\BgQuiz_Blazor.Client\BgQuiz_Blazor.Client.csproj" />
   </ItemGroup>
 
   <ItemGroup>

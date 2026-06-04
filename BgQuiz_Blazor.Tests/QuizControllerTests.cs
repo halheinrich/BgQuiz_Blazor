@@ -1,6 +1,6 @@
 using BgDataTypes_Lib;
 using BgGame_Lib;
-using BgQuiz_Blazor.Quiz;
+using BgQuiz_Blazor.Client.Quiz;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 

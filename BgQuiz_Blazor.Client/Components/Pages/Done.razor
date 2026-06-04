@@ -1,7 +1,7 @@
 @page "/done"
-@rendermode InteractiveServer
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
 
-@using BgQuiz_Blazor.Quiz
+@using BgQuiz_Blazor.Client.Quiz
 
 @inject QuizController Controller
 @inject NavigationManager Nav

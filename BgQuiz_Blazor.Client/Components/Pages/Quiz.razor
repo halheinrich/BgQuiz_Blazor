@@ -1,10 +1,10 @@
 @page "/quiz"
-@rendermode InteractiveServer
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
 
 @using BgDataTypes_Lib
 @using BackgammonDiagram_Lib
 @using BgDiag_Razor.Components
-@using BgQuiz_Blazor.Quiz
+@using BgQuiz_Blazor.Client.Quiz
 
 @inject QuizController Controller
 @inject NavigationManager Nav

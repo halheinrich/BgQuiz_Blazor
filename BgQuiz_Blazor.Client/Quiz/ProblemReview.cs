@@ -1,4 +1,4 @@
-namespace BgQuiz_Blazor.Quiz;
+namespace BgQuiz_Blazor.Client.Quiz;
 
 /// <summary>
 /// The scored outcome of a just-submitted problem, held by
