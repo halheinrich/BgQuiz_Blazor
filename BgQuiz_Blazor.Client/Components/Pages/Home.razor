@@ -23,9 +23,9 @@
         </label>
         <InputFile id="problemSetFiles" class="form-control"
                    OnChange="HandleFilesPickedAsync" multiple accept=".xg,.xgp" />
-        @if (!string.IsNullOrEmpty(_pickedSummary))
+        @if (!string.IsNullOrEmpty(ProblemSet.Summary))
         {
-            <div class="text-muted small mt-1">@_pickedSummary</div>
+            <div class="text-muted small mt-1">@ProblemSet.Summary</div>
         }
     </div>
 

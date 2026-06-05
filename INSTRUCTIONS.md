@@ -255,6 +255,38 @@ configuration at startup.
 `Quiz:ProblemSetDirectory` in `appsettings.json` is the *default seed*
 for a fresh circuit, not the runtime authority.
 
+### `PickedProblemSet` — the browser-picked source holder
+
+The per-app (`Scoped`, one-per-tab in WASM) holder for the user's
+in-browser-picked `.xg` / `.xgp` files. `Home.razor` writes it
+(`Set` / `Clear`); the `ProblemSetSourceFactory` reads `Files` to build a
+`WasmUploadedProblemSetSource`. Files are buffered byte arrays (read out of
+each `IBrowserFile` once at pick time) so the source can re-enumerate on
+Restart.
+
+- **`Summary`** (`string?`) — the holder-owned label for the picked set:
+  the single file's name when one is picked, `"{N} files picked"` when
+  several are, `null` when none are. This is the **single source of truth**
+  for how a picked set describes itself. `Home.razor` renders it directly
+  rather than caching the text in a component field — the field reset to
+  null when the page was re-instantiated by in-app navigation, blanking the
+  summary while the file gate stayed satisfied. Deriving from the persisted
+  holder keeps the summary and the Start gate consistent by construction.
+  `PickedProblemSetTests` pins the three branches; the bUnit
+  `Home_PrePopulatedHolder_RendersSummaryAndEnablesStart` pins the
+  navigate-back render.
+
+The picked set is **in-memory only**: it survives in-app navigation but is
+reset by a full browser reload (the WASM runtime re-boots). Reload-survival
+is a deferred phase, matching `QuizController`.
+
+> **Note:** the sections above (`ServerDiskProblemSetSource`,
+> `ProblemSetSelection`, the directory-picker UI, and the InteractiveServer
+> render-mode notes) predate the Phase 2b WASM migration and are stale —
+> the live source is `WasmUploadedProblemSetSource` over `PickedProblemSet`,
+> and the client runs `InteractiveWebAssembly`. A full doc sweep is tracked
+> separately from this navigation-polish slice.
+
 ### Pages
 
 - **`Home.razor`** — a problem-set directory text input above the

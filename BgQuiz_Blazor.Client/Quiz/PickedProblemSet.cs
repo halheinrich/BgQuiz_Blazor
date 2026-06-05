@@ -34,6 +34,14 @@ public sealed record PickedFile(string FileName, byte[] Bytes);
 /// <c>IBrowserFile</c> streams are read once at pick time, so the source can
 /// re-enumerate (Restart) by minting fresh <c>MemoryStream</c>s from the bytes.
 /// </para>
+///
+/// <para>
+/// In-memory only: the picked set survives in-app navigation (the holder is
+/// per-app) but is reset by a full browser reload, which re-boots the WASM
+/// runtime and constructs a fresh instance. Persisting picks across reloads is a
+/// deferred phase and out of scope by design — reload-reset matches
+/// <see cref="QuizController"/>.
+/// </para>
 /// </summary>
 public sealed class PickedProblemSet
 {
@@ -42,6 +50,22 @@ public sealed class PickedProblemSet
 
     /// <summary>True once at least one file has been picked.</summary>
     public bool HasFiles => Files.Count > 0;
+
+    /// <summary>
+    /// A short, human-readable label for the picked set, derived from
+    /// <see cref="Files"/>: the single file's <see cref="PickedFile.FileName"/>
+    /// when one is picked, <c>"{N} files picked"</c> when several are, and
+    /// <c>null</c> when none are. This is the single source of truth for how a
+    /// picked set describes itself, so a page re-instantiated by in-app
+    /// navigation re-derives the same label from this persisted holder rather
+    /// than from a transient component field.
+    /// </summary>
+    public string? Summary => Files.Count switch
+    {
+        0 => null,
+        1 => Files[0].FileName,
+        var n => $"{n} files picked",
+    };
 
     /// <summary>Replace the picked set with <paramref name="files"/>.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="files"/> is null.</exception>

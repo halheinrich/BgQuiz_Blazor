@@ -40,7 +40,6 @@ public partial class Home : ComponentBase
     private FilterConfig? _filterConfig;
     private bool _filtersApplied;
     private string? _startError;
-    private string? _pickedSummary;
 
     private bool CanStart => _filtersApplied && ProblemSet.HasFiles;
 
@@ -63,15 +62,14 @@ public partial class Home : ComponentBase
                 picked.Add(new PickedFile(file.Name, ms.ToArray()));
             }
 
+            // The rendered summary derives from ProblemSet.Summary, so setting
+            // the holder is all that's needed — no transient field to keep in
+            // sync (that desynced on navigate-back, when Home re-instantiated).
             ProblemSet.Set(picked);
-            _pickedSummary = picked.Count == 1
-                ? picked[0].FileName
-                : $"{picked.Count} files picked";
         }
         catch (Exception ex)
         {
             ProblemSet.Clear();
-            _pickedSummary = null;
             _startError = $"Could not read the selected file(s): {ex.Message}";
         }
     }

@@ -64,6 +64,33 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_PrePopulatedHolder_RendersSummaryAndEnablesStart()
+    {
+        // Navigate-back regression: the picked set lives in the per-app
+        // PickedProblemSet, which survives in-app navigation, but Home is
+        // re-instantiated on return. The summary must derive from the holder,
+        // not a transient component field — the old field reset to null on
+        // re-instantiation, blanking the summary while the file gate stayed
+        // satisfied (summary blank + Start enabled = the reported desync).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFile("resume.xg"); // holder already populated, as after navigate-back
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+
+        // Summary renders straight from the persisted holder, no pick handler run.
+        Assert.Contains("resume.xg", cut.Markup);
+
+        // With both gates met (file already held + filters applied) Start enables.
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        Assert.False(startBtn.HasAttribute("disabled"));
+    }
+
+    [Fact]
     public async Task Home_FilterPanelEmitsConfig_EnablesStartButton()
     {
         // FilterPanel binding contract: Home subscribes to OnFilterConfigChanged
