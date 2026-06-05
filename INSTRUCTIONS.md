@@ -6,8 +6,10 @@
 
 ## Stack
 
-C# / .NET 10 / Blazor Web App, Interactive Server render mode.
-Visual Studio 2026 on Windows.
+C# / .NET 10 / Blazor Web App, **WebAssembly** render mode — a thin
+ASP.NET Core host project (`BgQuiz_Blazor`) serving a WASM client project
+(`BgQuiz_Blazor.Client`) that runs the entire interactive quiz in the
+browser. Visual Studio 2026 on Windows.
 
 ## Solution
 
@@ -46,58 +48,76 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   used there — it would default those marks from the recorded player). Direct
   `<ProjectReference>` — the page calls the factory by name, so the dependency
   is made explicit rather than relying on BgDiag_Razor's transitive surface.
+  Only the **native-free core** is referenced; the raster/export sibling
+  `BackgammonDiagram_Lib.ExportRaster` (SkiaSharp / QuestPDF / OpenXml) is
+  deliberately **not** referenced — the quiz renders SVG only, and the core
+  must stay native-free to run under browser-wasm (see Pitfalls).
 - **XgFilter_Lib** — `DecisionFilterSet`, `FilterConfig`,
   `DecisionTypeFilter` / `DecisionTypeOption` (materialized from the user's
   decision-type choice; the controller adds no filter of its own).
 - **XgFilter_Razor** — `FilterPanel.razor`. Hosted on `/` so quiz-start
   filters share the same UI used by `ExtractFromXgToCsv`.
 - **ConvertXgToJson_Lib** — picked up transitively via the filter pipeline
-  (parses the .xg files the server-disk source iterates).
+  (parses the user's browser-picked `.xg` / `.xgp` bytes in-browser, via
+  `FilteredDecisionIterator.IterateXgStreamDiagrams`).
 
 ## Directory tree
 
 ```
 BgQuiz_Blazor.slnx
-BgQuiz_Blazor/
-  BgQuiz_Blazor.csproj
-  Program.cs
+
+BgQuiz_Blazor/                      — thin ASP.NET Core WASM host (server)
+  BgQuiz_Blazor.csproj              — Sdk.Web; references only the .Client
+  Program.cs                        — AddInteractiveWebAssemblyComponents,
+                                      MapRazorComponents<App> + WASM render mode
   appsettings.json
   appsettings.Development.json
   Properties/
     launchSettings.json
-  Quiz/
-    QuizController.cs
-    ProblemReview.cs
-    QuizOptions.cs
-    ProblemSetSelection.cs
-    ServerDiskProblemSetSource.cs
-    ServerDiskProblemSetSourceFactory.cs
   Components/
     _Imports.razor
-    App.razor
-    Routes.razor
+    App.razor                       — host shell (<head>, blazor.web.js, <Routes/>)
+    Routes.razor                    — <Router> over the .Client _Imports assembly
     Layout/
       MainLayout.razor / .razor.css
       NavMenu.razor / .razor.css
-      ReconnectModal.razor / .razor.css / .razor.js
     Pages/
-      Home.razor / .razor.cs        — landing: filter panel + Start
+      Error.razor
+      NotFound.razor
+  wwwroot/                          — static assets (favicon, app.css, Bootstrap)
+
+BgQuiz_Blazor.Client/              — WASM client (the whole interactive surface)
+  BgQuiz_Blazor.Client.csproj       — Sdk.BlazorWebAssembly; the bg-lib closure
+  Program.cs                        — WebAssemblyHostBuilder; registers
+                                      QuizController, PickedProblemSet,
+                                      ProblemSetSourceFactory (scoped)
+  _Imports.razor
+  Quiz/
+    QuizController.cs
+    ProblemReview.cs
+    PickedProblemSet.cs             — picked-files holder (+ Summary)
+    WasmUploadedProblemSetSource.cs — in-browser stream-backed source
+  Components/
+    Pages/
+      Home.razor / .razor.cs        — landing: file picker + filter panel + Start
       Quiz.razor / .razor.cs        — active problem (play or cube)
       Done.razor / .razor.cs        — final summary
       ScorePanel.razor              — compact header strip (Total only)
       ScoreBreakdown.razor          — four-way Play/Double/Take/Total table
-      Error.razor
-      NotFound.razor
-  wwwroot/                          — static assets (favicon, app.css, Bootstrap)
+
 BgQuiz_Blazor.Tests/
   BgQuiz_Blazor.Tests.csproj
   TestFixtures.cs
   FakeProblemSetSource.cs
   QuizControllerTests.cs
-  ServerDiskProblemSetSourceTests.cs
-  ServerDiskProblemSetSourceFactoryTests.cs
+  WasmUploadedProblemSetSourceTests.cs
+  PickedProblemSetTests.cs
   PageTests.cs
 ```
+
+Each page carries a per-page
+`@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))`
+directive — that is how interactivity is set under WASM (see Render mode).
 
 ## Architecture
 
@@ -124,17 +144,24 @@ BgQuiz_Blazor.Tests/
                           + Restart / Start over
 ```
 
-### `QuizController` — per-circuit state machine
+### `QuizController` — per-app state machine
 
-Scoped DI lifetime — one instance per Blazor Server circuit. Holds the
-active `IProblemSetSource` enumerator, the running `QuizScore`, the per-
-problem `SubmittedPlay` (`History`) and `SubmittedCubeAction`
-(`CubeHistory`) histories, and a `SkippedCount` for non-scoring outcomes
-(off-list submissions, explicit Skip). The two histories are kept separate
-(mirroring `_history`/`History`) because the two scored-result types are
-distinct shapes — a unified history would force consumers to type-test.
-Pages observe state transitions via the `StateChanged` event; the
-controller fires it on start, submit, continue, skip, and restart.
+Scoped DI lifetime — but in the WASM client "scoped" resolves to **one
+instance per loaded app (one browser tab)**, not per Blazor Server circuit.
+The practical effect: quiz state **survives in-app navigation** between `/`,
+`/quiz`, and `/done`, and is reset only by a **full browser reload** (which
+tears down and re-boots the WASM runtime, constructing a fresh instance).
+Reload-survival (persistence) is a deferred arc — see *next steps*.
+
+The controller holds the active `IProblemSetSource` enumerator, the running
+`QuizScore`, the per-problem `SubmittedPlay` (`History`) and
+`SubmittedCubeAction` (`CubeHistory`) histories, and a `SkippedCount` for
+non-scoring outcomes (off-list submissions, explicit Skip). The two
+histories are kept separate (mirroring `_history`/`History`) because the two
+scored-result types are distinct shapes — a unified history would force
+consumers to type-test. Pages observe state transitions via the
+`StateChanged` event; the controller fires it on start, submit, continue,
+skip, and restart.
 
 **Three-state per-problem flow.** Each problem moves through *answering*
 → *review* → *advance*, surfaced via `Current` and the nullable `Review`
@@ -155,8 +182,8 @@ property:
 - **`SkipCurrentAsync`** — bypasses review and advances immediately, but
   only from the answering state (no-op while a `Review` is showing).
 
-`ProblemReview` lives in BgQuiz_Blazor (not BgGame_Lib): it is per-circuit
-UI state, and adding it to the `SubmittedPlay` / `SubmittedCubeAction`
+`ProblemReview` lives in `BgQuiz_Blazor.Client` (not BgGame_Lib): it is
+per-app UI state, and adding it to the `SubmittedPlay` / `SubmittedCubeAction`
 submodule would cross the boundary. `ProblemReview.Play` carries the
 matched candidate index (`-1` off-list); `ProblemReview.Cube` carries the
 two per-half equity losses. The Quiz page maps these onto the solution
@@ -166,11 +193,14 @@ player's.
 
 **Source construction is factory-injected.** The controller takes a
 `ProblemSetSourceFactory` delegate (`DecisionFilterSet → IProblemSetSource`)
-rather than constructing `ServerDiskProblemSetSource` directly. `Program.cs`
-registers the delegate scoped, bound to `ServerDiskProblemSetSourceFactory.Create`.
-Phase 2+ alternatives (uploaded files, deployed bundles, curated libraries)
-plug in by registering a different factory; the controller is unchanged.
-Unit tests substitute a fake source the same way.
+rather than constructing a source directly. The client's `Program.cs`
+registers the delegate scoped as a lambda that reads the `PickedProblemSet`
+holder and builds a `WasmUploadedProblemSetSource` over the user's picked
+files. The picked set is read at **invocation** time (`StartAsync`), not at
+DI registration, so a file choice made before Start takes effect. Future
+alternatives (deployed bundles, curated libraries) plug in by registering a
+different factory; the controller is unchanged. Unit tests substitute a fake
+source the same way.
 
 **Filter ownership.** `StartAsync` takes a `FilterConfig` (the wire DTO
 emitted by `XgFilter_Razor.FilterPanel.OnFilterConfigChanged`), not a
@@ -214,46 +244,28 @@ an analysis omission rather than a user mistake. Either way a `Review`
 (`ProblemReview.Play`, `OffList` true and index `-1` for off-list) is set
 so the user still sees the best play on the solution diagram.
 
-### `ServerDiskProblemSetSource` — Phase 1 source
+### `WasmUploadedProblemSetSource` — the in-browser source
 
-Wraps `XgFilter_Lib.FilteredDecisionIterator.IterateXgDirectoryDiagrams`
-(both `*.xg` match files and `*.xgp` position files). The constructor
-takes `(directory, filters, ILoggerFactory)` and builds a single
-`FilteredDecisionIterator` instance held for the source's lifetime;
-`ILoggerFactory` is preferred over `ILogger<FilteredDecisionIterator>`
-so the source's contract doesn't leak the inner type.
+Wraps `XgFilter_Lib.FilteredDecisionIterator.IterateXgStreamDiagrams`
+(both `*.xg` match files and `*.xgp` position files). The constructor takes
+`(IReadOnlyList<PickedFile> files, DecisionFilterSet filters, ILoggerFactory)`
+and builds a single `FilteredDecisionIterator` held for the source's
+lifetime; `ILoggerFactory` is preferred over `ILogger<…>` so the source's
+contract doesn't leak the inner type. The files are parsed **entirely in the
+browser** and never leave it.
 
-Each call to `EnumerateAsync` (an async `IAsyncEnumerable` iterator)
-freshly re-walks the inner sync `IterateXgDirectoryDiagrams` (a lazy
-`IEnumerable`), so directory walks remain per-call and re-iteration is
-the trivial case. `Count` is null (computing it would mean a full
-pre-pass through a potentially large filtered iterator).
-`Name` returns the directory's leaf name.
+**Re-iterability.** The source holds the file *bytes* (`PickedFile.Bytes`),
+not open streams, and mints a fresh `MemoryStream` at position zero for every
+`EnumerateAsync` call (wrapped in an `XgFileStream` carrying the
+extension-bearing name). The stream iterator reads each stream exactly once,
+forward, so buffering up front is what lets a Restart re-enumerate the same
+set. `EnumerateAsync` also `await Task.Yield()`s between items so a long
+synchronous run doesn't monopolise the single WASM thread.
 
-The directory is supplied by the caller (see *Problem-set source
-selection* below), not read from configuration — the constructor is
-directory-agnostic.
-
-### Problem-set source selection
-
-The source directory is chosen in the UI on `/`, not captured from
-configuration at startup.
-
-- **`ProblemSetSelection`** — a per-circuit (`Scoped`) mutable holder
-  with a single `string Directory`. Seeded at construction from the
-  configured `Quiz:ProblemSetDirectory` default; `Home.razor` overrides
-  it from the user's localStorage-persisted choice and writes back on
-  every edit. A bare holder by design — directory validity is enforced
-  by its readers, not by the holder.
-- **`ServerDiskProblemSetSourceFactory`** — the Phase 1
-  `ProblemSetSourceFactory` implementation (`Scoped`). `Create` reads
-  `ProblemSetSelection.Directory` at invocation time (quiz-start, not
-  DI-registration), throws `InvalidOperationException` on a blank
-  directory, and builds a `ServerDiskProblemSetSource`. `Program.cs`
-  binds `Create` as the `ProblemSetSourceFactory` delegate.
-
-`Quiz:ProblemSetDirectory` in `appsettings.json` is the *default seed*
-for a fresh circuit, not the runtime authority.
+`Count` is null (an up-front count would require a full filtered pre-pass).
+`Name` is `"No files"` / the single file's name / `"{N} files"`. Decision-type
+admission is governed entirely by the supplied `filters`; the source injects
+no policy of its own.
 
 ### `PickedProblemSet` — the browser-picked source holder
 
@@ -278,32 +290,24 @@ Restart.
 
 The picked set is **in-memory only**: it survives in-app navigation but is
 reset by a full browser reload (the WASM runtime re-boots). Reload-survival
-is a deferred phase, matching `QuizController`.
-
-> **Note:** the sections above (`ServerDiskProblemSetSource`,
-> `ProblemSetSelection`, the directory-picker UI, and the InteractiveServer
-> render-mode notes) predate the Phase 2b WASM migration and are stale —
-> the live source is `WasmUploadedProblemSetSource` over `PickedProblemSet`,
-> and the client runs `InteractiveWebAssembly`. A full doc sweep is tracked
-> separately from this navigation-polish slice.
+is a deferred arc, matching `QuizController`.
 
 ### Pages
 
-- **`Home.razor`** — a problem-set directory text input above the
-  `FilterPanel` from XgFilter_Razor. The directory lives in the
-  per-circuit `ProblemSetSelection`; the input writes through on
-  `@onchange` and persists to localStorage (key
-  `bgquiz_problemsetdirectory`), and `OnAfterRenderAsync` rehydrates
-  from localStorage on first render. Start is gated on three
-  conditions: filters Applied at least once, a non-blank directory, and
-  that directory existing on the server. The existence check is a
-  filesystem call, so it runs once per edit (and once after
-  rehydration), cached in a field — `CanStart` is read every render and
-  does no I/O. Subscribes to `OnFilterConfigChanged` (the panel's
-  emit-event after Apply), captures the `FilterConfig`, and hands it to
-  `Controller.StartAsync`. Catches start-time exceptions (directory
-  removed since validation, `FilterConfig.Build()` validation failure,
-  etc.) and surfaces them as a banner instead of crashing the circuit.
+- **`Home.razor`** — an `<InputFile multiple accept=".xg,.xgp">` file
+  picker above the `FilterPanel` from XgFilter_Razor. On pick, each browser
+  file is read out of its `IBrowserFile` stream once (50 MB/file cap,
+  500-file cap) and buffered into a `PickedFile` (extension-bearing name +
+  bytes) in the per-app `PickedProblemSet`; the bytes are parsed in-browser
+  and never uploaded. The picked-set label renders straight from
+  `PickedProblemSet.Summary` (the SSOT — not a transient field). Start is
+  gated on **two** conditions: filters Applied at least once *and* at least
+  one file picked (`CanStart => _filtersApplied && ProblemSet.HasFiles`).
+  Subscribes to `OnFilterConfigChanged` (the panel's emit-event after Apply),
+  captures the `FilterConfig`, and hands it to `Controller.StartAsync`.
+  Catches read failures and start-time exceptions (`FilterConfig.Build()`
+  validation failure, source construction failure) and surfaces them as a
+  banner instead of faulting the WASM app.
 - **`Quiz.razor`** — mirrors the controller's three-state flow, branching on
   `Controller.Review`. In the **answering** state (`Review` null) it routes by
   `Current.Decision.IsCube` over
@@ -349,21 +353,23 @@ is a deferred phase, matching `QuizController`.
 
 ### Render mode
 
-`InteractiveServer` — chosen for Phase 1 simplicity (server-side state,
-no WASM payload to ship .xg parsing into). State lives on the server;
-each client needs an active SignalR circuit. Reload loses the active
-quiz. Pre-Azure-deployment will revisit render mode and persistence.
+`InteractiveWebAssembly` — the whole quiz runs in the browser-wasm runtime
+(no server-side state, no SignalR circuit). The host (`BgQuiz_Blazor`) is a
+thin shell: `Program.cs` calls `AddInteractiveWebAssemblyComponents()` and
+`MapRazorComponents<App>().AddInteractiveWebAssemblyRenderMode()`, registering
+the `.Client` `_Imports` assembly as an additional routable-component source.
+It references **only** the `.Client` — the entire backgammon-library closure
+ships into the WASM payload, not the server.
 
-The render mode is set **globally** on `<Routes @rendermode="InteractiveServer" />`
-in `App.razor`. Page-level `@rendermode InteractiveServer` directives
-(`Home.razor`, `Quiz.razor`, `Done.razor`) are kept as documentation
-but are redundant in practice — the global Routes setting is what
-propagates interactivity to RCL-imported (Razor Class Library) child
-components like `FilterPanel` (XgFilter_Razor) and `BackgammonPlayEntry`
-(BgDiag_Razor). A page-level directive alone does not reliably cross
-RCL assembly boundaries; without the global `<Routes>` setting, those
-child components prerender static HTML and `@onclick` handlers silently
-fail. See Pitfalls.
+Each routable page (`Home`, `Quiz`, `Done`) carries its own
+`@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))`
+directive — that page-level directive is how interactivity is set in this
+model (there is no global `<Routes @rendermode>` setting). `prerender: false`
+skips the static-prerender pass: the picked-file holder and quiz state live in
+WASM-runtime memory that doesn't exist during a server prerender, so prerender
+would render an empty first frame and double-run `OnInitialized`. A full
+browser reload re-boots the runtime and resets all state (persistence is a
+deferred arc).
 
 ## Public API
 
@@ -378,9 +384,14 @@ endpoints. The externally visible surface is the route map:
 
 ## Pitfalls
 
-- **State is per-circuit.** A page reload tears down the SignalR circuit
-  and the scoped `QuizController`; the active quiz is lost. Persistence
-  is a future concern — for Phase 1 the user starts over after reload.
+- **State resets on full reload, not on in-app navigation.** "Scoped" in
+  WASM is one instance per loaded app (one tab), so `QuizController` and
+  `PickedProblemSet` survive `/` ↔ `/quiz` ↔ `/done` navigation but a full
+  browser reload re-boots the runtime and loses everything (picked files,
+  quiz progress). Reload-survival is a deferred arc — don't assume reload
+  resumes. (Transient page-form state like Home's filters-applied flag is
+  component-local and *does* reset on navigate-back; that's the page form,
+  not quiz progress.)
 - **Cube decisions carry `Dice == [0, 0]` — never auto-skip them.**
   `IsPassPosition` runs `MoveGenerator.GeneratePlays` on the dice; a cube
   decision's `[0, 0]` produces the no-legal-play sentinel, so without the
@@ -413,29 +424,34 @@ endpoints. The externally visible surface is the route map:
   signals "no legal play" with `count == 1 && plays[0].Count == 0`
   (a single zero-move Play, dice forfeited). Code that gates on
   `legal.Count == 0` will silently miss every pass position.
-- **`Quiz` is both a namespace (`BgQuiz_Blazor.Quiz`) and the page type
-  (`BgQuiz_Blazor.Components.Pages.Quiz`).** Test code that does
-  `Render<Quiz>()` after `using BgQuiz_Blazor.Quiz;` hits a CS0118
+- **`Quiz` is both a namespace (`BgQuiz_Blazor.Client.Quiz`) and the page
+  type (`BgQuiz_Blazor.Client.Components.Pages.Quiz`).** Test code that does
+  `Render<Quiz>()` after `using BgQuiz_Blazor.Client.Quiz;` hits a CS0118
   ambiguity. Test files use a `using QuizPage = ...` alias to
   disambiguate.
-- **Source factory throws lazily.** `ServerDiskProblemSetSourceFactory.Create`
-  validates the selected directory only at invocation time — a blank
-  directory throws `InvalidOperationException`, a non-existent one
-  throws `DirectoryNotFoundException` from the source constructor.
-  Pages that merely observe state (Done, etc.) load even with no
-  selection; the throw fires on `Controller.StartAsync` and the Home
-  page surfaces it as a banner. `Home.razor`'s Start gate normally
-  pre-empts both throws, so they are a backstop for the
-  validated-then-removed race, not the primary error path.
-- **Render mode propagates from `<Routes>`, not from `@page`.** Setting
-  `@rendermode InteractiveServer` only on the page directive leaves
-  RCL-imported child components (`FilterPanel`, `BackgammonPlayEntry`)
-  rendered as static prerender HTML. Their `@onclick` handlers wire up
-  in JS but never dispatch over SignalR — clicks silently no-op. The
-  fix is `<Routes @rendermode="InteractiveServer" />` in `App.razor`,
-  which propagates interactivity across RCL boundaries. The bUnit page
-  tests do not exercise render-mode dispatch, so they will not catch
-  this — verify interactivity in a real browser.
+- **A picked file's name must keep its extension.** The stream iterator
+  discriminates `.xg` vs `.xgp` from the file-name extension to stamp the
+  `DecisionId`, so an extensionless `PickedFile.FileName` is a usage error
+  the iterator throws `ArgumentException` on when it reaches that entry —
+  lazily, mid-enumeration, not at construction. The `Home` pick handler
+  preserves `IBrowserFile.Name` (extension-bearing) precisely for this;
+  `WasmUploadedProblemSetSourceTests.EnumerateAsync_ExtensionlessName_…`
+  guards the failure mode. Start-time exceptions (this, plus
+  `FilterConfig.Build()` validation) surface on `Controller.StartAsync` and
+  `Home.razor` shows them as a banner rather than faulting the app.
+- **The WASM dependency closure must stay native-free.** Everything the
+  `.Client` references ships into the browser-wasm runtime, which has no
+  native interop. Reference the `BackgammonDiagram_Lib` **core** (native-free
+  SVG) only — pulling in `BackgammonDiagram_Lib.ExportRaster` (SkiaSharp /
+  QuestPDF / OpenXml) would fault at runtime in the browser. The quiz renders
+  SVG, never raster. This is why the split exists; don't re-add the raster
+  reference to make some export "just work" client-side.
+- **Pages set render mode per-page, not via `<Routes>`.** Each routable page
+  carries `@rendermode @(new InteractiveWebAssemblyRenderMode(prerender:
+  false))`. There is no global `<Routes @rendermode>` here (that was the old
+  Interactive Server arrangement). The bUnit page tests render components
+  directly and don't exercise WASM render-mode dispatch, so verify real
+  interactivity in a browser, not just in tests.
 
 ## Subproject-internal next steps
 
@@ -449,23 +465,12 @@ endpoints. The externally visible surface is the route map:
   bot-vs-bot tournament). All three queue behind the umbrella's
   decision-identification scheme — Phase 2+ needs stable per-decision
   IDs to track correctness over time.
-- **Persistence.** Quiz state currently dies with the SignalR circuit.
-  When the app moves toward Azure deployment, decide between
-  cookie-based session keys, an in-memory cache survival across reloads,
-  or a persistence store keyed to authenticated users.
-- **Render-mode revisit pre-Azure.** Interactive Server is the right
-  Phase 1 default; global hosting may want WebAssembly or Auto. The
-  controller's scoped lifetime and the source factory abstraction were
-  designed so render-mode migration only touches Program.cs registration
-  and page lifecycle, not the state machine.
-- **Directory picker is local-mode-only.** The `Home.razor` problem-set
-  directory input picks a folder on the host filesystem — meaningful
-  only when the app runs on the same machine as the user's `.xg` files
-  (local / self-hosted). An Azure deployment has the user's data
-  elsewhere, so a path picker is meaningless there; the source would be
-  upload-based instead (a Phase 2+ source kind). When an upload/remote
-  source and a mode concept land, the picker's visibility must be gated
-  — shown in local mode, hidden in remote mode.
+- **Reload-resume (persistence).** A full browser reload re-boots the WASM
+  runtime and loses the picked files and quiz progress. Surviving a reload
+  needs the picked bytes + decisions/progress persisted client-side
+  (IndexedDB — `localStorage` is too small for buffered `.xg` bytes); this
+  is a deferred arc of its own. Until then, reload-reset is the intended
+  default.
 - **Done-page retrospective.** Per-problem review now ships *in-quiz* (the
   review state's solution diagram shows the best play/action, the equity gap,
   and — for cube — which half the user got wrong). What's still missing is a
