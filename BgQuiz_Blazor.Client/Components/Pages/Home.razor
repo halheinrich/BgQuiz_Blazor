@@ -5,6 +5,7 @@
 @using XgFilter_Razor.Components
 @using XgFilter_Lib.Filtering
 
+@inject PickedProblemSet ProblemSet
 @inject NavigationManager Nav
 @inject QuizController Controller
 
@@ -13,11 +14,19 @@
 <div class="container py-3">
     <h1>BgQuiz</h1>
 
-    <div class="alert alert-info" role="alert" style="max-width:800px">
-        <strong>Preview build.</strong> The quiz currently draws from a small
-        built-in sample set. Picking your own local <code>.xg</code> /
-        <code>.xgp</code> files — parsed in your browser, never uploaded — lands
-        in the next step.
+    <div class="mb-3" style="max-width:800px">
+        <label class="form-label" for="problemSetFiles">
+            Problem-set files
+            <small class="text-muted">
+                (your local .xg / .xgp files — parsed in your browser, never uploaded)
+            </small>
+        </label>
+        <InputFile id="problemSetFiles" class="form-control"
+                   OnChange="HandleFilesPickedAsync" multiple accept=".xg,.xgp" />
+        @if (!string.IsNullOrEmpty(_pickedSummary))
+        {
+            <div class="text-muted small mt-1">@_pickedSummary</div>
+        }
     </div>
 
     <FilterPanel OnFilterConfigChanged="HandleFilterConfigApplied"
@@ -32,6 +41,10 @@
     @if (!_filtersApplied)
     {
         <small class="text-muted ms-2">Apply the filters above to enable Start.</small>
+    }
+    else if (!ProblemSet.HasFiles)
+    {
+        <small class="text-muted ms-2">Pick one or more .xg / .xgp files to enable Start.</small>
     }
 
     @if (!string.IsNullOrEmpty(_startError))

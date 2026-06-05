@@ -5,6 +5,7 @@ using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
 using Bunit.TestDoubles;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using XgFilter_Lib.Filtering;
 using XgFilter_Razor.Components;
@@ -31,6 +32,19 @@ public class PageTests : BunitContext
         return controller;
     }
 
+    /// <summary>
+    /// Register a <see cref="PickedProblemSet"/> already holding one file so the
+    /// rendered <c>Home</c> page's file gate is satisfied — lets tests exercise
+    /// the filter gate / Start click in isolation. The bytes are irrelevant: the
+    /// quiz runs against the test's fake source, not the picked file.
+    /// </summary>
+    private void WithPickedFile(string name = "sample.xg")
+    {
+        var problemSet = new PickedProblemSet();
+        problemSet.Set([new PickedFile(name, [1, 2, 3])]);
+        Services.AddSingleton(problemSet);
+    }
+
     // -----------------------------------------------------------------------
     //  Home.razor
     // -----------------------------------------------------------------------
@@ -38,9 +52,9 @@ public class PageTests : BunitContext
     [Fact]
     public void Home_BeforeFilterApply_StartButtonDisabled()
     {
-        // The built-in sample source is always available, so filters-applied is
-        // now the sole Start gate (no problem-set directory to choose).
+        // No file picked yet, so Start is disabled regardless of filters.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        Services.AddSingleton(new PickedProblemSet());
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -53,9 +67,10 @@ public class PageTests : BunitContext
     public async Task Home_FilterPanelEmitsConfig_EnablesStartButton()
     {
         // FilterPanel binding contract: Home subscribes to OnFilterConfigChanged
-        // (FilterConfig payload). Applying filters must enable Start — that is
-        // the only remaining gate.
+        // (FilterConfig payload). With a file already picked, applying filters
+        // satisfies the second gate and flips Start to enabled.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFile();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -80,6 +95,7 @@ public class PageTests : BunitContext
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         var controller = new QuizController(set => { capturedPipeline = set; return fake; });
         Services.AddSingleton(controller);
+        WithPickedFile(); // satisfy the file gate so Start is clickable
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -96,6 +112,57 @@ public class PageTests : BunitContext
         var bobData = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), onRoll: "Bob");
         Assert.True(capturedPipeline.Matches(aliceData));
         Assert.False(capturedPipeline.Matches(bobData));
+    }
+
+    [Fact]
+    public void Home_FilePick_BuildsPickedFileWithExtensionBearingName()
+    {
+        // The InputFile handler reads each browser file into a PickedFile that
+        // preserves the original name *with* its extension — required by the
+        // stream iterator's DecisionId stamping. This pins the picker → holder
+        // half of the source wire; WasmUploadedProblemSetSourceTests pins the
+        // other half (holder → source → controller).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var problemSet = new PickedProblemSet();
+        Services.AddSingleton(problemSet);
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var input = cut.FindComponent<InputFile>();
+        input.UploadFiles(InputFileContent.CreateFromBinary([1, 2, 3], "match.xg"));
+
+        cut.WaitForAssertion(() => Assert.True(problemSet.HasFiles));
+        var file = Assert.Single(problemSet.Files);
+        Assert.Equal("match.xg", file.FileName);
+        Assert.Equal([1, 2, 3], file.Bytes);
+    }
+
+    [Fact]
+    public async Task Home_FilePickedAndFiltersApplied_EnablesStart()
+    {
+        // Both gates: a file picked *and* filters applied.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        Services.AddSingleton(new PickedProblemSet());
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+
+        // Filters applied but no file yet → still disabled.
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        Assert.True(startBtn.HasAttribute("disabled"));
+
+        // Pick a file → both gates satisfied → enabled.
+        var input = cut.FindComponent<InputFile>();
+        input.UploadFiles(InputFileContent.CreateFromBinary([1, 2, 3], "match.xg"));
+
+        cut.WaitForAssertion(() =>
+        {
+            var btn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+            Assert.False(btn.HasAttribute("disabled"));
+        });
     }
 
     // -----------------------------------------------------------------------

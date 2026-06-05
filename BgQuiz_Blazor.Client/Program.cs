@@ -6,6 +6,7 @@
 
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using Microsoft.Extensions.Logging;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
@@ -16,11 +17,19 @@ builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.
 // full reload — see QuizController's lifetime docs. Pages observe via StateChanged.
 builder.Services.AddScoped<QuizController>();
 
-// TEMPORARY source factory: the built-in sample set, enough to prove the
-// migrated flow. Replaced by the browser file-picker source
-// (WasmUploadedProblemSetSource) in the next step; the QuizController ctor and
-// the ProblemSetSourceFactory delegate shape are unchanged across that swap.
-builder.Services.AddScoped<ProblemSetSourceFactory>(_ =>
-    filters => new SampleProblemSetSource(filters));
+// Per-app holder for the user's browser-picked files; Home writes it, the source
+// factory below reads it at quiz-start.
+builder.Services.AddScoped<PickedProblemSet>();
+
+// Source factory: builds a WasmUploadedProblemSetSource over whatever files the
+// user has picked at quiz-start, applying the user's filter set. The picked set
+// is read at invocation time (QuizController.StartAsync), not registration, so a
+// file choice made before Start takes effect. Files are parsed in-browser only.
+builder.Services.AddScoped<ProblemSetSourceFactory>(sp =>
+{
+    var picked = sp.GetRequiredService<PickedProblemSet>();
+    var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+    return filters => new WasmUploadedProblemSetSource(picked.Files, filters, loggerFactory);
+});
 
 await builder.Build().RunAsync();

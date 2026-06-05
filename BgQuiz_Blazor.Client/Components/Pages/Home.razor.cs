@@ -1,36 +1,80 @@
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Forms;
 using XgFilter_Lib.Filtering;
 
 namespace BgQuiz_Blazor.Client.Components.Pages;
 
 /// <summary>
-/// Landing page: filter selection and the quiz-start gate.
+/// Landing page: problem-set file selection, filter selection, and the
+/// quiz-start gate.
 ///
 /// <para>
-/// Hosts the shared <c>FilterPanel</c> from XgFilter_Razor. Start is gated on the
-/// filters having been Applied at least once; on Start the captured
-/// <see cref="FilterConfig"/> is handed to the <see cref="QuizController"/> and
-/// the app navigates to <c>/quiz</c>. <see cref="FilterConfig.Build"/> /
-/// source-construction failures are caught and surfaced as a banner rather than
-/// faulting the WebAssembly app.
+/// The user picks one or more local <c>.xg</c> / <c>.xgp</c> files via an
+/// <see cref="InputFile"/>. Each picked file is read out of its
+/// <c>IBrowserFile</c> stream once and buffered into a <see cref="PickedFile"/>
+/// (bytes + extension-bearing name) held in the per-app
+/// <see cref="PickedProblemSet"/>; the bytes are parsed entirely in the browser
+/// and never leave it. Buffering up front is what lets the source re-enumerate
+/// on Restart.
 /// </para>
 ///
 /// <para>
-/// Source note: this step runs against a built-in sample
-/// <see cref="BgGame_Lib.IProblemSetSource"/> wired in the client's
-/// <c>Program.cs</c>. The user-file picker (browser-parsed
-/// <c>.xg</c>/<c>.xgp</c>) replaces that source in the next step; the page's
-/// start flow is unaffected by the swap.
+/// Start is gated on two conditions: the filters Applied at least once and at
+/// least one file picked. On Start the captured <see cref="FilterConfig"/> is
+/// handed to the <see cref="QuizController"/>, whose source factory builds a
+/// <see cref="WasmUploadedProblemSetSource"/> over the picked set, and the app
+/// navigates to <c>/quiz</c>. Read failures and
+/// <see cref="FilterConfig.Build"/> / source-construction failures are caught
+/// and surfaced as a banner rather than faulting the WebAssembly app.
 /// </para>
 /// </summary>
 public partial class Home : ComponentBase
 {
+    /// <summary>Per-file size cap (50 MB) — mirrors the XG extractor's web-mode limit.</summary>
+    private const long MaxFileBytes = 50L * 1024 * 1024;
+
+    /// <summary>Upper bound on files accepted in a single pick.</summary>
+    private const int MaxFileCount = 500;
+
     private FilterConfig? _filterConfig;
     private bool _filtersApplied;
     private string? _startError;
+    private string? _pickedSummary;
 
-    private bool CanStart => _filtersApplied;
+    private bool CanStart => _filtersApplied && ProblemSet.HasFiles;
+
+    private async Task HandleFilesPickedAsync(InputFileChangeEventArgs e)
+    {
+        _startError = null;
+        try
+        {
+            var files = e.GetMultipleFiles(MaxFileCount);
+            var picked = new List<PickedFile>(files.Count);
+            foreach (var file in files)
+            {
+                // Read the browser stream once, now, into memory: the source
+                // re-enumerates (Restart) from these bytes, so it must not depend
+                // on the IBrowserFile stream still being open later.
+                using var ms = new MemoryStream();
+                await file.OpenReadStream(MaxFileBytes).CopyToAsync(ms);
+                // file.Name carries the extension — required by the stream
+                // iterator's DecisionId stamping (see XgFileStream).
+                picked.Add(new PickedFile(file.Name, ms.ToArray()));
+            }
+
+            ProblemSet.Set(picked);
+            _pickedSummary = picked.Count == 1
+                ? picked[0].FileName
+                : $"{picked.Count} files picked";
+        }
+        catch (Exception ex)
+        {
+            ProblemSet.Clear();
+            _pickedSummary = null;
+            _startError = $"Could not read the selected file(s): {ex.Message}";
+        }
+    }
 
     private void HandleFilterConfigApplied(FilterConfig cfg)
     {

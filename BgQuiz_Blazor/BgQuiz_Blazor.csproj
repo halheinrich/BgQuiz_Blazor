@@ -12,19 +12,11 @@
 
   <ItemGroup>
     <!-- Hosts the WASM client; its _Imports assembly is also registered as an
-         additional routable-component source in Program.cs. -->
+         additional routable-component source in Program.cs. The host is a thin
+         shell — all the quiz code (and its backgammon-library dependency closure)
+         lives in the client and runs in the browser, so this project references
+         nothing but the client. -->
     <ProjectReference Include="..\BgQuiz_Blazor.Client\BgQuiz_Blazor.Client.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\BackgammonDiagram_Lib\BackgammonDiagram_Lib\BackgammonDiagram_Lib.csproj" />
-    <ProjectReference Include="..\..\BgDataTypes_Lib\BgDataTypes_Lib\BgDataTypes_Lib.csproj" />
-    <ProjectReference Include="..\..\BgDiag_Razor\BgDiag_Razor\BgDiag_Razor.csproj" />
-    <ProjectReference Include="..\..\BgGame_Lib\BgGame_Lib\BgGame_Lib.csproj" />
-    <ProjectReference Include="..\..\BgMoveGen\BgMoveGen\BgMoveGen.csproj" />
-    <ProjectReference Include="..\..\ConvertXgToJson_Lib\ConvertXgToJson_Lib\ConvertXgToJson_Lib.csproj" />
-    <ProjectReference Include="..\..\XgFilter_Lib\XgFilter_Lib\XgFilter_Lib.csproj" />
-    <ProjectReference Include="..\..\XgFilter_Razor\XgFilter_Razor\XgFilter_Razor.csproj" />
   </ItemGroup>
 
 </Project>
