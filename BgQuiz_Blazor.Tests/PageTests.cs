@@ -45,6 +45,19 @@ public class PageTests : BunitContext
         Services.AddSingleton(problemSet);
     }
 
+    /// <summary>
+    /// Register an <see cref="AppliedFilter"/> for the rendered <c>Home</c> page
+    /// (Home injects it). With <paramref name="applied"/> non-null the filter half
+    /// of the gate is already satisfied — simulating navigate-back with a config
+    /// the user applied earlier this session; otherwise it starts un-applied.
+    /// </summary>
+    private void WithAppliedFilter(FilterConfig? applied = null)
+    {
+        var holder = new AppliedFilter();
+        if (applied is not null) holder.Set(applied);
+        Services.AddSingleton(holder);
+    }
+
     // -----------------------------------------------------------------------
     //  Home.razor
     // -----------------------------------------------------------------------
@@ -55,6 +68,7 @@ public class PageTests : BunitContext
         // No file picked yet, so Start is disabled regardless of filters.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         Services.AddSingleton(new PickedProblemSet());
+        WithAppliedFilter();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -74,6 +88,7 @@ public class PageTests : BunitContext
         // satisfied (summary blank + Start enabled = the reported desync).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFile("resume.xg"); // holder already populated, as after navigate-back
+        WithAppliedFilter();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -98,6 +113,7 @@ public class PageTests : BunitContext
         // satisfies the second gate and flips Start to enabled.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFile();
+        WithAppliedFilter();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -123,6 +139,7 @@ public class PageTests : BunitContext
         var controller = new QuizController(set => { capturedPipeline = set; return fake; });
         Services.AddSingleton(controller);
         WithPickedFile(); // satisfy the file gate so Start is clickable
+        WithAppliedFilter();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -152,6 +169,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         var problemSet = new PickedProblemSet();
         Services.AddSingleton(problemSet);
+        WithAppliedFilter();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -170,6 +188,7 @@ public class PageTests : BunitContext
         // Both gates: a file picked *and* filters applied.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         Services.AddSingleton(new PickedProblemSet());
+        WithAppliedFilter();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -190,6 +209,56 @@ public class PageTests : BunitContext
             var btn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
             Assert.False(btn.HasAttribute("disabled"));
         });
+    }
+
+    [Fact]
+    public void Home_PreAppliedFilterHolder_EnablesStartWithoutReApply()
+    {
+        // Navigate-back regression (filter half): the applied filter lives in the
+        // per-app AppliedFilter holder, which survives in-app navigation, but Home
+        // is re-instantiated on return. The gate must re-derive from the holder,
+        // not a transient component field — the old field reset to false, forcing
+        // a needless re-click of Apply even though the values persisted. With both
+        // holders pre-populated (file picked + filter applied earlier this
+        // session) Start is enabled on first render, no FilterPanel callback run.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFile("resume.xg");
+        WithAppliedFilter(new FilterConfig()); // applied earlier, as after navigate-back
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+
+        // FilterPanel re-renders and silently restores its values from
+        // localStorage (raising no callback), so the applied holder is untouched
+        // and Start is enabled without re-applying.
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        Assert.False(startBtn.HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_FiltersDirty_ClearsAppliedState_DisablesStart()
+    {
+        // Gate semantics guard: "applied" means the user deliberately applied, not
+        // merely that a config exists. Editing any filter control fires the
+        // panel's dirty signal, which must clear the applied holder so a
+        // half-edited set re-disables Start — even with a file still picked.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFile();
+        WithAppliedFilter(new FilterConfig()); // start from an applied, enabled state
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+
+        // Both gates met → enabled.
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        Assert.False(startBtn.HasAttribute("disabled"));
+
+        // User edits a filter → dirty → applied state cleared → disabled again.
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() => fp.Instance.OnFilterDirty.InvokeAsync());
+
+        startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        Assert.True(startBtn.HasAttribute("disabled"));
     }
 
     // -----------------------------------------------------------------------

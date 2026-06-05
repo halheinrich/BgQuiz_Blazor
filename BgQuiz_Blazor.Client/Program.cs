@@ -21,6 +21,11 @@ builder.Services.AddScoped<QuizController>();
 // factory below reads it at quiz-start.
 builder.Services.AddScoped<PickedProblemSet>();
 
+// Per-app holder for the filter half of Home's start gate: the config the user
+// deliberately applied. Scoped so the gate survives in-app navigation (Home is
+// re-instantiated on navigate-back); read only by Home.
+builder.Services.AddScoped<AppliedFilter>();
+
 // Source factory: builds a WasmUploadedProblemSetSource over whatever files the
 // user has picked at quiz-start, applying the user's filter set. The picked set
 // is read at invocation time (QuizController.StartAsync), not registration, so a

@@ -90,12 +90,14 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
   BgQuiz_Blazor.Client.csproj       — Sdk.BlazorWebAssembly; the bg-lib closure
   Program.cs                        — WebAssemblyHostBuilder; registers
                                       QuizController, PickedProblemSet,
-                                      ProblemSetSourceFactory (scoped)
+                                      AppliedFilter, ProblemSetSourceFactory
+                                      (all scoped)
   _Imports.razor
   Quiz/
     QuizController.cs
     ProblemReview.cs
     PickedProblemSet.cs             — picked-files holder (+ Summary)
+    AppliedFilter.cs                — applied-filter holder (start-gate half)
     WasmUploadedProblemSetSource.cs — in-browser stream-backed source
   Components/
     Pages/
@@ -112,6 +114,7 @@ BgQuiz_Blazor.Tests/
   QuizControllerTests.cs
   WasmUploadedProblemSetSourceTests.cs
   PickedProblemSetTests.cs
+  AppliedFilterTests.cs
   PageTests.cs
 ```
 
@@ -292,6 +295,33 @@ The picked set is **in-memory only**: it survives in-app navigation but is
 reset by a full browser reload (the WASM runtime re-boots). Reload-survival
 is a deferred arc, matching `QuizController`.
 
+### `AppliedFilter` — the filter half of the start gate
+
+The per-app (`Scoped`, one-per-tab in WASM) holder for the `FilterConfig` the
+user has **deliberately applied** on `Home` — the sibling of `PickedProblemSet`
+for the filter half of the start gate. `Home.razor` writes it: `Set(config)`
+when the panel raises `OnFilterConfigChanged` (Apply / Reset), `Clear()` when
+it raises `OnFilterDirty` (any control edit). `IsApplied` (= `Config is not
+null`) and `Config` are read only by `Home` (`CanStart`, `StartQuizAsync`).
+
+Holding the applied state here rather than in a transient component field is
+what lets the gate survive in-app navigation: on navigate-back `Home` is
+re-instantiated, but it re-derives `CanStart` from the two persisted holders
+instead of resetting to "not applied" and forcing a needless re-click of
+Apply (the filter-side twin of the picked-summary nit).
+
+**Gate semantics — applied, not merely present.** `IsApplied` means the user
+took the Apply action, so a half-edited set must clear it (`OnFilterDirty →
+Clear`). The interaction with `FilterPanel`'s localStorage restore is safe by
+construction: restore writes the panel's own fields directly and raises
+**neither** callback, so it can't spuriously mark applied or clear an existing
+applied state — the holder is the sole authority on "applied". `AppliedFilterTests`
+pins the holder; the bUnit `Home_PreAppliedFilterHolder_EnablesStartWithoutReApply`
+and `Home_FiltersDirty_ClearsAppliedState_DisablesStart` pin the gate.
+
+In-memory only, reset on full reload — same deferred-arc caveat as the other
+two holders.
+
 ### Pages
 
 - **`Home.razor`** — an `<InputFile multiple accept=".xg,.xgp">` file
@@ -301,13 +331,15 @@ is a deferred arc, matching `QuizController`.
   bytes) in the per-app `PickedProblemSet`; the bytes are parsed in-browser
   and never uploaded. The picked-set label renders straight from
   `PickedProblemSet.Summary` (the SSOT — not a transient field). Start is
-  gated on **two** conditions: filters Applied at least once *and* at least
-  one file picked (`CanStart => _filtersApplied && ProblemSet.HasFiles`).
-  Subscribes to `OnFilterConfigChanged` (the panel's emit-event after Apply),
-  captures the `FilterConfig`, and hands it to `Controller.StartAsync`.
-  Catches read failures and start-time exceptions (`FilterConfig.Build()`
-  validation failure, source construction failure) and surfaces them as a
-  banner instead of faulting the WASM app.
+  gated on **two** conditions, both read from per-app scoped holders so the
+  gate survives navigation: filters Applied at least once *and* at least one
+  file picked (`CanStart => AppliedFilter.IsApplied && ProblemSet.HasFiles`).
+  Subscribes to `OnFilterConfigChanged` → `AppliedFilter.Set` (the panel's
+  emit-event after Apply) and `OnFilterDirty` → `AppliedFilter.Clear`; on
+  Start hands `AppliedFilter.Config` to `Controller.StartAsync`. Catches read
+  failures and start-time exceptions (`FilterConfig.Build()` validation
+  failure, source construction failure) and surfaces them as a banner instead
+  of faulting the WASM app.
 - **`Quiz.razor`** — mirrors the controller's three-state flow, branching on
   `Controller.Review`. In the **answering** state (`Review` null) it routes by
   `Current.Decision.IsCube` over
@@ -385,13 +417,16 @@ endpoints. The externally visible surface is the route map:
 ## Pitfalls
 
 - **State resets on full reload, not on in-app navigation.** "Scoped" in
-  WASM is one instance per loaded app (one tab), so `QuizController` and
-  `PickedProblemSet` survive `/` ↔ `/quiz` ↔ `/done` navigation but a full
-  browser reload re-boots the runtime and loses everything (picked files,
-  quiz progress). Reload-survival is a deferred arc — don't assume reload
-  resumes. (Transient page-form state like Home's filters-applied flag is
-  component-local and *does* reset on navigate-back; that's the page form,
-  not quiz progress.)
+  WASM is one instance per loaded app (one tab), so `QuizController`,
+  `PickedProblemSet`, and `AppliedFilter` survive `/` ↔ `/quiz` ↔ `/done`
+  navigation but a full browser reload re-boots the runtime and loses
+  everything (picked files, applied filter, quiz progress). Reload-survival
+  is a deferred arc — don't assume reload resumes. Anything that *should*
+  survive navigation belongs in a scoped holder, not a component field —
+  the two halves of Home's start gate were moved off transient fields for
+  exactly this reason. (Genuinely per-visit page state — e.g. Home's
+  `_startError` banner — correctly stays a component field and resets on
+  navigate-back.)
 - **Cube decisions carry `Dice == [0, 0]` — never auto-skip them.**
   `IsPassPosition` runs `MoveGenerator.GeneratePlays` on the dice; a cube
   decision's `[0, 0]` produces the no-legal-play sentinel, so without the

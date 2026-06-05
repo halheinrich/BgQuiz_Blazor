@@ -21,7 +21,11 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// Start is gated on two conditions: the filters Applied at least once and at
-/// least one file picked. On Start the captured <see cref="FilterConfig"/> is
+/// least one file picked. Both halves live in per-app scoped holders
+/// (<see cref="AppliedFilter"/> and <see cref="PickedProblemSet"/>) rather than
+/// transient component fields, so the gate survives in-app navigation — when the
+/// page is re-instantiated on navigate-back it re-derives from the holders
+/// instead of resetting. On Start the applied <see cref="FilterConfig"/> is
 /// handed to the <see cref="QuizController"/>, whose source factory builds a
 /// <see cref="WasmUploadedProblemSetSource"/> over the picked set, and the app
 /// navigates to <c>/quiz</c>. Read failures and
@@ -37,11 +41,9 @@ public partial class Home : ComponentBase
     /// <summary>Upper bound on files accepted in a single pick.</summary>
     private const int MaxFileCount = 500;
 
-    private FilterConfig? _filterConfig;
-    private bool _filtersApplied;
     private string? _startError;
 
-    private bool CanStart => _filtersApplied && ProblemSet.HasFiles;
+    private bool CanStart => AppliedFilter.IsApplied && ProblemSet.HasFiles;
 
     private async Task HandleFilesPickedAsync(InputFileChangeEventArgs e)
     {
@@ -76,22 +78,25 @@ public partial class Home : ComponentBase
 
     private void HandleFilterConfigApplied(FilterConfig cfg)
     {
-        _filterConfig = cfg;
-        _filtersApplied = true;
+        // The user clicked Apply: record the deliberate applied state on the
+        // scoped holder so it survives navigate-back (not a transient field).
+        AppliedFilter.Set(cfg);
         _startError = null;
     }
 
     private void HandleFiltersDirty()
     {
-        _filtersApplied = false;
+        // Any filter edit re-gates Start: a half-edited, un-applied set must
+        // clear the applied state, not just a local flag.
+        AppliedFilter.Clear();
     }
 
     private async Task StartQuizAsync()
     {
-        if (_filterConfig is null) return;
+        if (AppliedFilter.Config is not { } cfg) return;
         try
         {
-            await Controller.StartAsync(_filterConfig);
+            await Controller.StartAsync(cfg);
             Nav.NavigateTo("/quiz");
         }
         catch (Exception ex)
