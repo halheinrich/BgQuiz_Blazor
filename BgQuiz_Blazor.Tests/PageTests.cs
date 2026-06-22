@@ -442,6 +442,54 @@ public class PageTests : BunitContext
         Assert.Equal(1, c.Score.TakeDecisions.Correct);
     }
 
+    [Fact]
+    public async Task Quiz_ProblemWithXgid_RendersXgidTextAndCopyButton()
+    {
+        // The decision carries an XGID, so the entry (problem) view overlays it
+        // as selectable text plus a copy button in the board's upper-right.
+        const string xgid = "XGID=-b----E-C---eE---c-e----B-:0:0:1:00:0:0:0:0:10";
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: xgid));
+        await c.StartAsync(new FilterConfig());
+
+        var cut = Render<QuizPage>();
+
+        Assert.Contains(xgid, cut.Markup);
+        Assert.Contains("board-xgid", cut.Markup);
+        var copy = cut.FindAll("button").First(b => b.TextContent.Trim() == "Copy");
+        Assert.NotNull(copy);
+    }
+
+    [Fact]
+    public async Task Quiz_ProblemWithoutXgid_HidesXgidLabel()
+    {
+        // Empty XGID (the fixture default) renders no badge at all.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+
+        var cut = Render<QuizPage>();
+
+        Assert.DoesNotContain("board-xgid", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_SolutionViewWithXgid_RendersXgidText()
+    {
+        // Coverage check for the second phase: after Submit the page flips to the
+        // solution-review view, which must still surface the same XGID.
+        const string xgid = "XGID=-b----E-C---eE---c-e----B-:1:1:1:00:5:3:0:7:10";
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: xgid));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.NotNull(c.Review); // in the review (solution) state
+
+        Assert.Contains(xgid, cut.Markup);
+        Assert.Contains("board-xgid", cut.Markup);
+    }
+
     // -----------------------------------------------------------------------
     //  Done.razor
     // -----------------------------------------------------------------------

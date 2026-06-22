@@ -1,0 +1,15 @@
+@* Selectable, copyable XGID badge overlaid on the board's upper-right corner.
+   Renders nothing when the XGID is empty (see the code-behind). *@
+@if (!string.IsNullOrEmpty(Xgid))
+{
+    <div class="board-xgid" role="group" aria-label="Position XGID">
+        <code class="board-xgid-text">@Xgid</code>
+        <button type="button"
+                class="board-xgid-copy"
+                title="Copy XGID to clipboard"
+                aria-label="Copy XGID to clipboard"
+                @onclick="CopyAsync">
+            @(_copied ? "Copied" : "Copy")
+        </button>
+    </div>
+}

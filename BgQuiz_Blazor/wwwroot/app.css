@@ -63,6 +63,47 @@ h1:focus {
     width: min(100%, calc((100vh - 160px) * 429.8 / 446));
     margin-inline: auto;
     box-sizing: border-box;
+    /* Positioning context for the absolutely-placed XGID badge. */
+    position: relative;
+}
+
+/* XGID badge — upper-right of the board, clear of the SVG title strip,
+   mirroring the right-justified label the PDF/PPTX/PNG exporters bake in. */
+.board-xgid {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 0.25rem;
+    background: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    font-size: 0.75rem;
+    line-height: 1.2;
+}
+
+.board-xgid-text {
+    color: #212529;
+    user-select: all;
+    white-space: nowrap;
+}
+
+.board-xgid-copy {
+    border: 1px solid #adb5bd;
+    border-radius: 0.2rem;
+    background: #fff;
+    color: #212529;
+    font-size: 0.7rem;
+    line-height: 1.2;
+    padding: 0.05rem 0.3rem;
+    cursor: pointer;
+}
+
+.board-xgid-copy:hover {
+    background: #e9ecef;
 }
 
 .board-container .bg-diagram {

@@ -28,6 +28,7 @@
         @if (Controller.Review is { } review)
         {
             <div class="board-container my-3">
+                <XgidLabel Xgid="@current.Xgid" />
                 <BackgammonDiagram Request="BuildSolutionRequest(current, review)"
                                    Options="_diagramOptions" />
             </div>
@@ -48,6 +49,7 @@
         else
         {
             <div class="board-container my-3">
+                <XgidLabel Xgid="@current.Xgid" />
                 @if (current.Decision.IsCube)
                 {
                     <BackgammonCubeEntry Request="BuildRenderRequest(current)"

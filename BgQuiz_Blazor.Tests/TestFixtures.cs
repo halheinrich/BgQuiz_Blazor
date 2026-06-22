@@ -49,11 +49,13 @@ internal static class TestFixtures
     /// for 3-1).
     /// </summary>
     public static BgDecisionData TwoChoiceDecision(
-        Play play1, Play play2, double play2Loss = 0.05, string onRoll = "Alice", string opp = "Bob")
+        Play play1, Play play2, double play2Loss = 0.05, string onRoll = "Alice",
+        string opp = "Bob", string xgid = "")
     {
         return new BgDecisionData
         {
             Id = new XgpDecisionId("test.xgp"),
+            Xgid = xgid,
             Position = new PositionData { Mop = StandardMop() },
             Decision = new DecisionData
             {
@@ -80,11 +82,12 @@ internal static class TestFixtures
     /// </summary>
     public static BgDecisionData CubeDecision(
         double noDoubleEquity = 0.5, double doubleTakeEquity = 0.7,
-        string onRoll = "Alice", string opp = "Bob")
+        string onRoll = "Alice", string opp = "Bob", string xgid = "")
     {
         return new BgDecisionData
         {
             Id = new XgpDecisionId("test.xgp"),
+            Xgid = xgid,
             Position = new PositionData { Mop = StandardMop() },
             Decision = new DecisionData
             {
