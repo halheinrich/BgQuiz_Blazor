@@ -63,25 +63,29 @@ h1:focus {
     width: min(100%, calc((100vh - 160px) * 429.8 / 446));
     margin-inline: auto;
     box-sizing: border-box;
-    /* Positioning context for the absolutely-placed XGID badge. */
+    /* Positioning context for the absolutely-placed XGID badge, and the query
+       container that lets the badge scale with the board (cqw units below). */
     position: relative;
+    container-type: inline-size;
 }
 
-/* XGID badge — upper-right of the board, clear of the SVG title strip,
-   mirroring the right-justified label the PDF/PPTX/PNG exporters bake in. */
+/* XGID badge — upper-right of the board, sized in container-query units so it
+   tracks the board's ~28/468-tall title strip at every viewport width and never
+   spills onto the playing surface. Mirrors the right-justified label the
+   PDF/PPTX/PNG exporters bake into that same strip. */
 .board-xgid {
     position: absolute;
-    top: 4px;
-    right: 4px;
+    top: 0.5cqw;
+    right: 0.5cqw;
     z-index: 2;
     display: flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0.1rem 0.35rem;
+    gap: 0.4cqw;
+    padding: 0 0.4cqw;
     border-radius: 0.25rem;
     background: rgba(255, 255, 255, 0.85);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-    font-size: 0.75rem;
+    font-size: clamp(0.55rem, 2.05cqw, 0.78rem);
     line-height: 1.2;
 }
 
@@ -96,9 +100,9 @@ h1:focus {
     border-radius: 0.2rem;
     background: #fff;
     color: #212529;
-    font-size: 0.7rem;
-    line-height: 1.2;
-    padding: 0.05rem 0.3rem;
+    font-size: 0.9em;
+    line-height: 1.15;
+    padding: 0 0.3cqw;
     cursor: pointer;
 }
 
