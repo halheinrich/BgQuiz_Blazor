@@ -99,6 +99,38 @@ internal static class TestFixtures
         };
     }
 
+    /// <summary>
+    /// Bear-off-one decision: a single on-roll checker on the 1-pt with dice
+    /// (1,1), whose only legal play is 1/off. Drives a deterministic completion
+    /// sequence (select the 1-pt, then bear off to the tray) through
+    /// <c>BackgammonPlayEntry</c> without hand-picking ambiguous click orderings.
+    /// The lone candidate is that play at zero loss, so a completed submit scores
+    /// as correct — used to exercise the dice-click → submit wire end-to-end.
+    /// </summary>
+    public static BgDecisionData BearOffOneDecision(
+        string onRoll = "Alice", string opp = "Bob")
+    {
+        var m = new int[26];
+        m[1] = 1;
+        return new BgDecisionData
+        {
+            Id = new XgpDecisionId("test.xgp"),
+            Position = new PositionData { Mop = m },
+            Decision = new DecisionData
+            {
+                Dice = [1, 1],
+                Plays =
+                [
+                    // ToPt 0 = bear off; the entry's completed 1/off play matches
+                    // this candidate by Play.DeduplicationKey ((1, 0)).
+                    new PlayCandidate { Play = MakePlay((1, 0)), EquityLoss = 0.0, MoveNotation = "1/off" },
+                ],
+                BestPlayIndex = 0,
+            },
+            Descriptive = new DescriptiveData { OnRollName = onRoll, OpponentName = opp },
+        };
+    }
+
     /// <summary>Pass-position decision — controller must auto-skip silently.</summary>
     public static BgDecisionData PassDecision()
     {

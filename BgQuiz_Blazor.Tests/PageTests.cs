@@ -1,3 +1,5 @@
+using BackgammonDiagram_Lib;
+using BackgammonDiagram_Lib.Rendering;
 using BgDataTypes_Lib;
 using BgDiag_Razor.Components;
 using BgGame_Lib;
@@ -488,6 +490,90 @@ public class PageTests : BunitContext
 
         Assert.Contains(xgid, cut.Markup);
         Assert.Contains("board-xgid", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_CompletePlay_DiceClick_SubmitsThroughBoundCallback()
+    {
+        // The checker-play analog of Quiz_CubeComplete_ThenSubmit: the parent →
+        // child → handler wire for a dice-click submit. Driving the inner
+        // BackgammonPlayEntry to completion (1/off) and clicking the dice hit-rect
+        // fires OnSubmitRequested, which Quiz.razor binds to its Submit handler —
+        // routing HandleDiceClick → OnSubmitRequested → Submit and scoring exactly
+        // as the Submit button would. Without that binding the dice click is a
+        // silent no-op: Review stays null and the page never leaves the answering
+        // view, so this test fails.
+        var decision = TestFixtures.BearOffOneDecision();
+        var c = WithController(decision);
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        // Same request the page builds for the entry; drives the hit-rect indices.
+        var request = DiagramRequest.FromDecisionData(decision, DiagramMode.Problem);
+
+        // Answering state — not yet in review.
+        Assert.Null(c.Review);
+
+        // Drive the only legal play to completion: select the 1-pt, bear off.
+        await ClickRectAsync(cut, RectIndexForPoint(request, 1));
+        await ClickRectAsync(cut, RectIndexForTray(request));
+
+        // Complete-play dice click signals submit intent → bound Submit runs.
+        await ClickDiceAsync(cut);
+
+        // Controller scored and entered review — the dice click submitted the
+        // matched best play, exactly as a Submit-button click would.
+        Assert.NotNull(c.Review);
+        Assert.Single(c.History);
+        Assert.True(c.History[0].IsCorrect);
+        Assert.Equal(1, c.Score.Total.Submitted);
+
+        // The page flipped to the solution view: Continue present, Submit gone.
+        var buttons = cut.FindAll("button").Select(b => b.TextContent.Trim()).ToList();
+        Assert.Contains("Continue", buttons);
+        Assert.DoesNotContain("Submit", buttons);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Hit-rect click helpers (Quiz answering state renders only the entry's
+    //  board, so the page's transparent overlay rects are the entry's). Order
+    //  mirrors BackgammonDiagram's overlay emission: Points in iteration order,
+    //  then bar, optional cube, optional tray, dice last. Rects are re-found per
+    //  click so post-render handler IDs stay fresh.
+    // -----------------------------------------------------------------------
+
+    private static int RectIndexForPoint(DiagramRequest req, int point)
+    {
+        var regions = DiagramRenderer.GetHitRegions(req, new DiagramOptions());
+        int i = 0;
+        foreach (var kvp in regions.Points)
+        {
+            if (kvp.Key == point) return i;
+            i++;
+        }
+        throw new ArgumentException($"Point {point} not present in regions.");
+    }
+
+    private static int RectIndexForTray(DiagramRequest req)
+    {
+        var regions = DiagramRenderer.GetHitRegions(req, new DiagramOptions());
+        if (regions.OnRollTray is null)
+            throw new InvalidOperationException("Request has no OnRollTray region.");
+        return regions.Points.Count + 1 + (regions.Cube is null ? 0 : 1);
+    }
+
+    private static Task ClickRectAsync(IRenderedComponent<QuizPage> cut, int rectIndex)
+    {
+        var rects = cut.FindAll("rect[fill='transparent'][pointer-events='all']");
+        return rects[rectIndex].ClickAsync(new());
+    }
+
+    private static Task ClickDiceAsync(IRenderedComponent<QuizPage> cut)
+    {
+        // The dice rect is emitted last (after points, bar, cube, tray) and a
+        // play always has a dice region, so the final transparent rect is it.
+        var rects = cut.FindAll("rect[fill='transparent'][pointer-events='all']");
+        return rects[^1].ClickAsync(new());
     }
 
     // -----------------------------------------------------------------------
