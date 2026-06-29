@@ -514,11 +514,16 @@ public class PageTests : BunitContext
         // Answering state — not yet in review.
         Assert.Null(c.Review);
 
-        // Drive the only legal play to completion: select the 1-pt, bear off.
+        // One-click completion: clicking the 1-pt advances its lone checker, whose
+        // only move bears off (ToPt 0); with no checker left the play completes in
+        // a single click — no separate tray step.
         await ClickRectAsync(cut, RectIndexForPoint(request, 1));
-        await ClickRectAsync(cut, RectIndexForTray(request));
 
-        // Complete-play dice click signals submit intent → bound Submit runs.
+        // The completing move re-rendered the board (the borne-off checker is
+        // gone), so the dice hit-rect must be re-queried against the new render —
+        // a stale pre-move index would land on a now-handler-less rect and throw
+        // MissingEventHandlerException. ClickDiceAsync re-finds the rects, then the
+        // complete-play dice click signals submit intent → bound Submit runs.
         await ClickDiceAsync(cut);
 
         // Controller scored and entered review — the dice click submitted the
@@ -539,7 +544,8 @@ public class PageTests : BunitContext
     //  board, so the page's transparent overlay rects are the entry's). Order
     //  mirrors BackgammonDiagram's overlay emission: Points in iteration order,
     //  then bar, optional cube, optional tray, dice last. Rects are re-found per
-    //  click so post-render handler IDs stay fresh.
+    //  click so post-render handler IDs stay fresh — a stale index against a
+    //  re-rendered board throws MissingEventHandlerException.
     // -----------------------------------------------------------------------
 
     private static int RectIndexForPoint(DiagramRequest req, int point)
@@ -552,14 +558,6 @@ public class PageTests : BunitContext
             i++;
         }
         throw new ArgumentException($"Point {point} not present in regions.");
-    }
-
-    private static int RectIndexForTray(DiagramRequest req)
-    {
-        var regions = DiagramRenderer.GetHitRegions(req, new DiagramOptions());
-        if (regions.OnRollTray is null)
-            throw new InvalidOperationException("Request has no OnRollTray region.");
-        return regions.Points.Count + 1 + (regions.Cube is null ? 0 : 1);
     }
 
     private static Task ClickRectAsync(IRenderedComponent<QuizPage> cut, int rectIndex)
