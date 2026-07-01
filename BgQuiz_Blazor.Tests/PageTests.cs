@@ -493,6 +493,84 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Quiz_SolutionView_AnswerDiffersFromRecorded_MarksBothStarAndDagger()
+    {
+        // G semantics: * marks the .xg-recorded played move (candidate 0 here),
+        // † marks the quiz answer when it differs. The user answers the alt play
+        // (candidate 1), so BuildSolutionRequest leaves UserPlayIndex at the
+        // recorded 0 and sets SecondaryPlayIndex to the answered 1 — the solution
+        // SVG draws both marks and the legend names both.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), recordedPlayIndex: 0));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitPlay(AltPlay())); // answer = candidate 1
+
+        var diagram = cut.FindComponent<BackgammonDiagram>();
+        Assert.Equal(0, diagram.Instance.Request!.Decision.UserPlayIndex);   // * = recorded
+        Assert.Equal(1, diagram.Instance.Request!.SecondaryPlayIndex);       // † = answer
+
+        // SVG shows both marks (diagram markup excludes the page-level legend).
+        Assert.Contains("*", diagram.Markup);
+        Assert.Contains("†", diagram.Markup);
+
+        // Legend explains both markers.
+        Assert.Contains("* played", cut.Markup);
+        Assert.Contains("† your answer", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_SolutionView_AnswerEqualsRecorded_MarksOnlyStar()
+    {
+        // The user played the recorded move (both candidate 0): SecondaryPlayIndex
+        // coincides with UserPlayIndex, so the producer collapses † into the
+        // single * — the SVG shows no † and the legend omits the answer half.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), recordedPlayIndex: 0));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay())); // answer = candidate 0 = recorded
+
+        var diagram = cut.FindComponent<BackgammonDiagram>();
+        Assert.Equal(0, diagram.Instance.Request!.Decision.UserPlayIndex);
+        Assert.Equal(0, diagram.Instance.Request!.SecondaryPlayIndex);
+
+        Assert.Contains("*", diagram.Markup);
+        Assert.DoesNotContain("†", diagram.Markup);
+
+        Assert.Contains("* played", cut.Markup);
+        Assert.DoesNotContain("† your answer", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_SolutionView_OffListAnswer_MarksOnlyStar()
+    {
+        // An off-list answer isn't in the candidate list (review index -1), so
+        // SecondaryPlayIndex is -1 and no † is drawn — only the recorded * shows.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), recordedPlayIndex: 0));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        // A play matching neither candidate → off-list.
+        await cut.InvokeAsync(() => c.SubmitPlay(TestFixtures.MakePlay((24, 23), (23, 21))));
+        var review = Assert.IsType<ProblemReview.Play>(c.Review);
+        Assert.True(review.OffList);
+
+        var diagram = cut.FindComponent<BackgammonDiagram>();
+        Assert.Equal(0, diagram.Instance.Request!.Decision.UserPlayIndex);
+        Assert.Equal(-1, diagram.Instance.Request!.SecondaryPlayIndex);
+
+        Assert.Contains("*", diagram.Markup);
+        Assert.DoesNotContain("†", diagram.Markup);
+
+        Assert.Contains("* played", cut.Markup);
+        Assert.DoesNotContain("† your answer", cut.Markup);
+    }
+
+    [Fact]
     public async Task Quiz_CompletePlay_DiceClick_SubmitsThroughBoundCallback()
     {
         // The checker-play analog of Quiz_CubeComplete_ThenSubmit: the parent →

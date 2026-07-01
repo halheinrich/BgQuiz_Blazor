@@ -33,6 +33,11 @@
                                    Options="_diagramOptions" />
             </div>
 
+            @if (SolutionLegend(review, current.Decision) is { } legend)
+            {
+                <div class="text-muted small mb-2">@legend</div>
+            }
+
             <div class="@VerdictCssClass(review)" role="status">
                 @VerdictText(review)
             </div>

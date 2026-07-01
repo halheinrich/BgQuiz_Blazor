@@ -46,11 +46,13 @@ internal static class TestFixtures
     /// Deterministic two-candidate decision: <c>play1</c> at zero loss (best),
     /// <c>play2</c> at <paramref name="play2Loss"/>. Standard Mop, dice (3,1)
     /// for the pass-detection step (not pass — standard start has many plays
-    /// for 3-1).
+    /// for 3-1). <paramref name="recordedPlayIndex"/> is the .xg-recorded played
+    /// move (the solution diagram's <c>*</c>); defaults to <c>-1</c> (no recorded
+    /// play) so existing callers are unaffected.
     /// </summary>
     public static BgDecisionData TwoChoiceDecision(
         Play play1, Play play2, double play2Loss = 0.05, string onRoll = "Alice",
-        string opp = "Bob", string xgid = "")
+        string opp = "Bob", string xgid = "", int recordedPlayIndex = -1)
     {
         return new BgDecisionData
         {
@@ -66,6 +68,7 @@ internal static class TestFixtures
                     new PlayCandidate { Play = play2, EquityLoss = play2Loss, MoveNotation = "alt" },
                 ],
                 BestPlayIndex = 0,
+                UserPlayIndex = recordedPlayIndex,
             },
             Descriptive = new DescriptiveData { OnRollName = onRoll, OpponentName = opp },
         };

@@ -112,12 +112,21 @@ public partial class Quiz : ComponentBase, IDisposable
 
     /// <summary>
     /// Build the review-state solution request: the original answered position
-    /// with the filled analysis panel (<see cref="DiagramMode.Solution"/>),
-    /// marking the <em>quiz user's</em> answer rather than the .xg-recorded
-    /// player's. <c>Builder.From</c> copies the data fields, then the user marks
-    /// are overridden from <paramref name="review"/> — <c>FromDecisionData</c>
-    /// can't be used directly because it would default those marks from the
-    /// recorded player.
+    /// with the filled analysis panel (<see cref="DiagramMode.Solution"/>).
+    /// <para>
+    /// For a checker play the primary <c>*</c> marks the <em>.xg-recorded played
+    /// move</em> and the secondary <c>†</c> marks the <em>quiz user's answer</em>.
+    /// <c>Builder.From</c> already sources <c>UserPlayIndex</c> (the <c>*</c>)
+    /// from <c>decision.UserPlayIndex</c>, so only
+    /// <see cref="DiagramRequest.SecondaryPlayIndex"/> (the <c>†</c>) is set
+    /// here, from the answered candidate index. The producer suppresses the
+    /// <c>†</c> when it coincides with the recorded play, and an off-list answer
+    /// (index <c>-1</c>) draws no <c>†</c> at all.
+    /// </para>
+    /// <para>
+    /// For a cube decision the two per-half equity losses drive the "Actual"
+    /// banner row instead.
+    /// </para>
     /// </summary>
     private static DiagramRequest BuildSolutionRequest(
         BgDataTypes_Lib.BgDecisionData current, ProblemReview review)
@@ -128,9 +137,11 @@ public partial class Quiz : ComponentBase, IDisposable
         switch (review)
         {
             case ProblemReview.Play play:
-                // Matched candidate index drives the * marker; -1 (off-list)
-                // draws no marker but still shows the best play.
-                builder.UserPlayIndex = play.UserPlayIndex;
+                // * (UserPlayIndex, already set by Builder.From from the
+                // .xg-recorded play) marks the played move; † marks the quiz
+                // answer. The producer suppresses † when it equals the recorded
+                // play, and an off-list answer (index -1) draws no †.
+                builder.SecondaryPlayIndex = play.UserPlayIndex;
                 break;
             case ProblemReview.Cube cube:
                 // The two per-half equity losses drive the "Actual" banner row.
@@ -146,11 +157,11 @@ public partial class Quiz : ComponentBase, IDisposable
     private static string VerdictText(ProblemReview review) => review switch
     {
         ProblemReview.Play { OffList: true } =>
-            "Off list — your play wasn't among the analyzed candidates. The best play is marked above.",
+            "Off list — your play wasn't among the analyzed candidates. The best play is shown above.",
         ProblemReview.Play { IsCorrect: true } =>
             "Correct — you found the best play.",
         ProblemReview.Play p =>
-            $"Not best — your play lost {p.EquityLoss:0.000} equity. The best play is marked above.",
+            $"Not best — your play lost {p.EquityLoss:0.000} equity. The best play is shown above.",
         ProblemReview.Cube c =>
             $"Double: {CubeHalfVerdict(c.DoublerCorrect, c.DoublerEquityLoss)} · "
             + $"Take: {CubeHalfVerdict(c.TakerCorrect, c.TakerEquityLoss)}",
@@ -159,6 +170,28 @@ public partial class Quiz : ComponentBase, IDisposable
 
     private static string CubeHalfVerdict(bool correct, double loss) =>
         correct ? "correct" : $"incorrect (lost {loss:0.000})";
+
+    /// <summary>
+    /// Legend for the solution diagram's play markers, listing only the markers
+    /// actually drawn: <c>*</c> the .xg-recorded played move (present when the
+    /// decision carries a recorded play) and <c>†</c> the quiz answer (present
+    /// only when it is on-list and differs from the recorded play — the same
+    /// suppression the renderer applies to <see cref="DiagramRequest.SecondaryPlayIndex"/>).
+    /// Returns <c>null</c> when no play marker shows (cube reviews, or a play
+    /// review with neither a recorded move nor a distinct on-list answer).
+    /// </summary>
+    private static string? SolutionLegend(ProblemReview review, DecisionData decision)
+    {
+        if (review is not ProblemReview.Play play) return null;
+
+        var parts = new List<string>(2);
+        if (decision.UserPlayIndex >= 0)
+            parts.Add("* played");
+        if (play.UserPlayIndex >= 0 && play.UserPlayIndex != decision.UserPlayIndex)
+            parts.Add("† your answer");
+
+        return parts.Count > 0 ? string.Join(" · ", parts) : null;
+    }
 
     /// <summary>Bootstrap alert class colouring the verdict by outcome.</summary>
     private static string VerdictCssClass(ProblemReview review) => review switch
