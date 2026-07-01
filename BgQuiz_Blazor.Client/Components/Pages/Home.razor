@@ -54,4 +54,7 @@
             <strong>Could not start quiz:</strong> @_startError
         </div>
     }
+
+    @* Explicit-expression parens: bare "v@AppVersion" is parsed as an email literal. *@
+    <div class="text-muted small mt-4">v@(AppVersion)</div>
 </div>

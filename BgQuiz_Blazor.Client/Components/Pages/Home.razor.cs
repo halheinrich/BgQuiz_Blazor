@@ -1,3 +1,4 @@
+using System.Reflection;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
@@ -35,6 +36,19 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </summary>
 public partial class Home : ComponentBase
 {
+    /// <summary>
+    /// App version surfaced on the landing page, resolved once from the client
+    /// assembly's <see cref="AssemblyInformationalVersionAttribute"/> — declared
+    /// via <c>&lt;Version&gt;</c> in the csproj, the single source of truth (no
+    /// hardcoded literal). Rendered as <c>v{AppVersion}</c>. Falls back to the
+    /// assembly version, then a placeholder, if the attribute is ever absent.
+    /// </summary>
+    internal static string AppVersion { get; } =
+        typeof(Home).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion
+        ?? typeof(Home).Assembly.GetName().Version?.ToString()
+        ?? "unknown";
+
     /// <summary>Per-file size cap (50 MB) — mirrors the XG extractor's web-mode limit.</summary>
     private const long MaxFileBytes = 50L * 1024 * 1024;
 

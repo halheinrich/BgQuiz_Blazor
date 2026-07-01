@@ -1,3 +1,4 @@
+using System.Reflection;
 using BackgammonDiagram_Lib;
 using BackgammonDiagram_Lib.Rendering;
 using BgDataTypes_Lib;
@@ -261,6 +262,46 @@ public class PageTests : BunitContext
 
         startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.True(startBtn.HasAttribute("disabled"));
+    }
+
+    /// <summary>The client assembly's informational version — the single source
+    /// the Home page reads for its <c>v{version}</c> footer.</summary>
+    private static string AssemblyInformationalVersion() =>
+        typeof(HomePage).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
+            .InformationalVersion;
+
+    [Fact]
+    public void Home_RendersAppVersion_SourcedFromAssembly()
+    {
+        // F: the landing page shows a small v{version}, sourced at runtime from
+        // the client assembly's informational version (csproj <Version>), not a
+        // hardcoded literal — asserting against the assembly keeps this robust
+        // across version bumps.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        Services.AddSingleton(new PickedProblemSet());
+        WithAppliedFilter();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+
+        var version = AssemblyInformationalVersion();
+        Assert.False(string.IsNullOrWhiteSpace(version)); // non-empty
+        Assert.Matches(@"^\d+\.\d+", version);            // expected shape: leading SemVer
+        Assert.Contains($"v{version}", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_DoesNotRenderAppVersion()
+    {
+        // F placement: the version string is a Home-only footer — the quiz view
+        // must not carry it.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+
+        var cut = Render<QuizPage>();
+
+        Assert.DoesNotContain($"v{AssemblyInformationalVersion()}", cut.Markup);
     }
 
     // -----------------------------------------------------------------------

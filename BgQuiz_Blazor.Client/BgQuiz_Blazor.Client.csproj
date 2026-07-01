@@ -5,6 +5,12 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>BgQuiz_Blazor.Client</RootNamespace>
+    <!-- Single source of truth for the app version the Home page surfaces (read
+         at runtime from AssemblyInformationalVersionAttribute). Suppress the SDK's
+         "+<gitsha>" build-metadata suffix so the informational version is the
+         clean SemVer shown in the UI. -->
+    <Version>1.0.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
