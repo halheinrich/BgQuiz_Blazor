@@ -438,12 +438,20 @@ public class PageTests : BunitContext
 
         var cut = Render<QuizPage>();
 
-        // Cube entry's two button groups render their labels.
-        Assert.Contains("No Double", cut.Markup);
-        Assert.Contains("Take", cut.Markup);
+        // A cube decision routes to the BackgammonCubeEntry component. Pin its
+        // presence via a stable structural hook — the radio-pill group's
+        // role="radiogroup" — not the producer's button-caption text. The
+        // captions are BgDiag_Razor's presentation concern (covered by its own
+        // component tests); a consumer asserting them re-breaks on every cosmetic
+        // rename (as the "No Double" → "No double" / buttons → radio pills change
+        // just did).
+        var cubeEntry = cut.FindComponent<BackgammonCubeEntry>();
+        Assert.NotEmpty(cubeEntry.FindAll("[role=\"radiogroup\"]"));
+
+        // The consumer-owned cube action row: Submit / Skip, and no Undo — a cube
+        // answer has no partial-move state.
         Assert.Contains("Submit", cut.Markup);
         Assert.Contains("Skip", cut.Markup);
-        // Cube decisions have no partial-move state, so no Undo row.
         Assert.DoesNotContain("Undo", cut.Markup);
     }
 
