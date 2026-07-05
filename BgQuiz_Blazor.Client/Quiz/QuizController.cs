@@ -193,6 +193,7 @@ public sealed class QuizController : IAsyncDisposable
         {
             var candidate = plays[idx];
             var submitted = new SubmittedPlay(
+                Current.Id,
                 play,
                 idx,
                 candidate.EquityLoss,
@@ -242,6 +243,7 @@ public sealed class QuizController : IAsyncDisposable
 
         var d = Current.Decision;
         var submitted = new SubmittedCubeAction(
+            Current.Id,
             answer,
             d.DoublerActionError(answer.Doubler),
             d.TakerActionError(answer.Taker),

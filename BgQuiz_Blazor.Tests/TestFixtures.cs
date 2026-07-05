@@ -48,15 +48,18 @@ internal static class TestFixtures
     /// for the pass-detection step (not pass — standard start has many plays
     /// for 3-1). <paramref name="recordedPlayIndex"/> is the .xg-recorded played
     /// move (the solution diagram's <c>*</c>); defaults to <c>-1</c> (no recorded
-    /// play) so existing callers are unaffected.
+    /// play) so existing callers are unaffected. <paramref name="id"/> overrides the
+    /// decision's stable identity for tests that pin how <c>BgDecisionData.Id</c>
+    /// flows through submissions; defaults to a shared placeholder.
     /// </summary>
     public static BgDecisionData TwoChoiceDecision(
         Play play1, Play play2, double play2Loss = 0.05, string onRoll = "Alice",
-        string opp = "Bob", string xgid = "", int recordedPlayIndex = -1)
+        string opp = "Bob", string xgid = "", int recordedPlayIndex = -1,
+        DecisionId? id = null)
     {
         return new BgDecisionData
         {
-            Id = new XgpDecisionId("test.xgp"),
+            Id = id ?? new XgpDecisionId("test.xgp"),
             Xgid = xgid,
             Position = new PositionData { Mop = StandardMop() },
             Decision = new DecisionData
@@ -81,15 +84,18 @@ internal static class TestFixtures
     /// halves; the opposite answer loses
     /// <c>doubleTakeEquity - noDoubleEquity</c> (0.20) on the doubler half and
     /// <c>1 - doubleTakeEquity</c> (0.30) on the taker half. Dice are left at the
-    /// data-layer cube invariant ([0, 0]).
+    /// data-layer cube invariant ([0, 0]). <paramref name="id"/> overrides the
+    /// decision's stable identity for tests that pin how <c>BgDecisionData.Id</c>
+    /// flows through submissions; defaults to a shared placeholder.
     /// </summary>
     public static BgDecisionData CubeDecision(
         double noDoubleEquity = 0.5, double doubleTakeEquity = 0.7,
-        string onRoll = "Alice", string opp = "Bob", string xgid = "")
+        string onRoll = "Alice", string opp = "Bob", string xgid = "",
+        DecisionId? id = null)
     {
         return new BgDecisionData
         {
-            Id = new XgpDecisionId("test.xgp"),
+            Id = id ?? new XgpDecisionId("test.xgp"),
             Xgid = xgid,
             Position = new PositionData { Mop = StandardMop() },
             Decision = new DecisionData

@@ -381,6 +381,23 @@ public class QuizControllerTests
         Assert.Equal(0.20, c.Score.Total.AverageEquityLoss, 6);
     }
 
+    [Fact]
+    public async Task SubmitPlay_CarriesDecisionIdIntoHistory()
+    {
+        // Wire: the submitted play must carry the answered decision's stable
+        // identity (BgDecisionData.Id) into History so a submission can be keyed
+        // back to its problem. A distinctive per-problem id pins the actual
+        // carry — a fix that merely compiled by passing a placeholder id would
+        // fail this equality.
+        var id = new XgpDecisionId("wire-play.xgp");
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: id));
+        await c.StartAsync(new FilterConfig());
+
+        c.SubmitPlay(BestPlay());
+
+        Assert.Equal(id, c.History[^1].DecisionId);
+    }
+
     // -----------------------------------------------------------------------
     //  SubmitCubeAction — scoring (enters review; ContinueAsync advances)
     // -----------------------------------------------------------------------
@@ -429,6 +446,21 @@ public class QuizControllerTests
         Assert.Equal(0.20, c.Score.DoubleDecisions.TotalEquityLoss, 6);
         Assert.Equal(0, c.Score.TakeDecisions.Correct);
         Assert.Equal(0.30, c.Score.TakeDecisions.TotalEquityLoss, 6);
+    }
+
+    [Fact]
+    public async Task SubmitCubeAction_CarriesDecisionIdIntoCubeHistory()
+    {
+        // Wire: the cube submission must carry the answered decision's stable
+        // identity (BgDecisionData.Id) into CubeHistory — the cube analog of
+        // SubmitPlay_CarriesDecisionIdIntoHistory. Distinctive id pins the carry.
+        var id = new XgpDecisionId("wire-cube.xgp");
+        var c = Make(TestFixtures.CubeDecision(id: id));
+        await c.StartAsync(new FilterConfig());
+
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+
+        Assert.Equal(id, c.CubeHistory[^1].DecisionId);
     }
 
     [Fact]
