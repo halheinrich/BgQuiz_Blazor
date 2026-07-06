@@ -33,6 +33,14 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <see cref="FilterConfig.Build"/> / source-construction failures are caught
 /// and surfaced as a banner rather than faulting the WebAssembly app.
 /// </para>
+///
+/// <para>
+/// A third, ungated toggle — "Shuffle order" — lives alongside the gate in the
+/// per-app <see cref="ShuffleOption"/> holder. It is presentation-only (order,
+/// not admission), so it plays no part in <c>CanStart</c>: the source factory
+/// reads it live at Start to decide whether to wrap the picked set in a
+/// <c>ShuffledProblemSetSource</c>.
+/// </para>
 /// </summary>
 public partial class Home : ComponentBase
 {
@@ -103,6 +111,13 @@ public partial class Home : ComponentBase
         // Any filter edit re-gates Start: a half-edited, un-applied set must
         // clear the applied state, not just a local flag.
         AppliedFilter.Clear();
+    }
+
+    private void HandleShuffleToggled(ChangeEventArgs e)
+    {
+        // A checkbox has no half-edited state, so the toggle is recorded live —
+        // no applied/dirty gate the way AppliedFilter needs one.
+        ShuffleOption.Set(e.Value is true);
     }
 
     private async Task StartQuizAsync()

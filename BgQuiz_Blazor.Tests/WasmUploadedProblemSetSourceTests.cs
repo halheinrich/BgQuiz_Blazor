@@ -1,4 +1,5 @@
 using BgDataTypes_Lib;
+using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Filtering;
@@ -179,6 +180,45 @@ public class WasmUploadedProblemSetSourceTests
         // happened to be a pass the controller would finish, which is still a
         // valid started state.
         Assert.True(controller.Current is not null || controller.IsFinished);
+    }
+
+    [Fact]
+    public async Task FactoryShape_ShuffleEnabled_WrapsSourceAndChangesOrder()
+    {
+        // Pins the shuffle half of the path Program.cs wires: when the user's
+        // ShuffleOption is enabled, the factory wraps the WasmUploadedProblemSetSource
+        // in a ShuffledProblemSetSource rather than handing the controller the
+        // plain source directly. Needs >=2 corpus decisions for a shuffle to be
+        // observable at all.
+        var files = CorpusFiles();
+        if (files.Count == 0) return;
+
+        var picked = new PickedProblemSet();
+        picked.Set(files);
+        var shuffle = new ShuffleOption();
+
+        BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory = filters =>
+        {
+            IProblemSetSource inner = new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance);
+            return shuffle.Enabled ? new ShuffledProblemSetSource(inner, seed: 42) : inner;
+        };
+
+        var unshuffledOrder = await CollectAllAsync(factory(new DecisionFilterSet()));
+        if (unshuffledOrder.Count < 2) return; // can't observe a shuffle over <2 items
+
+        shuffle.Set(true);
+        var shuffledOrder = await CollectAllAsync(factory(new DecisionFilterSet()));
+
+        Assert.Equal(unshuffledOrder.Count, shuffledOrder.Count);
+        Assert.NotEqual(unshuffledOrder, shuffledOrder); // order differs (seeded, so deterministic)
+    }
+
+    private static async Task<List<BgDecisionData>> CollectAllAsync(IProblemSetSource src)
+    {
+        var items = new List<BgDecisionData>();
+        await foreach (var d in src.EnumerateAsync())
+            items.Add(d);
+        return items;
     }
 
     private static async Task<BgDecisionData?> TakeFirstAsync(WasmUploadedProblemSetSource src)

@@ -7,6 +7,7 @@
 
 @inject PickedProblemSet ProblemSet
 @inject AppliedFilter AppliedFilter
+@inject ShuffleOption ShuffleOption
 @inject NavigationManager Nav
 @inject QuizController Controller
 
@@ -32,6 +33,15 @@
 
     <FilterPanel OnFilterConfigChanged="HandleFilterConfigApplied"
                  OnFilterDirty="HandleFiltersDirty" />
+
+    <div class="mb-3 form-check">
+        <input class="form-check-input" type="checkbox" id="shuffleOrder"
+               checked="@ShuffleOption.Enabled" @onchange="HandleShuffleToggled" />
+        <label class="form-check-label" for="shuffleOrder">
+            Shuffle order
+            <small class="text-muted">(present problems in random order instead of file order)</small>
+        </label>
+    </div>
 
     <button class="btn btn-primary"
             disabled="@(!CanStart)"

@@ -4,6 +4,7 @@
 // browser-wasm runtime: the quiz state machine (QuizController), the active
 // problem-set source, board rendering, and in-browser .xg/.xgp parsing.
 
+using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Microsoft.Extensions.Logging;
@@ -26,15 +27,29 @@ builder.Services.AddScoped<PickedProblemSet>();
 // re-instantiated on navigate-back); read only by Home.
 builder.Services.AddScoped<AppliedFilter>();
 
+// Per-app holder for the "Shuffle order" toggle — a presentation-only choice,
+// deliberately separate from AppliedFilter/FilterConfig. Scoped for the same
+// navigate-back-survival reason as the other start-gate holders.
+builder.Services.AddScoped<ShuffleOption>();
+
 // Source factory: builds a WasmUploadedProblemSetSource over whatever files the
-// user has picked at quiz-start, applying the user's filter set. The picked set
-// is read at invocation time (QuizController.StartAsync), not registration, so a
-// file choice made before Start takes effect. Files are parsed in-browser only.
+// user has picked at quiz-start, applying the user's filter set, then wraps it
+// in a ShuffledProblemSetSource when the user asked to shuffle. Both the picked
+// set and the shuffle toggle are read at invocation time
+// (QuizController.StartAsync), not registration, so choices made before Start
+// take effect. The unseeded ShuffledProblemSetSource ctor is used here
+// deliberately — reproducibility is a test-only concern (see
+// ShuffledProblemSetSource's seeded ctor), never user-facing.
 builder.Services.AddScoped<ProblemSetSourceFactory>(sp =>
 {
     var picked = sp.GetRequiredService<PickedProblemSet>();
+    var shuffle = sp.GetRequiredService<ShuffleOption>();
     var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-    return filters => new WasmUploadedProblemSetSource(picked.Files, filters, loggerFactory);
+    return filters =>
+    {
+        IProblemSetSource inner = new WasmUploadedProblemSetSource(picked.Files, filters, loggerFactory);
+        return shuffle.Enabled ? new ShuffledProblemSetSource(inner) : inner;
+    };
 });
 
 await builder.Build().RunAsync();

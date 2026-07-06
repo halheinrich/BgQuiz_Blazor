@@ -61,6 +61,21 @@ public class PageTests : BunitContext
         Services.AddSingleton(holder);
     }
 
+    /// <summary>
+    /// Register a <see cref="ShuffleOption"/> for the rendered <c>Home</c> page
+    /// (Home injects it). Every Home render needs one — the checkbox binds to it
+    /// unconditionally — so every Home test calls this alongside
+    /// <see cref="WithAppliedFilter"/> / <see cref="WithPickedFile"/>. Returns the
+    /// holder so tests can assert the toggle after a checkbox interaction.
+    /// </summary>
+    private ShuffleOption WithShuffleOption(bool enabled = false)
+    {
+        var holder = new ShuffleOption();
+        if (enabled) holder.Set(true);
+        Services.AddSingleton(holder);
+        return holder;
+    }
+
     // -----------------------------------------------------------------------
     //  Home.razor
     // -----------------------------------------------------------------------
@@ -72,6 +87,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         Services.AddSingleton(new PickedProblemSet());
         WithAppliedFilter();
+        WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -92,6 +108,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFile("resume.xg"); // holder already populated, as after navigate-back
         WithAppliedFilter();
+        WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -117,6 +134,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFile();
         WithAppliedFilter();
+        WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -143,6 +161,7 @@ public class PageTests : BunitContext
         Services.AddSingleton(controller);
         WithPickedFile(); // satisfy the file gate so Start is clickable
         WithAppliedFilter();
+        WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -173,6 +192,7 @@ public class PageTests : BunitContext
         var problemSet = new PickedProblemSet();
         Services.AddSingleton(problemSet);
         WithAppliedFilter();
+        WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -192,6 +212,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         Services.AddSingleton(new PickedProblemSet());
         WithAppliedFilter();
+        WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -227,6 +248,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFile("resume.xg");
         WithAppliedFilter(new FilterConfig()); // applied earlier, as after navigate-back
+        WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -248,6 +270,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFile();
         WithAppliedFilter(new FilterConfig()); // start from an applied, enabled state
+        WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
@@ -262,6 +285,118 @@ public class PageTests : BunitContext
 
         startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.True(startBtn.HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public void Home_ShuffleCheckbox_TogglesHolder()
+    {
+        // UI wire: the checkbox's @onchange must reach the ShuffleOption holder —
+        // no intermediate transient field to desync on navigate-back, matching
+        // AppliedFilter / PickedProblemSet's holder-first pattern.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        Services.AddSingleton(new PickedProblemSet());
+        WithAppliedFilter();
+        var shuffle = WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var checkbox = cut.Find("#shuffleOrder");
+        Assert.False(checkbox.HasAttribute("checked"));
+
+        checkbox.Change(true);
+        Assert.True(shuffle.Enabled);
+
+        checkbox.Change(false);
+        Assert.False(shuffle.Enabled);
+    }
+
+    /// <summary>
+    /// Builds a <see cref="QuizController"/> whose source factory mirrors the
+    /// real wiring in the client's <c>Program.cs</c>: it reads <paramref
+    /// name="shuffle"/> at invocation time and, when enabled, wraps the fake
+    /// source in a seeded (deterministic) <c>ShuffledProblemSetSource</c>.
+    /// </summary>
+    private QuizController WithShufflableController(ShuffleOption shuffle, params BgDecisionData[] items)
+    {
+        var fake = new FakeProblemSetSource(items);
+        var controller = new QuizController(_ =>
+            shuffle.Enabled ? new ShuffledProblemSetSource(fake, seed: 42) : fake);
+        Services.AddSingleton(controller);
+        return controller;
+    }
+
+    /// <summary>Drives <paramref name="controller"/> through its whole run via Skip, collecting each shown decision's Id in presentation order.</summary>
+    private static async Task<List<DecisionId>> CollectPresentedOrderAsync(QuizController controller)
+    {
+        var ids = new List<DecisionId>();
+        while (controller.Current is { } current)
+        {
+            ids.Add(current.Id);
+            await controller.SkipCurrentAsync();
+        }
+        return ids;
+    }
+
+    private static BgDecisionData[] OrderedDecisions(int count) =>
+        Enumerable.Range(0, count)
+            .Select(i => TestFixtures.TwoChoiceDecision(
+                BestPlay(), AltPlay(), id: new XgpDecisionId($"test{i}.xgp")))
+            .ToArray();
+
+    [Fact]
+    public async Task Home_StartClick_ShuffleUnchecked_PreservesFileOrder()
+    {
+        // Baseline: with the toggle left unchecked (its default), Start hands the
+        // controller the plain fake source and the quiz presents decisions in
+        // exactly file (insertion) order — this stays green as the "unchanged
+        // behavior" anchor for the checked case below.
+        var items = OrderedDecisions(6);
+        var shuffle = WithShuffleOption();
+        var controller = WithShufflableController(shuffle, items);
+        WithPickedFile();
+        WithAppliedFilter();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        await startBtn.ClickAsync(new());
+
+        var order = await CollectPresentedOrderAsync(controller);
+        Assert.Equal(items.Select(d => d.Id), order);
+    }
+
+    [Fact]
+    public async Task Home_StartClick_ShuffleChecked_YieldsNonFileOrder()
+    {
+        // Checking the box before Start must flow through to the constructed
+        // source: the controller's presentation order differs from file order
+        // (seeded, so deterministic) while still presenting the exact same set
+        // of decisions.
+        var items = OrderedDecisions(6);
+        var shuffle = WithShuffleOption();
+        var controller = WithShufflableController(shuffle, items);
+        WithPickedFile();
+        WithAppliedFilter();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+
+        var checkbox = cut.Find("#shuffleOrder");
+        checkbox.Change(true);
+
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        await startBtn.ClickAsync(new());
+
+        var order = await CollectPresentedOrderAsync(controller);
+        Assert.Equal(items.Select(d => d.Id).ToHashSet(), order.ToHashSet());
+        Assert.NotEqual(items.Select(d => d.Id), order);
     }
 
     /// <summary>The client assembly's informational version — the single source
@@ -281,6 +416,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         Services.AddSingleton(new PickedProblemSet());
         WithAppliedFilter();
+        WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
