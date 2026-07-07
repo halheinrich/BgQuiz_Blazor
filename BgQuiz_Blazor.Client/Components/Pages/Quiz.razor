@@ -34,25 +34,27 @@
                                    OnDiceClicked="ContinueAsync" />
             </div>
 
-            @if (SolutionLegend(review, current.Decision) is { } legend)
-            {
-                <div class="text-muted small mb-2">@legend</div>
-            }
+            <div class="board-controls">
+                @if (SolutionLegend(review, current.Decision) is { } legend)
+                {
+                    <div class="text-muted small mb-2">@legend</div>
+                }
 
-            <div class="@VerdictCssClass(review)" role="status">
-                @VerdictText(review)
-            </div>
+                <div class="@VerdictCssClass(review)" role="status">
+                    @VerdictText(review)
+                </div>
 
-            <div class="d-flex flex-wrap gap-2">
-                <button class="btn btn-primary" @onclick="ContinueAsync">
-                    Continue
-                </button>
-                <button class="btn btn-outline-secondary" @onclick="RedoAsync">
-                    Redo
-                </button>
-                <button class="btn btn-outline-secondary ms-auto" @onclick="ShowStats">
-                    Show stats
-                </button>
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-primary" @onclick="ContinueAsync">
+                        Continue
+                    </button>
+                    <button class="btn btn-outline-secondary" @onclick="RedoAsync">
+                        Redo
+                    </button>
+                    <button class="btn btn-outline-secondary ms-auto" @onclick="ShowStats">
+                        Show stats
+                    </button>
+                </div>
             </div>
         }
         else
@@ -75,42 +77,44 @@
                 }
             </div>
 
-            <div class="d-flex flex-wrap gap-2">
-                @if (current.Decision.IsCube)
-                {
-                    <button class="btn btn-primary"
-                            disabled="@(_completedCube is null)"
-                            @onclick="Submit">
-                        Submit
+            <div class="board-controls">
+                <div class="d-flex flex-wrap gap-2">
+                    @if (current.Decision.IsCube)
+                    {
+                        <button class="btn btn-primary"
+                                disabled="@(_completedCube is null)"
+                                @onclick="Submit">
+                            Submit
+                        </button>
+                        <button class="btn btn-outline-secondary" @onclick="SkipAsync">
+                            Skip
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-primary"
+                                disabled="@(_completedPlay is null)"
+                                @onclick="Submit">
+                            Submit
+                        </button>
+                        <button class="btn btn-outline-secondary" @onclick="SkipAsync">
+                            Skip
+                        </button>
+                        <button class="btn btn-outline-secondary"
+                                disabled="@(_playEntry is null)"
+                                @onclick="UndoLast">
+                            Undo last
+                        </button>
+                        <button class="btn btn-outline-secondary"
+                                disabled="@(_playEntry is null)"
+                                @onclick="UndoAll">
+                            Undo all
+                        </button>
+                    }
+                    <button class="btn btn-outline-secondary ms-auto" @onclick="ShowStats">
+                        Show stats
                     </button>
-                    <button class="btn btn-outline-secondary" @onclick="SkipAsync">
-                        Skip
-                    </button>
-                }
-                else
-                {
-                    <button class="btn btn-primary"
-                            disabled="@(_completedPlay is null)"
-                            @onclick="Submit">
-                        Submit
-                    </button>
-                    <button class="btn btn-outline-secondary" @onclick="SkipAsync">
-                        Skip
-                    </button>
-                    <button class="btn btn-outline-secondary"
-                            disabled="@(_playEntry is null)"
-                            @onclick="UndoLast">
-                        Undo last
-                    </button>
-                    <button class="btn btn-outline-secondary"
-                            disabled="@(_playEntry is null)"
-                            @onclick="UndoAll">
-                        Undo all
-                    </button>
-                }
-                <button class="btn btn-outline-secondary ms-auto" @onclick="ShowStats">
-                    Show stats
-                </button>
+                </div>
             </div>
         }
     }
