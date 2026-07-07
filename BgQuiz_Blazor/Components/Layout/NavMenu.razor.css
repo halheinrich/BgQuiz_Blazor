@@ -95,8 +95,12 @@
     }
 
     .nav-scrollable {
-        /* Never collapse the sidebar for wide screens */
-        display: block;
+        /* Open by default on wide screens, unless MainLayout's sidebar-toggle
+           checkbox sets --nav-scrollable-display: none on an ancestor (see
+           MainLayout.razor.css) — a CSS custom property inherits through the
+           DOM regardless of Blazor's scoped-CSS component boundary, so this
+           reacts to a toggle this component doesn't otherwise know about. */
+        display: var(--nav-scrollable-display, block);
 
         /* Allow sidebar to scroll for tall menus */
         height: calc(100vh - 3.5rem);
