@@ -132,18 +132,19 @@ directive — that is how interactivity is set under WASM (see Render mode).
                           on Start: Controller.StartAsync(filters), Nav→/quiz
 
 /quiz    Quiz.razor    → per problem: answering → review → advance
-                          "Show stats" button (both states) → Nav→/stats
+                          "Show stats" button (both states, trailing ms-auto
+                          slot of the action row) → Nav→/stats
                           answering (Controller.Review null):
                             routes by Controller.Current.Decision.IsCube:
                             checker → BackgammonPlayEntry
-                                      + Submit / Skip / Undo last / Undo all / Restart
+                                      + Submit / Skip / Undo last / Undo all
                             cube    → BackgammonCubeEntry
-                                      + Submit / Skip / Restart (no Undo)
+                                      + Submit / Skip (no Undo)
                           review (Controller.Review set, after Submit):
                             read-only BackgammonDiagram (DiagramMode.Solution,
                             user's answer marked, OnDiceClicked bound to the same
                             handler as Continue) + verdict line
-                            + Continue / Restart
+                            + Continue
                           IsFinished (on Continue / Skip) → Nav→/done
 
 /stats   Stats.razor   → read-only, live ScorePanel + ScoreBreakdown against the
@@ -363,10 +364,12 @@ two holders.
   post-completion change, so `_completedCube` always holds the latest pair and
   the user can revise before Submit. The action row varies by kind: cube has no
   Undo (no partial-move state); checker keeps Undo last / Undo all (clearing the
-  latched play, since the component does not notify on undo). In the **review**
-  state (`Review` set, after Submit) it renders a read-only `BackgammonDiagram`
+  latched play, since the component does not notify on undo). Both trail with
+  a "Show stats" button in the row's `ms-auto` slot. In the **review** state
+  (`Review` set, after Submit) it renders a read-only `BackgammonDiagram`
   in `DiagramMode.Solution` — the filled analysis panel, the same view the PPTX
-  exporter renders — plus a compact verdict line and Continue / Restart. The
+  exporter renders — plus a compact verdict line and Continue / Show stats
+  (Show stats again the row's trailing `ms-auto` slot). The
   solution request is built with `DiagramRequest.Builder.From(Current.Position,
   Current.Decision, Current.Descriptive, DiagramMode.Solution)`, then the user's
   marks are overridden from `Review`: `UserPlayIndex` for a play (`-1` off-list
@@ -375,9 +378,8 @@ two holders.
   the .xg-recorded player, not the quiz user. The review diagram's
   `OnDiceClicked` is bound to the same `ContinueAsync` handler as the Continue
   button, so clicking the dice hit-region advances past the solution exactly
-  like Continue. A "Show stats" button, rendered above the answering/review
-  branch (so it's reachable from both states), navigates to `/stats`.
-  Subscribes to `Controller.StateChanged` in `OnInitialized`, unsubscribes in
+  like Continue. "Show stats" navigates to `/stats`. Subscribes to
+  `Controller.StateChanged` in `OnInitialized`, unsubscribes in
   `IDisposable.Dispose`; redirects to `/done` when `IsFinished` flips.
 - **`Stats.razor`** — read-only mid-quiz stats view: the same `ScorePanel` /
   `ScoreBreakdown` pair `Done` shows at the end, rendered here against the

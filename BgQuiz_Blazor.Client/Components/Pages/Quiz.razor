@@ -25,12 +25,6 @@
                     Skipped="Controller.SkippedCount"
                     Source="@Controller.Name" />
 
-        <div class="mb-2">
-            <button class="btn btn-sm btn-outline-secondary" @onclick="ShowStats">
-                Show stats
-            </button>
-        </div>
-
         @if (Controller.Review is { } review)
         {
             <div class="board-container my-3">
@@ -53,8 +47,8 @@
                 <button class="btn btn-primary" @onclick="ContinueAsync">
                     Continue
                 </button>
-                <button class="btn btn-outline-warning ms-auto" @onclick="RestartAsync">
-                    Restart
+                <button class="btn btn-outline-secondary ms-auto" @onclick="ShowStats">
+                    Show stats
                 </button>
             </div>
         }
@@ -111,8 +105,8 @@
                         Undo all
                     </button>
                 }
-                <button class="btn btn-outline-warning ms-auto" @onclick="RestartAsync">
-                    Restart
+                <button class="btn btn-outline-secondary ms-auto" @onclick="ShowStats">
+                    Show stats
                 </button>
             </div>
         }

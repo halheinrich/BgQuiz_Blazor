@@ -481,7 +481,32 @@ public class PageTests : BunitContext
         Assert.Contains("Skipped", cut.Markup);
         Assert.Contains("Submit", cut.Markup);
         Assert.Contains("Skip", cut.Markup);
-        Assert.Contains("Restart", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_AnsweringState_RestartButtonAbsent()
+    {
+        // Restart was removed from the answering-state row; only Home/Done's
+        // own Restart affordances (unrelated to this page) remain in the app.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+
+        var cut = Render<QuizPage>();
+
+        Assert.DoesNotContain("Restart", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_ReviewState_RestartButtonAbsent()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.NotNull(c.Review);
+
+        Assert.DoesNotContain("Restart", cut.Markup);
     }
 
     [Fact]
@@ -834,8 +859,7 @@ public class PageTests : BunitContext
     public async Task Quiz_ShowStatsButton_PresentInAnsweringAndReviewStates()
     {
         // The "Show stats" affordance must be reachable regardless of
-        // Controller.Review — it lives above the answering/review branch, not
-        // duplicated inside either.
+        // Controller.Review — it's present in both action rows.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig());
         var cut = Render<QuizPage>();
@@ -846,6 +870,36 @@ public class PageTests : BunitContext
         Assert.NotNull(c.Review);
 
         Assert.Contains("Show stats", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_AnsweringState_ShowStatsButton_OccupiesTrailingMsAutoSlot()
+    {
+        // Show stats now sits where Restart used to — the row's trailing
+        // ms-auto slot — rather than the standalone block above the branch.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        var rowButtons = cut.FindAll("div.d-flex.flex-wrap.gap-2 button").ToList();
+        var showStats = Assert.Single(rowButtons, b => b.TextContent.Trim() == "Show stats");
+        Assert.True(showStats.ClassList.Contains("ms-auto"));
+        Assert.Same(showStats, rowButtons[^1]); // last button in the row
+    }
+
+    [Fact]
+    public async Task Quiz_ReviewState_ShowStatsButton_OccupiesTrailingMsAutoSlot()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.NotNull(c.Review);
+
+        var rowButtons = cut.FindAll("div.d-flex.flex-wrap.gap-2 button").ToList();
+        var showStats = Assert.Single(rowButtons, b => b.TextContent.Trim() == "Show stats");
+        Assert.True(showStats.ClassList.Contains("ms-auto"));
+        Assert.Same(showStats, rowButtons[^1]);
     }
 
     [Fact]

@@ -20,20 +20,21 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// flips to the <i>review</i> view: a read-only <see cref="BackgammonDiagram"/>
 /// in <see cref="DiagramMode.Solution"/> (the filled analysis panel, exactly as
 /// the PPTX exporter renders it) with the user's answer marked, a compact
-/// verdict line, and Continue / Restart. Continue advances the controller back
-/// to the answering state on the next problem. The review diagram's
-/// <c>OnDiceClicked</c> is also bound to <see cref="ContinueAsync"/> — clicking
-/// the dice hit-region (already wired for click-driven play assembly during
-/// answering) advances past the solution exactly like the Continue button.
+/// verdict line, and Continue. Continue advances the
+/// controller back to the answering state on the next problem. The review
+/// diagram's <c>OnDiceClicked</c> is also bound to <see cref="ContinueAsync"/> —
+/// clicking the dice hit-region (already wired for click-driven play assembly
+/// during answering) advances past the solution exactly like the Continue
+/// button.
 /// </para>
 ///
 /// <para>
 /// <b>Show stats.</b> A "Show stats" button, present in both the answering and
-/// review states (rendered above the state branch, not inside either), navigates
-/// to <c>/stats</c> — a read-only, live view of the same <see cref="QuizController"/>
-/// mid-quiz. Because the controller is a per-tab scoped instance that survives
-/// in-app navigation, returning to <c>/quiz</c> resumes at the same problem with
-/// no state to persist or restore.
+/// review states (in the trailing <c>ms-auto</c> slot of each state's action
+/// row), navigates to <c>/stats</c> — a read-only, live view of the same
+/// <see cref="QuizController"/> mid-quiz. Because the controller is a per-tab
+/// scoped instance that survives in-app navigation, returning to <c>/quiz</c>
+/// resumes at the same problem with no state to persist or restore.
 /// </para>
 ///
 /// <para>
@@ -63,9 +64,10 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// <b>Action row by kind.</b> In the answering state, checker decisions offer
-/// Submit / Skip / Undo last / Undo all / Restart; cube decisions offer Submit /
-/// Skip / Restart (a cube answer has no partial-move state, so Undo does not
-/// apply). In the review state both kinds offer Continue / Restart.
+/// Submit / Skip / Undo last / Undo all; cube decisions offer Submit / Skip (a
+/// cube answer has no partial-move state, so Undo does not apply). Both trail
+/// with Show stats in the row's <c>ms-auto</c> slot. In the review state both
+/// kinds offer Continue, trailed the same way by Show stats.
 /// </para>
 ///
 /// <para>
@@ -271,11 +273,6 @@ public partial class Quiz : ComponentBase, IDisposable
     {
         _playEntry?.UndoAll();
         _completedPlay = null;
-    }
-
-    private async Task RestartAsync()
-    {
-        await Controller.RestartAsync();
     }
 
     private void ShowStats()
