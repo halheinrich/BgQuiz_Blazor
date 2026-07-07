@@ -30,7 +30,8 @@
             <div class="board-container my-3">
                 <XgidLabel Xgid="@current.Xgid" />
                 <BackgammonDiagram Request="BuildSolutionRequest(current, review)"
-                                   Options="_diagramOptions" />
+                                   Options="_diagramOptions"
+                                   OnDiceClicked="ContinueAsync" />
             </div>
 
             @if (SolutionLegend(review, current.Decision) is { } legend)

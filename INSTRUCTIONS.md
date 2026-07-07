@@ -139,7 +139,8 @@ directive — that is how interactivity is set under WASM (see Render mode).
                                       + Submit / Skip / Restart (no Undo)
                           review (Controller.Review set, after Submit):
                             read-only BackgammonDiagram (DiagramMode.Solution,
-                            user's answer marked) + verdict line
+                            user's answer marked, OnDiceClicked bound to the same
+                            handler as Continue) + verdict line
                             + Continue / Restart
                           IsFinished (on Continue / Skip) → Nav→/done
 
@@ -364,9 +365,12 @@ two holders.
   marks are overridden from `Review`: `UserPlayIndex` for a play (`-1` off-list
   draws no marker), or `UserDoubleError` / `UserTakeError` for a cube.
   `FromDecisionData` is **not** used here because it defaults those marks from
-  the .xg-recorded player, not the quiz user. Subscribes to
-  `Controller.StateChanged` in `OnInitialized`, unsubscribes in
-  `IDisposable.Dispose`; redirects to `/done` when `IsFinished` flips.
+  the .xg-recorded player, not the quiz user. The review diagram's
+  `OnDiceClicked` is bound to the same `ContinueAsync` handler as the Continue
+  button, so clicking the dice hit-region advances past the solution exactly
+  like Continue. Subscribes to `Controller.StateChanged` in `OnInitialized`,
+  unsubscribes in `IDisposable.Dispose`; redirects to `/done` when
+  `IsFinished` flips.
 - **`Done.razor`** — final `ScorePanel` (Total) + `ScoreBreakdown`
   (four-way) + total problems shown + Restart with same filters / Start
   over. "Problems shown" is `PlayDecisions.Submitted +

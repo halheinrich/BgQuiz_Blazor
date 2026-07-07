@@ -802,6 +802,33 @@ public class PageTests : BunitContext
         Assert.DoesNotContain("Submit", buttons);
     }
 
+    [Fact]
+    public async Task Quiz_ReviewState_DiceClick_AdvancesLikeContinue()
+    {
+        // The review branch's read-only BackgammonDiagram binds OnDiceClicked to
+        // the same ContinueAsync handler as the Continue button — clicking the
+        // dice hit-region during review must advance to the next problem exactly
+        // as Continue does. Without that binding the click is a silent no-op:
+        // Review stays set and Current stays on the answered problem, so this
+        // test fails.
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = WithController(d1, d2);
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.NotNull(c.Review); // in the review (solution) state
+        Assert.Same(d1, c.Current);
+
+        // The review view renders only the read-only diagram (no entry
+        // component), so the last transparent hit-rect is unambiguously its dice.
+        await ClickDiceAsync(cut);
+
+        Assert.Null(c.Review);
+        Assert.Same(d2, c.Current);
+    }
+
     // -----------------------------------------------------------------------
     //  Hit-rect click helpers (Quiz answering state renders only the entry's
     //  board, so the page's transparent overlay rects are the entry's). Order

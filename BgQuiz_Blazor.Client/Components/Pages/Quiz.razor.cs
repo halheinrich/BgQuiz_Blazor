@@ -21,7 +21,10 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// in <see cref="DiagramMode.Solution"/> (the filled analysis panel, exactly as
 /// the PPTX exporter renders it) with the user's answer marked, a compact
 /// verdict line, and Continue / Restart. Continue advances the controller back
-/// to the answering state on the next problem.
+/// to the answering state on the next problem. The review diagram's
+/// <c>OnDiceClicked</c> is also bound to <see cref="ContinueAsync"/> — clicking
+/// the dice hit-region (already wired for click-driven play assembly during
+/// answering) advances past the solution exactly like the Continue button.
 /// </para>
 ///
 /// <para>
