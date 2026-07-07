@@ -144,7 +144,9 @@ directive — that is how interactivity is set under WASM (see Render mode).
                             read-only BackgammonDiagram (DiagramMode.Solution,
                             user's answer marked, OnDiceClicked bound to the same
                             handler as Continue) + verdict line
-                            + Continue
+                            + Continue / Redo
+                          Redo (review only) → Controller.RedoAsync(), falls
+                          back to answering on the same problem
                           IsFinished (on Continue / Skip) → Nav→/done
 
 /stats   Stats.razor   → read-only, live ScorePanel + ScoreBreakdown against the
@@ -172,8 +174,8 @@ non-scoring outcomes (off-list submissions, explicit Skip). The two
 histories are kept separate (mirroring `_history`/`History`) because the two
 scored-result types are distinct shapes — a unified history would force
 consumers to type-test. Pages observe state transitions via the
-`StateChanged` event; the controller fires it on start, submit, continue,
-skip, and restart.
+`StateChanged` event; the controller fires it on start, submit, redo,
+continue, skip, and restart.
 
 **Three-state per-problem flow.** Each problem moves through *answering*
 → *review* → *advance*, surfaced via `Current` and the nullable `Review`
@@ -188,8 +190,14 @@ property:
 - **`Review`** — a closed `ProblemReview` record (`Play` / `Cube`, see
   below) carrying exactly the marks the solution diagram needs. Non-null
   marks the review state.
-- **`ContinueAsync`** — the only exit from review: clears `Review` and
-  advances to the next problem (current `AdvanceAsync` body). Exhausting
+- **`RedoAsync`** — the inverse of Submit: pops the just-added entry from
+  `History` / `CubeHistory` (or decrements `SkippedCount` for an off-list
+  play, which never added a history entry), recomputes `Score` by refolding
+  both histories from `QuizScore.Empty`, and clears `Review` — returning to
+  the *answering* state on the same `Current` problem. `Current`, the source
+  enumerator, and `IsFinished` are untouched. No-op outside review.
+- **`ContinueAsync`** — the only *forward* exit from review: clears `Review`
+  and advances to the next problem (current `AdvanceAsync` body). Exhausting
   the source here flips `IsFinished`. No-op outside review.
 - **`SkipCurrentAsync`** — bypasses review and advances immediately, but
   only from the answering state (no-op while a `Review` is showing).
@@ -368,8 +376,8 @@ two holders.
   a "Show stats" button in the row's `ms-auto` slot. In the **review** state
   (`Review` set, after Submit) it renders a read-only `BackgammonDiagram`
   in `DiagramMode.Solution` — the filled analysis panel, the same view the PPTX
-  exporter renders — plus a compact verdict line and Continue / Show stats
-  (Show stats again the row's trailing `ms-auto` slot). The
+  exporter renders — plus a compact verdict line and Continue / Redo / Show
+  stats (Show stats again the row's trailing `ms-auto` slot). The
   solution request is built with `DiagramRequest.Builder.From(Current.Position,
   Current.Decision, Current.Descriptive, DiagramMode.Solution)`, then the user's
   marks are overridden from `Review`: `UserPlayIndex` for a play (`-1` off-list
@@ -378,7 +386,13 @@ two holders.
   the .xg-recorded player, not the quiz user. The review diagram's
   `OnDiceClicked` is bound to the same `ContinueAsync` handler as the Continue
   button, so clicking the dice hit-region advances past the solution exactly
-  like Continue. "Show stats" navigates to `/stats`. Subscribes to
+  like Continue. Redo calls `Controller.RedoAsync()`, falling back to the
+  answering branch on the same problem; no explicit reset or `@key` is needed
+  to give the returning entry component a clean slate — Submit already
+  unmounted it when the page swapped into the review branch, so Blazor
+  constructs a genuinely new instance on the way back regardless of whether
+  the incoming request describes the same problem (which is exactly what
+  Redo returns to). "Show stats" navigates to `/stats`. Subscribes to
   `Controller.StateChanged` in `OnInitialized`, unsubscribes in
   `IDisposable.Dispose`; redirects to `/done` when `IsFinished` flips.
 - **`Stats.razor`** — read-only mid-quiz stats view: the same `ScorePanel` /
@@ -507,6 +521,25 @@ endpoints. The externally visible surface is the route map:
   QuestPDF / OpenXml) would fault at runtime in the browser. The quiz renders
   SVG, never raster. This is why the split exists; don't re-add the raster
   reference to make some export "just work" client-side.
+- **Entry components don't need a `@key` to reset across Redo — the branch
+  swap already does it.** `BackgammonPlayEntry` / `BackgammonCubeEntry` both
+  suppress their own internal reset when the incoming `Request` describes the
+  same problem as last time (same Mop/Dice for a play, same Mop for a cube) —
+  a defense against losing in-progress click state on a same-problem re-render.
+  It's tempting to assume `RedoAsync` (which returns to that exact same
+  problem) needs an explicit reset call or a changing `@key` to work around
+  that suppression. It doesn't: `Quiz.razor`'s entry component lives in the
+  `else` branch of `@if (Controller.Review is { } review) { ... } else { ... }`,
+  and Submit already unmounts it entirely when the page swaps into the review
+  branch. By the time Redo swaps back, the entry component did not exist in
+  the immediately prior render at all, so Blazor cannot reuse an instance that
+  wasn't there — a fresh one is constructed unconditionally, same-problem
+  suppression or not. Verified (not just reasoned about) by temporarily adding
+  a redo-generation `@key` and confirming the full suite — including the
+  remount-proof tests — stayed green with it removed. Don't reintroduce that
+  key defensively; if a future refactor keeps the entry mounted across review
+  (e.g. overlaying the solution instead of swapping branches), *that's* the
+  point to re-examine whether a reset mechanism is needed, not before.
 - **Pages set render mode per-page, not via `<Routes>`.** Each routable page
   carries `@rendermode @(new InteractiveWebAssemblyRenderMode(prerender:
   false))`. There is no global `<Routes @rendermode>` here (that was the old

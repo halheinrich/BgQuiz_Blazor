@@ -20,12 +20,33 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// flips to the <i>review</i> view: a read-only <see cref="BackgammonDiagram"/>
 /// in <see cref="DiagramMode.Solution"/> (the filled analysis panel, exactly as
 /// the PPTX exporter renders it) with the user's answer marked, a compact
-/// verdict line, and Continue. Continue advances the
+/// verdict line, and Continue / Redo / Show stats. Continue advances the
 /// controller back to the answering state on the next problem. The review
 /// diagram's <c>OnDiceClicked</c> is also bound to <see cref="ContinueAsync"/> —
 /// clicking the dice hit-region (already wired for click-driven play assembly
 /// during answering) advances past the solution exactly like the Continue
 /// button.
+/// </para>
+///
+/// <para>
+/// <b>Redo &amp; entry freshness.</b> Redo (review-state only) calls
+/// <see cref="QuizController.RedoAsync"/>, which reverses the just-submitted
+/// answer and clears <see cref="QuizController.Review"/> — the page falls back
+/// to the answering branch on the <i>same</i> <see cref="QuizController.Current"/>
+/// problem. Although neither <see cref="BackgammonPlayEntry"/> nor
+/// <see cref="BackgammonCubeEntry"/> resets its own internal state when the
+/// incoming request describes the same problem it was last given (same
+/// Mop/Dice for a play, same Mop for a cube), that reset-suppression path is
+/// never reached here: Submit already unmounts the entry component entirely
+/// when the page swaps to the review branch, so by the time Redo swaps back to
+/// the answering branch, the entry component did not exist in the immediately
+/// prior render at all. Blazor cannot reuse a component instance that was not
+/// there to reuse, so a brand-new instance is constructed unconditionally — no
+/// explicit reset call or <c>@key</c> bump is needed. (An earlier draft added a
+/// redo-generation <c>@key</c> defensively; it was removed once a test proved
+/// the branch swap alone already guarantees a fresh instance — see
+/// <c>Quiz_Redo_CubeEntry_RemountsFresh_AndSecondAnswerScoresCleanly</c> /
+/// <c>Quiz_Redo_PlayEntry_RemountsFreshComponent</c> in <c>PageTests</c>.)
 /// </para>
 ///
 /// <para>
@@ -58,8 +79,8 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// cube halves are chosen. The page latches the result
 /// (<see cref="_completedPlay"/> / <see cref="_completedCube"/>) and enables
 /// Submit. Both latches clear on any controller transition (submit / advance /
-/// restart) via <see cref="HandleStateChanged"/>; the play latch also clears on
-/// undo.
+/// redo / restart) via <see cref="HandleStateChanged"/>; the play latch also
+/// clears on undo.
 /// </para>
 ///
 /// <para>
@@ -67,7 +88,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// Submit / Skip / Undo last / Undo all; cube decisions offer Submit / Skip (a
 /// cube answer has no partial-move state, so Undo does not apply). Both trail
 /// with Show stats in the row's <c>ms-auto</c> slot. In the review state both
-/// kinds offer Continue, trailed the same way by Show stats.
+/// kinds offer Continue / Redo, trailed the same way by Show stats.
 /// </para>
 ///
 /// <para>
@@ -273,6 +294,11 @@ public partial class Quiz : ComponentBase, IDisposable
     {
         _playEntry?.UndoAll();
         _completedPlay = null;
+    }
+
+    private async Task RedoAsync()
+    {
+        await Controller.RedoAsync();
     }
 
     private void ShowStats()

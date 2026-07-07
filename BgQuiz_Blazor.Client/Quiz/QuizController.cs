@@ -11,8 +11,9 @@ using XgFilter_Lib.Filtering;
 /// <see cref="SubmittedPlay"/> / <see cref="SubmittedCubeAction"/> histories.
 /// Pages observe state via <see cref="StateChanged"/> and drive transitions via
 /// <see cref="StartAsync"/> / <see cref="SubmitPlay"/> /
-/// <see cref="SubmitCubeAction"/> / <see cref="ContinueAsync"/> /
-/// <see cref="SkipCurrentAsync"/> / <see cref="RestartAsync"/>.
+/// <see cref="SubmitCubeAction"/> / <see cref="RedoAsync"/> /
+/// <see cref="ContinueAsync"/> / <see cref="SkipCurrentAsync"/> /
+/// <see cref="RestartAsync"/>.
 ///
 /// <para>
 /// <b>Three-state per-problem flow.</b> Each problem moves through
@@ -23,7 +24,10 @@ using XgFilter_Lib.Filtering;
 /// and pulls the next problem. Skip (<see cref="SkipCurrentAsync"/>) bypasses
 /// review and advances immediately. The split lets the page show the filled
 /// analysis panel (the same view the PPTX exporter renders in
-/// <c>DiagramMode.Solution</c>) before moving on.
+/// <c>DiagramMode.Solution</c>) before moving on. <see cref="RedoAsync"/> is the
+/// one path that moves <i>backward</i> — from review back to answering on the
+/// same problem — reversing the just-submitted answer instead of advancing past
+/// it.
 /// </para>
 ///
 /// <para>
@@ -261,10 +265,62 @@ public sealed class QuizController : IAsyncDisposable
     }
 
     /// <summary>
+    /// Reverse the just-submitted answer and return to the <i>answering</i>
+    /// state on the same <see cref="Current"/> problem — the inverse of Submit.
+    ///
+    /// <para>
+    /// Removes the just-added entry from <see cref="History"/> (a checker play)
+    /// or <see cref="CubeHistory"/> (a cube submission); an off-list play
+    /// submission never added a history entry, so that branch instead
+    /// decrements <see cref="SkippedCount"/>. <see cref="Score"/> is then
+    /// recomputed by refolding <see cref="History"/> and <see cref="CubeHistory"/>
+    /// from <see cref="QuizScore.Empty"/> — cheaper than adding a subtract path
+    /// to <c>QuizScore</c> / <c>ScoreSegment</c>. Refolding is safe regardless of
+    /// how the two histories were interleaved in time: a play only folds into
+    /// <c>PlayDecisions</c> and a cube submission only folds into
+    /// <c>DoubleDecisions</c> / <c>TakeDecisions</c>, so each segment's
+    /// accumulation order matches its own history's list order either way.
+    /// </para>
+    ///
+    /// <para>
+    /// <see cref="Current"/>, the source enumerator, and <see cref="IsFinished"/>
+    /// are left completely untouched — that is the whole point: the user
+    /// re-answers the exact problem just submitted rather than skipping past it.
+    /// </para>
+    ///
+    /// <para>
+    /// No-op outside the review state (<see cref="Review"/> null).
+    /// </para>
+    /// </summary>
+    public Task RedoAsync()
+    {
+        if (Review is null) return Task.CompletedTask;
+
+        switch (Review)
+        {
+            case ProblemReview.Play { OffList: false }:
+                _history.RemoveAt(_history.Count - 1);
+                break;
+            case ProblemReview.Play { OffList: true }:
+                SkippedCount--;
+                break;
+            case ProblemReview.Cube:
+                _cubeHistory.RemoveAt(_cubeHistory.Count - 1);
+                break;
+        }
+
+        Score = RefoldScore();
+        Review = null;
+        StateChanged?.Invoke();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Leave the <i>review</i> state and advance to the next problem, clearing
     /// <see cref="Review"/>. No-op outside the review state (when
-    /// <see cref="Review"/> is null). This is the only path out of review;
-    /// exhausting the source here flips <see cref="IsFinished"/>.
+    /// <see cref="Review"/> is null). This is the only <i>forward</i> path out
+    /// of review — see <see cref="RedoAsync"/> for the backward one; exhausting
+    /// the source here flips <see cref="IsFinished"/>.
     /// </summary>
     public async Task ContinueAsync()
     {
@@ -303,6 +359,23 @@ public sealed class QuizController : IAsyncDisposable
     // -----------------------------------------------------------------------
     //  Internal
     // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Recompute <see cref="Score"/> from scratch by folding <see cref="_history"/>
+    /// then <see cref="_cubeHistory"/> into <see cref="QuizScore.Empty"/>. Order
+    /// between the two histories doesn't matter: a play only touches
+    /// <c>PlayDecisions</c> and a cube submission only touches
+    /// <c>DoubleDecisions</c> / <c>TakeDecisions</c>, so each segment's
+    /// accumulation order matches its own history's list order regardless of how
+    /// the two histories are interleaved here.
+    /// </summary>
+    private QuizScore RefoldScore()
+    {
+        var score = QuizScore.Empty;
+        foreach (var play in _history) score = score.Plus(play);
+        foreach (var cube in _cubeHistory) score = score.Plus(cube);
+        return score;
+    }
 
     private async Task ResetAndAdvanceAsync()
     {

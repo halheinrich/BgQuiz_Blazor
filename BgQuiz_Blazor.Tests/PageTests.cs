@@ -856,6 +856,120 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Quiz_RedoClick_ReturnsToAnsweringState_SameProblem()
+    {
+        // Wire test for the Redo button itself: clicking it during review must
+        // reverse the just-submitted cube answer and fall back to the answering
+        // view on the exact same problem.
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+        var current = c.Current;
+
+        var cubeEntry = cut.FindComponent<BackgammonCubeEntry>();
+        await cut.InvokeAsync(() =>
+            cubeEntry.Instance.OnCubeDecisionCompleted.InvokeAsync(
+                new CubeDecisionPair(CubeAction.Double, CubeAction.Take)));
+        var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
+        await submit.ClickAsync(new());
+        Assert.NotNull(c.Review);
+
+        var redo = cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo");
+        await redo.ClickAsync(new());
+
+        Assert.Null(c.Review);
+        Assert.Same(current, c.Current);
+        Assert.Empty(c.CubeHistory);
+
+        var buttons = cut.FindAll("button").Select(b => b.TextContent.Trim()).ToList();
+        Assert.Contains("Submit", buttons);
+        Assert.DoesNotContain("Continue", buttons);
+        Assert.DoesNotContain("Redo", buttons);
+    }
+
+    [Fact]
+    public async Task Quiz_Redo_CubeEntry_RemountsFresh_AndSecondAnswerScoresCleanly()
+    {
+        // Proves task B's entry-freshness requirement. BackgammonCubeEntry's
+        // OnParametersSet only resets _selection when the incoming Mop differs
+        // from the last one it saw, and Redo returns to the SAME Mop — but that
+        // reset-suppression path is never reached: Submit already unmounted the
+        // entry entirely (the page swapped to the review branch), so Redo's
+        // swap back to the answering branch constructs a genuinely new instance
+        // unconditionally. This pins that guarantee: a fresh instance, no radio
+        // pre-selected, and a second (different) answer scoring cleanly.
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        var firstEntry = cut.FindComponent<BackgammonCubeEntry>().Instance;
+        await cut.InvokeAsync(() =>
+            firstEntry.OnCubeDecisionCompleted.InvokeAsync(
+                new CubeDecisionPair(CubeAction.Double, CubeAction.Take)));
+        var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
+        await submit.ClickAsync(new());
+        Assert.NotNull(c.Review);
+
+        var redo = cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo");
+        await redo.ClickAsync(new());
+
+        // Genuinely fresh component instance, not the same object with reset fields.
+        var secondEntry = cut.FindComponent<BackgammonCubeEntry>().Instance;
+        Assert.NotSame(firstEntry, secondEntry);
+
+        // No radio left checked — a stale entry would still show "Double/Take".
+        Assert.Empty(cut.FindAll("input[checked]"));
+
+        // Re-answer differently and confirm clean scoring: exactly one
+        // CubeHistory entry, reflecting only the second answer.
+        await cut.InvokeAsync(() =>
+            secondEntry.OnCubeDecisionCompleted.InvokeAsync(
+                new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass)));
+        var submit2 = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
+        await submit2.ClickAsync(new());
+
+        Assert.Single(c.CubeHistory);
+        var sub = c.CubeHistory[0];
+        Assert.False(sub.DoublerCorrect);
+        Assert.False(sub.TakerCorrect);
+        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
+        Assert.Equal(0, c.Score.DoubleDecisions.Correct);
+        Assert.Equal(1, c.Score.TakeDecisions.Submitted);
+        Assert.Equal(0, c.Score.TakeDecisions.Correct);
+    }
+
+    [Fact]
+    public async Task Quiz_Redo_PlayEntry_RemountsFreshComponent()
+    {
+        // The play-entry analog: BackgammonPlayEntry only resets its internal
+        // MoveEntryState when Mop/Dice differ from the last request it saw, and
+        // Redo returns to the SAME Mop/Dice — but Submit already unmounted the
+        // entry when the page swapped to the review branch, so that
+        // reset-suppression path is never reached. A distinct component
+        // instance post-Redo pins the guarantee that the branch swap alone
+        // produces a genuinely fresh entry.
+        var decision = TestFixtures.BearOffOneDecision();
+        var c = WithController(decision);
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        var request = DiagramRequest.FromDecisionData(decision, DiagramMode.Problem);
+        var firstEntry = cut.FindComponent<BackgammonPlayEntry>().Instance;
+
+        await ClickRectAsync(cut, RectIndexForPoint(request, 1)); // completes the play
+        var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
+        await submit.ClickAsync(new());
+        Assert.NotNull(c.Review);
+
+        var redo = cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo");
+        await redo.ClickAsync(new());
+
+        Assert.Null(c.Review);
+        var secondEntry = cut.FindComponent<BackgammonPlayEntry>().Instance;
+        Assert.NotSame(firstEntry, secondEntry);
+    }
+
+    [Fact]
     public async Task Quiz_ShowStatsButton_PresentInAnsweringAndReviewStates()
     {
         // The "Show stats" affordance must be reachable regardless of

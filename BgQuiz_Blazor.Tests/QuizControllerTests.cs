@@ -576,6 +576,175 @@ public class QuizControllerTests
     }
 
     // -----------------------------------------------------------------------
+    //  RedoAsync
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task RedoAsync_OutsideReview_NoOp()
+    {
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        Assert.Null(c.Review);
+        var current = c.Current;
+
+        await c.RedoAsync();
+
+        Assert.Same(current, c.Current);
+        Assert.Empty(c.History);
+        Assert.Equal(QuizScore.Empty, c.Score);
+        Assert.Equal(0, c.SkippedCount);
+        Assert.False(c.IsFinished);
+    }
+
+    [Fact]
+    public async Task RedoAsync_AfterCorrectPlay_RevertsHistoryScoreAndReview()
+    {
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        var current = c.Current;
+
+        c.SubmitPlay(BestPlay());
+        Assert.Single(c.History);
+        Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.NotNull(c.Review);
+
+        await c.RedoAsync();
+
+        Assert.Empty(c.History);
+        Assert.Equal(QuizScore.Empty, c.Score);
+        Assert.Equal(0, c.SkippedCount);
+        Assert.Null(c.Review);
+        Assert.Same(current, c.Current); // unchanged — same problem, answering state
+        Assert.False(c.IsFinished);
+    }
+
+    [Fact]
+    public async Task RedoAsync_AfterIncorrectPlay_RevertsHistoryScoreAndReview()
+    {
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
+        await c.StartAsync(new FilterConfig());
+        var current = c.Current;
+
+        c.SubmitPlay(AltPlay());
+        Assert.Single(c.History);
+        Assert.Equal(0.05, c.Score.Total.TotalEquityLoss, 6);
+
+        await c.RedoAsync();
+
+        Assert.Empty(c.History);
+        Assert.Equal(QuizScore.Empty, c.Score);
+        Assert.Null(c.Review);
+        Assert.Same(current, c.Current);
+    }
+
+    [Fact]
+    public async Task RedoAsync_AfterOffListPlay_RevertsSkippedCountAndReview()
+    {
+        // Off-list submissions never add a History entry — Redo's inverse is
+        // decrementing SkippedCount instead of popping History.
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        var current = c.Current;
+
+        c.SubmitPlay(UnknownPlay());
+        Assert.Equal(1, c.SkippedCount);
+        Assert.Empty(c.History);
+        var reviewBefore = Assert.IsType<ProblemReview.Play>(c.Review);
+        Assert.True(reviewBefore.OffList);
+
+        await c.RedoAsync();
+
+        Assert.Equal(0, c.SkippedCount);
+        Assert.Empty(c.History);
+        Assert.Equal(QuizScore.Empty, c.Score);
+        Assert.Null(c.Review);
+        Assert.Same(current, c.Current);
+    }
+
+    [Fact]
+    public async Task RedoAsync_AfterCubeSubmission_RevertsCubeHistoryScoreAndReview()
+    {
+        var c = Make(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+        var current = c.Current;
+
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        Assert.Single(c.CubeHistory);
+        Assert.Equal(2, c.Score.Total.Submitted); // one Double + one Take
+
+        await c.RedoAsync();
+
+        Assert.Empty(c.CubeHistory);
+        Assert.Equal(QuizScore.Empty, c.Score);
+        Assert.Null(c.Review);
+        Assert.Same(current, c.Current);
+    }
+
+    [Fact]
+    public async Task RedoAsync_AfterCubeSubmission_LeavesEarlierPlaySegmentIntact()
+    {
+        // Interleaved history: a play submitted first, then a cube position
+        // reversed via Redo. Refolding must not disturb the play segment folded
+        // in earlier — the edge case the refold-from-Empty approach depends on.
+        var play = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05);
+        var cube = TestFixtures.CubeDecision();
+        var c = Make(play, cube);
+        await c.StartAsync(new FilterConfig());
+
+        c.SubmitPlay(AltPlay()); // incorrect, 0.05 loss
+        await c.ContinueAsync();
+        Assert.Same(cube, c.Current);
+
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass)); // wrong
+        Assert.Single(c.CubeHistory);
+
+        await c.RedoAsync();
+
+        Assert.Empty(c.CubeHistory);
+        Assert.Single(c.History); // play segment untouched
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
+        Assert.Equal(0.05, c.Score.PlayDecisions.TotalEquityLoss, 6);
+        Assert.Equal(0, c.Score.DoubleDecisions.Submitted);
+        Assert.Equal(0, c.Score.TakeDecisions.Submitted);
+        Assert.Same(cube, c.Current); // still on the cube problem, answering state
+        Assert.Null(c.Review);
+    }
+
+    [Fact]
+    public async Task RedoAsync_ThenResubmitDifferentAnswer_ScoresOnlyTheNewAnswer()
+    {
+        // The controller-level half of the "no contamination" guarantee: after
+        // Redo, submitting a different answer to the same problem must not
+        // leave any trace of the reversed attempt.
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
+        await c.StartAsync(new FilterConfig());
+
+        c.SubmitPlay(AltPlay()); // first attempt: incorrect
+        await c.RedoAsync();
+        c.SubmitPlay(BestPlay()); // second attempt: correct
+
+        Assert.Single(c.History);
+        Assert.True(c.History[0].IsCorrect);
+        Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.Equal(1, c.Score.Total.Correct);
+        Assert.Equal(0.0, c.Score.Total.TotalEquityLoss, 6);
+    }
+
+    [Fact]
+    public async Task RedoAsync_FiresStateChanged()
+    {
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        c.SubmitPlay(BestPlay());
+        var fired = 0;
+        c.StateChanged += () => fired++;
+
+        await c.RedoAsync();
+
+        Assert.True(fired >= 1);
+    }
+
+    // -----------------------------------------------------------------------
     //  SkipCurrentAsync
     // -----------------------------------------------------------------------
 
