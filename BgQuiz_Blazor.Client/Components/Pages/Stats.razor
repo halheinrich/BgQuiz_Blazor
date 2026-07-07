@@ -1,0 +1,24 @@
+@page "/stats"
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+
+@using BgQuiz_Blazor.Client.Quiz
+
+@inject QuizController Controller
+@inject NavigationManager Nav
+
+<PageTitle>BgQuiz — Stats</PageTitle>
+
+<div class="container py-3">
+    <h1>Quiz progress</h1>
+
+    <ScorePanel Score="Controller.Score"
+                Skipped="Controller.SkippedCount"
+                Source="@Controller.Name"
+                Heading="Progress so far" />
+
+    <ScoreBreakdown Score="Controller.Score" Heading="Detailed evaluation so far" />
+
+    <button class="btn btn-primary" @onclick="BackToQuiz">
+        Back to quiz
+    </button>
+</div>

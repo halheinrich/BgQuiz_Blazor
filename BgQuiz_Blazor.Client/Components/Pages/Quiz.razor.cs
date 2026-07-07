@@ -28,6 +28,15 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
+/// <b>Show stats.</b> A "Show stats" button, present in both the answering and
+/// review states (rendered above the state branch, not inside either), navigates
+/// to <c>/stats</c> — a read-only, live view of the same <see cref="QuizController"/>
+/// mid-quiz. Because the controller is a per-tab scoped instance that survives
+/// in-app navigation, returning to <c>/quiz</c> resumes at the same problem with
+/// no state to persist or restore.
+/// </para>
+///
+/// <para>
 /// <b>Marking the user's answer.</b> The solution request is built from the
 /// answered decision via <see cref="DiagramRequest.Builder"/>'s
 /// <c>From(position, decision, descriptive, DiagramMode.Solution)</c>, then the
@@ -267,6 +276,11 @@ public partial class Quiz : ComponentBase, IDisposable
     private async Task RestartAsync()
     {
         await Controller.RestartAsync();
+    }
+
+    private void ShowStats()
+    {
+        Nav.NavigateTo("/stats");
     }
 
     public void Dispose()

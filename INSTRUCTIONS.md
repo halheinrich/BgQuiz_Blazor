@@ -104,6 +104,7 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
       Home.razor / .razor.cs        — landing: file picker + filter panel + Start
       Quiz.razor / .razor.cs        — active problem (play or cube)
       Done.razor / .razor.cs        — final summary
+      Stats.razor / .razor.cs       — read-only mid-quiz stats (live Controller)
       ScorePanel.razor              — compact header strip (Total only)
       ScoreBreakdown.razor          — four-way Play/Double/Take/Total table
 
@@ -131,6 +132,7 @@ directive — that is how interactivity is set under WASM (see Render mode).
                           on Start: Controller.StartAsync(filters), Nav→/quiz
 
 /quiz    Quiz.razor    → per problem: answering → review → advance
+                          "Show stats" button (both states) → Nav→/stats
                           answering (Controller.Review null):
                             routes by Controller.Current.Decision.IsCube:
                             checker → BackgammonPlayEntry
@@ -143,6 +145,11 @@ directive — that is how interactivity is set under WASM (see Render mode).
                             handler as Continue) + verdict line
                             + Continue / Restart
                           IsFinished (on Continue / Skip) → Nav→/done
+
+/stats   Stats.razor   → read-only, live ScorePanel + ScoreBreakdown against the
+                          same in-progress Controller + Back to quiz (Nav→/quiz)
+                          Reachable only from /quiz; redirects to / if no quiz
+                          in progress, to /done if already finished.
 
 /done    Done.razor    → ScorePanel (Total) + ScoreBreakdown (four-way)
                           + Restart / Start over
@@ -368,9 +375,21 @@ two holders.
   the .xg-recorded player, not the quiz user. The review diagram's
   `OnDiceClicked` is bound to the same `ContinueAsync` handler as the Continue
   button, so clicking the dice hit-region advances past the solution exactly
-  like Continue. Subscribes to `Controller.StateChanged` in `OnInitialized`,
-  unsubscribes in `IDisposable.Dispose`; redirects to `/done` when
-  `IsFinished` flips.
+  like Continue. A "Show stats" button, rendered above the answering/review
+  branch (so it's reachable from both states), navigates to `/stats`.
+  Subscribes to `Controller.StateChanged` in `OnInitialized`, unsubscribes in
+  `IDisposable.Dispose`; redirects to `/done` when `IsFinished` flips.
+- **`Stats.razor`** — read-only mid-quiz stats view: the same `ScorePanel` /
+  `ScoreBreakdown` pair `Done` shows at the end, rendered here against the
+  live, in-progress `QuizController` (`Heading="Progress so far"` /
+  `"Detailed evaluation so far"` — honest mid-quiz wording, not `Done`'s
+  `"Final"`). Reachable only from `Quiz`'s "Show stats" button; a "Back to
+  quiz" button returns to `/quiz`. Never calls Submit / Continue / Skip, so
+  the round trip leaves `Controller.Current` / `Controller.Review` untouched —
+  combined with the controller's per-tab scoped lifetime, this is what gives
+  "resume where you left off" for free, with no state to persist or restore.
+  Direct nav with no quiz in progress bounces to `/`; with the quiz already
+  finished, to `/done` — the same guards `Quiz` applies to itself.
 - **`Done.razor`** — final `ScorePanel` (Total) + `ScoreBreakdown`
   (four-way) + total problems shown + Restart with same filters / Start
   over. "Problems shown" is `PlayDecisions.Submitted +
@@ -414,6 +433,7 @@ endpoints. The externally visible surface is the route map:
 
 - `/` → `Home` — filter selection + Start
 - `/quiz` → `Quiz` — active problem (redirects to `/` if no quiz, `/done` if finished)
+- `/stats` → `Stats` — read-only mid-quiz stats (redirects to `/` if no quiz, `/done` if finished)
 - `/done` → `Done` — final summary (redirects to `/` if no quiz)
 - Default error page → `Error.razor`
 - Default 404 page → `NotFound.razor`

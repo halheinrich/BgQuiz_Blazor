@@ -25,6 +25,12 @@
                     Skipped="Controller.SkippedCount"
                     Source="@Controller.Name" />
 
+        <div class="mb-2">
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ShowStats">
+                Show stats
+            </button>
+        </div>
+
         @if (Controller.Review is { } review)
         {
             <div class="board-container my-3">

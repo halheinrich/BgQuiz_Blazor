@@ -19,6 +19,7 @@ using XgFilter_Razor.Components;
 using HomePage = BgQuiz_Blazor.Client.Components.Pages.Home;
 using QuizPage = BgQuiz_Blazor.Client.Components.Pages.Quiz;
 using DonePage = BgQuiz_Blazor.Client.Components.Pages.Done;
+using StatsPage = BgQuiz_Blazor.Client.Components.Pages.Stats;
 
 namespace BgQuiz_Blazor.Tests;
 
@@ -829,6 +830,63 @@ public class PageTests : BunitContext
         Assert.Same(d2, c.Current);
     }
 
+    [Fact]
+    public async Task Quiz_ShowStatsButton_PresentInAnsweringAndReviewStates()
+    {
+        // The "Show stats" affordance must be reachable regardless of
+        // Controller.Review — it lives above the answering/review branch, not
+        // duplicated inside either.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        Assert.Contains("Show stats", cut.Markup);
+
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.NotNull(c.Review);
+
+        Assert.Contains("Show stats", cut.Markup);
+    }
+
+    [Fact]
+    public async Task QuizToStatsToQuiz_FromReviewState_PreservesCurrentAndReview()
+    {
+        // Round trip through /stats must not disturb the in-progress problem:
+        // Stats is a read-only consumer of the same live QuizController — no
+        // Submit / Continue / Skip call — so Current and Review (captured here in
+        // the review state, the more telling case since it's non-null) survive
+        // the whole /quiz -> /stats -> /quiz trip unchanged.
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = WithController(d1, d2);
+        await c.StartAsync(new FilterConfig());
+        var quizCut = Render<QuizPage>();
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        await quizCut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        var currentBeforeStats = c.Current;
+        var reviewBeforeStats = c.Review;
+        Assert.NotNull(reviewBeforeStats);
+
+        var showStats = quizCut.FindAll("button").First(b => b.TextContent.Trim() == "Show stats");
+        await showStats.ClickAsync(new());
+        Assert.EndsWith("/stats", nav.Uri);
+
+        var statsCut = Render<StatsPage>();
+        Assert.Same(currentBeforeStats, c.Current);
+        Assert.Equal(reviewBeforeStats, c.Review);
+
+        var backButton = statsCut.FindAll("button").First(b => b.TextContent.Trim() == "Back to quiz");
+        await backButton.ClickAsync(new());
+        Assert.EndsWith("/quiz", nav.Uri);
+
+        // Re-rendering Quiz confirms the controller itself was never touched —
+        // still the same problem, still in review.
+        Render<QuizPage>();
+        Assert.Same(currentBeforeStats, c.Current);
+        Assert.Equal(reviewBeforeStats, c.Review);
+    }
+
     // -----------------------------------------------------------------------
     //  Hit-rect click helpers (Quiz answering state renders only the entry's
     //  board, so the page's transparent overlay rects are the entry's). Order
@@ -965,5 +1023,81 @@ public class PageTests : BunitContext
         Assert.Equal(3, c.Score.Total.Submitted);
         Assert.Contains("Total problems shown", cut.Markup);
         Assert.Contains("<strong>2</strong>", cut.Markup);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Stats.razor
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Stats_NoQuizStarted_RedirectsHome()
+    {
+        WithController();
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        Render<StatsPage>();
+
+        Assert.EndsWith("/", nav.Uri);
+    }
+
+    [Fact]
+    public async Task Stats_QuizFinished_RedirectsToDone()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync(); // exhausts -> finished
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        Render<StatsPage>();
+
+        Assert.EndsWith("/done", nav.Uri);
+    }
+
+    [Fact]
+    public async Task Stats_MidQuiz_RendersLiveScoreAndBreakdownWithoutRedirecting()
+    {
+        // Mid-quiz: one problem answered (correct), one still pending — the quiz
+        // is started but not finished, so Stats must render in place rather than
+        // bouncing anywhere.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        c.SubmitPlay(BestPlay());
+        Assert.False(c.IsFinished);
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+        var baseUri = nav.Uri;
+
+        var cut = Render<StatsPage>();
+
+        // Honest mid-quiz headings — not Done's "Final" / hardcoded literal.
+        Assert.Contains("Progress so far", cut.Markup);
+        Assert.Contains("Detailed evaluation so far", cut.Markup);
+
+        // Live score from the same in-progress controller.
+        Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.Equal(1, c.Score.Total.Correct);
+        Assert.Contains("Play", cut.Markup);
+        Assert.Contains("Double", cut.Markup);
+        Assert.Contains("Take", cut.Markup);
+        Assert.Contains("Total", cut.Markup);
+
+        // No redirect fired — OnInitialized's guards did not trigger.
+        Assert.Equal(baseUri, nav.Uri);
+    }
+
+    [Fact]
+    public async Task Stats_BackToQuizClick_NavigatesToQuiz()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        var cut = Render<StatsPage>();
+        var backButton = cut.FindAll("button").First(b => b.TextContent.Trim() == "Back to quiz");
+        await backButton.ClickAsync(new());
+
+        Assert.EndsWith("/quiz", nav.Uri);
     }
 }
