@@ -60,6 +60,9 @@ h1:focus {
 }
 
 .board-container {
+    /* Baseline (and current mobile) sizing: a guessed "chrome height" offset.
+       Left as-is below 641px — see the desktop override underneath, which
+       replaces the guess with a flex-computed height instead. */
     width: min(100%, calc((100vh - 160px) * 429.8 / 446));
     margin-inline: auto;
     box-sizing: border-box;
@@ -67,6 +70,33 @@ h1:focus {
        container that lets the badge scale with the board (cqw units below). */
     position: relative;
     container-type: inline-size;
+}
+
+@media (min-width: 641px) {
+    /* .board-page (Quiz.razor's root div) becomes a height-bounded flex
+       column: the score panel / XGID / legend / verdict / button rows above
+       and below the board size to their own content (the flex default),
+       and .board-container is the one row that grows to absorb whatever
+       height is left. 1.1rem is article.content's own padding-top (app.css,
+       above) — the one real offset between this element and the viewport's
+       top edge, not a guessed chrome height. */
+    .board-page {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 1.1rem);
+    }
+
+    .board-container {
+        width: auto;
+        flex: 1 1 auto;
+        min-height: 0;
+        /* Couples width and height so whichever dimension is tighter (the
+           flex-computed height, or the row's own width) wins, without
+           guessing either one — 429.8/446 is the board's real proportions,
+           the same figure the old width formula already used. */
+        aspect-ratio: 429.8 / 446;
+        max-width: 100%;
+    }
 }
 
 /* XGID badge — upper-right of the board, sized in container-query units so it
