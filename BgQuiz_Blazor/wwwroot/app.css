@@ -59,145 +59,125 @@ h1:focus {
     text-align: start;
 }
 
+/* Width-driven board (all viewports). BgQuiz names no ratio: the producer's
+   .bg-diagram carries its own aspect-ratio (derived from the viewBox it owns),
+   so giving the board a definite *width* — it fills this block — yields the
+   height for free. .board-container is a plain full-width flow box; it no longer
+   sizes, shrink-wraps, or re-encodes the ratio. Removing the old
+   width:100%/height:100% pins on .bg-diagram (which made the producer's
+   aspect-ratio a no-op by pinning both dimensions) is what lets the ratio drive. */
 .board-container {
-    /* Baseline (and current mobile) sizing: a guessed "chrome height" offset.
-       Left as-is below 641px — see the desktop override underneath, which
-       replaces the guess with a flex-computed height instead.
-       16/9 is DiagramOptions' default Aspect (AspectPreset.Widescreen16x9,
-       BackgammonDiagram_Lib) — the actual rendered SVG's real, content-
-       independent viewBox ratio (verified live via the SVG's own viewBox
-       attribute), not a guess. An earlier 429.8/446 here didn't match any
-       AspectPreset BgQuiz_Blazor actually uses; it left the visible board
-       under-filling its own box by ~300px vertically at desktop width. */
-    width: min(100%, calc((100vh - 160px) * 16 / 9));
+    /* Full-row width is the board's one definite dimension; the producer's
+       aspect-ratio derives the height. (Set explicitly rather than relying on
+       flex align-items:stretch, which doesn't reliably give a block flex item a
+       cross-axis width when its own content has no intrinsic width.) */
+    width: 100%;
     margin-inline: auto;
     box-sizing: border-box;
-    /* Positioning context for the absolutely-placed XGID badge, and the query
-       container that lets the badge scale with the board (cqw units below). */
-    position: relative;
+}
+
+.board-container .bg-diagram {
+    max-width: 100%;
+    /* Center the board within the full-width row when a max-height letterboxes
+       it narrower than the row (desktop, short viewport). */
+    margin-inline: auto;
+    /* Board-relative query container so the overlaid XGID badge (cqw units
+       below) scales with the *rendered board width*, tracking it under
+       letterboxing. The badge now lives inside .bg-diagram via the producer's
+       Overlay slot, so this — not .board-container — is its sizing anchor. */
     container-type: inline-size;
 }
 
-@media (min-width: 641px) {
-    /* .board-page (Quiz.razor's root div) becomes a height-bounded grid of 3
-       stacked rows in source order: the score panel (auto), the board (1fr —
-       the one row that absorbs whatever height the other two don't need),
-       and the controls row (auto). 1.1rem is article.content's own
-       padding-top (app.css, above) — the one real offset between this
-       element and the viewport's top edge, not a guessed chrome height.
-
-       This was originally flex (flex-direction:column, .board-container
-       flex:1 1 auto) rather than grid. Switched after finding a genuine bug
-       at 800px viewport width, live: flex-grow computed .board-container's
-       height correctly, but aspect-ratio didn't re-derive width from that
-       grown height — width stayed pinned at whatever cross-axis stretch
-       gave it before growth, producing a visibly distorted (non-16:9)
-       board. Grid's 1fr row track is sized by its own algorithm before the
-       item is placed, which doesn't have that same growth-after-the-fact
-       distortion. */
-    .board-page {
-        display: grid;
-        grid-template-rows: auto 1fr auto;
-        height: calc(100vh - 1.1rem);
-    }
-
-    .board-container {
-        /* width:100% (not auto) is required — aspect-ratio needs at least
-           one definite starting dimension to derive the other from; with
-           both width and height auto here, the browser had nothing to
-           anchor the calculation to and collapsed the box to 0x0 (verified
-           live). max-height (not a bare 100%, which hit the same 0x0 dead
-           end — a percentage max-height need its containing block's height
-           already resolved, which is exactly what the 1fr row is still
-           computing) is expressed off the viewport directly, sidestepping
-           that circularity entirely. */
-        width: 100%;
-        height: auto;
-        min-width: 0;
-        min-height: 0;
-        max-width: 100%;
-        max-height: calc(100vh - 1.1rem);
-        aspect-ratio: 16 / 9;
-    }
+/* Ensure the rendered SVG fills the board box on the width axis (the producer
+   emits width="100%" but no height; height comes from the box's aspect-ratio). */
+.board-container .bg-diagram > div > svg {
+    width: 100%;
+    height: auto;
+    display: block;
 }
 
-@media (min-width: 992px) {
-    /* Wide desktop: side-by-side instead of stacked. Below this breakpoint
-       (down to 641px) the single-column flex tier above is the fallback —
-       there isn't reliably enough width here for a second column without
-       squeezing the score panel / button row uncomfortably narrow. 992px is
-       Bootstrap's own "lg" tier, not an invented number, chosen because at
-       that width the second column still has comfortable room after the
-       board, the collapsed-or-expanded sidebar, and the page's own padding.
-       CSS Grid (not flex + order) is what lets .board-container stay in its
-       original DOM position (ScorePanel renders before it in Quiz.razor,
-       board-controls after) while still placing it in its own full-height
-       column — grid-template-areas maps DOM children to a visual position
-       independent of source order.
-       .board-container's "board" area spans both grid-template-areas rows,
-       so it gets the full column height regardless of whatever the second
-       column's content needs — review's extra legend/verdict rows (which
-       previously ate into .board-container's own flex remainder) now only
-       affect the second column, so the board is the same size in the
-       answering and review states. */
+@media (min-width: 641px) {
+    /* Desktop: board on top, chrome (score panel, legend, verdict, actions) in
+       the full-width region below. Height-bounded so the chrome stays above the
+       fold on short/wide viewports: the board row is 1fr (whatever height the
+       auto chrome row doesn't take), and the board caps to it via max-height,
+       letterboxing — width re-derives from the producer's ratio — when the
+       viewport is too short. 1.1rem is article.content's own padding-top; the
+       chrome height is measured (the auto row), never a guessed constant. */
     .board-page {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        /* Without this, the grid's default align-content:stretch splits the
-           leftover height evenly across BOTH auto rows (score ends up
-           ~150px+ for a ~30px-tall line of text) instead of funneling all of
-           it into controls as intended — verified live, not assumed. */
-        grid-template-rows: auto 1fr;
-        grid-template-areas:
-            "board score"
-            "board controls";
-        column-gap: 1.5rem;
+        display: flex;
+        flex-direction: column;
         height: calc(100vh - 1.1rem);
     }
 
+    /* The board region takes the height the chrome doesn't; the chrome sizes to
+       its own content (measured, not guessed). align-items:stretch (the flex
+       default) gives .board-container a definite full-row width — the board's
+       one definite dimension — from which the producer's aspect-ratio yields
+       height. .board-container carries no aspect-ratio itself, so flex growing
+       its height never distorts the board (the ratio lives on the block child,
+       .bg-diagram, sized width-first in normal flow). */
     .board-container {
-        grid-area: board;
-        width: auto;
-        max-width: 100%;
-        /* Without this, a grid item's automatic minimum size keeps it at its
-           full aspect-ratio-preferred width regardless of max-width — the
-           classic flex/grid "min-width:auto" gotcha. Confirmed live: at a
-           995px viewport with the sidebar expanded (.board-page ~884px wide),
-           omitting this held the board at its full height-driven 692px,
-           overflowing the row by ~260px with the score/button text clipped
-           mid-word; adding it correctly let the board shrink to fit. */
+        flex: 1 1 0;
         min-width: 0;
-        aspect-ratio: 16 / 9;
+        min-height: 0;
     }
 
-    .score-panel {
-        grid-area: score;
+    .board-chrome {
+        flex: 0 0 auto;
     }
 
-    .board-controls {
-        grid-area: controls;
-        /* A floor so this column can't get squeezed to unreadable width in
-           the same tight corner case min-width:0 above addresses (narrow
-           viewport + expanded sidebar) — verified live down to a 995px
-           viewport, where the board settles at ~413px and this column holds
-           its 200px floor with no overflow in either state. Below this
-           breakpoint's realistic worst case the single-column tier above is
-           the fallback; this floor is what keeps *this* tier from breaking
-           right at its own boundary rather than only once comfortably past
-           it. */
-        min-width: 200px;
+    /* review and play put the board alone in the region, so it can cap to the
+       region's height and contain-fit (letterbox) cleanly. review's .bg-diagram
+       is already a direct child of the definite-height .board-container; play
+       nests it under .bg-play-entry, so display:contents drops that wrapper's
+       box to make .bg-diagram a direct child too — which is what lets the
+       percentage max-height resolve for both. */
+    .board-container .bg-play-entry {
+        display: contents;
+    }
+
+    .board-container .bg-diagram {
+        max-height: 100%;
+    }
+
+    /* Cube is the exception: its answer radios (.bg-cube-actions) share the
+       board region, and CSS cannot contain-fit an aspect-ratio box *beside* a
+       sibling without a slot wrapper — which lives in the producer's markup, not
+       here (every flex/max-height variant either distorts the board or overlaps
+       the chrome; verified live). So the cube region sizes to its content
+       (flex:0 0 auto, no forced height → no overlap) and the board stays plainly
+       width-driven (max-height:none → full-width × the producer ratio). The
+       trade is that a genuinely short viewport scrolls the cube page rather than
+       letterboxing; fold-management still holds for the play/review states that
+       dominate interaction. Unifying this would take a producer-side board slot
+       separate from the radios (the same escalation that moved the XGID badge
+       into the producer overlay) — a separate producer session, not this one. */
+    .board-container:has(.bg-cube-entry) {
+        flex: 0 0 auto;
+    }
+
+    .board-container .bg-cube-entry .bg-diagram {
+        max-height: none;
     }
 }
 
 /* XGID badge — upper-right of the board, sized in container-query units so it
    tracks the board's ~28/468-tall title strip at every viewport width and never
    spills onto the playing surface. Mirrors the right-justified label the
-   PDF/PPTX/PNG exporters bake into that same strip. */
+   PDF/PPTX/PNG exporters bake into that same strip. Now rendered inside the
+   producer's Overlay slot (position:absolute against .bg-diagram-overlay, which
+   is inset:0 of the board box), so it stays on the board corner under any board
+   sizing. cqw resolves against .bg-diagram (its container-type anchor). */
 .board-xgid {
     position: absolute;
     top: 0.5cqw;
     right: 0.5cqw;
     z-index: 2;
+    /* The producer's Overlay wrapper is pointer-events:none so board clicks
+       fall through; the badge opts its own interactive bits (selectable text +
+       copy button) back in. */
+    pointer-events: auto;
     display: flex;
     align-items: center;
     gap: 0.4cqw;
@@ -228,20 +208,4 @@ h1:focus {
 
 .board-xgid-copy:hover {
     background: #e9ecef;
-}
-
-.board-container .bg-diagram {
-    width: 100%;
-    height: 100%;
-}
-
-.board-container .bg-diagram > div {
-    width: 100%;
-    height: 100%;
-}
-
-.board-container .bg-diagram > div > svg {
-    width: 100%;
-    height: auto;
-    display: block;
 }

@@ -21,20 +21,60 @@
     }
     else if (Controller.Current is { } current)
     {
-        <ScorePanel Score="Controller.Score"
-                    Skipped="Controller.SkippedCount"
-                    Source="@Controller.Name" />
+        // Captured once: both the board branch and the chrome branch key off
+        // review, and two separate `is { } review` patterns would collide in
+        // the single generated render method's scope.
+        var review = Controller.Review;
 
-        @if (Controller.Review is { } review)
-        {
-            <div class="board-container my-3">
-                <XgidLabel Xgid="@current.Xgid" />
+        @* Board on top; the chrome (score panel, legend, verdict, actions) sits
+           in the full-width region below it. The board sizes width-first from
+           this row and takes its height from the producer's own aspect-ratio —
+           BgQuiz names no ratio anywhere. The XGID badge rides in the producer's
+           Overlay slot (not a sibling of .board-container), so it tracks the
+           rendered board box even when max-height letterboxes the board narrower
+           than the row. *@
+        <div class="board-container my-3">
+            @if (review is not null)
+            {
                 <BackgammonDiagram Request="BuildSolutionRequest(current, review)"
                                    Options="_diagramOptions"
-                                   OnDiceClicked="ContinueAsync" />
-            </div>
+                                   OnDiceClicked="ContinueAsync">
+                    <Overlay>
+                        <XgidLabel Xgid="@current.Xgid" />
+                    </Overlay>
+                </BackgammonDiagram>
+            }
+            else if (current.Decision.IsCube)
+            {
+                <BackgammonCubeEntry Request="BuildRenderRequest(current)"
+                                     Options="_diagramOptions"
+                                     OnCubeDecisionCompleted="HandleCubeCompleted">
+                    <Overlay>
+                        <XgidLabel Xgid="@current.Xgid" />
+                    </Overlay>
+                </BackgammonCubeEntry>
+            }
+            else
+            {
+                <BackgammonPlayEntry @ref="_playEntry"
+                                     Request="BuildRenderRequest(current)"
+                                     Options="_diagramOptions"
+                                     OnPlayCompleted="HandlePlayCompleted"
+                                     OnSubmitRequested="Submit">
+                    <Overlay>
+                        <XgidLabel Xgid="@current.Xgid" />
+                    </Overlay>
+                </BackgammonPlayEntry>
+            }
+        </div>
 
-            <div class="board-controls">
+        <div class="board-chrome">
+            <ScorePanel Score="Controller.Score"
+                        Skipped="Controller.SkippedCount"
+                        Source="@Controller.Name" />
+
+            @if (review is not null)
+            {
                 @if (SolutionLegend(review, current.Decision) is { } legend)
                 {
                     <div class="text-muted small mb-2">@legend</div>
@@ -55,29 +95,9 @@
                         Show stats
                     </button>
                 </div>
-            </div>
-        }
-        else
-        {
-            <div class="board-container my-3">
-                <XgidLabel Xgid="@current.Xgid" />
-                @if (current.Decision.IsCube)
-                {
-                    <BackgammonCubeEntry Request="BuildRenderRequest(current)"
-                                         Options="_diagramOptions"
-                                         OnCubeDecisionCompleted="HandleCubeCompleted" />
-                }
-                else
-                {
-                    <BackgammonPlayEntry @ref="_playEntry"
-                                         Request="BuildRenderRequest(current)"
-                                         Options="_diagramOptions"
-                                         OnPlayCompleted="HandlePlayCompleted"
-                                         OnSubmitRequested="Submit" />
-                }
-            </div>
-
-            <div class="board-controls">
+            }
+            else
+            {
                 <div class="d-flex flex-wrap gap-2">
                     @if (current.Decision.IsCube)
                     {
@@ -115,7 +135,7 @@
                         Show stats
                     </button>
                 </div>
-            </div>
-        }
+            }
+        </div>
     }
 </div>

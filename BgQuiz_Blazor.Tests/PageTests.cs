@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using BackgammonDiagram_Lib;
 using BackgammonDiagram_Lib.Rendering;
 using BgDataTypes_Lib;
@@ -1267,5 +1269,106 @@ public class PageTests : BunitContext
         await backButton.ClickAsync(new());
 
         Assert.EndsWith("/quiz", nav.Uri);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Quiz.razor layout: board-on-top + XGID badge in the producer overlay
+    //
+    //  These pin the structural contract the width-driven bottom-row layout
+    //  depends on; the sizing itself (aspect-ratio, letterboxing, badge tracking)
+    //  is pure CSS that bUnit's AngleSharp DOM can't evaluate — verified live in
+    //  the browser instead.
+    // -----------------------------------------------------------------------
+
+    private const string SampleXgid = "XGID=-b----E-C---eE---c-e----B-:0:0:1:42:0:0:0:1:10";
+
+    [Fact]
+    public async Task Quiz_PlayState_XgidBadge_RendersInProducerOverlay_NotBoardContainerSibling()
+    {
+        // The badge is passed via BackgammonPlayEntry's Overlay slot, so it lands
+        // inside the producer's .bg-diagram-overlay (which tracks the board box),
+        // not as a direct child of .board-container (which no longer matches the
+        // board under letterboxing — the whole reason for the overlay move).
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: SampleXgid));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        var badge = cut.Find(".board-xgid");
+        Assert.Contains("bg-diagram-overlay", badge.ParentElement!.ClassList);
+        Assert.NotEmpty(cut.FindAll(".bg-play-entry .bg-diagram-overlay .board-xgid"));
+        Assert.Empty(cut.FindAll(".board-container > .board-xgid"));
+    }
+
+    [Fact]
+    public async Task Quiz_CubeState_XgidBadge_RendersInProducerOverlay()
+    {
+        var c = WithController(TestFixtures.CubeDecision(xgid: SampleXgid));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        var badge = cut.Find(".board-xgid");
+        Assert.Contains("bg-diagram-overlay", badge.ParentElement!.ClassList);
+        Assert.NotEmpty(cut.FindAll(".bg-cube-entry .bg-diagram-overlay .board-xgid"));
+        Assert.Empty(cut.FindAll(".board-container > .board-xgid"));
+    }
+
+    [Fact]
+    public async Task Quiz_ReviewState_XgidBadge_RendersInProducerOverlay()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: SampleXgid));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.NotNull(c.Review);
+
+        var badge = cut.Find(".board-xgid");
+        Assert.Contains("bg-diagram-overlay", badge.ParentElement!.ClassList);
+        Assert.Empty(cut.FindAll(".board-container > .board-xgid"));
+    }
+
+    [Fact]
+    public async Task Quiz_BoardContainer_RendersBeforeChrome()
+    {
+        // Board-on-top: .board-container precedes .board-chrome in source order,
+        // which the width-driven layout relies on (board first, chrome below).
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        var markup = cut.Markup;
+        var boardIdx = markup.IndexOf("board-container", StringComparison.Ordinal);
+        var chromeIdx = markup.IndexOf("board-chrome", StringComparison.Ordinal);
+        Assert.True(boardIdx >= 0, "board-container present");
+        Assert.True(chromeIdx >= 0, "board-chrome present");
+        Assert.True(boardIdx < chromeIdx, "the board must render before the chrome (board-on-top)");
+    }
+
+    [Fact]
+    public void AppCss_DeclaresNoBoardAspectRatioLiteral()
+    {
+        // SSOT: the board's ratio is single-sourced to the producer's self-sizing
+        // .bg-diagram (BgDiag_Razor emits aspect-ratio inline from its viewBox).
+        // BgQuiz must re-encode no ratio — no `aspect-ratio` declaration, and none
+        // of the historical literals (16/9, 429.8/446). Comments (which reference
+        // the ratio in prose) are stripped first so only real CSS is checked.
+        var css = File.ReadAllText(AppCssPath());
+        var noComments = Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);
+
+        Assert.DoesNotContain("aspect-ratio", noComments);
+        Assert.DoesNotContain("429.8", noComments);
+        Assert.DoesNotContain("446", noComments);
+        Assert.DoesNotContain("16 / 9", noComments);
+        Assert.DoesNotContain("16/9", noComments);
+    }
+
+    /// <summary>
+    /// Absolute path to the server project's <c>wwwroot/app.css</c>, resolved from
+    /// this test file's own compile-time location so it doesn't depend on the test
+    /// runner's working directory or on the CSS being copied to output.
+    /// </summary>
+    private static string AppCssPath([CallerFilePath] string thisFile = "")
+    {
+        var testDir = Path.GetDirectoryName(thisFile)!;
+        return Path.GetFullPath(Path.Combine(testDir, "..", "BgQuiz_Blazor", "wwwroot", "app.css"));
     }
 }
