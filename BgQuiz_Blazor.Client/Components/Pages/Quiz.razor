@@ -73,17 +73,24 @@
                         Skipped="Controller.SkippedCount"
                         Source="@Controller.Name" />
 
+            @* State-invariant status strip: always present, fixed height, so the
+               chrome's total height — and therefore the board's flex remainder,
+               and therefore the board size — is identical across the answering
+               and review states and across questions. While answering it carries
+               a neutral prompt (legend line empty); at review the legend line
+               and the verdict band fill in. Content changes; the box never does
+               (long content clamps inside the fixed lines — see app.css). *@
+            <div class="status-strip">
+                <div class="status-legend text-muted small">
+                    @(review is not null ? SolutionLegend(review, current.Decision) : null)
+                </div>
+                <div class="status-verdict alert @StatusVerdictColor(review)" role="status">
+                    <span class="status-verdict-text">@StatusText(review, current.Decision)</span>
+                </div>
+            </div>
+
             @if (review is not null)
             {
-                @if (SolutionLegend(review, current.Decision) is { } legend)
-                {
-                    <div class="text-muted small mb-2">@legend</div>
-                }
-
-                <div class="@VerdictCssClass(review)" role="status">
-                    @VerdictText(review)
-                </div>
-
                 <div class="d-flex flex-wrap gap-2">
                     <button class="btn btn-primary" @onclick="ContinueAsync">
                         Continue

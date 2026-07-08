@@ -376,8 +376,21 @@ two holders.
   a "Show stats" button in the row's `ms-auto` slot. In the **review** state
   (`Review` set, after Submit) it renders a read-only `BackgammonDiagram`
   in `DiagramMode.Solution` — the filled analysis panel, the same view the PPTX
-  exporter renders — plus a compact verdict line and Continue / Redo / Show
-  stats (Show stats again the row's trailing `ms-auto` slot). The
+  exporter renders — plus Continue / Redo / Show stats (Show stats again the
+  row's trailing `ms-auto` slot). Between the score panel and either action row
+  sits an always-rendered, **fixed-height status strip** (`.status-strip`,
+  `app.css`): a one-line legend slot and a two-line-clamped verdict band. While
+  answering it shows a neutral state-appropriate prompt (legend empty); at
+  review the legend (`* played · † your answer`) and the outcome-coloured
+  verdict fill in. Because the strip's height is a designed constant, chrome
+  height — and therefore the board's flex remainder under the desktop fold
+  cap — is identical across the answering and review states and across
+  questions, so the board does not change size when Submit flips into review.
+  The board itself is bounded through BgDiag_Razor's bounded-height contract:
+  the desktop fold column hands `.board-container`'s definite post-flex height
+  to the entry wrappers (`height: 100%`), whose internal `bg-board-slot` +
+  `.bg-diagram` contain-fit default letterbox the board — cube included, its
+  radios staying content-sized. The
   solution request is built with `DiagramRequest.Builder.From(Current.Position,
   Current.Decision, Current.Descriptive, DiagramMode.Solution)`, then the user's
   marks are overridden from `Review`: `UserPlayIndex` for a play (`-1` off-list
@@ -540,6 +553,22 @@ endpoints. The externally visible surface is the route map:
   key defensively; if a future refactor keeps the entry mounted across review
   (e.g. overlaying the solution instead of swapping branches), *that's* the
   point to re-examine whether a reset mechanism is needed, not before.
+- **The status strip must stay fixed-height, and the board-sizing glue must
+  stay retired.** The strip's whole purpose is state-invariant chrome: equal
+  chrome height ⇒ equal board flex remainder ⇒ no answering↔review board-size
+  jump. Sizing it by content (`min-height`, auto height) reintroduces the
+  per-question jitter it was built to remove — long content clamps instead
+  (legend one line, verdict two). On the board side, sizing belongs to
+  BgDiag_Razor's bounded-height contract (bound the entry wrapper with a real
+  height; the producer's `bg-board-slot` and `.bg-diagram` contain-fit default
+  do the rest) — re-adding consumer `max-height` glue, `display: contents` on
+  a wrapper, or styles inside `.bg-board-slot` breaks the contract (see the
+  producer's pitfalls; `AppCss_RetiredBoundedHeightGlue_StaysGone` pins this).
+  Known residual: a cube's radios live inside the producer's board region only
+  while answering, so when the fold cap binds (short viewports) the
+  cube-answering board runs radios-height shorter than its review — unifying
+  that would mean re-encoding producer chrome height in the consumer, which is
+  the magic-constant pattern this arc removed.
 - **Pages set render mode per-page, not via `<Routes>`.** Each routable page
   carries `@rendermode @(new InteractiveWebAssemblyRenderMode(prerender:
   false))`. There is no global `<Routes @rendermode>` here (that was the old

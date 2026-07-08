@@ -1343,6 +1343,86 @@ public class PageTests : BunitContext
         Assert.True(boardIdx < chromeIdx, "the board must render before the chrome (board-on-top)");
     }
 
+    // -----------------------------------------------------------------------
+    //  Status strip: state-invariant chrome between the score panel and the
+    //  action row. The strip is ALWAYS rendered — empty legend + neutral prompt
+    //  while answering, legend + verdict at review — so chrome height (a fixed
+    //  CSS constant) and therefore board size is equal across states. bUnit
+    //  can't measure the CSS heights; these pin the structural half: the strip
+    //  and both its lines exist in every state, with the right content.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Quiz_PlayAnswering_StatusStrip_ShowsNeutralPrompt()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        var strip = cut.Find(".status-strip");
+        Assert.Equal(string.Empty, strip.QuerySelector(".status-legend")!.TextContent.Trim());
+        var verdict = strip.QuerySelector(".status-verdict")!;
+        Assert.Contains("alert-secondary", verdict.ClassList);
+        Assert.Contains("build your play", verdict.TextContent);
+    }
+
+    [Fact]
+    public async Task Quiz_CubeAnswering_StatusStrip_ShowsNeutralPrompt()
+    {
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        var strip = cut.Find(".status-strip");
+        Assert.Equal(string.Empty, strip.QuerySelector(".status-legend")!.TextContent.Trim());
+        var verdict = strip.QuerySelector(".status-verdict")!;
+        Assert.Contains("alert-secondary", verdict.ClassList);
+        Assert.Contains("cube action", verdict.TextContent);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_StatusStrip_CarriesLegendAndVerdict()
+    {
+        // Recorded play present (index 0) and the user answers the alt play, so
+        // the legend names both markers and the verdict is the not-best line.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), recordedPlayIndex: 0));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitPlay(AltPlay()));
+        Assert.NotNull(c.Review);
+
+        var strip = cut.Find(".status-strip");
+        var legend = strip.QuerySelector(".status-legend")!.TextContent;
+        Assert.Contains("* played", legend);
+        Assert.Contains("† your answer", legend);
+
+        var verdict = strip.QuerySelector(".status-verdict")!;
+        Assert.Contains("alert-danger", verdict.ClassList);
+        Assert.Contains("Not best", verdict.TextContent);
+        Assert.DoesNotContain("Submit.", verdict.TextContent); // prompt gone
+    }
+
+    [Fact]
+    public async Task Quiz_StatusStrip_SitsBetweenScorePanelAndActionRow()
+    {
+        // The settled design places the fixed-height strip between the score
+        // panel and the button row in both states; pin the answering order (the
+        // review branch shares the same strip instance above the branch).
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        var markup = cut.Markup;
+        var scoreIdx = markup.IndexOf("score-panel", StringComparison.Ordinal);
+        var stripIdx = markup.IndexOf("status-strip", StringComparison.Ordinal);
+        var rowIdx = markup.IndexOf("d-flex flex-wrap gap-2", StringComparison.Ordinal);
+        Assert.True(scoreIdx >= 0 && stripIdx >= 0 && rowIdx >= 0, "all three chrome pieces present");
+        Assert.True(scoreIdx < stripIdx, "strip renders after the score panel");
+        Assert.True(stripIdx < rowIdx, "strip renders before the action row");
+    }
+
     [Fact]
     public void AppCss_DeclaresNoBoardAspectRatioLiteral()
     {

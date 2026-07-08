@@ -228,15 +228,33 @@ public partial class Quiz : ComponentBase, IDisposable
         return parts.Count > 0 ? string.Join(" · ", parts) : null;
     }
 
-    /// <summary>Bootstrap alert class colouring the verdict by outcome.</summary>
-    private static string VerdictCssClass(ProblemReview review) => review switch
+    /// <summary>
+    /// Text for the status strip's verdict band: the scored verdict at review,
+    /// a neutral state-appropriate prompt while answering. The strip is always
+    /// rendered (fixed height — see <c>.status-strip</c> in <c>app.css</c>) so
+    /// chrome height, and therefore board size, is state-invariant; only the
+    /// content swaps.
+    /// </summary>
+    private static string StatusText(ProblemReview? review, DecisionData decision) =>
+        review is not null
+            ? VerdictText(review)
+            : decision.IsCube
+                ? "Pick the cube action, then Submit."
+                : "Click the board to build your play, then Submit.";
+
+    /// <summary>
+    /// Bootstrap alert colour for the status strip's verdict band: outcome
+    /// colouring at review, a quiet neutral tone while answering.
+    /// </summary>
+    private static string StatusVerdictColor(ProblemReview? review) => review switch
     {
-        ProblemReview.Play { OffList: true } => "alert alert-warning my-3",
-        ProblemReview.Play { IsCorrect: true } => "alert alert-success my-3",
-        ProblemReview.Play => "alert alert-danger my-3",
-        ProblemReview.Cube { DoublerCorrect: true, TakerCorrect: true } => "alert alert-success my-3",
-        ProblemReview.Cube => "alert alert-danger my-3",
-        _ => "alert my-3",
+        null => "alert-secondary",
+        ProblemReview.Play { OffList: true } => "alert-warning",
+        ProblemReview.Play { IsCorrect: true } => "alert-success",
+        ProblemReview.Play => "alert-danger",
+        ProblemReview.Cube { DoublerCorrect: true, TakerCorrect: true } => "alert-success",
+        ProblemReview.Cube => "alert-danger",
+        _ => "alert-secondary",
     };
 
     private void HandlePlayCompleted(Play play)

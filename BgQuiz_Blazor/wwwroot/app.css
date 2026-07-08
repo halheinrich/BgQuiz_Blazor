@@ -150,6 +150,54 @@ h1:focus {
     }
 }
 
+/* Status strip — state-invariant chrome between the score panel and the action
+   row. Always rendered at a FIXED height so the chrome's total height, and
+   therefore the board's flex remainder (its size under the fold cap), is
+   identical across the answering and review states and across questions: while
+   answering the legend line is empty and the band shows a neutral prompt; at
+   review the legend and the coloured verdict fill in. Every dimension here is
+   a designed constant, deliberately content-independent — a min-height (grow-
+   to-fit) would reintroduce the per-question jitter this exists to remove.
+   Long content clamps instead of growing: the legend (metadata, short by
+   construction) ellipsizes on one line; the verdict gets two lines — enough
+   for the longest real verdict at narrow desktop widths — then clips. */
+.status-strip {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-block: 0.75rem;
+}
+
+.status-legend {
+    /* One fixed line: .small's 0.875rem at a 1.4rem slab. */
+    height: 1.4rem;
+    line-height: 1.4rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.status-verdict {
+    /* Two 1.35-line-height text lines (2.7rem) + 0.5rem vertical padding each
+       side. Overrides .alert's padding/margin so the box is the same size in
+       every state; the colour class (alert-secondary/-success/-danger/-warning)
+       is the only thing that varies. */
+    height: 3.7rem;
+    padding: 0.5rem 1rem;
+    margin: 0;
+    display: flex;
+    align-items: center;
+}
+
+.status-verdict-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    line-height: 1.35;
+}
+
 /* XGID badge — upper-right of the board, sized in container-query units so it
    tracks the board's ~28/468-tall title strip at every viewport width and never
    spills onto the playing surface. Mirrors the right-justified label the
