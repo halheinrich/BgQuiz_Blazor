@@ -1361,6 +1361,31 @@ public class PageTests : BunitContext
         Assert.DoesNotContain("16/9", noComments);
     }
 
+    [Fact]
+    public void AppCss_RetiredBoundedHeightGlue_StaysGone()
+    {
+        // Migration pin for the bounded-height contract adoption (BgDiag_Razor's
+        // bg-board-slot + .bg-diagram contain-fit default). The pre-contract
+        // consumer glue must never come back:
+        //   - display:contents on .bg-play-entry now *breaks* the contract (it
+        //     dissolves the producer's flex column that gives the slot its
+        //     definite post-flex height) — producer pitfall;
+        //   - consumer-side max-height on .bg-diagram (and the cube
+        //     max-height:none override) duplicated what is now the producer's
+        //     inline contain-fit default;
+        //   - the :has(.bg-cube-entry) fold-management opt-out existed only
+        //     because no consumer CSS could contain-fit a board beside the
+        //     radios — the producer slot supersedes it.
+        // Comments are stripped so only real declarations are checked.
+        var css = File.ReadAllText(AppCssPath());
+        var noComments = Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);
+
+        Assert.DoesNotContain("display: contents", noComments);
+        Assert.DoesNotContain("display:contents", noComments);
+        Assert.DoesNotContain("max-height", noComments);
+        Assert.DoesNotContain(":has(", noComments);
+    }
+
     /// <summary>
     /// Absolute path to the server project's <c>wwwroot/app.css</c>, resolved from
     /// this test file's own compile-time location so it doesn't depend on the test

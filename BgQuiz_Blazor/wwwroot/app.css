@@ -77,14 +77,13 @@ h1:focus {
 }
 
 .board-container .bg-diagram {
-    max-width: 100%;
-    /* Center the board within the full-width row when a max-height letterboxes
-       it narrower than the row (desktop, short viewport). */
-    margin-inline: auto;
     /* Board-relative query container so the overlaid XGID badge (cqw units
        below) scales with the *rendered board width*, tracking it under
-       letterboxing. The badge now lives inside .bg-diagram via the producer's
-       Overlay slot, so this — not .board-container — is its sizing anchor. */
+       letterboxing. The badge lives inside .bg-diagram via the producer's
+       Overlay slot, so this is its sizing anchor. Consumer-owned — the badge
+       is BgQuiz content — unlike the sizing itself: the contain-fit letterbox
+       (max-height: 100%; margin-inline: auto) is now the producer's own
+       inline default on .bg-diagram, so no sizing glue belongs here. */
     container-type: inline-size;
 }
 
@@ -127,38 +126,27 @@ h1:focus {
         flex: 0 0 auto;
     }
 
-    /* review and play put the board alone in the region, so it can cap to the
-       region's height and contain-fit (letterbox) cleanly. review's .bg-diagram
-       is already a direct child of the definite-height .board-container; play
-       nests it under .bg-play-entry, so display:contents drops that wrapper's
-       box to make .bg-diagram a direct child too — which is what lets the
-       percentage max-height resolve for both. */
-    .board-container .bg-play-entry {
-        display: contents;
-    }
-
-    .board-container .bg-diagram {
-        max-height: 100%;
-    }
-
-    /* Cube is the exception: its answer radios (.bg-cube-actions) share the
-       board region, and CSS cannot contain-fit an aspect-ratio box *beside* a
-       sibling without a slot wrapper — which lives in the producer's markup, not
-       here (every flex/max-height variant either distorts the board or overlaps
-       the chrome; verified live). So the cube region sizes to its content
-       (flex:0 0 auto, no forced height → no overlap) and the board stays plainly
-       width-driven (max-height:none → full-width × the producer ratio). The
-       trade is that a genuinely short viewport scrolls the cube page rather than
-       letterboxing; fold-management still holds for the play/review states that
-       dominate interaction. Unifying this would take a producer-side board slot
-       separate from the radios (the same escalation that moved the XGID badge
-       into the producer overlay) — a separate producer session, not this one. */
-    .board-container:has(.bg-cube-entry) {
-        flex: 0 0 auto;
-    }
-
-    .board-container .bg-cube-entry .bg-diagram {
-        max-height: none;
+    /* Bounded-height contract (BgDiag_Razor): hand .board-container's definite
+       post-flex height down to the entry wrappers. Each wrapper is a producer-
+       owned flex column whose internal .bg-board-slot shrinks under the bound
+       while sibling chrome (the cube radios) keeps its content size; the slot's
+       post-flex height is then definite, and .bg-diagram's own contain-fit
+       default (max-height: 100%, auto inline margins — producer inline style)
+       letterboxes the board inside it. This retires the pre-contract glue:
+       display:contents on .bg-play-entry (now *breaks* the contract — it would
+       dissolve the producer's flex column), the consumer-side max-height /
+       margin-inline on .bg-diagram, and the cube fold-management opt-out
+       (:has(.bg-cube-entry) flex:0 0 auto + max-height:none) that existed only
+       because no consumer CSS could contain-fit a board beside the radios —
+       the producer slot is exactly that missing structure, so cube now
+       letterboxes on short viewports like play and review. review's .bg-diagram
+       is a direct child of .board-container, so the contain-fit default engages
+       against the region's definite height with no glue at all. Per producer
+       pitfalls: bind with a real height (this), never max-height alone, and
+       never style inside .bg-board-slot. */
+    .board-container > .bg-play-entry,
+    .board-container > .bg-cube-entry {
+        height: 100%;
     }
 }
 
