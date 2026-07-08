@@ -153,10 +153,14 @@ public sealed class QuizController : IAsyncDisposable
     /// advancing. <see cref="ContinueAsync"/> moves to the next problem.
     ///
     /// <para>
-    /// Matching is structural: <see cref="Play.DeduplicationKey"/> on the
-    /// submitted play is compared to each candidate's
-    /// <see cref="PlayCandidate.Play"/> key in list order; the first match
-    /// scores. <see cref="PlayCandidate.EquityLoss"/> <c>== 0.0</c> identifies
+    /// Matching is by canonical play equality: the submitted play is compared
+    /// to each candidate's <see cref="PlayCandidate.Play"/> via
+    /// <see cref="Play.Equals(Play)"/> in list order; the first match scores.
+    /// Equality is order- and decomposition-insensitive but hit-sensitive, so
+    /// a play entered as decomposed hops (e.g. 13/10, 10/8) matches its
+    /// combined candidate (13/8) while a play whose intermediate hop hits does
+    /// not match a non-hitting candidate.
+    /// <see cref="PlayCandidate.EquityLoss"/> <c>== 0.0</c> identifies
     /// best-play candidates (the established convention — multiple may share
     /// zero loss; <see cref="DecisionData.BestPlayIndex"/> is the canonical
     /// representative when one is needed).
@@ -181,12 +185,11 @@ public sealed class QuizController : IAsyncDisposable
     {
         if (Current is null || IsFinished || Review is not null) return;
 
-        var key = play.DeduplicationKey();
         int? matchedIdx = null;
         var plays = Current.Decision.Plays;
         for (int i = 0; i < plays.Count; i++)
         {
-            if (plays[i].Play.DeduplicationKey().Equals(key))
+            if (plays[i].Play.Equals(play))
             {
                 matchedIdx = i;
                 break;

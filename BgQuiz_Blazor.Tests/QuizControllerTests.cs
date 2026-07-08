@@ -399,6 +399,60 @@ public class QuizControllerTests
     }
 
     // -----------------------------------------------------------------------
+    //  SubmitPlay — canonical play-equality matching (the play-equivalence arc)
+    //  Order- and decomposition-insensitive, but fully hit-sensitive.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task SubmitPlay_DecomposedHops_MatchCombinedCandidate()
+    {
+        // The arc's acceptance pin — the exact user repro. The candidate list
+        // carries the combined play 13/8; the user enters it as two clicks,
+        // 13/10 then 10/8. Canonical Play equality is decomposition-insensitive,
+        // so the decomposed submission matches the combined candidate and scores
+        // as it rather than falling off-list (the bug this arc fixed: two-click
+        // 13/8 was scored off-list even though 13/8 is on the candidate list).
+        var combined = TestFixtures.MakePlay((13, 8));                // candidate: 13/8
+        var other = TestFixtures.MakePlay((24, 22), (24, 23));
+        var c = Make(TestFixtures.TwoChoiceDecision(combined, other, play2Loss: 0.05));
+        await c.StartAsync(new FilterConfig());
+
+        c.SubmitPlay(TestFixtures.MakePlay((13, 10), (10, 8)));       // 13/10, 10/8
+
+        Assert.Single(c.History);
+        Assert.Equal(0, c.History[0].MatchedCandidateIndex);         // matched the combined candidate
+        Assert.True(c.History[0].IsCorrect);
+        Assert.Equal(0, c.SkippedCount);                             // scored, not skipped off-list
+        var review = Assert.IsType<ProblemReview.Play>(c.Review);
+        Assert.False(review.OffList);
+        Assert.Equal(0, review.UserPlayIndex);
+    }
+
+    [Fact]
+    public async Task SubmitPlay_DecomposedHopWithIntermediateHit_StaysOffListAgainstNonHittingCandidate()
+    {
+        // Hit-sensitivity negative — the guard rail on the match above. Canonical
+        // equality preserves hits, so 13/10*/8 (a hit on the intermediate 10-pt)
+        // is a genuinely different play from the non-hitting candidate 13/8 and
+        // must stay off-list. Decomposition-insensitivity must not start
+        // collapsing hitting and non-hitting plays together.
+        var nonHitting = TestFixtures.MakePlay((13, 8));             // candidate 13/8, no hit
+        var other = TestFixtures.MakePlay((24, 22), (24, 23));
+        var c = Make(TestFixtures.TwoChoiceDecision(nonHitting, other));
+        await c.StartAsync(new FilterConfig());
+
+        // 13/10*/8 — the intermediate 10-pt hit is the sign-encoded negative ToPt.
+        c.SubmitPlay(TestFixtures.MakePlay((13, -10), (10, 8)));
+
+        Assert.Empty(c.History);
+        Assert.Equal(1, c.SkippedCount);
+        Assert.Equal(QuizScore.Empty, c.Score);
+        var review = Assert.IsType<ProblemReview.Play>(c.Review);
+        Assert.True(review.OffList);
+        Assert.Equal(-1, review.UserPlayIndex);
+    }
+
+    // -----------------------------------------------------------------------
     //  SubmitCubeAction — scoring (enters review; ContinueAsync advances)
     // -----------------------------------------------------------------------
 

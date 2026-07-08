@@ -28,8 +28,9 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `QuizScore.Plus(SubmittedPlay)` / `QuizScore.Plus(SubmittedCubeAction)`.
 - **BgDataTypes_Lib** — data types. `BgDecisionData`, `Play`,
   `PlayCandidate`, `BoardState`, `CubeDecisionPair`, `CubeAction`. The
-  structural matcher hashes `Play.DeduplicationKey()` against each
-  `PlayCandidate.Play`'s key; cube scoring reads `DecisionData`'s
+  matcher compares the submitted `Play` against each `PlayCandidate.Play`
+  by canonical `Play` equality (order- and decomposition-insensitive,
+  hit-sensitive); cube scoring reads `DecisionData`'s
   `BestDoublerAction` / `BestTakerAction` / `DoublerActionError` /
   `TakerActionError`.
 - **BgMoveGen** — `MoveGenerator.GeneratePlays`, used by the controller's
@@ -254,8 +255,11 @@ positions are silently skipped; they don't show to the user and don't
 count toward `SkippedCount`.
 
 **Off-list submission.** `SubmitPlay(Play)` matches the user's play
-against `Current.Decision.Plays` by comparing `Play.DeduplicationKey()`
-tuples. An in-list match contributes to the score: `EquityLoss == 0.0`
+against `Current.Decision.Plays` by canonical `Play` equality (order- and
+decomposition-insensitive, hit-sensitive) — so a candidate entered as
+decomposed hops still matches its combined listing, but a play whose
+intermediate hop hits stays off-list against a non-hitting candidate. An
+in-list match contributes to the score: `EquityLoss == 0.0`
 is the "best play" test (matching the established `PlayCandidate`
 convention — multiple candidates may share zero loss). An off-list match
 counts as a skip (`SkippedCount++`, no history entry, score unchanged).

@@ -4,10 +4,10 @@ namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
 /// Hand-crafted <see cref="BgDecisionData"/> values for controller and page
-/// tests. Controller tests don't need physically legal plays — only structural
-/// shape matters for the dedup-key matcher. Pass-position fixtures must produce
-/// zero legal plays from <c>MoveGenerator.GeneratePlays</c> so the controller's
-/// auto-skip path is exercised.
+/// tests. Controller tests don't need physically legal plays — only the play's
+/// canonical shape matters for the equality matcher. Pass-position fixtures must
+/// produce zero legal plays from <c>MoveGenerator.GeneratePlays</c> so the
+/// controller's auto-skip path is exercised.
 /// </summary>
 internal static class TestFixtures
 {
@@ -131,7 +131,7 @@ internal static class TestFixtures
                 Plays =
                 [
                     // ToPt 0 = bear off; the entry's completed 1/off play matches
-                    // this candidate by Play.DeduplicationKey ((1, 0)).
+                    // this candidate by canonical Play equality ((1, 0)).
                     new PlayCandidate { Play = MakePlay((1, 0)), EquityLoss = 0.0, MoveNotation = "1/off" },
                 ],
                 BestPlayIndex = 0,
