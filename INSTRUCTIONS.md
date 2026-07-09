@@ -35,10 +35,12 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `TakerActionError`.
 - **BgMoveGen** — `MoveGenerator.GeneratePlays`, used by the controller's
   pass-position auto-skip detection.
-- **BgDiag_Razor** — `BackgammonPlayEntry` (click-driven play assembly) and
-  `BackgammonCubeEntry` (two-group cube-decision entry, emitting
-  `CubeDecisionPair` via `OnCubeDecisionCompleted`) + the underlying
-  `BackgammonDiagram` (read-only board view).
+- **BgDiag_Razor** — `BackgammonPlayEntry` (click-driven play assembly),
+  `BackgammonCubeActions` (a free-standing, board-free four-radio group for the
+  cube answer — `CubeDecisionPair? Value` + `EventCallback<CubeDecisionPair?>
+  ValueChanged`, the `@bind-Value` convention) + the underlying
+  `BackgammonDiagram` (read-only board view, used directly for both the review
+  diagram and the cube-answering board).
 - **BackgammonDiagram_Lib** — `DiagramRequest` + `DiagramOptions`. The
   answering view uses `DiagramRequest.FromDecisionData(BgDecisionData,
   DiagramMode.Problem)`, the canonical data-to-renderer mapping (Problem mode
@@ -139,8 +141,9 @@ directive — that is how interactivity is set under WASM (see Render mode).
                             routes by Controller.Current.Decision.IsCube:
                             checker → BackgammonPlayEntry
                                       + Submit / Skip / Undo last / Undo all
-                            cube    → BackgammonCubeEntry
-                                      + Submit / Skip (no Undo)
+                            cube    → board-only BackgammonDiagram
+                                      + BackgammonCubeActions radios /
+                                        Submit / Skip (no Undo)
                           review (Controller.Review set, after Submit):
                             read-only BackgammonDiagram (DiagramMode.Solution,
                             user's answer marked, OnDiceClicked bound to the same
@@ -362,22 +365,25 @@ two holders.
   failure, source construction failure) and surfaces them as a banner instead
   of faulting the WASM app.
 - **`Quiz.razor`** — mirrors the controller's three-state flow, branching on
-  `Controller.Review`. In the **answering** state (`Review` null) it routes by
-  `Current.Decision.IsCube` over
+  `Controller.Review`. In the **answering** state (`Review` null) it routes the
+  board region by `Current.Decision.IsCube` over
   `DiagramRequest.FromDecisionData(Current, DiagramMode.Problem)`: checker
-  decisions to `BackgammonPlayEntry` (click-driven play assembly), cube
-  decisions to `BackgammonCubeEntry` (two atomic button groups). Both entry
-  components are strict — each throws `NotImplementedException` on the other
-  half's decision type, so the route must be exact. Submit (a synchronous
-  handler, since the controller's Submit no longer awaits) is gated on the
-  relevant completion callback having fired (`OnPlayCompleted` →
-  `_completedPlay`, `OnCubeDecisionCompleted` → `_completedCube`); both latches
-  reset on every transition. `BackgammonCubeEntry` re-fires on every
-  post-completion change, so `_completedCube` always holds the latest pair and
-  the user can revise before Submit. The action row varies by kind: cube has no
-  Undo (no partial-move state); checker keeps Undo last / Undo all (clearing the
-  latched play, since the component does not notify on undo). Both trail with
-  a "Show stats" button in the row's `ms-auto` slot. In the **review** state
+  decisions to `BackgammonPlayEntry` (click-driven play assembly); cube decisions
+  to a **board-only** `BackgammonDiagram` — the same read-only shape as the review
+  branch, because the cube answer is not entered on the board. `BackgammonPlayEntry`
+  is strict — it throws `NotImplementedException` on a cube decision — so the
+  checker route must be exact; the cube route renders a plain view carrying no such
+  guard. Submit (a synchronous handler, since the controller's Submit no longer
+  awaits) is gated on the relevant answer being held: a play via `OnPlayCompleted`
+  → `_completedPlay`; a cube via the `BackgammonCubeActions` radios in the action
+  row, whose `@bind-Value` keeps `_completedCube` current. Both fields reset on
+  every transition. The radios re-fire on every selection change, so
+  `_completedCube` always holds the latest pair and the user can revise before
+  Submit. The action row varies by kind: cube places the `BackgammonCubeActions`
+  radios ahead of Submit / Skip and has no Undo (no partial-move state); checker
+  keeps Undo last / Undo all (clearing the latched play, since the component does
+  not notify on undo). Both trail with a "Show stats" button in the row's
+  `ms-auto` slot. In the **review** state
   (`Review` set, after Submit) it renders a read-only `BackgammonDiagram`
   in `DiagramMode.Solution` — the filled analysis panel, the same view the PPTX
   exporter renders — plus Continue / Redo / Show stats (Show stats again the
@@ -392,9 +398,11 @@ two holders.
   questions, so the board does not change size when Submit flips into review.
   The board itself is bounded through BgDiag_Razor's bounded-height contract:
   the desktop fold column hands `.board-container`'s definite post-flex height
-  to the entry wrappers (`height: 100%`), whose internal `bg-board-slot` +
-  `.bg-diagram` contain-fit default letterbox the board — cube included, its
-  radios staying content-sized. The
+  to the `BackgammonPlayEntry` wrapper (`height: 100%`), whose internal
+  `bg-board-slot` + `.bg-diagram` contain-fit default letterbox the board. The
+  cube-answering and review states render a bare `.bg-diagram` as a direct child
+  of `.board-container`, so the contain-fit default engages against the region's
+  definite height with no wrapper glue at all. The
   solution request is built with `DiagramRequest.Builder.From(Current.Position,
   Current.Decision, Current.Descriptive, DiagramMode.Solution)`, then the user's
   marks are overridden from `Review`: `UserPlayIndex` for a play (`-1` off-list
@@ -491,14 +499,16 @@ endpoints. The externally visible surface is the route map:
   `IsPassPosition`, every cube decision is silently auto-skipped and the
   whole cube feature is invisible. The guard is the first line; don't
   remove it.
-- **Entry components are strict on decision type.** `BackgammonPlayEntry`
-  throws `NotImplementedException` on a cube decision and
-  `BackgammonCubeEntry` throws on a play decision. `Quiz.razor`'s
-  `IsCube` route must be exact; a mis-route fails loudly at render.
-- **`OnCubeDecisionCompleted` is `[EditorRequired]`.** Omitting the binding
-  on `BackgammonCubeEntry` surfaces as `RZ2012` (→ error under
-  `-warnaserror`), not a silent splat — unlike the play side's
-  `OnPlayCompleted`. Keep the binding present.
+- **`BackgammonPlayEntry` is strict on decision type.** It throws
+  `NotImplementedException` on a cube decision, so `Quiz.razor`'s checker route
+  must be exact — a cube decision reaching it fails loudly at render. The cube
+  route renders a plain read-only `BackgammonDiagram` (no such guard); routing by
+  `IsCube` stays page-side.
+- **`BackgammonCubeActions.ValueChanged` is `[EditorRequired]`.** It backs the
+  `@bind-Value="_completedCube"` binding; omitting the binding surfaces as
+  `RZ2012` (→ error under `-warnaserror`), not a silent splat — unlike the play
+  side's `OnPlayCompleted`. Keep the `@bind-Value` present: the radios are
+  strictly controlled, so without the binding they are inert.
 - **Razor silently drops bindings to non-existent component parameters.**
   `<FilterPanel OnFiltersChanged="..."/>` against a panel that exposes
   `OnFilterConfigChanged` does not fail at build or render time — the
@@ -538,41 +548,43 @@ endpoints. The externally visible surface is the route map:
   QuestPDF / OpenXml) would fault at runtime in the browser. The quiz renders
   SVG, never raster. This is why the split exists; don't re-add the raster
   reference to make some export "just work" client-side.
-- **Entry components don't need a `@key` to reset across Redo — the branch
-  swap already does it.** `BackgammonPlayEntry` / `BackgammonCubeEntry` both
-  suppress their own internal reset when the incoming `Request` describes the
-  same problem as last time (same Mop/Dice for a play, same Mop for a cube) —
-  a defense against losing in-progress click state on a same-problem re-render.
-  It's tempting to assume `RedoAsync` (which returns to that exact same
-  problem) needs an explicit reset call or a changing `@key` to work around
-  that suppression. It doesn't: `Quiz.razor`'s entry component lives in the
-  `else` branch of `@if (Controller.Review is { } review) { ... } else { ... }`,
-  and Submit already unmounts it entirely when the page swaps into the review
-  branch. By the time Redo swaps back, the entry component did not exist in
-  the immediately prior render at all, so Blazor cannot reuse an instance that
-  wasn't there — a fresh one is constructed unconditionally, same-problem
-  suppression or not. Verified (not just reasoned about) by temporarily adding
-  a redo-generation `@key` and confirming the full suite — including the
-  remount-proof tests — stayed green with it removed. Don't reintroduce that
-  key defensively; if a future refactor keeps the entry mounted across review
-  (e.g. overlaying the solution instead of swapping branches), *that's* the
-  point to re-examine whether a reset mechanism is needed, not before.
+- **`BackgammonPlayEntry` doesn't need a `@key` to reset across Redo — the
+  branch swap already does it.** It suppresses its own internal reset when the
+  incoming `Request` describes the same problem as last time (same Mop/Dice) — a
+  defense against losing in-progress click state on a same-problem re-render.
+  It's tempting to assume `RedoAsync` (which returns to that exact same problem)
+  needs an explicit reset call or a changing `@key` to work around that
+  suppression. It doesn't: the entry lives in the `else` branch of
+  `@if (Controller.Review is { } review) { ... } else { ... }`, and Submit already
+  unmounts it entirely when the page swaps into the review branch. By the time
+  Redo swaps back, the entry did not exist in the immediately prior render at
+  all, so Blazor cannot reuse an instance that wasn't there — a fresh one is
+  constructed unconditionally, same-problem suppression or not. Verified (not just
+  reasoned about) by temporarily adding a redo-generation `@key` and confirming
+  the suite stayed green with it removed. Don't reintroduce that key defensively;
+  if a future refactor keeps the entry mounted across review (e.g. overlaying the
+  solution instead of swapping branches), *that's* the point to re-examine. The
+  cube answer needs none of this: `BackgammonCubeActions` is strictly controlled
+  off `_completedCube`, which `HandleStateChanged` nulls on every transition, so
+  its radios clear on Redo with no internal state to reset.
 - **The status strip must stay fixed-height, and the board-sizing glue must
   stay retired.** The strip's whole purpose is state-invariant chrome: equal
   chrome height ⇒ equal board flex remainder ⇒ no answering↔review board-size
   jump. Sizing it by content (`min-height`, auto height) reintroduces the
   per-question jitter it was built to remove — long content clamps instead
   (legend one line, verdict two). On the board side, sizing belongs to
-  BgDiag_Razor's bounded-height contract (bound the entry wrapper with a real
-  height; the producer's `bg-board-slot` and `.bg-diagram` contain-fit default
-  do the rest) — re-adding consumer `max-height` glue, `display: contents` on
-  a wrapper, or styles inside `.bg-board-slot` breaks the contract (see the
-  producer's pitfalls; `AppCss_RetiredBoundedHeightGlue_StaysGone` pins this).
-  Known residual: a cube's radios live inside the producer's board region only
-  while answering, so when the fold cap binds (short viewports) the
-  cube-answering board runs radios-height shorter than its review — unifying
-  that would mean re-encoding producer chrome height in the consumer, which is
-  the magic-constant pattern this arc removed.
+  BgDiag_Razor's bounded-height contract (bound the `BackgammonPlayEntry` wrapper
+  with a real height; the producer's `bg-board-slot` and `.bg-diagram` contain-fit
+  default do the rest) — re-adding consumer `max-height` glue, `display: contents`
+  on a wrapper, or styles inside `.bg-board-slot` breaks the contract (see the
+  producer's pitfalls; `AppCss_RetiredBoundedHeightGlue_StaysGone` pins this). The
+  cube-answering board is now a bare `.bg-diagram` (a direct child of
+  `.board-container`, like review) — the cube radios moved out of the board region
+  into the action row — so all three states (play-answering, cube-answering,
+  review) size the board identically under the fold cap. This retired the former
+  residual (the cube-answering board running radios-height shorter than its
+  review); unifying it any other way would have meant re-encoding producer chrome
+  height in the consumer, the magic-constant pattern this arc removed.
 - **Pages set render mode per-page, not via `<Routes>`.** Each routable page
   carries `@rendermode @(new InteractiveWebAssemblyRenderMode(prerender:
   false))`. There is no global `<Routes @rendermode>` here (that was the old

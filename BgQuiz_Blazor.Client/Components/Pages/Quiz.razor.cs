@@ -7,10 +7,12 @@ using Microsoft.AspNetCore.Components;
 namespace BgQuiz_Blazor.Client.Components.Pages;
 
 /// <summary>
-/// Quiz page: hosts either <see cref="BackgammonPlayEntry"/> (checker plays)
-/// or <see cref="BackgammonCubeEntry"/> (cube decisions) against the scoped
-/// <see cref="QuizController"/>'s current decision, routing by
-/// <c>Decision.IsCube</c>, and exposes the per-kind action row.
+/// Quiz page: renders the current decision against the scoped
+/// <see cref="QuizController"/>, routing the board region by <c>Decision.IsCube</c>
+/// — checker plays to <see cref="BackgammonPlayEntry"/> (click-driven assembly),
+/// cube decisions to a board-only <see cref="BackgammonDiagram"/> whose answer is
+/// entered by the <see cref="BackgammonCubeActions"/> radios in the action row —
+/// and exposes the per-kind action row.
 ///
 /// <para>
 /// <b>Review branch.</b> Mirrors the controller's three-state flow. While
@@ -29,24 +31,30 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// <b>Redo &amp; entry freshness.</b> Redo (review-state only) calls
+/// <b>Redo &amp; answer freshness.</b> Redo (review-state only) calls
 /// <see cref="QuizController.RedoAsync"/>, which reverses the just-submitted
 /// answer and clears <see cref="QuizController.Review"/> — the page falls back
 /// to the answering branch on the <i>same</i> <see cref="QuizController.Current"/>
-/// problem. Although neither <see cref="BackgammonPlayEntry"/> nor
-/// <see cref="BackgammonCubeEntry"/> resets its own internal state when the
-/// incoming request describes the same problem it was last given (same
-/// Mop/Dice for a play, same Mop for a cube), that reset-suppression path is
-/// never reached here: Submit already unmounts the entry component entirely
-/// when the page swaps to the review branch, so by the time Redo swaps back to
-/// the answering branch, the entry component did not exist in the immediately
-/// prior render at all. Blazor cannot reuse a component instance that was not
-/// there to reuse, so a brand-new instance is constructed unconditionally — no
-/// explicit reset call or <c>@key</c> bump is needed. (An earlier draft added a
-/// redo-generation <c>@key</c> defensively; it was removed once a test proved
-/// the branch swap alone already guarantees a fresh instance — see
-/// <c>Quiz_Redo_CubeEntry_RemountsFresh_AndSecondAnswerScoresCleanly</c> /
-/// <c>Quiz_Redo_PlayEntry_RemountsFreshComponent</c> in <c>PageTests</c>.)
+/// problem, with a clean answer slate. The two answer kinds get there
+/// differently:
+/// <list type="bullet">
+///   <item><b>Cube</b> — the answer lives in <see cref="_completedCube"/>, which
+///   <see cref="HandleStateChanged"/> nulls on every controller transition (Redo
+///   included). <see cref="BackgammonCubeActions"/> is strictly controlled off
+///   that field, so its radios render unselected the moment it is cleared —
+///   remount or not; there is no internal selection state to reset.</item>
+///   <item><b>Play</b> — <see cref="BackgammonPlayEntry"/> holds its own
+///   in-progress click state and only resets it when the incoming request
+///   describes a different problem (same Mop/Dice suppresses the reset). That
+///   suppression path is never reached across Redo: Submit already unmounted the
+///   entry when the page swapped to the review branch, so Redo's swap back
+///   constructs a genuinely new instance unconditionally — Blazor cannot reuse an
+///   instance that was not in the prior render, so no <c>@key</c> bump is needed.
+///   (An earlier draft added a redo-generation <c>@key</c> defensively; it was
+///   removed once a test proved the branch swap alone guarantees a fresh
+///   instance — see <c>Quiz_Redo_PlayEntry_RemountsFreshComponent</c> in
+///   <c>PageTests</c>.)</item>
+/// </list>
 /// </para>
 ///
 /// <para>
@@ -72,23 +80,25 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// <b>Submit gating.</b> Each entry component fires its completion callback
-/// only when the answer is complete — <see cref="BackgammonPlayEntry"/>'s
-/// <c>OnPlayCompleted</c> once all dice are consumed legally;
-/// <see cref="BackgammonCubeEntry"/>'s <c>OnCubeDecisionCompleted</c> once both
-/// cube halves are chosen. The page latches the result
-/// (<see cref="_completedPlay"/> / <see cref="_completedCube"/>) and enables
-/// Submit. Both latches clear on any controller transition (submit / advance /
-/// redo / restart) via <see cref="HandleStateChanged"/>; the play latch also
-/// clears on undo.
+/// <b>Submit gating.</b> Submit is enabled once the page holds a complete
+/// answer. For a play, <see cref="BackgammonPlayEntry"/>'s <c>OnPlayCompleted</c>
+/// fires once all dice are consumed legally, latching <see cref="_completedPlay"/>.
+/// For a cube, <see cref="BackgammonCubeActions"/> emits a complete
+/// <see cref="CubeDecisionPair"/> on every selection (one radio sets both halves
+/// atomically), which <c>@bind-Value</c> writes into <see cref="_completedCube"/>;
+/// switching radios re-fires, so the field always holds the latest answer. Both
+/// fields clear on any controller transition (submit / advance / redo / restart)
+/// via <see cref="HandleStateChanged"/>; the play latch also clears on undo.
 /// </para>
 ///
 /// <para>
 /// <b>Action row by kind.</b> In the answering state, checker decisions offer
-/// Submit / Skip / Undo last / Undo all; cube decisions offer Submit / Skip (a
-/// cube answer has no partial-move state, so Undo does not apply). Both trail
-/// with Show stats in the row's <c>ms-auto</c> slot. In the review state both
-/// kinds offer Continue / Redo, trailed the same way by Show stats.
+/// Submit / Skip / Undo last / Undo all; cube decisions place the
+/// <see cref="BackgammonCubeActions"/> radios inline (the answer input, since the
+/// board region is board-only) ahead of Submit / Skip — a cube answer has no
+/// partial-move state, so Undo does not apply. Both trail with Show stats in the
+/// row's <c>ms-auto</c> slot. In the review state both kinds offer Continue /
+/// Redo, trailed the same way by Show stats.
 /// </para>
 ///
 /// <para>
@@ -260,15 +270,6 @@ public partial class Quiz : ComponentBase, IDisposable
     private void HandlePlayCompleted(Play play)
     {
         _completedPlay = play;
-        StateHasChanged();
-    }
-
-    private void HandleCubeCompleted(CubeDecisionPair answer)
-    {
-        // BackgammonCubeEntry re-fires on every post-completion change, so this
-        // always holds the latest complete pair; the user can revise before
-        // Submit.
-        _completedCube = answer;
         StateHasChanged();
     }
 

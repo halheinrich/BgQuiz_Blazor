@@ -571,10 +571,7 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig());
         var cut = Render<QuizPage>();
 
-        var cubeEntry = cut.FindComponent<BackgammonCubeEntry>();
-        await cut.InvokeAsync(() =>
-            cubeEntry.Instance.OnCubeDecisionCompleted.InvokeAsync(
-                new CubeDecisionPair(CubeAction.Double, CubeAction.Take)));
+        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
 
@@ -595,22 +592,29 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_CubeDecision_RendersCubeEntryAndCubeActionRow()
+    public async Task Quiz_CubeAnswering_BoardHostsDiagramOnly_RadiosInActionRow()
     {
+        // The cube-answering composition after the board-only migration: the board
+        // region hosts a plain read-only BackgammonDiagram (no entry component), and
+        // the cube answer is entered by BackgammonCubeActions living *inside* the
+        // action row beside Submit / Skip — not on the board.
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig());
 
         var cut = Render<QuizPage>();
 
-        // A cube decision routes to the BackgammonCubeEntry component. Pin its
-        // presence via a stable structural hook — the radio-pill group's
-        // role="radiogroup" — not the producer's button-caption text. The
-        // captions are BgDiag_Razor's presentation concern (covered by its own
-        // component tests); a consumer asserting them re-breaks on every cosmetic
-        // rename (as the "No Double" → "No double" / buttons → radio pills change
-        // just did).
-        var cubeEntry = cut.FindComponent<BackgammonCubeEntry>();
-        Assert.NotEmpty(cubeEntry.FindAll("[role=\"radiogroup\"]"));
+        // Board region: a bare diagram, and no play-entry wrapper.
+        Assert.NotEmpty(cut.FindAll(".board-container .bg-diagram"));
+        Assert.Empty(cut.FindAll(".board-container .bg-play-entry"));
+
+        // The radios render in the action row, not the board region. Pin via the
+        // stable structural hook — role="radiogroup" scoped to the row — not the
+        // producer's caption text (a cosmetic rename there is BgDiag_Razor's
+        // concern, covered by its own component tests).
+        Assert.NotNull(cut.FindComponent<BackgammonCubeActions>());
+        var actionRow = cut.Find("div.d-flex.flex-wrap.gap-2");
+        Assert.NotEmpty(actionRow.QuerySelectorAll("[role=\"radiogroup\"]"));
+        Assert.Empty(cut.FindAll(".board-container [role=\"radiogroup\"]"));
 
         // The consumer-owned cube action row: Submit / Skip, and no Undo — a cube
         // answer has no partial-move state.
@@ -634,18 +638,15 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Quiz_CubeComplete_ThenSubmit_ScoresIntoCubeSegments()
     {
-        // The parent → child → handler wire for cube: the cube entry fires
-        // OnCubeDecisionCompleted, the page latches it and enables Submit, and
-        // the Submit click routes to SubmitCubeAction, scoring both halves
-        // into the Double / Take segments.
+        // The parent → child → handler wire for cube: BackgammonCubeActions fires
+        // ValueChanged, @bind-Value latches it into _completedCube and enables
+        // Submit, and the Submit click routes to SubmitCubeAction, scoring both
+        // halves into the Double / Take segments.
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig());
         var cut = Render<QuizPage>();
 
-        var cubeEntry = cut.FindComponent<BackgammonCubeEntry>();
-        await cut.InvokeAsync(() =>
-            cubeEntry.Instance.OnCubeDecisionCompleted.InvokeAsync(
-                new CubeDecisionPair(CubeAction.Double, CubeAction.Take)));
+        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
 
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
@@ -868,10 +869,7 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
         var current = c.Current;
 
-        var cubeEntry = cut.FindComponent<BackgammonCubeEntry>();
-        await cut.InvokeAsync(() =>
-            cubeEntry.Instance.OnCubeDecisionCompleted.InvokeAsync(
-                new CubeDecisionPair(CubeAction.Double, CubeAction.Take)));
+        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
         Assert.NotNull(c.Review);
@@ -890,43 +888,35 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_Redo_CubeEntry_RemountsFresh_AndSecondAnswerScoresCleanly()
+    public async Task Quiz_Redo_CubeActions_ClearsSelection_AndSecondAnswerScoresCleanly()
     {
-        // Proves task B's entry-freshness requirement. BackgammonCubeEntry's
-        // OnParametersSet only resets _selection when the incoming Mop differs
-        // from the last one it saw, and Redo returns to the SAME Mop — but that
-        // reset-suppression path is never reached: Submit already unmounted the
-        // entry entirely (the page swapped to the review branch), so Redo's
-        // swap back to the answering branch constructs a genuinely new instance
-        // unconditionally. This pins that guarantee: a fresh instance, no radio
-        // pre-selected, and a second (different) answer scoring cleanly.
+        // Redo's answer-freshness for the cube kind. BackgammonCubeActions is
+        // strictly controlled off _completedCube — it holds no selection state of
+        // its own — and HandleStateChanged nulls _completedCube on the Redo
+        // transition, so the radios render unselected on the way back regardless
+        // of remounting. This pins that: after Redo no radio is checked, and a
+        // second (different) answer scores cleanly as the only CubeHistory entry.
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig());
         var cut = Render<QuizPage>();
 
-        var firstEntry = cut.FindComponent<BackgammonCubeEntry>().Instance;
-        await cut.InvokeAsync(() =>
-            firstEntry.OnCubeDecisionCompleted.InvokeAsync(
-                new CubeDecisionPair(CubeAction.Double, CubeAction.Take)));
+        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        Assert.NotEmpty(cut.FindAll("input[checked]")); // first answer selected a radio
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
         Assert.NotNull(c.Review);
 
         var redo = cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo");
         await redo.ClickAsync(new());
+        Assert.Null(c.Review);
 
-        // Genuinely fresh component instance, not the same object with reset fields.
-        var secondEntry = cut.FindComponent<BackgammonCubeEntry>().Instance;
-        Assert.NotSame(firstEntry, secondEntry);
-
-        // No radio left checked — a stale entry would still show "Double/Take".
+        // No radio left checked — a carried-over selection would still show the
+        // first answer's pill.
         Assert.Empty(cut.FindAll("input[checked]"));
 
         // Re-answer differently and confirm clean scoring: exactly one
         // CubeHistory entry, reflecting only the second answer.
-        await cut.InvokeAsync(() =>
-            secondEntry.OnCubeDecisionCompleted.InvokeAsync(
-                new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass)));
+        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
         var submit2 = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit2.ClickAsync(new());
 
@@ -938,6 +928,56 @@ public class PageTests : BunitContext
         Assert.Equal(0, c.Score.DoubleDecisions.Correct);
         Assert.Equal(1, c.Score.TakeDecisions.Submitted);
         Assert.Equal(0, c.Score.TakeDecisions.Correct);
+    }
+
+    [Fact]
+    public async Task Quiz_CubeActions_SelectEnablesSubmit_ThenSkipClearsForNextProblem()
+    {
+        // Submit-enable round-trip + clear-on-Skip. Selecting a cube action latches
+        // _completedCube and enables Submit; Skipping to the next cube problem must
+        // null it via HandleStateChanged, so the next problem starts with Submit
+        // disabled and no radio checked (the previous answer never carries over).
+        var c = WithController(TestFixtures.CubeDecision(), TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        // Disabled until an answer is selected.
+        Assert.True(cut.Find("button.btn-primary").HasAttribute("disabled"));
+
+        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        Assert.False(cut.Find("button.btn-primary").HasAttribute("disabled"));
+        Assert.NotEmpty(cut.FindAll("input[checked]"));
+
+        // Skip advances to the next cube problem — the answer must not carry over.
+        var skip = cut.FindAll("button").First(b => b.TextContent.Trim() == "Skip");
+        await skip.ClickAsync(new());
+
+        Assert.True(cut.Find("button.btn-primary").HasAttribute("disabled"));
+        Assert.Empty(cut.FindAll("input[checked]"));
+    }
+
+    [Fact]
+    public async Task Quiz_CubeActions_ClearsForNextProblemOnContinue()
+    {
+        // Clear-on-Continue: answer + Submit (→ review) + Continue advances to the
+        // next cube problem, which must start with a cleared answer (no radio
+        // checked, Submit disabled) — HandleStateChanged nulls _completedCube on
+        // both the submit and the continue transitions.
+        var c = WithController(TestFixtures.CubeDecision(), TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+        var cut = Render<QuizPage>();
+
+        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
+        await submit.ClickAsync(new());
+        Assert.NotNull(c.Review);
+
+        var continueBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Continue");
+        await continueBtn.ClickAsync(new());
+
+        Assert.Null(c.Review);
+        Assert.Empty(cut.FindAll("input[checked]"));
+        Assert.True(cut.Find("button.btn-primary").HasAttribute("disabled"));
     }
 
     [Fact]
@@ -1091,6 +1131,19 @@ public class PageTests : BunitContext
         var rects = cut.FindAll("rect[fill='transparent'][pointer-events='all']");
         return rects[^1].ClickAsync(new());
     }
+
+    /// <summary>
+    /// Answers the rendered cube-answering page by invoking
+    /// <see cref="BackgammonCubeActions"/>'s <c>ValueChanged</c> with the given
+    /// pair — the parent-side half of the <c>@bind-Value</c> wire the page relies
+    /// on. Driving by the stable <see cref="CubeDecisionPair"/> data contract
+    /// (not the producer's radio-caption text) keeps the consumer test insulated
+    /// from cosmetic label renames; a mis-named / dropped binding leaves
+    /// <c>_completedCube</c> unset, so Submit stays disabled and the caller fails.
+    /// </summary>
+    private static Task AnswerCubeAsync(IRenderedComponent<QuizPage> cut, CubeDecisionPair answer) =>
+        cut.InvokeAsync(() =>
+            cut.FindComponent<BackgammonCubeActions>().Instance.ValueChanged.InvokeAsync(answer));
 
     // -----------------------------------------------------------------------
     //  Done.razor
@@ -1302,13 +1355,16 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Quiz_CubeState_XgidBadge_RendersInProducerOverlay()
     {
+        // Cube answering now renders a bare BackgammonDiagram (board-only), so the
+        // badge lands in the producer's .bg-diagram-overlay exactly as in review —
+        // there is no .bg-cube-entry wrapper any more.
         var c = WithController(TestFixtures.CubeDecision(xgid: SampleXgid));
         await c.StartAsync(new FilterConfig());
         var cut = Render<QuizPage>();
 
         var badge = cut.Find(".board-xgid");
         Assert.Contains("bg-diagram-overlay", badge.ParentElement!.ClassList);
-        Assert.NotEmpty(cut.FindAll(".bg-cube-entry .bg-diagram-overlay .board-xgid"));
+        Assert.NotEmpty(cut.FindAll(".board-container .bg-diagram .bg-diagram-overlay .board-xgid"));
         Assert.Empty(cut.FindAll(".board-container > .board-xgid"));
     }
 
@@ -1453,9 +1509,10 @@ public class PageTests : BunitContext
         //   - consumer-side max-height on .bg-diagram (and the cube
         //     max-height:none override) duplicated what is now the producer's
         //     inline contain-fit default;
-        //   - the :has(.bg-cube-entry) fold-management opt-out existed only
-        //     because no consumer CSS could contain-fit a board beside the
-        //     radios — the producer slot supersedes it.
+        //   - the :has() cube fold-management opt-out existed only because no
+        //     consumer CSS could contain-fit a board beside the radios — moving
+        //     the radios out of the board region (into the action row) removed
+        //     that need entirely.
         // Comments are stripped so only real declarations are checked.
         var css = File.ReadAllText(AppCssPath());
         var noComments = Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);

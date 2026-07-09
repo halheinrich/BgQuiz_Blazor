@@ -127,25 +127,25 @@ h1:focus {
     }
 
     /* Bounded-height contract (BgDiag_Razor): hand .board-container's definite
-       post-flex height down to the entry wrappers. Each wrapper is a producer-
-       owned flex column whose internal .bg-board-slot shrinks under the bound
-       while sibling chrome (the cube radios) keeps its content size; the slot's
-       post-flex height is then definite, and .bg-diagram's own contain-fit
+       post-flex height down to the play-entry wrapper. It is a producer-owned
+       flex column whose internal .bg-board-slot shrinks under the bound; the
+       slot's post-flex height is then definite, and .bg-diagram's own contain-fit
        default (max-height: 100%, auto inline margins — producer inline style)
-       letterboxes the board inside it. This retires the pre-contract glue:
-       display:contents on .bg-play-entry (now *breaks* the contract — it would
-       dissolve the producer's flex column), the consumer-side max-height /
-       margin-inline on .bg-diagram, and the cube fold-management opt-out
-       (:has(.bg-cube-entry) flex:0 0 auto + max-height:none) that existed only
-       because no consumer CSS could contain-fit a board beside the radios —
-       the producer slot is exactly that missing structure, so cube now
-       letterboxes on short viewports like play and review. review's .bg-diagram
-       is a direct child of .board-container, so the contain-fit default engages
-       against the region's definite height with no glue at all. Per producer
-       pitfalls: bind with a real height (this), never max-height alone, and
-       never style inside .bg-board-slot. */
-    .board-container > .bg-play-entry,
-    .board-container > .bg-cube-entry {
+       letterboxes the board inside it. The cube-answering and review states now
+       render a *bare* .bg-diagram as a direct child of .board-container (the cube
+       radios moved out of the board region into the action-row chrome), so their
+       contain-fit default engages against the region's definite height with no
+       glue at all — only the play entry's extra wrapper needs the bind. This
+       retires the pre-contract glue: display:contents on .bg-play-entry (now
+       *breaks* the contract — it would dissolve the producer's flex column), the
+       consumer-side max-height / margin-inline on .bg-diagram, and the cube
+       fold-management opt-out (:has() flex:0 0 auto + max-height:none) that
+       existed only because no consumer CSS could contain-fit a board beside the
+       radios — moving the radios out of the board region removed that whole
+       problem, so cube letterboxes on short viewports exactly like play and
+       review. Per producer pitfalls: bind with a real height (this), never
+       max-height alone, and never style inside .bg-board-slot. */
+    .board-container > .bg-play-entry {
         height: 100%;
     }
 }
