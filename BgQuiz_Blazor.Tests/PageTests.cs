@@ -22,6 +22,7 @@ using HomePage = BgQuiz_Blazor.Client.Components.Pages.Home;
 using QuizPage = BgQuiz_Blazor.Client.Components.Pages.Quiz;
 using DonePage = BgQuiz_Blazor.Client.Components.Pages.Done;
 using StatsPage = BgQuiz_Blazor.Client.Components.Pages.Stats;
+using HelpPage = BgQuiz_Blazor.Client.Components.Pages.Help;
 
 namespace BgQuiz_Blazor.Tests;
 
@@ -1320,6 +1321,97 @@ public class PageTests : BunitContext
         var cut = Render<StatsPage>();
         var backButton = cut.FindAll("button").First(b => b.TextContent.Trim() == "Back to quiz");
         await backButton.ClickAsync(new());
+
+        Assert.EndsWith("/quiz", nav.Uri);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Help.razor
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Help_RendersTheSixBeatsAndTheSemanticsSection()
+    {
+        // The page exists to teach the flow *and* the semantics a user cannot
+        // discover by clicking around; pin its section skeleton so a future edit
+        // can't quietly drop half of it.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        var headings = cut.FindAll("h2").Select(h => h.TextContent.Trim()).ToList();
+        Assert.Equal(
+            [
+                "Pick your files",
+                "Choose filters",
+                "Answer the position",
+                "Scoring",
+                "Review the solution",
+                "Stats and finishing",
+                "Things worth knowing",
+            ],
+            headings);
+    }
+
+    [Fact]
+    public void Help_StatesFileCaps_SourcedFromTheConstantsHomeEnforces()
+    {
+        // SSOT: Home enforces the pick against PickedFileLimits and Help documents
+        // the same constants, with the megabyte figure *derived* from the byte cap
+        // rather than restated. Asserting against the constants (not the literals
+        // "50" / "500") is what makes this fail if page prose and enforced rule
+        // ever drift — which is the whole reason the caps were hoisted off Home.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        Assert.Contains($"{PickedFileLimits.MaxFileCount} files", cut.Markup);
+        Assert.Contains($"{PickedFileLimits.MaxFileMegabytes} MB", cut.Markup);
+    }
+
+    [Fact]
+    public void Help_NoQuizInProgress_RendersWithoutRedirecting_AndOffersNoBackButton()
+    {
+        // Unlike Stats, Help is reachable from any state — including a cold visit
+        // or a bookmark — so it must never bounce. With no quiz to return to, the
+        // Back affordance is simply absent.
+        WithController();
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+        var baseUri = nav.Uri;
+
+        var cut = Render<HelpPage>();
+
+        Assert.Equal(baseUri, nav.Uri); // no redirect fired
+        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Back to quiz");
+    }
+
+    [Fact]
+    public async Task Help_QuizFinished_OffersNoBackButton()
+    {
+        // The finished quiz has no answering state to return to — the same half of
+        // the predicate Stats redirects to /done on.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync(); // exhausts → finished
+        Assert.True(c.IsFinished);
+
+        var cut = Render<HelpPage>();
+
+        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Back to quiz");
+    }
+
+    [Fact]
+    public async Task Help_MidQuiz_BackToQuizClick_NavigatesToQuiz()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        Assert.True(c.HasStarted && !c.IsFinished);
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        var cut = Render<HelpPage>();
+        var back = cut.FindAll("button").First(b => b.TextContent.Trim() == "Back to quiz");
+        await back.ClickAsync(new());
 
         Assert.EndsWith("/quiz", nav.Uri);
     }

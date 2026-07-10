@@ -100,6 +100,7 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     QuizController.cs
     ProblemReview.cs
     PickedProblemSet.cs             — picked-files holder (+ Summary)
+    PickedFileLimits.cs             — pick caps (bytes / count / derived MB)
     AppliedFilter.cs                — applied-filter holder (start-gate half)
     WasmUploadedProblemSetSource.cs — in-browser stream-backed source
   Components/
@@ -108,6 +109,7 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
       Quiz.razor / .razor.cs        — active problem (play or cube)
       Done.razor / .razor.cs        — final summary
       Stats.razor / .razor.cs       — read-only mid-quiz stats (live Controller)
+      Help.razor / .razor.cs        — end-user documentation (never redirects)
       ScorePanel.razor              — compact header strip (Total only)
       ScoreBreakdown.razor          — four-way Play/Double/Take/Total table
 
@@ -120,6 +122,8 @@ BgQuiz_Blazor.Tests/
   PickedProblemSetTests.cs
   AppliedFilterTests.cs
   PageTests.cs
+  NavMenuTests.cs                   — the sidebar Help link (sole /help entry point)
+  MainLayoutTests.cs
 ```
 
 Each page carries a per-page
@@ -160,6 +164,11 @@ directive — that is how interactivity is set under WASM (see Render mode).
 
 /done    Done.razor    → ScorePanel (Total) + ScoreBreakdown (four-way)
                           + Restart / Start over
+
+/help    Help.razor    → end-user documentation. Reachable from any state (the
+                          host NavMenu's Help link is the only entry point) and
+                          never redirects. Offers "Back to quiz" only while
+                          HasStarted && !IsFinished.
 ```
 
 ### `QuizController` — per-app state machine
@@ -319,6 +328,24 @@ The picked set is **in-memory only**: it survives in-app navigation but is
 reset by a full browser reload (the WASM runtime re-boots). Reload-survival
 is a deferred arc, matching `QuizController`.
 
+### `PickedFileLimits` — the pick caps, single-sourced
+
+`internal static class PickedFileLimits` (Quiz/) holds the two caps the file
+picker applies — `MaxFileBytes` (50 MB, handed to `IBrowserFile.OpenReadStream`)
+and `MaxFileCount` (500, handed to `InputFileChangeEventArgs.GetMultipleFiles`) —
+plus `MaxFileMegabytes`, **derived** from `MaxFileBytes`.
+
+The caps have two consumers: `Home` *enforces* them, `Help` *documents* them.
+Leaving them as private constants on `Home` would have forced the help page to
+restate "50 MB" / "500" as prose, so raising a cap would silently make the
+documentation wrong. Deriving the megabyte figure (rather than writing `50`
+twice) is what makes the SSOT actually hold.
+`PageTests.Help_StatesFileCaps_SourcedFromTheConstantsHomeEnforces` asserts the
+rendered prose against the constants, not against the literals, so page and rule
+cannot drift. The constants stay `internal` (matching `Home.AppVersion`'s
+internal-static-not-a-literal precedent); the `.Client` csproj grants
+`InternalsVisibleTo` to the test project rather than widening them to public.
+
 ### `AppliedFilter` — the filter half of the start gate
 
 The per-app (`Scoped`, one-per-tab in WASM) holder for the `FilterConfig` the
@@ -350,8 +377,9 @@ two holders.
 
 - **`Home.razor`** — an `<InputFile multiple accept=".xg,.xgp">` file
   picker above the `FilterPanel` from XgFilter_Razor. On pick, each browser
-  file is read out of its `IBrowserFile` stream once (50 MB/file cap,
-  500-file cap) and buffered into a `PickedFile` (extension-bearing name +
+  file is read out of its `IBrowserFile` stream once (per-file and per-pick
+  caps from `PickedFileLimits`, the same constants `Help` documents) and
+  buffered into a `PickedFile` (extension-bearing name +
   bytes) in the per-app `PickedProblemSet`; the bytes are parsed in-browser
   and never uploaded. The picked-set label renders straight from
   `PickedProblemSet.Summary` (the SSOT — not a transient field). Start is
@@ -431,6 +459,24 @@ two holders.
   "resume where you left off" for free, with no state to persist or restore.
   Direct nav with no quiz in progress bounces to `/`; with the quiz already
   finished, to `/done` — the same guards `Quiz` applies to itself.
+- **`Help.razor`** — end-user documentation: the six beats of the flow (pick
+  files → filters → answering → scoring → review → stats/done) followed by the
+  semantics a user cannot discover by clicking around — pass positions are
+  auto-skipped and never shown, an off-list play counts as a skip rather than a
+  wrong answer, a cube position scores as two decisions, clicking the dice on
+  the solution diagram advances like Continue, and a full browser reload resets
+  everything (in-app navigation does not). Text-first; the illustrative board
+  diagram is a deferred nicety. Lives in the `.Client` (not as a static host
+  page) so a mid-quiz Help → Back round trip doesn't disturb the WASM runtime
+  holding quiz state — the same reason `Stats` does. Unlike `Stats` it **never
+  redirects**: help is reachable from any state, including a cold visit or a
+  bookmark. Only the "Back to quiz" button is conditional, on the exact
+  predicate `Stats` guards with (`HasStarted && !IsFinished`). It does not
+  subscribe to `StateChanged` — nothing changes while the user reads. The file
+  caps render from `PickedFileLimits`, never as literals. The host's
+  `NavMenu` Help link is the **only** entry point; `Quiz`'s action row
+  deliberately gets no "?" button, because its fixed height is load-bearing for
+  board sizing.
 - **`Done.razor`** — final `ScorePanel` (Total) + `ScoreBreakdown`
   (four-way) + total problems shown + Restart with same filters / Start
   over. "Problems shown" is `PlayDecisions.Submitted +
@@ -457,7 +503,7 @@ the `.Client` `_Imports` assembly as an additional routable-component source.
 It references **only** the `.Client` — the entire backgammon-library closure
 ships into the WASM payload, not the server.
 
-Each routable page (`Home`, `Quiz`, `Done`) carries its own
+Each routable page (`Home`, `Quiz`, `Stats`, `Done`, `Help`) carries its own
 `@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))`
 directive — that page-level directive is how interactivity is set in this
 model (there is no global `<Routes @rendermode>` setting). `prerender: false`
@@ -476,6 +522,7 @@ endpoints. The externally visible surface is the route map:
 - `/quiz` → `Quiz` — active problem (redirects to `/` if no quiz, `/done` if finished)
 - `/stats` → `Stats` — read-only mid-quiz stats (redirects to `/` if no quiz, `/done` if finished)
 - `/done` → `Done` — final summary (redirects to `/` if no quiz)
+- `/help` → `Help` — end-user documentation (never redirects; linked from the nav menu)
 - Default error page → `Error.razor`
 - Default 404 page → `NotFound.razor`
 

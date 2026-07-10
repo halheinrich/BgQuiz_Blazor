@@ -1,0 +1,121 @@
+@page "/help"
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+
+@using BgQuiz_Blazor.Client.Quiz
+
+@inject QuizController Controller
+@inject NavigationManager Nav
+
+<PageTitle>BgQuiz — Help</PageTitle>
+
+<div class="container py-3" style="max-width:800px">
+    <h1>How BgQuiz works</h1>
+
+    <p class="lead">
+        BgQuiz turns your own eXtreme Gammon analysis into practice: it shows you a
+        position from one of your files, you answer it, and it scores your answer
+        against XG's evaluation of that position.
+    </p>
+
+    <h2 class="h4 mt-4">Pick your files</h2>
+    <p>
+        On the home page, choose one or more of your local <code>.xg</code> match files
+        or <code>.xgp</code> position files. They are read and parsed entirely in your
+        browser — nothing is uploaded, and no file ever leaves your machine. A single
+        pick accepts up to @PickedFileLimits.MaxFileCount files, each up to
+        @(PickedFileLimits.MaxFileMegabytes) MB.
+    </p>
+
+    <h2 class="h4 mt-4">Choose filters</h2>
+    <p>
+        The filter panel narrows which decisions the quiz will ask you. You can restrict
+        by decision type (checker plays, cube decisions, or both), by player, by how
+        costly the recorded mistake was, and more. Filters must be <strong>applied</strong>
+        before Start becomes available — editing any control un-applies them until you
+        press Apply again. Optionally tick <em>Shuffle order</em> to see positions in a
+        random order rather than in file order.
+    </p>
+
+    <h2 class="h4 mt-4">Answer the position</h2>
+    <p>
+        Each problem is one of two kinds, and the board tells you which:
+    </p>
+    <ul>
+        <li>
+            <strong>Checker play.</strong> The dice are rolled. Click a point to pick up a
+            checker, then click its destination — repeat until the full roll is played.
+            <em>Undo last</em> and <em>Undo all</em> take moves back while you are building
+            the play.
+        </li>
+        <li>
+            <strong>Cube decision.</strong> The board is read-only. Answer with the radio
+            buttons beside the Submit button: what the player on roll should do
+            (double or not), and how the opponent should respond (take or pass).
+        </li>
+    </ul>
+    <p>
+        Press <em>Submit</em> to answer, or <em>Skip</em> to move on without answering.
+    </p>
+
+    <h2 class="h4 mt-4">Scoring</h2>
+    <p>
+        A submitted answer is scored against XG's analysis of that position. Correct means
+        you chose a play or action with no equity loss; otherwise the equity you gave up is
+        recorded. Skipped problems are counted separately and never affect your accuracy.
+        Scores are kept in four buckets: checker plays, doubling decisions, take decisions,
+        and the total across all three.
+    </p>
+
+    <h2 class="h4 mt-4">Review the solution</h2>
+    <p>
+        After you submit, the board switches to the solution view: XG's full analysis panel,
+        with the recorded play marked <strong>*</strong> and your answer marked
+        <strong>†</strong> when it differs. <em>Continue</em> moves to the next problem;
+        <em>Redo</em> takes back your answer and returns you to the same position to try
+        again.
+    </p>
+
+    <h2 class="h4 mt-4">Stats and finishing</h2>
+    <p>
+        <em>Show stats</em> opens a running scoreboard at any point mid-quiz, and returns you
+        to exactly where you were. When the last problem is answered you land on the summary
+        page, where you can restart with the same filters or start over with new ones.
+    </p>
+
+    <h2 class="h4 mt-4">Things worth knowing</h2>
+    <ul>
+        <li>
+            <strong>Positions with no legal play are skipped for you.</strong> When the dice
+            leave the player on roll nothing to do, the position is passed over silently —
+            you never see it, and it does not count as a skip.
+        </li>
+        <li>
+            <strong>A play XG never listed counts as a skip, not a wrong answer.</strong> If
+            you submit a legal play that isn't among the analyzed candidates, there is no
+            equity loss to record against it, so it scores as a skip. You still see the
+            solution.
+        </li>
+        <li>
+            <strong>A cube position is two decisions, not one.</strong> The double and the
+            take are scored independently, so one cube problem contributes one doubling
+            decision and one take decision to your totals.
+        </li>
+        <li>
+            <strong>Clicking the dice advances.</strong> On the solution view, clicking the
+            dice on the board does exactly what <em>Continue</em> does.
+        </li>
+        <li>
+            <strong>Reloading the browser starts you over.</strong> Moving between pages
+            inside the app is always safe — your files, filters, and progress are kept. But a
+            full browser reload (F5) discards all of it, and you will need to pick your files
+            again.
+        </li>
+    </ul>
+
+    @if (Controller.HasStarted && !Controller.IsFinished)
+    {
+        <button class="btn btn-primary mt-3" @onclick="BackToQuiz">
+            Back to quiz
+        </button>
+    }
+</div>

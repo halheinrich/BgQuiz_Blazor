@@ -18,6 +18,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The test project asserts rendered page prose against the internal constants
+         that produce it (Help's file caps vs PickedFileLimits), so page and rule
+         cannot drift apart unnoticed. Widening those constants to public purely to
+         make them testable would leak app-internal policy into the assembly's
+         surface. -->
+    <InternalsVisibleTo Include="BgQuiz_Blazor.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The interactive quiz surface runs entirely in the browser-wasm runtime:
          board rendering (BgDiag_Razor -> BackgammonDiagram_Lib core, native-free),
          filter UI (XgFilter_Razor), in-browser .xg/.xgp parsing + filtering

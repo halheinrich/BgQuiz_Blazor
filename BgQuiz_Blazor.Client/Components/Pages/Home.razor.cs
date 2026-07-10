@@ -57,12 +57,6 @@ public partial class Home : ComponentBase
         ?? typeof(Home).Assembly.GetName().Version?.ToString()
         ?? "unknown";
 
-    /// <summary>Per-file size cap (50 MB) — mirrors the XG extractor's web-mode limit.</summary>
-    private const long MaxFileBytes = 50L * 1024 * 1024;
-
-    /// <summary>Upper bound on files accepted in a single pick.</summary>
-    private const int MaxFileCount = 500;
-
     private string? _startError;
 
     private bool CanStart => AppliedFilter.IsApplied && ProblemSet.HasFiles;
@@ -72,7 +66,7 @@ public partial class Home : ComponentBase
         _startError = null;
         try
         {
-            var files = e.GetMultipleFiles(MaxFileCount);
+            var files = e.GetMultipleFiles(PickedFileLimits.MaxFileCount);
             var picked = new List<PickedFile>(files.Count);
             foreach (var file in files)
             {
@@ -80,7 +74,7 @@ public partial class Home : ComponentBase
                 // re-enumerates (Restart) from these bytes, so it must not depend
                 // on the IBrowserFile stream still being open later.
                 using var ms = new MemoryStream();
-                await file.OpenReadStream(MaxFileBytes).CopyToAsync(ms);
+                await file.OpenReadStream(PickedFileLimits.MaxFileBytes).CopyToAsync(ms);
                 // file.Name carries the extension — required by the stream
                 // iterator's DecisionId stamping (see XgFileStream).
                 picked.Add(new PickedFile(file.Name, ms.ToArray()));
