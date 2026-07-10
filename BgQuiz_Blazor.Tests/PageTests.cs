@@ -292,6 +292,93 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_StartClick_EmptyFilterResult_ShowsBannerAndStaysHome()
+    {
+        // The empty-result guard: a filter set matching zero decisions makes
+        // StartAsync exhaust immediately (IsFinished true straight away). Without
+        // the post-Start check the page navigates to /quiz and the user bounces to
+        // a 0/0 /done with no hint why. With it, the page stays on / and shows the
+        // no-match banner. Empty source == zero filter matches at the controller's
+        // seam.
+        var controller = WithController(); // empty source → finishes on Start
+        WithPickedFile();
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        var cut = Render<HomePage>();
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        await startBtn.ClickAsync(new());
+
+        Assert.True(controller.IsFinished);           // controller did start and exhaust
+        Assert.EndsWith("/", nav.Uri);                // stayed on Home, no /quiz nav
+        Assert.Contains("No quiz problems matched these filters", cut.Markup);
+        // A neutral status message, not the assertive error banner.
+        Assert.Contains("role=\"status\"", cut.Markup);
+        Assert.DoesNotContain("Could not start quiz", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_StartClick_AllMatchesAutoSkippedPasses_ShowsSameBanner()
+    {
+        // The second, indistinguishable cause of an immediately-finished
+        // controller: every admitted decision is an auto-skipped pass position, so
+        // the user is shown nothing even though the filter "matched". The page
+        // can't tell this apart from zero matches, and the wording must not claim
+        // to — same neutral banner, same stay-home behavior. Pins the "both causes"
+        // wording decision.
+        var controller = WithController(TestFixtures.PassDecision());
+        WithPickedFile();
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        var cut = Render<HomePage>();
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        await startBtn.ClickAsync(new());
+
+        Assert.True(controller.IsFinished);
+        Assert.EndsWith("/", nav.Uri);
+        Assert.Contains("No quiz problems matched these filters", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_StartClick_NonEmptyResult_NavigatesToQuizWithoutBanner()
+    {
+        // Over-trigger guard for the empty-result check: a source with a showable
+        // decision leaves the controller unfinished after Start, so the page must
+        // navigate to /quiz and raise no no-match banner.
+        var controller = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFile();
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        var cut = Render<HomePage>();
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        await startBtn.ClickAsync(new());
+
+        Assert.False(controller.IsFinished);
+        Assert.EndsWith("/quiz", nav.Uri);
+        Assert.DoesNotContain("No quiz problems matched these filters", cut.Markup);
+    }
+
+    [Fact]
     public void Home_ShuffleCheckbox_TogglesHolder()
     {
         // UI wire: the checkbox's @onchange must reach the ShuffleOption holder —

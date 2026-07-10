@@ -59,11 +59,25 @@ public partial class Home : ComponentBase
 
     private string? _startError;
 
+    /// <summary>
+    /// Sibling of <see cref="_startError"/> for the empty-result <i>outcome</i> —
+    /// distinct from the failure the error banner reports. A successful
+    /// <see cref="QuizController.StartAsync"/> that leaves the controller already
+    /// <see cref="QuizController.IsFinished"/> means the source admitted no
+    /// showable problem; rather than bounce silently through <c>/quiz</c> to a
+    /// <c>0/0</c> <c>/done</c>, the page stays on <c>/</c> and surfaces this as a
+    /// neutral status message (see <see cref="StartQuizAsync"/>). Genuinely
+    /// per-visit page state, so a component field — see the holder-vs-field note
+    /// in INSTRUCTIONS' Pitfalls.
+    /// </summary>
+    private string? _noMatchNotice;
+
     private bool CanStart => AppliedFilter.IsApplied && ProblemSet.HasFiles;
 
     private async Task HandleFilesPickedAsync(InputFileChangeEventArgs e)
     {
         _startError = null;
+        _noMatchNotice = null;
         try
         {
             var files = e.GetMultipleFiles(PickedFileLimits.MaxFileCount);
@@ -98,6 +112,7 @@ public partial class Home : ComponentBase
         // scoped holder so it survives navigate-back (not a transient field).
         AppliedFilter.Set(cfg);
         _startError = null;
+        _noMatchNotice = null;
     }
 
     private void HandleFiltersDirty()
@@ -117,9 +132,26 @@ public partial class Home : ComponentBase
     private async Task StartQuizAsync()
     {
         if (AppliedFilter.Config is not { } cfg) return;
+        _startError = null;
+        _noMatchNotice = null;
         try
         {
             await Controller.StartAsync(cfg);
+
+            // StartAsync already advanced to the first showable problem, so an
+            // immediately-finished controller means the source yielded nothing
+            // the quiz could present. Two indistinguishable causes flip this —
+            // zero filter matches, or every match auto-skipped as a pass
+            // position — so stay on / and surface a neutral outcome notice
+            // rather than navigating into a 0/0 /quiz → /done bounce with no
+            // hint of why.
+            if (Controller.IsFinished)
+            {
+                _noMatchNotice =
+                    "No quiz problems matched these filters — adjust the filters or pick different files.";
+                return;
+            }
+
             Nav.NavigateTo("/quiz");
         }
         catch (Exception ex)

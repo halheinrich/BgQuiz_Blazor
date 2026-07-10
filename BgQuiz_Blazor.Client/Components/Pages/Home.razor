@@ -65,6 +65,16 @@
         </div>
     }
 
+    @* Empty-result outcome (not a failure): a valid Start that admitted no
+       showable problem. role="status" (polite), not the error banner's
+       assertive role="alert". *@
+    @if (!string.IsNullOrEmpty(_noMatchNotice))
+    {
+        <div class="alert alert-warning mt-3" role="status">
+            @_noMatchNotice
+        </div>
+    }
+
     @* Explicit-expression parens: bare "v@AppVersion" is parsed as an email literal. *@
     <div class="text-muted small mt-4">v@(AppVersion)</div>
 </div>

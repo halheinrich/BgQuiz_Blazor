@@ -393,7 +393,23 @@ two holders.
   Start hands `AppliedFilter.Config` to `Controller.StartAsync`. Catches read
   failures and start-time exceptions (`FilterConfig.Build()` validation
   failure, source construction failure) and surfaces them as a banner instead
-  of faulting the WASM app.
+  of faulting the WASM app. A *successful* Start that leaves the controller
+  already `IsFinished` (the source admitted no showable problem) is caught the
+  same way — the page stays on `/` and shows a neutral `role="status"` no-match
+  banner rather than navigating into a `0/0` `/quiz` → `/done` bounce. This is a
+  post-Start check, not a pre-flight enumeration: `StartAsync` already advances
+  to the first showable problem, so `IsFinished` immediately after it *is* the
+  empty-result signal — no second pass over the buffered files. Two
+  indistinguishable causes flip it (zero filter matches; every match auto-skipped
+  as a pass position), so the wording claims neither. The notice is a sibling
+  component field to the error banner (`_noMatchNotice` vs `_startError`) —
+  distinct because it reports an *outcome*, not a *failure*: `alert-warning` +
+  polite `role="status"`, not the error's `alert-danger` + assertive
+  `role="alert"`. Both are genuinely per-visit state, so component fields (see
+  Pitfalls). `PageTests.Home_StartClick_EmptyFilterResult_ShowsBannerAndStaysHome`
+  pins the zero-match path, `…_AllMatchesAutoSkippedPasses_ShowsSameBanner` the
+  pass-only path, and `…_NonEmptyResult_NavigatesToQuizWithoutBanner` guards
+  against over-triggering.
 - **`Quiz.razor`** — mirrors the controller's three-state flow, branching on
   `Controller.Review`. In the **answering** state (`Review` null) it routes the
   board region by `Current.Decision.IsCube` over
@@ -735,11 +751,6 @@ endpoints. The externally visible surface is the route map:
 
 ## Subproject-internal next steps
 
-- **Empty-collection UX.** When a filter set produces zero decisions,
-  the current flow bounces Start through `/quiz` straight to `/done`
-  with a 0/0 score, with no feedback that the filter was empty. Add a
-  pre-flight check (or post-Start `IsFinished` detection) and surface a
-  "no decisions match these filters" banner on `/` instead.
 - **Phase 2+ design.** Answer tracking with weighted re-recurrence on
   wrong answers; the three two-agent modes (user-vs-user, user-vs-bot,
   bot-vs-bot tournament). All three queue behind the umbrella's
