@@ -10,11 +10,23 @@
 @inject ShuffleOption ShuffleOption
 @inject NavigationManager Nav
 @inject QuizController Controller
+@inject QuizLiveMarker Marker
 
 <PageTitle>BgQuiz</PageTitle>
 
 <div class="container py-3">
     <h1>BgQuiz</h1>
+
+    @* Reload-reset notice: a full reload rebooted the runtime and discarded a
+       live quiz. An outcome the user should understand, not an error — polite
+       role="status" (matching the no-match notice), not the assertive alert. *@
+    @if (_showReloadNotice)
+    {
+        <div class="alert alert-info" role="status">
+            Your previous quiz was reset by the page reload — quiz progress
+            doesn't survive a full reload.
+        </div>
+    }
 
     <div class="mb-3" style="max-width:800px">
         <label class="form-label" for="problemSetFiles">
@@ -27,7 +39,13 @@
                    OnChange="HandleFilesPickedAsync" multiple accept=".xg,.xgp" />
         @if (!string.IsNullOrEmpty(ProblemSet.Summary))
         {
-            <div class="text-muted small mt-1">@ProblemSet.Summary</div>
+            <div class="text-muted small mt-1 d-flex align-items-center gap-2">
+                <span>@ProblemSet.Summary</span>
+                <button type="button" class="btn btn-link btn-sm p-0 align-baseline"
+                        @onclick="ClearPickedFiles">
+                    Clear
+                </button>
+            </div>
         }
     </div>
 

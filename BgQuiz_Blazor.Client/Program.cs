@@ -32,6 +32,13 @@ builder.Services.AddScoped<AppliedFilter>();
 // navigate-back-survival reason as the other start-gate holders.
 builder.Services.AddScoped<ShuffleOption>();
 
+// Per-app marker (sessionStorage-backed) recording that a quiz is live in this
+// tab, so a full reload — which reboots the runtime and discards quiz state —
+// can be acknowledged on the next boot instead of dumping the user on a blank
+// Home. Scoped like the holders; Home sets/reads it, Done clears it on
+// completion. See QuizLiveMarker for why the store is sessionStorage.
+builder.Services.AddScoped<QuizLiveMarker>();
+
 // Source factory: builds a WasmUploadedProblemSetSource over whatever files the
 // user has picked at quiz-start, applying the user's filter set, then wraps it
 // in a ShuffledProblemSetSource when the user asked to shuffle. Both the picked

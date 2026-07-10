@@ -6,10 +6,20 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <summary>
 /// Phase 1 final-summary page rendered after the active
 /// <see cref="QuizController"/> exhausts its source. Two buttons close the
-/// loop: restart against the same (already-augmented) filter set, or return
-/// to the landing page for fresh filter selection.
+/// loop: <i>Restart with same filters</i> re-runs the same (already-augmented)
+/// filter set, and <i>Back to setup</i> navigates to <c>Home</c>. The latter is
+/// navigation only — the start-gate holders persist across it, so <c>Home</c>
+/// arrives armed with the same picks and filters; the label describes that
+/// navigation rather than promising a reset the button doesn't perform.
 ///
 /// <para>Direct nav to <c>/done</c> with no quiz in progress bounces to <c>/</c>.</para>
+///
+/// <para>
+/// Reaching this page is the quiz ending as intended, so it clears the
+/// <see cref="QuizLiveMarker"/>: an honest completion has no reload-reset to
+/// announce on a later boot. (A reload that killed a live quiz never reaches
+/// here — Done requires the surviving in-memory controller.)
+/// </para>
 /// </summary>
 public partial class Done : ComponentBase
 {
@@ -30,12 +40,18 @@ public partial class Done : ComponentBase
         + Controller.Score.DoubleDecisions.Submitted
         + Controller.SkippedCount;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         if (!Controller.HasStarted)
         {
             Nav.NavigateTo("/", replace: true);
+            return;
         }
+
+        // Honest completion — no reload-reset to announce later. Clear the marker
+        // (set on Start) so a subsequent boot doesn't misread a finished quiz as
+        // one a reload interrupted.
+        await Marker.ClearAsync();
     }
 
     private async Task RestartAsync()
@@ -44,7 +60,7 @@ public partial class Done : ComponentBase
         Nav.NavigateTo("/quiz");
     }
 
-    private void StartOver()
+    private void BackToSetup()
     {
         Nav.NavigateTo("/");
     }

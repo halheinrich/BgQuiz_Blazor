@@ -93,7 +93,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
   BgQuiz_Blazor.Client.csproj       — Sdk.BlazorWebAssembly; the bg-lib closure
   Program.cs                        — WebAssemblyHostBuilder; registers
                                       QuizController, PickedProblemSet,
-                                      AppliedFilter, ProblemSetSourceFactory
+                                      AppliedFilter, ShuffleOption,
+                                      QuizLiveMarker, ProblemSetSourceFactory
                                       (all scoped)
   _Imports.razor
   Quiz/
@@ -102,6 +103,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     PickedProblemSet.cs             — picked-files holder (+ Summary)
     PickedFileLimits.cs             — pick caps (bytes / count / derived MB)
     AppliedFilter.cs                — applied-filter holder (start-gate half)
+    ShuffleOption.cs                — "shuffle order" toggle holder
+    QuizLiveMarker.cs               — sessionStorage was-a-quiz-live marker
     WasmUploadedProblemSetSource.cs — in-browser stream-backed source
   Components/
     Pages/
@@ -165,7 +168,7 @@ directive — that is how interactivity is set under WASM (see Render mode).
                           in progress, to /done if already finished.
 
 /done    Done.razor    → ScorePanel (Total) + ScoreBreakdown (four-way)
-                          + Restart / Start over
+                          + Restart with same filters / Back to setup
 
 /help    Help.razor    → end-user documentation. Reachable from any state (the
                           host NavMenu's Help link is the only entry point) and
@@ -375,6 +378,47 @@ and `Home_FiltersDirty_ClearsAppliedState_DisablesStart` pin the gate.
 In-memory only, reset on full reload — same deferred-arc caveat as the other
 two holders.
 
+### `QuizLiveMarker` — the reload-reset honesty marker
+
+The per-app (`Scoped`, one-per-tab in WASM) service recording that a quiz is
+**live** in this tab, backed by the browser's `sessionStorage` through
+`IJSRuntime`. BgQuiz's first JS-interop *service* (the clipboard call in
+`XgidLabel` and the filter panel's `localStorage` are inline in their
+components); it's encapsulated because it has a lifecycle spread across two pages
+and a storage constraint worth stating once.
+
+This is the **honesty slice of reload-resume, not resume itself**. A full reload
+reboots the WASM runtime and silently discards all quiz state; the user lands on
+a fresh `Home` with no hint their quiz vanished. The marker is the one thing that
+survives a reload, so a fresh boot that finds it can say so. It *explains* the
+loss; it does not prevent it (real resume — persisting the picked bytes and
+progress — remains the deferred IndexedDB arc).
+
+Surface: `MarkLiveAsync()` / `WasLiveAsync()` / `ClearAsync()`. Lifecycle:
+
+- **`Home` sets** it (`MarkLiveAsync`) on a successful Start — *after* the
+  empty-result guard, so the no-match path (which stays on `/` with no live quiz)
+  never marks.
+- **`Home` reads** it on boot (`OnInitializedAsync`): `WasLiveAsync() &&
+  !Controller.HasStarted` ⇒ show the polite reset notice, then `ClearAsync()` so
+  it shows once. The `HasStarted` guard is the discriminator — a set marker with
+  a *live* controller is in-app navigation back to `Home` mid-quiz (same per-tab
+  controller, quiz survived), **not** a reload, so no notice fires and the marker
+  is left in place for a genuine later reload.
+- **`Done` clears** it (`ClearAsync`) on honest completion — reaching Done means
+  the quiz ended as intended, so there's no reset to announce on a later boot. (A
+  reload that killed a live quiz never reaches Done, which requires the surviving
+  in-memory controller.)
+
+`PageTests` pins all of it: `Home_BootWithLiveMarker_…` (fails without the boot
+check), `Home_BootWithoutMarker_…` and `Home_MarkerPresentButQuizLive_…`
+(over-trigger guards), `Home_StartClick_MarksQuizLive` /
+`…_EmptyResult_DoesNotMarkQuizLive`, and `Done_ReachingDone_ClearsLiveQuizMarker`.
+
+**Storage is `sessionStorage`, deliberately — not `localStorage`** (see
+Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
+*exception* that survives one boot, then get cleared).
+
 ### Pages
 
 - **`Home.razor`** — an `<InputFile multiple accept=".xg,.xgp">` file
@@ -384,7 +428,13 @@ two holders.
   buffered into a `PickedFile` (extension-bearing name +
   bytes) in the per-app `PickedProblemSet`; the bytes are parsed in-browser
   and never uploaded. The picked-set label renders straight from
-  `PickedProblemSet.Summary` (the SSOT — not a transient field). Start is
+  `PickedProblemSet.Summary` (the SSOT — not a transient field), with a **Clear**
+  affordance beside it that calls `PickedProblemSet.Clear()`; the summary then
+  disappears and the file half of the gate re-disables Start by construction.
+  Clearing is safe mid-quiz and is left unguarded on purpose — the picked set is
+  read only at Start time (the source factory reads `Files` in `StartAsync`), so
+  a running quiz holds its own enumerator and is untouched
+  (`PageTests.Home_ClearPickedFiles_RemovesSummaryAndDisablesStart`). Start is
   gated on **two** conditions, both read from per-app scoped holders so the
   gate survives navigation: filters Applied at least once *and* at least one
   file picked (`CanStart => AppliedFilter.IsApplied && ProblemSet.HasFiles`).
@@ -409,7 +459,12 @@ two holders.
   Pitfalls). `PageTests.Home_StartClick_EmptyFilterResult_ShowsBannerAndStaysHome`
   pins the zero-match path, `…_AllMatchesAutoSkippedPasses_ShowsSameBanner` the
   pass-only path, and `…_NonEmptyResult_NavigatesToQuizWithoutBanner` guards
-  against over-triggering.
+  against over-triggering. A **third** per-visit notice (`_showReloadNotice`,
+  polite `role="status"` like the no-match one) fires on a boot that finds the
+  `QuizLiveMarker` set with no live controller — a full reload reset a quiz that
+  was underway. `Home` sets the marker on Start (past the empty-result guard) and
+  clears it when it shows the notice; see the `QuizLiveMarker` section for the
+  full lifecycle and the `HasStarted` discriminator.
 - **`Quiz.razor`** — mirrors the controller's three-state flow, branching on
   `Controller.Review`. In the **answering** state (`Review` null) it routes the
   board region by `Current.Decision.IsCube` over
@@ -496,11 +551,18 @@ two holders.
   deliberately gets no "?" button, because its fixed height is load-bearing for
   board sizing.
 - **`Done.razor`** — final `ScorePanel` (Total) + `ScoreBreakdown`
-  (four-way) + total problems shown + Restart with same filters / Start
-  over. "Problems shown" is `PlayDecisions.Submitted +
+  (four-way) + total problems shown + **Restart with same filters** /
+  **Back to setup**. "Problems shown" is `PlayDecisions.Submitted +
   DoubleDecisions.Submitted + SkippedCount` — **not** `Total.Submitted`,
   which counts decisions and so double-counts each cube position (one
-  Double + one Take).
+  Double + one Take). The second button is **navigation only** — it navigates to
+  `Home`, and the start-gate holders persist across that, so `Home` arrives armed
+  with the same picks and filters. Its label describes that navigation ("Back to
+  setup") rather than promising a reset it doesn't perform; the former "Start over
+  (new filters)" lied (nothing resets — Restart and Back-to-setup differ only in
+  *where they land*, not in what they clear). Reaching Done also clears the
+  `QuizLiveMarker` (`OnInitializedAsync`): honest completion has no reload-reset to
+  announce later.
 - **`ScorePanel.razor`** — compact status strip used by both Quiz and Done.
   Renders the `Total` segment: Submitted / Correct (with %) / Skipped /
   average equity loss; optional Source name and Heading. Kept Total-only to
@@ -581,7 +643,22 @@ endpoints. The externally visible surface is the route map:
   the two halves of Home's start gate were moved off transient fields for
   exactly this reason. (Genuinely per-visit page state — e.g. Home's
   `_startError` banner — correctly stays a component field and resets on
-  navigate-back.)
+  navigate-back.) The one thing that *does* survive a reload is the
+  `QuizLiveMarker` (`sessionStorage`), and that is deliberate — it exists solely
+  to acknowledge the reset on the next boot; see the next bullet.
+- **The `QuizLiveMarker` is `sessionStorage`, not `localStorage` — don't
+  "upgrade" it.** The marker records "a quiz is live in *this tab*" so a reload
+  can be acknowledged on the next boot. `sessionStorage` is per-tab: it survives
+  a reload but is invisible to other tabs and dies with the tab — exactly those
+  semantics. `localStorage` is shared across every tab of the origin, so a quiz
+  live in tab A would set a marker a freshly-opened tab B reads on *its* first
+  boot, making B falsely announce "your quiz was reset" for a quiz it never ran.
+  It looks like the "bigger, more durable" store; it is the wrong one here. (The
+  real reload-*resume* arc will need durable storage — IndexedDB for the buffered
+  bytes — but that is a different concern from this per-tab liveness flag.) The
+  controller-side `HasStarted` guard in `Home.OnInitializedAsync` is the
+  complementary defence: it suppresses the notice during in-app navigation back to
+  `Home` mid-quiz, where the marker is legitimately set but no reload happened.
 - **Cube decisions carry `Dice == [0, 0]` — never auto-skip them.**
   `IsPassPosition` runs `MoveGenerator.GeneratePlays` on the dice; a cube
   decision's `[0, 0]` produces the no-legal-play sentinel, so without the

@@ -72,7 +72,38 @@ public partial class Home : ComponentBase
     /// </summary>
     private string? _noMatchNotice;
 
+    /// <summary>
+    /// Set once, on a boot that finds the <see cref="QuizLiveMarker"/> present
+    /// with no live quiz in the (freshly-booted) controller — i.e. a full reload
+    /// silently reset a quiz that was underway. Drives the polite reset notice.
+    /// A per-visit outcome flag, so a component field like the two banners above.
+    /// </summary>
+    private bool _showReloadNotice;
+
     private bool CanStart => AppliedFilter.IsApplied && ProblemSet.HasFiles;
+
+    /// <summary>
+    /// On boot, surface the reload-reset notice when the marker says a quiz was
+    /// live but the controller has none — the signature of a full reload having
+    /// rebooted the runtime out from under an in-progress quiz. Then clear the
+    /// marker so the notice shows once.
+    ///
+    /// <para>
+    /// The <see cref="QuizController.HasStarted"/> guard is what distinguishes a
+    /// reload from in-app navigation back to <c>Home</c> mid-quiz: the latter
+    /// keeps the same per-tab controller (quiz still live), so the marker is set
+    /// <i>and</i> <c>HasStarted</c> is true — no notice, and the marker is left
+    /// in place for a genuine later reload.
+    /// </para>
+    /// </summary>
+    protected override async Task OnInitializedAsync()
+    {
+        if (await Marker.WasLiveAsync() && !Controller.HasStarted)
+        {
+            _showReloadNotice = true;
+            await Marker.ClearAsync();
+        }
+    }
 
     private async Task HandleFilesPickedAsync(InputFileChangeEventArgs e)
     {
@@ -104,6 +135,19 @@ public partial class Home : ComponentBase
             ProblemSet.Clear();
             _startError = $"Could not read the selected file(s): {ex.Message}";
         }
+    }
+
+    private void ClearPickedFiles()
+    {
+        // Discards the picked set; the Start gate re-disables by construction
+        // (HasFiles goes false) and the holder-derived summary disappears.
+        // Safe to call mid-quiz: the picked set is read only at Start time (the
+        // source factory reads ProblemSet.Files in StartAsync), so a running
+        // quiz already holds its own source enumerator and is untouched — no
+        // guard needed here.
+        ProblemSet.Clear();
+        _startError = null;
+        _noMatchNotice = null;
     }
 
     private void HandleFilterConfigApplied(FilterConfig cfg)
@@ -151,6 +195,13 @@ public partial class Home : ComponentBase
                     "No quiz problems matched these filters — adjust the filters or pick different files.";
                 return;
             }
+
+            // A live quiz is starting: record it so a mid-quiz full reload (which
+            // reboots the WASM runtime and silently discards this quiz) is
+            // acknowledged on the next boot rather than dropping the user on a
+            // fresh Home. Set only past the empty-result guard — the no-match
+            // path above stays on Home with no live quiz to lose.
+            await Marker.MarkLiveAsync();
 
             Nav.NavigateTo("/quiz");
         }

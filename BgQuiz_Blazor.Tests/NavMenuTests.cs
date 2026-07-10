@@ -25,4 +25,15 @@ public class NavMenuTests : BunitContext
         var help = links.Single(a => a.GetAttribute("href") == "help");
         Assert.Equal("Help", help.TextContent.Trim());
     }
+
+    [Fact]
+    public void NavMenu_BrandReadsBgQuiz()
+    {
+        // A5: the sidebar brand shows the product name "BgQuiz", not the raw
+        // project/repo identifier "BgQuiz_Blazor".
+        var cut = Render<NavMenu>();
+
+        var brand = cut.Find("a.navbar-brand");
+        Assert.Equal("BgQuiz", brand.TextContent.Trim());
+    }
 }

@@ -5,6 +5,7 @@
 
 @inject QuizController Controller
 @inject NavigationManager Nav
+@inject QuizLiveMarker Marker
 
 <PageTitle>BgQuiz — Done</PageTitle>
 
@@ -26,8 +27,8 @@
         <button class="btn btn-primary" @onclick="RestartAsync">
             Restart with same filters
         </button>
-        <button class="btn btn-outline-secondary" @onclick="StartOver">
-            Start over (new filters)
+        <button class="btn btn-outline-secondary" @onclick="BackToSetup">
+            Back to setup
         </button>
     </div>
 </div>

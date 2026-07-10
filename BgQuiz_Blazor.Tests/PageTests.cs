@@ -28,6 +28,19 @@ namespace BgQuiz_Blazor.Tests;
 
 public class PageTests : BunitContext
 {
+    public PageTests()
+    {
+        // Home and Done inject the sessionStorage-backed QuizLiveMarker. It needs
+        // only the framework IJSRuntime — which bUnit registers in Services — so
+        // one fixture-wide registration serves every page render. The marker's
+        // JS calls are handled per-test through JSInterop (Loose mode, or an
+        // explicit Setup where a test drives a specific stored value).
+        Services.AddScoped<QuizLiveMarker>();
+    }
+
+    /// <summary>The sessionStorage key <see cref="QuizLiveMarker"/> reads/writes.</summary>
+    private const string QuizLiveKey = "bgquiz.quizLive";
+
     private static Play BestPlay() => TestFixtures.MakePlay((8, 5), (8, 5));
     private static Play AltPlay() => TestFixtures.MakePlay((13, 11), (11, 8));
 
@@ -399,6 +412,143 @@ public class PageTests : BunitContext
 
         checkbox.Change(false);
         Assert.False(shuffle.Enabled);
+    }
+
+    [Fact]
+    public void Home_BootWithLiveMarker_NoActiveQuiz_ShowsResetNotice()
+    {
+        // A2: a full reload rebooted the runtime out from under a live quiz. On
+        // the fresh boot the controller has no quiz (HasStarted false) but the
+        // sessionStorage marker survived — so Home surfaces the polite reset
+        // notice, then clears the marker so it shows once. Without the boot check
+        // this notice never renders (the fails-without-the-fix guard).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())); // not started
+        Services.AddSingleton(new PickedProblemSet());
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        JSInterop.Setup<string?>("sessionStorage.getItem", QuizLiveKey).SetResult("1");
+
+        var cut = Render<HomePage>();
+
+        Assert.Contains("previous quiz was reset by the page reload", cut.Markup);
+        Assert.Contains("role=\"status\"", cut.Markup); // polite outcome, not an alert
+        JSInterop.VerifyInvoke("sessionStorage.removeItem"); // cleared when shown
+    }
+
+    [Fact]
+    public void Home_BootWithoutMarker_ShowsNoResetNotice()
+    {
+        // A2 over-trigger guard: an ordinary cold boot (no marker) must not
+        // announce a reset. getItem returns null → no notice.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        Services.AddSingleton(new PickedProblemSet());
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        JSInterop.Setup<string?>("sessionStorage.getItem", QuizLiveKey).SetResult(null);
+
+        var cut = Render<HomePage>();
+
+        Assert.DoesNotContain("previous quiz was reset", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_MarkerPresentButQuizLive_ShowsNoResetNotice()
+    {
+        // A2's HasStarted guard — the multi-tab-safe part on the *controller*
+        // side. In-app navigation back to Home mid-quiz keeps the same per-tab
+        // controller (quiz still live) and leaves the marker set. That is not a
+        // reload, so no notice fires; the marker is also left in place for a real
+        // later reload (VerifyNotInvoke on removeItem).
+        var controller = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await controller.StartAsync(new FilterConfig()); // HasStarted true
+        Services.AddSingleton(new PickedProblemSet());
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        JSInterop.Setup<string?>("sessionStorage.getItem", QuizLiveKey).SetResult("1");
+
+        var cut = Render<HomePage>();
+
+        Assert.DoesNotContain("previous quiz was reset", cut.Markup);
+        JSInterop.VerifyNotInvoke("sessionStorage.removeItem"); // marker left in place
+    }
+
+    [Fact]
+    public async Task Home_StartClick_MarksQuizLive()
+    {
+        // A2 lifecycle: a successful Start (non-empty result → navigates to /quiz)
+        // records the live-quiz marker, so a mid-quiz reload can be acknowledged
+        // on the next boot.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFile();
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        await startBtn.ClickAsync(new());
+
+        JSInterop.VerifyInvoke("sessionStorage.setItem");
+    }
+
+    [Fact]
+    public async Task Home_StartClick_EmptyResult_DoesNotMarkQuizLive()
+    {
+        // A2 over-trigger guard: the empty-result path stays on Home with no live
+        // quiz, so it must not set the marker — otherwise the next boot would
+        // falsely announce a reset for a quiz that never ran.
+        WithController(); // empty source → finishes on Start
+        WithPickedFile();
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        await startBtn.ClickAsync(new());
+
+        JSInterop.VerifyNotInvoke("sessionStorage.setItem");
+    }
+
+    [Fact]
+    public void Home_ClearPickedFiles_RemovesSummaryAndDisablesStart()
+    {
+        // A4: the Clear affordance beside the picked-file summary drops the set —
+        // the holder-derived summary disappears and the file half of the gate
+        // re-disables Start by construction. Start from a fully-armed state
+        // (file picked + filters applied) so the disable is attributable to the
+        // clear, not to the filter half.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFile("clear-me.xg");
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+
+        // Armed: summary shown, Start enabled.
+        Assert.Contains("clear-me.xg", cut.Markup);
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        Assert.False(startBtn.HasAttribute("disabled"));
+
+        // Clear → summary gone, Start disabled.
+        var clear = cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear");
+        clear.Click();
+
+        Assert.DoesNotContain("clear-me.xg", cut.Markup);
+        startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        Assert.True(startBtn.HasAttribute("disabled"));
     }
 
     /// <summary>
@@ -1255,13 +1405,37 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig());
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts → IsFinished
+        JSInterop.Mode = JSRuntimeMode.Loose; // Done clears the live-quiz marker on init
 
         var cut = Render<DonePage>();
 
         Assert.Contains("Quiz complete", cut.Markup);
         Assert.Contains("Final", cut.Markup);
         Assert.Contains("Restart with same filters", cut.Markup);
-        Assert.Contains("Start over", cut.Markup);
+
+        // A3: the navigation button describes navigation ("Back to setup") and
+        // must not promise a reset it doesn't perform — the holders persist, so
+        // there is no "new filters" (the label that used to lie).
+        Assert.Contains("Back to setup", cut.Markup);
+        Assert.DoesNotContain("Start over", cut.Markup);
+        Assert.DoesNotContain("new filters", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Done_ReachingDone_ClearsLiveQuizMarker()
+    {
+        // A2 lifecycle: reaching Done is honest completion, so it clears the
+        // live-quiz marker — a subsequent boot must not misread a finished quiz
+        // as one a reload interrupted.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync(); // exhausts → IsFinished
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        Render<DonePage>();
+
+        JSInterop.VerifyInvoke("sessionStorage.removeItem");
     }
 
     [Fact]
@@ -1276,6 +1450,7 @@ public class PageTests : BunitContext
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
         Assert.True(c.IsFinished);
+        JSInterop.Mode = JSRuntimeMode.Loose; // Done clears the live-quiz marker on init
 
         var cut = Render<DonePage>();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
@@ -1289,18 +1464,19 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Done_StartOverClick_NavigatesHome()
+    public async Task Done_BackToSetupClick_NavigatesHome()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig());
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
+        JSInterop.Mode = JSRuntimeMode.Loose; // Done clears the live-quiz marker on init
 
         var cut = Render<DonePage>();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
-        var startOver = cut.FindAll("button").First(b => b.TextContent.Trim().StartsWith("Start over"));
-        await startOver.ClickAsync(new());
+        var backToSetup = cut.FindAll("button").First(b => b.TextContent.Trim() == "Back to setup");
+        await backToSetup.ClickAsync(new());
 
         Assert.EndsWith("/", nav.Uri);
     }
@@ -1321,6 +1497,7 @@ public class PageTests : BunitContext
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
         Assert.True(c.IsFinished);
+        JSInterop.Mode = JSRuntimeMode.Loose; // Done clears the live-quiz marker on init
 
         var cut = Render<DonePage>();
 
