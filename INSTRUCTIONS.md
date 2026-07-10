@@ -124,6 +124,8 @@ BgQuiz_Blazor.Tests/
   PageTests.cs
   NavMenuTests.cs                   — the sidebar Help link (sole /help entry point)
   MainLayoutTests.cs
+  NotFoundPipelineTests.cs          — WebApplicationFactory wire tests: unmatched
+                                      paths 404 with the NotFound page body
 ```
 
 Each page carries a per-page
@@ -503,6 +505,14 @@ the `.Client` `_Imports` assembly as an additional routable-component source.
 It references **only** the `.Client` — the entire backgammon-library closure
 ships into the WASM payload, not the server.
 
+The host pipeline also carries `UseStatusCodePagesWithReExecute("/not-found")`.
+It sits **before** `UseAntiforgery()`: the re-execute replays the pipeline from
+that point downstream, and a Razor Component endpoint throws unless the
+antiforgery middleware ran on the request that reaches it. `NotFoundPipelineTests`
+exercises this through the real pipeline with `WebApplicationFactory` — bUnit
+renders components in isolation and is structurally blind to middleware and
+endpoint routing, so no component test can cover it.
+
 Each routable page (`Home`, `Quiz`, `Stats`, `Done`, `Help`) carries its own
 `@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))`
 directive — that page-level directive is how interactivity is set in this
@@ -536,7 +546,12 @@ endpoints. The externally visible surface is the route map:
 - `/done` → `Done` — final summary (redirects to `/` if no quiz)
 - `/help` → `Help` — end-user documentation (never redirects; linked from the nav menu)
 - Default error page → `Error.razor`
-- Default 404 page → `NotFound.razor`
+- `/not-found` → `NotFound.razor` — the 404 page, and a **mapped route in its own
+  right** (requesting it directly is a 200). It is reached two ways, and both are
+  needed: `Routes.razor`'s `NotFoundPage` covers *client-side* navigation once the
+  runtime has booted, and `Program.cs`'s `UseStatusCodePagesWithReExecute("/not-found")`
+  covers *server-side* unmatched paths, which never reach Blazor at all (see
+  Pitfalls). The re-execute preserves the 404 status.
 
 ## Pitfalls
 
@@ -673,6 +688,50 @@ endpoints. The externally visible surface is the route map:
   navigates to on purpose, in exchange for correct titles on the five pages people
   use. **Do not "fix" it** by reverting the outlet to a bare one; that restores
   `<title>Error</title>` on `/Error` and silently re-breaks all five real pages.
+  The title is not the whole cost. The render-moded `HeadOutlet` is a WASM **root
+  component on every page**, `/Error` and `/not-found` included — so both of those
+  server-rendered terminal pages now boot the ~19.5 MB payload to accomplish
+  nothing, since neither has a `<PageTitle>` the outlet can receive. The pages
+  render and read correctly before the boot completes; the payload is pure waste on
+  them. Accepted for the same reason as the title: they are pages nobody reaches on
+  purpose. If that ever stops being true (a heavily-linked 404, say), the fix is to
+  give the head outlet a narrower home, **not** to un-render-mode it.
+- **`NotFoundPage` covers client-side navigation only; server-side unmatched paths
+  need `UseStatusCodePagesWithReExecute`.** `Routes.razor`'s
+  `NotFoundPage="typeof(Pages.NotFound)"` is the Router's answer for a route the
+  *booted WASM runtime* can't match — i.e. in-app navigation. It does nothing for a
+  cold request: `MapRazorComponents` registers endpoints only for known routes, so
+  an unmatched URL never reaches Blazor and falls through to a bare ASP.NET 404 with
+  a **zero-byte body**. The symptom is a completely blank page — no HTML, no title —
+  which reads as "the site is down" rather than "that page doesn't exist," while
+  `/not-found` requested directly renders fine at 200 (it's a mapped route). The
+  host pipeline's `UseStatusCodePagesWithReExecute("/not-found")` is what closes it.
+  Keep it **before** `UseAntiforgery()` (see Render mode). `NotFoundPipelineTests`
+  pins the status contract; a bUnit render cannot.
+- **The re-execute also catches missing *assets*, and that is accepted — on
+  purpose.** `UseStatusCodePagesWithReExecute` intercepts every bodyless 4xx/5xx, so
+  `/_framework/no-such-asset.js` and `/no-such.json` come back as 404 with the
+  NotFound page's `text/html` body rather than an empty one. This is not a
+  misrepresentation: on a 4xx the body is an *error document*, not a representation
+  of the requested resource — RFC 9110 has the server send "a representation
+  containing an explanation of the error situation," and `text/html` truthfully
+  describes the body actually sent. The 404 status, which is what every consumer
+  keys on (Blazor's boot loader included), is correct and preserved, and the body is
+  inert: nothing executes a script-tag document returned to a `fetch` for a `.js`
+  file. Assets that *exist* are untouched — the middleware only engages on an error
+  response with no body.
+  - **Reordering cannot fix the asset case.** A missing static file is not answered
+    by `UseStaticFiles`/`MapStaticAssets`; those call `next()` and the 404 is
+    produced downstream by routing. The status-code-pages middleware wraps
+    everything downstream of itself, so moving it *after* the static-file
+    middleware changes nothing. Don't try.
+  - **The trigger for revisiting.** When the attribution/persistence arc adds
+    server-side JSON API endpoints, a typed client calling `ReadFromJsonAsync`
+    against a 404 will throw a confusing `JsonException` instead of surfacing the
+    status. *That* is when narrowing acquires a real consumer. The only defensible
+    discriminator at that point is **content negotiation on the `Accept` header** —
+    a path-prefix or extension sniff duplicates routing knowledge inside middleware
+    and still misses cases like `/no-such.json`.
 
 ## Subproject-internal next steps
 

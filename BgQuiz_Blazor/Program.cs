@@ -18,6 +18,16 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
+// Serve the NotFound page for server-side unmatched paths. MapRazorComponents
+// registers endpoints only for known routes, so an unmatched URL never reaches
+// Blazor and would otherwise fall through to a bare, empty-bodied 404. The
+// Router's NotFoundPage covers only the client-side case (in-app navigation
+// after the runtime has booted). Re-executing preserves the 404 status code.
+// Ordering: before UseAntiforgery, because the re-execute replays the pipeline
+// from here downstream and the Razor Component endpoint requires the antiforgery
+// middleware to have run.
+app.UseStatusCodePagesWithReExecute("/not-found");
+
 app.UseHttpsRedirection();
 app.UseAntiforgery();
 app.UseStaticFiles();

@@ -10,6 +10,10 @@
   <ItemGroup>
     <PackageReference Include="bunit" />
     <PackageReference Include="coverlet.collector" />
+    <!-- WebApplicationFactory, for the host-pipeline wire tests. bUnit renders
+         components in isolation and cannot see middleware or endpoint routing, so
+         it is structurally blind to defects that live in Program.cs. -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
