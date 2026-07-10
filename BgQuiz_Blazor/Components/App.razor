@@ -11,7 +11,13 @@
     <link rel="stylesheet" href="@Assets["BgQuiz_Blazor.styles.css"]" />
     <ImportMap />
     <link rel="icon" type="image/png" href="favicon.png" />
-    <HeadOutlet />
+    @* Static fallback: the interactive outlet below cannot set a title until the
+       ~19.5 MB WASM payload boots, and never does so for crawlers or no-JS clients. *@
+    <title>BgQuiz</title>
+    @* Every routable page is .Client-side with prerender: false, so a bare (static-pass)
+       outlet would never receive their <PageTitle>. Emits nothing into the static pass,
+       so there is no duplicate-<title> hazard. *@
+    <HeadOutlet @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
 </head>
 
 <body>

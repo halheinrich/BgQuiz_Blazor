@@ -513,6 +513,18 @@ would render an empty first frame and double-run `OnInitialized`. A full
 browser reload re-boots the runtime and resets all state (persistence is a
 deferred arc).
 
+That choice propagates to `<head>`. Because no routable page renders in the
+static pass, `App.razor` carries **both** halves of the title contract:
+
+- a static `<title>BgQuiz</title>` — the pre-boot and no-JS/crawler title, shown
+  for as long as the ~19.5 MB WASM payload takes to boot; and
+- `<HeadOutlet @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />`
+  — the outlet the pages' `<PageTitle>` writes into once the runtime is up.
+
+Neither alone is sufficient (see Pitfalls). There is no duplicate-`<title>`
+hazard: with `prerender: false` the outlet emits nothing into the static pass,
+so every route serves exactly one `<title>`.
+
 ## Public API
 
 This is an application, not a library — no exported types or HTTP
@@ -638,6 +650,29 @@ endpoints. The externally visible surface is the route map:
   Interactive Server arrangement). The bUnit page tests render components
   directly and don't exercise WASM render-mode dispatch, so verify real
   interactivity in a browser, not just in tests.
+- **A bare `<HeadOutlet />` participates only in the static render pass.** It is
+  not a render-mode-agnostic sink. Since every routable page here is a `.Client`
+  page with `prerender: false`, none of them render server-side, so a bare outlet
+  receives nothing — and once WASM boots, the pages' interactive `<PageTitle>`
+  has no interactive outlet to write into. The symptom is an empty
+  `document.title` on every page a user actually visits, with the six
+  `<PageTitle>` components looking correct in source. The outlet must carry
+  `@rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))"`.
+  The static `<title>BgQuiz</title>` above it is equally load-bearing and must
+  not be deleted as redundant: with `prerender: false` the outlet cannot set a
+  title until the ~19.5 MB payload boots, so removing the static title reinstates
+  a titleless first-load window and leaves crawlers and no-JS clients with no
+  title ever.
+- **`/Error` shows `BgQuiz`, not `Error` — deliberately.** `Error.razor` is a
+  server-side, statically-rendered page, so its `<PageTitle>Error</PageTitle>` can
+  only reach a static-pass outlet, and the outlet is now interactive (above). Its
+  title therefore falls back to the static `<title>`. Verified, not assumed:
+  `/Error` renders its `Error.` heading with `document.title === "BgQuiz"`.
+  (`/not-found` also shows `BgQuiz`, but it never declared a `<PageTitle>` at all,
+  so nothing regressed there.) This is an accepted trade — a terminal page nobody
+  navigates to on purpose, in exchange for correct titles on the five pages people
+  use. **Do not "fix" it** by reverting the outlet to a bare one; that restores
+  `<title>Error</title>` on `/Error` and silently re-breaks all five real pages.
 
 ## Subproject-internal next steps
 
