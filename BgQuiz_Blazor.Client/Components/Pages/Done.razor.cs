@@ -15,10 +15,13 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <para>Direct nav to <c>/done</c> with no quiz in progress bounces to <c>/</c>.</para>
 ///
 /// <para>
-/// Reaching this page is the quiz ending as intended, so it clears the
-/// <see cref="QuizLiveMarker"/>: an honest completion has no reload-reset to
-/// announce on a later boot. (A reload that killed a live quiz never reaches
-/// here — Done requires the surviving in-memory controller.)
+/// This page participates in the <see cref="QuizLiveMarker"/> lifecycle on both
+/// sides. Reaching it <b>clears</b> the marker — an honest completion has no
+/// reload-reset to announce on a later boot (a reload that killed a live quiz
+/// never reaches here; Done requires the surviving in-memory controller).
+/// <i>Restart</i> then <b>re-sets</b> it, because it makes a quiz live again, so
+/// a reload during the restarted quiz is acknowledged exactly like one during a
+/// fresh Start. <i>Back to setup</i> sets nothing — it only navigates.
 /// </para>
 /// </summary>
 public partial class Done : ComponentBase
@@ -57,6 +60,13 @@ public partial class Done : ComponentBase
     private async Task RestartAsync()
     {
         await Controller.RestartAsync();
+
+        // Restart makes a quiz live again from the same pipeline, so re-set the
+        // marker that arriving at Done cleared — a reload during the restarted
+        // quiz gets the same reset notice as one during a fresh Start. Without
+        // this, the honesty guarantee has a hole one click wide.
+        await Marker.MarkLiveAsync();
+
         Nav.NavigateTo("/quiz");
     }
 

@@ -24,9 +24,11 @@ using Microsoft.JSInterop;
 ///
 /// <para>
 /// Lifetime: <b>Scoped</b> — the same per-app (one-per-tab in WASM) lifetime as
-/// the start-gate holders. <c>Home</c> reads it on boot (and clears it when it
-/// shows the notice); <c>Home</c> sets it on a successful Start; <c>Done</c>
-/// clears it on honest completion. The read is gated on
+/// the start-gate holders. It is <b>set</b> wherever a quiz becomes live —
+/// <c>Home</c> on a successful Start and <c>Done</c> on Restart — and
+/// <b>cleared</b> by <c>Done</c> on honest completion and by <c>Home</c>'s
+/// boot-read once it has shown the notice. <c>Home</c> reads it on boot. The read
+/// is gated on
 /// <see cref="QuizController.HasStarted"/> being <c>false</c> — a set marker with
 /// a <i>live</i> controller is in-app navigation back to <c>Home</c> mid-quiz
 /// (the runtime, and the quiz, survived), not a reload, so no notice fires.

@@ -396,9 +396,12 @@ progress — remains the deferred IndexedDB arc).
 
 Surface: `MarkLiveAsync()` / `WasLiveAsync()` / `ClearAsync()`. Lifecycle:
 
-- **`Home` sets** it (`MarkLiveAsync`) on a successful Start — *after* the
-  empty-result guard, so the no-match path (which stays on `/` with no live quiz)
-  never marks.
+- **Set wherever a quiz becomes live** (`MarkLiveAsync`): `Home` on a successful
+  Start — *after* the empty-result guard, so the no-match path (which stays on `/`
+  with no live quiz) never marks — **and** `Done` on *Restart*, which makes a quiz
+  live again from the same pipeline. Both writers matter: without the Restart one,
+  a reload during a restarted quiz falls back to the old silent reset, a
+  one-click-wide hole in the very guarantee this marker exists to make.
 - **`Home` reads** it on boot (`OnInitializedAsync`): `WasLiveAsync() &&
   !Controller.HasStarted` ⇒ show the polite reset notice, then `ClearAsync()` so
   it shows once. The `HasStarted` guard is the discriminator — a set marker with
@@ -408,7 +411,8 @@ Surface: `MarkLiveAsync()` / `WasLiveAsync()` / `ClearAsync()`. Lifecycle:
 - **`Done` clears** it (`ClearAsync`) on honest completion — reaching Done means
   the quiz ended as intended, so there's no reset to announce on a later boot. (A
   reload that killed a live quiz never reaches Done, which requires the surviving
-  in-memory controller.)
+  in-memory controller.) *Restart* re-sets it immediately after (above), so the
+  clear-then-re-set order across a Done→Restart round trip is deliberate.
 
 `PageTests` pins all of it: `Home_BootWithLiveMarker_…` (fails without the boot
 check), `Home_BootWithoutMarker_…` and `Home_MarkerPresentButQuizLive_…`
@@ -560,9 +564,11 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   with the same picks and filters. Its label describes that navigation ("Back to
   setup") rather than promising a reset it doesn't perform; the former "Start over
   (new filters)" lied (nothing resets — Restart and Back-to-setup differ only in
-  *where they land*, not in what they clear). Reaching Done also clears the
-  `QuizLiveMarker` (`OnInitializedAsync`): honest completion has no reload-reset to
-  announce later.
+  *where they land*, not in what they clear). Done also participates in the
+  `QuizLiveMarker` lifecycle both ways: reaching it clears the marker
+  (`OnInitializedAsync` — honest completion has no reload-reset to announce), and
+  *Restart* re-sets it (a restarted quiz is live again, so a reload during it is
+  acknowledged like one during a fresh Start).
 - **`ScorePanel.razor`** — compact status strip used by both Quiz and Done.
   Renders the `Total` segment: Submitted / Correct (with %) / Skipped /
   average equity loss; optional Source name and Heading. Kept Total-only to

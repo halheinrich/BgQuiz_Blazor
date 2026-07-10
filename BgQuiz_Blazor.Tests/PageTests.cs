@@ -1464,6 +1464,34 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Done_RestartClick_ReMarksQuizLive()
+    {
+        // A2 lifecycle, restart path: reaching Done cleared the live-quiz marker;
+        // Restart makes a quiz live again, so it must re-set it — otherwise a
+        // reload during the restarted quiz falls back to the old silent reset with
+        // no notice (the one-click-wide hole this closes). The sibling half —
+        // reaching Done clears the marker, whatever route arrived there — is pinned
+        // by Done_ReachingDone_ClearsLiveQuizMarker and holds equally for the
+        // restart-then-finish loop, since any Done render clears on init.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+        Assert.True(c.IsFinished);
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<DonePage>();
+        var restart = cut.FindAll("button").First(b => b.TextContent.Trim().StartsWith("Restart"));
+        await restart.ClickAsync(new());
+
+        JSInterop.VerifyInvoke("sessionStorage.setItem"); // re-marked live on Restart
+    }
+
+    [Fact]
     public async Task Done_BackToSetupClick_NavigatesHome()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
