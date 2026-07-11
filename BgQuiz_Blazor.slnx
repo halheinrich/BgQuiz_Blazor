@@ -9,5 +9,6 @@
   <Project Path="../XgFilter_Razor/XgFilter_Razor/XgFilter_Razor.csproj" />
   <Project Path="BgQuiz_Blazor/BgQuiz_Blazor.csproj" />
   <Project Path="BgQuiz_Blazor.Client/BgQuiz_Blazor.Client.csproj" />
+  <Project Path="BgQuiz_Blazor.E2eTests/BgQuiz_Blazor.E2eTests.csproj" />
   <Project Path="BgQuiz_Blazor.Tests/BgQuiz_Blazor.Tests.csproj" />
 </Solution>

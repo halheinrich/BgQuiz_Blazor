@@ -129,6 +129,25 @@ BgQuiz_Blazor.Tests/
   MainLayoutTests.cs
   NotFoundPipelineTests.cs          — WebApplicationFactory wire tests: unmatched
                                       paths 404 with the NotFound page body
+
+BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (Playwright/Chromium
+                                      against the published artifact — see
+                                      Architecture § The e2e smoke gate)
+  BgQuiz_Blazor.E2eTests.csproj     — xunit + Microsoft.Playwright; deliberately
+                                      references no app project (black-box, over HTTP)
+  Fixtures/                         — committed single-decision .xgp problem files
+    BothAnalysis.xgp                — cube decision; best action "No Double"
+    Opening 32 65 64 31 65.xgp      — 6-5 checker play; best play 24/13
+  PublishedAppFixture.cs            — publish (Release) + spawn once per run;
+                                      base-URL seam (BGQUIZ_E2E_BASE_URL)
+  PlaywrightFixture.cs              — Chromium lifecycle; fail-loud on missing browsers
+  E2eCollection.cs                  — the single (sequential) test collection
+  E2eTestBase.cs                    — per-test browser context + shared flow helpers
+  QuizFlowTests.cs                  — cube + checker primary paths, pick → Done
+  EmptyFilterBannerTests.cs         — empty-result banner; no 0/0 bounce
+  ReloadNoticeTests.cs              — reload-reset notice, Start and Restart paths
+  HelpAndTitlesTests.cs             — /help renders; document.title contract
+  NotFoundTests.cs                  — unknown URL → 404 status + styled body
 ```
 
 Each page carries a per-page
@@ -619,6 +638,84 @@ Neither alone is sufficient (see Pitfalls). There is no duplicate-`<title>`
 hazard: with `prerender: false` the outlet emits nothing into the static pass,
 so every route serves exactly one `<title>`.
 
+### The e2e smoke gate (`BgQuiz_Blazor.E2eTests`)
+
+The primary-path smoke gate AGENTS.md mandates: seven scenarios driving the
+**published artifact in a real Chromium** via Microsoft.Playwright. It exists
+because four production defects in a row — inert titles, blank 404 bodies, the
+phantom auth gate, the silent 0/0 empty-filter bounce — were
+invisible-by-construction to both existing layers: bUnit renders components in
+isolation, and the `WebApplicationFactory` wire tests run the host pipeline
+in-process with no browser. All four lived in the one layer neither sees: the
+publish output booting a real WASM runtime in a real browser.
+
+**Layer under test = the publish output.** A collection fixture
+(`PublishedAppFixture`) runs `dotnet publish` (Release) once per test run,
+spawns `dotnet BgQuiz_Blazor.dll --urls http://127.0.0.1:0 --contentRoot
+<publish dir>`, resolves the OS-assigned port from Kestrel's "Now listening on"
+line, probes readiness, and tears the process down on dispose. Not `dotnet run`
+and not `TestServer` — those put a different layer under test. The
+`--contentRoot` is load-bearing: without it `MapStaticAssets` resolves against
+the wrong web root and serves 0-byte framework assets (unstyled page, WASM
+never boots). The publish output carries three `runtimeconfig.json`; the host's
+`BgQuiz_Blazor.dll` is the entry point.
+
+**Base-URL seam.** `BGQUIZ_E2E_BASE_URL` overrides the target: when set, the
+suite skips publish/spawn and drives that URL — the same seven scenarios can
+point at the deployed site (`https://bgquiz-gobetzu.azurewebsites.net`) or at a
+locally spawned instance kept alive across iterations. The seam is deliberately
+just the URL; no further live-mode plumbing exists.
+
+**Fail loud, never skip.** Missing Playwright browsers, a missing committed
+fixture, a publish failure, a port-bind or readiness failure — each fails the
+suite with an actionable message (the browser-missing failure names the install
+command). Nothing skips: a skipped smoke that reads as green is the exact
+defect class the gate exists to kill.
+
+**Determinism.** No `Task.Delay` sleeps anywhere — Playwright auto-wait and
+explicit `Expect` assertions only. Every flow helper ends by awaiting the
+user-visible consequence of the transition it triggered. The two committed
+fixtures are single-decision `.xgp` files (the `.xgp` emission policy yields at
+most one decision per file), so each quiz is exactly one problem long with
+shuffle left off. In-app navigation is asserted with polling URL assertions
+(`Expect(Page).ToHaveURLAsync`), **not** `WaitForURLAsync` — Blazor navigates by
+`pushState` (same-document), and the navigation-event wait can lose the race
+when the push lands between the triggering click and the wait's registration
+(observed as a rare timeout with the app already on the target URL).
+
+**Fixtures are safe to publish.** Both are synthetic, carry no player names
+(verified before committing), and are *copies* — the umbrella's
+`TestData/FixtureFiles/` stays append-only and untouched.
+
+**Board driving.** The checker scenario enters a real play by clicking the
+diagram's transparent SVG hit-region rects. Region identity is positional: the
+producer renders points 1–24 first (point order), then bar/cube/tray/dice, so
+rect index `point − 1` addresses a point. The rects carry no identifying
+attributes, so that render-order contract is the only test-side handle; if it
+ever changes, the play never assembles and the scenario fails loudly at its
+Submit-enabled gate. Making it contractual (a `data-point` attribute on the
+rects) is a BgDiag_Razor producer arc, not something to patch from here.
+
+**Running it.**
+
+```
+# one-time per machine, after building the e2e project:
+pwsh BgQuiz_Blazor.E2eTests/bin/Debug/net10.0/playwright.ps1 install chromium
+
+# the gate (publishes + spawns the artifact itself):
+dotnet test BgQuiz_Blazor.E2eTests/BgQuiz_Blazor.E2eTests.csproj
+
+# against a deployed or already-running instance instead:
+BGQUIZ_E2E_BASE_URL=https://bgquiz-gobetzu.azurewebsites.net \
+  dotnet test BgQuiz_Blazor.E2eTests/BgQuiz_Blazor.E2eTests.csproj
+```
+
+The fast unit suite stays browser-free: run it via
+`dotnet test BgQuiz_Blazor.Tests/BgQuiz_Blazor.Tests.csproj`. A solution-level
+`dotnet test` now runs both. Expect the gate's *first-ever* Release publish of
+the WASM closure to take several minutes (IL trimming, cold); incremental
+republishes take seconds.
+
 ## Public API
 
 This is an application, not a library — no exported types or HTTP
@@ -639,6 +736,17 @@ endpoints. The externally visible surface is the route map:
 
 ## Pitfalls
 
+- **The e2e suite is the smoke gate AGENTS.md mandates — pointer bumps run it,
+  and it must never learn to skip.** `BgQuiz_Blazor.E2eTests` is the layer that
+  sees what bUnit and the wire tests structurally cannot (see Architecture § The
+  e2e smoke gate), so it is the gate to run before a pointer bump ships. Two
+  standing rules: (1) never convert a broken precondition — missing browsers,
+  missing fixture, failed publish — into a `Skip`; the suite's fail-loud posture
+  is deliberate, because a skipped smoke reads as green, which is the defect
+  class it was built to kill. (2) Its `Fixtures/` are committed copies; the
+  umbrella's `TestData/FixtureFiles/` stays append-only and untouched. First-run
+  setup (`playwright install chromium`) and the run commands are in the
+  Architecture section.
 - **State resets on full reload, not on in-app navigation.** "Scoped" in
   WASM is one instance per loaded app (one tab), so `QuizController`,
   `PickedProblemSet`, and `AppliedFilter` survive `/` ↔ `/quiz` ↔ `/done`

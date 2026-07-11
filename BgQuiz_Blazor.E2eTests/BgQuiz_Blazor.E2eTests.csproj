@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <!-- Drives a real Chromium against the published artifact. Browsers are a
+         one-time local install (see INSTRUCTIONS.md); their absence fails the
+         suite loudly — it never skips. -->
+    <PackageReference Include="Microsoft.Playwright" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Deliberately NO ProjectReference to the app: this suite tests the
+         published artifact over HTTP in a real browser — the one layer bUnit
+         (components in isolation) and the WebApplicationFactory wire tests
+         (host pipeline in-process) are both structurally blind to. -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Committed copies of two synthetic single-decision .xgp problem files
+         (generic player identity — safe for a public repo). Single-decision is
+         load-bearing: each quiz is exactly one problem long, so scenarios are
+         deterministic without any test-side ordering logic. -->
+    <Content Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>
