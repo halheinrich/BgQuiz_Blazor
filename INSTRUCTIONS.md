@@ -21,11 +21,19 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
 
 ## Depends on
 
-- **BgGame_Lib** — substrate. `IProblemSetSource`, `SubmittedPlay`,
-  `SubmittedCubeAction`, `QuizScore` (segmented: `PlayDecisions` /
-  `DoubleDecisions` / `TakeDecisions` + derived `Total`). The controller
-  talks to the source through this interface and scores via
-  `QuizScore.Plus(SubmittedPlay)` / `QuizScore.Plus(SubmittedCubeAction)`.
+- **BgGame_Lib** — substrate. `IProblemSetSource`, `ShuffledProblemSetSource`,
+  `SubmittedPlay`, `SubmittedCubeAction`, `QuizScore` (segmented:
+  `PlayDecisions` / `DoubleDecisions` / `TakeDecisions` + derived `Total`).
+  The controller talks to the source through `IProblemSetSource` and scores
+  via `QuizScore.Plus(SubmittedPlay)` / `QuizScore.Plus(SubmittedCubeAction)`.
+  `ShuffledProblemSetSource` is the decorator the source factory wraps the
+  picked set in when "Shuffle order" is on; per its own doc (BgGame_Lib
+  INSTRUCTIONS.md) it draws a **fresh Fisher-Yates permutation per
+  enumeration** — so a Restart reshuffles rather than replaying the same
+  order — and exposes two constructors: the **unseeded** one (used here, in
+  production) seeds from a non-deterministic source, the **seeded** one is for
+  deterministic tests. It materializes the inner source up front to shuffle,
+  and passes `Name` / `Count` through unchanged.
 - **BgDataTypes_Lib** — data types. `BgDecisionData`, `Play`,
   `PlayCandidate`, `BoardState`, `CubeDecisionPair`, `CubeAction`. The
   matcher compares the submitted `Play` against each `PlayCandidate.Play`
@@ -159,8 +167,9 @@ directive — that is how interactivity is set under WASM (see Render mode).
 ### Quiz flow
 
 ```
-/        Home.razor    → FilterPanel + Start Quiz button
+/        Home.razor    → FilterPanel + "Shuffle order" checkbox + Start Quiz button
                           on Start: Controller.StartAsync(filters), Nav→/quiz
+                          (shuffle read live at Start; off the start gate)
 
 /quiz    Quiz.razor    → per problem: answering → review → advance
                           "Show stats" button (both states, trailing ms-auto
@@ -253,8 +262,12 @@ player's.
 rather than constructing a source directly. The client's `Program.cs`
 registers the delegate scoped as a lambda that reads the `PickedProblemSet`
 holder and builds a `WasmUploadedProblemSetSource` over the user's picked
-files. The picked set is read at **invocation** time (`StartAsync`), not at
-DI registration, so a file choice made before Start takes effect. Future
+files, then reads the `ShuffleOption` holder and conditionally wraps that
+source — `shuffle.Enabled ? new ShuffledProblemSetSource(inner) : inner` (the
+unseeded ctor: shuffling is user-facing, reproducibility is a test-only
+concern). Both holders are read at **invocation** time (`StartAsync`), not at
+DI registration, so a file choice *and* a shuffle-toggle choice made before
+Start take effect. Future
 alternatives (deployed bundles, curated libraries) plug in by registering a
 different factory; the controller is unchanged. Unit tests substitute a fake
 source the same way.
@@ -397,6 +410,30 @@ and `Home_FiltersDirty_ClearsAppliedState_DisablesStart` pin the gate.
 In-memory only, reset on full reload — same deferred-arc caveat as the other
 two holders.
 
+### `ShuffleOption` — the "Shuffle order" toggle holder
+
+The per-app (`Scoped`, one-per-tab in WASM) holder for the **"Shuffle order"**
+checkbox on `Home` — a sibling of `PickedProblemSet` and `AppliedFilter`, same
+lifetime, so the toggle survives in-app navigation (`Home` is re-instantiated
+on navigate-back and re-reads `Enabled`). Surface is minimal: `bool Enabled`
+(private setter) + `Set(bool)`. `Home.razor` writes it on the checkbox's
+`@onchange`; the `ProblemSetSourceFactory` reads `Enabled` to decide whether to
+wrap the picked set in a `ShuffledProblemSetSource` — at **invocation** time
+(`StartAsync`), the same read-live-at-Start discipline as `PickedProblemSet`.
+
+**Presentation-only, and off the start gate.** Shuffling changes only the
+*order* decisions are presented in, never which decisions are *admitted*, so it
+is deliberately **not** folded into `FilterConfig` and plays **no part in
+`CanStart`** (`AppliedFilter.IsApplied && ProblemSet.HasFiles`). Toggling it
+does **not** dirty the start gate — `HandleShuffleToggled` only records the
+choice; there is no applied/dirty machinery the way `AppliedFilter` needs it,
+because a checkbox has no half-edited intermediate state. Every toggle is a
+complete, immediately valid choice read live at Start; there is nothing to
+"apply".
+
+In-memory only, reset on full reload — same deferred-arc caveat as the other
+holders.
+
 ### `QuizLiveMarker` — the reload-reset honesty marker
 
 The per-app (`Scoped`, one-per-tab in WASM) service recording that a quiz is
@@ -461,6 +498,12 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   gated on **two** conditions, both read from per-app scoped holders so the
   gate survives navigation: filters Applied at least once *and* at least one
   file picked (`CanStart => AppliedFilter.IsApplied && ProblemSet.HasFiles`).
+  Below the filter panel sits a **"Shuffle order" checkbox** bound to the
+  `ShuffleOption` holder (`HandleShuffleToggled` → `ShuffleOption.Set`). It is
+  presentation-only and **not** part of `CanStart` — toggling it never gates or
+  dirties Start; the source factory reads it live at Start to decide whether to
+  wrap the picked set in a `ShuffledProblemSetSource` (see the `ShuffleOption`
+  section).
   Subscribes to `OnFilterConfigChanged` → `AppliedFilter.Set` (the panel's
   emit-event after Apply) and `OnFilterDirty` → `AppliedFilter.Clear`; on
   Start hands `AppliedFilter.Config` to `Controller.StartAsync`. Catches read
