@@ -407,8 +407,8 @@ applied state — the holder is the sole authority on "applied". `AppliedFilterT
 pins the holder; the bUnit `Home_PreAppliedFilterHolder_EnablesStartWithoutReApply`
 and `Home_FiltersDirty_ClearsAppliedState_DisablesStart` pin the gate.
 
-In-memory only, reset on full reload — same deferred-arc caveat as the other
-two holders.
+In-memory only, reset on full reload — same deferred-arc caveat as its sibling
+holders (`PickedProblemSet`, `ShuffleOption`).
 
 ### `ShuffleOption` — the "Shuffle order" toggle holder
 
@@ -792,9 +792,10 @@ endpoints. The externally visible surface is the route map:
   Architecture section.
 - **State resets on full reload, not on in-app navigation.** "Scoped" in
   WASM is one instance per loaded app (one tab), so `QuizController`,
-  `PickedProblemSet`, and `AppliedFilter` survive `/` ↔ `/quiz` ↔ `/done`
-  navigation but a full browser reload re-boots the runtime and loses
-  everything (picked files, applied filter, quiz progress). Reload-survival
+  `PickedProblemSet`, `AppliedFilter`, and `ShuffleOption` survive `/` ↔
+  `/quiz` ↔ `/done` navigation but a full browser reload re-boots the runtime
+  and loses everything (picked files, applied filter, shuffle choice, quiz
+  progress). Reload-survival
   is a deferred arc — don't assume reload resumes. Anything that *should*
   survive navigation belongs in a scoped holder, not a component field —
   the two halves of Home's start gate were moved off transient fields for
