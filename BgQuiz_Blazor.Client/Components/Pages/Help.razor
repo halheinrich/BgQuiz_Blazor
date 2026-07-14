@@ -57,42 +57,48 @@
 
     <h2 class="h4 mt-4">Making a checker play</h2>
     <p>
-        Plays are entered with single clicks. There is nothing to drag, and no
-        pick-up-and-put-down: you click the point a checker is <em>on</em>, and it moves.
-        Click on an empty point or one containing an opposing blot and checker(s) move there.
-        The board updates after every click, and only clicks that keep a legal full play
-        reachable are accepted — anything else simply does nothing, so you cannot build an
-        illegal play, and you cannot leave part of the roll unplayed when it could have been
-        played. Landing on a lone opposing checker hits it automatically.
+        Plays are entered with single clicks — there is nothing to drag, and no
+        pick-up-and-put-down. The board updates after every click, and only clicks that keep
+        a legal full play reachable are accepted — anything else simply does nothing, so you
+        cannot build an illegal play, and you cannot leave part of the roll unplayed when it
+        could have been played. Landing on a lone opposing checker hits it automatically.
     </p>
     <ul>
         <li>
-            <strong>Move a checker — click the point it stands on.</strong> The checker
-            advances by one die straight away. When either die could play from that point,
-            the <em>leftmost</em> die shown on the board is used. Click the dice to swap
-            them — see below.
+            <strong>Clicking on a point you occupy moves a checker from there:</strong> it
+            advances by one die straight away. When either die could play from that point, the
+            <em>leftmost</em> die shown on the board is used — click the dice to swap them
+            (see below). When the move carries the checker off the board, it bears off; that
+            is just an ordinary move.
         </li>
         <li>
-            <strong>Make a point — click that point.</strong> Clicking a point where you have
-            no checker (empty, or holding a lone opposing checker) brings two of your checkers
-            onto it in the fewest moves, hitting if there is something to hit. With ordinary
-            dice that uses both and finishes the play; with doubles you may still have dice
-            left to play. If the point cannot be made, one checker that can reach it goes
-            there instead.
+            <strong>Clicking on a point that's empty or contains an opposing blot brings
+            checkers there.</strong> If the point can be made, it is: two of your checkers land
+            on it in the fewest moves, hitting anything in the way. With ordinary dice that
+            uses both and finishes the play; with doubles you may still have dice left. If the
+            point cannot be made, one checker that can reach it goes there instead. When there
+            are two equally short ways to do it, the click does nothing; make the moves one at
+            a time instead. This works even while you have a checker on the bar — see
+            <em>Clicking on the bar</em>.
         </li>
         <li>
-            <strong>Enter from the bar — click your bar, or the point you want to enter
-            on.</strong> Clicking the bar always works. Clicking a destination works when it is
-            empty or holds a lone opposing checker: the checker is brought in from the bar and,
-            if the clicked point lies further on, walked there — whenever there is exactly one
-            way to do it. A point you already own can only be entered by clicking the bar.
+            <strong>Clicking on the bar enters a checker</strong>, and always works while you
+            have one there. When both dice could enter, the <em>leftmost</em> die is used —
+            swap the dice to enter on the other point, or click the entry point directly. While
+            any checker of yours is on the bar it must enter before anything else can move —
+            but you can still click any point that is empty or holds an opposing blot: the
+            entry happens first, and the rest of the roll brings a checker to the point you
+            clicked. That checker need not be the one that entered — with a 2-1 from the bar,
+            clicking an opposing blot in your home board enters with the two and hits with the
+            one, as long as there is exactly one way to do it. Clicking a point you occupy does
+            nothing while you are on the bar, even one the entering checker could reach: enter
+            first, then move normally.
         </li>
         <li>
-            <strong>Bear off — click the point, or the tray.</strong> Clicking a home-board
-            point whose move carries the checker off bears it off; that is just an ordinary
-            move. Clicking the tray bears off as many checkers as the roll allows, whenever
-            there is a unique way to do it. If two ways bear off equally many, the tray does
-            nothing and you bear off point by point instead.
+            <strong>Clicking on the checker tray bears off as many checkers as the roll
+            allows</strong>, whenever there is a unique way to do it. If two ways bear off
+            equally many, the tray does nothing — bear off point by point instead, by clicking
+            each checker's own point.
         </li>
         <li>
             <strong>Click the dice to swap them, or to submit.</strong> While the play is

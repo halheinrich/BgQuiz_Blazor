@@ -606,15 +606,23 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   wrong answer, a cube position scores as two decisions, clicking the dice on
   the solution diagram advances like Continue, and a full browser reload resets
   everything (in-app navigation does not). The checker-play section documents
-  the one-click entry model the board actually ships — source-advance (click the
-  point a checker stands on; the leftmost die is preferred), make-the-point,
-  bar entry, bear-off by home point or by the bear-off-max tray click, the dice
-  click (swap the displayed order while incomplete, submit once complete), and
-  Undo last / Undo all. Its source of truth is BgDiag_Razor's
-  `BackgammonPlayEntry` + BgMoveGen's `MoveEntryState`, whose doc comments are
-  the contract this prose restates; it deliberately says nothing about
-  legal-click highlighting, which `MoveEntryState.LegalNextClicks` supports but
-  no shipped BgQuiz surface renders. Text-first; the illustrative board
+  the one-click entry model the board actually ships, and is organized **by
+  click target** — mirroring the component's own dispatch, so each bullet is
+  exhaustive about one thing the user can click: a point you occupy
+  (source-advance by one die, leftmost die preferred, bearing off when the move
+  carries the checker off), a point that is empty or holds an opposing blot
+  (make-the-point, else land one checker, else — on two equally short ways — a
+  silent no-op; it also enters from the bar, the entry taken first and the rest
+  of the roll free to move any checker), the bar (enter; the only route onto a
+  point you already occupy while on the bar), and the tray (bear-off-max, a
+  no-op when two ways bear off equally many). The dice click (swap the displayed
+  order while incomplete, submit once complete) and Undo last / Undo all follow.
+  Its source of truth is BgDiag_Razor's
+  `BackgammonPlayEntry` + BgMoveGen's `MoveEntryState` (whose legality rests in
+  turn on `MoveGenerator.NextMove`, where bar-first is enforced), whose doc
+  comments are the contract this prose restates; it deliberately says nothing
+  about legal-click highlighting, which `MoveEntryState.LegalNextClicks`
+  supports but no shipped BgQuiz surface renders. Text-first; the illustrative board
   diagram is a deferred nicety. Lives in the `.Client` (not as a static host
   page) so a mid-quiz Help → Back round trip doesn't disturb the WASM runtime
   holding quiz state — the same reason `Stats` does. Unlike `Stats` it **never
