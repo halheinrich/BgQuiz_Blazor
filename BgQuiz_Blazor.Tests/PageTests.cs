@@ -1622,11 +1622,12 @@ public class PageTests : BunitContext
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void Help_RendersTheSixBeatsAndTheSemanticsSection()
+    public void Help_RendersTheFlowSectionsAndTheSemanticsSection()
     {
-        // The page exists to teach the flow *and* the semantics a user cannot
-        // discover by clicking around; pin its section skeleton so a future edit
-        // can't quietly drop half of it.
+        // The page exists to teach the flow, the click vocabulary of a checker play,
+        // *and* the semantics a user cannot discover by clicking around; pin its
+        // section skeleton so a future edit can't quietly drop part of it. The
+        // headings alone are pinned, never the prose beneath them.
         WithController();
 
         var cut = Render<HelpPage>();
@@ -1637,6 +1638,7 @@ public class PageTests : BunitContext
                 "Pick your files",
                 "Choose filters",
                 "Answer the position",
+                "Making a checker play",
                 "Scoring",
                 "Review the solution",
                 "Stats and finishing",

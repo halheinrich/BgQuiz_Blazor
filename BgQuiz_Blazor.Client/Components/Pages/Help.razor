@@ -42,10 +42,8 @@
     </p>
     <ul>
         <li>
-            <strong>Checker play.</strong> The dice are rolled. Click a point to pick up a
-            checker, then click its destination — repeat until the full roll is played.
-            <em>Undo last</em> and <em>Undo all</em> take moves back while you are building
-            the play.
+            <strong>Checker play.</strong> The dice are rolled, and you enter the play you
+            would make by clicking the board — see <em>Making a checker play</em> below.
         </li>
         <li>
             <strong>Cube decision.</strong> The board is read-only. Answer with the radio
@@ -56,6 +54,54 @@
     <p>
         Press <em>Submit</em> to answer, or <em>Skip</em> to move on without answering.
     </p>
+
+    <h2 class="h4 mt-4">Making a checker play</h2>
+    <p>
+        Plays are entered with single clicks. There is nothing to drag, and no
+        pick-up-and-put-down: you click the point a checker is <em>on</em>, and it moves.
+        The board updates after every click, and only clicks that keep a legal full play
+        reachable are accepted — anything else simply does nothing, so you cannot build an
+        illegal play, and you cannot leave part of the roll unplayed when it could have been
+        played. Landing on a lone opposing checker hits it automatically.
+    </p>
+    <ul>
+        <li>
+            <strong>Move a checker — click the point it stands on.</strong> The checker
+            advances by one die straight away. When either die could play from that point,
+            the one shown <em>leftmost</em> on the board is used.
+        </li>
+        <li>
+            <strong>Make a point — click that point.</strong> Clicking a point where you have
+            no checker (empty, or holding a lone opposing checker) brings two of your checkers
+            onto it in the fewest moves, hitting if there is something to hit. With ordinary
+            dice that uses both and finishes the play; with doubles you may still have dice
+            left to play. If the point cannot be made, one checker that can reach it goes
+            there instead.
+        </li>
+        <li>
+            <strong>Enter from the bar — click your bar.</strong> The bar is only ever
+            somewhere a checker moves <em>from</em>, so a click on it enters a checker.
+        </li>
+        <li>
+            <strong>Bear off — click the point, or the tray.</strong> Clicking a home-board
+            point whose move carries the checker off bears it off; that is just an ordinary
+            move. Clicking the tray bears off as many checkers as the roll allows, whenever
+            there is a single best way to do it. If two ways tie, the tray does nothing and
+            you bear off point by point instead.
+        </li>
+        <li>
+            <strong>Click the dice to swap them, or to submit.</strong> While the play is
+            unfinished, clicking the dice swaps the order they are shown in — which changes
+            which one a checker click uses — without disturbing the moves you have already
+            made. (Doubles have nothing to swap.) Once the play is finished, clicking the dice
+            submits it, exactly as the <em>Submit</em> button does.
+        </li>
+        <li>
+            <strong>Change your mind — <em>Undo last</em> and <em>Undo all</em>.</strong> Undo
+            last takes back the most recent move; Undo all restores the starting position.
+            <em>Submit</em> stays disabled until the whole roll has been played.
+        </li>
+    </ul>
 
     <h2 class="h4 mt-4">Scoring</h2>
     <p>

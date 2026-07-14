@@ -599,12 +599,22 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   Direct nav with no quiz in progress bounces to `/`; with the quiz already
   finished, to `/done` — the same guards `Quiz` applies to itself.
 - **`Help.razor`** — end-user documentation: the six beats of the flow (pick
-  files → filters → answering → scoring → review → stats/done) followed by the
+  files → filters → answering → scoring → review → stats/done), a **Making a
+  checker play** section sitting inside the answering beat, and then the
   semantics a user cannot discover by clicking around — pass positions are
   auto-skipped and never shown, an off-list play counts as a skip rather than a
   wrong answer, a cube position scores as two decisions, clicking the dice on
   the solution diagram advances like Continue, and a full browser reload resets
-  everything (in-app navigation does not). Text-first; the illustrative board
+  everything (in-app navigation does not). The checker-play section documents
+  the one-click entry model the board actually ships — source-advance (click the
+  point a checker stands on; the leftmost die is preferred), make-the-point,
+  bar entry, bear-off by home point or by the bear-off-max tray click, the dice
+  click (swap the displayed order while incomplete, submit once complete), and
+  Undo last / Undo all. Its source of truth is BgDiag_Razor's
+  `BackgammonPlayEntry` + BgMoveGen's `MoveEntryState`, whose doc comments are
+  the contract this prose restates; it deliberately says nothing about
+  legal-click highlighting, which `MoveEntryState.LegalNextClicks` supports but
+  no shipped BgQuiz surface renders. Text-first; the illustrative board
   diagram is a deferred nicety. Lives in the `.Client` (not as a static host
   page) so a mid-quiz Help → Back round trip doesn't disturb the WASM runtime
   holding quiz state — the same reason `Stats` does. Unlike `Stats` it **never
