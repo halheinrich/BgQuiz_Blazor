@@ -59,6 +59,7 @@
     <p>
         Plays are entered with single clicks. There is nothing to drag, and no
         pick-up-and-put-down: you click the point a checker is <em>on</em>, and it moves.
+        Click on an empty point or one containing an opposing blot and checker(s) move there.
         The board updates after every click, and only clicks that keep a legal full play
         reachable are accepted — anything else simply does nothing, so you cannot build an
         illegal play, and you cannot leave part of the roll unplayed when it could have been
@@ -68,7 +69,8 @@
         <li>
             <strong>Move a checker — click the point it stands on.</strong> The checker
             advances by one die straight away. When either die could play from that point,
-            the one shown <em>leftmost</em> on the board is used.
+            the <em>leftmost</em> die shown on the board is used. Click the dice to swap
+            them — see below.
         </li>
         <li>
             <strong>Make a point — click that point.</strong> Clicking a point where you have
@@ -79,15 +81,18 @@
             there instead.
         </li>
         <li>
-            <strong>Enter from the bar — click your bar.</strong> The bar is only ever
-            somewhere a checker moves <em>from</em>, so a click on it enters a checker.
+            <strong>Enter from the bar — click your bar, or the point you want to enter
+            on.</strong> Clicking the bar always works. Clicking a destination works when it is
+            empty or holds a lone opposing checker: the checker is brought in from the bar and,
+            if the clicked point lies further on, walked there — whenever there is exactly one
+            way to do it. A point you already own can only be entered by clicking the bar.
         </li>
         <li>
             <strong>Bear off — click the point, or the tray.</strong> Clicking a home-board
             point whose move carries the checker off bears it off; that is just an ordinary
             move. Clicking the tray bears off as many checkers as the roll allows, whenever
-            there is a single best way to do it. If two ways tie, the tray does nothing and
-            you bear off point by point instead.
+            there is a unique way to do it. If two ways bear off equally many, the tray does
+            nothing and you bear off point by point instead.
         </li>
         <li>
             <strong>Click the dice to swap them, or to submit.</strong> While the play is
