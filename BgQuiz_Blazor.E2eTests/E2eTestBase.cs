@@ -44,9 +44,19 @@ public abstract class E2eTestBase : IAsyncLifetime
 
     protected string BaseUrl => _app.BaseUrl;
 
+    /// <summary>
+    /// Options for the per-test browser context. The base is Playwright's default
+    /// (the host machine's locale). This is the single seam through which context
+    /// construction is customized, so <see cref="InitializeAsync"/> stays the one
+    /// place a context is built — a scenario that must pin a browser locale (e.g.
+    /// a comma-decimal culture such as <c>nb-NO</c>) overrides this rather than
+    /// building its own context out from under the shared lifecycle.
+    /// </summary>
+    protected virtual BrowserNewContextOptions ContextOptions => new();
+
     public async Task InitializeAsync()
     {
-        _context = await _playwright.Browser.NewContextAsync();
+        _context = await _playwright.Browser.NewContextAsync(ContextOptions);
         _context.SetDefaultTimeout(PlaywrightFixture.DefaultTimeoutMs);
         Page = await _context.NewPageAsync();
     }
@@ -77,6 +87,32 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// <summary>Home's one-shot "your quiz was reset by the reload" notice.</summary>
     protected ILocator ReloadNotice =>
         Page.GetByText("Your previous quiz was reset by the page reload");
+
+    /// <summary>
+    /// The board diagram's transparent hit-region overlay — the absolutely
+    /// positioned <c>&lt;svg&gt;</c> that carries the <c>viewBox</c> and one
+    /// <c>&lt;rect&gt;</c> per clickable region. This is the wire surface the
+    /// culture-invariance guard inspects (its geometry attributes must never
+    /// carry comma decimals).
+    /// </summary>
+    protected ILocator HitOverlaySvg => Page.Locator(".board-container .bg-diagram > svg");
+
+    /// <summary>
+    /// Every hit-region <c>&lt;rect&gt;</c> in render order — points 1..24 first
+    /// (see <see cref="ClickBoardPointAsync"/> for the positional contract),
+    /// followed by bar/cube/tray/dice.
+    /// </summary>
+    protected ILocator HitRects => Page.Locator(".board-container .bg-diagram > svg > rect");
+
+    /// <summary>
+    /// The bar's hit <c>&lt;rect&gt;</c>. The producer always emits the bar rect
+    /// immediately after the 24 point rects, so index 24 (0-based) addresses it —
+    /// the same render-order contract <see cref="ClickBoardPointAsync"/> relies on.
+    /// The bar is the guaranteed-fractional region (viewBox-space width <c>30.8</c>)
+    /// and the exact production repro: a comma-decimal locale once formatted that
+    /// width as <c>"30,8"</c>, collapsing the rect to a zero-size non-target.
+    /// </summary>
+    protected ILocator BarHitRect => HitRects.Nth(24);
 
     // -----------------------------------------------------------------------
     //  Flow helpers
@@ -137,7 +173,7 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </para>
     /// </summary>
     protected Task ClickBoardPointAsync(int point) =>
-        Page.Locator(".board-container .bg-diagram > svg > rect").Nth(point - 1).ClickAsync();
+        HitRects.Nth(point - 1).ClickAsync();
 
     /// <summary>
     /// Answer the current cube problem as "No double" and submit, landing in the

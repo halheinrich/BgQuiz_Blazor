@@ -9,8 +9,29 @@
          at runtime from AssemblyInformationalVersionAttribute). Suppress the SDK's
          "+<gitsha>" build-metadata suffix so the informational version is the
          clean SemVer shown in the UI. -->
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- Pin the browser-wasm runtime to the invariant culture regardless of the
+         visitor's browser locale. Two payoffs:
+
+         1. Correctness guard (the reason this landed). The app never localizes —
+            backgammon notation is period-decimal worldwide (equities, pips,
+            XGIDs) — so every value it formats must be culture-invariant. Under a
+            comma-decimal browser locale (e.g. nb-NO) the thread culture would
+            otherwise format `EquityLoss:0.000` as "0,123" (wrong notation, and
+            disagreeing with the board's own invariant-rendered equities), and it
+            once emitted invalid comma-decimal SVG geometry that made the board's
+            LHS points and bar unclickable. This pin kills that whole class app-
+            wide, independent of any single component's formatting discipline.
+         2. Payload win. Invariant mode drops the ICU globalization data
+            (icudt*.dat, ~1.5 MB) from the published WASM download.
+
+         Client-only by design: this is the browser-runtime culture, the only
+         place the bug surfaced and the only place the ICU trim applies. The
+         server host (BgQuiz_Blazor.csproj) is a thin static shell that renders
+         nothing culture-sensitive, so pinning it would imply work it does not do.
+         Covered end-to-end by the nb-NO E2E scenario (CommaDecimalLocaleTests). -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
