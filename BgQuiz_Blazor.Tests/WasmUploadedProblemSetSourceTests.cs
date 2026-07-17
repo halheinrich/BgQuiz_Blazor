@@ -140,8 +140,10 @@ public class WasmUploadedProblemSetSourceTests
         var files = CorpusFiles();
         if (files.Count == 0) return;
 
-        var filters = new DecisionFilterSet();
-        filters.Add(new PlayerFilter(["zzz_no_such_player_zzz"]));
+        // Composed through FilterConfig.Build() — the intent surface. The
+        // concrete filter classes are internal to XgFilter_Lib, so naming a
+        // player is how a consumer asks for a player filter.
+        var filters = new FilterConfig { Players = { "zzz_no_such_player_zzz" } }.Build();
 
         var src = MakeSource(files, filters);
         var any = false;
