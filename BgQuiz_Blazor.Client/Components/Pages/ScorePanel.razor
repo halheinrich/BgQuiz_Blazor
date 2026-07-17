@@ -6,9 +6,10 @@
     [Parameter] public string? Source { get; set; }
     [Parameter] public string? Heading { get; set; }
 
-    private double PercentCorrect => Score.Total.Submitted > 0
-        ? 100.0 * Score.Total.Correct / Score.Total.Submitted
-        : 0.0;
+    // Accuracy is library-provided in [0, 1] (0 on an empty segment); the ×100
+    // percentage rendering is a display concern that lives here, per
+    // ScoreSegment's documented split — the same pattern ScoreBreakdown uses.
+    private double PercentCorrect => Score.Total.Accuracy * 100;
 }
 
 <div class="score-panel mb-2 small text-muted">

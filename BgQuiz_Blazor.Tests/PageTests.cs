@@ -23,6 +23,7 @@ using QuizPage = BgQuiz_Blazor.Client.Components.Pages.Quiz;
 using DonePage = BgQuiz_Blazor.Client.Components.Pages.Done;
 using StatsPage = BgQuiz_Blazor.Client.Components.Pages.Stats;
 using HelpPage = BgQuiz_Blazor.Client.Components.Pages.Help;
+using ScorePanelComponent = BgQuiz_Blazor.Client.Components.Pages.ScorePanel;
 
 namespace BgQuiz_Blazor.Tests;
 
@@ -721,6 +722,30 @@ public class PageTests : BunitContext
         Assert.Contains("Skipped", cut.Markup);
         Assert.Contains("Submit", cut.Markup);
         Assert.Contains("Skip", cut.Markup);
+    }
+
+    [Fact]
+    public void ScorePanel_SubmittedScore_RendersTotalAccuracyAsPercent()
+    {
+        // Total = 3 correct of 4 submitted → 75%. Pins the percentage the panel
+        // renders so the Accuracy-sourced PercentCorrect stays behaviour-neutral:
+        // the ×100 display of the library's [0, 1] Accuracy, not a re-derivation.
+        var score = new QuizScore(new ScoreSegment(4, 3, 0.8), ScoreSegment.Empty, ScoreSegment.Empty);
+
+        var cut = Render<ScorePanelComponent>(p => p.Add(c => c.Score, score));
+
+        Assert.Contains("(75%)", cut.Markup);
+    }
+
+    [Fact]
+    public void ScorePanel_EmptyScore_OmitsPercent()
+    {
+        // Submitted == 0: the panel shows no "(…%)" at all. Accuracy is 0 on an
+        // empty segment, so the guard that survives is the render-side @if, not a
+        // divide-by-zero defence inside PercentCorrect.
+        var cut = Render<ScorePanelComponent>(p => p.Add(c => c.Score, QuizScore.Empty));
+
+        Assert.DoesNotContain("%", cut.Markup);
     }
 
     [Fact]
