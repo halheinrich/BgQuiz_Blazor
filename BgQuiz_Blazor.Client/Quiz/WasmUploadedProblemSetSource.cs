@@ -28,7 +28,7 @@ using XgFilter_Lib.Filtering;
 /// <para>
 /// <see cref="Count"/> is null for the same reason as the directory source —
 /// the up-front count would require a full filtered pre-pass. Decision-type
-/// admission is governed entirely by the supplied <paramref name="filters"/>;
+/// admission is governed entirely by the supplied <c>filters</c>;
 /// this source injects no policy of its own. Per-file parse failures inside the
 /// iterator are skipped and logged; a name missing its extension is a usage
 /// error the iterator rejects when it reaches that entry.

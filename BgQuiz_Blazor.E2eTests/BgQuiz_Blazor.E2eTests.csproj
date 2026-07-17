@@ -1,10 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- Framework / nullable / implicit-usings / warnings-as-errors are inherited
+         from the repo-root Directory.Build.props. Warnings-as-errors is kept (test
+         code holds to the same bar); doc-file generation is explicitly opted out —
+         a test assembly exports no API to document, and leaving it on would only
+         demand XML docs on every public test fixture to satisfy CS1591. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>

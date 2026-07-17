@@ -26,6 +26,11 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </summary>
 public partial class Stats : ComponentBase
 {
+    /// <summary>
+    /// On load: bounce to <c>/</c> with no quiz in progress, or to <c>/done</c>
+    /// if the quiz has already finished — the same start/finish guards <c>Quiz</c>
+    /// applies to itself. Read-only otherwise; it never mutates controller state.
+    /// </summary>
     protected override void OnInitialized()
     {
         if (!Controller.HasStarted)

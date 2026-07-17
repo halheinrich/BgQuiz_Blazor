@@ -115,6 +115,12 @@ public partial class Quiz : ComponentBase, IDisposable
     private CubeDecisionPair? _completedCube;
     private readonly DiagramOptions _diagramOptions = new();
 
+    /// <summary>
+    /// On load: subscribe to <see cref="QuizController.StateChanged"/> so the
+    /// page re-renders on each transition, then apply the same start/finish
+    /// guards <c>Stats</c> uses — bounce to <c>/</c> with no quiz in progress, to
+    /// <c>/done</c> if the source is already exhausted.
+    /// </summary>
     protected override void OnInitialized()
     {
         Controller.StateChanged += HandleStateChanged;
@@ -325,6 +331,10 @@ public partial class Quiz : ComponentBase, IDisposable
         Nav.NavigateTo("/stats");
     }
 
+    /// <summary>
+    /// Unsubscribe from <see cref="QuizController.StateChanged"/> when the page is
+    /// torn down, so a navigated-away instance stops re-rendering.
+    /// </summary>
     public void Dispose()
     {
         Controller.StateChanged -= HandleStateChanged;

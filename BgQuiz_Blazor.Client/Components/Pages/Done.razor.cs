@@ -43,6 +43,11 @@ public partial class Done : ComponentBase
         + Controller.Score.DoubleDecisions.Submitted
         + Controller.SkippedCount;
 
+    /// <summary>
+    /// On load: bounce to <c>/</c> if no quiz has started, otherwise clear the
+    /// <see cref="QuizLiveMarker"/>. Reaching Done is honest completion, so there
+    /// is no reload-reset for a later boot to announce (Restart re-sets it).
+    /// </summary>
     protected override async Task OnInitializedAsync()
     {
         if (!Controller.HasStarted)

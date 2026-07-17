@@ -1,0 +1,23 @@
+<Project>
+
+  <!-- Repo-wide build policy for BgQuiz_Blazor, matching the XgToJson precedent
+       (XgToJson/Directory.Build.props): every project targets one framework,
+       nullable and implicit usings are on, warnings are errors, and shipping
+       projects carry an XML doc file from birth. The test projects keep
+       warnings-as-errors but opt out of doc-file generation in their own csproj.
+
+       What belongs here: properties that are uniform across this repo's projects
+       *by policy*, so a change is one edit (a future .NET 11 bump is one line).
+       What stays in a csproj: anything encoding a per-project decision — the
+       Sdk / OutputType, the client's RootNamespace / Version /
+       InvariantGlobalization, the test projects' IsPackable and their
+       GenerateDocumentationFile opt-out, and every package or project reference. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>

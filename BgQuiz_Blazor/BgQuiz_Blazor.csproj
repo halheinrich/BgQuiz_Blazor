@@ -1,9 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Framework / nullable / implicit-usings / warnings-as-errors / doc-file
+         come from the repo-root Directory.Build.props. This shipping host keeps
+         no per-project build knobs of its own. -->
   </PropertyGroup>
 
   <ItemGroup>
