@@ -44,7 +44,7 @@ using Microsoft.JSInterop;
 /// not "upgrade" this to <c>localStorage</c>.
 /// </para>
 /// </summary>
-public sealed class QuizLiveMarker
+internal sealed class QuizLiveMarker
 {
     /// <summary>
     /// The <c>sessionStorage</c> key. Namespaced so it can't collide with the

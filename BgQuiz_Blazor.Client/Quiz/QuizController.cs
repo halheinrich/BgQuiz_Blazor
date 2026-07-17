@@ -67,7 +67,7 @@ using XgFilter_Lib.Filtering;
 /// the user's filter admits them.
 /// </para>
 /// </summary>
-public sealed class QuizController : IAsyncDisposable
+internal sealed class QuizController : IAsyncDisposable
 {
     private readonly ProblemSetSourceFactory _sourceFactory;
     private readonly List<SubmittedPlay> _history = [];
@@ -457,4 +457,4 @@ public sealed class QuizController : IAsyncDisposable
 /// the in-browser source for the current run (the picked-files source, or a
 /// bundled sample); tests substitute a fake source via the same delegate shape.
 /// </summary>
-public delegate IProblemSetSource ProblemSetSourceFactory(DecisionFilterSet filters);
+internal delegate IProblemSetSource ProblemSetSourceFactory(DecisionFilterSet filters);

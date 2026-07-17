@@ -34,7 +34,7 @@ using XgFilter_Lib.Filtering;
 /// <see cref="PickedProblemSet"/> and <see cref="QuizController"/>.
 /// </para>
 /// </summary>
-public sealed class AppliedFilter
+internal sealed class AppliedFilter
 {
     /// <summary>
     /// The applied filter config; <c>null</c> until the user applies one, and

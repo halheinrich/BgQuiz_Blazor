@@ -780,7 +780,14 @@ republishes take seconds.
 ## Public API
 
 This is an application, not a library — no exported types or HTTP
-endpoints. The externally visible surface is the route map:
+endpoints, and the `.Client` assembly enforces that at the type level: every
+plain-C# client type (`QuizController`, the scoped holders `PickedProblemSet` /
+`AppliedFilter` / `ShuffleOption` / `QuizLiveMarker`, `PickedFile`,
+`WasmUploadedProblemSetSource`, `ProblemReview`, and the `ProblemSetSourceFactory`
+delegate) is `internal`, reachable by the test project only through the
+`InternalsVisibleTo` grant. The only `public` types are the Razor components — the
+framework requires them public (see Pitfalls). The externally visible surface is
+the route map:
 
 - `/` → `Home` — filter selection + Start
 - `/quiz` → `Quiz` — active problem (redirects to `/` if no quiz, `/done` if finished)
@@ -860,6 +867,24 @@ endpoints. The externally visible surface is the route map:
   component, verify the parameter name against the source. The bUnit
   regression test `PageTests.Home_FilterPanelEmitsConfig_EnablesStartButton`
   guards against this trap.
+- **Client plain-C# types are `internal`; only Razor components are `public`.**
+  The controller, the four scoped holders, `PickedFile`,
+  `WasmUploadedProblemSetSource`, `ProblemReview`, and the
+  `ProblemSetSourceFactory` delegate are all `internal`, with `InternalsVisibleTo`
+  granting the test project access. Don't widen one to `public`: the tests already
+  see it through the IVT grant, and a page reaches it through `@inject` — which
+  binds a service **by type from DI**, not through the public surface. The
+  narrowing is total (9 candidates → 9 internalized / 0 held) precisely because
+  Razor's `@inject` generates a **private** property, so a DI-injected type never
+  lands in a public signature, and none of these types is a component
+  `[Parameter]`. The one move that *forces* a client type back to `public` is
+  putting it in a public component's `[Parameter]` (or any other public member
+  signature) — that trips **CS0053** (inconsistent accessibility), the same
+  constraint the earlier component-surface narrowing hit; the fix is to keep the
+  crossing type a library/wire type, not to re-widen the app type. The pages, in
+  turn, **cannot** go internal: the router discovers routable components by
+  scanning the assembly's *public* (`ExportedTypes`) surface, so that public
+  boundary is framework-required, not a missed narrowing.
 - **Off-list submission semantics.** A structurally-legal play that
   doesn't appear in the analyzer's candidate list counts as a skip, not
   a scoring miss. This is rare on well-analyzed positions and signals

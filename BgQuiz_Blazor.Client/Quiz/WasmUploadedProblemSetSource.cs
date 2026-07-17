@@ -34,7 +34,7 @@ using XgFilter_Lib.Filtering;
 /// error the iterator rejects when it reaches that entry.
 /// </para>
 /// </summary>
-public sealed class WasmUploadedProblemSetSource : IProblemSetSource
+internal sealed class WasmUploadedProblemSetSource : IProblemSetSource
 {
     private readonly IReadOnlyList<PickedFile> _files;
     private readonly FilteredDecisionIterator _iterator;

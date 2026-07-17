@@ -17,7 +17,7 @@ namespace BgQuiz_Blazor.Client.Quiz;
 /// it does not cross the submodule boundary into <c>BgGame_Lib</c>.
 /// </para>
 /// </summary>
-public abstract record ProblemReview
+internal abstract record ProblemReview
 {
     private ProblemReview() { }
 

@@ -15,7 +15,7 @@ namespace BgQuiz_Blazor.Client.Quiz;
 /// each enumeration so the source stays re-iterable (the stream iterator reads a
 /// stream exactly once, forward).
 /// </param>
-public sealed record PickedFile(string FileName, byte[] Bytes);
+internal sealed record PickedFile(string FileName, byte[] Bytes);
 
 /// <summary>
 /// Per-app holder for the user's browser-picked problem-set files.
@@ -43,7 +43,7 @@ public sealed record PickedFile(string FileName, byte[] Bytes);
 /// <see cref="QuizController"/>.
 /// </para>
 /// </summary>
-public sealed class PickedProblemSet
+internal sealed class PickedProblemSet
 {
     /// <summary>The currently-picked files; empty until the user picks any.</summary>
     public IReadOnlyList<PickedFile> Files { get; private set; } = [];

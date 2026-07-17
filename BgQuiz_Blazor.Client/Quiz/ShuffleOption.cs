@@ -22,7 +22,7 @@ namespace BgQuiz_Blazor.Client.Quiz;
 /// Start; there is nothing to "apply".
 /// </para>
 /// </summary>
-public sealed class ShuffleOption
+internal sealed class ShuffleOption
 {
     /// <summary>True when the user wants the problem-set order shuffled.</summary>
     public bool Enabled { get; private set; }
