@@ -5,6 +5,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Security override: bunit 2.7.2 pulls AngleSharp 1.4.0 transitively, which
+         carries an mXSS advisory (GHSA-pgww-w46g-26qg, moderate; affects <= 1.4.x).
+         We pin the patched 1.5.2 (>= the 1.5.0 fix floor) and promote it to a
+         direct PackageReference in the test csproj so this version wins. This is a
+         deliberate security pin, NOT an unused reference — a dependency audit must
+         keep it until bunit's own AngleSharp floor clears the advisory. -->
+    <PackageVersion Include="AngleSharp" Version="1.5.2" />
     <PackageVersion Include="bunit" Version="2.7.2" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.9" />
