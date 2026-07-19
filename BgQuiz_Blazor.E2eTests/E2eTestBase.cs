@@ -31,6 +31,7 @@ public abstract class E2eTestBase : IAsyncLifetime
 
     private readonly PublishedAppFixture _app;
     private readonly PlaywrightFixture _playwright;
+    private readonly List<string> _stagedDirs = [];
     private IBrowserContext? _context;
 
     protected E2eTestBase(PublishedAppFixture app, PlaywrightFixture playwright)
@@ -54,16 +55,39 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </summary>
     protected virtual BrowserNewContextOptions ContextOptions => new();
 
+    /// <summary>
+    /// JavaScript injected into the context before any page exists (so it runs
+    /// ahead of app boot on every navigation). The second customization seam,
+    /// parallel to <see cref="ContextOptions"/>. Its one production consumer is
+    /// the stats-persistence suite's fake <c>window.showDirectoryPicker</c>:
+    /// Playwright cannot drive the native File System Access prompts, so the
+    /// FS-Access path is exercised by faking the <i>browser API</i> — never the
+    /// app, which ships no test seams — and letting the app's real JS module
+    /// run against the fake handles.
+    /// </summary>
+    protected virtual string? ContextInitScript => null;
+
     public async Task InitializeAsync()
     {
         _context = await _playwright.Browser.NewContextAsync(ContextOptions);
         _context.SetDefaultTimeout(PlaywrightFixture.DefaultTimeoutMs);
+        if (ContextInitScript is { } script)
+        {
+            // Must precede NewPageAsync: init scripts registered on the context
+            // apply only to pages created afterwards.
+            await _context.AddInitScriptAsync(script);
+        }
         Page = await _context.NewPageAsync();
     }
 
     public async Task DisposeAsync()
     {
         if (_context is not null) await _context.DisposeAsync();
+        foreach (var dir in _stagedDirs)
+        {
+            try { Directory.Delete(dir, recursive: true); }
+            catch (IOException) { /* best-effort cleanup of temp staging */ }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -71,11 +95,18 @@ public abstract class E2eTestBase : IAsyncLifetime
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// Home's file picker. Doubles as the WASM boot marker: every routable page
-    /// renders with <c>prerender: false</c>, so any page content existing at all
-    /// proves the runtime is up.
+    /// Home's "Choose folder…" button. Doubles as the WASM boot marker: every
+    /// routable page renders with <c>prerender: false</c>, so any page content
+    /// existing at all proves the runtime is up.
     /// </summary>
-    protected ILocator FilePicker => Page.Locator("#problemSetFiles");
+    protected ILocator PickFolderButton => Page.Locator("#pickProblemFolder");
+
+    /// <summary>
+    /// Home's hidden <c>webkitdirectory</c> fallback input — always in the DOM,
+    /// so Playwright can hand it a staged directory directly (the fallback
+    /// mechanism's own pick path; no native dialog involved).
+    /// </summary>
+    protected ILocator FallbackFolderInput => Page.Locator("#problemFolderFallback");
 
     protected ILocator StartButton => Page.GetByRole(AriaRole.Button, new() { Name = "Start Quiz" });
 
@@ -122,18 +153,32 @@ public abstract class E2eTestBase : IAsyncLifetime
     protected async Task BootHomeAsync()
     {
         await Page.GotoAsync(BaseUrl + "/");
-        await Expect(FilePicker).ToBeVisibleAsync();
+        await Expect(PickFolderButton).ToBeVisibleAsync();
     }
 
     /// <summary>
-    /// Pick a committed fixture through the real file input (a genuine browser
-    /// file pick, not an API shortcut) and wait for the holder-derived summary —
-    /// which also proves the pick round-trip (read, buffer, store) completed.
+    /// Pick a committed fixture as a <i>folder</i> through the hidden
+    /// <c>webkitdirectory</c> input: the fixture is copied into a fresh staged
+    /// temp directory (named after the fixture, so scenarios stay
+    /// distinguishable in failure output) and the directory is handed to the
+    /// input — a genuine directory upload, driving the app's real fallback
+    /// collection path (top-level filter, buffering, holder). Waits for the
+    /// holder-derived folder summary, which also proves the pick round-trip
+    /// completed. These migrated scenarios run as no-stats quizzes by
+    /// construction (the fallback mechanism has no writable handle); the
+    /// FS-Access + stats path is covered by <c>StatsPersistenceTests</c>.
     /// </summary>
     protected async Task PickFixtureAsync(string fixtureFileName)
     {
-        await FilePicker.SetInputFilesAsync(FixturePath(fixtureFileName));
-        await Expect(Page.GetByText(fixtureFileName)).ToBeVisibleAsync();
+        string dirName = Path.GetFileNameWithoutExtension(fixtureFileName);
+        string stagedDir = Path.Combine(
+            Path.GetTempPath(), "bgquiz-e2e", $"{dirName}-{Guid.NewGuid():N}", dirName);
+        Directory.CreateDirectory(stagedDir);
+        _stagedDirs.Add(Path.GetDirectoryName(stagedDir)!);
+        File.Copy(FixturePath(fixtureFileName), Path.Combine(stagedDir, fixtureFileName));
+
+        await FallbackFolderInput.SetInputFilesAsync(stagedDir);
+        await Expect(Page.GetByText("1 problem file")).ToBeVisibleAsync();
     }
 
     /// <summary>

@@ -4,6 +4,7 @@
 @using BgQuiz_Blazor.Client.Quiz
 
 @inject QuizController Controller
+@inject QuizStatsStore StatsStore
 @inject NavigationManager Nav
 @inject QuizLiveMarker Marker
 
@@ -11,6 +12,25 @@
 
 <div class="container py-3">
     <h1>Quiz complete</h1>
+
+    @* Active-context stats notices, mirrored from Quiz: a failure on the FINAL
+       Continue lands the user here without ever seeing the in-quiz notice, so
+       Done must state it too. No subscription needed — the status cannot
+       change while this page is shown (no folds happen here; Restart
+       navigates away and re-binds). *@
+    @if (StatsStore.Status == QuizStatsStatus.LoadFailed)
+    {
+        <div class="alert alert-warning" role="status">
+            The existing <strong>@QuizStatsFile.FileName</strong> couldn't be read, so this
+            quiz didn't record stats. The file has not been changed.
+        </div>
+    }
+    else if (StatsStore.Status == QuizStatsStatus.WriteFailed)
+    {
+        <div class="alert alert-danger" role="alert">
+            Your stats file could not be saved — this quiz's stats were not recorded.
+        </div>
+    }
 
     <ScorePanel Score="Controller.Score"
                 Skipped="Controller.SkippedCount"

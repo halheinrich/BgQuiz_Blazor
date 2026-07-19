@@ -66,10 +66,20 @@ using XgFilter_Lib.Filtering;
 /// cube decisions (scored via <see cref="SubmitCubeAction"/>) flow when
 /// the user's filter admits them.
 /// </para>
+///
+/// <para>
+/// Lifetime stats: the controller drives the injected
+/// <see cref="IDecisionStatsSink"/> at exactly two points — the context bind
+/// in <see cref="ResetAndAdvanceAsync"/> (every Start/Restart) and the
+/// per-answer fold in <see cref="ContinueAsync"/> (on leaving review). The
+/// sink never throws for stats trouble, so quiz flow is independent of
+/// whether stats are recording.
+/// </para>
 /// </summary>
 internal sealed class QuizController : IAsyncDisposable
 {
     private readonly ProblemSetSourceFactory _sourceFactory;
+    private readonly IDecisionStatsSink _statsSink;
     private readonly List<SubmittedPlay> _history = [];
     private readonly List<SubmittedCubeAction> _cubeHistory = [];
 
@@ -77,9 +87,10 @@ internal sealed class QuizController : IAsyncDisposable
     private IProblemSetSource? _source;
     private IAsyncEnumerator<BgDecisionData>? _enumerator;
 
-    public QuizController(ProblemSetSourceFactory sourceFactory)
+    public QuizController(ProblemSetSourceFactory sourceFactory, IDecisionStatsSink statsSink)
     {
         _sourceFactory = sourceFactory ?? throw new ArgumentNullException(nameof(sourceFactory));
+        _statsSink = statsSink ?? throw new ArgumentNullException(nameof(statsSink));
     }
 
     /// <summary>Source name once started; null otherwise.</summary>
@@ -324,10 +335,37 @@ internal sealed class QuizController : IAsyncDisposable
     /// <see cref="Review"/> is null). This is the only <i>forward</i> path out
     /// of review — see <see cref="RedoAsync"/> for the backward one; exhausting
     /// the source here flips <see cref="IsFinished"/>.
+    ///
+    /// <para>
+    /// <b>Lifetime-stats fold point.</b> The just-reviewed submission folds
+    /// into the <see cref="IDecisionStatsSink"/> here — on leaving review, not
+    /// at Submit — because <see cref="RedoAsync"/> pops the last submission
+    /// while <see cref="Review"/> is set and the stats document has no
+    /// <c>Minus</c>: an answer is final only once the user moves forward past
+    /// it. The flip side is deliberate and must not be "fixed": an answer
+    /// abandoned in review (tab close, or a Start/Restart that resets without
+    /// Continue) never folds, consistent with Redo's semantics. Off-list
+    /// submissions carry no history entry and never fold (producer contract:
+    /// skips and off-list plays aren't lifetime submissions); the fold happens
+    /// before <see cref="AdvanceAsync"/>, so the final problem's answer folds
+    /// before <see cref="IsFinished"/> flips.
+    /// </para>
     /// </summary>
     public async Task ContinueAsync()
     {
         if (Review is null) return;
+
+        switch (Review)
+        {
+            case ProblemReview.Play { OffList: false }:
+                await _statsSink.RecordAsync(_history[^1]);
+                break;
+            case ProblemReview.Cube:
+                await _statsSink.RecordAsync(_cubeHistory[^1]);
+                break;
+                // ProblemReview.Play { OffList: true }: no history entry — never folds.
+        }
+
         Review = null;
         await AdvanceAsync();
     }
@@ -394,6 +432,12 @@ internal sealed class QuizController : IAsyncDisposable
         IsFinished = false;
         Current = null;
         Review = null;
+
+        // Bind the lifetime-stats context for the quiz now starting. This is
+        // the one shared path under Start and Restart, so it is exactly where
+        // the picked folder promotes to the active stats slot — a mid-quiz
+        // Clear or re-pick changes nothing until the next pass through here.
+        await _statsSink.BeginQuizAsync();
 
         await AdvanceAsync();
     }

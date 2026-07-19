@@ -23,7 +23,7 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await Page.GotoAsync(BaseUrl + "/help");
         await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "How BgQuiz works" }))
             .ToBeVisibleAsync();
-        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Pick your files" }))
+        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Pick your folder" }))
             .ToBeVisibleAsync();
         await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Scoring" }))
             .ToBeVisibleAsync();

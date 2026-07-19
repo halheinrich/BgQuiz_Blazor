@@ -23,9 +23,15 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
 
 - **BgGame_Lib** — substrate. `IProblemSetSource`, `ShuffledProblemSetSource`,
   `SubmittedPlay`, `SubmittedCubeAction`, `QuizScore` (segmented:
-  `PlayDecisions` / `DoubleDecisions` / `TakeDecisions` + derived `Total`).
+  `PlayDecisions` / `DoubleDecisions` / `TakeDecisions` + derived `Total`),
+  and the lifetime-stats model `DecisionStats` / `DecisionStatsDocument`
+  (immutable; `doc = doc.Plus(submission, TimeProvider)`; bundled type-level
+  JSON converter, so `JsonSerializer.Deserialize<DecisionStatsDocument>` needs
+  no registration and any bad load throws `JsonException`; a cube position
+  folds as **one** lifetime decision, unlike `QuizScore`'s two-half fold).
   The controller talks to the source through `IProblemSetSource` and scores
-  via `QuizScore.Plus(SubmittedPlay)` / `QuizScore.Plus(SubmittedCubeAction)`.
+  via `QuizScore.Plus(SubmittedPlay)` / `QuizScore.Plus(SubmittedCubeAction)`;
+  the stats store folds finalized submissions via the document's `Plus`.
   `ShuffledProblemSetSource` is the decorator the source factory wraps the
   picked set in when "Shuffle order" is on; per its own doc (BgGame_Lib
   INSTRUCTIONS.md) it draws a **fresh Fisher-Yates permutation per
@@ -100,23 +106,37 @@ BgQuiz_Blazor/                      — thin ASP.NET Core WASM host (server)
 BgQuiz_Blazor.Client/              — WASM client (the whole interactive surface)
   BgQuiz_Blazor.Client.csproj       — Sdk.BlazorWebAssembly; the bg-lib closure
   Program.cs                        — WebAssemblyHostBuilder; registers
-                                      QuizController, PickedProblemSet,
+                                      TimeProvider.System (singleton) +
+                                      QuizController, IFolderAccess/JsFolderAccess,
+                                      PickedProblemFolder, QuizStatsStore
+                                      (aliased as IDecisionStatsSink),
                                       AppliedFilter, ShuffleOption,
                                       QuizLiveMarker, ProblemSetSourceFactory
                                       (all scoped)
   _Imports.razor
+  wwwroot/
+    js/folderAccess.js              — the app's ONE authored JS module: both pick
+                                      mechanisms + stats read/write; two-slot
+                                      (picked/active) directory-handle state
   Quiz/
     QuizController.cs
     ProblemReview.cs
-    PickedProblemSet.cs             — picked-files holder (+ Summary)
+    FolderAccess.cs                 — StatsSaveCapability, FolderPickOutcome,
+                                      IFolderAccess (the interop facade contract)
+    JsFolderAccess.cs               — the one type touching IJSObjectReference
+    PickedProblemFolder.cs          — picked-folder holder (+ PickedFile, Summary,
+                                      pick-time StatsSaveCapability)
     PickedFileLimits.cs             — pick caps (bytes / count / derived MB)
+    QuizStatsFile.cs                — stats filename + JsonSerializerOptions SSOT
+    QuizStatsStore.cs               — IDecisionStatsSink + the stats document
+                                      lifecycle (bind at Start, fold + write-back)
     AppliedFilter.cs                — applied-filter holder (start-gate half)
     ShuffleOption.cs                — "shuffle order" toggle holder
     QuizLiveMarker.cs               — sessionStorage was-a-quiz-live marker
     WasmUploadedProblemSetSource.cs — in-browser stream-backed source
   Components/
     Pages/
-      Home.razor / .razor.cs        — landing: file picker + filter panel + Start
+      Home.razor / .razor.cs        — landing: folder picker + filter panel + Start
       Quiz.razor / .razor.cs        — active problem (play or cube)
       Done.razor / .razor.cs        — final summary
       Stats.razor / .razor.cs       — read-only mid-quiz stats (live Controller)
@@ -128,9 +148,13 @@ BgQuiz_Blazor.Tests/
   BgQuiz_Blazor.Tests.csproj
   TestFixtures.cs
   FakeProblemSetSource.cs
+  FakeFolderAccess.cs               — scriptable IFolderAccess double (store + pages)
+  FakeDecisionStatsSink.cs          — recording sink double (controller + pages)
   QuizControllerTests.cs
+  QuizStatsStoreTests.cs            — bind / fold / write-back / degrade guarantees
+  JsFolderAccessTests.cs            — interop result mapping via bUnit SetupModule
   WasmUploadedProblemSetSourceTests.cs
-  PickedProblemSetTests.cs
+  PickedProblemFolderTests.cs
   AppliedFilterTests.cs
   PageTests.cs
   NavMenuTests.cs                   — the sidebar Help link (sole /help entry point)
@@ -151,9 +175,12 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (Playwright/Chromi
   PlaywrightFixture.cs              — Chromium lifecycle; fail-loud on missing browsers
   E2eCollection.cs                  — the single (sequential) test collection
   E2eTestBase.cs                    — per-test browser context + shared flow helpers
+                                      (+ ContextInitScript seam; temp-dir folder picks)
   QuizFlowTests.cs                  — cube + checker primary paths, pick → Done
   EmptyFilterBannerTests.cs         — empty-result banner; no 0/0 bounce
   ReloadNoticeTests.cs              — reload-reset notice, Start and Restart paths
+  StatsPersistenceTests.cs          — FS-Access stats path via a fake
+                                      showDirectoryPicker (+ fallback notice pin)
   HelpAndTitlesTests.cs             — /help renders; document.title contract
   NotFoundTests.cs                  — unknown URL → 404 status + styled body
 ```
@@ -167,8 +194,11 @@ directive — that is how interactivity is set under WASM (see Render mode).
 ### Quiz flow
 
 ```
-/        Home.razor    → FilterPanel + "Shuffle order" checkbox + Start Quiz button
-                          on Start: Controller.StartAsync(filters), Nav→/quiz
+/        Home.razor    → "Choose folder…" pick + FilterPanel + "Shuffle order"
+                          checkbox + Start Quiz button
+                          on Start: Controller.StartAsync(filters) — which also
+                          binds the lifetime-stats context (promote + load) —
+                          then Nav→/quiz
                           (shuffle read live at Start; off the start gate)
 
 /quiz    Quiz.razor    → per problem: answering → review → advance
@@ -242,9 +272,12 @@ property:
   both histories from `QuizScore.Empty`, and clears `Review` — returning to
   the *answering* state on the same `Current` problem. `Current`, the source
   enumerator, and `IsFinished` are untouched. No-op outside review.
-- **`ContinueAsync`** — the only *forward* exit from review: clears `Review`
-  and advances to the next problem (current `AdvanceAsync` body). Exhausting
-  the source here flips `IsFinished`. No-op outside review.
+- **`ContinueAsync`** — the only *forward* exit from review: folds the
+  just-reviewed submission into the `IDecisionStatsSink` (the lifetime-stats
+  fold point — see the folder/stats section and Pitfalls: on Continue, never
+  at Submit), clears `Review`, and advances to the next problem. Exhausting
+  the source here flips `IsFinished` — after the fold, so the final answer
+  records. No-op outside review.
 - **`SkipCurrentAsync`** — bypasses review and advances immediately, but
   only from the answering state (no-op while a `Review` is showing).
 
@@ -260,17 +293,26 @@ player's.
 **Source construction is factory-injected.** The controller takes a
 `ProblemSetSourceFactory` delegate (`DecisionFilterSet → IProblemSetSource`)
 rather than constructing a source directly. The client's `Program.cs`
-registers the delegate scoped as a lambda that reads the `PickedProblemSet`
-holder and builds a `WasmUploadedProblemSetSource` over the user's picked
+registers the delegate scoped as a lambda that reads the `PickedProblemFolder`
+holder and builds a `WasmUploadedProblemSetSource` over the picked folder's
 files, then reads the `ShuffleOption` holder and conditionally wraps that
 source — `shuffle.Enabled ? new ShuffledProblemSetSource(inner) : inner` (the
 unseeded ctor: shuffling is user-facing, reproducibility is a test-only
 concern). Both holders are read at **invocation** time (`StartAsync`), not at
-DI registration, so a file choice *and* a shuffle-toggle choice made before
+DI registration, so a folder choice *and* a shuffle-toggle choice made before
 Start take effect. Future
 alternatives (deployed bundles, curated libraries) plug in by registering a
 different factory; the controller is unchanged. Unit tests substitute a fake
 source the same way.
+
+**Lifetime-stats sink is ctor-injected.** The controller's second dependency
+is the `IDecisionStatsSink` (production: `QuizStatsStore`). It drives the sink
+at exactly two points: `ResetAndAdvanceAsync` calls `BeginQuizAsync()` — the
+one shared path under Start *and* Restart, so the stats context (document +
+write handle) binds there and nowhere else — and `ContinueAsync` calls
+`RecordAsync` with the just-reviewed submission. The sink never throws for
+stats trouble, so quiz flow is independent of whether stats are recording.
+Tests substitute a recording `FakeDecisionStatsSink`.
 
 **Filter ownership.** `StartAsync` takes a `FilterConfig` (the wire DTO
 emitted by `XgFilter_Razor.FilterPanel.OnFilterConfigChanged`), not a
@@ -340,53 +382,141 @@ synchronous run doesn't monopolise the single WASM thread.
 admission is governed entirely by the supplied `filters`; the source injects
 no policy of its own.
 
-### `PickedProblemSet` — the browser-picked source holder
+### Folder picking & lifetime stats
 
-The per-app (`Scoped`, one-per-tab in WASM) holder for the user's
-in-browser-picked `.xg` / `.xgp` files. `Home.razor` writes it
-(`Set` / `Clear`); the `ProblemSetSourceFactory` reads `Files` to build a
-`WasmUploadedProblemSetSource`. Files are buffered byte arrays (read out of
-each `IBrowserFile` once at pick time) so the source can re-enumerate on
-Restart.
+One "pick a folder" gesture on `Home`, served by whichever mechanism the
+browser offers — probed **at pick time**, per gesture:
 
-- **`Summary`** (`string?`) — the holder-owned label for the picked set:
-  the single file's name when one is picked, `"{N} files picked"` when
-  several are, `null` when none are. This is the **single source of truth**
-  for how a picked set describes itself. `Home.razor` renders it directly
-  rather than caching the text in a component field — the field reset to
-  null when the page was re-instantiated by in-app navigation, blanking the
-  summary while the file gate stayed satisfied. Deriving from the persisted
-  holder keeps the summary and the Start gate consistent by construction.
-  `PickedProblemSetTests` pins the three branches; the bUnit
-  `Home_PrePopulatedHolder_RendersSummaryAndEnablesStart` pins the
-  navigate-back render.
+- **File System Access** (`showDirectoryPicker`, Chromium): native directory
+  picker, then a `requestPermission({mode:'readwrite'})` on the picked handle.
+  Granted ⇒ `StatsSaveCapability.Enabled` — lifetime stats save into the
+  folder; declined ⇒ `PermissionDenied` — quiz runs read-only.
+- **`webkitdirectory` fallback** (everywhere else): a hidden
+  `<input type="file" webkitdirectory>` opened by the same button. Read-only
+  by construction ⇒ `BrowserUnsupported` — quiz runs without stats.
 
-The picked set is **in-memory only**: it survives in-app navigation but is
-reset by a full browser reload (the WASM runtime re-boots). Reload-survival
-is a deferred arc, matching `QuizController`.
+Either way the folder's **top-level** `.xg` / `.xgp` files (subfolders
+ignored; case-insensitive extension filter) are buffered into `PickedFile`s
+and the pick lands in `PickedProblemFolder`. The degrade ladder is total: no
+capability rung ever blocks the quiz — no-stats mode is fully functional.
+
+**`IFolderAccess` / `JsFolderAccess` / `folderAccess.js`.** The app's one
+gateway to the browser's folder facilities. `folderAccess.js` (the first
+app-authored JS, an ES module under the client's `wwwroot/js/`) owns the
+browser-side state; `JsFolderAccess` is the single C# type holding an
+`IJSObjectReference` (lazy, cached import); everything above it — pages, the
+stats store — depends on the `IFolderAccess` interface. Directory handles
+**never cross the interop boundary**: C# sees names, sizes, bytes, and
+booleans. Error signaling is by kind: expected outcomes are result values (a
+cancelled picker ⇒ `FolderPickOutcome.Cancelled`, a denied write ⇒ the
+capability enum, a missing stats file ⇒ `null` read); only unexpected browser
+failures throw (`JSException`), which callers catch and degrade on. Byte
+transfer is `IJSStreamReference` per file; `JsFolderAccess` enforces the
+`PickedFileLimits` caps against the enumerated *metadata* before any bytes
+move, and re-asserts the byte cap as `OpenReadStreamAsync(maxAllowedSize:)`.
+The fallback collection also happens JS-side because the top-level-only
+filter needs `webkitRelativePath`, which Blazor's `InputFile` never exposes —
+one reason the picker is a plain `<input>`, not `InputFile`.
+
+**Two-slot model — the mid-quiz-Clear ruling.** The JS module keeps a
+*picked* slot (latest pick: handle + name→handle/File map) and an *active*
+slot (the running quiz's stats handle). The stats context (document + write
+handle) **binds at Start/Restart, never at pick**: the controller's
+`ResetAndAdvanceAsync` drives `QuizStatsStore.BeginQuizAsync()`, which
+promotes picked → active (`promoteToActive`) and loads the stats file through
+the active handle. Home's Clear resets **only the picked slot**
+(`clearPicked`), so a mid-quiz Clear or re-pick never affects the running
+quiz's recording — recording changes only when the next Start re-binds.
+
+**`QuizStatsFile`** — the persistence SSOT: `FileName`
+(`bgquiz-stats.json`) and the one fixed `JsonSerializerOptions`
+(`WriteIndented = true` — whitespace is the only options-controlled aspect;
+the bundled converter pins names and ordering). The filename is passed *into*
+JS per call and rendered by `Help` from the constant — neither restates it.
+
+**`QuizStatsStore`** (scoped; aliased as `IDecisionStatsSink` so the
+controller's sink and the pages' status notices observe one instance; deps:
+`IFolderAccess`, `TimeProvider`, `PickedProblemFolder`) owns the
+`DecisionStatsDocument` lifecycle:
+
+- `BeginQuizAsync` (every Start/Restart) re-derives the whole context and
+  resets any prior failure state: capability ≠ `Enabled` or no promoted
+  handle ⇒ `Disabled`; `null` read ⇒ `Ready` over `Empty` (fresh corpus);
+  `JsonException` / read `JSException` ⇒ **`LoadFailed`** — this quiz records
+  nothing and the file is **never written** (the user's data stays untouched;
+  recovery is user-side, no overwrite offer).
+- `RecordAsync` (from `ContinueAsync`, only while `Ready`): fold via
+  `doc.Plus(submission, clock)` then **write back immediately** — per-fold
+  write-back is the crash-safety choice (small file; a lost tab loses no
+  answered problem). A write `JSException` keeps the folded document in
+  memory, flips `WriteFailed`, raises `StatusChanged`, and stops writing (no
+  per-answer error spam). The store **never throws** — Continue cannot fault
+  on stats trouble.
+- The clock is the DI `TimeProvider` (registered `TimeProvider.System` in
+  `Program.cs`), handed to the document's `Plus` — ambient time is never read.
+
+**Status surfacing** splits by context. Pick-time (Home, capability-based,
+all polite `role="status"` outcomes): stats-will-be-saved (`Enabled`, naming
+`QuizStatsFile.FileName`) / browser-can't-save (`BrowserUnsupported`) /
+declined-write (`PermissionDenied`) — plus the empty-folder outcome and the
+`role="alert"` pick-failure banner. Quiz-context (Quiz **and** Done — a
+failure on the final Continue lands on Done without ever showing Quiz's
+notice): `LoadFailed` as a polite status, `WriteFailed` as an assertive
+alert. Quiz-context notices scope to the active context and reset at the next
+Start's re-bind.
+
+### `PickedProblemFolder` — the picked-folder holder
+
+The per-app (`Scoped`, one-per-tab in WASM) holder for the picked folder:
+`Files` (buffered `PickedFile`s), `FolderName`, and the pick-time
+`StatsSaveCapability`. `Home.razor` writes it (`Set` / `Clear`); the
+`ProblemSetSourceFactory` reads `Files` to build a
+`WasmUploadedProblemSetSource`; `QuizStatsStore` reads `Capability` at its
+Start-time bind. Files are buffered byte arrays (read out of the browser once
+at pick time) so the source can re-enumerate on Restart. Carrying the
+capability here (not in a component field) keeps Home's stats status notice
+alive across navigate-back — the same holder-vs-field rationale as the start
+gate.
+
+- **`Summary`** (`string?`) — the holder-owned label:
+  `"'{FolderName}' — {N} problem file(s)"`, `null` when nothing is picked.
+  The **single source of truth** for how a pick describes itself; `Home`
+  renders it directly rather than caching text in a component field (the old
+  field desynced on navigate-back). `PickedProblemFolderTests` pins the
+  branches; the bUnit `Home_PrePopulatedHolder_RendersSummaryAndEnablesStart`
+  pins the navigate-back render.
+
+The pick is **in-memory only**: it survives in-app navigation but is reset by
+a full browser reload (the WASM runtime re-boots). Reload-survival is a
+deferred arc, matching `QuizController` — but note the stats *file* is not
+lost with it: it lives in the user's folder, and re-picking the folder
+resumes it.
 
 ### `PickedFileLimits` — the pick caps, single-sourced
 
-`internal static class PickedFileLimits` (Quiz/) holds the two caps the file
-picker applies — `MaxFileBytes` (50 MB, handed to `IBrowserFile.OpenReadStream`)
-and `MaxFileCount` (500, handed to `InputFileChangeEventArgs.GetMultipleFiles`) —
-plus `MaxFileMegabytes`, **derived** from `MaxFileBytes`.
+`internal static class PickedFileLimits` (Quiz/) holds the two caps the
+folder pick applies — `MaxFileBytes` (50 MB per file) and `MaxFileCount`
+(500 per pick) — plus `MaxFileMegabytes`, **derived** from `MaxFileBytes`.
 
-The caps have two consumers: `Home` *enforces* them, `Help` *documents* them.
-Leaving them as private constants on `Home` would have forced the help page to
-restate "50 MB" / "500" as prose, so raising a cap would silently make the
-documentation wrong. Deriving the megabyte figure (rather than writing `50`
-twice) is what makes the SSOT actually hold.
-`PageTests.Help_StatesFileCaps_SourcedFromTheConstantsHomeEnforces` asserts the
-rendered prose against the constants, not against the literals, so page and rule
-cannot drift. The constants stay `internal` (matching `Home.AppVersion`'s
-internal-static-not-a-literal precedent); the `.Client` csproj grants
-`InternalsVisibleTo` to the test project rather than widening them to public.
+The caps have two consumers: `JsFolderAccess` *enforces* them (against the
+enumerated metadata before any bytes cross the boundary; the byte cap is also
+re-asserted as the `IJSStreamReference.OpenReadStreamAsync` max on the actual
+transfer), `Help` *documents* them. Leaving them as private constants on the
+enforcing type would have forced the help page to restate "50 MB" / "500" as
+prose, so raising a cap would silently make the documentation wrong. Deriving
+the megabyte figure (rather than writing `50` twice) is what makes the SSOT
+actually hold.
+`PageTests.Help_StatesFileCaps_SourcedFromTheConstantsThePickEnforces` asserts
+the rendered prose against the constants, not against the literals, so page and
+rule cannot drift (and `Help_NamesTheStatsFile_FromTheConstantTheStoreWrites`
+extends the same discipline to `QuizStatsFile.FileName`). The constants stay
+`internal`; the `.Client` csproj grants `InternalsVisibleTo` to the test
+project rather than widening them to public.
 
 ### `AppliedFilter` — the filter half of the start gate
 
 The per-app (`Scoped`, one-per-tab in WASM) holder for the `FilterConfig` the
-user has **deliberately applied** on `Home` — the sibling of `PickedProblemSet`
+user has **deliberately applied** on `Home` — the sibling of `PickedProblemFolder`
 for the filter half of the start gate. `Home.razor` writes it: `Set(config)`
 when the panel raises `OnFilterConfigChanged` (Apply / Reset), `Clear()` when
 it raises `OnFilterDirty` (any control edit). `IsApplied` (= `Config is not
@@ -408,23 +538,23 @@ pins the holder; the bUnit `Home_PreAppliedFilterHolder_EnablesStartWithoutReApp
 and `Home_FiltersDirty_ClearsAppliedState_DisablesStart` pin the gate.
 
 In-memory only, reset on full reload — same deferred-arc caveat as its sibling
-holders (`PickedProblemSet`, `ShuffleOption`).
+holders (`PickedProblemFolder`, `ShuffleOption`).
 
 ### `ShuffleOption` — the "Shuffle order" toggle holder
 
 The per-app (`Scoped`, one-per-tab in WASM) holder for the **"Shuffle order"**
-checkbox on `Home` — a sibling of `PickedProblemSet` and `AppliedFilter`, same
+checkbox on `Home` — a sibling of `PickedProblemFolder` and `AppliedFilter`, same
 lifetime, so the toggle survives in-app navigation (`Home` is re-instantiated
 on navigate-back and re-reads `Enabled`). Surface is minimal: `bool Enabled`
 (private setter) + `Set(bool)`. `Home.razor` writes it on the checkbox's
 `@onchange`; the `ProblemSetSourceFactory` reads `Enabled` to decide whether to
 wrap the picked set in a `ShuffledProblemSetSource` — at **invocation** time
-(`StartAsync`), the same read-live-at-Start discipline as `PickedProblemSet`.
+(`StartAsync`), the same read-live-at-Start discipline as `PickedProblemFolder`.
 
 **Presentation-only, and off the start gate.** Shuffling changes only the
 *order* decisions are presented in, never which decisions are *admitted*, so it
 is deliberately **not** folded into `FilterConfig` and plays **no part in
-`CanStart`** (`AppliedFilter.IsApplied && ProblemSet.HasFiles`). Toggling it
+`CanStart`** (`AppliedFilter.IsApplied && Folder.HasFiles`). Toggling it
 does **not** dirty the start gate — `HandleShuffleToggled` only records the
 choice; there is no applied/dirty machinery the way `AppliedFilter` needs it,
 because a checkbox has no half-edited intermediate state. Every toggle is a
@@ -481,23 +611,33 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
 
 ### Pages
 
-- **`Home.razor`** — an `<InputFile multiple accept=".xg,.xgp">` file
-  picker above the `FilterPanel` from XgFilter_Razor. On pick, each browser
-  file is read out of its `IBrowserFile` stream once (per-file and per-pick
-  caps from `PickedFileLimits`, the same constants `Help` documents) and
-  buffered into a `PickedFile` (extension-bearing name +
-  bytes) in the per-app `PickedProblemSet`; the bytes are parsed in-browser
-  and never uploaded. The picked-set label renders straight from
-  `PickedProblemSet.Summary` (the SSOT — not a transient field), with a **Clear**
-  affordance beside it that calls `PickedProblemSet.Clear()`; the summary then
-  disappears and the file half of the gate re-disables Start by construction.
-  Clearing is safe mid-quiz and is left unguarded on purpose — the picked set is
-  read only at Start time (the source factory reads `Files` in `StartAsync`), so
-  a running quiz holds its own enumerator and is untouched
-  (`PageTests.Home_ClearPickedFiles_RemovesSummaryAndDisablesStart`). Start is
-  gated on **two** conditions, both read from per-app scoped holders so the
-  gate survives navigation: filters Applied at least once *and* at least one
-  file picked (`CanStart => AppliedFilter.IsApplied && ProblemSet.HasFiles`).
+- **`Home.razor`** — a **"Choose folder…"** button (`#pickProblemFolder`)
+  above the `FilterPanel` from XgFilter_Razor, plus a hidden, always-rendered
+  `<input type="file" webkitdirectory>` fallback the same button opens where
+  File System Access is absent (a plain `<input>`, not `InputFile` — the JS
+  module reads the FileList itself for `webkitRelativePath`; always in the DOM
+  so the e2e suite can drive it directly). The whole pick — mechanism probe,
+  permission, top-level enumeration, caps from `PickedFileLimits`, buffering —
+  runs behind `IFolderAccess`; the page never touches raw interop. The pick
+  lands in the per-app `PickedProblemFolder` (extension-bearing names +
+  bytes + pick-time `StatsSaveCapability`); the bytes are parsed in-browser
+  and never uploaded. A cancelled picker changes nothing, silently; an empty
+  folder shows a polite outcome notice and leaves the holder clear; the
+  capability drives the pick-time stats status notice (see Folder picking &
+  lifetime stats). The pick label renders straight from
+  `PickedProblemFolder.Summary` (the SSOT — not a transient field), with a
+  **Clear** affordance beside it (`Folder.Clear()` +
+  `FolderAccess.ClearPickedAsync()`); the summary then disappears and the
+  folder half of the gate re-disables Start by construction. Clearing is safe
+  mid-quiz and is left unguarded on purpose — the picked files are read only
+  at Start time (the source factory reads `Files` in `StartAsync`) and the
+  clear touches only the JS *picked* slot, so a running quiz keeps both its
+  enumerator and its bound stats context
+  (`PageTests.Home_ClearPickedFolder_RemovesSummaryDisablesStartClearsPickedSlotOnly`).
+  Start is gated on **two** conditions, both read from per-app scoped holders
+  so the gate survives navigation: filters Applied at least once *and* a
+  folder picked with at least one problem file
+  (`CanStart => AppliedFilter.IsApplied && Folder.HasFiles`).
   Below the filter panel sits a **"Shuffle order" checkbox** bound to the
   `ShuffleOption` holder (`HandleShuffleToggled` → `ShuffleOption.Set`). It is
   presentation-only and **not** part of `CanStart` — toggling it never gates or
@@ -506,9 +646,10 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   section).
   Subscribes to `OnFilterConfigChanged` → `AppliedFilter.Set` (the panel's
   emit-event after Apply) and `OnFilterDirty` → `AppliedFilter.Clear`; on
-  Start hands `AppliedFilter.Config` to `Controller.StartAsync`. Catches read
-  failures and start-time exceptions (`FilterConfig.Build()` validation
-  failure, source construction failure) and surfaces them as a banner instead
+  Start hands `AppliedFilter.Config` to `Controller.StartAsync`. Catches pick
+  failures (unexpected `JSException`, caps exceeded — the `_pickError` banner)
+  and start-time exceptions (`FilterConfig.Build()` validation failure, source
+  construction failure — the `_startError` banner) and surfaces them instead
   of faulting the WASM app. A *successful* Start that leaves the controller
   already `IsFinished` (the source admitted no showable problem) is caught the
   same way — the page stays on `/` and shows a neutral `role="status"` no-match
@@ -585,8 +726,13 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   constructs a genuinely new instance on the way back regardless of whether
   the incoming request describes the same problem (which is exactly what
   Redo returns to). "Show stats" navigates to `/stats`. Subscribes to
-  `Controller.StateChanged` in `OnInitialized`, unsubscribes in
-  `IDisposable.Dispose`; redirects to `/done` when `IsFinished` flips.
+  `Controller.StateChanged` **and** `QuizStatsStore.StatusChanged` in
+  `OnInitialized`, unsubscribes from both in `IDisposable.Dispose`; redirects
+  to `/done` when `IsFinished` flips. Above the board it renders the
+  active-context stats notices — `LoadFailed` as a polite `role="status"`
+  (quiz runs, file untouched), `WriteFailed` as an assertive `role="alert"`
+  (quiz continues, writes stopped); the store-status subscription is what
+  surfaces a mid-quiz write failure the moment it happens.
 - **`Stats.razor`** — read-only mid-quiz stats view: the same `ScorePanel` /
   `ScoreBreakdown` pair `Done` shows at the end, rendered here against the
   live, in-progress `QuizController` (`Heading="Progress so far"` /
@@ -599,13 +745,18 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   Direct nav with no quiz in progress bounces to `/`; with the quiz already
   finished, to `/done` — the same guards `Quiz` applies to itself.
 - **`Help.razor`** — end-user documentation: the six beats of the flow (pick
-  files → filters → answering → scoring → review → stats/done), a **Making a
-  checker play** section sitting inside the answering beat, and then the
-  semantics a user cannot discover by clicking around — pass positions are
-  auto-skipped and never shown, an off-list play counts as a skip rather than a
-  wrong answer, a cube position scores as two decisions, clicking the dice on
-  the solution diagram advances like Continue, and a full browser reload resets
-  everything (in-app navigation does not). The checker-play section documents
+  folder → filters → answering → scoring → review → stats/done), a **Making a
+  checker play** section sitting inside the answering beat, a **Lifetime
+  stats** section (what's saved and where, the Chromium requirement, only
+  answered problems count, cube counts as one decision there, an unreadable
+  file is left alone, and — extending the privacy stance — the stats file
+  never leaves the machine), and then the semantics a user cannot discover by
+  clicking around — pass positions are auto-skipped and never shown, an
+  off-list play counts as a skip rather than a wrong answer, a cube position
+  scores as two decisions in-quiz, clicking the dice on the solution diagram
+  advances like Continue, and a full browser reload resets everything (in-app
+  navigation does not — and the stats file survives reload in the user's own
+  folder). The checker-play section documents
   the one-click entry model the board actually ships, and is organized **by
   click target** — mirroring the component's own dispatch, so each bullet is
   exhaustive about one thing the user can click: a point you occupy
@@ -630,7 +781,8 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   bookmark. Only the "Back to quiz" button is conditional, on the exact
   predicate `Stats` guards with (`HasStarted && !IsFinished`). It does not
   subscribe to `StateChanged` — nothing changes while the user reads. The file
-  caps render from `PickedFileLimits`, never as literals. The host's
+  caps render from `PickedFileLimits` and the stats filename from
+  `QuizStatsFile.FileName`, never as literals. The host's
   `NavMenu` Help link is the **only** entry point; `Quiz`'s action row
   deliberately gets no "?" button, because its fixed height is load-bearing for
   board sizing.
@@ -648,7 +800,11 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   `QuizLiveMarker` lifecycle both ways: reaching it clears the marker
   (`OnInitializedAsync` — honest completion has no reload-reset to announce), and
   *Restart* re-sets it (a restarted quiz is live again, so a reload during it is
-  acknowledged like one during a fresh Start).
+  acknowledged like one during a fresh Start). Done also mirrors Quiz's
+  active-context stats notices (`LoadFailed` status / `WriteFailed` alert) —
+  a failure on the *final* Continue lands the user here without ever seeing
+  the in-quiz notice. No subscription needed: the status cannot change while
+  Done is shown (no folds happen here; Restart navigates away and re-binds).
 - **`ScorePanel.razor`** — compact status strip used by both Quiz and Done.
   Renders the `Total` segment: Submitted / Correct (with %) / Skipped /
   average equity loss; optional Source name and Heading. Kept Total-only to
@@ -701,8 +857,10 @@ so every route serves exactly one `<title>`.
 
 ### The e2e smoke gate (`BgQuiz_Blazor.E2eTests`)
 
-The primary-path smoke gate AGENTS.md mandates: seven scenarios driving the
-**published artifact in a real Chromium** via Microsoft.Playwright. It exists
+The primary-path smoke gate AGENTS.md mandates: scenarios driving the
+**published artifact in a real Chromium** via Microsoft.Playwright — the
+pick→done flows, the reload notice, the empty-filter banner, the nb-NO
+comma-decimal guard, 404/titles, and the stats-persistence suite. It exists
 because four production defects in a row — inert titles, blank 404 bodies, the
 phantom auth gate, the silent 0/0 empty-filter bounce — were
 invisible-by-construction to both existing layers: bUnit renders components in
@@ -722,10 +880,40 @@ never boots). The publish output carries three `runtimeconfig.json`; the host's
 `BgQuiz_Blazor.dll` is the entry point.
 
 **Base-URL seam.** `BGQUIZ_E2E_BASE_URL` overrides the target: when set, the
-suite skips publish/spawn and drives that URL — the same seven scenarios can
+suite skips publish/spawn and drives that URL — the same scenarios can
 point at the deployed site (`https://bgquiz-gobetzu.azurewebsites.net`) or at a
 locally spawned instance kept alive across iterations. The seam is deliberately
 just the URL; no further live-mode plumbing exists.
+
+**Folder picks.** The WASM boot marker is Home's `#pickProblemFolder` button.
+`PickFixtureAsync` stages each committed fixture into a fresh temp directory
+and hands the *directory* to the hidden `#problemFolderFallback`
+`webkitdirectory` input via `SetInputFilesAsync` — a genuine directory upload
+through the app's real fallback collection path (top-level filter, buffering,
+holder), no native dialog involved. Staged dirs are cleaned per test. The
+migrated flow scenarios therefore run as no-stats quizzes by construction;
+that's correct — they assert quiz flow, not stats.
+
+**The FS-Access stats path** (`StatsPersistenceTests`) rides the base class's
+second customization seam, `ContextInitScript` (applied via
+`AddInitScriptAsync` *before* the page is created — parallel to the
+`ContextOptions` locale seam): Playwright cannot drive the native directory
+picker or its permission prompts, so the suite injects a fake
+`window.showDirectoryPicker` — a scripted directory handle (async `values()`
+enumeration over the real fixture's bytes, `getFileHandle`, `createWritable`
+capturing writes, scripted permissions). The faking stops at the browser-API
+boundary: the app ships **no test seams**, and everything from the app's own
+`folderAccess.js` inward runs for real — if the module's use of the File
+System Access surface drifts from what the fake mirrors, the pick fails
+visibly and the scenarios fail loudly. Per-scenario variation (corrupt stats
+file, denied permission) is a page-level init script overriding the fake's
+config object — context scripts run first, so the override wins. Scenarios
+pin: one fold ⇒ one captured write with `schemaVersion` 1, one decision,
+cube-as-one-decision tally, indented; corrupt file ⇒ polite notice + **zero
+writes**; denied ⇒ denied notice + zero writes; and the fallback pick's
+"can't save stats" notice. The stats filename and wire property names are
+deliberately hardcoded in the suite — it is the consumer-side pin of those
+contracts (the e2e project references no app assembly by design).
 
 **Fail loud, never skip.** Missing Playwright browsers, a missing committed
 fixture, a publish failure, a port-bind or readiness failure — each fails the
@@ -781,8 +969,11 @@ republishes take seconds.
 
 This is an application, not a library — no exported types or HTTP
 endpoints, and the `.Client` assembly enforces that at the type level: every
-plain-C# client type (`QuizController`, the scoped holders `PickedProblemSet` /
-`AppliedFilter` / `ShuffleOption` / `QuizLiveMarker`, `PickedFile`,
+plain-C# client type (`QuizController`, the scoped holders
+`PickedProblemFolder` / `AppliedFilter` / `ShuffleOption` / `QuizLiveMarker`,
+`PickedFile`, `IFolderAccess` / `JsFolderAccess` (+ its wire DTOs),
+`StatsSaveCapability`, `FolderPickOutcome`, `QuizStatsFile`,
+`IDecisionStatsSink` / `QuizStatsStore` / `QuizStatsStatus`,
 `WasmUploadedProblemSetSource`, `ProblemReview`, and the `ProblemSetSourceFactory`
 delegate) is `internal`, reachable by the test project only through the
 `InternalsVisibleTo` grant. The only `public` types are the Razor components — the
@@ -817,10 +1008,11 @@ the route map:
   Architecture section.
 - **State resets on full reload, not on in-app navigation.** "Scoped" in
   WASM is one instance per loaded app (one tab), so `QuizController`,
-  `PickedProblemSet`, `AppliedFilter`, and `ShuffleOption` survive `/` ↔
+  `PickedProblemFolder`, `AppliedFilter`, and `ShuffleOption` survive `/` ↔
   `/quiz` ↔ `/done` navigation but a full browser reload re-boots the runtime
-  and loses everything (picked files, applied filter, shuffle choice, quiz
-  progress). Reload-survival
+  and loses everything (picked folder, applied filter, shuffle choice, quiz
+  progress — though not the stats *file*, which lives on disk in the user's
+  folder and resumes on re-pick). Reload-survival
   is a deferred arc — don't assume reload resumes. Anything that *should*
   survive navigation belongs in a scoped holder, not a component field —
   the two halves of Home's start gate were moved off transient fields for
@@ -868,8 +1060,9 @@ the route map:
   regression test `PageTests.Home_FilterPanelEmitsConfig_EnablesStartButton`
   guards against this trap.
 - **Client plain-C# types are `internal`; only Razor components are `public`.**
-  The controller, the four scoped holders, `PickedFile`,
-  `WasmUploadedProblemSetSource`, `ProblemReview`, and the
+  The controller, the scoped holders, `PickedFile`, the folder/stats types
+  (`IFolderAccess` / `JsFolderAccess`, `QuizStatsFile`, `QuizStatsStore` and
+  friends), `WasmUploadedProblemSetSource`, `ProblemReview`, and the
   `ProblemSetSourceFactory` delegate are all `internal`, with `InternalsVisibleTo`
   granting the test project access. Don't widen one to `public`: the tests already
   see it through the IVT grant, and a page reaches it through `@inject` — which
@@ -903,12 +1096,42 @@ the route map:
   discriminates `.xg` vs `.xgp` from the file-name extension to stamp the
   `DecisionId`, so an extensionless `PickedFile.FileName` is a usage error
   the iterator throws `ArgumentException` on when it reaches that entry —
-  lazily, mid-enumeration, not at construction. The `Home` pick handler
-  preserves `IBrowserFile.Name` (extension-bearing) precisely for this;
+  lazily, mid-enumeration, not at construction. Both of `folderAccess.js`'s
+  pick paths preserve the browser's extension-bearing entry names precisely
+  for this (`JsFolderAccessTests` pins the carry;
   `WasmUploadedProblemSetSourceTests.EnumerateAsync_ExtensionlessName_…`
-  guards the failure mode. Start-time exceptions (this, plus
+  guards the failure mode). Start-time exceptions (this, plus
   `FilterConfig.Build()` validation) surface on `Controller.StartAsync` and
   `Home.razor` shows them as a banner rather than faulting the app.
+- **Lifetime stats fold on Continue, never at Submit.** `RedoAsync` pops the
+  last submission *while `Review` is set*, and `DecisionStatsDocument` has no
+  `Minus` — folding at Submit would let a redone answer fold twice with no way
+  back. An answer is final only when the user moves forward past it
+  (`ContinueAsync`), and the deliberate flip side is that an answer abandoned
+  in review (tab close, Start/Restart without Continue) never folds — don't
+  "fix" that into a double-fold hazard. Skips, off-list plays, and
+  auto-skipped pass positions never reach the sink at all (producer contract).
+- **Never write over a stats file that failed to parse.** A load
+  `JsonException` (corrupt, foreign, or newer-schema file) flips
+  `QuizStatsStore` to `LoadFailed`, which is terminal *for that quiz*: no
+  records, and — the actual guarantee — **zero writes**, so the user's
+  existing data survives whatever went wrong. It resets only at the next
+  Start's re-bind. `QuizStatsStoreTests` and the e2e corrupt-file scenario
+  both pin the zero-writes half; keep them.
+- **The stats context binds at Start/Restart (two-slot promote) — mid-quiz
+  Clear/re-pick must never affect the running quiz's recording.** The JS
+  module's *picked* slot belongs to Home (pick/Clear); the *active* slot
+  belongs to the running quiz, bound only by the controller's
+  `ResetAndAdvanceAsync` via `promoteToActive`. Wiring Clear (or a new pick)
+  to touch the active slot — or moving the bind to pick time — re-opens the
+  bug this shape exists to prevent: a user tidying up Home mid-quiz silently
+  killing (or retargeting!) the quiz's stats recording.
+- **Browser directory handles live in JS module state only.**
+  `FileSystemDirectoryHandle` / `File` objects cannot round-trip the interop
+  boundary; `folderAccess.js` owns them and C# sees names/bytes/booleans
+  through `IFolderAccess`. Don't try to hold a handle (or an
+  `IJSObjectReference` to one) in a C# holder — `JsFolderAccess` is the one
+  type that touches interop, and pages depend on the interface.
 - **The WASM dependency closure must stay native-free.** Everything the
   `.Client` references ships into the browser-wasm runtime, which has no
   native interop. Reference the `BackgammonDiagram_Lib` **core** (native-free
@@ -1029,17 +1252,25 @@ the route map:
 
 ## Subproject-internal next steps
 
-- **Phase 2+ design.** Answer tracking with weighted re-recurrence on
-  wrong answers; the three two-agent modes (user-vs-user, user-vs-bot,
-  bot-vs-bot tournament). All three queue behind the umbrella's
-  decision-identification scheme — Phase 2+ needs stable per-decision
-  IDs to track correctness over time.
+- **Phase 2+ design.** Weighted re-recurrence on wrong answers — the
+  persistent per-decision lifetime record now exists (`bgquiz-stats.json` via
+  `DecisionStats` / `DecisionStatsDocument`, keyed by the stable
+  `DecisionId`), so the tracking substrate is in place; what remains is the
+  scheduling policy that *reads* it (e.g. bias problem order toward
+  low-accuracy / stale decisions). Also the three two-agent modes
+  (user-vs-user, user-vs-bot, bot-vs-bot tournament).
 - **Reload-resume (persistence).** A full browser reload re-boots the WASM
-  runtime and loses the picked files and quiz progress. Surviving a reload
+  runtime and loses the picked folder and quiz progress. Surviving a reload
   needs the picked bytes + decisions/progress persisted client-side
   (IndexedDB — `localStorage` is too small for buffered `.xg` bytes); this
-  is a deferred arc of its own. Until then, reload-reset is the intended
-  default.
+  is a deferred arc of its own, distinct from the stats file (which lives on
+  the user's disk and already survives reload via re-pick). Until then,
+  reload-reset is the intended default.
+- **Mobile folder picking.** Logged under the umbrella's mobile-assessment
+  item: `webkitdirectory` is weak-to-absent on mobile browsers (iOS Safari
+  and many Android browsers offer no real directory upload), so on phones the
+  fallback pick — and with it the whole app's pick gesture — may not work at
+  all. Assess alongside the general mobile-layout pass; not solved here.
 - **Done-page retrospective.** Per-problem review now ships *in-quiz* (the
   review state's solution diagram shows the best play/action, the equity gap,
   and — for cube — which half the user got wrong). What's still missing is a

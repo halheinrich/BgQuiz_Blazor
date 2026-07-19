@@ -9,7 +9,7 @@ using XgFilter_Lib.Filtering;
 /// <para>
 /// Lifetime: <b>Scoped</b> — in the WebAssembly client that resolves to one
 /// instance per loaded app (one tab), the same lifetime as
-/// <see cref="PickedProblemSet"/> and <see cref="QuizController"/>. It holds the
+/// <see cref="PickedProblemFolder"/> and <see cref="QuizController"/>. It holds the
 /// <see cref="FilterConfig"/> captured when the user clicks <i>Apply Filter</i>,
 /// so "filters were applied at least once this session" survives in-app
 /// navigation: when <c>Home</c> is re-instantiated on navigate-back the gate is
@@ -31,7 +31,7 @@ using XgFilter_Lib.Filtering;
 /// In-memory only: the applied state survives in-app navigation but is reset by
 /// a full browser reload, which re-boots the WASM runtime. Persisting it across
 /// reloads is a deferred phase and out of scope by design — reload-reset matches
-/// <see cref="PickedProblemSet"/> and <see cref="QuizController"/>.
+/// <see cref="PickedProblemFolder"/> and <see cref="QuizController"/>.
 /// </para>
 /// </summary>
 internal sealed class AppliedFilter

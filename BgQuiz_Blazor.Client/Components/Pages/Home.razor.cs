@@ -1,37 +1,44 @@
 using System.Reflection;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Forms;
 using XgFilter_Lib.Filtering;
 
 namespace BgQuiz_Blazor.Client.Components.Pages;
 
 /// <summary>
-/// Landing page: problem-set file selection, filter selection, and the
+/// Landing page: problem-set folder selection, filter selection, and the
 /// quiz-start gate.
 ///
 /// <para>
-/// The user picks one or more local <c>.xg</c> / <c>.xgp</c> files via an
-/// <see cref="InputFile"/>. Each picked file is read out of its
-/// <c>IBrowserFile</c> stream once and buffered into a <see cref="PickedFile"/>
-/// (bytes + extension-bearing name) held in the per-app
-/// <see cref="PickedProblemSet"/>; the bytes are parsed entirely in the browser
-/// and never leave it. Buffering up front is what lets the source re-enumerate
-/// on Restart.
+/// The user picks a local folder with one "Choose folder…" gesture, served by
+/// whichever mechanism the browser offers (probed at pick time through
+/// <see cref="IFolderAccess"/>): the File System Access directory picker where
+/// available — which can also grant the writable handle that enables lifetime
+/// stats — or the hidden <c>webkitdirectory</c> input elsewhere (read-only; the
+/// quiz runs without stats). Either way the folder's top-level <c>.xg</c> /
+/// <c>.xgp</c> files are buffered into <see cref="PickedFile"/>s (bytes +
+/// extension-bearing names) held in the per-app
+/// <see cref="PickedProblemFolder"/>; the bytes are parsed entirely in the
+/// browser and never leave it. Buffering up front is what lets the source
+/// re-enumerate on Restart. The pick-time
+/// <see cref="StatsSaveCapability"/> verdict rides on the holder and drives
+/// this page's stats status notice; the stats lifecycle itself is not this
+/// page's concern — the controller binds the stats context at Start.
 /// </para>
 ///
 /// <para>
-/// Start is gated on two conditions: the filters Applied at least once and at
-/// least one file picked. Both halves live in per-app scoped holders
-/// (<see cref="AppliedFilter"/> and <see cref="PickedProblemSet"/>) rather than
-/// transient component fields, so the gate survives in-app navigation — when the
-/// page is re-instantiated on navigate-back it re-derives from the holders
-/// instead of resetting. On Start the applied <see cref="FilterConfig"/> is
-/// handed to the <see cref="QuizController"/>, whose source factory builds a
-/// <see cref="WasmUploadedProblemSetSource"/> over the picked set, and the app
-/// navigates to <c>/quiz</c>. Read failures and
+/// Start is gated on two conditions: the filters Applied at least once and a
+/// folder picked with at least one problem file. Both halves live in per-app
+/// scoped holders (<see cref="AppliedFilter"/> and
+/// <see cref="PickedProblemFolder"/>) rather than transient component fields,
+/// so the gate survives in-app navigation — when the page is re-instantiated
+/// on navigate-back it re-derives from the holders instead of resetting. On
+/// Start the applied <see cref="FilterConfig"/> is handed to the
+/// <see cref="QuizController"/>, whose source factory builds a
+/// <see cref="WasmUploadedProblemSetSource"/> over the picked files, and the
+/// app navigates to <c>/quiz</c>. Pick failures and
 /// <see cref="FilterConfig.Build"/> / source-construction failures are caught
-/// and surfaced as a banner rather than faulting the WebAssembly app.
+/// and surfaced as banners rather than faulting the WebAssembly app.
 /// </para>
 ///
 /// <para>
@@ -60,6 +67,27 @@ public partial class Home : ComponentBase
     private string? _startError;
 
     /// <summary>
+    /// Sibling of <see cref="_startError"/> for pick failures — an unexpected
+    /// browser error or a folder past the <see cref="PickedFileLimits"/> caps.
+    /// A per-visit failure banner (assertive), like the start error.
+    /// </summary>
+    private string? _pickError;
+
+    /// <summary>
+    /// Set when a completed pick yielded no top-level <c>.xg</c> / <c>.xgp</c>
+    /// files — an outcome (polite notice), not a failure: the holder stays
+    /// clear and the Start gate stays disabled. Per-visit, so a component field.
+    /// </summary>
+    private bool _emptyFolderNotice;
+
+    /// <summary>
+    /// The hidden <c>webkitdirectory</c> input the fallback mechanism drives.
+    /// The JS module reads its FileList directly (for <c>webkitRelativePath</c>);
+    /// this reference is only ever handed across <see cref="IFolderAccess"/>.
+    /// </summary>
+    private ElementReference _fallbackInput;
+
+    /// <summary>
     /// Sibling of <see cref="_startError"/> for the empty-result <i>outcome</i> —
     /// distinct from the failure the error banner reports. A successful
     /// <see cref="QuizController.StartAsync"/> that leaves the controller already
@@ -80,7 +108,7 @@ public partial class Home : ComponentBase
     /// </summary>
     private bool _showReloadNotice;
 
-    private bool CanStart => AppliedFilter.IsApplied && ProblemSet.HasFiles;
+    private bool CanStart => AppliedFilter.IsApplied && Folder.HasFiles;
 
     /// <summary>
     /// On boot, surface the reload-reset notice when the marker says a quiz was
@@ -105,47 +133,95 @@ public partial class Home : ComponentBase
         }
     }
 
-    private async Task HandleFilesPickedAsync(InputFileChangeEventArgs e)
+    /// <summary>
+    /// The one "pick a folder" gesture. Probes the mechanism at pick time:
+    /// with File System Access, the whole pick (picker, permission,
+    /// enumeration, buffering) completes inside <see cref="IFolderAccess"/>;
+    /// without it, this click only opens the hidden <c>webkitdirectory</c>
+    /// input's picker and the pick arrives later via that input's own change
+    /// event (<see cref="HandleFallbackPickedAsync"/>).
+    /// </summary>
+    private async Task PickFolderAsync()
     {
-        _startError = null;
-        _noMatchNotice = null;
+        ClearPickNotices();
         try
         {
-            var files = e.GetMultipleFiles(PickedFileLimits.MaxFileCount);
-            var picked = new List<PickedFile>(files.Count);
-            foreach (var file in files)
+            if (await FolderAccess.SupportsDirectoryPickerAsync())
             {
-                // Read the browser stream once, now, into memory: the source
-                // re-enumerates (Restart) from these bytes, so it must not depend
-                // on the IBrowserFile stream still being open later.
-                using var ms = new MemoryStream();
-                await file.OpenReadStream(PickedFileLimits.MaxFileBytes).CopyToAsync(ms);
-                // file.Name carries the extension — required by the stream
-                // iterator's DecisionId stamping (see XgFileStream).
-                picked.Add(new PickedFile(file.Name, ms.ToArray()));
+                ApplyPickOutcome(await FolderAccess.PickFolderAsync());
             }
-
-            // The rendered summary derives from ProblemSet.Summary, so setting
-            // the holder is all that's needed — no transient field to keep in
-            // sync (that desynced on navigate-back, when Home re-instantiated).
-            ProblemSet.Set(picked);
+            else
+            {
+                await FolderAccess.TriggerFallbackPickerAsync(_fallbackInput);
+            }
         }
         catch (Exception ex)
         {
-            ProblemSet.Clear();
-            _startError = $"Could not read the selected file(s): {ex.Message}";
+            Folder.Clear();
+            _pickError = ex.Message;
         }
     }
 
-    private void ClearPickedFiles()
+    /// <summary>
+    /// The fallback pick landing: the hidden input's FileList is collected and
+    /// filtered by the JS module (top-level <c>.xg</c> / <c>.xgp</c> only).
+    /// Capability is always <see cref="StatsSaveCapability.BrowserUnsupported"/>
+    /// on this mechanism — no writable handle exists.
+    /// </summary>
+    private async Task HandleFallbackPickedAsync(ChangeEventArgs _)
     {
-        // Discards the picked set; the Start gate re-disables by construction
-        // (HasFiles goes false) and the holder-derived summary disappears.
-        // Safe to call mid-quiz: the picked set is read only at Start time (the
-        // source factory reads ProblemSet.Files in StartAsync), so a running
-        // quiz already holds its own source enumerator and is untouched — no
-        // guard needed here.
-        ProblemSet.Clear();
+        ClearPickNotices();
+        try
+        {
+            ApplyPickOutcome(await FolderAccess.CollectFallbackAsync(_fallbackInput));
+        }
+        catch (Exception ex)
+        {
+            Folder.Clear();
+            _pickError = ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// The shared landing for both mechanisms' outcomes. A cancelled picker
+    /// changes nothing (no notice — the user changed their mind); an empty
+    /// folder surfaces the polite outcome notice and leaves the holder clear;
+    /// otherwise the holder takes the pick, and the rendered summary + stats
+    /// status notice derive from it (no transient field to keep in sync — that
+    /// desynced on navigate-back, when Home re-instantiated).
+    /// </summary>
+    private void ApplyPickOutcome(FolderPickOutcome outcome)
+    {
+        if (outcome.Cancelled) return;
+
+        if (outcome.Files.Count == 0)
+        {
+            Folder.Clear();
+            _emptyFolderNotice = true;
+            return;
+        }
+
+        Folder.Set(outcome.DirectoryName, outcome.Files, outcome.Capability);
+    }
+
+    private async Task ClearPickedFolderAsync()
+    {
+        // Discards the pick; the Start gate re-disables by construction
+        // (HasFiles goes false) and the holder-derived summary and stats
+        // notice disappear. Safe to call mid-quiz: the picked files are read
+        // only at Start time (the source factory reads Folder.Files in
+        // StartAsync) and the JS side clears the PICKED slot only — a running
+        // quiz's stats context lives in the ACTIVE slot, bound at Start, so
+        // recording continues untouched until the next Start re-binds.
+        Folder.Clear();
+        await FolderAccess.ClearPickedAsync();
+        ClearPickNotices();
+    }
+
+    private void ClearPickNotices()
+    {
+        _pickError = null;
+        _emptyFolderNotice = false;
         _startError = null;
         _noMatchNotice = null;
     }

@@ -13,14 +13,34 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 
+// The clock seam: BgGame_Lib's DecisionStatsDocument folds resolve GetUtcNow
+// from a TimeProvider, so the app hands the system clock in exactly once here
+// and nothing ever reads ambient time (tests substitute a fixed provider).
+builder.Services.AddSingleton(TimeProvider.System);
+
 // Per-app quiz state. In the WASM client "scoped" resolves to one instance per
 // loaded app (one tab), so state survives in-app navigation and resets only on a
 // full reload — see QuizController's lifetime docs. Pages observe via StateChanged.
 builder.Services.AddScoped<QuizController>();
 
-// Per-app holder for the user's browser-picked files; Home writes it, the source
-// factory below reads it at quiz-start.
-builder.Services.AddScoped<PickedProblemSet>();
+// The one gateway to the browser's folder facilities (folderAccess.js): both
+// pick mechanisms, buffered file reads, and the stats file's read/write. Pages
+// and the stats store depend on the interface; directory handles stay in JS
+// module state and never cross the interop boundary.
+builder.Services.AddScoped<IFolderAccess, JsFolderAccess>();
+
+// Per-app holder for the user's picked problem folder (files + pick-time
+// stats-saving capability); Home writes it, the source factory below reads it
+// at quiz-start, the stats store reads the capability at its Start-time bind.
+builder.Services.AddScoped<PickedProblemFolder>();
+
+// Lifetime-stats document lifecycle: binds the picked folder's stats context at
+// every quiz Start/Restart (the promote), folds each finalized submission, and
+// writes bgquiz-stats.json back after every fold. Registered once and aliased
+// as IDecisionStatsSink so the controller's sink and the pages' status notices
+// observe the same instance.
+builder.Services.AddScoped<QuizStatsStore>();
+builder.Services.AddScoped<IDecisionStatsSink>(sp => sp.GetRequiredService<QuizStatsStore>());
 
 // Per-app holder for the filter half of Home's start gate: the config the user
 // deliberately applied. Scoped so the gate survives in-app navigation (Home is
@@ -49,7 +69,7 @@ builder.Services.AddScoped<QuizLiveMarker>();
 // ShuffledProblemSetSource's seeded ctor), never user-facing.
 builder.Services.AddScoped<ProblemSetSourceFactory>(sp =>
 {
-    var picked = sp.GetRequiredService<PickedProblemSet>();
+    var picked = sp.GetRequiredService<PickedProblemFolder>();
     var shuffle = sp.GetRequiredService<ShuffleOption>();
     var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
     return filters =>

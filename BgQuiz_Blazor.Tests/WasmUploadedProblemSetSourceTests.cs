@@ -84,9 +84,10 @@ public class WasmUploadedProblemSetSourceTests
     {
         // The stream iterator's DecisionId stamping discriminates the format from
         // the file-name extension, so a name without one is a usage error the
-        // iterator rejects when it reaches that entry. The InputFile handler
-        // preserves IBrowserFile.Name (extension-bearing) precisely to satisfy
-        // this; this guards the failure mode if a name ever loses its extension.
+        // iterator rejects when it reaches that entry. Both folder-pick paths
+        // preserve the browser's extension-bearing entry names precisely to
+        // satisfy this; this guards the failure mode if a name ever loses its
+        // extension.
         var src = MakeSource([new PickedFile("noextension", [1, 2, 3])]);
 
         await Assert.ThrowsAsync<ArgumentException>(async () =>
@@ -168,12 +169,12 @@ public class WasmUploadedProblemSetSourceTests
         var files = CorpusFiles();
         if (files.Count == 0) return;
 
-        var picked = new PickedProblemSet();
-        picked.Set(files);
+        var picked = new PickedProblemFolder();
+        picked.Set("corpus", files, StatsSaveCapability.BrowserUnsupported);
 
         BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory =
             filters => new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance);
-        var controller = new QuizController(factory);
+        var controller = new QuizController(factory, new FakeDecisionStatsSink());
 
         await controller.StartAsync(new FilterConfig());
 
@@ -195,8 +196,8 @@ public class WasmUploadedProblemSetSourceTests
         var files = CorpusFiles();
         if (files.Count == 0) return;
 
-        var picked = new PickedProblemSet();
-        picked.Set(files);
+        var picked = new PickedProblemFolder();
+        picked.Set("corpus", files, StatsSaveCapability.BrowserUnsupported);
         var shuffle = new ShuffleOption();
 
         BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory = filters =>

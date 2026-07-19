@@ -5,7 +5,8 @@
 @using XgFilter_Razor.Components
 @using XgFilter_Lib.Filtering
 
-@inject PickedProblemSet ProblemSet
+@inject IFolderAccess FolderAccess
+@inject PickedProblemFolder Folder
 @inject AppliedFilter AppliedFilter
 @inject ShuffleOption ShuffleOption
 @inject NavigationManager Nav
@@ -29,22 +30,74 @@
     }
 
     <div class="mb-3" style="max-width:800px">
-        <label class="form-label" for="problemSetFiles">
-            Problem-set files
+        <label class="form-label" for="pickProblemFolder">
+            Problem-set folder
             <small class="text-muted">
-                (your local .xg / .xgp files — parsed in your browser, never uploaded)
+                (a local folder of .xg / .xgp files — parsed in your browser, never uploaded)
             </small>
         </label>
-        <InputFile id="problemSetFiles" class="form-control"
-                   OnChange="HandleFilesPickedAsync" multiple accept=".xg,.xgp" />
-        @if (!string.IsNullOrEmpty(ProblemSet.Summary))
+        <div>
+            <button type="button" id="pickProblemFolder" class="btn btn-outline-primary"
+                    @onclick="PickFolderAsync">
+                Choose folder…
+            </button>
+        </div>
+        @* Fallback picker for browsers without showDirectoryPicker: a hidden
+           webkitdirectory input, opened by the same button. Always rendered —
+           not conditional on the capability probe — so the e2e suite can drive
+           it directly and the probe stays a pick-time concern. The FileList is
+           read by the JS module (Blazor's InputFile can't see
+           webkitRelativePath, which the top-level-only filter needs). *@
+        <input type="file" id="problemFolderFallback" webkitdirectory class="d-none"
+               @ref="_fallbackInput" @onchange="HandleFallbackPickedAsync" />
+        @if (!string.IsNullOrEmpty(Folder.Summary))
         {
             <div class="text-muted small mt-1 d-flex align-items-center gap-2">
-                <span>@ProblemSet.Summary</span>
+                <span>@Folder.Summary</span>
                 <button type="button" class="btn btn-link btn-sm p-0 align-baseline"
-                        @onclick="ClearPickedFiles">
+                        @onclick="ClearPickedFolderAsync">
                     Clear
                 </button>
+            </div>
+        }
+        @* Pick-time stats status: which rung of the degrade ladder this folder
+           landed on. Outcomes the user should understand, not errors — polite
+           role="status" like the other outcome notices. Rendered only while a
+           pick is held (the capability is meaningless otherwise). *@
+        @if (Folder.HasFiles)
+        {
+            @switch (Folder.Capability)
+            {
+                case StatsSaveCapability.Enabled:
+                    <div class="alert alert-info mt-2" role="status">
+                        Your lifetime quiz stats will be saved to
+                        <strong>@QuizStatsFile.FileName</strong> in this folder.
+                    </div>
+                    break;
+                case StatsSaveCapability.BrowserUnsupported:
+                    <div class="alert alert-warning mt-2" role="status">
+                        Your browser can't save quiz stats — the quiz runs without them.
+                    </div>
+                    break;
+                case StatsSaveCapability.PermissionDenied:
+                    <div class="alert alert-warning mt-2" role="status">
+                        You declined write access — the quiz runs, but stats won't be saved.
+                    </div>
+                    break;
+            }
+        }
+        @* Empty-folder outcome (not a failure): a completed pick that yielded
+           no problem files. Polite, like the no-match notice. *@
+        @if (_emptyFolderNotice)
+        {
+            <div class="alert alert-warning mt-2" role="status">
+                No .xg / .xgp files found directly in that folder.
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(_pickError))
+        {
+            <div class="alert alert-danger mt-2" role="alert">
+                <strong>Could not read the folder:</strong> @_pickError
             </div>
         }
     </div>
@@ -71,9 +124,9 @@
     {
         <small class="text-muted ms-2">Apply the filters above to enable Start.</small>
     }
-    else if (!ProblemSet.HasFiles)
+    else if (!Folder.HasFiles)
     {
-        <small class="text-muted ms-2">Pick one or more .xg / .xgp files to enable Start.</small>
+        <small class="text-muted ms-2">Pick a folder containing .xg / .xgp files to enable Start.</small>
     }
 
     @if (!string.IsNullOrEmpty(_startError))

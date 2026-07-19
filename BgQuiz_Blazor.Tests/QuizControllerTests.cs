@@ -11,7 +11,21 @@ public class QuizControllerTests
     private static QuizController Make(params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
-        return new QuizController(_ => fake);
+        return new QuizController(_ => fake, new FakeDecisionStatsSink());
+    }
+
+    /// <summary>
+    /// Constructs a controller over a recording stats sink, exposed via
+    /// <paramref name="sink"/>. Lets tests assert exactly which submissions
+    /// the controller folded into lifetime stats — and which flows folded
+    /// nothing.
+    /// </summary>
+    private static QuizController MakeWithSink(
+        out FakeDecisionStatsSink sink, params BgDecisionData[] items)
+    {
+        var fake = new FakeProblemSetSource(items);
+        sink = new FakeDecisionStatsSink();
+        return new QuizController(_ => fake, sink);
     }
 
     /// <summary>
@@ -26,7 +40,7 @@ public class QuizControllerTests
         var fake = new FakeProblemSetSource(items);
         DecisionFilterSet? holder = null;
         captured = () => holder;
-        return new QuizController(set => { holder = set; return fake; });
+        return new QuizController(set => { holder = set; return fake; }, new FakeDecisionStatsSink());
     }
 
     private static Play BestPlay() => TestFixtures.MakePlay((8, 5), (8, 5));
@@ -40,7 +54,15 @@ public class QuizControllerTests
     [Fact]
     public void Ctor_NullFactory_Throws()
     {
-        Assert.Throws<ArgumentNullException>(() => new QuizController(null!));
+        Assert.Throws<ArgumentNullException>(
+            () => new QuizController(null!, new FakeDecisionStatsSink()));
+    }
+
+    [Fact]
+    public void Ctor_NullStatsSink_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => new QuizController(_ => new FakeProblemSetSource([]), null!));
     }
 
     [Fact]
@@ -896,13 +918,173 @@ public class QuizControllerTests
     {
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var fake = new FakeProblemSetSource([d]);
-        var c = new QuizController(_ => fake);
+        var c = new QuizController(_ => fake, new FakeDecisionStatsSink());
 
         await c.StartAsync(new FilterConfig());
         Assert.Equal(1, fake.EnumerateCallCount);
 
         await c.RestartAsync();
         Assert.Equal(2, fake.EnumerateCallCount);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Lifetime-stats sink — bind at Start/Restart, fold on leaving review
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task StartAsync_BindsStatsContextOnce()
+    {
+        var c = MakeWithSink(out var sink, TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+
+        await c.StartAsync(new FilterConfig());
+
+        Assert.Equal(1, sink.BeginQuizCallCount);
+        Assert.Equal(0, sink.TotalFolds); // binding never folds
+    }
+
+    [Fact]
+    public async Task RestartAsync_RebindsStatsContext()
+    {
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+
+        await c.RestartAsync();
+
+        Assert.Equal(2, sink.BeginQuizCallCount);
+    }
+
+    [Fact]
+    public async Task SubmitThenContinue_Play_FoldsExactlyTheSubmittedPlayOnce()
+    {
+        // Fold happens on Continue (leaving review), not at Submit — and folds
+        // the same submission object History carries.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+
+        c.SubmitPlay(AltPlay());
+        Assert.Equal(0, sink.TotalFolds); // submit alone must not fold
+        var submitted = c.History[^1];
+
+        await c.ContinueAsync();
+
+        Assert.Same(submitted, Assert.Single(sink.Plays));
+        Assert.Empty(sink.Cubes);
+    }
+
+    [Fact]
+    public async Task SubmitThenContinue_Cube_FoldsExactlyTheSubmittedCubeOnce()
+    {
+        var c = MakeWithSink(out var sink, TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig());
+
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        Assert.Equal(0, sink.TotalFolds);
+        var submitted = c.CubeHistory[^1];
+
+        await c.ContinueAsync();
+
+        Assert.Same(submitted, Assert.Single(sink.Cubes));
+        Assert.Empty(sink.Plays);
+    }
+
+    [Fact]
+    public async Task SubmitRedoResubmitContinue_FoldsOnlyTheSecondSubmission()
+    {
+        // The reason folding lives on Continue: Redo pops the last submission
+        // while Review is set, and the stats document has no Minus. A redone
+        // answer must leave no trace — only the final answer folds.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
+        await c.StartAsync(new FilterConfig());
+
+        c.SubmitPlay(AltPlay());  // first attempt: incorrect
+        await c.RedoAsync();
+        c.SubmitPlay(BestPlay()); // second attempt: correct
+        await c.ContinueAsync();
+
+        var folded = Assert.Single(sink.Plays);
+        Assert.True(folded.IsCorrect);
+    }
+
+    [Fact]
+    public async Task OffListSubmitThenContinue_FoldsNothing()
+    {
+        // Producer contract: off-list plays are skips, never lifetime
+        // submissions — there is no history entry to fold.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+
+        c.SubmitPlay(UnknownPlay());
+        await c.ContinueAsync();
+
+        Assert.Equal(0, sink.TotalFolds);
+    }
+
+    [Fact]
+    public async Task SkipCurrent_FoldsNothing()
+    {
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+
+        await c.SkipCurrentAsync();
+
+        Assert.Equal(0, sink.TotalFolds);
+    }
+
+    [Fact]
+    public async Task AutoSkippedPassPosition_FoldsNothing()
+    {
+        // Auto-skipped pass positions were never shown to the user — they
+        // must not touch lifetime stats.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.PassDecision(),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+
+        await c.StartAsync(new FilterConfig());
+
+        Assert.Equal(0, sink.TotalFolds);
+    }
+
+    [Fact]
+    public async Task LastProblemContinue_FoldsBeforeFinishing()
+    {
+        // The final decision's answer folds even though Continue exhausts the
+        // source — the fold sits before the advance.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+
+        Assert.True(c.IsFinished);
+        Assert.Single(sink.Plays);
+    }
+
+    [Fact]
+    public async Task InterleavedQuiz_FoldsEachContinuedAnswerInOrder()
+    {
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05),
+            TestFixtures.CubeDecision(),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+
+        c.SubmitPlay(AltPlay());
+        await c.ContinueAsync();
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await c.ContinueAsync();
+        await c.SkipCurrentAsync(); // third problem skipped — no fold
+
+        Assert.Single(sink.Plays);
+        Assert.Single(sink.Cubes);
+        Assert.Equal(2, sink.TotalFolds);
     }
 
     // -----------------------------------------------------------------------

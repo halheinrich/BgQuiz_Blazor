@@ -3,7 +3,7 @@ namespace BgQuiz_Blazor.Client.Quiz;
 /// <summary>
 /// Per-app holder for the "Shuffle order" toggle on <c>Home</c>'s quiz-start
 /// gate — the presentation-only complement to <see cref="AppliedFilter"/>
-/// (admission: which decisions are in scope) and <see cref="PickedProblemSet"/>
+/// (admission: which decisions are in scope) and <see cref="PickedProblemFolder"/>
 /// (which files are in scope). Shuffling changes only the order decisions are
 /// presented in; it is deliberately not folded into <c>FilterConfig</c>.
 ///

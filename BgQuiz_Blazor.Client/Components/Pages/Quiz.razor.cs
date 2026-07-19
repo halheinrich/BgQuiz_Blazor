@@ -124,6 +124,10 @@ public partial class Quiz : ComponentBase, IDisposable
     protected override void OnInitialized()
     {
         Controller.StateChanged += HandleStateChanged;
+        // Re-render on stats-context transitions too (Ready → WriteFailed is
+        // the one that can happen mid-quiz), so the stats notice appears the
+        // moment the write-back degrades.
+        StatsStore.StatusChanged += HandleStatsStatusChanged;
 
         // Direct nav to /quiz with no quiz in progress: bounce to Home.
         if (!Controller.HasStarted)
@@ -152,6 +156,11 @@ public partial class Quiz : ComponentBase, IDisposable
             return;
         }
 
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleStatsStatusChanged()
+    {
         InvokeAsync(StateHasChanged);
     }
 
@@ -332,11 +341,13 @@ public partial class Quiz : ComponentBase, IDisposable
     }
 
     /// <summary>
-    /// Unsubscribe from <see cref="QuizController.StateChanged"/> when the page is
-    /// torn down, so a navigated-away instance stops re-rendering.
+    /// Unsubscribe from <see cref="QuizController.StateChanged"/> and
+    /// <see cref="QuizStatsStore.StatusChanged"/> when the page is torn down,
+    /// so a navigated-away instance stops re-rendering.
     /// </summary>
     public void Dispose()
     {
         Controller.StateChanged -= HandleStateChanged;
+        StatsStore.StatusChanged -= HandleStatsStatusChanged;
     }
 }

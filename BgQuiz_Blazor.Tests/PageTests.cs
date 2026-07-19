@@ -10,8 +10,8 @@ using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
 using Bunit.TestDoubles;
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.JSInterop;
 using XgFilter_Lib.Filtering;
 using XgFilter_Razor.Components;
 
@@ -29,6 +29,14 @@ namespace BgQuiz_Blazor.Tests;
 
 public class PageTests : BunitContext
 {
+    /// <summary>
+    /// The scriptable folder-access double every page render resolves as
+    /// <see cref="IFolderAccess"/>. Tests drive picks by setting
+    /// <see cref="FakeFolderAccess.NextPickOutcome"/> (and friends) before
+    /// clicking the pick button — no JS module is involved in page tests.
+    /// </summary>
+    private readonly FakeFolderAccess _folderAccess = new();
+
     public PageTests()
     {
         // Home and Done inject the sessionStorage-backed QuizLiveMarker. It needs
@@ -37,6 +45,15 @@ public class PageTests : BunitContext
         // JS calls are handled per-test through JSInterop (Loose mode, or an
         // explicit Setup where a test drives a specific stored value).
         Services.AddScoped<QuizLiveMarker>();
+
+        // Home injects IFolderAccess; Quiz and Done inject QuizStatsStore, whose
+        // ctor pulls IFolderAccess + TimeProvider + PickedProblemFolder. Register
+        // fixture-wide defaults for all of them — per-test helpers re-register
+        // (last registration wins) when a test needs a scripted instance.
+        Services.AddSingleton<IFolderAccess>(_folderAccess);
+        Services.AddSingleton(TimeProvider.System);
+        Services.AddScoped<PickedProblemFolder>();
+        Services.AddScoped<QuizStatsStore>();
     }
 
     /// <summary>The sessionStorage key <see cref="QuizLiveMarker"/> reads/writes.</summary>
@@ -45,25 +62,40 @@ public class PageTests : BunitContext
     private static Play BestPlay() => TestFixtures.MakePlay((8, 5), (8, 5));
     private static Play AltPlay() => TestFixtures.MakePlay((13, 11), (11, 8));
 
+    /// <summary>
+    /// A one-file <see cref="FolderPickOutcome"/> for scripting
+    /// <see cref="FakeFolderAccess.NextPickOutcome"/> — the standard "the user
+    /// picked a folder" payload for pick-flow tests.
+    /// </summary>
+    private static FolderPickOutcome OneFileOutcome(
+        string folderName = "Corpus", string fileName = "match.xg",
+        StatsSaveCapability capability = StatsSaveCapability.Enabled) =>
+        new(Cancelled: false, folderName, [new PickedFile(fileName, [1, 2, 3])], capability);
+
     private QuizController WithController(params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
-        var controller = new QuizController(_ => fake);
+        var controller = new QuizController(_ => fake, new FakeDecisionStatsSink());
         Services.AddSingleton(controller);
         return controller;
     }
 
     /// <summary>
-    /// Register a <see cref="PickedProblemSet"/> already holding one file so the
-    /// rendered <c>Home</c> page's file gate is satisfied — lets tests exercise
-    /// the filter gate / Start click in isolation. The bytes are irrelevant: the
-    /// quiz runs against the test's fake source, not the picked file.
+    /// Register a <see cref="PickedProblemFolder"/> already holding one file so
+    /// the rendered <c>Home</c> page's folder gate is satisfied — lets tests
+    /// exercise the filter gate / Start click in isolation. The bytes are
+    /// irrelevant: the quiz runs against the test's fake source, not the picked
+    /// file. The default capability is the no-stats fallback so ordinary flow
+    /// tests don't also render the stats-enabled notice.
     /// </summary>
-    private void WithPickedFile(string name = "sample.xg")
+    private PickedProblemFolder WithPickedFolder(
+        string folderName = "Corpus", string fileName = "sample.xg",
+        StatsSaveCapability capability = StatsSaveCapability.BrowserUnsupported)
     {
-        var problemSet = new PickedProblemSet();
-        problemSet.Set([new PickedFile(name, [1, 2, 3])]);
-        Services.AddSingleton(problemSet);
+        var folder = new PickedProblemFolder();
+        folder.Set(folderName, [new PickedFile(fileName, [1, 2, 3])], capability);
+        Services.AddSingleton(folder);
+        return folder;
     }
 
     /// <summary>
@@ -83,7 +115,7 @@ public class PageTests : BunitContext
     /// Register a <see cref="ShuffleOption"/> for the rendered <c>Home</c> page
     /// (Home injects it). Every Home render needs one — the checkbox binds to it
     /// unconditionally — so every Home test calls this alongside
-    /// <see cref="WithAppliedFilter"/> / <see cref="WithPickedFile"/>. Returns the
+    /// <see cref="WithAppliedFilter"/> / <see cref="WithPickedFolder"/>. Returns the
     /// holder so tests can assert the toggle after a checkbox interaction.
     /// </summary>
     private ShuffleOption WithShuffleOption(bool enabled = false)
@@ -103,7 +135,7 @@ public class PageTests : BunitContext
     {
         // No file picked yet, so Start is disabled regardless of filters.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        Services.AddSingleton(new PickedProblemSet());
+        // (empty PickedProblemFolder comes from the fixture default)
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -118,13 +150,13 @@ public class PageTests : BunitContext
     public async Task Home_PrePopulatedHolder_RendersSummaryAndEnablesStart()
     {
         // Navigate-back regression: the picked set lives in the per-app
-        // PickedProblemSet, which survives in-app navigation, but Home is
+        // PickedProblemFolder, which survives in-app navigation, but Home is
         // re-instantiated on return. The summary must derive from the holder,
         // not a transient component field — the old field reset to null on
         // re-instantiation, blanking the summary while the file gate stayed
         // satisfied (summary blank + Start enabled = the reported desync).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFile("resume.xg"); // holder already populated, as after navigate-back
+        WithPickedFolder("resume"); // holder already populated, as after navigate-back
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -132,7 +164,8 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
 
         // Summary renders straight from the persisted holder, no pick handler run.
-        Assert.Contains("resume.xg", cut.Markup);
+        Assert.Contains("resume", cut.Markup);
+        Assert.Contains("1 problem file", cut.Markup);
 
         // With both gates met (file already held + filters applied) Start enables.
         var fp = cut.FindComponent<FilterPanel>();
@@ -150,7 +183,7 @@ public class PageTests : BunitContext
         // (FilterConfig payload). With a file already picked, applying filters
         // satisfies the second gate and flips Start to enabled.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFile();
+        WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -175,9 +208,10 @@ public class PageTests : BunitContext
         // FilterConfig.Build() materialization.
         DecisionFilterSet? capturedPipeline = null;
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
-        var controller = new QuizController(set => { capturedPipeline = set; return fake; });
+        var controller = new QuizController(
+            set => { capturedPipeline = set; return fake; }, new FakeDecisionStatsSink());
         Services.AddSingleton(controller);
-        WithPickedFile(); // satisfy the file gate so Start is clickable
+        WithPickedFolder(); // satisfy the folder gate so Start is clickable
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -199,58 +233,219 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public void Home_FilePick_BuildsPickedFileWithExtensionBearingName()
+    public async Task Home_FolderPick_BuildsPickedFilesWithExtensionBearingNames()
     {
-        // The InputFile handler reads each browser file into a PickedFile that
-        // preserves the original name *with* its extension — required by the
+        // The pick button routes through IFolderAccess into the holder,
+        // preserving each file's name *with* its extension — required by the
         // stream iterator's DecisionId stamping. This pins the picker → holder
         // half of the source wire; WasmUploadedProblemSetSourceTests pins the
         // other half (holder → source → controller).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        var problemSet = new PickedProblemSet();
-        Services.AddSingleton(problemSet);
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome("Corpus", "match.xg");
 
         var cut = Render<HomePage>();
-        var input = cut.FindComponent<InputFile>();
-        input.UploadFiles(InputFileContent.CreateFromBinary([1, 2, 3], "match.xg"));
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        cut.WaitForAssertion(() => Assert.True(problemSet.HasFiles));
-        var file = Assert.Single(problemSet.Files);
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        Assert.True(folder.HasFiles);
+        var file = Assert.Single(folder.Files);
         Assert.Equal("match.xg", file.FileName);
         Assert.Equal([1, 2, 3], file.Bytes);
+        Assert.Equal("Corpus", folder.FolderName);
     }
 
     [Fact]
-    public async Task Home_FilePickedAndFiltersApplied_EnablesStart()
+    public async Task Home_FolderPickedAndFiltersApplied_EnablesStart()
     {
-        // Both gates: a file picked *and* filters applied.
+        // Both gates: a folder picked *and* filters applied — the migrated
+        // pick → start wire test.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        Services.AddSingleton(new PickedProblemSet());
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome();
 
         var cut = Render<HomePage>();
 
-        // Filters applied but no file yet → still disabled.
+        // Filters applied but no folder yet → still disabled.
         var fp = cut.FindComponent<FilterPanel>();
         await cut.InvokeAsync(() =>
             fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.True(startBtn.HasAttribute("disabled"));
 
-        // Pick a file → both gates satisfied → enabled.
-        var input = cut.FindComponent<InputFile>();
-        input.UploadFiles(InputFileContent.CreateFromBinary([1, 2, 3], "match.xg"));
+        // Pick a folder → both gates satisfied → enabled.
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        cut.WaitForAssertion(() =>
-        {
-            var btn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
-            Assert.False(btn.HasAttribute("disabled"));
-        });
+        startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        Assert.False(startBtn.HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_FolderPick_StatsEnabled_ShowsSaveNotice()
+    {
+        // Capability rung 1: FS-Access pick with write granted → the polite
+        // stats-enabled notice names the stats file (from the constant).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Contains(QuizStatsFile.FileName, cut.Markup);
+        Assert.Contains("stats will be saved", cut.Markup);
+        Assert.Contains("role=\"status\"", cut.Markup); // outcome, not an alert
+    }
+
+    [Fact]
+    public async Task Home_FolderPick_BrowserUnsupported_ShowsNoStatsNotice()
+    {
+        // Capability rung 2: fallback mechanism → quiz-without-stats notice.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome =
+            OneFileOutcome(capability: StatsSaveCapability.BrowserUnsupported);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Contains("can't save quiz stats", cut.Markup);
+        Assert.DoesNotContain("stats will be saved", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_FolderPick_PermissionDenied_ShowsDeniedNotice()
+    {
+        // Capability rung 3: FS-Access pick but write declined → denied
+        // variant; the quiz still runs (holder populated, gate satisfiable).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome =
+            OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Contains("declined write access", cut.Markup);
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        Assert.True(folder.HasFiles);
+    }
+
+    [Fact]
+    public async Task Home_FolderPick_Cancelled_ChangesNothingShowsNothing()
+    {
+        // A dismissed picker is an expected outcome: no holder change, no
+        // notice — the user simply changed their mind.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = FolderPickOutcome.CancelledOutcome;
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        Assert.False(folder.HasFiles);
+        Assert.DoesNotContain("alert-warning", cut.Markup);
+        Assert.DoesNotContain("alert-danger", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_FolderPick_EmptyFolder_ShowsEmptyNoticeKeepsGateDisabled()
+    {
+        // A completed pick with zero top-level problem files: polite outcome
+        // notice, holder stays clear, Start stays disabled.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter(new FilterConfig()); // filter half satisfied
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = new FolderPickOutcome(
+            Cancelled: false, "Empty", [], StatsSaveCapability.Enabled);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Contains("No .xg / .xgp files found", cut.Markup);
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        Assert.False(folder.HasFiles);
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        Assert.True(startBtn.HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_FolderPick_Throws_ShowsPickErrorBanner()
+    {
+        // Unexpected browser failure (or a folder past the caps): the failure
+        // idiom — assertive alert — and a cleared holder.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.PickException = new InvalidOperationException("boom from the browser");
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Contains("Could not read the folder", cut.Markup);
+        Assert.Contains("boom from the browser", cut.Markup);
+        Assert.Contains("role=\"alert\"", cut.Markup);
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        Assert.False(folder.HasFiles);
+    }
+
+    [Fact]
+    public async Task Home_PickClick_WithoutFsAccess_TriggersFallbackPicker()
+    {
+        // The mechanism fork: no showDirectoryPicker → the same button opens
+        // the hidden webkitdirectory input's picker instead (the pick itself
+        // then arrives via the input's change event).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.SupportsDirectoryPicker = false;
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Equal(1, _folderAccess.TriggerFallbackCallCount);
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        Assert.False(folder.HasFiles); // nothing picked yet — change event pending
+    }
+
+    [Fact]
+    public async Task Home_FallbackInputChange_CollectsFilesIntoHolder()
+    {
+        // The fallback landing: the hidden input's change event collects the
+        // FileList through IFolderAccess; capability is forced to the no-stats
+        // fallback by the interop layer (the fake mirrors that contract).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextCollectOutcome = new FolderPickOutcome(
+            Cancelled: false, "FallbackDir",
+            [new PickedFile("fb.xgp", [9, 9])], StatsSaveCapability.BrowserUnsupported);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#problemFolderFallback").ChangeAsync(new ChangeEventArgs());
+
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        Assert.True(folder.HasFiles);
+        Assert.Equal("fb.xgp", Assert.Single(folder.Files).FileName);
+        Assert.Equal(StatsSaveCapability.BrowserUnsupported, folder.Capability);
+        Assert.Contains("can't save quiz stats", cut.Markup);
     }
 
     [Fact]
@@ -264,7 +459,7 @@ public class PageTests : BunitContext
         // holders pre-populated (file picked + filter applied earlier this
         // session) Start is enabled on first render, no FilterPanel callback run.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFile("resume.xg");
+        WithPickedFolder("resume");
         WithAppliedFilter(new FilterConfig()); // applied earlier, as after navigate-back
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -286,7 +481,7 @@ public class PageTests : BunitContext
         // panel's dirty signal, which must clear the applied holder so a
         // half-edited set re-disables Start — even with a file still picked.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFile();
+        WithPickedFolder();
         WithAppliedFilter(new FilterConfig()); // start from an applied, enabled state
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -315,7 +510,7 @@ public class PageTests : BunitContext
         // no-match banner. Empty source == zero filter matches at the controller's
         // seam.
         var controller = WithController(); // empty source → finishes on Start
-        WithPickedFile();
+        WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -347,7 +542,7 @@ public class PageTests : BunitContext
         // to — same neutral banner, same stay-home behavior. Pins the "both causes"
         // wording decision.
         var controller = WithController(TestFixtures.PassDecision());
-        WithPickedFile();
+        WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -373,7 +568,7 @@ public class PageTests : BunitContext
         // decision leaves the controller unfinished after Start, so the page must
         // navigate to /quiz and raise no no-match banner.
         var controller = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFile();
+        WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -397,9 +592,9 @@ public class PageTests : BunitContext
     {
         // UI wire: the checkbox's @onchange must reach the ShuffleOption holder —
         // no intermediate transient field to desync on navigate-back, matching
-        // AppliedFilter / PickedProblemSet's holder-first pattern.
+        // AppliedFilter / PickedProblemFolder's holder-first pattern.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        Services.AddSingleton(new PickedProblemSet());
+        // (empty PickedProblemFolder comes from the fixture default)
         WithAppliedFilter();
         var shuffle = WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -424,7 +619,7 @@ public class PageTests : BunitContext
         // notice, then clears the marker so it shows once. Without the boot check
         // this notice never renders (the fails-without-the-fix guard).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())); // not started
-        Services.AddSingleton(new PickedProblemSet());
+        // (empty PickedProblemFolder comes from the fixture default)
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -443,7 +638,7 @@ public class PageTests : BunitContext
         // A2 over-trigger guard: an ordinary cold boot (no marker) must not
         // announce a reset. getItem returns null → no notice.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        Services.AddSingleton(new PickedProblemSet());
+        // (empty PickedProblemFolder comes from the fixture default)
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -464,7 +659,7 @@ public class PageTests : BunitContext
         // later reload (VerifyNotInvoke on removeItem).
         var controller = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await controller.StartAsync(new FilterConfig()); // HasStarted true
-        Services.AddSingleton(new PickedProblemSet());
+        // (empty PickedProblemFolder comes from the fixture default)
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -483,7 +678,7 @@ public class PageTests : BunitContext
         // records the live-quiz marker, so a mid-quiz reload can be acknowledged
         // on the next boot.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFile();
+        WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -506,7 +701,7 @@ public class PageTests : BunitContext
         // quiz, so it must not set the marker — otherwise the next boot would
         // falsely announce a reset for a quiz that never ran.
         WithController(); // empty source → finishes on Start
-        WithPickedFile();
+        WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -523,15 +718,17 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public void Home_ClearPickedFiles_RemovesSummaryAndDisablesStart()
+    public async Task Home_ClearPickedFolder_RemovesSummaryDisablesStartClearsPickedSlotOnly()
     {
-        // A4: the Clear affordance beside the picked-file summary drops the set —
-        // the holder-derived summary disappears and the file half of the gate
-        // re-disables Start by construction. Start from a fully-armed state
-        // (file picked + filters applied) so the disable is attributable to the
-        // clear, not to the filter half.
+        // A4, folder edition: the Clear affordance beside the summary drops the
+        // pick — the holder-derived summary disappears and the folder half of
+        // the gate re-disables Start by construction. Start from a fully-armed
+        // state (folder picked + filters applied) so the disable is
+        // attributable to the clear, not to the filter half. Clearing reaches
+        // only the JS picked slot (ClearPickedAsync) — a running quiz's active
+        // stats context is bound at Start and must keep recording.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFile("clear-me.xg");
+        WithPickedFolder("clear-me");
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -539,17 +736,18 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
 
         // Armed: summary shown, Start enabled.
-        Assert.Contains("clear-me.xg", cut.Markup);
+        Assert.Contains("clear-me", cut.Markup);
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.False(startBtn.HasAttribute("disabled"));
 
-        // Clear → summary gone, Start disabled.
+        // Clear → summary gone, Start disabled, picked slot cleared.
         var clear = cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear");
-        clear.Click();
+        await clear.ClickAsync(new());
 
-        Assert.DoesNotContain("clear-me.xg", cut.Markup);
+        Assert.DoesNotContain("clear-me", cut.Markup);
         startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.True(startBtn.HasAttribute("disabled"));
+        Assert.Equal(1, _folderAccess.ClearPickedCallCount);
     }
 
     /// <summary>
@@ -561,8 +759,9 @@ public class PageTests : BunitContext
     private QuizController WithShufflableController(ShuffleOption shuffle, params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
-        var controller = new QuizController(_ =>
-            shuffle.Enabled ? new ShuffledProblemSetSource(fake, seed: 42) : fake);
+        var controller = new QuizController(
+            _ => shuffle.Enabled ? new ShuffledProblemSetSource(fake, seed: 42) : fake,
+            new FakeDecisionStatsSink());
         Services.AddSingleton(controller);
         return controller;
     }
@@ -595,7 +794,7 @@ public class PageTests : BunitContext
         var items = OrderedDecisions(6);
         var shuffle = WithShuffleOption();
         var controller = WithShufflableController(shuffle, items);
-        WithPickedFile();
+        WithPickedFolder();
         WithAppliedFilter();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
@@ -621,7 +820,7 @@ public class PageTests : BunitContext
         var items = OrderedDecisions(6);
         var shuffle = WithShuffleOption();
         var controller = WithShufflableController(shuffle, items);
-        WithPickedFile();
+        WithPickedFolder();
         WithAppliedFilter();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
@@ -656,7 +855,7 @@ public class PageTests : BunitContext
         // hardcoded literal — asserting against the assembly keeps this robust
         // across version bumps.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        Services.AddSingleton(new PickedProblemSet());
+        // (empty PickedProblemFolder comes from the fixture default)
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -722,6 +921,125 @@ public class PageTests : BunitContext
         Assert.Contains("Skipped", cut.Markup);
         Assert.Contains("Submit", cut.Markup);
         Assert.Contains("Skip", cut.Markup);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Active-context stats notices (Quiz + Done)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Register a real <see cref="QuizStatsStore"/> driven into
+    /// <paramref name="status"/> through its own lifecycle (no test-only state
+    /// setter exists — the store's transitions are the contract), overriding
+    /// the fixture's default store registration.
+    /// </summary>
+    private async Task<QuizStatsStore> WithStatsStoreInStatusAsync(QuizStatsStatus status)
+    {
+        var access = new FakeFolderAccess();
+        var folder = new PickedProblemFolder();
+        folder.Set("Corpus", [new PickedFile("a.xgp", [1])], StatsSaveCapability.Enabled);
+        var store = new QuizStatsStore(access, TimeProvider.System, folder);
+
+        switch (status)
+        {
+            case QuizStatsStatus.LoadFailed:
+                access.StatsJson = "corrupt";
+                await store.BeginQuizAsync();
+                break;
+            case QuizStatsStatus.WriteFailed:
+                access.WriteException = new JSException("write refused");
+                await store.BeginQuizAsync();
+                await store.RecordAsync(new SubmittedPlay(
+                    new XgpDecisionId("x.xgp"), TestFixtures.MakePlay((8, 5)), 0, 0.0, true));
+                break;
+        }
+
+        Assert.Equal(status, store.Status); // helper sanity: the drive worked
+        Services.AddSingleton(store);
+        return store;
+    }
+
+    [Fact]
+    public async Task Quiz_StatsLoadFailed_ShowsPoliteUntouchedFileNotice()
+    {
+        // The quiz-runs-without-stats degrade: an unreadable stats file is an
+        // outcome (role="status"), states the file was not changed, and the
+        // quiz renders normally beneath it.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        await WithStatsStoreInStatusAsync(QuizStatsStatus.LoadFailed);
+
+        var cut = Render<QuizPage>();
+
+        Assert.Contains(QuizStatsFile.FileName, cut.Markup);
+        Assert.Contains("couldn't be read", cut.Markup);
+        Assert.Contains("has not been changed", cut.Markup);
+        Assert.Contains("role=\"status\"", cut.Markup);
+        Assert.Contains("Submit", cut.Markup); // quiz still fully functional
+    }
+
+    [Fact]
+    public async Task Quiz_StatsWriteFailed_ShowsAssertiveAlert()
+    {
+        // A mid-quiz write failure is a failure (role="alert") but must not
+        // block the quiz — the answering UI still renders.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
+
+        var cut = Render<QuizPage>();
+
+        Assert.Contains("could not be saved", cut.Markup);
+        Assert.Contains("role=\"alert\"", cut.Markup);
+        Assert.Contains("Submit", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_StatsReady_ShowsNoStatsNotice()
+    {
+        // Over-trigger guard: a healthy (or Disabled) stats context renders no
+        // stats notice at all.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+
+        var cut = Render<QuizPage>();
+
+        Assert.DoesNotContain("couldn't be read", cut.Markup);
+        Assert.DoesNotContain("could not be saved", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Done_StatsWriteFailed_ShowsAlert()
+    {
+        // A failure on the FINAL Continue lands the user on Done without ever
+        // seeing the in-quiz alert — Done must state it too.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync(); // exhausts → IsFinished
+        await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<DonePage>();
+
+        Assert.Contains("could not be saved", cut.Markup);
+        Assert.Contains("role=\"alert\"", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Done_StatsLoadFailed_ShowsPoliteNotice()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig());
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+        await WithStatsStoreInStatusAsync(QuizStatsStatus.LoadFailed);
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<DonePage>();
+
+        Assert.Contains("couldn't be read", cut.Markup);
+        Assert.Contains("role=\"status\"", cut.Markup);
     }
 
     [Fact]
@@ -1660,32 +1978,47 @@ public class PageTests : BunitContext
         var headings = cut.FindAll("h2").Select(h => h.TextContent.Trim()).ToList();
         Assert.Equal(
             [
-                "Pick your files",
+                "Pick your folder",
                 "Choose filters",
                 "Answer the position",
                 "Making a checker play",
                 "Scoring",
                 "Review the solution",
                 "Stats and finishing",
+                "Lifetime stats",
                 "Things worth knowing",
             ],
             headings);
     }
 
     [Fact]
-    public void Help_StatesFileCaps_SourcedFromTheConstantsHomeEnforces()
+    public void Help_StatesFileCaps_SourcedFromTheConstantsThePickEnforces()
     {
-        // SSOT: Home enforces the pick against PickedFileLimits and Help documents
-        // the same constants, with the megabyte figure *derived* from the byte cap
-        // rather than restated. Asserting against the constants (not the literals
-        // "50" / "500") is what makes this fail if page prose and enforced rule
-        // ever drift — which is the whole reason the caps were hoisted off Home.
+        // SSOT: the folder pick enforces PickedFileLimits (in JsFolderAccess) and
+        // Help documents the same constants, with the megabyte figure *derived*
+        // from the byte cap rather than restated. Asserting against the constants
+        // (not the literals "50" / "500") is what makes this fail if page prose
+        // and enforced rule ever drift — which is the whole reason the caps were
+        // hoisted off the enforcing type.
         WithController();
 
         var cut = Render<HelpPage>();
 
-        Assert.Contains($"{PickedFileLimits.MaxFileCount} files", cut.Markup);
+        Assert.Contains($"{PickedFileLimits.MaxFileCount} problem files", cut.Markup);
         Assert.Contains($"{PickedFileLimits.MaxFileMegabytes} MB", cut.Markup);
+    }
+
+    [Fact]
+    public void Help_NamesTheStatsFile_FromTheConstantTheStoreWrites()
+    {
+        // Same page/rule discipline for the stats file: Help names it from
+        // QuizStatsFile.FileName — the constant the store actually writes — so
+        // documented name and written name cannot drift.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        Assert.Contains(QuizStatsFile.FileName, cut.Markup);
     }
 
     [Fact]

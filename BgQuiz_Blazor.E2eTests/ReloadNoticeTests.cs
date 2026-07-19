@@ -32,10 +32,10 @@ public sealed class ReloadNoticeTests : E2eTestBase
 
         // One-shot: showing the notice cleared the marker, so the next reload
         // boots clean. The re-pick round-trip is an ordering guard for the
-        // negative assertion — by the time the picked-file summary has rendered,
+        // negative assertion — by the time the picked-folder summary has rendered,
         // the boot lifecycle that would have shown the notice has completed.
         await Page.ReloadAsync();
-        await Expect(FilePicker).ToBeVisibleAsync();
+        await Expect(PickFolderButton).ToBeVisibleAsync();
         await PickFixtureAsync(CheckerFixture);
         await Expect(ReloadNotice).ToHaveCountAsync(0);
     }

@@ -7,12 +7,32 @@
 @using BgQuiz_Blazor.Client.Quiz
 
 @inject QuizController Controller
+@inject QuizStatsStore StatsStore
 @inject NavigationManager Nav
 @implements IDisposable
 
 <PageTitle>BgQuiz — In progress</PageTitle>
 
 <div class="container-fluid py-3 board-page">
+    @* Active-context stats notices: scoped to the running quiz's stats context
+       (bound at Start, reset by the next Start's re-bind). A load failure is an
+       outcome — the quiz runs, the file stays untouched — so polite
+       role="status"; a write failure is a failure mid-quiz, so the assertive
+       alert idiom. Neither ever blocks the quiz. *@
+    @if (StatsStore.Status == QuizStatsStatus.LoadFailed)
+    {
+        <div class="alert alert-warning" role="status">
+            The existing <strong>@QuizStatsFile.FileName</strong> couldn't be read, so this
+            quiz won't record stats. The file has not been changed.
+        </div>
+    }
+    else if (StatsStore.Status == QuizStatsStatus.WriteFailed)
+    {
+        <div class="alert alert-danger" role="alert">
+            Your stats file could not be saved — the quiz continues, but this
+            quiz's stats won't be recorded.
+        </div>
+    }
     @if (!Controller.HasStarted)
     {
         <div class="alert alert-warning" role="alert">

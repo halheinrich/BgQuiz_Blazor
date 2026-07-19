@@ -17,12 +17,13 @@
         against XG's evaluation of that position.
     </p>
 
-    <h2 class="h4 mt-4">Pick your files</h2>
+    <h2 class="h4 mt-4">Pick your folder</h2>
     <p>
-        On the home page, choose one or more of your local <code>.xg</code> match files
-        or <code>.xgp</code> position files. They are read and parsed entirely in your
-        browser — nothing is uploaded, and no file ever leaves your machine. A single
-        pick accepts up to @PickedFileLimits.MaxFileCount files, each up to
+        On the home page, choose the local folder holding your <code>.xg</code> match
+        files and <code>.xgp</code> position files. Only files directly in that folder
+        are used — subfolders are ignored. The files are read and parsed entirely in
+        your browser — nothing is uploaded, and no file ever leaves your machine. A
+        folder can hold up to @PickedFileLimits.MaxFileCount problem files, each up to
         @(PickedFileLimits.MaxFileMegabytes) MB.
     </p>
 
@@ -139,6 +140,40 @@
         page, where you can restart with the same filters or start over with new ones.
     </p>
 
+    <h2 class="h4 mt-4">Lifetime stats</h2>
+    <p>
+        In browsers that can grant write access to a folder (Chrome and Edge), BgQuiz
+        also keeps a <em>lifetime</em> record: how often each position has been quizzed,
+        how often you got it right, and when you last saw it. It lives in a small file
+        named <code>@QuizStatsFile.FileName</code> inside your problem folder, right
+        beside the files it tracks, and is updated after each problem you answer.
+        Like your problem files, it never leaves your machine — it is written directly
+        to your own folder, and nothing is uploaded anywhere.
+    </p>
+    <ul>
+        <li>
+            <strong>Only answered problems count.</strong> Skips, plays XG never listed,
+            and positions skipped for you are not part of your lifetime record. A redone
+            answer counts once — the answer you continue past.
+        </li>
+        <li>
+            <strong>A cube position counts as one decision here.</strong> Unlike the
+            in-quiz score's separate double and take buckets, the lifetime record marks a
+            cube position correct only when both halves were right.
+        </li>
+        <li>
+            <strong>Other browsers still quiz.</strong> Where the browser can't save into
+            the folder (Firefox, Safari), or you decline write access, everything works
+            the same — there is just no saved stats file. The home page tells you which
+            applies when you pick.
+        </li>
+        <li>
+            <strong>An unreadable stats file is left alone.</strong> If the file can't be
+            read (edited by hand, or written by a newer BgQuiz), the quiz runs without
+            recording and the file is not touched.
+        </li>
+    </ul>
+
     <h2 class="h4 mt-4">Things worth knowing</h2>
     <ul>
         <li>
@@ -163,9 +198,10 @@
         </li>
         <li>
             <strong>Reloading the browser starts you over.</strong> Moving between pages
-            inside the app is always safe — your files, filters, and progress are kept. But a
-            full browser reload (F5) discards all of it, and you will need to pick your files
-            again.
+            inside the app is always safe — your folder, filters, and progress are kept. But a
+            full browser reload (F5) discards all of it, and you will need to pick your folder
+            again. Your lifetime stats file is not lost — it lives in your folder, and picking
+            the folder again resumes it.
         </li>
     </ul>
 
