@@ -24,7 +24,7 @@ internal interface IDecisionStatsSink
     /// <summary>Fold a finalized checker-play submission into the active document and persist it.</summary>
     Task RecordAsync(SubmittedPlay play);
 
-    /// <summary>Fold a finalized cube submission (one decision — both halves) into the active document and persist it.</summary>
+    /// <summary>Fold a finalized cube submission (two decisions — one per half) into the active document and persist it.</summary>
     Task RecordAsync(SubmittedCubeAction cube);
 }
 

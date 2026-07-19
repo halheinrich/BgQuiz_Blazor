@@ -28,7 +28,8 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   (immutable; `doc = doc.Plus(submission, TimeProvider)`; bundled type-level
   JSON converter, so `JsonSerializer.Deserialize<DecisionStatsDocument>` needs
   no registration and any bad load throws `JsonException`; a cube position
-  folds as **one** lifetime decision, unlike `QuizScore`'s two-half fold).
+  folds as **two** lifetime decisions — one per half, counted separately —
+  matching `QuizScore`'s two-half fold, so a half-right cube reads 1-of-2).
   The controller talks to the source through `IProblemSetSource` and scores
   via `QuizScore.Plus(SubmittedPlay)` / `QuizScore.Plus(SubmittedCubeAction)`;
   the stats store folds finalized submissions via the document's `Plus`.
@@ -748,7 +749,7 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   folder → filters → answering → scoring → review → stats/done), a **Making a
   checker play** section sitting inside the answering beat, a **Lifetime
   stats** section (what's saved and where, the Chromium requirement, only
-  answered problems count, cube counts as one decision there, an unreadable
+  answered problems count, a cube records two decisions there too, an unreadable
   file is left alone, and — extending the privacy stance — the stats file
   never leaves the machine), and then the semantics a user cannot discover by
   clicking around — pass positions are auto-skipped and never shown, an
@@ -908,8 +909,9 @@ System Access surface drifts from what the fake mirrors, the pick fails
 visibly and the scenarios fail loudly. Per-scenario variation (corrupt stats
 file, denied permission) is a page-level init script overriding the fake's
 config object — context scripts run first, so the override wins. Scenarios
-pin: one fold ⇒ one captured write with `schemaVersion` 1, one decision,
-cube-as-one-decision tally, indented; corrupt file ⇒ polite notice + **zero
+pin: one fold ⇒ one captured write with `schemaVersion` 1, one decision
+record, a cube-as-two-decisions tally (2 submitted / 2 correct), indented;
+corrupt file ⇒ polite notice + **zero
 writes**; denied ⇒ denied notice + zero writes; and the fallback pick's
 "can't save stats" notice. The stats filename and wire property names are
 deliberately hardcoded in the suite — it is the consumer-side pin of those

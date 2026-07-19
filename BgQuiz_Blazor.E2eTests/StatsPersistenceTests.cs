@@ -122,8 +122,8 @@ public sealed class StatsPersistenceTests : E2eTestBase
 
         // Exactly one fold (one answered problem), one write-back — captured by
         // the fake writable. Pin the wire contract from the consumer side:
-        // schemaVersion 1, one decision, a correct cube submission tallied as
-        // ONE decision (both halves right), indented output.
+        // schemaVersion 1, one decision record, a fully-correct cube submission
+        // tallied as TWO decisions (one per half), indented output.
         var writes = await CapturedWritesAsync();
         var payload = Assert.Single(writes);
         Assert.Contains('\n', payload);
@@ -133,8 +133,8 @@ public sealed class StatsPersistenceTests : E2eTestBase
         var decisions = doc.RootElement.GetProperty("decisions");
         Assert.Equal(1, decisions.GetArrayLength());
         var tally = decisions[0].GetProperty("tally");
-        Assert.Equal(1, tally.GetProperty("submitted").GetInt32());
-        Assert.Equal(1, tally.GetProperty("correct").GetInt32());
+        Assert.Equal(2, tally.GetProperty("submitted").GetInt32());
+        Assert.Equal(2, tally.GetProperty("correct").GetInt32());
     }
 
     [Fact]

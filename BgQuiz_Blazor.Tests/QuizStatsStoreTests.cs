@@ -224,10 +224,11 @@ public class QuizStatsStoreTests
     }
 
     [Fact]
-    public async Task Record_Cube_FoldsAsOneDecision()
+    public async Task Record_Cube_FoldsAsTwoDecisions()
     {
-        // Producer contract: a cube position is ONE lifetime decision (unlike
-        // QuizScore's two-half fold) — the written tally shows one submission.
+        // Producer contract: a cube position is TWO lifetime decisions — one per
+        // half, matching QuizScore's two-half fold. Both halves right here, so
+        // the written tally shows two submissions and two correct.
         var fake = new FakeFolderAccess();
         var store = MakeStore(fake);
         await store.BeginQuizAsync();
@@ -237,8 +238,8 @@ public class QuizStatsStoreTests
         var doc = JsonSerializer.Deserialize<DecisionStatsDocument>(fake.Writes.Single());
         Assert.NotNull(doc);
         var record = Assert.Single(doc.Decisions).Value;
-        Assert.Equal(1, record.Tally.Submitted);
-        Assert.Equal(1, record.Tally.Correct);
+        Assert.Equal(2, record.Tally.Submitted);
+        Assert.Equal(2, record.Tally.Correct);
     }
 
     [Fact]
