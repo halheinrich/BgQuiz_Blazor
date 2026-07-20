@@ -326,6 +326,11 @@ public partial class Home : ComponentBase
         {
             var outcome = await Controller.StartAsync(cfg, AppliedMix.Current, ignoreMix);
 
+            // Overlapped gesture: the transition gate ignored this call, so
+            // this handler must change nothing — the in-flight Start owns any
+            // navigation and notices.
+            if (outcome == QuizStartOutcome.Busy) return;
+
             // The outcome check must precede the IsFinished check: a refused
             // start leaves ALL prior controller state in place, including a
             // stale IsFinished from an earlier finished quiz.

@@ -75,6 +75,26 @@ using XgFilter_Lib.Filtering;
 /// sink never throws for stats trouble, so quiz flow is independent of
 /// whether stats are recording.
 /// </para>
+///
+/// <para>
+/// <b>Transition gate.</b> The four <i>async</i> transitions —
+/// <see cref="StartAsync"/> / <see cref="RestartAsync"/> /
+/// <see cref="ContinueAsync"/> / <see cref="SkipCurrentAsync"/> — share one
+/// busy gate: a second gesture arriving while a transition is in flight
+/// <b>no-ops</b> (it does not queue). The controller owns exactly one live
+/// enumerator, and an overlapping <c>MoveNextAsync</c> — or a dispose during
+/// one — throws on a thread-pool continuation where no page can catch it,
+/// terminating the WASM runtime; the per-method state guards
+/// (<see cref="Current"/> / <see cref="Review"/> / <see cref="IsFinished"/>)
+/// cannot close that window because they read <i>stale</i> state while the
+/// first call is suspended mid-await. The gate lives here, not in the pages,
+/// so no caller needs to know the enumerator contract to be safe. The
+/// synchronous mutators (<see cref="SubmitPlay"/> /
+/// <see cref="SubmitCubeAction"/> / <see cref="RedoAsync"/>) cannot overlap
+/// an await themselves but <i>can</i> land inside one, so they no-op while
+/// <see cref="IsBusy"/> too. See <see cref="IsBusy"/> for observability and
+/// the <see cref="StateChanged"/> contract.
+/// </para>
 /// </summary>
 internal sealed class QuizController : IAsyncDisposable
 {
@@ -135,6 +155,18 @@ internal sealed class QuizController : IAsyncDisposable
     public bool HasStarted => _source is not null;
 
     /// <summary>
+    /// True while an async transition (Start / Restart / Continue / Skip) is
+    /// in flight. While set, every transition entry point no-ops — see the
+    /// class-level transition-gate doc. Pages drive their busy affordances
+    /// (progress cursor, disabled controls) from this; <see cref="StateChanged"/>
+    /// fires on both flips, and the gate yields once after setting it so the
+    /// busy state can render and paint <i>before</i> the transition's churn
+    /// begins (the sources' time-budgeted yields keep paints possible during
+    /// the churn itself).
+    /// </summary>
+    public bool IsBusy { get; private set; }
+
+    /// <summary>
     /// The active mix composition's telemetry (requested vs. drawn, overall
     /// and per entry, in declared entry order), or null when no composition
     /// layer is wired — a blank/overridden mix — or before the composing
@@ -144,7 +176,15 @@ internal sealed class QuizController : IAsyncDisposable
     /// </summary>
     public MixComposition? LastComposition => _mixedSource?.LastComposition;
 
-    /// <summary>Raised after every state transition so observing pages can re-render.</summary>
+    /// <summary>
+    /// Raised after every state transition so observing pages can re-render.
+    /// For the gated async transitions this fires exactly twice — once when
+    /// <see cref="IsBusy"/> flips on (before any churn, so busy affordances
+    /// render) and once when it flips off with the transition's end state in
+    /// place. The synchronous mutators (Submit / Redo) fire once as before. A
+    /// refused weighted start therefore fires the two busy flips and nothing
+    /// else — quiz state is untouched, so the re-renders are no-ops.
+    /// </summary>
     public event Action? StateChanged;
 
     /// <summary>
@@ -193,7 +233,15 @@ internal sealed class QuizController : IAsyncDisposable
         // previous quiz's config — and a later Restart — untouched.
         var pipeline = userConfig.Build();
 
-        return await ResetAndAdvanceAsync(pipeline, mix, ignoreMix);
+        if (!await TryBeginTransitionAsync()) return QuizStartOutcome.Busy;
+        try
+        {
+            return await ResetAndAdvanceAsync(pipeline, mix, ignoreMix);
+        }
+        finally
+        {
+            EndTransition();
+        }
     }
 
     /// <summary>
@@ -233,7 +281,11 @@ internal sealed class QuizController : IAsyncDisposable
     /// </summary>
     public void SubmitPlay(Play play)
     {
-        if (Current is null || IsFinished || Review is not null) return;
+        // The IsBusy guard closes the stale window a pending Continue/Skip
+        // opens: mid-advance, Review is already null and Current still points
+        // at the outgoing problem, so without it a submit would double-score
+        // a problem the quiz is moving past.
+        if (IsBusy || Current is null || IsFinished || Review is not null) return;
 
         int? matchedIdx = null;
         var plays = Current.Decision.Plays;
@@ -296,7 +348,9 @@ internal sealed class QuizController : IAsyncDisposable
     /// </summary>
     public void SubmitCubeAction(CubeDecisionPair answer)
     {
-        if (Current is null || IsFinished || Review is not null) return;
+        // Same IsBusy rationale as SubmitPlay: mid-advance the state guards
+        // read stale-pass, so the gate is the guard that actually holds.
+        if (IsBusy || Current is null || IsFinished || Review is not null) return;
 
         var d = Current.Decision;
         var submitted = new SubmittedCubeAction(
@@ -347,7 +401,11 @@ internal sealed class QuizController : IAsyncDisposable
     /// </summary>
     public Task RedoAsync()
     {
-        if (Review is null) return Task.CompletedTask;
+        // IsBusy: a Continue suspended in the stats fold still has Review set,
+        // so without the gate a Redo there would pop the history entry the
+        // fold is recording — an un-poppable inconsistency (the document has
+        // no Minus).
+        if (IsBusy || Review is null) return Task.CompletedTask;
 
         switch (Review)
         {
@@ -393,20 +451,27 @@ internal sealed class QuizController : IAsyncDisposable
     public async Task ContinueAsync()
     {
         if (Review is null) return;
-
-        switch (Review)
+        if (!await TryBeginTransitionAsync()) return;
+        try
         {
-            case ProblemReview.Play { OffList: false }:
-                await _statsSink.RecordAsync(_history[^1]);
-                break;
-            case ProblemReview.Cube:
-                await _statsSink.RecordAsync(_cubeHistory[^1]);
-                break;
-                // ProblemReview.Play { OffList: true }: no history entry — never folds.
-        }
+            switch (Review)
+            {
+                case ProblemReview.Play { OffList: false }:
+                    await _statsSink.RecordAsync(_history[^1]);
+                    break;
+                case ProblemReview.Cube:
+                    await _statsSink.RecordAsync(_cubeHistory[^1]);
+                    break;
+                    // ProblemReview.Play { OffList: true }: no history entry — never folds.
+            }
 
-        Review = null;
-        await AdvanceAsync();
+            Review = null;
+            await AdvanceAsync();
+        }
+        finally
+        {
+            EndTransition();
+        }
     }
 
     /// <summary>
@@ -417,8 +482,16 @@ internal sealed class QuizController : IAsyncDisposable
     public async Task SkipCurrentAsync()
     {
         if (Current is null || IsFinished || Review is not null) return;
-        SkippedCount++;
-        await AdvanceAsync();
+        if (!await TryBeginTransitionAsync()) return;
+        try
+        {
+            SkippedCount++;
+            await AdvanceAsync();
+        }
+        finally
+        {
+            EndTransition();
+        }
     }
 
     /// <summary>
@@ -445,10 +518,23 @@ internal sealed class QuizController : IAsyncDisposable
     /// <exception cref="InvalidOperationException">No quiz has been started.</exception>
     public async Task<QuizStartOutcome> RestartAsync(bool ignoreMix = false)
     {
-        if (_filterPipeline is null)
-            throw new InvalidOperationException(
-                "RestartAsync requires a prior successful StartAsync — no quiz has been started.");
-        return await ResetAndAdvanceAsync(_filterPipeline, _mix, ignoreMix);
+        // The gate is checked before the never-started throw: a Restart
+        // overlapping an in-flight transition is a UI double-gesture (an
+        // outcome, no-op'd like every overlap), not the caller bug the throw
+        // exists for. The throw sits inside the try so a mis-wired caller
+        // still releases the gate.
+        if (!await TryBeginTransitionAsync()) return QuizStartOutcome.Busy;
+        try
+        {
+            if (_filterPipeline is null)
+                throw new InvalidOperationException(
+                    "RestartAsync requires a prior successful StartAsync — no quiz has been started.");
+            return await ResetAndAdvanceAsync(_filterPipeline, _mix, ignoreMix);
+        }
+        finally
+        {
+            EndTransition();
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -459,6 +545,36 @@ internal sealed class QuizController : IAsyncDisposable
     // -----------------------------------------------------------------------
     //  Internal
     // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Enter the transition gate, or report it already held. On entry
+    /// <see cref="IsBusy"/> flips on, <see cref="StateChanged"/> fires, and
+    /// the method yields once — deliberately — so observing pages can render
+    /// (and the browser paint) the busy state before the caller's churn
+    /// begins. Single-threaded scheduler: the check-and-set runs unbroken
+    /// before the yield, so no interleaved caller can slip past it.
+    /// </summary>
+    private async ValueTask<bool> TryBeginTransitionAsync()
+    {
+        if (IsBusy) return false;
+        IsBusy = true;
+        StateChanged?.Invoke();
+        await Task.Yield();
+        return true;
+    }
+
+    /// <summary>
+    /// Release the transition gate (always via <c>finally</c>, so a faulted
+    /// transition never wedges it) and fire <see cref="StateChanged"/> with
+    /// the transition's end state in place — the single completion signal for
+    /// every gated transition (<see cref="AdvanceAsync"/> itself no longer
+    /// fires; all its callers are gated).
+    /// </summary>
+    private void EndTransition()
+    {
+        IsBusy = false;
+        StateChanged?.Invoke();
+    }
 
     /// <summary>
     /// Recompute <see cref="Score"/> from scratch by folding <see cref="_history"/>
@@ -494,9 +610,11 @@ internal sealed class QuizController : IAsyncDisposable
     /// a context that bound without a document (unreadable stats file)
     /// refuses before any quiz state is touched, so the prior quiz — its
     /// enumerator, score, histories, <see cref="Current"/>, and
-    /// <see cref="IsFinished"/> — survives a refused Start/Restart intact and
-    /// no <see cref="StateChanged"/> fires. The stage-2 re-bind itself is the
-    /// one residual side effect (see the Pitfalls in INSTRUCTIONS.md).
+    /// <see cref="IsFinished"/> — survives a refused Start/Restart intact;
+    /// the only <see cref="StateChanged"/> firings are the enclosing gate's
+    /// two busy flips, which deliver unchanged quiz state. The stage-2
+    /// re-bind itself is the one residual side effect (see the Pitfalls in
+    /// INSTRUCTIONS.md).
     /// </para>
     ///
     /// <para>
@@ -591,8 +709,8 @@ internal sealed class QuizController : IAsyncDisposable
             Current = next;
             break;
         }
-
-        StateChanged?.Invoke();
+        // No StateChanged here: every caller runs inside the transition gate,
+        // whose EndTransition fire delivers the post-advance state.
     }
 
     private async ValueTask DisposeEnumeratorAsync()
@@ -642,9 +760,8 @@ internal delegate IProblemSetSource ProblemSetSourceFactory(DecisionFilterSet fi
 /// <summary>
 /// The result of <see cref="QuizController.StartAsync"/> /
 /// <see cref="QuizController.RestartAsync"/>: whether a quiz actually began.
-/// A refusal is an <i>outcome</i>, not a failure — the caller renders an
-/// actionable notice with the per-run override
-/// (<c>ignoreMix</c>) beside it; exceptions remain the failure channel.
+/// The non-<see cref="Started"/> members are <i>outcomes</i> of reachable
+/// states, not failures — exceptions remain the failure channel.
 /// </summary>
 internal enum QuizStartOutcome
 {
@@ -655,9 +772,19 @@ internal enum QuizStartOutcome
     /// The start was refused: the mix has entries but no lifetime-stats
     /// document is available (unsupported browser, declined permission,
     /// nothing picked, or an unreadable stats file). No quiz state changed —
-    /// the prior quiz, if any, is untouched. The escape is the caller's
-    /// explicit per-run <c>ignoreMix</c> override; the stored mix itself is
-    /// never rewritten.
+    /// the prior quiz, if any, is untouched. The caller renders an actionable
+    /// notice whose escape is the explicit per-run <c>ignoreMix</c> override;
+    /// the stored mix itself is never rewritten.
     /// </summary>
     MixRequiresStats,
+
+    /// <summary>
+    /// The call was ignored by the transition gate: another transition was
+    /// already in flight (<see cref="QuizController.IsBusy"/>), so nothing
+    /// happened and nothing will — overlaps no-op rather than queue. Callers
+    /// do nothing with it (no navigation, no notice); the in-flight
+    /// transition owns the UI. A reachable outcome — a double-click on
+    /// Start/Restart — not a caller bug.
+    /// </summary>
+    Busy,
 }

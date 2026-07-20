@@ -158,9 +158,13 @@ BgQuiz_Blazor.Tests/
   BgQuiz_Blazor.Tests.csproj
   TestFixtures.cs
   FakeProblemSetSource.cs
+  GatedProblemSetSource.cs          — externally-completable MoveNextAsync
+                                      (freezes the controller mid-advance)
   FakeFolderAccess.cs               — scriptable IFolderAccess double (store + pages)
   FakeDecisionStatsSink.cs          — recording sink double (controller + pages)
+                                      + scriptable RecordGate (freezes the fold)
   QuizControllerTests.cs
+  QuizControllerOverlapTests.cs     — the transition-gate overlap suite
   MixPanelTests.cs                  — builder round-trip / validation / order pins
   AppliedMixTests.cs
   QuizStatsStoreTests.cs            — bind / fold / write-back / degrade guarantees
@@ -270,8 +274,40 @@ non-scoring outcomes (off-list submissions, explicit Skip). The two
 histories are kept separate (mirroring `_history`/`History`) because the two
 scored-result types are distinct shapes — a unified history would force
 consumers to type-test. Pages observe state transitions via the
-`StateChanged` event; the controller fires it on start, submit, redo,
-continue, skip, and restart.
+`StateChanged` event: each gated async transition (below) fires it exactly
+twice — busy-on, then busy-off with the end state in place — and the
+synchronous mutators (Submit, Redo) fire it once.
+
+**The transition gate.** The four async transitions — `StartAsync` /
+`RestartAsync` / `ContinueAsync` / `SkipCurrentAsync` — share one busy gate:
+a second gesture arriving while a transition is in flight **no-ops** (it does
+not queue). The controller owns exactly one live enumerator, and an
+overlapped `MoveNextAsync` — or a dispose during one — throws on a
+thread-pool continuation no page can catch, terminating the WASM runtime
+(the v1.0.4 double-Start crash). The per-method state guards can't close
+that window: mid-advance they read *stale* state (`Review` already null,
+`Current` still the outgoing problem), so Skip/Submit would stale-pass, and
+a Continue suspended in the awaited stats fold still has `Review` set, so a
+second Continue would double-fold. The gate lives in the controller — pages
+never need the enumerator contract to be safe (the Quiz page's dice-click +
+Continue double-binding stays as-is; the gate is what makes it safe). The
+synchronous mutators (`SubmitPlay` / `SubmitCubeAction` / `RedoAsync`)
+can't overlap an await themselves but can land *inside* one, so they no-op
+on `IsBusy` too. Mechanics: `IsBusy` (observable; pages drive their busy
+affordances from it) flips on inside the gate's check-and-set, `StateChanged`
+fires, and the gate then **yields once, deliberately**, so the busy state
+can render and paint before the transition's churn begins (the sources'
+time-budgeted yields keep paints possible during the churn itself); a
+`try`/`finally` releases the gate on completion *and* failure, firing
+`StateChanged` again — the single completion signal (`AdvanceAsync` itself
+no longer fires). Overlapped Start/Restart return `QuizStartOutcome.Busy`,
+which callers treat as do-nothing (no navigation, no notice — the in-flight
+transition owns the UI); overlapped Continue/Skip return silently. The
+never-started `RestartAsync` throw is checked *inside* the gate — an
+overlap is an outcome (Busy), not the caller bug the throw exists for.
+`QuizControllerOverlapTests` pins all of it via `GatedProblemSetSource`
+(externally-completable `MoveNextAsync`) and the fake sink's `RecordGate`
+(freezes the fold window).
 
 **Three-state per-problem flow.** Each problem moves through *answering*
 → *review* → *advance*, surfaced via `Current` and the nullable `Review`
@@ -350,8 +386,9 @@ after `BeginQuizAsync` (now ordered **before** the source build, because the
 wrap decision needs the bound context), when the bind yielded no document
 (unreadable file). Either refusal returns `MixRequiresStats` having touched
 **no quiz state** — the prior quiz, its scores, and the stored config all
-survive, and no `StateChanged` fires — so Done's summary stands behind a
-refused Restart. `RestartAsync(bool ignoreMix = false)` re-attempts the
+survive, and the only `StateChanged` firings are the transition gate's two
+busy flips (delivering unchanged quiz state) — so Done's summary stands
+behind a refused Restart. `RestartAsync(bool ignoreMix = false)` re-attempts the
 stored mix every time, so the mix re-applies whenever stats allow; the
 override is strictly per-run and the stored mix is never rewritten.
 
@@ -1267,11 +1304,23 @@ the route map:
 - **A refused weighted start touches no quiz state — check the outcome before
   `IsFinished`.** `StartAsync`/`RestartAsync` returning `MixRequiresStats`
   leaves the prior quiz (enumerator, scores, `Current`, `IsFinished`) and the
-  stored config exactly as they were, and fires no `StateChanged`. Callers
-  must branch on the outcome *first*: Home's empty-result check reads
+  stored config exactly as they were; the only `StateChanged` firings are the
+  transition gate's two busy flips, which deliver unchanged quiz state.
+  Callers must branch on the outcome *first*: Home's empty-result check reads
   `IsFinished`, which after a refusal is stale state from the previous quiz.
   Ordering them the other way shows a bogus no-match banner (or worse,
-  navigates) off a quiz that never started.
+  navigates) off a quiz that never started. `Busy` sits before both checks
+  and means do-nothing-at-all: the call was ignored by the gate, so the
+  handler must change nothing (no banner, no navigation).
+- **Overlap safety lives in the controller's transition gate — don't re-guard
+  it page-side, and don't "fix" the dice-click + Continue double-binding.**
+  The gate (see Architecture § `QuizController`) is what makes a second
+  mid-transition gesture safe; page-level debouncing would duplicate the
+  rule and rot. Two load-bearing details: the gate's post-set yield is what
+  lets the busy state paint before the churn (don't "simplify" it away), and
+  `AdvanceAsync` deliberately fires no `StateChanged` — the gate's busy-off
+  fire is the completion signal, so re-adding a fire there double-renders
+  every transition and breaks the pinned fire counts.
 - **The stage-2 refusal's re-bind is a real side effect — including the
   WriteFailed sub-case.** Stage 1 (capability peek) refuses with zero side
   effects, but a stage-2 refusal has already run `BeginQuizAsync`, which

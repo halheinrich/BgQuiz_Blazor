@@ -85,7 +85,13 @@ public partial class Done : ComponentBase
     {
         _mixRefused = false;
 
-        if (await Controller.RestartAsync(ignoreMix) == QuizStartOutcome.MixRequiresStats)
+        var outcome = await Controller.RestartAsync(ignoreMix);
+
+        // Overlapped gesture: the transition gate ignored this call — change
+        // nothing; the in-flight Restart owns any navigation and notices.
+        if (outcome == QuizStartOutcome.Busy) return;
+
+        if (outcome == QuizStartOutcome.MixRequiresStats)
         {
             // Refused: no quiz state changed, the summary stands, and the
             // notice offers the per-run escape. The marker stays cleared —

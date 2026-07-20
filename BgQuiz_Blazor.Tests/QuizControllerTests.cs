@@ -1095,20 +1095,24 @@ public class QuizControllerTests
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task StateChanged_FiresOnSubmitAndEachAdvance()
+    public async Task StateChanged_FiresTwicePerGatedTransitionOncePerSubmit()
     {
+        // The gated async transitions each fire exactly twice — busy-on (so
+        // pages render the busy affordances before the churn) and busy-off
+        // (delivering the end state; AdvanceAsync itself no longer fires).
+        // The synchronous Submit fires once as before.
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         var fires = 0;
         c.StateChanged += () => fires++;
 
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty); // 1 — advance to first
-        c.SubmitPlay(BestPlay());               // 2 — score + enter review
-        await c.ContinueAsync();                // 3 — advance to second
-        await c.SkipCurrentAsync();             // 4 — skip + advance (exhausts)
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty); // +2 — gate on/off around advance to first
+        c.SubmitPlay(BestPlay());               // +1 — score + enter review
+        await c.ContinueAsync();                // +2 — gate on/off around advance to second
+        await c.SkipCurrentAsync();             // +2 — gate on/off around skip + advance (exhausts)
 
-        Assert.Equal(4, fires);
+        Assert.Equal(7, fires);
     }
 
     // -----------------------------------------------------------------------
@@ -1184,13 +1188,14 @@ public class QuizControllerTests
 
         var outcome = await c.StartAsync(new FilterConfig(), NeverSeenMix());
 
-        // Stage-1 refusal: zero side effects — no bind, no source build, no
-        // state transition, nothing started.
+        // Stage-1 refusal: zero quiz-state side effects — no bind, no source
+        // build, nothing started. The only StateChanged firings are the
+        // transition gate's two busy flips, which deliver unchanged state.
         Assert.Equal(QuizStartOutcome.MixRequiresStats, outcome);
         Assert.Equal(0, sink.BeginQuizCallCount);
         Assert.Empty(mixes);
         Assert.False(c.HasStarted);
-        Assert.Equal(0, fires);
+        Assert.Equal(2, fires);
     }
 
     [Fact]

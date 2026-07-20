@@ -35,21 +35,32 @@ internal sealed class FakeDecisionStatsSink : IDecisionStatsSink
 
     public int TotalFolds => Plays.Count + Cubes.Count;
 
+    /// <summary>
+    /// Scriptable fold gate: <see cref="RecordAsync(SubmittedPlay)"/> /
+    /// <see cref="RecordAsync(SubmittedCubeAction)"/> await this before
+    /// folding. Defaults to completed (folds are synchronous, as before); an
+    /// overlap test sets a <see cref="TaskCompletionSource"/> task here to
+    /// freeze the controller <i>inside</i> the awaited fold — the window
+    /// where <c>Review</c> is still set and a second Continue would
+    /// double-fold without the transition gate.
+    /// </summary>
+    public Task RecordGate { get; set; } = Task.CompletedTask;
+
     public Task BeginQuizAsync()
     {
         BeginQuizCallCount++;
         return Task.CompletedTask;
     }
 
-    public Task RecordAsync(SubmittedPlay play)
+    public async Task RecordAsync(SubmittedPlay play)
     {
+        await RecordGate;
         Plays.Add(play);
-        return Task.CompletedTask;
     }
 
-    public Task RecordAsync(SubmittedCubeAction cube)
+    public async Task RecordAsync(SubmittedCubeAction cube)
     {
+        await RecordGate;
         Cubes.Add(cube);
-        return Task.CompletedTask;
     }
 }
