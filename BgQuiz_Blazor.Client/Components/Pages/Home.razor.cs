@@ -28,18 +28,22 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// Start is gated on two conditions: the filters Applied at least once and a
-/// folder picked with at least one problem file. Both halves live in per-app
-/// scoped holders (<see cref="AppliedFilter"/> and
-/// <see cref="PickedProblemFolder"/>) rather than transient component fields,
-/// so the gate survives in-app navigation — when the page is re-instantiated
-/// on navigate-back it re-derives from the holders instead of resetting. On
-/// Start the applied <see cref="FilterConfig"/> is handed to the
+/// Start is gated on three conditions: the filters Applied at least once, a
+/// folder picked with at least one problem file, and no uncommitted mix edits.
+/// All three live in per-app scoped holders (<see cref="AppliedFilter"/>,
+/// <see cref="PickedProblemFolder"/>, <see cref="AppliedMix"/>) rather than
+/// transient component fields, so the gate survives in-app navigation — when
+/// the page is re-instantiated on navigate-back it re-derives from the holders
+/// instead of resetting. On Start the applied <see cref="FilterConfig"/> and
+/// the committed <see cref="BgGame_Lib.QuizMix"/> are handed to the
 /// <see cref="QuizController"/>, whose source factory builds a
 /// <see cref="WasmUploadedProblemSetSource"/> over the picked files, and the
 /// app navigates to <c>/quiz</c>. Pick failures and
 /// <see cref="FilterConfig.Build"/> / source-construction failures are caught
-/// and surfaced as banners rather than faulting the WebAssembly app.
+/// and surfaced as banners rather than faulting the WebAssembly app; a
+/// weighted start with no lifetime stats is <i>refused</i> as an outcome (the
+/// actionable notice with its per-run "Start without mix" override — see
+/// <see cref="StartCoreAsync"/>), never silently run unweighted.
 /// </para>
 ///
 /// <para>
@@ -109,7 +113,31 @@ public partial class Home : ComponentBase
     /// </summary>
     private bool _showReloadNotice;
 
-    private bool CanStart => AppliedFilter.IsApplied && Folder.HasFiles;
+    /// <summary>
+    /// Set when a weighted Start was refused — the committed mix has entries
+    /// but no lifetime stats are available. Drives the actionable refusal
+    /// notice with its one-click per-run "Start without mix" override.
+    /// Genuinely per-visit outcome state, so a component field like the
+    /// banners above; cleared on a new pick (capability may change), a mix
+    /// commit (the refusal may be moot), and every Start attempt.
+    /// </summary>
+    private bool _mixRefused;
+
+    /// <summary>
+    /// Three gates: filters applied, a folder with problem files picked, and
+    /// no uncommitted mix edits (a dirty mix would let Start run a mix that
+    /// differs from what the panel shows — the filter gate's hazard, mix
+    /// flavored). A blank mix is the valid default and never gates.
+    /// </summary>
+    private bool CanStart => AppliedFilter.IsApplied && Folder.HasFiles && !AppliedMix.IsDirty;
+
+    /// <summary>
+    /// True while the committed mix has entries: presentation order belongs to
+    /// the mix's own Random-order setting, so the standalone Shuffle checkbox
+    /// is disabled — but its held value is deliberately left untouched, so
+    /// clearing the mix restores the user's prior shuffle preference.
+    /// </summary>
+    private bool MixOwnsOrder => !AppliedMix.Current.IsPassthrough;
 
     /// <summary>
     /// On boot, surface the reload-reset notice when the marker says a quiz was
@@ -225,6 +253,7 @@ public partial class Home : ComponentBase
         _emptyFolderNotice = false;
         _startError = null;
         _noMatchNotice = null;
+        _mixRefused = false; // a new pick can change stats capability
     }
 
     private void HandleFilterConfigApplied(FilterConfig cfg)
@@ -250,29 +279,77 @@ public partial class Home : ComponentBase
         ShuffleOption.Set(e.Value is true);
     }
 
-    private async Task StartQuizAsync()
+    private void HandleMixApplied(QuizMix mix)
+    {
+        // The user clicked Apply (or Reset — an explicit apply of the blank
+        // mix): commit to the scoped holder so the gate clears and the choice
+        // survives navigate-back. A commit also moots any standing refusal.
+        AppliedMix.Apply(mix);
+        _mixRefused = false;
+        _startError = null;
+        _noMatchNotice = null;
+    }
+
+    private void HandleMixRestored(QuizMix mix)
+    {
+        // The panel's first-render localStorage restore: adopt, don't gate. A
+        // persisted mix is by construction a previously-applied one, so the
+        // holder and the rendered rows agree without a re-Apply — unlike the
+        // filter panel's restore, which deliberately adopts nothing (its
+        // "applied" means a gesture in this visit). No notice-clearing: a
+        // restore is not a user gesture.
+        AppliedMix.Apply(mix);
+    }
+
+    private void HandleMixDirty()
+    {
+        // Any mix edit re-gates Start until the user commits via Apply.
+        AppliedMix.MarkDirty();
+    }
+
+    private Task StartQuizAsync() => StartCoreAsync(ignoreMix: false);
+
+    /// <summary>
+    /// The refusal notice's one-click escape: run this one quiz as
+    /// passthrough. Per-run only — the stored mix is untouched and re-applies
+    /// on the next Start that can honor it.
+    /// </summary>
+    private Task StartWithoutMixAsync() => StartCoreAsync(ignoreMix: true);
+
+    private async Task StartCoreAsync(bool ignoreMix)
     {
         if (AppliedFilter.Config is not { } cfg) return;
         _startError = null;
         _noMatchNotice = null;
+        _mixRefused = false;
         try
         {
-            // Interim: the mix-builder UI lands next; until then every start
-            // is the blank-mix passthrough (never refused, so the outcome
-            // needs no handling yet).
-            await Controller.StartAsync(cfg, QuizMix.Empty);
+            var outcome = await Controller.StartAsync(cfg, AppliedMix.Current, ignoreMix);
+
+            // The outcome check must precede the IsFinished check: a refused
+            // start leaves ALL prior controller state in place, including a
+            // stale IsFinished from an earlier finished quiz.
+            if (outcome == QuizStartOutcome.MixRequiresStats)
+            {
+                _mixRefused = true;
+                return;
+            }
 
             // StartAsync already advanced to the first showable problem, so an
             // immediately-finished controller means the source yielded nothing
-            // the quiz could present. Two indistinguishable causes flip this —
-            // zero filter matches, or every match auto-skipped as a pass
-            // position — so stay on / and surface a neutral outcome notice
-            // rather than navigating into a 0/0 /quiz → /done bounce with no
-            // hint of why.
+            // the quiz could present. With an active mix the telemetry says
+            // whether the composition itself came up empty; otherwise two
+            // indistinguishable causes flip this — zero filter matches, or
+            // every match auto-skipped as a pass position — so stay on / and
+            // surface a neutral outcome notice rather than navigating into a
+            // 0/0 /quiz → /done bounce with no hint of why.
             if (Controller.IsFinished)
             {
-                _noMatchNotice =
-                    "No quiz problems matched these filters — adjust the filters or pick different files.";
+                _noMatchNotice = Controller.LastComposition is { DrawnCount: 0 }
+                    ? "Your mix drew no problems — no decision in these files matched "
+                      + "the selected categories against your lifetime stats. Adjust "
+                      + "the mix, the filters, or the files."
+                    : "No quiz problems matched these filters — adjust the filters or pick different files.";
                 return;
             }
 

@@ -5,6 +5,7 @@
 
 @inject QuizController Controller
 @inject QuizStatsStore StatsStore
+@inject PickedProblemFolder Folder
 @inject NavigationManager Nav
 @inject QuizLiveMarker Marker
 
@@ -42,6 +43,30 @@
     <p class="text-muted">
         Total problems shown: <strong>@(ProblemsShown)</strong>.
     </p>
+
+    @* Weighted-restart refusal, mirroring Home's Start: the stored mix is
+       re-attempted on every Restart, and stats can have fallen away since the
+       last run (cleared pick, unreadable file). The refusal touches no
+       controller state — this summary stays intact — and the one-click
+       per-run escape sits inside the notice; the stored mix is never touched. *@
+    @if (_mixRefused)
+    {
+        <div class="alert alert-warning" role="alert">
+            <p class="mb-2">
+                Lifetime stats aren't available for a restart
+                (@MixDisplay.RefusalReason(Folder.Capability, StatsStore.Status)),
+                so the weighted mix can't be applied.
+            </p>
+            <button class="btn btn-outline-primary btn-sm" id="restartWithoutMix"
+                    @onclick="RestartWithoutMixAsync">
+                Restart without mix
+            </button>
+            <span class="small text-muted ms-2">
+                runs one quiz unweighted — or go Back to setup to change the
+                mix; your saved mix is kept either way.
+            </span>
+        </div>
+    }
 
     <div class="d-flex flex-wrap gap-2">
         <button class="btn btn-primary" @onclick="RestartAsync">

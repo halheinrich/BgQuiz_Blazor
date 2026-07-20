@@ -8,7 +8,9 @@
 @inject IFolderAccess FolderAccess
 @inject PickedProblemFolder Folder
 @inject AppliedFilter AppliedFilter
+@inject AppliedMix AppliedMix
 @inject ShuffleOption ShuffleOption
+@inject QuizStatsStore StatsStore
 @inject NavigationManager Nav
 @inject QuizController Controller
 @inject QuizLiveMarker Marker
@@ -86,6 +88,20 @@
                     break;
             }
         }
+        @* Signal early (the weighted-mix half of the capability story): the
+           user holds a committed non-blank mix, and this pick can't provide
+           the lifetime stats it composes from — say so before Start, not at
+           it. The Start gate remains the backstop (an unreadable stats file
+           is only discoverable there). Polite: an advisory, not a failure. *@
+        @if (Folder.HasFiles
+             && Folder.Capability != StatsSaveCapability.Enabled
+             && !AppliedMix.Current.IsPassthrough)
+        {
+            <div class="alert alert-warning mt-2" role="status">
+                Your weighted mix composes from lifetime stats, which this pick
+                can't provide — Start will offer to run without the mix.
+            </div>
+        }
         @* Empty-folder outcome (not a failure): a completed pick that yielded
            no problem files. Polite, like the no-match notice. *@
         @if (_emptyFolderNotice)
@@ -105,12 +121,24 @@
     <FilterPanel OnFilterConfigChanged="HandleFilterConfigApplied"
                  OnFilterDirty="HandleFiltersDirty" />
 
+    <MixPanel OnMixApplied="HandleMixApplied"
+              OnMixRestored="HandleMixRestored"
+              OnMixDirty="HandleMixDirty" />
+
+    @* Disabled — not rewritten — while a committed mix owns presentation
+       order: ShuffleOption keeps the user's value, so clearing the mix
+       restores their prior shuffle preference untouched. *@
     <div class="mb-3 form-check">
         <input class="form-check-input" type="checkbox" id="shuffleOrder"
-               checked="@ShuffleOption.Enabled" @onchange="HandleShuffleToggled" />
+               checked="@ShuffleOption.Enabled" disabled="@MixOwnsOrder"
+               @onchange="HandleShuffleToggled" />
         <label class="form-check-label" for="shuffleOrder">
             Shuffle order
-            <small class="text-muted">(present problems in random order instead of file order)</small>
+            <small class="text-muted">
+                @(MixOwnsOrder
+                    ? "(order comes from the mix's Random order setting)"
+                    : "(present problems in random order instead of file order)")
+            </small>
         </label>
     </div>
 
@@ -128,11 +156,38 @@
     {
         <small class="text-muted ms-2">Pick a folder containing .xg / .xgp files to enable Start.</small>
     }
+    else if (AppliedMix.IsDirty)
+    {
+        <small class="text-muted ms-2">Apply or reset the mix above to enable Start.</small>
+    }
 
     @if (!string.IsNullOrEmpty(_startError))
     {
         <div class="alert alert-danger mt-3" role="alert">
             <strong>Could not start quiz:</strong> @_startError
+        </div>
+    }
+
+    @* Weighted-start refusal: the mix has entries but no lifetime stats are
+       available, and running silently unweighted would substitute content the
+       user didn't ask for. Actionable and assertive — the one-click per-run
+       escape sits inside the notice; the stored mix is never touched. *@
+    @if (_mixRefused)
+    {
+        <div class="alert alert-warning mt-3" role="alert">
+            <p class="mb-2">
+                Lifetime stats aren't available for this quiz
+                (@MixDisplay.RefusalReason(Folder.Capability, StatsStore.Status)),
+                so the weighted mix can't be applied.
+            </p>
+            <button class="btn btn-outline-primary btn-sm" id="startWithoutMix"
+                    @onclick="StartWithoutMixAsync">
+                Start without mix
+            </button>
+            <span class="small text-muted ms-2">
+                runs this one quiz unweighted — or Reset the mix above to
+                remove it; your saved mix is kept either way.
+            </span>
         </div>
     }
 

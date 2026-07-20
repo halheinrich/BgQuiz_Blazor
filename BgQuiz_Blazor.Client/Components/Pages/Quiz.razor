@@ -33,6 +33,35 @@
             quiz's stats won't be recorded.
         </div>
     }
+    @* Mix-shortfall notice: the composition telemetry says a requested share
+       couldn't be filled (a category's pool ran dry, or the requested length
+       exceeded reachable supply). Honest-notice tradition: say exactly what
+       was requested vs. drawn, per entry, at quiz start — assertive because
+       the quiz now underway differs from the composition the user asked for. *@
+    @if (Controller.LastComposition is { } comp && HasShortfall(comp))
+    {
+        <div class="alert alert-warning" role="alert">
+            @if (comp.DrawnCount < comp.TargetCount)
+            {
+                <span>
+                    Your mix asked for @comp.TargetCount problems but only
+                    @comp.DrawnCount could be drawn — these categories ran short:
+                </span>
+            }
+            else
+            {
+                <span>
+                    Some mix categories ran short; their share went to the others:
+                </span>
+            }
+            <ul class="mb-0">
+                @foreach (var entry in comp.Entries.Where(e => e.Drawn < e.Requested))
+                {
+                    <li>@MixDisplay.CategoryLabel(entry.Category): drew @entry.Drawn of @entry.Requested requested</li>
+                }
+            </ul>
+        </div>
+    }
     @if (!Controller.HasStarted)
     {
         <div class="alert alert-warning" role="alert">

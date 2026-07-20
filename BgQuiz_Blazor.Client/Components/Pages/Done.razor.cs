@@ -62,9 +62,37 @@ public partial class Done : ComponentBase
         await Marker.ClearAsync();
     }
 
-    private async Task RestartAsync()
+    /// <summary>
+    /// Set when a weighted Restart was refused — the stored mix is re-attempted
+    /// on every Restart, and stats can have fallen away since the last run.
+    /// Drives the refusal notice with its per-run "Restart without mix"
+    /// override; the summary underneath survives by the refusal's own
+    /// touches-no-state guarantee. Per-visit outcome state, so a component
+    /// field.
+    /// </summary>
+    private bool _mixRefused;
+
+    private Task RestartAsync() => RestartCoreAsync(ignoreMix: false);
+
+    /// <summary>
+    /// The refusal notice's one-click escape: restart this one quiz as
+    /// passthrough. Per-run only — the stored mix is untouched and re-applies
+    /// on the next Start/Restart that can honor it.
+    /// </summary>
+    private Task RestartWithoutMixAsync() => RestartCoreAsync(ignoreMix: true);
+
+    private async Task RestartCoreAsync(bool ignoreMix)
     {
-        await Controller.RestartAsync();
+        _mixRefused = false;
+
+        if (await Controller.RestartAsync(ignoreMix) == QuizStartOutcome.MixRequiresStats)
+        {
+            // Refused: no quiz state changed, the summary stands, and the
+            // notice offers the per-run escape. The marker stays cleared —
+            // nothing became live.
+            _mixRefused = true;
+            return;
+        }
 
         // Restart makes a quiz live again from the same pipeline, so re-set the
         // marker that arriving at Done cleared — a reload during the restarted

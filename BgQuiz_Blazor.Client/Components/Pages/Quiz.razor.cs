@@ -116,6 +116,16 @@ public partial class Quiz : ComponentBase, IDisposable
     private readonly DiagramOptions _diagramOptions = new();
 
     /// <summary>
+    /// Whether the composition fell short of what the mix requested — the
+    /// overall draw missed the target (requested length exceeded reachable
+    /// supply), or any entry's pool ran dry and its share was redistributed
+    /// (possible even when the overall count was met). Drives the shortfall
+    /// notice above the board.
+    /// </summary>
+    private static bool HasShortfall(BgGame_Lib.MixComposition comp) =>
+        comp.DrawnCount < comp.TargetCount || comp.Entries.Any(e => e.Drawn < e.Requested);
+
+    /// <summary>
     /// On load: subscribe to <see cref="QuizController.StateChanged"/> so the
     /// page re-renders on each transition, then apply the same start/finish
     /// guards <c>Stats</c> uses — bounce to <c>/</c> with no quiz in progress, to

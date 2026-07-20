@@ -1,5 +1,6 @@
 using System.Globalization;
 using BgGame_Lib;
+using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
 
@@ -104,19 +105,6 @@ public partial class MixPanel : ComponentBase
         QuizCategoryKind.EverythingElse,
     ];
 
-    /// <summary>User-facing label for a category kind.</summary>
-    internal static string KindLabel(QuizCategoryKind kind) => kind switch
-    {
-        QuizCategoryKind.NeverSeen => "Never seen",
-        QuizCategoryKind.GotWrong => "Ever got wrong",
-        QuizCategoryKind.SeenFewerThan => "Seen fewer than…",
-        QuizCategoryKind.NotSeenInDays => "Not seen in…",
-        QuizCategoryKind.AvgEquityLossOver => "Avg equity loss over…",
-        QuizCategoryKind.WrongRateOver => "Wrong more than…",
-        QuizCategoryKind.EverythingElse => "Everything else",
-        _ => kind.ToString(),
-    };
-
     private static bool KindTakesParameter(QuizCategoryKind kind) => kind is
         QuizCategoryKind.SeenFewerThan or QuizCategoryKind.NotSeenInDays or
         QuizCategoryKind.AvgEquityLossOver or QuizCategoryKind.WrongRateOver;
@@ -176,10 +164,10 @@ public partial class MixPanel : ComponentBase
                 if (!TryBuildCategory(row, out var category, out var error))
                     return error;
                 if (!categories.Add(category!))
-                    return $"Duplicate category: {KindLabel(row.Kind)} with the same value.";
+                    return $"Duplicate category: {MixDisplay.KindLabel(row.Kind)} with the same value.";
                 if (!int.TryParse(row.PercentText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var percent)
                     || percent is < 1 or > 100)
-                    return $"{KindLabel(row.Kind)}: percent must be a whole number from 1 to 100.";
+                    return $"{MixDisplay.KindLabel(row.Kind)}: percent must be a whole number from 1 to 100.";
             }
 
             if (PercentSum != 100)

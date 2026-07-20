@@ -24,6 +24,7 @@ using DonePage = BgQuiz_Blazor.Client.Components.Pages.Done;
 using StatsPage = BgQuiz_Blazor.Client.Components.Pages.Stats;
 using HelpPage = BgQuiz_Blazor.Client.Components.Pages.Help;
 using ScorePanelComponent = BgQuiz_Blazor.Client.Components.Pages.ScorePanel;
+using MixPanelComponent = BgQuiz_Blazor.Client.Components.Pages.MixPanel;
 
 namespace BgQuiz_Blazor.Tests;
 
@@ -54,6 +55,12 @@ public class PageTests : BunitContext
         Services.AddSingleton(TimeProvider.System);
         Services.AddScoped<PickedProblemFolder>();
         Services.AddScoped<QuizStatsStore>();
+
+        // Home injects AppliedMix (and hosts MixPanel, whose restore path runs
+        // under each test's JSInterop mode). The fixture-wide default is the
+        // blank-mix holder; WithAppliedMix re-registers when a test needs a
+        // committed mix in place.
+        Services.AddScoped<AppliedMix>();
     }
 
     /// <summary>The sessionStorage key <see cref="QuizLiveMarker"/> reads/writes.</summary>
@@ -124,6 +131,39 @@ public class PageTests : BunitContext
         if (enabled) holder.Set(true);
         Services.AddSingleton(holder);
         return holder;
+    }
+
+    /// <summary>
+    /// Register an <see cref="AppliedMix"/> for the rendered <c>Home</c> page,
+    /// optionally pre-committed with <paramref name="mix"/> — simulating
+    /// navigate-back (or a panel restore) with a mix the user applied earlier.
+    /// Returns the holder so tests can assert commit/dirty transitions.
+    /// </summary>
+    private AppliedMix WithAppliedMix(QuizMix? mix = null)
+    {
+        var holder = new AppliedMix();
+        if (mix is not null) holder.Apply(mix);
+        Services.AddSingleton(holder);
+        return holder;
+    }
+
+    /// <summary>A minimal weighted mix: 100% never-seen, deterministic order.</summary>
+    private static QuizMix NeverSeenMix(int? quizLength = null) =>
+        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength, randomOrder: false);
+
+    /// <summary>
+    /// Like <see cref="WithController"/> but over a scriptable stats sink, so
+    /// weighted-start page tests can script stats availability
+    /// (<c>CanBindStats</c> / <c>CurrentDocument</c>) before driving the UI.
+    /// </summary>
+    private QuizController WithWeighableController(
+        out FakeDecisionStatsSink sink, params BgDecisionData[] items)
+    {
+        var fake = new FakeProblemSetSource(items);
+        sink = new FakeDecisionStatsSink();
+        var controller = new QuizController((_, _) => fake, sink, TimeProvider.System);
+        Services.AddSingleton(controller);
+        return controller;
     }
 
     // -----------------------------------------------------------------------
@@ -2277,5 +2317,277 @@ public class PageTests : BunitContext
     {
         var testDir = Path.GetDirectoryName(thisFile)!;
         return Path.GetFullPath(Path.Combine(testDir, "..", "BgQuiz_Blazor", "wwwroot", "app.css"));
+    }
+
+    // -----------------------------------------------------------------------
+    //  Stats-weighted mix: Home wiring, gate, refusal, notices
+    // -----------------------------------------------------------------------
+
+    /// <summary>The Start Quiz button on a rendered Home page.</summary>
+    private static AngleSharp.Dom.IElement StartButton(IRenderedComponent<HomePage> cut) =>
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+
+    [Fact]
+    public async Task Home_MixAppliedInPanel_StartComposesWeightedQuiz()
+    {
+        // The full UI → QuizMix → start-composition wire: the mix panel's
+        // Apply lands in the holder, Start hands it to the controller, and the
+        // started quiz composes through the real MixedProblemSetSource
+        // (LastComposition non-null is the composed-layer signature).
+        var c = WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var panel = cut.FindComponent<MixPanelComponent>();
+        await cut.InvokeAsync(() => panel.Instance.OnMixApplied.InvokeAsync(NeverSeenMix()));
+        await StartButton(cut).ClickAsync(new());
+
+        Assert.True(c.HasStarted);
+        Assert.NotNull(c.LastComposition);
+        Assert.Equal(1, c.LastComposition!.DrawnCount);
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+        Assert.EndsWith("/quiz", nav.Uri);
+    }
+
+    [Fact]
+    public async Task Home_DirtyMix_DisablesStart_UntilApplied()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var panel = cut.FindComponent<MixPanelComponent>();
+
+        await cut.InvokeAsync(() => panel.Instance.OnMixDirty.InvokeAsync());
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains("Apply or reset the mix", cut.Markup);
+
+        await cut.InvokeAsync(() => panel.Instance.OnMixApplied.InvokeAsync(QuizMix.Empty));
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_MixRestoredEvent_AdoptsIntoHolder_NoGating()
+    {
+        // The panel's restore path must adopt: holder and rendered rows agree
+        // without a re-Apply, and the gate stays open (a restored mix is a
+        // committed one, not an edit).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        var holder = WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var panel = cut.FindComponent<MixPanelComponent>();
+        var mix = NeverSeenMix();
+        await cut.InvokeAsync(() => panel.Instance.OnMixRestored.InvokeAsync(mix));
+
+        Assert.Same(mix, holder.Current);
+        Assert.False(holder.IsDirty);
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_WeightedStartWithoutStats_RefusedWithNotice_OverrideRunsPassthrough()
+    {
+        // The ratified no-stats ruling end-to-end: Start with a committed mix
+        // and no stats capability refuses (no navigation, no quiz), renders
+        // the actionable notice, and its one-click override starts THIS quiz
+        // unweighted while the holder's mix survives for next time.
+        var c = WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        sink.CanBindStats = false;
+        WithPickedFolder(); // fallback pick — BrowserUnsupported
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        var holder = WithAppliedMix(NeverSeenMix());
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        await StartButton(cut).ClickAsync(new());
+
+        Assert.False(c.HasStarted);
+        Assert.Contains("weighted mix can't be applied", cut.Markup);
+        Assert.Contains("can't save stats in your browser", cut.Markup); // capability-derived reason
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+        Assert.DoesNotContain("/quiz", nav.Uri);
+
+        await cut.Find("#startWithoutMix").ClickAsync(new());
+
+        Assert.True(c.HasStarted);
+        Assert.Null(c.LastComposition);          // passthrough run
+        Assert.False(holder.Current.IsPassthrough); // stored mix untouched
+        Assert.EndsWith("/quiz", nav.Uri);
+    }
+
+    [Fact]
+    public void Home_EarlyAdvisory_RendersOnlyForStatslessPickWithActiveMix()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder(); // BrowserUnsupported — can't provide stats
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        WithAppliedMix(NeverSeenMix());
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+
+        Assert.Contains("Start will offer to run without the mix", cut.Markup);
+    }
+
+    [Fact]
+    public void Home_EarlyAdvisory_AbsentWithBlankMix()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        WithAppliedMix(); // blank
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+
+        Assert.DoesNotContain("Start will offer to run without the mix", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_MixComposesToZero_MixAwareNotice_StaysHome()
+    {
+        // Parallel to the filtered-to-zero banner: a weighted start that drew
+        // nothing stays on Home with wording that names the mix, not the
+        // filters. One decision, already seen — a 100% never-seen mix draws 0.
+        var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = WithWeighableController(out var sink, d);
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty.Plus(
+            new SubmittedPlay(d.Id, BestPlay(), 0, 0.0, IsCorrect: true), TimeProvider.System);
+        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        WithAppliedMix(NeverSeenMix());
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        await StartButton(cut).ClickAsync(new());
+
+        Assert.Contains("Your mix drew no problems", cut.Markup);
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+        Assert.DoesNotContain("/quiz", nav.Uri);
+    }
+
+    [Fact]
+    public async Task Home_ShuffleCheckbox_DisabledUnderActiveMix_ValueNeverRewritten()
+    {
+        // Disabled must not mean rewritten: the checkbox greys out while the
+        // committed mix owns order, but ShuffleOption keeps the user's value,
+        // so clearing the mix (apply blank) restores the prior preference.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter(new FilterConfig());
+        var shuffle = WithShuffleOption(enabled: true);
+        WithAppliedMix(NeverSeenMix());
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+
+        Assert.True(cut.Find("#shuffleOrder").HasAttribute("disabled"));
+        Assert.Contains("order comes from the mix", cut.Markup);
+        Assert.True(shuffle.Enabled);
+
+        var panel = cut.FindComponent<MixPanelComponent>();
+        await cut.InvokeAsync(() => panel.Instance.OnMixApplied.InvokeAsync(QuizMix.Empty));
+
+        Assert.False(cut.Find("#shuffleOrder").HasAttribute("disabled"));
+        Assert.True(shuffle.Enabled); // untouched throughout
+    }
+
+    // -----------------------------------------------------------------------
+    //  Stats-weighted mix: Quiz shortfall notice, Done refused Restart
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Quiz_MixShortfall_RendersRequestedVsDrawnNotice()
+    {
+        // A quiz length beyond reachable supply: 100% never-seen over one
+        // unseen decision with QuizLength 5 targets 5, draws 1 — the notice
+        // must state both numbers and name the dried-up category.
+        var c = WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<QuizPage>();
+
+        Assert.Contains("asked for 5 problems but only", cut.Markup);
+        Assert.Contains("Never seen", cut.Markup);
+        Assert.Contains("drew 1 of 5 requested", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_NoShortfall_NoNotice()
+    {
+        var c = WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        await c.StartAsync(new FilterConfig(), NeverSeenMix()); // no length: target = union = drawn
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<QuizPage>();
+
+        Assert.DoesNotContain("ran short", cut.Markup);
+        Assert.DoesNotContain("could be drawn", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Done_WeightedRestartWithoutStats_RefusedKeepsSummary_OverrideRestartsPassthrough()
+    {
+        // Restart re-attempts the stored mix; stats fell away in between. The
+        // refusal must leave the summary standing (touches-no-state) and the
+        // override must restart unweighted.
+        var c = WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        await c.StartAsync(new FilterConfig(), NeverSeenMix());
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync(); // exhausts the one-problem source → finished
+        Assert.True(c.IsFinished);
+
+        sink.CanBindStats = false; // e.g. the pick was cleared between quizzes
+        WithPickedFolder(); // Done reads capability for the refusal reason
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<DonePage>();
+        await cut.FindAll("button").First(b => b.TextContent.Contains("Restart with same filters"))
+            .ClickAsync(new());
+
+        Assert.Contains("weighted mix can't be applied", cut.Markup);
+        Assert.True(c.IsFinished);                     // summary state survived the refusal
+        Assert.Equal(1, c.Score.Total.Submitted);
+
+        sink.CurrentDocument = null; // override ignores the mix, so stats stay unused
+        await cut.Find("#restartWithoutMix").ClickAsync(new());
+
+        Assert.True(c.HasStarted);
+        Assert.False(c.IsFinished);                    // a fresh (passthrough) run began
+        Assert.Null(c.LastComposition);
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+        Assert.EndsWith("/quiz", nav.Uri);
     }
 }
