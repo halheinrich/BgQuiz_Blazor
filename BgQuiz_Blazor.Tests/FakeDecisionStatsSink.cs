@@ -13,6 +13,20 @@ internal sealed class FakeDecisionStatsSink : IDecisionStatsSink
 {
     public int BeginQuizCallCount { get; private set; }
 
+    /// <summary>
+    /// Scriptable capability peek. Defaults to false — the no-stats posture a
+    /// fresh app has — so blank-mix tests never depend on stats state; tests
+    /// exercising a weighted start opt in explicitly.
+    /// </summary>
+    public bool CanBindStats { get; set; }
+
+    /// <summary>
+    /// Scriptable live document. Defaults to null (no bound context); a
+    /// weighted-start test sets it — and can replace it mid-test to model the
+    /// lifetime record advancing between runs (the Restart-recomposes pin).
+    /// </summary>
+    public DecisionStatsDocument? CurrentDocument { get; set; }
+
     /// <summary>Checker-play folds, in fold order.</summary>
     public List<SubmittedPlay> Plays { get; } = [];
 

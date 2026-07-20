@@ -173,10 +173,10 @@ public class WasmUploadedProblemSetSourceTests
         picked.Set("corpus", files, StatsSaveCapability.BrowserUnsupported);
 
         BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory =
-            filters => new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance);
-        var controller = new QuizController(factory, new FakeDecisionStatsSink());
+            (filters, _) => new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance);
+        var controller = new QuizController(factory, new FakeDecisionStatsSink(), TimeProvider.System);
 
-        await controller.StartAsync(new FilterConfig());
+        await controller.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         Assert.True(controller.HasStarted);
         // A real corpus yields at least one non-pass decision; if every decision
@@ -200,20 +200,53 @@ public class WasmUploadedProblemSetSourceTests
         picked.Set("corpus", files, StatsSaveCapability.BrowserUnsupported);
         var shuffle = new ShuffleOption();
 
-        BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory = filters =>
+        BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory = (filters, mix) =>
         {
             IProblemSetSource inner = new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance);
-            return shuffle.Enabled ? new ShuffledProblemSetSource(inner, seed: 42) : inner;
+            return mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner, seed: 42) : inner;
         };
 
-        var unshuffledOrder = await CollectAllAsync(factory(new DecisionFilterSet()));
+        var unshuffledOrder = await CollectAllAsync(factory(new DecisionFilterSet(), QuizMix.Empty));
         if (unshuffledOrder.Count < 2) return; // can't observe a shuffle over <2 items
 
         shuffle.Set(true);
-        var shuffledOrder = await CollectAllAsync(factory(new DecisionFilterSet()));
+        var shuffledOrder = await CollectAllAsync(factory(new DecisionFilterSet(), QuizMix.Empty));
 
         Assert.Equal(unshuffledOrder.Count, shuffledOrder.Count);
         Assert.NotEqual(unshuffledOrder, shuffledOrder); // order differs (seeded, so deterministic)
+    }
+
+    [Fact]
+    public async Task FactoryShape_ActiveMix_SuppressesShuffleWrap()
+    {
+        // Pins the arbitration rule the Program.cs factory now carries: an
+        // active mix owns presentation order (its RandomOrder toggle), so the
+        // shuffle decorator must not wrap under it — a shuffled inner would
+        // silently break RandomOrder:false's source-order determinism. With
+        // shuffle ON but a non-blank mix, the factory hands back the plain
+        // source: enumeration order equals the unshuffled order.
+        var files = CorpusFiles();
+        if (files.Count == 0) return;
+
+        var picked = new PickedProblemFolder();
+        picked.Set("corpus", files, StatsSaveCapability.BrowserUnsupported);
+        var shuffle = new ShuffleOption();
+        shuffle.Set(true);
+
+        BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory = (filters, mix) =>
+        {
+            IProblemSetSource inner = new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance);
+            return mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner, seed: 42) : inner;
+        };
+        var activeMix = new QuizMix([new QuizMixEntry(QuizCategory.EverythingElse, 100)]);
+
+        var plainOrder = await CollectAllAsync(
+            new WasmUploadedProblemSetSource(picked.Files, new DecisionFilterSet(), NullLoggerFactory.Instance));
+        if (plainOrder.Count < 2) return; // suppression unobservable over <2 items
+
+        var underMixOrder = await CollectAllAsync(factory(new DecisionFilterSet(), activeMix));
+
+        Assert.Equal(plainOrder.Select(d => d.Id), underMixOrder.Select(d => d.Id));
     }
 
     private static async Task<List<BgDecisionData>> CollectAllAsync(IProblemSetSource src)

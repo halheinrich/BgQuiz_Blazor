@@ -80,17 +80,21 @@ internal sealed class QuizController : IAsyncDisposable
 {
     private readonly ProblemSetSourceFactory _sourceFactory;
     private readonly IDecisionStatsSink _statsSink;
+    private readonly TimeProvider _clock;
     private readonly List<SubmittedPlay> _history = [];
     private readonly List<SubmittedCubeAction> _cubeHistory = [];
 
     private DecisionFilterSet? _filterPipeline;
+    private QuizMix _mix = QuizMix.Empty;
     private IProblemSetSource? _source;
+    private MixedProblemSetSource? _mixedSource;
     private IAsyncEnumerator<BgDecisionData>? _enumerator;
 
-    public QuizController(ProblemSetSourceFactory sourceFactory, IDecisionStatsSink statsSink)
+    public QuizController(ProblemSetSourceFactory sourceFactory, IDecisionStatsSink statsSink, TimeProvider clock)
     {
         _sourceFactory = sourceFactory ?? throw new ArgumentNullException(nameof(sourceFactory));
         _statsSink = statsSink ?? throw new ArgumentNullException(nameof(statsSink));
+        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
     /// <summary>Source name once started; null otherwise.</summary>
@@ -130,31 +134,66 @@ internal sealed class QuizController : IAsyncDisposable
     /// <summary>True when a quiz is in progress (active or finished).</summary>
     public bool HasStarted => _source is not null;
 
+    /// <summary>
+    /// The active mix composition's telemetry (requested vs. drawn, overall
+    /// and per entry, in declared entry order), or null when no composition
+    /// layer is wired — a blank/overridden mix — or before the composing
+    /// enumeration begins. Assigned by the producer before the first yield,
+    /// so it is readable the moment a weighted quiz shows its first problem;
+    /// the pages' shortfall and composed-to-zero notices render from it.
+    /// </summary>
+    public MixComposition? LastComposition => _mixedSource?.LastComposition;
+
     /// <summary>Raised after every state transition so observing pages can re-render.</summary>
     public event Action? StateChanged;
 
     /// <summary>
-    /// Begin a fresh quiz against <paramref name="userConfig"/>. Materializes
-    /// the user's <see cref="FilterConfig"/> into a <see cref="DecisionFilterSet"/>
-    /// owned entirely by this controller and advances to the first non-pass
-    /// problem. Resets score / histories / skipped-count.
+    /// Begin a fresh quiz against <paramref name="userConfig"/> and
+    /// <paramref name="mix"/>. Materializes the user's <see cref="FilterConfig"/>
+    /// into a <see cref="DecisionFilterSet"/> owned entirely by this controller
+    /// and advances to the first non-pass problem. Resets score / histories /
+    /// skipped-count.
+    ///
+    /// <para>
+    /// <b>Mix ownership mirrors filter ownership.</b> The mix is user config
+    /// handed in at Start — never caller-set mutable state — stored alongside
+    /// the filter pipeline so <see cref="RestartAsync"/> re-attempts it. A
+    /// blank mix (<see cref="QuizMix.Empty"/>) is the inert default: no
+    /// composition layer is wired at all.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>A weighted start can be refused.</b> A mix with entries composes
+    /// against the lifetime-stats document, so it requires a bindable stats
+    /// context; without one the start is refused
+    /// (<see cref="QuizStartOutcome.MixRequiresStats"/>) rather than silently
+    /// run unweighted — see <see cref="ResetAndAdvanceAsync"/> for the
+    /// two-stage check and the state guarantees. The caller offers the
+    /// explicit escape: <paramref name="ignoreMix"/> runs <i>this one quiz</i>
+    /// as passthrough while <paramref name="mix"/> is still stored, so the mix
+    /// re-applies on the next Start/Restart that can honor it. The stored mix
+    /// is never rewritten by any refusal or override.
+    /// </para>
     /// </summary>
-    /// <exception cref="ArgumentNullException"><paramref name="userConfig"/> is null.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="userConfig"/> or <paramref name="mix"/> is null.</exception>
     /// <exception cref="ArgumentException">
     /// <paramref name="userConfig"/> contains a malformed value — propagated
     /// from <see cref="FilterConfig.Build"/>.
     /// </exception>
-    public async Task StartAsync(FilterConfig userConfig)
+    public async Task<QuizStartOutcome> StartAsync(FilterConfig userConfig, QuizMix mix, bool ignoreMix = false)
     {
         ArgumentNullException.ThrowIfNull(userConfig);
+        ArgumentNullException.ThrowIfNull(mix);
 
         // Build a fresh, controller-owned pipeline from the immutable DTO. The
         // user's DecisionType choice governs decision-type admission; the
         // controller adds no filter of its own. Restart re-uses this pipeline
-        // without re-building.
-        _filterPipeline = userConfig.Build();
+        // without re-building. Built (and validated) before ResetAndAdvanceAsync
+        // commits anything, so a Build failure or a refused start leaves the
+        // previous quiz's config — and a later Restart — untouched.
+        var pipeline = userConfig.Build();
 
-        await ResetAndAdvanceAsync();
+        return await ResetAndAdvanceAsync(pipeline, mix, ignoreMix);
     }
 
     /// <summary>
@@ -383,13 +422,22 @@ internal sealed class QuizController : IAsyncDisposable
     }
 
     /// <summary>
-    /// Restart the quiz from the beginning of the source using the existing
-    /// (already-augmented) filter pipeline. No-op when no quiz has been started.
+    /// Restart the quiz from the beginning of the source using the stored
+    /// filter pipeline and mix. Always re-attempts the stored mix unless
+    /// <paramref name="ignoreMix"/> — the per-run override for a refused
+    /// weighted restart, mirroring <see cref="StartAsync"/> — so the mix
+    /// applies again whenever stats allow. With a mix active this is a fresh
+    /// composition against the stats document <i>as it stands now</i>, this
+    /// quiz's folds included (the provider is resolved per enumeration — the
+    /// deliberate Restart-recomposes semantics). No-op when no quiz has been
+    /// started (vacuously <see cref="QuizStartOutcome.Started"/> — the
+    /// defensive branch no caller reaches, since Done requires a started
+    /// quiz).
     /// </summary>
-    public async Task RestartAsync()
+    public async Task<QuizStartOutcome> RestartAsync(bool ignoreMix = false)
     {
-        if (_filterPipeline is null) return;
-        await ResetAndAdvanceAsync();
+        if (_filterPipeline is null) return QuizStartOutcome.Started;
+        return await ResetAndAdvanceAsync(_filterPipeline, _mix, ignoreMix);
     }
 
     public async ValueTask DisposeAsync()
@@ -418,11 +466,69 @@ internal sealed class QuizController : IAsyncDisposable
         return score;
     }
 
-    private async Task ResetAndAdvanceAsync()
+    /// <summary>
+    /// The one shared path under Start and Restart: refusal checks, the
+    /// lifetime-stats bind, pipeline (re)assembly, state reset, and the
+    /// advance to the first showable problem.
+    ///
+    /// <para>
+    /// <b>Two-stage refusal for a weighted start.</b> A mix with entries
+    /// composes against the stats document, and composing without one is
+    /// banned (the producer's provider contract throws on null by design) —
+    /// so no stats means the start is refused, never silently unweighted.
+    /// Stage 1 is the side-effect-free capability peek
+    /// (<see cref="IDecisionStatsSink.CanBindStats"/>): a fallback pick, a
+    /// declined permission, or no pick at all refuses before anything —
+    /// including the stats bind — happens. Stage 2 runs after the bind:
+    /// a context that bound without a document (unreadable stats file)
+    /// refuses before any quiz state is touched, so the prior quiz — its
+    /// enumerator, score, histories, <see cref="Current"/>, and
+    /// <see cref="IsFinished"/> — survives a refused Start/Restart intact and
+    /// no <see cref="StateChanged"/> fires. The stage-2 re-bind itself is the
+    /// one residual side effect (see the Pitfalls in INSTRUCTIONS.md).
+    /// </para>
+    ///
+    /// <para>
+    /// The stored config (<see cref="_filterPipeline"/> / <see cref="_mix"/>)
+    /// commits only past the refusal checks, so a refused Start never
+    /// retargets what a later Restart re-runs.
+    /// </para>
+    /// </summary>
+    private async Task<QuizStartOutcome> ResetAndAdvanceAsync(
+        DecisionFilterSet pipeline, QuizMix mix, bool ignoreMix)
     {
+        // The composition this run actually uses: the override runs one quiz
+        // as passthrough while the stored mix stays what the user configured.
+        var effectiveMix = ignoreMix ? QuizMix.Empty : mix;
+
+        if (!effectiveMix.IsPassthrough && !_statsSink.CanBindStats)
+            return QuizStartOutcome.MixRequiresStats;
+
+        // Bind the lifetime-stats context for the quiz now starting. This is
+        // the one shared path under Start and Restart, so it is exactly where
+        // the picked folder promotes to the active stats slot — a mid-quiz
+        // Clear or re-pick changes nothing until the next pass through here.
+        // Bound before the source is built because the mix decision below
+        // needs the freshly bound context.
+        await _statsSink.BeginQuizAsync();
+
+        if (!effectiveMix.IsPassthrough && _statsSink.CurrentDocument is null)
+            return QuizStartOutcome.MixRequiresStats;
+
+        _filterPipeline = pipeline;
+        _mix = mix;
+
         await DisposeEnumeratorAsync();
 
-        _source = _sourceFactory(_filterPipeline!);
+        var inner = _sourceFactory(pipeline, effectiveMix);
+        // A blank mix wires no composition layer at all — the settled
+        // passthrough default. An active mix composes via the producer's
+        // decorator; holding the typed reference is what surfaces
+        // LastComposition without type-testing.
+        _mixedSource = effectiveMix.IsPassthrough
+            ? null
+            : new MixedProblemSetSource(inner, GetCurrentDocumentOrThrow, effectiveMix, _clock);
+        _source = _mixedSource ?? inner;
         _enumerator = _source.EnumerateAsync().GetAsyncEnumerator();
 
         Score = QuizScore.Empty;
@@ -433,14 +539,23 @@ internal sealed class QuizController : IAsyncDisposable
         Current = null;
         Review = null;
 
-        // Bind the lifetime-stats context for the quiz now starting. This is
-        // the one shared path under Start and Restart, so it is exactly where
-        // the picked folder promotes to the active stats slot — a mid-quiz
-        // Clear or re-pick changes nothing until the next pass through here.
-        await _statsSink.BeginQuizAsync();
-
         await AdvanceAsync();
+        return QuizStartOutcome.Started;
     }
+
+    /// <summary>
+    /// The stats provider handed to <see cref="MixedProblemSetSource"/>,
+    /// resolved fresh per enumeration so a Restart recomposes against the
+    /// lifetime record as it stands, this session's folds included. The
+    /// decorator is only ever wired past the refusal checks, so a null
+    /// document here is a wiring bug — the throw mirrors the producer's own
+    /// null-provider contract rather than masking the bug as an
+    /// all-never-seen quiz.
+    /// </summary>
+    private DecisionStatsDocument GetCurrentDocumentOrThrow() =>
+        _statsSink.CurrentDocument ?? throw new InvalidOperationException(
+            "The mix composition layer is wired but the stats sink holds no document — " +
+            "a weighted start should have been refused.");
 
     private async Task AdvanceAsync()
     {
@@ -500,5 +615,38 @@ internal sealed class QuizController : IAsyncDisposable
 /// from a user-supplied filter set. The client's <c>Program.cs</c> binds this to
 /// the in-browser source for the current run (the picked-files source, or a
 /// bundled sample); tests substitute a fake source via the same delegate shape.
+///
+/// <para>
+/// The <paramref name="mix"/> is the run's <i>effective</i> composition config,
+/// passed for one reason: shuffle arbitration. An active mix owns presentation
+/// order through <see cref="QuizMix.RandomOrder"/>, so the factory must not
+/// wrap a shuffle decorator under it — a shuffled inner would silently break
+/// the deterministic contract of <c>RandomOrder: false</c> (the composing
+/// decorator draws and presents in <i>source</i> order there). The factory
+/// never wires the composition layer itself; that stays with the controller.
+/// </para>
 /// </summary>
-internal delegate IProblemSetSource ProblemSetSourceFactory(DecisionFilterSet filters);
+internal delegate IProblemSetSource ProblemSetSourceFactory(DecisionFilterSet filters, QuizMix mix);
+
+/// <summary>
+/// The result of <see cref="QuizController.StartAsync"/> /
+/// <see cref="QuizController.RestartAsync"/>: whether a quiz actually began.
+/// A refusal is an <i>outcome</i>, not a failure — the caller renders an
+/// actionable notice with the per-run override
+/// (<c>ignoreMix</c>) beside it; exceptions remain the failure channel.
+/// </summary>
+internal enum QuizStartOutcome
+{
+    /// <summary>A quiz began (weighted or passthrough) and advanced to its first problem — or finished immediately (the caller's empty-result check still applies).</summary>
+    Started,
+
+    /// <summary>
+    /// The start was refused: the mix has entries but no lifetime-stats
+    /// document is available (unsupported browser, declined permission,
+    /// nothing picked, or an unreadable stats file). No quiz state changed —
+    /// the prior quiz, if any, is untouched. The escape is the caller's
+    /// explicit per-run <c>ignoreMix</c> override; the stored mix itself is
+    /// never rewritten.
+    /// </summary>
+    MixRequiresStats,
+}

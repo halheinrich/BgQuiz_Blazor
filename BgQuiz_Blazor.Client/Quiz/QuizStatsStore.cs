@@ -26,6 +26,30 @@ internal interface IDecisionStatsSink
 
     /// <summary>Fold a finalized cube submission (two decisions — one per half) into the active document and persist it.</summary>
     Task RecordAsync(SubmittedCubeAction cube);
+
+    /// <summary>
+    /// Whether a <see cref="BeginQuizAsync"/> bind could currently yield a
+    /// stats document — the side-effect-free capability peek (nothing is
+    /// promoted, read, or reset). <see langword="false"/> covers the common
+    /// no-stats cases up front: a fallback pick, a declined write permission,
+    /// or nothing picked. <see langword="true"/> is a necessary, not
+    /// sufficient, signal — the bind itself can still fail (unreadable file),
+    /// which <see cref="CurrentDocument"/> reports after the fact. The
+    /// controller consults this before committing to a stats-dependent
+    /// composition, so a refusal on this rung has zero side effects.
+    /// </summary>
+    bool CanBindStats { get; }
+
+    /// <summary>
+    /// The live lifetime-stats document of the active context, or
+    /// <see langword="null"/> when the context holds none (disabled, or the
+    /// existing file failed to load). Non-null while recording — including
+    /// after a write failure, where folds continue in memory — and advances
+    /// with every fold, so a per-enumeration reader (the composing source's
+    /// stats provider) sees the record as it stands <i>now</i>, this
+    /// session's folds included.
+    /// </summary>
+    DecisionStatsDocument? CurrentDocument { get; }
 }
 
 /// <summary>
@@ -109,6 +133,13 @@ internal sealed class QuizStatsStore : IDecisionStatsSink
 
     /// <summary>The active context's condition; see <see cref="QuizStatsStatus"/>.</summary>
     public QuizStatsStatus Status { get; private set; } = QuizStatsStatus.Disabled;
+
+    /// <inheritdoc/>
+    public bool CanBindStats => _folder.Capability == StatsSaveCapability.Enabled;
+
+    /// <inheritdoc/>
+    public DecisionStatsDocument? CurrentDocument =>
+        Status is QuizStatsStatus.Ready or QuizStatsStatus.WriteFailed ? _doc : null;
 
     /// <summary>
     /// Raised when <see cref="Status"/> changes, so observing pages re-render

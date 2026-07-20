@@ -1,4 +1,5 @@
 using System.Reflection;
+using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
 using XgFilter_Lib.Filtering;
@@ -256,7 +257,10 @@ public partial class Home : ComponentBase
         _noMatchNotice = null;
         try
         {
-            await Controller.StartAsync(cfg);
+            // Interim: the mix-builder UI lands next; until then every start
+            // is the blank-mix passthrough (never refused, so the outcome
+            // needs no handling yet).
+            await Controller.StartAsync(cfg, QuizMix.Empty);
 
             // StartAsync already advanced to the first showable problem, so an
             // immediately-finished controller means the source yielded nothing

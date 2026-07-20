@@ -67,15 +67,21 @@ builder.Services.AddScoped<QuizLiveMarker>();
 // take effect. The unseeded ShuffledProblemSetSource ctor is used here
 // deliberately — reproducibility is a test-only concern (see
 // ShuffledProblemSetSource's seeded ctor), never user-facing.
+//
+// Shuffle applies only to a passthrough (blank-mix) run: an active mix owns
+// presentation order through its own RandomOrder toggle, and a shuffled inner
+// under the composing decorator would silently break RandomOrder:false's
+// fully-deterministic contract (draws and presentation in source order). The
+// composition layer itself is the controller's to wire, not the factory's.
 builder.Services.AddScoped<ProblemSetSourceFactory>(sp =>
 {
     var picked = sp.GetRequiredService<PickedProblemFolder>();
     var shuffle = sp.GetRequiredService<ShuffleOption>();
     var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-    return filters =>
+    return (filters, mix) =>
     {
         IProblemSetSource inner = new WasmUploadedProblemSetSource(picked.Files, filters, loggerFactory);
-        return shuffle.Enabled ? new ShuffledProblemSetSource(inner) : inner;
+        return mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner) : inner;
     };
 });
 

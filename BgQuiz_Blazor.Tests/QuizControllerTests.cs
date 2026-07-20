@@ -11,7 +11,7 @@ public class QuizControllerTests
     private static QuizController Make(params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
-        return new QuizController(_ => fake, new FakeDecisionStatsSink());
+        return new QuizController((_, _) => fake, new FakeDecisionStatsSink(), TimeProvider.System);
     }
 
     /// <summary>
@@ -25,7 +25,7 @@ public class QuizControllerTests
     {
         var fake = new FakeProblemSetSource(items);
         sink = new FakeDecisionStatsSink();
-        return new QuizController(_ => fake, sink);
+        return new QuizController((_, _) => fake, sink, TimeProvider.System);
     }
 
     /// <summary>
@@ -40,7 +40,7 @@ public class QuizControllerTests
         var fake = new FakeProblemSetSource(items);
         DecisionFilterSet? holder = null;
         captured = () => holder;
-        return new QuizController(set => { holder = set; return fake; }, new FakeDecisionStatsSink());
+        return new QuizController((set, _) => { holder = set; return fake; }, new FakeDecisionStatsSink(), TimeProvider.System);
     }
 
     private static Play BestPlay() => TestFixtures.MakePlay((8, 5), (8, 5));
@@ -55,14 +55,14 @@ public class QuizControllerTests
     public void Ctor_NullFactory_Throws()
     {
         Assert.Throws<ArgumentNullException>(
-            () => new QuizController(null!, new FakeDecisionStatsSink()));
+            () => new QuizController(null!, new FakeDecisionStatsSink(), TimeProvider.System));
     }
 
     [Fact]
     public void Ctor_NullStatsSink_Throws()
     {
         Assert.Throws<ArgumentNullException>(
-            () => new QuizController(_ => new FakeProblemSetSource([]), null!));
+            () => new QuizController((_, _) => new FakeProblemSetSource([]), null!, TimeProvider.System));
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public class QuizControllerTests
     public async Task StartAsync_NullFilters_Throws()
     {
         var c = Make();
-        await Assert.ThrowsAsync<ArgumentNullException>(() => c.StartAsync(null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => c.StartAsync(null!, QuizMix.Empty));
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public class QuizControllerTests
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d);
 
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         Assert.True(c.HasStarted);
         Assert.False(c.IsFinished);
@@ -115,7 +115,7 @@ public class QuizControllerTests
         var c = MakeCapturing(out var captured,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
 
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         var pipeline = captured();
         Assert.NotNull(pipeline);
@@ -131,7 +131,7 @@ public class QuizControllerTests
         // policy entirely.
         var c = MakeCapturing(out var captured, TestFixtures.CubeDecision());
 
-        await c.StartAsync(new FilterConfig { DecisionType = DecisionTypeOption.CubeOnly });
+        await c.StartAsync(new FilterConfig { DecisionType = DecisionTypeOption.CubeOnly }, QuizMix.Empty);
 
         var pipeline = captured();
         Assert.NotNull(pipeline);
@@ -149,7 +149,7 @@ public class QuizControllerTests
         var cube = TestFixtures.CubeDecision();
         var c = Make(cube);
 
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         Assert.Same(cube, c.Current);
         Assert.False(c.IsFinished);
@@ -169,7 +169,7 @@ public class QuizControllerTests
             DecisionType = DecisionTypeOption.Both,
         };
 
-        await c.StartAsync(cfg);
+        await c.StartAsync(cfg, QuizMix.Empty);
 
         Assert.Equal(["Alice"], cfg.Players);
         Assert.Equal(DecisionTypeOption.Both, cfg.DecisionType);
@@ -182,7 +182,7 @@ public class QuizControllerTests
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(pass, d);
 
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         // Pass auto-skipped silently — counts on user-driven skips only.
         Assert.Equal(0, c.SkippedCount);
@@ -196,7 +196,7 @@ public class QuizControllerTests
         var fired = 0;
         c.StateChanged += () => fired++;
 
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         Assert.True(fired >= 1);
     }
@@ -205,7 +205,7 @@ public class QuizControllerTests
     public async Task StartAsync_EmptySource_FlipsIsFinishedImmediately()
     {
         var c = Make();
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         Assert.True(c.HasStarted);
         Assert.True(c.IsFinished);
@@ -220,7 +220,7 @@ public class QuizControllerTests
     public async Task SubmitPlay_BestPlay_Scores_IsCorrect()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(BestPlay());
 
@@ -238,7 +238,7 @@ public class QuizControllerTests
     public async Task SubmitPlay_NonBestPlay_Scores_NotCorrect()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(AltPlay());
 
@@ -260,7 +260,7 @@ public class QuizControllerTests
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05);
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d1, d2);
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(AltPlay());
 
@@ -280,7 +280,7 @@ public class QuizControllerTests
         // Review is still produced — OffList true, index -1 (no marker drawn) —
         // so the user sees the best play on the solution diagram.
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(UnknownPlay());
 
@@ -298,7 +298,7 @@ public class QuizControllerTests
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d1, d2);
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitPlay(BestPlay());
         Assert.NotNull(c.Review);
         Assert.Same(d1, c.Current);
@@ -314,7 +314,7 @@ public class QuizControllerTests
     public async Task ContinueAsync_OutsideReview_NoOp()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         Assert.Null(c.Review);
 
         await c.ContinueAsync(); // no Review set — must not advance
@@ -329,7 +329,7 @@ public class QuizControllerTests
         // Once in review, a second Submit must be ignored — Continue is the only
         // way forward. Guards against a double-click double-scoring the problem.
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitPlay(BestPlay());
         var reviewBefore = c.Review;
 
@@ -344,7 +344,7 @@ public class QuizControllerTests
     public async Task SubmitThenContinue_LastProblem_FlipsIsFinished()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(BestPlay());
         Assert.False(c.IsFinished); // review first — not yet advanced
@@ -373,7 +373,7 @@ public class QuizControllerTests
     public async Task SubmitPlay_AfterFinish_NoOp()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts → IsFinished
         Assert.True(c.IsFinished);
@@ -390,7 +390,7 @@ public class QuizControllerTests
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.10),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.30));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(AltPlay());
         await c.ContinueAsync();
@@ -413,7 +413,7 @@ public class QuizControllerTests
         // fail this equality.
         var id = new XgpDecisionId("wire-play.xgp");
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: id));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(BestPlay());
 
@@ -437,7 +437,7 @@ public class QuizControllerTests
         var combined = TestFixtures.MakePlay((13, 8));                // candidate: 13/8
         var other = TestFixtures.MakePlay((24, 22), (24, 23));
         var c = Make(TestFixtures.TwoChoiceDecision(combined, other, play2Loss: 0.05));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(TestFixtures.MakePlay((13, 10), (10, 8)));       // 13/10, 10/8
 
@@ -461,7 +461,7 @@ public class QuizControllerTests
         var nonHitting = TestFixtures.MakePlay((13, 8));             // candidate 13/8, no hit
         var other = TestFixtures.MakePlay((24, 22), (24, 23));
         var c = Make(TestFixtures.TwoChoiceDecision(nonHitting, other));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         // 13/10*/8 — the intermediate 10-pt hit is the sign-encoded negative ToPt.
         c.SubmitPlay(TestFixtures.MakePlay((13, -10), (10, 8)));
@@ -482,7 +482,7 @@ public class QuizControllerTests
     public async Task SubmitCubeAction_BestAnswer_ScoresBothHalvesCorrect()
     {
         var c = Make(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
 
@@ -508,7 +508,7 @@ public class QuizControllerTests
     public async Task SubmitCubeAction_WrongAnswer_ScoresPerHalfLoss()
     {
         var c = Make(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
 
@@ -532,7 +532,7 @@ public class QuizControllerTests
         // SubmitPlay_CarriesDecisionIdIntoHistory. Distinctive id pins the carry.
         var id = new XgpDecisionId("wire-cube.xgp");
         var c = Make(TestFixtures.CubeDecision(id: id));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
 
@@ -548,7 +548,7 @@ public class QuizControllerTests
         var d1 = TestFixtures.CubeDecision();
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d1, d2);
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
 
@@ -567,7 +567,7 @@ public class QuizControllerTests
         var d1 = TestFixtures.CubeDecision();
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d1, d2);
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
         Assert.Same(d1, c.Current);
 
@@ -582,7 +582,7 @@ public class QuizControllerTests
     public async Task SubmitCubeAction_WhileReviewSet_NoOp()
     {
         var c = Make(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
         var reviewBefore = c.Review;
 
@@ -596,7 +596,7 @@ public class QuizControllerTests
     public async Task SubmitCubeThenContinue_LastProblem_FlipsIsFinished()
     {
         var c = Make(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
         Assert.False(c.IsFinished); // review first
@@ -623,7 +623,7 @@ public class QuizControllerTests
     public async Task SubmitCubeAction_AfterFinish_NoOp()
     {
         var c = Make(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
         await c.ContinueAsync(); // exhausts
         Assert.True(c.IsFinished);
@@ -640,7 +640,7 @@ public class QuizControllerTests
         var c = Make(
             TestFixtures.CubeDecision(),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
         Assert.Single(c.CubeHistory);
         Assert.NotNull(c.Review);
@@ -659,7 +659,7 @@ public class QuizControllerTests
     public async Task RedoAsync_OutsideReview_NoOp()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         Assert.Null(c.Review);
         var current = c.Current;
 
@@ -676,7 +676,7 @@ public class QuizControllerTests
     public async Task RedoAsync_AfterCorrectPlay_RevertsHistoryScoreAndReview()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var current = c.Current;
 
         c.SubmitPlay(BestPlay());
@@ -698,7 +698,7 @@ public class QuizControllerTests
     public async Task RedoAsync_AfterIncorrectPlay_RevertsHistoryScoreAndReview()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var current = c.Current;
 
         c.SubmitPlay(AltPlay());
@@ -719,7 +719,7 @@ public class QuizControllerTests
         // Off-list submissions never add a History entry — Redo's inverse is
         // decrementing SkippedCount instead of popping History.
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var current = c.Current;
 
         c.SubmitPlay(UnknownPlay());
@@ -741,7 +741,7 @@ public class QuizControllerTests
     public async Task RedoAsync_AfterCubeSubmission_RevertsCubeHistoryScoreAndReview()
     {
         var c = Make(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var current = c.Current;
 
         c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
@@ -765,7 +765,7 @@ public class QuizControllerTests
         var play = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05);
         var cube = TestFixtures.CubeDecision();
         var c = Make(play, cube);
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(AltPlay()); // incorrect, 0.05 loss
         await c.ContinueAsync();
@@ -793,7 +793,7 @@ public class QuizControllerTests
         // Redo, submitting a different answer to the same problem must not
         // leave any trace of the reversed attempt.
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(AltPlay()); // first attempt: incorrect
         await c.RedoAsync();
@@ -810,7 +810,7 @@ public class QuizControllerTests
     public async Task RedoAsync_FiresStateChanged()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitPlay(BestPlay());
         var fired = 0;
         c.StateChanged += () => fired++;
@@ -830,7 +830,7 @@ public class QuizControllerTests
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d1, d2);
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         await c.SkipCurrentAsync();
 
@@ -850,7 +850,7 @@ public class QuizControllerTests
     public async Task SkipCurrentAsync_AfterFinish_NoOp()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhaust
         Assert.True(c.IsFinished);
@@ -868,7 +868,7 @@ public class QuizControllerTests
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d1, d2);
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitPlay(BestPlay());
         Assert.NotNull(c.Review);
 
@@ -897,7 +897,7 @@ public class QuizControllerTests
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
         await c.SkipCurrentAsync();
@@ -918,9 +918,9 @@ public class QuizControllerTests
     {
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var fake = new FakeProblemSetSource([d]);
-        var c = new QuizController(_ => fake, new FakeDecisionStatsSink());
+        var c = new QuizController((_, _) => fake, new FakeDecisionStatsSink(), TimeProvider.System);
 
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         Assert.Equal(1, fake.EnumerateCallCount);
 
         await c.RestartAsync();
@@ -936,7 +936,7 @@ public class QuizControllerTests
     {
         var c = MakeWithSink(out var sink, TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
 
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         Assert.Equal(1, sink.BeginQuizCallCount);
         Assert.Equal(0, sink.TotalFolds); // binding never folds
@@ -947,7 +947,7 @@ public class QuizControllerTests
     {
         var c = MakeWithSink(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         await c.RestartAsync();
 
@@ -962,7 +962,7 @@ public class QuizControllerTests
         var c = MakeWithSink(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(AltPlay());
         Assert.Equal(0, sink.TotalFolds); // submit alone must not fold
@@ -978,7 +978,7 @@ public class QuizControllerTests
     public async Task SubmitThenContinue_Cube_FoldsExactlyTheSubmittedCubeOnce()
     {
         var c = MakeWithSink(out var sink, TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
         Assert.Equal(0, sink.TotalFolds);
@@ -998,7 +998,7 @@ public class QuizControllerTests
         // answer must leave no trace — only the final answer folds.
         var c = MakeWithSink(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(AltPlay());  // first attempt: incorrect
         await c.RedoAsync();
@@ -1016,7 +1016,7 @@ public class QuizControllerTests
         // submissions — there is no history entry to fold.
         var c = MakeWithSink(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(UnknownPlay());
         await c.ContinueAsync();
@@ -1030,7 +1030,7 @@ public class QuizControllerTests
         var c = MakeWithSink(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         await c.SkipCurrentAsync();
 
@@ -1046,7 +1046,7 @@ public class QuizControllerTests
             TestFixtures.PassDecision(),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
 
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         Assert.Equal(0, sink.TotalFolds);
     }
@@ -1058,7 +1058,7 @@ public class QuizControllerTests
         // source — the fold sits before the advance.
         var c = MakeWithSink(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
@@ -1074,7 +1074,7 @@ public class QuizControllerTests
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05),
             TestFixtures.CubeDecision(),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(AltPlay());
         await c.ContinueAsync();
@@ -1100,11 +1100,235 @@ public class QuizControllerTests
         var fires = 0;
         c.StateChanged += () => fires++;
 
-        await c.StartAsync(new FilterConfig()); // 1 — advance to first
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty); // 1 — advance to first
         c.SubmitPlay(BestPlay());               // 2 — score + enter review
         await c.ContinueAsync();                // 3 — advance to second
         await c.SkipCurrentAsync();             // 4 — skip + advance (exhausts)
 
         Assert.Equal(4, fires);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Stats-weighted mix: wrap, refusal, override, Restart-recomposes
+    // -----------------------------------------------------------------------
+
+    /// <summary>A minimal weighted mix: 100% never-seen, deterministic order.</summary>
+    private static QuizMix NeverSeenMix(int? quizLength = null) =>
+        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength, randomOrder: false);
+
+    /// <summary>
+    /// Constructs a controller over a scriptable sink and a mix-capturing
+    /// factory: <paramref name="sink"/> scripts stats availability
+    /// (<c>CanBindStats</c> / <c>CurrentDocument</c>); <paramref name="mixes"/>
+    /// records the <i>effective</i> mix each factory invocation received, so
+    /// tests can pin what the controller actually composes with.
+    /// </summary>
+    private static QuizController MakeWeighable(
+        out FakeDecisionStatsSink sink, out List<QuizMix> mixes, params BgDecisionData[] items)
+    {
+        var fake = new FakeProblemSetSource(items);
+        sink = new FakeDecisionStatsSink();
+        var captured = new List<QuizMix>();
+        mixes = captured;
+        return new QuizController(
+            (_, mix) => { captured.Add(mix); return fake; }, sink, TimeProvider.System);
+    }
+
+    /// <summary>A lifetime-stats document holding one correct sighting of <paramref name="id"/>.</summary>
+    private static DecisionStatsDocument DocWithSeen(DecisionId id) =>
+        DecisionStatsDocument.Empty.Plus(
+            new SubmittedPlay(id, BestPlay(), 0, 0.0, IsCorrect: true), TimeProvider.System);
+
+    [Fact]
+    public void Ctor_NullClock_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => new QuizController((_, _) => new FakeProblemSetSource([]), new FakeDecisionStatsSink(), null!));
+    }
+
+    [Fact]
+    public async Task StartAsync_NullMix_Throws()
+    {
+        var c = Make();
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => c.StartAsync(new FilterConfig(), null!));
+    }
+
+    [Fact]
+    public async Task StartAsync_BlankMix_NoCompositionLayer()
+    {
+        var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = MakeWeighable(out _, out var mixes, d);
+
+        var outcome = await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        // Passthrough: started with no stats at all, no telemetry, and the
+        // factory saw the blank mix (its shuffle-arbitration input).
+        Assert.Equal(QuizStartOutcome.Started, outcome);
+        Assert.Same(d, c.Current);
+        Assert.Null(c.LastComposition);
+        Assert.Same(QuizMix.Empty, Assert.Single(mixes));
+    }
+
+    [Fact]
+    public async Task StartAsync_MixWithoutCapability_RefusedBeforeBind()
+    {
+        var c = MakeWeighable(out var sink, out var mixes,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        sink.CanBindStats = false; // fallback pick / denied / nothing picked
+        var fires = 0;
+        c.StateChanged += () => fires++;
+
+        var outcome = await c.StartAsync(new FilterConfig(), NeverSeenMix());
+
+        // Stage-1 refusal: zero side effects — no bind, no source build, no
+        // state transition, nothing started.
+        Assert.Equal(QuizStartOutcome.MixRequiresStats, outcome);
+        Assert.Equal(0, sink.BeginQuizCallCount);
+        Assert.Empty(mixes);
+        Assert.False(c.HasStarted);
+        Assert.Equal(0, fires);
+    }
+
+    [Fact]
+    public async Task StartAsync_MixBindsWithoutDocument_RefusedAfterBind()
+    {
+        var c = MakeWeighable(out var sink, out var mixes,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        sink.CanBindStats = true;
+        sink.CurrentDocument = null; // the bind ran but yielded no document (unreadable file)
+
+        var outcome = await c.StartAsync(new FilterConfig(), NeverSeenMix());
+
+        // Stage-2 refusal: the bind is the one side effect; quiz state stays
+        // untouched and no source is ever built.
+        Assert.Equal(QuizStartOutcome.MixRequiresStats, outcome);
+        Assert.Equal(1, sink.BeginQuizCallCount);
+        Assert.Empty(mixes);
+        Assert.False(c.HasStarted);
+    }
+
+    [Fact]
+    public async Task StartAsync_RefusedMidQuiz_PriorQuizAndStoredConfigUntouched()
+    {
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var c = MakeWeighable(out var sink, out var mixes, d1, d2);
+
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay()); // in review, one scored answer
+
+        var outcome = await c.StartAsync(new FilterConfig(), NeverSeenMix());
+
+        // The refused weighted start leaves the running quiz exactly as it was…
+        Assert.Equal(QuizStartOutcome.MixRequiresStats, outcome);
+        Assert.Same(d1, c.Current);
+        Assert.NotNull(c.Review);
+        Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.False(c.IsFinished);
+
+        // …and never committed the refused config: Restart re-runs the stored
+        // blank mix (factory invoked twice, blank both times) instead of the
+        // weighted one that was refused.
+        var restart = await c.RestartAsync();
+        Assert.Equal(QuizStartOutcome.Started, restart);
+        Assert.Equal(2, mixes.Count);
+        Assert.All(mixes, m => Assert.Same(QuizMix.Empty, m));
+    }
+
+    [Fact]
+    public async Task StartAsync_MixWithDocument_ComposesFromLifetimeStats()
+    {
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var c = MakeWeighable(out var sink, out var mixes, d1, d2);
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DocWithSeen(d1.Id); // d1 seen before; d2 never seen
+
+        var mix = NeverSeenMix();
+        var outcome = await c.StartAsync(new FilterConfig(), mix);
+
+        // The real MixedProblemSetSource composes over the fake inner source:
+        // a 100% never-seen mix admits only d2, and the telemetry reports the
+        // one-decision composition before the first problem shows.
+        Assert.Equal(QuizStartOutcome.Started, outcome);
+        Assert.Same(d2, c.Current);
+        Assert.NotNull(c.LastComposition);
+        Assert.Equal(1, c.LastComposition!.DrawnCount);
+        Assert.Same(mix, Assert.Single(mixes)); // the factory saw the effective (real) mix
+
+        await c.SkipCurrentAsync();
+        Assert.True(c.IsFinished); // d1 never reached the quiz
+    }
+
+    [Fact]
+    public async Task StartAsync_IgnoreMix_RunsPassthroughButStoresTheMix()
+    {
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var c = MakeWeighable(out var sink, out var mixes, d1, d2);
+        sink.CanBindStats = false; // stats unavailable — the refusal scenario
+
+        var outcome = await c.StartAsync(new FilterConfig(), NeverSeenMix(), ignoreMix: true);
+
+        // The per-run override runs this quiz as passthrough…
+        Assert.Equal(QuizStartOutcome.Started, outcome);
+        Assert.Same(d1, c.Current);
+        Assert.Null(c.LastComposition);
+        Assert.Same(QuizMix.Empty, Assert.Single(mixes));
+
+        // …while the weighted mix stayed stored: a plain Restart re-attempts
+        // it and is refused again while stats remain unavailable.
+        var restart = await c.RestartAsync();
+        Assert.Equal(QuizStartOutcome.MixRequiresStats, restart);
+        Assert.Same(d1, c.Current); // refused restart also left the quiz alone
+    }
+
+    [Fact]
+    public async Task RestartAsync_ReattemptsStoredMix_RecomposingAgainstCurrentDocument()
+    {
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var c = MakeWeighable(out var sink, out _, d1, d2);
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty; // nothing seen yet
+
+        await c.StartAsync(new FilterConfig(), NeverSeenMix());
+        Assert.Same(d1, c.Current);
+        Assert.Equal(2, c.LastComposition!.DrawnCount); // both never seen
+
+        // The lifetime record advances (as folds would advance it mid-quiz);
+        // Restart resolves the provider fresh and composes against the record
+        // as it stands now — the deliberate Restart-recomposes semantics.
+        sink.CurrentDocument = DocWithSeen(d1.Id);
+        var outcome = await c.RestartAsync();
+
+        Assert.Equal(QuizStartOutcome.Started, outcome);
+        Assert.Same(d2, c.Current);
+        Assert.Equal(1, c.LastComposition!.DrawnCount);
+    }
+
+    [Fact]
+    public async Task RestartAsync_Refused_LeavesFinishedQuizIntact()
+    {
+        var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = MakeWeighable(out var sink, out _, d);
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+
+        await c.StartAsync(new FilterConfig(), NeverSeenMix());
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+        Assert.True(c.IsFinished);
+
+        // Stats fall away between quizzes (e.g. the folder pick was cleared);
+        // the Done page's Restart is refused and its summary must survive.
+        sink.CanBindStats = false;
+        var outcome = await c.RestartAsync();
+
+        Assert.Equal(QuizStartOutcome.MixRequiresStats, outcome);
+        Assert.True(c.IsFinished);
+        Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.Equal(1, c.Score.Total.Correct);
     }
 }
