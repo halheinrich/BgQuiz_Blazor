@@ -66,9 +66,12 @@ builder.Services.AddScoped<AppliedMix>();
 // completion. See QuizLiveMarker for why the store is sessionStorage.
 builder.Services.AddScoped<QuizLiveMarker>();
 
-// Source factory: builds a WasmUploadedProblemSetSource over whatever files the
-// user has picked at quiz-start, applying the user's filter set, then wraps it
-// in a ShuffledProblemSetSource when the user asked to shuffle. Both the picked
+// Source factory: builds a CachedProblemSetSource over whatever files the
+// user has picked at quiz-start — the parse-once layer that parses the pick
+// unfiltered on the first Start and serves every later Start/Restart by
+// filtering the cached decisions (the cache slot rides PickedProblemFolder,
+// so a re-pick/Clear invalidates it by construction) — then wraps it in a
+// ShuffledProblemSetSource when the user asked to shuffle. Both the picked
 // set and the shuffle toggle are read at invocation time
 // (QuizController.StartAsync), not registration, so choices made before Start
 // take effect. The unseeded ShuffledProblemSetSource ctor is used here
@@ -88,7 +91,7 @@ builder.Services.AddScoped<ProblemSetSourceFactory>(sp =>
     var clock = sp.GetRequiredService<TimeProvider>();
     return (filters, mix) =>
     {
-        IProblemSetSource inner = new WasmUploadedProblemSetSource(picked.Files, filters, loggerFactory, clock);
+        IProblemSetSource inner = new CachedProblemSetSource(picked, filters, loggerFactory, clock);
         return mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner) : inner;
     };
 });

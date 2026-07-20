@@ -141,7 +141,9 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     MixDisplay.cs                   — mix wording SSOT (labels + refusal reason)
     ShuffleOption.cs                — "shuffle order" toggle holder
     QuizLiveMarker.cs               — sessionStorage was-a-quiz-live marker
-    WasmUploadedProblemSetSource.cs — in-browser stream-backed source
+    WasmUploadedProblemSetSource.cs — in-browser stream-backed source (the parser)
+    CachedProblemSetSource.cs       — parse-once layer over the holder's cache;
+                                      the production source the factory builds
   Components/
     Pages/
       Home.razor / .razor.cs        — landing: folder picker + filter panel +
@@ -165,6 +167,7 @@ BgQuiz_Blazor.Tests/
                                       + scriptable RecordGate (freezes the fold)
   QuizControllerTests.cs
   QuizControllerOverlapTests.cs     — the transition-gate overlap suite
+  CachedProblemSetSourceTests.cs    — parse-once / invalidation / equivalence
   MixPanelTests.cs                  — builder round-trip / validation / order pins
   AppliedMixTests.cs
   QuizStatsStoreTests.cs            — bind / fold / write-back / degrade guarantees
@@ -350,9 +353,9 @@ player's.
 `ProblemSetSourceFactory` delegate (`(DecisionFilterSet, QuizMix) →
 IProblemSetSource`) rather than constructing a source directly. The client's
 `Program.cs` registers the delegate scoped as a lambda that reads the
-`PickedProblemFolder` holder and builds a `WasmUploadedProblemSetSource` over
-the picked folder's files, then reads the `ShuffleOption` holder and
-conditionally wraps that source — `mix.IsPassthrough && shuffle.Enabled ? new
+`PickedProblemFolder` holder and builds a `CachedProblemSetSource` over
+the picked folder (the parse-once layer — see its section), then reads the
+`ShuffleOption` holder and conditionally wraps that source — `mix.IsPassthrough && shuffle.Enabled ? new
 ShuffledProblemSetSource(inner) : inner` (the unseeded ctor: shuffling is
 user-facing, reproducibility is a test-only concern). The mix parameter exists
 for exactly that one rule — **shuffle arbitration**: an active mix owns
@@ -476,6 +479,47 @@ DI system clock) — pure pacing, never affecting which decisions flow.
 admission is governed entirely by the supplied `filters`; the source injects
 no policy of its own.
 
+### `CachedProblemSetSource` — the parse-once cache
+
+The production source the `Program.cs` factory builds (the stream source
+above remains the parser under it): parse the picked files **once**, then
+serve every Start/Restart by filtering the cached decisions in memory.
+Measured against v1.0.4, every shuffled/weighted Start re-parsed the corpus
+from the picked bytes (~7.5 s warm); with the cache only the first Start
+after a pick parses — repeat Starts are milliseconds.
+
+- **Cache home & lifecycle.** The cache slot is
+  `PickedProblemFolder.ParsedDecisions` — on the holder, so cache lifecycle
+  *is* pick lifecycle: `Set`/`Clear` null it (freeing the old parse — and,
+  transitively, interest in the old bytes — immediately) and bump
+  `PickGeneration`; there is no separate invalidation wiring to forget.
+  `CachedProblemSetSource` is the slot's only writer, via
+  `StoreParsed(generation, decisions)`, which **drops** a store whose pick
+  has been superseded (the pick gesture is async, so a re-pick can complete
+  inside a Start's own await points — a stale parse must never masquerade as
+  the new pick's cache).
+- **Unfiltered cache, per-Start filters.** The cached parse applies **no
+  filters** so any filter config reuses it; each enumeration re-filters via
+  `DecisionFilterSet.Matches`. That is exactly equivalent to filtering
+  during the parse because the iterator's other hooks are contractually pure
+  early-exit hints (`ShouldSkipMatch`/`ShouldSkipGame` may skip only when
+  *no row inside can match*; `ShouldAdvanceGame`/`ShouldAdvanceMatch` only
+  when *no further row can match*) — every row they cut fails `Matches`
+  anyway. `CachedProblemSetSourceTests` pins the equivalence shape-level
+  over the rotating corpus.
+- **Staleness.** Files + generation are captured at construction (factory
+  invocation = Start time, the read-live-at-Start discipline); the holder's
+  cache is consulted only while the generation still matches, and the source
+  keeps its own reference to whatever it parsed/adopted — so a Restart after
+  a mid-quiz re-pick still replays *this quiz's* files without re-parsing
+  and without polluting the new pick's cache.
+- The stream sources stay **stream-pure** (the parse delegates to
+  `WasmUploadedProblemSetSource` with an empty `DecisionFilterSet`); caching
+  is entirely this app-side layer. Both the parse and the filter pass pace
+  their cooperative yields with `CooperativeYielder`, so the busy cursor
+  keeps painting through either. `Name` delegates to the inner naming rule;
+  `Count` stays null.
+
 ### Folder picking & lifetime stats
 
 One "pick a folder" gesture on `Home`, served by whichever mechanism the
@@ -564,13 +608,16 @@ Start's re-bind.
 The per-app (`Scoped`, one-per-tab in WASM) holder for the picked folder:
 `Files` (buffered `PickedFile`s), `FolderName`, and the pick-time
 `StatsSaveCapability`. `Home.razor` writes it (`Set` / `Clear`); the
-`ProblemSetSourceFactory` reads `Files` to build a
-`WasmUploadedProblemSetSource`; `QuizStatsStore` reads `Capability` at its
+`ProblemSetSourceFactory` reads it to build a
+`CachedProblemSetSource`; `QuizStatsStore` reads `Capability` at its
 Start-time bind. Files are buffered byte arrays (read out of the browser once
 at pick time) so the source can re-enumerate on Restart. Carrying the
 capability here (not in a component field) keeps Home's stats status notice
 alive across navigate-back — the same holder-vs-field rationale as the start
-gate.
+gate. The holder also carries the **parse-once cache seam** —
+`ParsedDecisions` / `PickGeneration` / `StoreParsed` — so that invalidation
+is intrinsic to `Set`/`Clear`; see the `CachedProblemSetSource` section for
+the contract.
 
 - **`Summary`** (`string?`) — the holder-owned label:
   `"'{FolderName}' — {N} problem file(s)"`, `null` when nothing is picked.
@@ -1391,6 +1438,20 @@ the route map:
   to touch the active slot — or moving the bind to pick time — re-opens the
   bug this shape exists to prevent: a user tidying up Home mid-quiz silently
   killing (or retargeting!) the quiz's stats recording.
+- **The parse cache must stay unfiltered, holder-homed, and
+  generation-guarded.** `PickedProblemFolder.ParsedDecisions` is the parse of
+  the *whole* pick with no filters — caching a filtered parse would silently
+  serve one filter config's subset to every later Start. Its invalidation is
+  `Set`/`Clear` nulling it (cache lifecycle = pick lifecycle); don't move the
+  slot off the holder and re-create the forgotten-invalidation-wiring
+  hazard, and don't drop `StoreParsed`'s generation check — the pick gesture
+  is async, so a re-pick can complete inside a Start's await points, and an
+  unguarded store would install the *old* pick's parse as the *new* pick's
+  cache. Post-hoc `Matches` over the cache is equivalent to
+  filter-during-parse only because the iterator's skip/advance votes are
+  contractually pure early-exit hints; a future filter whose votes cut rows
+  its `Matches` would admit breaks that contract (and this cache) — the
+  contract lives on `IDecisionFilter`/`IMatchFilter` in XgFilter_Lib.
 - **Browser directory handles live in JS module state only.**
   `FileSystemDirectoryHandle` / `File` objects cannot round-trip the interop
   boundary; `folderAccess.js` owns them and C# sees names/bytes/booleans

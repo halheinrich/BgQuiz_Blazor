@@ -82,4 +82,72 @@ public class PickedProblemFolderTests
         Assert.Throws<ArgumentNullException>(
             () => folder.Set("Corpus", null!, StatsSaveCapability.Enabled));
     }
+
+    // -----------------------------------------------------------------------
+    //  Parse-once cache seam: cache lifecycle = pick lifecycle
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void StoreParsed_CurrentGeneration_CachesDecisions()
+    {
+        var folder = new PickedProblemFolder();
+        folder.Set("Corpus", [File()], StatsSaveCapability.Enabled);
+        var parsed = new List<BgDataTypes_Lib.BgDecisionData>();
+
+        folder.StoreParsed(folder.PickGeneration, parsed);
+
+        Assert.Same(parsed, folder.ParsedDecisions);
+    }
+
+    [Fact]
+    public void StoreParsed_SupersededGeneration_IsDropped()
+    {
+        // A parse begun against one pick must never land as the cache of a
+        // later pick — the pick gesture is async, so a re-pick can complete
+        // inside a Start's own await points.
+        var folder = new PickedProblemFolder();
+        folder.Set("Corpus", [File()], StatsSaveCapability.Enabled);
+        var staleGeneration = folder.PickGeneration;
+
+        folder.Set("Other", [File("b.xgp")], StatsSaveCapability.Enabled); // supersedes
+        folder.StoreParsed(staleGeneration, []);
+
+        Assert.Null(folder.ParsedDecisions);
+    }
+
+    [Fact]
+    public void Set_InvalidatesParseCacheAndBumpsGeneration()
+    {
+        var folder = new PickedProblemFolder();
+        folder.Set("Corpus", [File()], StatsSaveCapability.Enabled);
+        folder.StoreParsed(folder.PickGeneration, []);
+        var generation = folder.PickGeneration;
+
+        folder.Set("Corpus", [File()], StatsSaveCapability.Enabled); // re-pick, even of the same folder
+
+        Assert.Null(folder.ParsedDecisions);
+        Assert.NotEqual(generation, folder.PickGeneration);
+    }
+
+    [Fact]
+    public void Clear_InvalidatesParseCacheAndBumpsGeneration()
+    {
+        var folder = new PickedProblemFolder();
+        folder.Set("Corpus", [File()], StatsSaveCapability.Enabled);
+        folder.StoreParsed(folder.PickGeneration, []);
+        var generation = folder.PickGeneration;
+
+        folder.Clear();
+
+        Assert.Null(folder.ParsedDecisions);
+        Assert.NotEqual(generation, folder.PickGeneration);
+    }
+
+    [Fact]
+    public void StoreParsed_NullDecisions_Throws()
+    {
+        var folder = new PickedProblemFolder();
+        Assert.Throws<ArgumentNullException>(
+            () => folder.StoreParsed(folder.PickGeneration, null!));
+    }
 }
