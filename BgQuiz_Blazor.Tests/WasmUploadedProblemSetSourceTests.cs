@@ -34,7 +34,7 @@ public class WasmUploadedProblemSetSourceTests
 
     private static WasmUploadedProblemSetSource MakeSource(
         IReadOnlyList<PickedFile> files, DecisionFilterSet? filters = null) =>
-        new(files, filters ?? new DecisionFilterSet(), NullLoggerFactory.Instance);
+        new(files, filters ?? new DecisionFilterSet(), NullLoggerFactory.Instance, TimeProvider.System);
 
     // -----------------------------------------------------------------------
     //  Construction
@@ -43,17 +43,22 @@ public class WasmUploadedProblemSetSourceTests
     [Fact]
     public void Ctor_NullFiles_Throws() =>
         Assert.Throws<ArgumentNullException>(() =>
-            new WasmUploadedProblemSetSource(null!, new DecisionFilterSet(), NullLoggerFactory.Instance));
+            new WasmUploadedProblemSetSource(null!, new DecisionFilterSet(), NullLoggerFactory.Instance, TimeProvider.System));
 
     [Fact]
     public void Ctor_NullFilters_Throws() =>
         Assert.Throws<ArgumentNullException>(() =>
-            new WasmUploadedProblemSetSource([], null!, NullLoggerFactory.Instance));
+            new WasmUploadedProblemSetSource([], null!, NullLoggerFactory.Instance, TimeProvider.System));
 
     [Fact]
     public void Ctor_NullLoggerFactory_Throws() =>
         Assert.Throws<ArgumentNullException>(() =>
-            new WasmUploadedProblemSetSource([], new DecisionFilterSet(), null!));
+            new WasmUploadedProblemSetSource([], new DecisionFilterSet(), null!, TimeProvider.System));
+
+    [Fact]
+    public void Ctor_NullClock_Throws() =>
+        Assert.Throws<ArgumentNullException>(() =>
+            new WasmUploadedProblemSetSource([], new DecisionFilterSet(), NullLoggerFactory.Instance, null!));
 
     // -----------------------------------------------------------------------
     //  Name / Count
@@ -173,7 +178,7 @@ public class WasmUploadedProblemSetSourceTests
         picked.Set("corpus", files, StatsSaveCapability.BrowserUnsupported);
 
         BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory =
-            (filters, _) => new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance);
+            (filters, _) => new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance, TimeProvider.System);
         var controller = new QuizController(factory, new FakeDecisionStatsSink(), TimeProvider.System);
 
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty);
@@ -202,7 +207,7 @@ public class WasmUploadedProblemSetSourceTests
 
         BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory = (filters, mix) =>
         {
-            IProblemSetSource inner = new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance);
+            IProblemSetSource inner = new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance, TimeProvider.System);
             return mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner, seed: 42) : inner;
         };
 
@@ -235,13 +240,13 @@ public class WasmUploadedProblemSetSourceTests
 
         BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory = (filters, mix) =>
         {
-            IProblemSetSource inner = new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance);
+            IProblemSetSource inner = new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance, TimeProvider.System);
             return mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner, seed: 42) : inner;
         };
         var activeMix = new QuizMix([new QuizMixEntry(QuizCategory.EverythingElse, 100)]);
 
         var plainOrder = await CollectAllAsync(
-            new WasmUploadedProblemSetSource(picked.Files, new DecisionFilterSet(), NullLoggerFactory.Instance));
+            new WasmUploadedProblemSetSource(picked.Files, new DecisionFilterSet(), NullLoggerFactory.Instance, TimeProvider.System));
         if (plainOrder.Count < 2) return; // suppression unobservable over <2 items
 
         var underMixOrder = await CollectAllAsync(factory(new DecisionFilterSet(), activeMix));

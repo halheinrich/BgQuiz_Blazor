@@ -38,6 +38,7 @@ internal sealed class WasmUploadedProblemSetSource : IProblemSetSource
 {
     private readonly IReadOnlyList<PickedFile> _files;
     private readonly FilteredDecisionIterator _iterator;
+    private readonly TimeProvider _clock;
 
     /// <summary>
     /// Construct a source over <paramref name="files"/> applying
@@ -45,23 +46,36 @@ internal sealed class WasmUploadedProblemSetSource : IProblemSetSource
     /// the underlying iterator are logged through a logger created from
     /// <paramref name="loggerFactory"/>.
     /// </summary>
+    /// <param name="files">The buffered picked files (bytes + extension-bearing names).</param>
+    /// <param name="filters">The filter pipeline applied on every enumeration.</param>
+    /// <param name="loggerFactory">Creates the inner iterator's logger (the factory keeps the inner type out of this contract).</param>
+    /// <param name="clock">
+    /// The monotonic time source pacing the enumeration's cooperative yields
+    /// (see <see cref="CooperativeYielder"/>). Pure pacing — it never affects
+    /// which decisions flow or in what order. Production passes the DI
+    /// <see cref="TimeProvider.System"/>; tests may pass a fake to pin the
+    /// yield policy.
+    /// </param>
     /// <exception cref="ArgumentNullException">
-    /// <paramref name="files"/>, <paramref name="filters"/>, or
-    /// <paramref name="loggerFactory"/> is null.
+    /// <paramref name="files"/>, <paramref name="filters"/>,
+    /// <paramref name="loggerFactory"/>, or <paramref name="clock"/> is null.
     /// </exception>
     public WasmUploadedProblemSetSource(
         IReadOnlyList<PickedFile> files,
         DecisionFilterSet filters,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(files);
         ArgumentNullException.ThrowIfNull(filters);
         ArgumentNullException.ThrowIfNull(loggerFactory);
+        ArgumentNullException.ThrowIfNull(clock);
 
         _files = files;
         _iterator = new FilteredDecisionIterator(
             filters,
             loggerFactory.CreateLogger<FilteredDecisionIterator>());
+        _clock = clock;
     }
 
     /// <inheritdoc />
@@ -86,13 +100,18 @@ internal sealed class WasmUploadedProblemSetSource : IProblemSetSource
         // lazy iterator reads them, so they are intentionally left to GC.
         var streams = _files.Select(f => new XgFileStream(f.FileName, new MemoryStream(f.Bytes)));
 
+        // Time-budgeted cooperative yielding (one gate per enumeration; the
+        // budget window starts here): frequent enough that the browser can
+        // repaint — e.g. the busy cursor — during a long materialization,
+        // rare enough that the yields aren't themselves the bottleneck. The
+        // old per-item Task.Yield paid an event-loop round-trip for every
+        // decision, which dominated large parses.
+        var yielder = new CooperativeYielder(_clock);
         foreach (var decision in _iterator.IterateXgStreamDiagrams(streams))
         {
             cancellationToken.ThrowIfCancellationRequested();
             yield return decision;
-            // Cooperative yield so a long synchronous run doesn't monopolise the
-            // single WASM thread; also gives cancellation a chance between items.
-            await Task.Yield();
+            await yielder.YieldIfDueAsync();
         }
     }
 }

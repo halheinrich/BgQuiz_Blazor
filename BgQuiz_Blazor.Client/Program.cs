@@ -85,9 +85,10 @@ builder.Services.AddScoped<ProblemSetSourceFactory>(sp =>
     var picked = sp.GetRequiredService<PickedProblemFolder>();
     var shuffle = sp.GetRequiredService<ShuffleOption>();
     var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+    var clock = sp.GetRequiredService<TimeProvider>();
     return (filters, mix) =>
     {
-        IProblemSetSource inner = new WasmUploadedProblemSetSource(picked.Files, filters, loggerFactory);
+        IProblemSetSource inner = new WasmUploadedProblemSetSource(picked.Files, filters, loggerFactory, clock);
         return mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner) : inner;
     };
 });

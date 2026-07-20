@@ -462,8 +462,14 @@ not open streams, and mints a fresh `MemoryStream` at position zero for every
 `EnumerateAsync` call (wrapped in an `XgFileStream` carrying the
 extension-bearing name). The stream iterator reads each stream exactly once,
 forward, so buffering up front is what lets a Restart re-enumerate the same
-set. `EnumerateAsync` also `await Task.Yield()`s between items so a long
-synchronous run doesn't monopolise the single WASM thread.
+set. `EnumerateAsync` also yields cooperatively so a long synchronous run
+doesn't monopolise the single WASM thread — via BgGame_Lib's
+`CooperativeYielder` (one per enumeration; time-budgeted, ~50 ms), not a
+per-item `Task.Yield`: the per-item form paid an event-loop round-trip for
+every decision, which dominated large parses, while the budgeted form yields
+often enough for the browser to repaint (the busy cursor) and rarely enough
+to cost nothing. The pacing clock is a ctor `TimeProvider` (production: the
+DI system clock) — pure pacing, never affecting which decisions flow.
 
 `Count` is null (an up-front count would require a full filtered pre-pass).
 `Name` is `"No files"` / the single file's name / `"{N} files"`. Decision-type
