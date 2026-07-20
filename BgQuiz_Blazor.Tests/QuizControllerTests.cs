@@ -884,10 +884,13 @@ public class QuizControllerTests
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task RestartAsync_BeforeStart_NoOp()
+    public async Task RestartAsync_BeforeStart_Throws()
     {
+        // A restart with no prior run is a caller bug, not an outcome — the
+        // controller fails fast rather than fabricating a Started (the same
+        // contract class as the producer's null-provider throw).
         var c = Make();
-        await c.RestartAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => c.RestartAsync());
         Assert.False(c.HasStarted);
     }
 

@@ -429,14 +429,25 @@ internal sealed class QuizController : IAsyncDisposable
     /// applies again whenever stats allow. With a mix active this is a fresh
     /// composition against the stats document <i>as it stands now</i>, this
     /// quiz's folds included (the provider is resolved per enumeration — the
-    /// deliberate Restart-recomposes semantics). No-op when no quiz has been
-    /// started (vacuously <see cref="QuizStartOutcome.Started"/> — the
-    /// defensive branch no caller reaches, since Done requires a started
-    /// quiz).
+    /// deliberate Restart-recomposes semantics).
+    ///
+    /// <para>
+    /// Restarting a never-started controller <b>throws</b>: there is no prior
+    /// run to repeat, so the call is a caller bug, not an outcome — the same
+    /// contract class as the producer's null-provider throw
+    /// (<see cref="MixedProblemSetSource"/> refuses to compose plausibly over
+    /// a wiring bug). A fabricated <see cref="QuizStartOutcome.Started"/>
+    /// here would mask a mis-wired future caller; the outcome enum stays
+    /// two-membered because refusal outcomes are for <i>reachable</i> states.
+    /// No shipped page can hit this (Done requires a started quiz).
+    /// </para>
     /// </summary>
+    /// <exception cref="InvalidOperationException">No quiz has been started.</exception>
     public async Task<QuizStartOutcome> RestartAsync(bool ignoreMix = false)
     {
-        if (_filterPipeline is null) return QuizStartOutcome.Started;
+        if (_filterPipeline is null)
+            throw new InvalidOperationException(
+                "RestartAsync requires a prior successful StartAsync — no quiz has been started.");
         return await ResetAndAdvanceAsync(_filterPipeline, _mix, ignoreMix);
     }
 
