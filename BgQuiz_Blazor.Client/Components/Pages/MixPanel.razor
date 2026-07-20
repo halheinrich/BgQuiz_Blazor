@@ -1,0 +1,131 @@
+@using BgGame_Lib
+@inject IJSRuntime JS
+
+@* ── MixPanel.razor ──────────────────────────────────────────────────────────
+   The stats-weighted mix builder: an ordered list of (category, percent) rows
+   plus the Random-order toggle and an optional quiz length. Raises OnMixApplied
+   only on Apply (or Reset — an explicit apply of the blank mix); raises
+   OnMixDirty on every control change so the parent can gate Start until Apply;
+   raises OnMixRestored once, after the first-render localStorage restore, so
+   the parent's holder adopts the previously-applied mix (a persisted mix is by
+   construction an applied one). Row order is semantic — earlier rows win
+   contested overlap (producer contract) — hence the explicit ↑/↓ affordance.
+   State persists as one QuizMix blob (xg_quizMix) via the lib's
+   ToJson / TryFromJson; this component never touches a JSON serializer.
+──────────────────────────────────────────────────────────────────────────── *@
+
+<div class="card mb-4" style="max-width:800px">
+    <div class="card-header">
+        <strong>Weighted mix</strong>
+        <small class="text-muted">(optional — compose the quiz from your lifetime stats)</small>
+    </div>
+    <div class="card-body">
+
+        @if (_rows.Count == 0)
+        {
+            <p class="text-muted small">
+                No mix: the quiz takes every matching problem, as usual. Add a
+                category to weight the quiz by your lifetime stats — e.g. mostly
+                problems you got wrong or haven't seen lately. Needs a folder
+                pick that can save stats.
+            </p>
+        }
+        else
+        {
+            <p class="text-muted small">
+                Rows draw in order: when categories overlap, a problem counts
+                toward the <em>earlier</em> row.
+            </p>
+        }
+
+        @for (var i = 0; i < _rows.Count; i++)
+        {
+            var row = _rows[i];
+            var index = i; // capture per iteration for the lambdas below
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2 mix-row">
+                <select class="form-select form-select-sm w-auto" aria-label="Category"
+                        @onchange="e => HandleKindChanged(row, e)">
+                    @foreach (var kind in CategoryKinds)
+                    {
+                        <option value="@kind" selected="@(row.Kind == kind)">@KindLabel(kind)</option>
+                    }
+                </select>
+                @if (KindTakesParameter(row.Kind))
+                {
+                    <input class="form-control form-control-sm mix-param" style="max-width:90px"
+                           aria-label="@ParameterLabel(row.Kind)"
+                           value="@row.ParamText"
+                           @oninput="e => { row.ParamText = e.Value?.ToString() ?? string.Empty; MarkDirty(); }" />
+                    <span class="text-muted small">@ParameterUnit(row.Kind)</span>
+                }
+                <input class="form-control form-control-sm mix-percent" style="max-width:80px"
+                       type="number" min="1" max="100" aria-label="Percent"
+                       value="@row.PercentText"
+                       @oninput="e => { row.PercentText = e.Value?.ToString() ?? string.Empty; MarkDirty(); }" />
+                <span class="text-muted small">%</span>
+                <div class="btn-group btn-group-sm ms-auto" role="group">
+                    <button type="button" class="btn btn-outline-secondary" title="Move up"
+                            disabled="@(index == 0)" @onclick="() => MoveRow(index, -1)">↑</button>
+                    <button type="button" class="btn btn-outline-secondary" title="Move down"
+                            disabled="@(index == _rows.Count - 1)" @onclick="() => MoveRow(index, +1)">↓</button>
+                    <button type="button" class="btn btn-outline-secondary" title="Remove"
+                            @onclick="() => RemoveRow(index)">✕</button>
+                </div>
+            </div>
+        }
+
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <button type="button" id="mixAddRow" class="btn btn-outline-secondary btn-sm"
+                    @onclick="AddRow">
+                Add category
+            </button>
+            @if (_rows.Count > 0)
+            {
+                <span class="small @(PercentSum == 100 ? "text-muted" : "text-danger")">
+                    Total: @PercentSum% @(PercentSum == 100 ? "" : "— must reach 100%")
+                </span>
+            }
+        </div>
+
+        <div class="mb-2 form-check">
+            <input class="form-check-input" type="checkbox" id="mixRandomOrder"
+                   checked="@_randomOrder" disabled="@(_rows.Count == 0)"
+                   @onchange="e => { _randomOrder = e.Value is true; MarkDirty(); }" />
+            <label class="form-check-label" for="mixRandomOrder">
+                Random order
+                <small class="text-muted">(off = draw and present in file order)</small>
+            </label>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label" for="mixQuizLength">
+                Quiz length
+                <small class="text-muted">
+                    (blank = every problem the categories reach@(_rows.Count == 0 ? "; needs at least one category" : ""))
+                </small>
+            </label>
+            <input class="form-control" style="max-width:140px" id="mixQuizLength"
+                   type="number" min="1" placeholder="No cap"
+                   disabled="@(_rows.Count == 0)"
+                   value="@_lengthText"
+                   @oninput="e => { _lengthText = e.Value?.ToString() ?? string.Empty; MarkDirty(); }" />
+        </div>
+
+        @if (ValidationError is { } error)
+        {
+            <div class="text-danger small mb-2" role="status">@error</div>
+        }
+
+        <div class="d-flex gap-2">
+            <button class="btn btn-primary btn-sm" id="mixApply"
+                    disabled="@(ValidationError is not null)"
+                    @onclick="ApplyAsync">
+                Apply Mix
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" id="mixReset" @onclick="ResetAsync">
+                Reset
+            </button>
+        </div>
+
+    </div>
+</div>
