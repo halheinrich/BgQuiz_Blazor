@@ -17,7 +17,9 @@
 
 <PageTitle>BgQuiz</PageTitle>
 
-<div class="container py-3">
+@* app-busy: the progress-cursor idiom (app.css) while the controller runs a
+   transition — set before the churn begins via the controller's gate yield. *@
+<div class="container py-3 @(Controller.IsBusy ? "app-busy" : null)">
     <h1>BgQuiz</h1>
 
     @* Reload-reset notice: a full reload rebooted the runtime and discarded a
@@ -30,6 +32,14 @@
             doesn't survive a full reload.
         </div>
     }
+
+    @* One disabled-while-busy boundary for the whole setup surface. A native
+       <fieldset disabled> disables every form control inside — including the
+       Apply buttons *inside* the imported FilterPanel/MixPanel, which expose
+       no disabled parameter of their own — so no panel needs busy-awareness
+       and no control can slip through unlisted. Bootstrap's reboot zeroes
+       fieldset chrome, so layout is unchanged. *@
+    <fieldset disabled="@Controller.IsBusy">
 
     <div class="mb-3" style="max-width:800px">
         <label class="form-label" for="pickProblemFolder">
@@ -142,8 +152,10 @@
         </label>
     </div>
 
+    @* The busy half is redundant under the enclosing fieldset, but explicit:
+       the gate condition and the busy condition are both visible here. *@
     <button class="btn btn-primary"
-            disabled="@(!CanStart)"
+            disabled="@(!CanStart || Controller.IsBusy)"
             @onclick="StartQuizAsync">
         Start Quiz
     </button>
@@ -200,6 +212,8 @@
             @_noMatchNotice
         </div>
     }
+
+    </fieldset>
 
     @* Explicit-expression parens: bare "v@AppVersion" is parsed as an email literal. *@
     <div class="text-muted small mt-4">v@(AppVersion)</div>

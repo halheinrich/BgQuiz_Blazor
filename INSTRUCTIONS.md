@@ -809,6 +809,15 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   pointer to the panel's Reset), the mix-aware composed-to-zero wording rides
   the existing no-match branch, and the early won't-apply advisory renders
   from pick capability × committed mix with no Start needed.
+  **Busy affordances:** the whole setup surface (pick controls, both panels,
+  shuffle, Start, the refusal override) sits inside one
+  `<fieldset disabled="@Controller.IsBusy">` — the native element disables
+  every form control within, including the Apply buttons *inside* the
+  imported `FilterPanel`/`MixPanel`, which expose no disabled parameter —
+  and the page container carries `app-busy` (the `cursor: progress` rule in
+  `app.css`) while `Controller.IsBusy`. The controller's gate yield is what
+  lets that state paint before the Start churn; Home needs no `StateChanged`
+  subscription because its own suspended handler triggers the re-renders.
   Subscribes to `OnFilterConfigChanged` → `AppliedFilter.Set` (the panel's
   emit-event after Apply) and `OnFilterDirty` → `AppliedFilter.Clear`; on
   Start hands `AppliedFilter.Config` to `Controller.StartAsync`. Catches pick
@@ -881,7 +890,12 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   marks are overridden from `Review`: `UserPlayIndex` for a play (`-1` off-list
   draws no marker), or `UserDoubleError` / `UserTakeError` for a cube.
   `FromDecisionData` is **not** used here because it defaults those marks from
-  the .xg-recorded player, not the quiz user. The review diagram's
+  the .xg-recorded player, not the quiz user. **Busy affordances:** every
+  transition-driving button (Submit, Skip, Undo, Continue, Redo) also
+  disables on `Controller.IsBusy` and the container carries `app-busy` — the
+  honest mirror of the controller's transition gate, which would no-op the
+  clicks anyway; "Show stats" stays enabled (navigation only). The page's
+  existing `StateChanged` subscription re-renders the busy flips. The review diagram's
   `OnDiceClicked` is bound to the same `ContinueAsync` handler as the Continue
   button, so clicking the dice hit-region advances past the solution exactly
   like Continue. Redo calls `Controller.RedoAsync()`, falling back to the
@@ -976,6 +990,10 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   Start: `MixRequiresStats` renders the refusal alert with **"Restart without
   mix"**, the summary underneath survives by the refusal's touches-no-state
   guarantee, and the `QuizLiveMarker` stays cleared (nothing became live).
+  Both Restart buttons disable on `Controller.IsBusy` and the container
+  carries `app-busy` while a Restart transition runs ("Back to setup" stays
+  enabled — navigation only); no subscription needed, the suspended Restart
+  handler's own re-renders cover the flips.
 - **`ScorePanel.razor`** — compact status strip used by both Quiz and Done.
   Renders the `Total` segment: Submitted / Correct (with %) / Skipped /
   average equity loss; optional Source name and Heading. Kept Total-only to

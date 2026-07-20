@@ -245,3 +245,12 @@ h1:focus {
 .board-xgid-copy:hover {
     background: #e9ecef;
 }
+
+/* Busy transition (controller IsBusy): the progress-cursor idiom over the
+   whole page region while a Start/Restart/Continue/Skip transition runs.
+   The descendant selector matters — Bootstrap's disabled buttons drop
+   pointer-events, so the cursor a hovering user sees is this ancestor's. */
+.app-busy,
+.app-busy * {
+    cursor: progress;
+}

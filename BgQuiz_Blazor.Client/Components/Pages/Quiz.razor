@@ -13,7 +13,9 @@
 
 <PageTitle>BgQuiz — In progress</PageTitle>
 
-<div class="container-fluid py-3 board-page">
+@* app-busy: progress cursor while a Continue/Skip transition runs (app.css);
+   the controller's gate yield lets it paint before the advance's churn. *@
+<div class="container-fluid py-3 board-page @(Controller.IsBusy ? "app-busy" : null)">
     @* Active-context stats notices: scoped to the running quiz's stats context
        (bound at Start, reset by the next Start's re-bind). A load failure is an
        outcome — the quiz runs, the file stays untouched — so polite
@@ -143,13 +145,18 @@
                 </div>
             </div>
 
+            @* Transition-driving buttons disable while the controller is busy
+               (the gate would no-op them anyway — this is the honest mirror);
+               Show stats stays enabled: it only navigates. *@
             @if (review is not null)
             {
                 <div class="d-flex flex-wrap gap-2">
-                    <button class="btn btn-primary" @onclick="ContinueAsync">
+                    <button class="btn btn-primary" disabled="@Controller.IsBusy"
+                            @onclick="ContinueAsync">
                         Continue
                     </button>
-                    <button class="btn btn-outline-secondary" @onclick="RedoAsync">
+                    <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
+                            @onclick="RedoAsync">
                         Redo
                     </button>
                     <button class="btn btn-outline-secondary ms-auto" @onclick="ShowStats">
@@ -170,31 +177,33 @@
                            nulls _completedCube on every advance, clearing the radios. *@
                         <BackgammonCubeActions @bind-Value="_completedCube" />
                         <button class="btn btn-primary"
-                                disabled="@(_completedCube is null)"
+                                disabled="@(_completedCube is null || Controller.IsBusy)"
                                 @onclick="Submit">
                             Submit
                         </button>
-                        <button class="btn btn-outline-secondary" @onclick="SkipAsync">
+                        <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
+                                @onclick="SkipAsync">
                             Skip
                         </button>
                     }
                     else
                     {
                         <button class="btn btn-primary"
-                                disabled="@(_completedPlay is null)"
+                                disabled="@(_completedPlay is null || Controller.IsBusy)"
                                 @onclick="Submit">
                             Submit
                         </button>
-                        <button class="btn btn-outline-secondary" @onclick="SkipAsync">
+                        <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
+                                @onclick="SkipAsync">
                             Skip
                         </button>
                         <button class="btn btn-outline-secondary"
-                                disabled="@(_playEntry is null)"
+                                disabled="@(_playEntry is null || Controller.IsBusy)"
                                 @onclick="UndoLast">
                             Undo last
                         </button>
                         <button class="btn btn-outline-secondary"
-                                disabled="@(_playEntry is null)"
+                                disabled="@(_playEntry is null || Controller.IsBusy)"
                                 @onclick="UndoAll">
                             Undo all
                         </button>

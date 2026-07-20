@@ -11,7 +11,8 @@
 
 <PageTitle>BgQuiz — Done</PageTitle>
 
-<div class="container py-3">
+@* app-busy: progress cursor while a Restart transition runs (app.css). *@
+<div class="container py-3 @(Controller.IsBusy ? "app-busy" : null)">
     <h1>Quiz complete</h1>
 
     @* Active-context stats notices, mirrored from Quiz: a failure on the FINAL
@@ -58,6 +59,7 @@
                 so the weighted mix can't be applied.
             </p>
             <button class="btn btn-outline-primary btn-sm" id="restartWithoutMix"
+                    disabled="@Controller.IsBusy"
                     @onclick="RestartWithoutMixAsync">
                 Restart without mix
             </button>
@@ -68,8 +70,12 @@
         </div>
     }
 
+    @* Restart disables while the controller is busy (the gate would no-op it
+       anyway — this is the honest mirror); Back to setup stays enabled: it
+       only navigates. *@
     <div class="d-flex flex-wrap gap-2">
-        <button class="btn btn-primary" @onclick="RestartAsync">
+        <button class="btn btn-primary" disabled="@Controller.IsBusy"
+                @onclick="RestartAsync">
             Restart with same filters
         </button>
         <button class="btn btn-outline-secondary" @onclick="BackToSetup">

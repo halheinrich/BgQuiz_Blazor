@@ -2590,4 +2590,144 @@ public class PageTests : BunitContext
         var nav = Services.GetRequiredService<BunitNavigationManager>();
         Assert.EndsWith("/quiz", nav.Uri);
     }
+
+    // -----------------------------------------------------------------------
+    //  Busy affordances: cursor + disabled controls while the controller
+    //  runs a gated transition
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Like <see cref="WithController"/> but over a
+    /// <see cref="GatedProblemSetSource"/>, so a page test can freeze the
+    /// controller mid-transition (the busy window) and assert the rendered
+    /// busy affordances before releasing it.
+    /// </summary>
+    private QuizController WithGatedController(
+        out GatedProblemSetSource source, out FakeDecisionStatsSink sink,
+        params BgDecisionData[] items)
+    {
+        var gated = new GatedProblemSetSource(items);
+        source = gated;
+        sink = new FakeDecisionStatsSink();
+        var controller = new QuizController((_, _) => gated, sink, TimeProvider.System);
+        Services.AddSingleton(controller);
+        return controller;
+    }
+
+    [Fact]
+    public async Task Home_StartPending_DisablesSetupFieldsetAndShowsBusyCursor()
+    {
+        // While Start's transition is in flight the whole setup surface —
+        // the pick controls, both panels' Apply buttons (via the enclosing
+        // fieldset), and Start itself — must read disabled, and the page
+        // must carry the app-busy progress-cursor class. The controller's
+        // gate yield is what lets this state render before the churn.
+        WithGatedController(out var source, out _,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+
+        // Idle: the boundary exists but is not disabled, and no busy cursor.
+        Assert.False(cut.Find("fieldset").HasAttribute("disabled"));
+        Assert.Empty(cut.FindAll("div.app-busy"));
+
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        var click = startBtn.ClickAsync(new()); // suspends at the gated first advance
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.True(cut.Find("fieldset").HasAttribute("disabled"));
+            Assert.NotNull(cut.Find("div.app-busy"));
+            Assert.True(cut.FindAll("button")
+                .First(b => b.TextContent.Trim() == "Start Quiz").HasAttribute("disabled"));
+        });
+
+        source.ReleaseNext();
+        await click; // completes: navigation to /quiz
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+        Assert.EndsWith("/quiz", nav.Uri);
+    }
+
+    [Fact]
+    public async Task Quiz_ContinuePending_DisablesTransitionButtonsAndShowsBusyCursor()
+    {
+        // Freeze the Continue inside the awaited stats fold (Review still
+        // set, so the review branch keeps rendering deterministically) and
+        // assert Continue/Redo disable and the busy cursor shows; Show stats
+        // stays enabled (navigation only).
+        var controller = WithGatedController(out var source, out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        source.ReleaseNext();
+        await controller.StartAsync(new FilterConfig(), QuizMix.Empty);
+        controller.SubmitPlay(BestPlay());
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<QuizPage>();
+        Assert.Empty(cut.FindAll("div.app-busy"));
+        var continueBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Continue");
+        Assert.False(continueBtn.HasAttribute("disabled"));
+
+        var foldGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sink.RecordGate = foldGate.Task;
+
+        var click = continueBtn.ClickAsync(new()); // suspended inside the fold
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.NotNull(cut.Find("div.app-busy"));
+            Assert.True(cut.FindAll("button")
+                .First(b => b.TextContent.Trim() == "Continue").HasAttribute("disabled"));
+            Assert.True(cut.FindAll("button")
+                .First(b => b.TextContent.Trim() == "Redo").HasAttribute("disabled"));
+            Assert.False(cut.FindAll("button")
+                .First(b => b.TextContent.Trim() == "Show stats").HasAttribute("disabled"));
+        });
+
+        foldGate.SetResult();
+        source.ReleaseNext();
+        await click;
+
+        // Transition done: busy affordances clear, the next problem is up.
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Empty(cut.FindAll("div.app-busy"));
+            Assert.NotNull(controller.Current);
+        });
+    }
+
+    [Fact]
+    public async Task Done_RestartPending_DisablesRestartAndShowsBusyCursor()
+    {
+        var controller = WithGatedController(out var source, out _,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        source.ReleaseNext();
+        await controller.StartAsync(new FilterConfig(), QuizMix.Empty);
+        WithPickedFolder();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<DonePage>();
+        var restartBtn = cut.FindAll("button")
+            .First(b => b.TextContent.Contains("Restart with same filters"));
+        Assert.False(restartBtn.HasAttribute("disabled"));
+
+        var click = restartBtn.ClickAsync(new()); // suspends at the gated first advance
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.NotNull(cut.Find("div.app-busy"));
+            Assert.True(cut.FindAll("button")
+                .First(b => b.TextContent.Contains("Restart with same filters"))
+                .HasAttribute("disabled"));
+        });
+
+        source.ReleaseNext();
+        await click;
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+        Assert.EndsWith("/quiz", nav.Uri);
+    }
 }
