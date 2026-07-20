@@ -1229,7 +1229,7 @@ plain-C# client type (`QuizController` + `QuizStartOutcome`, the scoped holders
 `PickedFile`, `IFolderAccess` / `JsFolderAccess` (+ its wire DTOs),
 `StatsSaveCapability`, `FolderPickOutcome`, `QuizStatsFile`,
 `IDecisionStatsSink` / `QuizStatsStore` / `QuizStatsStatus`, `MixDisplay`,
-`WasmUploadedProblemSetSource`, `ProblemReview`, and the `ProblemSetSourceFactory`
+`WasmUploadedProblemSetSource` / `CachedProblemSetSource`, `ProblemReview`, and the `ProblemSetSourceFactory`
 delegate) is `internal`, reachable by the test project only through the
 `InternalsVisibleTo` grant. The only `public` types are the Razor components — the
 framework requires them public (see Pitfalls). The externally visible surface is
@@ -1317,7 +1317,7 @@ the route map:
 - **Client plain-C# types are `internal`; only Razor components are `public`.**
   The controller, the scoped holders, `PickedFile`, the folder/stats types
   (`IFolderAccess` / `JsFolderAccess`, `QuizStatsFile`, `QuizStatsStore` and
-  friends), `WasmUploadedProblemSetSource`, `ProblemReview`, and the
+  friends), `WasmUploadedProblemSetSource` / `CachedProblemSetSource`, `ProblemReview`, and the
   `ProblemSetSourceFactory` delegate are all `internal`, with `InternalsVisibleTo`
   granting the test project access. Don't widen one to `public`: the tests already
   see it through the IVT grant, and a page reaches it through `@inject` — which
