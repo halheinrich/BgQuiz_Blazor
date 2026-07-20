@@ -200,6 +200,28 @@ public abstract class E2eTestBase : IAsyncLifetime
     }
 
     /// <summary>
+    /// Add one row to the weighted-mix builder. The fresh row lands as the
+    /// default "Never seen" category with its percent auto-completed — on an
+    /// empty builder that is a complete, valid 100% never-seen mix.
+    /// </summary>
+    protected async Task AddDefaultMixRowAsync()
+    {
+        await Page.Locator("#mixAddRow").ClickAsync();
+        await Expect(Page.Locator(".mix-row")).ToHaveCountAsync(1);
+    }
+
+    /// <summary>
+    /// Apply the mix builder as-is and wait for the commit to land (the
+    /// dirty-mix Start hint disappears) — the mix analog of
+    /// <see cref="ApplyFilterAsync"/>.
+    /// </summary>
+    protected async Task ApplyMixAsync()
+    {
+        await Page.Locator("#mixApply").ClickAsync();
+        await Expect(Page.GetByText("Apply or reset the mix above to enable Start")).ToHaveCountAsync(0);
+    }
+
+    /// <summary>
     /// Click one of the board's numbered points (1–24) through the diagram's
     /// transparent hit-region overlay — a real user click on the SVG, driving
     /// BgDiag_Razor's one-click play entry.

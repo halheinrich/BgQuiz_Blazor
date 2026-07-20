@@ -7,103 +7,17 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <summary>
 /// The File System Access stats path, end to end: pick → grant → quiz →
 /// Continue → <c>bgquiz-stats.json</c> written into the picked folder — plus
-/// its degrade rungs (corrupt existing file, denied write permission).
-///
-/// <para>
-/// Playwright cannot drive the native directory picker or its permission
-/// prompts, so these scenarios inject a <b>fake <c>window.showDirectoryPicker</c></b>
-/// through the <see cref="E2eTestBase.ContextInitScript"/> seam: a scripted
-/// directory handle (async <c>values()</c> enumeration, <c>getFileHandle</c>,
-/// <c>createWritable</c> capturing writes, scripted permissions) over the real
-/// committed fixture's bytes. The faking stops at the browser-API boundary —
-/// the app ships no test seams, and everything from the app's own
-/// <c>folderAccess.js</c> module inward runs for real. If the module's use of
-/// the File System Access surface ever drifts from what the fake mirrors, the
-/// pick fails visibly and these scenarios fail loudly — they cannot skip.
-/// </para>
-///
-/// <para>
-/// Per-scenario variation (corrupt stats file, denied permission) rides on
-/// page-level init scripts registered <i>after</i> the context script: both run
-/// at document start on boot, context first, so a page-level override of
-/// <c>window.__statsFake</c> wins. The stats filename and wire property names
-/// are deliberately hardcoded here — this suite is the consumer-side pin of
-/// those contracts (the e2e project references no app assembly by design).
-/// </para>
+/// its degrade rungs (corrupt existing file, denied write permission). Rides
+/// the fake-<c>showDirectoryPicker</c> seam of
+/// <see cref="FsAccessFakeTestBase"/> (shared with the mix-weighting suite).
+/// The stats filename and wire property names are deliberately hardcoded in
+/// these assertions — this suite is the consumer-side pin of those contracts
+/// (the e2e project references no app assembly by design).
 /// </summary>
-public sealed class StatsPersistenceTests : E2eTestBase
+public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 {
     public StatsPersistenceTests(PublishedAppFixture app, PlaywrightFixture playwright)
         : base(app, playwright) { }
-
-    /// <summary>The on-disk stats filename the app must use — the consumer-side pin.</summary>
-    private const string StatsFileName = "bgquiz-stats.json";
-
-    protected override string? ContextInitScript => $$"""
-        (() => {
-          // Scenario config + captured writes. Defaults: write granted, no
-          // existing stats file. Page-level init scripts override per scenario.
-          window.__statsFake = { permission: 'granted', statsJson: null, writes: [] };
-          const cfg = window.__statsFake;
-          const notFound = () => new DOMException('not found', 'NotFoundError');
-
-          const fixtureName = '{{CubeFixture}}';
-          const fixtureBytes = Uint8Array.from(atob('{{FixtureBase64(CubeFixture)}}'),
-                                               c => c.charCodeAt(0));
-          const fixtureEntry = {
-            kind: 'file', name: fixtureName,
-            getFile: async () => new File([fixtureBytes], fixtureName),
-          };
-
-          const statsHandle = {
-            kind: 'file', name: '{{StatsFileName}}',
-            getFile: async () => {
-              if (cfg.statsJson === null) throw notFound();
-              return new File([cfg.statsJson], '{{StatsFileName}}');
-            },
-            createWritable: async () => {
-              let buf = '';
-              return {
-                write: async d => { buf += d; },
-                close: async () => { cfg.writes.push(buf); },
-              };
-            },
-          };
-
-          const dir = {
-            kind: 'directory', name: 'FakeCorpus',
-            queryPermission: async () => cfg.permission,
-            requestPermission: async () => cfg.permission,
-            values: async function* () { yield fixtureEntry; },
-            getFileHandle: async (name, opts) => {
-              if (name === '{{StatsFileName}}') {
-                if (cfg.statsJson === null && !(opts && opts.create)) throw notFound();
-                return statsHandle;
-              }
-              throw notFound();
-            },
-          };
-
-          window.showDirectoryPicker = async () => dir;
-        })();
-        """;
-
-    private static string FixtureBase64(string fixtureFileName) =>
-        Convert.ToBase64String(File.ReadAllBytes(FixturePath(fixtureFileName)));
-
-    /// <summary>
-    /// Click "Choose folder…" (the fake picker resolves instantly, no native
-    /// dialog) and wait for the holder summary — the FS-Access analog of the
-    /// base class's fallback-input pick.
-    /// </summary>
-    private async Task PickFakeFolderAsync()
-    {
-        await PickFolderButton.ClickAsync();
-        await Expect(Page.GetByText("1 problem file")).ToBeVisibleAsync();
-    }
-
-    private Task<string[]> CapturedWritesAsync() =>
-        Page.EvaluateAsync<string[]>("() => window.__statsFake.writes");
 
     [Fact]
     public async Task FsAccessPick_AnswerAndContinue_WritesStatsJson()

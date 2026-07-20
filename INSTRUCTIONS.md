@@ -24,6 +24,11 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
 - **BgGame_Lib** — substrate. `IProblemSetSource`, `ShuffledProblemSetSource`,
   `SubmittedPlay`, `SubmittedCubeAction`, `QuizScore` (segmented:
   `PlayDecisions` / `DoubleDecisions` / `TakeDecisions` + derived `Total`),
+  the stats-weighted composition surface — `QuizCategory`/`QuizCategoryKind`
+  (predicates over lifetime stats), `QuizMix`/`QuizMixEntry` (the versioned
+  strict-JSON mix config; `ToJson`/`FromJson`/`TryFromJson` is the
+  localStorage trio), `MixedProblemSetSource` (the composing decorator the
+  controller wires for a non-blank mix) + `MixComposition` telemetry —
   and the lifetime-stats model `DecisionStats` / `DecisionStatsDocument`
   (immutable; `doc = doc.Plus(submission, TimeProvider)`; bundled type-level
   JSON converter, so `JsonSerializer.Deserialize<DecisionStatsDocument>` needs
@@ -111,7 +116,7 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
                                       QuizController, IFolderAccess/JsFolderAccess,
                                       PickedProblemFolder, QuizStatsStore
                                       (aliased as IDecisionStatsSink),
-                                      AppliedFilter, ShuffleOption,
+                                      AppliedFilter, AppliedMix, ShuffleOption,
                                       QuizLiveMarker, ProblemSetSourceFactory
                                       (all scoped)
   _Imports.razor
@@ -120,7 +125,7 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
                                       mechanisms + stats read/write; two-slot
                                       (picked/active) directory-handle state
   Quiz/
-    QuizController.cs
+    QuizController.cs                 — + ProblemSetSourceFactory, QuizStartOutcome
     ProblemReview.cs
     FolderAccess.cs                 — StatsSaveCapability, FolderPickOutcome,
                                       IFolderAccess (the interop facade contract)
@@ -132,12 +137,16 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     QuizStatsStore.cs               — IDecisionStatsSink + the stats document
                                       lifecycle (bind at Start, fold + write-back)
     AppliedFilter.cs                — applied-filter holder (start-gate half)
+    AppliedMix.cs                   — committed-mix holder (start-gate third)
+    MixDisplay.cs                   — mix wording SSOT (labels + refusal reason)
     ShuffleOption.cs                — "shuffle order" toggle holder
     QuizLiveMarker.cs               — sessionStorage was-a-quiz-live marker
     WasmUploadedProblemSetSource.cs — in-browser stream-backed source
   Components/
     Pages/
-      Home.razor / .razor.cs        — landing: folder picker + filter panel + Start
+      Home.razor / .razor.cs        — landing: folder picker + filter panel +
+                                      mix panel + Start
+      MixPanel.razor / .razor.cs    — stats-weighted mix builder (xg_quizMix)
       Quiz.razor / .razor.cs        — active problem (play or cube)
       Done.razor / .razor.cs        — final summary
       Stats.razor / .razor.cs       — read-only mid-quiz stats (live Controller)
@@ -152,6 +161,8 @@ BgQuiz_Blazor.Tests/
   FakeFolderAccess.cs               — scriptable IFolderAccess double (store + pages)
   FakeDecisionStatsSink.cs          — recording sink double (controller + pages)
   QuizControllerTests.cs
+  MixPanelTests.cs                  — builder round-trip / validation / order pins
+  AppliedMixTests.cs
   QuizStatsStoreTests.cs            — bind / fold / write-back / degrade guarantees
   JsFolderAccessTests.cs            — interop result mapping via bUnit SetupModule
   WasmUploadedProblemSetSourceTests.cs
@@ -177,11 +188,15 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (Playwright/Chromi
   E2eCollection.cs                  — the single (sequential) test collection
   E2eTestBase.cs                    — per-test browser context + shared flow helpers
                                       (+ ContextInitScript seam; temp-dir folder picks)
+  FsAccessFakeTestBase.cs           — the fake showDirectoryPicker seam, shared by
+                                      the stats-persistence and mix-weighting suites
   QuizFlowTests.cs                  — cube + checker primary paths, pick → Done
   EmptyFilterBannerTests.cs         — empty-result banner; no 0/0 bounce
   ReloadNoticeTests.cs              — reload-reset notice, Start and Restart paths
-  StatsPersistenceTests.cs          — FS-Access stats path via a fake
-                                      showDirectoryPicker (+ fallback notice pin)
+  StatsPersistenceTests.cs          — FS-Access stats path via the fake (+ fallback
+                                      notice pin)
+  MixWeightingTests.cs              — weighted start to Done; composed-to-zero via
+                                      the app's own write fed back; refusal + override
   HelpAndTitlesTests.cs             — /help renders; document.title contract
   NotFoundTests.cs                  — unknown URL → 404 status + styled body
 ```
@@ -195,12 +210,16 @@ directive — that is how interactivity is set under WASM (see Render mode).
 ### Quiz flow
 
 ```
-/        Home.razor    → "Choose folder…" pick + FilterPanel + "Shuffle order"
-                          checkbox + Start Quiz button
-                          on Start: Controller.StartAsync(filters) — which also
-                          binds the lifetime-stats context (promote + load) —
-                          then Nav→/quiz
-                          (shuffle read live at Start; off the start gate)
+/        Home.razor    → "Choose folder…" pick + FilterPanel + MixPanel +
+                          "Shuffle order" checkbox + Start Quiz button
+                          on Start: Controller.StartAsync(filters, mix) — which
+                          binds the lifetime-stats context (promote + load) and,
+                          for a non-blank mix, composes the quiz from lifetime
+                          stats (or REFUSES when stats are unavailable — the
+                          actionable notice with "Start without mix") — then
+                          Nav→/quiz
+                          (shuffle read live at Start; off the start gate;
+                          disabled while a committed mix owns order)
 
 /quiz    Quiz.razor    → per problem: answering → review → advance
                           "Show stats" button (both states, trailing ms-auto
@@ -292,19 +311,49 @@ diagram marks the *quiz user's* answer rather than the .xg-recorded
 player's.
 
 **Source construction is factory-injected.** The controller takes a
-`ProblemSetSourceFactory` delegate (`DecisionFilterSet → IProblemSetSource`)
-rather than constructing a source directly. The client's `Program.cs`
-registers the delegate scoped as a lambda that reads the `PickedProblemFolder`
-holder and builds a `WasmUploadedProblemSetSource` over the picked folder's
-files, then reads the `ShuffleOption` holder and conditionally wraps that
-source — `shuffle.Enabled ? new ShuffledProblemSetSource(inner) : inner` (the
-unseeded ctor: shuffling is user-facing, reproducibility is a test-only
-concern). Both holders are read at **invocation** time (`StartAsync`), not at
-DI registration, so a folder choice *and* a shuffle-toggle choice made before
-Start take effect. Future
+`ProblemSetSourceFactory` delegate (`(DecisionFilterSet, QuizMix) →
+IProblemSetSource`) rather than constructing a source directly. The client's
+`Program.cs` registers the delegate scoped as a lambda that reads the
+`PickedProblemFolder` holder and builds a `WasmUploadedProblemSetSource` over
+the picked folder's files, then reads the `ShuffleOption` holder and
+conditionally wraps that source — `mix.IsPassthrough && shuffle.Enabled ? new
+ShuffledProblemSetSource(inner) : inner` (the unseeded ctor: shuffling is
+user-facing, reproducibility is a test-only concern). The mix parameter exists
+for exactly that one rule — **shuffle arbitration**: an active mix owns
+presentation order through its own `RandomOrder`, and a shuffled inner under
+the composing decorator would silently break `RandomOrder: false`'s
+source-order determinism. The factory never wires the composition layer
+itself (that is the controller's — below). Both holders are read at
+**invocation** time (`StartAsync`), not at DI registration, so a folder choice
+*and* a shuffle-toggle choice made before Start take effect. Future
 alternatives (deployed bundles, curated libraries) plug in by registering a
 different factory; the controller is unchanged. Unit tests substitute a fake
 source the same way.
+
+**Mix ownership mirrors filter ownership, and a weighted start can be
+refused.** `StartAsync(FilterConfig, QuizMix, bool ignoreMix = false)` takes
+the committed mix beside the filter config — user config in at Start, stored
+for Restart, no caller-set mutation — and returns a `QuizStartOutcome`. For a
+non-blank *effective* mix (the stored mix, unless the per-run `ignoreMix`
+override), `ResetAndAdvanceAsync` wires the producer's
+`MixedProblemSetSource` around the factory source, holding the typed
+reference so `LastComposition` telemetry surfaces without type-testing; the
+stats provider resolves `IDecisionStatsSink.CurrentDocument` fresh per
+enumeration, so **Restart recomposes against the lifetime record as it
+stands, this session's folds included** (deliberate, producer-documented).
+Composing without stats is banned (ratified: no stats → feature unavailable,
+never silently unweighted; the producer's provider contract throws on null by
+design), so the start is **refused** in two stages: stage 1, the
+side-effect-free `IDecisionStatsSink.CanBindStats` capability peek (fallback
+pick / denied / nothing picked — refuses before even the stats bind); stage 2,
+after `BeginQuizAsync` (now ordered **before** the source build, because the
+wrap decision needs the bound context), when the bind yielded no document
+(unreadable file). Either refusal returns `MixRequiresStats` having touched
+**no quiz state** — the prior quiz, its scores, and the stored config all
+survive, and no `StateChanged` fires — so Done's summary stands behind a
+refused Restart. `RestartAsync(bool ignoreMix = false)` re-attempts the
+stored mix every time, so the mix re-applies whenever stats allow; the
+override is strictly per-run and the stored mix is never rewritten.
 
 **Lifetime-stats sink is ctor-injected.** The controller's second dependency
 is the `IDecisionStatsSink` (production: `QuizStatsStore`). It drives the sink
@@ -322,7 +371,8 @@ to produce its own filter pipeline, which it owns end-to-end — no shared
 mutable state ever exists between the page and the controller. The
 `ProblemSetSourceFactory` delegate still takes the runtime
 `DecisionFilterSet` (the source's contract is the runtime pipeline; the
-controller is the authority on assembling it).
+controller is the authority on assembling it), plus the run's effective
+`QuizMix` for shuffle arbitration (see the factory paragraph above).
 
 **Decision-type policy.** The user's `FilterConfig.DecisionType` choice
 governs which decisions the quiz admits — checker plays, cube decisions, or
@@ -541,6 +591,64 @@ and `Home_FiltersDirty_ClearsAppliedState_DisablesStart` pin the gate.
 In-memory only, reset on full reload — same deferred-arc caveat as its sibling
 holders (`PickedProblemFolder`, `ShuffleOption`).
 
+### `MixPanel` / `AppliedMix` — the stats-weighted mix
+
+**`MixPanel`** (Components/Pages) is the FilterPanel of quiz composition: an
+ordered list of (category, percent) rows — category picker over the seven
+`QuizCategoryKind`s, a parameter input where the kind takes one (defaults
+seeded on selection: 3 times / 30 days / 0.05 equity / 25%), percent 1–100
+summing to exactly 100 — plus the Random-order toggle (default on) and an
+optional quiz length (disabled with a hint at zero rows;
+length-without-entries is invalid by producer rule, and "cap without
+weighting" is one Everything-else row at 100 plus a length). Row order is
+**semantic** (earlier rows win contested overlap — producer contract), so
+rows carry explicit ↑/↓ reorder buttons and both commit and restore preserve
+order exactly. The wrong-rate row *displays* percent and *stores* the
+producer's fraction — thresholds are fractions; rendering is a display
+concern. Validation disables Apply with an inline reason; category
+construction goes through the producer's validating factories with a
+try/catch backstop. A blank builder is always valid and commits
+`QuizMix.Empty` — the inert passthrough default.
+
+**Commit model mirrors FilterPanel** — `OnMixApplied` on Apply/Reset only
+(Reset is an explicit apply of Empty, the one sanctioned overwrite of the
+stored mix), `OnMixDirty` per edit — with one deliberate divergence: the
+first-render localStorage restore raises **`OnMixRestored`**, and Home
+*adopts* it into the holder. A persisted mix is by construction a
+previously-applied one, so holder and rendered rows agree without a re-Apply
+(the filter panel's restore deliberately raises nothing because its
+"applied" means a gesture in *this* visit). Both wiring-critical callbacks
+are `[EditorRequired]`. Persistence is the lib trio over one key,
+**`xg_quizMix`**: `ToJson` on Apply, `TryFromJson` on restore —
+absent/corrupt yields a blank builder, never an error; the component never
+touches a JSON serializer.
+
+**`AppliedMix`** (Quiz/) is the committed-mix holder beside `AppliedFilter`:
+`Current` (default `QuizMix.Empty`) + `IsDirty`. Blank is the valid default,
+so there is no "never applied blocks Start" state — only dirtiness gates
+(`CanStart` requires `!AppliedMix.IsDirty`), preventing Start from running a
+mix that differs from what the panel shows. Scoped for navigate-back
+survival like its siblings; unlike them the underlying choice also survives
+a reload (localStorage) and re-adopts on the next boot.
+
+**`MixDisplay`** (Quiz/) is the wording SSOT: kind labels (the panel's
+picker), full category labels (the Quiz page's shortfall notice), and the
+refusal reason (Home's Start and Done's Restart render the same
+capability/status rule — neither page hand-words it).
+
+**Honest notices, all four.** (1) *Signal early*: Home shows a polite
+advisory the moment a stats-less pick coexists with a committed non-blank
+mix — before Start. (2) *Gate late*: a refused weighted Start/Restart
+renders an actionable `role="alert"` with the reason and the one-click
+per-run override ("Start without mix" / "Restart without mix"); the stored
+mix is kept either way, and the notice says so. (3) *Composed-to-zero*:
+Home's empty-result branch keys on `LastComposition is { DrawnCount: 0 }`
+for mix-aware wording, parallel to filtered-to-zero. (4) *Shortfall*: Quiz
+renders requested-vs-drawn from `Controller.LastComposition`
+(`role="alert"` — the quiz underway differs from what was asked), with a
+per-entry drew-N-of-M line for every category that ran short, covering both
+the missed-target and redistributed-share shapes.
+
 ### `ShuffleOption` — the "Shuffle order" toggle holder
 
 The per-app (`Scoped`, one-per-tab in WASM) holder for the **"Shuffle order"**
@@ -555,12 +663,20 @@ wrap the picked set in a `ShuffledProblemSetSource` — at **invocation** time
 **Presentation-only, and off the start gate.** Shuffling changes only the
 *order* decisions are presented in, never which decisions are *admitted*, so it
 is deliberately **not** folded into `FilterConfig` and plays **no part in
-`CanStart`** (`AppliedFilter.IsApplied && Folder.HasFiles`). Toggling it
+`CanStart`** (`AppliedFilter.IsApplied && Folder.HasFiles &&
+!AppliedMix.IsDirty`). Toggling it
 does **not** dirty the start gate — `HandleShuffleToggled` only records the
 choice; there is no applied/dirty machinery the way `AppliedFilter` needs it,
 because a checkbox has no half-edited intermediate state. Every toggle is a
 complete, immediately valid choice read live at Start; there is nothing to
 "apply".
+
+**Disabled — never rewritten — under an active mix.** While the committed
+mix has entries, presentation order belongs to the mix's own Random-order
+setting, so Home disables the checkbox with a hint and the factory suppresses
+the shuffle wrap; `Enabled` keeps the user's value untouched throughout, so
+clearing the mix restores their prior shuffle preference (pinned in
+`PageTests`).
 
 In-memory only, reset on full reload — same deferred-arc caveat as the other
 holders.
@@ -639,12 +755,23 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   so the gate survives navigation: filters Applied at least once *and* a
   folder picked with at least one problem file
   (`CanStart => AppliedFilter.IsApplied && Folder.HasFiles`).
-  Below the filter panel sits a **"Shuffle order" checkbox** bound to the
-  `ShuffleOption` holder (`HandleShuffleToggled` → `ShuffleOption.Set`). It is
-  presentation-only and **not** part of `CanStart` — toggling it never gates or
-  dirties Start; the source factory reads it live at Start to decide whether to
-  wrap the picked set in a `ShuffledProblemSetSource` (see the `ShuffleOption`
-  section).
+  Below the filter panel sits the **`MixPanel`** (its three callbacks land in
+  `AppliedMix`: Apply/restore → `Apply`, dirty → `MarkDirty`; see the
+  `MixPanel`/`AppliedMix` section), then a **"Shuffle order" checkbox** bound
+  to the `ShuffleOption` holder (`HandleShuffleToggled` → `ShuffleOption.Set`).
+  It is presentation-only and **not** part of `CanStart` — toggling it never
+  gates or dirties Start; the source factory reads it live at Start to decide
+  whether to wrap the picked set in a `ShuffledProblemSetSource` (see the
+  `ShuffleOption` section), and it renders disabled (value untouched) while
+  the committed mix owns order. Start hands `AppliedMix.Current` to
+  `Controller.StartAsync` beside the filter config and checks the returned
+  outcome **before** the empty-result `IsFinished` check (a refused start
+  leaves prior state, including a stale `IsFinished`): `MixRequiresStats`
+  renders the actionable refusal alert (`_mixRefused`, reason via
+  `MixDisplay.RefusalReason`, the "Start without mix" per-run override, a
+  pointer to the panel's Reset), the mix-aware composed-to-zero wording rides
+  the existing no-match branch, and the early won't-apply advisory renders
+  from pick capability × committed mix with no Start needed.
   Subscribes to `OnFilterConfigChanged` → `AppliedFilter.Set` (the panel's
   emit-event after Apply) and `OnFilterDirty` → `AppliedFilter.Clear`; on
   Start hands `AppliedFilter.Config` to `Controller.StartAsync`. Catches pick
@@ -733,7 +860,9 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   active-context stats notices — `LoadFailed` as a polite `role="status"`
   (quiz runs, file untouched), `WriteFailed` as an assertive `role="alert"`
   (quiz continues, writes stopped); the store-status subscription is what
-  surfaces a mid-quiz write failure the moment it happens.
+  surfaces a mid-quiz write failure the moment it happens. The mix-shortfall
+  notice renders in the same block from `Controller.LastComposition` (see the
+  `MixPanel`/`AppliedMix` section's honest-notices list).
 - **`Stats.razor`** — read-only mid-quiz stats view: the same `ScorePanel` /
   `ScoreBreakdown` pair `Done` shows at the end, rendered here against the
   live, in-progress `QuizController` (`Heading="Progress so far"` /
@@ -806,6 +935,10 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   a failure on the *final* Continue lands the user here without ever seeing
   the in-quiz notice. No subscription needed: the status cannot change while
   Done is shown (no folds happen here; Restart navigates away and re-binds).
+  Restart re-attempts the stored mix and handles the refusal like Home's
+  Start: `MixRequiresStats` renders the refusal alert with **"Restart without
+  mix"**, the summary underneath survives by the refusal's touches-no-state
+  guarantee, and the `QuizLiveMarker` stays cleared (nothing became live).
 - **`ScorePanel.razor`** — compact status strip used by both Quiz and Done.
   Renders the `Total` segment: Submitted / Correct (with %) / Skipped /
   average equity loss; optional Source name and Heading. Kept Total-only to
@@ -895,11 +1028,11 @@ holder), no native dialog involved. Staged dirs are cleaned per test. The
 migrated flow scenarios therefore run as no-stats quizzes by construction;
 that's correct — they assert quiz flow, not stats.
 
-**The FS-Access stats path** (`StatsPersistenceTests`) rides the base class's
-second customization seam, `ContextInitScript` (applied via
+**The FS-Access path** lives in `FsAccessFakeTestBase`, riding the base
+class's second customization seam, `ContextInitScript` (applied via
 `AddInitScriptAsync` *before* the page is created — parallel to the
 `ContextOptions` locale seam): Playwright cannot drive the native directory
-picker or its permission prompts, so the suite injects a fake
+picker or its permission prompts, so the base injects a fake
 `window.showDirectoryPicker` — a scripted directory handle (async `values()`
 enumeration over the real fixture's bytes, `getFileHandle`, `createWritable`
 capturing writes, scripted permissions). The faking stops at the browser-API
@@ -908,14 +1041,25 @@ boundary: the app ships **no test seams**, and everything from the app's own
 System Access surface drifts from what the fake mirrors, the pick fails
 visibly and the scenarios fail loudly. Per-scenario variation (corrupt stats
 file, denied permission) is a page-level init script overriding the fake's
-config object — context scripts run first, so the override wins. Scenarios
-pin: one fold ⇒ one captured write with `schemaVersion` 1, one decision
-record, a cube-as-two-decisions tally (2 submitted / 2 correct), indented;
-corrupt file ⇒ polite notice + **zero
+config object — context scripts run first, so the override wins — and a
+mid-test `EvaluateAsync` can mutate it between quizzes (the app re-reads the
+stats file at every Start's re-bind). Two suites ride the fake.
+`StatsPersistenceTests` pins: one fold ⇒ one captured write with
+`schemaVersion` 1, one decision record, a cube-as-two-decisions tally
+(2 submitted / 2 correct), indented; corrupt file ⇒ polite notice + **zero
 writes**; denied ⇒ denied notice + zero writes; and the fallback pick's
 "can't save stats" notice. The stats filename and wire property names are
 deliberately hardcoded in the suite — it is the consumer-side pin of those
 contracts (the e2e project references no app assembly by design).
+`MixWeightingTests` drives the weighted path: a 100%-never-seen mix built
+through the panel UI composes the unseen fixture and runs to Done (one write
+captured — the weighted run still records); and the composed-to-zero
+scenario runs a blank-mix quiz first, **feeds the app's own captured write
+back** as the pre-existing stats file (no hand-crafted wire format, no
+decision-id knowledge), then starts weighted and asserts the mix-aware zero
+notice with no 0/0 bounce. `MixRefusalTests` (no fake — the real fallback
+pick, like the migrated flow scenarios) pins the no-stats ruling end to end:
+early advisory → refused Start → "Start without mix" override → Done.
 
 **Fail loud, never skip.** Missing Playwright browsers, a missing committed
 fixture, a publish failure, a port-bind or readiness failure — each fails the
@@ -971,11 +1115,12 @@ republishes take seconds.
 
 This is an application, not a library — no exported types or HTTP
 endpoints, and the `.Client` assembly enforces that at the type level: every
-plain-C# client type (`QuizController`, the scoped holders
-`PickedProblemFolder` / `AppliedFilter` / `ShuffleOption` / `QuizLiveMarker`,
+plain-C# client type (`QuizController` + `QuizStartOutcome`, the scoped holders
+`PickedProblemFolder` / `AppliedFilter` / `AppliedMix` / `ShuffleOption` /
+`QuizLiveMarker`,
 `PickedFile`, `IFolderAccess` / `JsFolderAccess` (+ its wire DTOs),
 `StatsSaveCapability`, `FolderPickOutcome`, `QuizStatsFile`,
-`IDecisionStatsSink` / `QuizStatsStore` / `QuizStatsStatus`,
+`IDecisionStatsSink` / `QuizStatsStore` / `QuizStatsStatus`, `MixDisplay`,
 `WasmUploadedProblemSetSource`, `ProblemReview`, and the `ProblemSetSourceFactory`
 delegate) is `internal`, reachable by the test project only through the
 `InternalsVisibleTo` grant. The only `public` types are the Razor components — the
@@ -1113,6 +1258,51 @@ the route map:
   in review (tab close, Start/Restart without Continue) never folds — don't
   "fix" that into a double-fold hazard. Skips, off-list plays, and
   auto-skipped pass positions never reach the sink at all (producer contract).
+- **Never silently clear or rewrite the stored `QuizMix`.** The persisted mix
+  (`xg_quizMix`) outlives any session that can't honor it: a refused weighted
+  start, the per-run "Start/Restart without mix" override, and a corrupt
+  restore all leave it untouched (corrupt just yields a blank *builder*). The
+  one sanctioned overwrite is the panel's own Apply/Reset — an explicit user
+  gesture. Same spirit as the never-overwrite-unreadable-stats rule below.
+- **A refused weighted start touches no quiz state — check the outcome before
+  `IsFinished`.** `StartAsync`/`RestartAsync` returning `MixRequiresStats`
+  leaves the prior quiz (enumerator, scores, `Current`, `IsFinished`) and the
+  stored config exactly as they were, and fires no `StateChanged`. Callers
+  must branch on the outcome *first*: Home's empty-result check reads
+  `IsFinished`, which after a refusal is stale state from the previous quiz.
+  Ordering them the other way shows a bogus no-match banner (or worse,
+  navigates) off a quiz that never started.
+- **The stage-2 refusal's re-bind is a real side effect — including the
+  WriteFailed sub-case.** Stage 1 (capability peek) refuses with zero side
+  effects, but a stage-2 refusal has already run `BeginQuizAsync`, which
+  unconditionally resets the in-memory document and reloads from disk. If the
+  *prior* quiz sat in `WriteFailed` with folds living only in memory, those
+  folds are dropped by the refused start even though no new quiz begins — the
+  one variant of the re-bind that loses data rather than merely re-reading
+  (the same in-memory loss any Start/Restart always caused; the file itself
+  is never overwritten on the LoadFailed path). Rare×rare and accepted: a
+  "skip the re-load when the bound context is WriteFailed on the same folder"
+  guard would need JS handle-identity interop. Don't move the bind back after
+  the source build to "fix" it — the wrap decision needs the bound context.
+- **`QuizMix` entry order is semantic — preserve it everywhere.** Earlier
+  entries win contested overlap (producer contract), so the mix panel's rows,
+  the persisted JSON, the restore hydration, and the shortfall notice's
+  per-entry lines must all keep declared order. Reordering is a real edit
+  (dirties the gate); `MixPanelTests` pins order surviving Apply.
+- **An active mix suppresses the shuffle wrap — in the factory, not the UI.**
+  The mix's `RandomOrder: false` promises source-order determinism, which a
+  `ShuffledProblemSetSource` under the composing decorator would silently
+  break. The `Program.cs` factory wraps shuffle only when `mix.IsPassthrough`;
+  Home's disabled checkbox is the honest *mirror* of that rule, not its
+  enforcement — and disabled must never mean rewritten (`ShuffleOption` keeps
+  the user's value; pinned).
+- **The mix stats provider must never see a null document.** The controller
+  wires `MixedProblemSetSource` only past the two-stage refusal, and the
+  provider throws `InvalidOperationException` if `CurrentDocument` is null
+  anyway (mirroring the producer's own contract) — composing against a
+  fabricated empty document would mask a wiring bug as an all-never-seen
+  quiz. An *empty* document is the legitimate everything-never-seen input;
+  *null* is always a bug.
 - **Never write over a stats file that failed to parse.** A load
   `JsonException` (corrupt, foreign, or newer-schema file) flips
   `QuizStatsStore` to `LoadFailed`, which is terminal *for that quiz*: no
@@ -1254,13 +1444,12 @@ the route map:
 
 ## Subproject-internal next steps
 
-- **Phase 2+ design.** Weighted re-recurrence on wrong answers — the
-  persistent per-decision lifetime record now exists (`bgquiz-stats.json` via
-  `DecisionStats` / `DecisionStatsDocument`, keyed by the stable
-  `DecisionId`), so the tracking substrate is in place; what remains is the
-  scheduling policy that *reads* it (e.g. bias problem order toward
-  low-accuracy / stale decisions). Also the three two-agent modes
-  (user-vs-user, user-vs-bot, bot-vs-bot tournament).
+- **Phase 2+ design.** Stats-weighted composition now ships (the `MixPanel` →
+  `QuizMix` → `MixedProblemSetSource` pipeline over the lifetime record).
+  Still open from the phase-2 sketch: an in-session history model /
+  re-queue-on-wrong (distinct from lifetime weighting), the Done-page
+  retrospective below, and the three two-agent modes (user-vs-user,
+  user-vs-bot, bot-vs-bot tournament).
 - **Reload-resume (persistence).** A full browser reload re-boots the WASM
   runtime and loses the picked folder and quiz progress. Surviving a reload
   needs the picked bytes + decisions/progress persisted client-side
