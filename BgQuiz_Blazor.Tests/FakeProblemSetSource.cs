@@ -9,18 +9,24 @@ namespace BgQuiz_Blazor.Tests;
 /// time <see cref="EnumerateAsync"/> is called. Re-iterability is satisfied
 /// trivially — enumeration walks the captured list from the start. Tracks
 /// invocation count so tests can assert factory calls.
+/// Constructing with <c>countKnown: false</c> simulates a streaming source
+/// that declares no <see cref="Count"/> (the interface's null contract), for
+/// tests of unknown-total behavior.
 /// </summary>
 internal sealed class FakeProblemSetSource : IProblemSetSource
 {
     private readonly IReadOnlyList<BgDecisionData> _items;
+    private readonly bool _countKnown;
     public string Name { get; }
-    public int? Count => _items.Count;
+    public int? Count => _countKnown ? _items.Count : null;
     public int EnumerateCallCount { get; private set; }
 
-    public FakeProblemSetSource(IReadOnlyList<BgDecisionData> items, string name = "Fake")
+    public FakeProblemSetSource(
+        IReadOnlyList<BgDecisionData> items, string name = "Fake", bool countKnown = true)
     {
         _items = items;
         Name = name;
+        _countKnown = countKnown;
     }
 
     public async IAsyncEnumerable<BgDecisionData> EnumerateAsync(

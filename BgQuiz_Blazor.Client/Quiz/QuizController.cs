@@ -177,6 +177,54 @@ internal sealed class QuizController : IAsyncDisposable
     public MixComposition? LastComposition => _mixedSource?.LastComposition;
 
     /// <summary>
+    /// Whether the active run's <i>effective</i> mix binds its percentages to
+    /// a requested <see cref="QuizMix.QuizLength"/>. False for a passthrough
+    /// run (blank mix, or the per-run ignore-mix override) and for a capless
+    /// mix. The Quiz page keys its notice framing on this: per-entry
+    /// <see cref="MixCompositionEntry.Requested"/> is a user ask only under a
+    /// requested length — capless, it is largest-remainder apportionment of
+    /// the pool union, so an entry outdrawn there is composition noise, not a
+    /// shortfall, and "requested" framing would misreport it. Committed in
+    /// <see cref="ResetAndAdvanceAsync"/> past the refusal checks, so a
+    /// refused start leaves it — like all active-run state — untouched.
+    /// </summary>
+    public bool ActiveMixHasLength { get; private set; }
+
+    /// <summary>
+    /// The 1-based position of <see cref="Current"/> within the quiz stream:
+    /// how many decisions have been consumed from the source so far,
+    /// auto-skipped pass positions included. Zero before the first advance;
+    /// reset by Start / Restart; untouched by Redo (same problem).
+    ///
+    /// <para>
+    /// <b>Counts consumed stream slots, not presentations — deliberately.</b>
+    /// Every total a page can show against it (<see cref="ProblemCount"/>)
+    /// counts the stream — a composition's
+    /// <see cref="MixComposition.DrawnCount"/> or a source's
+    /// <see cref="IProblemSetSource.Count"/> — and a pass position occupies a
+    /// stream slot even though <see cref="AdvanceAsync"/> resolves it without
+    /// presenting. Counting consumed slots keeps the two commensurable:
+    /// "problem N of M" never exceeds M, and N lands exactly on M when the
+    /// stream ends. The accepted trade-off is that an auto-skip shows as a
+    /// gap in the presented sequence (problem 3 follows problem 1 when slot 2
+    /// was a pass position) — rare, and honest about the slot having been in
+    /// the quiz — rather than a presented-only N that ends below M.
+    /// </para>
+    /// </summary>
+    public int ProblemNumber { get; private set; }
+
+    /// <summary>
+    /// Total number of problems in the active quiz stream, when knowable:
+    /// the composition's <see cref="MixComposition.DrawnCount"/> for a
+    /// weighted quiz, the source's declared
+    /// <see cref="IProblemSetSource.Count"/> for a passthrough run. Null
+    /// before start, or when a passthrough source streams without a count.
+    /// Auto-skipped pass positions are included — the stream-slot convention
+    /// shared with <see cref="ProblemNumber"/>.
+    /// </summary>
+    public int? ProblemCount => LastComposition?.DrawnCount ?? _source?.Count;
+
+    /// <summary>
     /// Raised after every state transition so observing pages can re-render.
     /// For the gated async transitions this fires exactly twice — once when
     /// <see cref="IsBusy"/> flips on (before any churn, so busy affordances
@@ -646,6 +694,7 @@ internal sealed class QuizController : IAsyncDisposable
 
         _filterPipeline = pipeline;
         _mix = mix;
+        ActiveMixHasLength = effectiveMix.QuizLength is not null;
 
         await DisposeEnumeratorAsync();
 
@@ -664,6 +713,7 @@ internal sealed class QuizController : IAsyncDisposable
         _history.Clear();
         _cubeHistory.Clear();
         SkippedCount = 0;
+        ProblemNumber = 0;
         IsFinished = false;
         Current = null;
         Review = null;
@@ -698,6 +748,10 @@ internal sealed class QuizController : IAsyncDisposable
                 IsFinished = true;
                 break;
             }
+
+            // A stream slot is consumed whether or not it presents — pass
+            // positions included, per ProblemNumber's documented convention.
+            ProblemNumber++;
 
             var next = _enumerator.Current;
             if (IsPassPosition(next))

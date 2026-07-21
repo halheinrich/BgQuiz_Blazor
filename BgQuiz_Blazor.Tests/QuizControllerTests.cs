@@ -76,6 +76,9 @@ public class QuizControllerTests
         Assert.Equal(QuizScore.Empty, c.Score);
         Assert.Empty(c.History);
         Assert.Equal(0, c.SkippedCount);
+        Assert.Equal(0, c.ProblemNumber);
+        Assert.Null(c.ProblemCount);
+        Assert.False(c.ActiveMixHasLength);
     }
 
     // -----------------------------------------------------------------------
@@ -1338,5 +1341,130 @@ public class QuizControllerTests
         Assert.True(c.IsFinished);
         Assert.Equal(1, c.Score.Total.Submitted);
         Assert.Equal(1, c.Score.Total.Correct);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Problem position & total — the Quiz page's "Problem N of M"
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ProblemNumber_CountsConsumedStreamSlots_PassPositionsIncluded()
+    {
+        // The counter's settled convention: N is the consumed stream slot,
+        // commensurable with ProblemCount (which also counts slots). The pass
+        // position in slot 2 is consumed-but-never-presented, so the second
+        // presented problem reads slot 3 — and N lands exactly on M at the
+        // stream's end rather than the quiz finishing below its stated total.
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
+        var pass = TestFixtures.PassDecision();
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var c = Make(d1, pass, d2);
+
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        Assert.Same(d1, c.Current);
+        Assert.Equal(1, c.ProblemNumber);
+        Assert.Equal(3, c.ProblemCount);
+
+        await c.SkipCurrentAsync();
+        Assert.Same(d2, c.Current);
+        Assert.Equal(3, c.ProblemNumber); // slot 2 consumed silently
+
+        await c.SkipCurrentAsync();
+        Assert.True(c.IsFinished);
+        Assert.Equal(3, c.ProblemNumber); // N == M at stream end
+    }
+
+    [Fact]
+    public async Task ProblemNumber_RedoLeavesItUntouched_RestartResets()
+    {
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var c = Make(d1, d2);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+        Assert.Equal(2, c.ProblemNumber);
+
+        c.SubmitPlay(BestPlay());
+        await c.RedoAsync();
+        Assert.Equal(2, c.ProblemNumber); // Redo re-answers the same slot
+
+        await c.RestartAsync();
+        Assert.Same(d1, c.Current);
+        Assert.Equal(1, c.ProblemNumber);
+    }
+
+    [Fact]
+    public async Task ProblemCount_PassthroughStreamingSource_IsNull()
+    {
+        var fake = new FakeProblemSetSource(
+            [TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())], countKnown: false);
+        var c = new QuizController((_, _) => fake, new FakeDecisionStatsSink(), TimeProvider.System);
+
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        Assert.Null(c.ProblemCount);      // no fabricated total…
+        Assert.Equal(1, c.ProblemNumber); // …but the position still tracks
+    }
+
+    [Fact]
+    public async Task ProblemCount_WeightedQuiz_IsCompositionDrawnCount()
+    {
+        // Weighted, the total is the composition's drawn count — not the
+        // inner source's Count (2 here), which the mix composed down to 1.
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var c = MakeWeighable(out var sink, out _, d1, d2);
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DocWithSeen(d1.Id);
+
+        await c.StartAsync(new FilterConfig(), NeverSeenMix());
+
+        Assert.Equal(1, c.ProblemCount);
+        Assert.Equal(1, c.ProblemNumber);
+    }
+
+    // -----------------------------------------------------------------------
+    //  ActiveMixHasLength — the length-bound fact the Quiz page frames by
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ActiveMixHasLength_TracksTheEffectiveMix()
+    {
+        var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = MakeWeighable(out var sink, out _, d);
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        Assert.False(c.ActiveMixHasLength);                 // passthrough
+
+        await c.StartAsync(new FilterConfig(), NeverSeenMix());
+        Assert.False(c.ActiveMixHasLength);                 // capless — no length to bind to
+
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 1));
+        Assert.True(c.ActiveMixHasLength);                  // length-bound
+
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 1), ignoreMix: true);
+        Assert.False(c.ActiveMixHasLength);                 // override runs passthrough
+    }
+
+    [Fact]
+    public async Task ActiveMixHasLength_RefusedStart_LeavesPriorValue()
+    {
+        // Refusals touch no active-run state — this flag included: a running
+        // length-bound quiz keeps its notice framing behind a refused start.
+        var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = MakeWeighable(out var sink, out _, d);
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 1));
+        Assert.True(c.ActiveMixHasLength);
+
+        sink.CanBindStats = false;
+        var outcome = await c.StartAsync(new FilterConfig(), NeverSeenMix());
+
+        Assert.Equal(QuizStartOutcome.MixRequiresStats, outcome);
+        Assert.True(c.ActiveMixHasLength);
     }
 }

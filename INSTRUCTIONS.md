@@ -395,6 +395,22 @@ behind a refused Restart. `RestartAsync(bool ignoreMix = false)` re-attempts the
 stored mix every time, so the mix re-applies whenever stats allow; the
 override is strictly per-run and the stored mix is never rewritten.
 
+**Presentation telemetry for the Quiz page.** `ActiveMixHasLength` exposes
+the one fact the mix-notice framing needs — whether the run's *effective*
+mix bound its percentages to a requested `QuizLength` (false for
+passthrough, the ignore-mix override, and capless mixes) — committed past
+the refusal checks so a refused start leaves it, like all active-run state,
+untouched; intent over structure, no `QuizMix` leaks. `ProblemNumber` /
+`ProblemCount` drive the "Problem N of M" indicator: N is the 1-based
+**consumed stream slot** of `Current` (auto-skipped pass positions
+included; reset by Start/Restart, untouched by Redo) and M is the
+composition's `DrawnCount` (weighted) or the source's declared `Count`
+(passthrough; null when streaming — the page then shows "Problem N" alone).
+Slot-counting is the settled convention: both numbers count the stream, so
+N never exceeds M and lands exactly on M at exhaustion; the accepted
+trade-off — an auto-skip shows as a rare gap in the presented sequence —
+is documented on `ProblemNumber`.
+
 **Lifetime-stats sink is ctor-injected.** The controller's second dependency
 is the `IDecisionStatsSink` (production: `QuizStatsStore`). It drives the sink
 at exactly two points: `ResetAndAdvanceAsync` calls `BeginQuizAsync()` — the
@@ -722,7 +738,10 @@ survival like its siblings; unlike them the underlying choice also survives
 a reload (localStorage) and re-adopts on the next boot.
 
 **`MixDisplay`** (Quiz/) is the wording SSOT: kind labels (the panel's
-picker), full category labels (the Quiz page's shortfall notice), and the
+picker), full category labels (the Quiz page's mix notices), the
+composition summary those notices lead with (`CompositionSummary` — "Your
+quiz has N problems: 195 Never seen + 5 Ever got wrong.", every entry's
+actual draw in declared order, zero-draw entries included), and the
 refusal reason (Home's Start and Done's Restart render the same
 capability/status rule — neither page hand-words it).
 
@@ -733,11 +752,22 @@ renders an actionable `role="alert"` with the reason and the one-click
 per-run override ("Start without mix" / "Restart without mix"); the stored
 mix is kept either way, and the notice says so. (3) *Composed-to-zero*:
 Home's empty-result branch keys on `LastComposition is { DrawnCount: 0 }`
-for mix-aware wording, parallel to filtered-to-zero. (4) *Shortfall*: Quiz
-renders requested-vs-drawn from `Controller.LastComposition`
-(`role="alert"` — the quiz underway differs from what was asked), with a
-per-entry drew-N-of-M line for every category that ran short, covering both
-the missed-target and redistributed-share shapes.
+for mix-aware wording, parallel to filtered-to-zero. (4) *Composition-first
+mix notices on Quiz* (the Finding (M) redesign): every mix notice leads with
+the effective quiz — `MixDisplay.CompositionSummary` over
+`Controller.LastComposition` — before any apportionment internals. A
+**length-bound** mix that fell short keeps the assertive `role="alert"`
+framing under that lead: the asked-for-X-drew-Y line plus per-entry
+drew-N-of-M when the target itself was missed, or per-entry
+filled-N-of-its-P%-share lines when the target was met but a pool ran dry
+(the internals demoted to explanation). A **capless** mix renders a
+composition-only `role="status"` info line instead and never says
+"requested": without a `QuizLength` the percentages bind to nothing —
+per-entry `Requested` is largest-remainder apportionment of the pool union,
+so an outdrawn entry is composition noise, not shortfall (the producer
+guarantees Drawn == Target capless). The page keys the split on
+`Controller.ActiveMixHasLength`; a length-bound mix that filled exactly
+shows no notice at all.
 
 ### `ShuffleOption` — the "Shuffle order" toggle holder
 
@@ -964,9 +994,13 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   active-context stats notices — `LoadFailed` as a polite `role="status"`
   (quiz runs, file untouched), `WriteFailed` as an assertive `role="alert"`
   (quiz continues, writes stopped); the store-status subscription is what
-  surfaces a mid-quiz write failure the moment it happens. The mix-shortfall
-  notice renders in the same block from `Controller.LastComposition` (see the
-  `MixPanel`/`AppliedMix` section's honest-notices list).
+  surfaces a mid-quiz write failure the moment it happens. The mix notices
+  render in the same block from `Controller.LastComposition` —
+  composition-first, capless vs. length-bound framing keyed on
+  `Controller.ActiveMixHasLength` (see the `MixPanel`/`AppliedMix` section's
+  honest-notices list). The `ScorePanel` here carries the problem-position
+  indicator ("Problem N of M") from `Controller.ProblemNumber` /
+  `Controller.ProblemCount`.
 - **`Stats.razor`** — read-only mid-quiz stats view: the same `ScorePanel` /
   `ScoreBreakdown` pair `Done` shows at the end, rendered here against the
   live, in-progress `QuizController` (`Heading="Progress so far"` /
@@ -1050,7 +1084,10 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
 - **`ScorePanel.razor`** — compact status strip used by both Quiz and Done.
   Renders the `Total` segment: Submitted / Correct (with %) / Skipped /
   average equity loss; optional Source name and Heading. Kept Total-only to
-  avoid mid-quiz clutter.
+  avoid mid-quiz clutter. Optional `ProblemNumber` / `ProblemCount`
+  parameters render the problem-position indicator ("Problem N of M", or
+  "Problem N" when the total is unknowable) — opt-in per surface: Quiz
+  passes the controller's stream position; Stats and Done omit it.
 - **`ScoreBreakdown.razor`** — the four-way detailed evaluation, hosted on
   Done. A Play / Double / Take / Total table (Submitted · Correct (%) · Avg
   loss per row), reading the three `QuizScore` segments and the derived
@@ -1406,9 +1443,10 @@ the route map:
   the source build to "fix" it — the wrap decision needs the bound context.
 - **`QuizMix` entry order is semantic — preserve it everywhere.** Earlier
   entries win contested overlap (producer contract), so the mix panel's rows,
-  the persisted JSON, the restore hydration, and the shortfall notice's
-  per-entry lines must all keep declared order. Reordering is a real edit
-  (dirties the gate); `MixPanelTests` pins order surviving Apply.
+  the persisted JSON, the restore hydration, and the mix notices'
+  composition summary and per-entry lines must all keep declared order.
+  Reordering is a real edit (dirties the gate); `MixPanelTests` pins order
+  surviving Apply.
 - **An active mix suppresses the shuffle wrap — in the factory, not the UI.**
   The mix's `RandomOrder: false` promises source-order determinism, which a
   `ShuffledProblemSetSource` under the composing decorator would silently

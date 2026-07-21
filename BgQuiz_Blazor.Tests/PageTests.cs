@@ -151,6 +151,11 @@ public class PageTests : BunitContext
     private static QuizMix NeverSeenMix(int? quizLength = null) =>
         new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength, randomOrder: false);
 
+    /// <summary>A 50/50 never-seen / got-wrong mix, deterministic order.</summary>
+    private static QuizMix SplitMix(int? quizLength = null) =>
+        new([new QuizMixEntry(QuizCategory.NeverSeen, 50), new QuizMixEntry(QuizCategory.GotWrong, 50)],
+            quizLength, randomOrder: false);
+
     /// <summary>
     /// Like <see cref="WithController"/> but over a scriptable stats sink, so
     /// weighted-start page tests can script stats availability
@@ -962,6 +967,77 @@ public class PageTests : BunitContext
         Assert.Contains("Skipped", cut.Markup);
         Assert.Contains("Submit", cut.Markup);
         Assert.Contains("Skip", cut.Markup);
+    }
+
+    /// <summary>
+    /// The problem-position indicator's visible text, whitespace-normalized
+    /// (the markup spreads "Problem <strong>N</strong> of <strong>M</strong>"
+    /// across source lines).
+    /// </summary>
+    private static string ProblemPositionText(IRenderedComponent<QuizPage> cut) =>
+        Regex.Replace(cut.Find(".problem-position").TextContent, @"\s+", " ").Trim();
+
+    [Fact]
+    public async Task Quiz_Counter_RendersPositionOfTotal_AndAdvances()
+    {
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp")),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp")));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        var cut = Render<QuizPage>();
+        Assert.Equal("Problem 1 of 2", ProblemPositionText(cut));
+
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        await cut.InvokeAsync(c.ContinueAsync);
+
+        cut.WaitForAssertion(() => Assert.Equal("Problem 2 of 2", ProblemPositionText(cut)));
+    }
+
+    [Fact]
+    public async Task Quiz_Counter_UnknownTotal_RendersPositionOnly()
+    {
+        // A source that declares no Count (streaming) must not fabricate a
+        // total — the indicator degrades to the bare position.
+        var fake = new FakeProblemSetSource(
+            [TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())], countKnown: false);
+        var c = new QuizController((_, _) => fake, new FakeDecisionStatsSink(), TimeProvider.System);
+        Services.AddSingleton(c);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        var cut = Render<QuizPage>();
+
+        Assert.Equal("Problem 1", ProblemPositionText(cut));
+    }
+
+    [Fact]
+    public async Task Quiz_Counter_WeightedQuiz_TotalIsCompositionDrawnCount()
+    {
+        // Weighted, the total comes from the composition's drawn count (1),
+        // not the inner source's Count (2).
+        var seen = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
+        var unseen = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var c = WithWeighableController(out var sink, seen, unseen);
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty.Plus(
+            new SubmittedPlay(seen.Id, BestPlay(), 0, 0.0, IsCorrect: true),
+            TimeProvider.System);
+        await c.StartAsync(new FilterConfig(), NeverSeenMix());
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<QuizPage>();
+
+        Assert.Equal("Problem 1 of 1", ProblemPositionText(cut));
+    }
+
+    [Fact]
+    public void ScorePanel_WithoutProblemNumber_OmitsPositionIndicator()
+    {
+        // Stats and Done render the shared panel without the counter params —
+        // the indicator is opt-in per surface.
+        var cut = Render<ScorePanelComponent>(ps => ps.Add(p => p.Score, QuizScore.Empty));
+
+        Assert.Empty(cut.FindAll(".problem-position"));
     }
 
     // -----------------------------------------------------------------------
@@ -2519,11 +2595,14 @@ public class PageTests : BunitContext
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task Quiz_MixShortfall_RendersRequestedVsDrawnNotice()
+    public async Task Quiz_MixUnderTarget_CompositionLeads_KeepsRequestedVsDrawn()
     {
         // A quiz length beyond reachable supply: 100% never-seen over one
-        // unseen decision with QuizLength 5 targets 5, draws 1 — the notice
-        // must state both numbers and name the dried-up category.
+        // unseen decision with QuizLength 5 targets 5, draws 1. The notice
+        // leads with the quiz actually underway (Finding (M): the effective
+        // composition must appear before any apportionment internals), then
+        // keeps the asked-for-X-drew-Y explanation naming the dried-up
+        // category.
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanBindStats = true;
@@ -2533,25 +2612,82 @@ public class PageTests : BunitContext
 
         var cut = Render<QuizPage>();
 
+        var alert = cut.Find("div.alert-warning[role=alert]");
+        Assert.Contains("Your quiz has 1 problem: 1 Never seen.", alert.TextContent);
         Assert.Contains("asked for 5 problems but only", cut.Markup);
-        Assert.Contains("Never seen", cut.Markup);
         Assert.Contains("drew 1 of 5 requested", cut.Markup);
     }
 
     [Fact]
-    public async Task Quiz_NoShortfall_NoNotice()
+    public async Task Quiz_MixMetTarget_EntryShort_CompositionLeadsInternalsDemoted()
     {
+        // Finding (M)'s exact shape at miniature scale: the target is met
+        // (2 of 2) while got-wrong's empty pool redistributed its share to
+        // never-seen. The notice must lead with the effective quiz and demote
+        // the apportionment internals to a share explanation — no
+        // "asked for … could be drawn" line, no bare requested-vs-drawn.
         var c = WithWeighableController(out var sink,
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp")),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp")),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("c.xgp")));
         sink.CanBindStats = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
-        await c.StartAsync(new FilterConfig(), NeverSeenMix()); // no length: target = union = drawn
+        await c.StartAsync(new FilterConfig(), SplitMix(quizLength: 2));
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<QuizPage>();
 
+        var alert = cut.Find("div.alert-warning[role=alert]");
+        Assert.Contains("Your quiz has 2 problems: 2 Never seen + 0 Ever got wrong.", alert.TextContent);
+        Assert.Contains("couldn't fill their share", alert.TextContent);
+        Assert.Contains("Ever got wrong: filled 0 of its 50% share (1 requested)", alert.TextContent);
+        Assert.DoesNotContain("asked for", cut.Markup);
+        Assert.DoesNotContain("drew", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_CaplessMix_CompositionOnlyStatus_NoRequestedFraming()
+    {
+        // Capless, the percentages bind to no length: got-wrong's zero pool
+        // means largest-remainder apportionment handed its union share to
+        // never-seen — composition noise, not a shortfall (the old rendering
+        // showed a misleading "drew 0 of 1 requested" alert here). The notice
+        // reduces to a polite composition-only status line.
+        var c = WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp")),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp")),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("c.xgp")));
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        await c.StartAsync(new FilterConfig(), SplitMix()); // no length
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<QuizPage>();
+
+        var status = cut.Find("div.alert-info[role=status]");
+        Assert.Contains("Your quiz has 3 problems: 3 Never seen + 0 Ever got wrong.", status.TextContent);
+        Assert.DoesNotContain("requested", cut.Markup);
         Assert.DoesNotContain("ran short", cut.Markup);
-        Assert.DoesNotContain("could be drawn", cut.Markup);
+        Assert.Empty(cut.FindAll("div.alert-warning"));
+    }
+
+    [Fact]
+    public async Task Quiz_LengthBoundMixExactFill_NoNotice()
+    {
+        // Target met with every entry filling its own share: the quiz matches
+        // the ask exactly, so no mix notice of any kind renders.
+        var c = WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 1));
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<QuizPage>();
+
+        Assert.DoesNotContain("Your quiz has", cut.Markup);
+        Assert.DoesNotContain("ran short", cut.Markup);
+        Assert.DoesNotContain("requested", cut.Markup);
     }
 
     [Fact]

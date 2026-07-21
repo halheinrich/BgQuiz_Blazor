@@ -5,11 +5,12 @@ using BgGame_Lib;
 
 /// <summary>
 /// The one home for user-facing stats-weighted-mix wording shared across
-/// surfaces: category names (the mix panel's picker and the Quiz page's
-/// shortfall notice must agree) and the stats-unavailable refusal reason
-/// (Home's Start and Done's Restart render the same rule). Keeping these
-/// here — rather than per-page string literals — is what stops the wording
-/// and the rules behind it from drifting apart.
+/// surfaces: category names (the mix panel's picker and the Quiz page's mix
+/// notices must agree), the composition summary those notices lead with,
+/// and the stats-unavailable refusal reason (Home's Start and Done's
+/// Restart render the same rule). Keeping these here — rather than per-page
+/// string literals — is what stops the wording and the rules behind it from
+/// drifting apart.
 /// </summary>
 internal static class MixDisplay
 {
@@ -49,6 +50,26 @@ internal static class MixDisplay
             $"Wrong more than {(category.Value!.Value * 100.0).ToString("0.##", CultureInfo.InvariantCulture)}% of the time"),
         _ => KindLabel(category.Kind),
     };
+
+    /// <summary>
+    /// The composition-first summary of a started weighted quiz — e.g.
+    /// <c>"Your quiz has 200 problems: 195 Never seen + 5 Ever got wrong."</c>
+    /// Rendered from every entry's actual draw (zero-draw entries included —
+    /// honesty over tidiness) in declared entry order, which is contractual.
+    /// This is the line every mix notice on the Quiz page leads with, so the
+    /// user reads the quiz they actually got before any shortfall
+    /// explanation. All formatting is invariant.
+    /// </summary>
+    public static string CompositionSummary(MixComposition composition)
+    {
+        ArgumentNullException.ThrowIfNull(composition);
+
+        var entries = string.Join(" + ", composition.Entries.Select(e =>
+            string.Create(CultureInfo.InvariantCulture, $"{e.Drawn} {CategoryLabel(e.Category)}")));
+        var noun = composition.DrawnCount == 1 ? "problem" : "problems";
+        return string.Create(CultureInfo.InvariantCulture,
+            $"Your quiz has {composition.DrawnCount} {noun}: {entries}.");
+    }
 
     /// <summary>
     /// Why a weighted start was refused, worded for the refusal notice —

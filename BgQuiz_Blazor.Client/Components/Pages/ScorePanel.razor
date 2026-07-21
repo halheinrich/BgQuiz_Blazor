@@ -6,6 +6,15 @@
     [Parameter] public string? Source { get; set; }
     [Parameter] public string? Heading { get; set; }
 
+    // Problem-position indicator ("Problem N of M" / "Problem N"), rendered
+    // only when ProblemNumber is supplied — the Quiz page passes the
+    // controller's stream position and total; the end-of-quiz (Done) and
+    // mid-quiz stats surfaces omit it. Both numbers count stream slots
+    // (auto-skipped pass positions included) — see
+    // QuizController.ProblemNumber for the convention and its trade-off.
+    [Parameter] public int? ProblemNumber { get; set; }
+    [Parameter] public int? ProblemCount { get; set; }
+
     // Accuracy is library-provided in [0, 1] (0 on an empty segment); the ×100
     // percentage rendering is a display concern that lives here, per
     // ScoreSegment's documented split — the same pattern ScoreBreakdown uses.
@@ -20,6 +29,16 @@
     @if (!string.IsNullOrEmpty(Source))
     {
         <span class="me-3">Set: <code>@Source</code></span>
+    }
+    @if (ProblemNumber is { } n)
+    {
+        <span class="me-3 problem-position">
+            Problem <strong>@n</strong>
+            @if (ProblemCount is { } m)
+            {
+                <text> of <strong>@m</strong></text>
+            }
+        </span>
     }
     <span class="me-3">Submitted: <strong>@Score.Total.Submitted</strong></span>
     <span class="me-3">
