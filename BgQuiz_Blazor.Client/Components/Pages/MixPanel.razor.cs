@@ -149,8 +149,10 @@ public partial class MixPanel : ComponentBase
     /// would commit cleanly. Recomputed per render; Apply is disabled while
     /// non-null, so the (still-present) construction-time try/catch in
     /// <see cref="ApplyAsync"/> is a backstop, not the primary validation.
-    /// A blank builder (zero rows) is always valid — it commits the inert
-    /// <see cref="QuizMix.Empty"/>.
+    /// A blank builder (zero rows) reports no error — it <i>would</i> build the
+    /// inert <see cref="QuizMix.Empty"/> — but Apply is separately disabled at
+    /// zero rows: committing the blank mix is <see cref="ResetAsync"/>'s job (the
+    /// one sanctioned clear), so Apply requires at least one row.
     /// </summary>
     private string? ValidationError
     {

@@ -119,7 +119,7 @@
 
         <div class="d-flex gap-2">
             <button class="btn btn-primary btn-sm" id="mixApply"
-                    disabled="@(ValidationError is not null)"
+                    disabled="@(_rows.Count == 0 || ValidationError is not null)"
                     @onclick="ApplyAsync">
                 Apply Mix
             </button>

@@ -306,14 +306,16 @@ public class MixPanelTests : BunitContext
     }
 
     [Fact]
-    public async Task BlankBuilder_ApplyEnabled_CommitsPassthrough()
+    public void BlankBuilder_ApplyDisabled_ResetIsTheBlankPath()
     {
         var cut = RenderPanel();
 
-        Assert.False(cut.Find("#mixApply").HasAttribute("disabled"));
-        await ClickAsync(cut, "#mixApply");
-
-        Assert.True(Assert.Single(_applied).IsPassthrough);
+        // Apply is gated to require at least one row, so a blank builder cannot
+        // commit QuizMix.Empty through Apply — that duplicated Reset, which stays
+        // the one sanctioned way to clear a stored mix (Reset_CommitsBlankMix).
+        Assert.Empty(cut.FindAll(".mix-row"));
+        Assert.True(cut.Find("#mixApply").HasAttribute("disabled"));
+        Assert.Empty(_applied);
     }
 
     // -----------------------------------------------------------------------
