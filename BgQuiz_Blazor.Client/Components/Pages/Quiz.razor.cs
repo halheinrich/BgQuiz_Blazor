@@ -237,8 +237,10 @@ public partial class Quiz : ComponentBase, IDisposable
         ProblemReview.Play p =>
             $"Not best — your play lost {p.EquityLoss:0.000} equity. The best play is shown above.",
         ProblemReview.Cube c =>
-            $"Double: {CubeHalfVerdict(c.DoublerCorrect, c.DoublerEquityLoss)} · "
-            + $"Take: {CubeHalfVerdict(c.TakerCorrect, c.TakerEquityLoss)}",
+            $"{CubeActionDisplay.Label(c.Submitted.Doubler)}: "
+            + $"{CubeHalfVerdict(c.DoublerCorrect, c.DoublerEquityLoss)} · "
+            + $"{CubeActionDisplay.Label(c.Submitted.Taker)}: "
+            + $"{CubeHalfVerdict(c.TakerCorrect, c.TakerEquityLoss)}",
         _ => string.Empty,
     };
 

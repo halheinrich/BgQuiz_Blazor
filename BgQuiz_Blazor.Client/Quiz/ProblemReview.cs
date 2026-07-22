@@ -1,5 +1,7 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using BgDataTypes_Lib;
+
 /// <summary>
 /// The scored outcome of a just-submitted problem, held by
 /// <see cref="QuizController.Review"/> between Submit and Continue. It carries
@@ -46,11 +48,18 @@ internal abstract record ProblemReview
     /// A submitted cube decision, scored as two independent halves — the
     /// doubler's offer and the taker's response.
     /// </summary>
+    /// <param name="Submitted">
+    /// The pair the user actually answered. Drives the per-half verdict-line
+    /// labels (each half named for the action submitted, not a generic
+    /// half-name) — see <c>CubeActionDisplay</c>. The losses / correctness
+    /// below remain the diagram-marking and outcome-colouring values.
+    /// </param>
     /// <param name="DoublerEquityLoss">Equity loss of the user's doubler action vs. the best (0 if best).</param>
     /// <param name="TakerEquityLoss">Equity loss of the user's taker action vs. the best (0 if best).</param>
     /// <param name="DoublerCorrect">True iff the user's doubler action was best.</param>
     /// <param name="TakerCorrect">True iff the user's taker action was best.</param>
     public sealed record Cube(
+        CubeDecisionPair Submitted,
         double DoublerEquityLoss,
         double TakerEquityLoss,
         bool DoublerCorrect,

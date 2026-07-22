@@ -2322,6 +2322,30 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Quiz_Review_CubeVerdict_LabelsHalvesByUsersSubmittedActions()
+    {
+        // The verdict line names each half for the action the user actually
+        // submitted (not a generic half-name), matching the solution diagram's
+        // banner wording. Against the default cube fixture (best is Double/Take),
+        // a Too-Good answer — (NoDouble, Pass) — is incorrect on both halves, so
+        // the doubler half reads "No Double" and the taker half reads "Pass".
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeDecisionPair.TooGood));
+        Assert.NotNull(c.Review);
+
+        var verdict = cut.Find(".status-strip").QuerySelector(".status-verdict")!;
+        Assert.Contains("alert-danger", verdict.ClassList);
+        Assert.Contains("No Double: incorrect", verdict.TextContent);
+        Assert.Contains("Pass: incorrect", verdict.TextContent);
+        // The taker half is now labeled by the submitted action ("Pass"), never
+        // the old generic "Take" half-name.
+        Assert.DoesNotContain("Take:", verdict.TextContent);
+    }
+
+    [Fact]
     public async Task Quiz_StatusStrip_SitsBetweenScorePanelAndActionRow()
     {
         // The settled design places the fixed-height strip between the score

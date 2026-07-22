@@ -34,8 +34,10 @@ public sealed class QuizFlowTests : E2eTestBase
         // banner is an exact, stable pin (the taker half is suppressed when the
         // best doubler action is No Double).
         await Expect(Page.Locator(".bg-diagram")).ToContainTextAsync("Best: No Double");
-        // "No double" answers both halves correctly against this fixture.
-        await Expect(VerdictBand).ToContainTextAsync("Double: correct · Take: correct");
+        // "No double" answers both halves correctly against this fixture. The
+        // verdict line labels each half by the submitted action — the "No double"
+        // radio is (NoDouble, Take), so the halves read "No Double" and "Take".
+        await Expect(VerdictBand).ToContainTextAsync("No Double: correct · Take: correct");
 
         await ContinueToDoneAsync();
         await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();

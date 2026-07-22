@@ -411,6 +411,7 @@ internal sealed class QuizController : IAsyncDisposable
         _cubeHistory.Add(submitted);
         Score = Score.Plus(submitted);
         Review = new ProblemReview.Cube(
+            answer,
             submitted.DoublerEquityLoss,
             submitted.TakerEquityLoss,
             submitted.DoublerCorrect,
