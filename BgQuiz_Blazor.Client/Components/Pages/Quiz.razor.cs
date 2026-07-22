@@ -235,7 +235,7 @@ public partial class Quiz : ComponentBase, IDisposable
         ProblemReview.Play { IsCorrect: true } =>
             "Correct — you found the best play.",
         ProblemReview.Play p =>
-            $"Not best — your play lost {p.EquityLoss:0.000} equity. The best play is shown above.",
+            $"Not best — your play lost {p.EquityLoss:0.0000} equity. The best play is shown above.",
         ProblemReview.Cube c =>
             $"{CubeActionDisplay.Label(c.Submitted.Doubler)}: "
             + $"{CubeHalfVerdict(c.DoublerCorrect, c.DoublerEquityLoss)} · "
@@ -245,7 +245,7 @@ public partial class Quiz : ComponentBase, IDisposable
     };
 
     private static string CubeHalfVerdict(bool correct, double loss) =>
-        correct ? "correct" : $"incorrect (lost {loss:0.000})";
+        correct ? "correct" : $"incorrect (lost {loss:0.0000})";
 
     /// <summary>
     /// Legend for the solution diagram's play markers, listing only the markers
