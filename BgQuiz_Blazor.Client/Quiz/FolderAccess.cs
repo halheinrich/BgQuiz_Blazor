@@ -67,7 +67,11 @@ internal sealed record FolderPickOutcome(
 /// (<see cref="PromoteToActiveAsync"/>), which the stats read/write pair then
 /// operates on. The split is what isolates a running quiz from mid-quiz Clear
 /// or re-pick: <see cref="ClearPickedAsync"/> resets only the picked slot, so
-/// the active quiz keeps its stats handle until the next Start re-binds.
+/// the active quiz keeps its stats handle until the next Start re-binds. The
+/// picked slot additionally serves the saved-filters document read/write pair
+/// (<see cref="ReadFiltersJsonAsync"/> / <see cref="WriteFiltersJsonAsync"/>) —
+/// a setup-time concern on the folder being configured, never touching the
+/// active slot a running quiz records through.
 /// </para>
 ///
 /// <para>
@@ -141,6 +145,23 @@ internal interface IFolderAccess
     /// into the <i>active</i> slot's folder, replacing any existing content.
     /// </summary>
     Task WriteStatsJsonAsync(string json);
+
+    /// <summary>
+    /// Read <see cref="QuizFiltersFile.FileName"/> from the <i>picked</i> slot's
+    /// folder — the saved-filters document, read at pick time before any quiz
+    /// promotes the active slot. <c>null</c> means the file doesn't exist yet
+    /// (no filters saved for this folder), the same absent-is-not-an-error
+    /// contract as <see cref="ReadStatsJsonAsync"/>. Reading the picked slot,
+    /// not the active one, is deliberate: saved filters are configured on the
+    /// picked folder and are isolated from a running quiz's recording.
+    /// </summary>
+    Task<string?> ReadFiltersJsonAsync();
+
+    /// <summary>
+    /// Write <paramref name="json"/> as <see cref="QuizFiltersFile.FileName"/>
+    /// into the <i>picked</i> slot's folder, replacing any existing content.
+    /// </summary>
+    Task WriteFiltersJsonAsync(string json);
 
     /// <summary>
     /// Clear the <i>picked</i> slot only — the active slot persists so a

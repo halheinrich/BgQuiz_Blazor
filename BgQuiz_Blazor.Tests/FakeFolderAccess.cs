@@ -36,8 +36,20 @@ internal sealed class FakeFolderAccess : IFolderAccess
     /// <summary>When set, <see cref="WriteStatsJsonAsync"/> throws it (after recording nothing).</summary>
     public Exception? WriteException { get; set; }
 
-    /// <summary>Every payload successfully written, in order.</summary>
+    /// <summary>Every stats payload successfully written, in order.</summary>
     public List<string> Writes { get; } = [];
+
+    /// <summary>Saved-filters file content <see cref="ReadFiltersJsonAsync"/> returns; null = no file yet.</summary>
+    public string? FiltersJson { get; set; }
+
+    /// <summary>When set, <see cref="ReadFiltersJsonAsync"/> throws it instead (the read-failed / denied path).</summary>
+    public Exception? FiltersReadException { get; set; }
+
+    /// <summary>When set, <see cref="WriteFiltersJsonAsync"/> throws it (after recording nothing).</summary>
+    public Exception? FiltersWriteException { get; set; }
+
+    /// <summary>Every saved-filters payload successfully written, in order.</summary>
+    public List<string> FiltersWrites { get; } = [];
 
     public int PromoteCallCount { get; private set; }
     public int TriggerFallbackCallCount { get; private set; }
@@ -70,6 +82,16 @@ internal sealed class FakeFolderAccess : IFolderAccess
     {
         if (WriteException is { } ex) return Task.FromException(ex);
         Writes.Add(json);
+        return Task.CompletedTask;
+    }
+
+    public Task<string?> ReadFiltersJsonAsync() =>
+        FiltersReadException is { } ex ? Task.FromException<string?>(ex) : Task.FromResult(FiltersJson);
+
+    public Task WriteFiltersJsonAsync(string json)
+    {
+        if (FiltersWriteException is { } ex) return Task.FromException(ex);
+        FiltersWrites.Add(json);
         return Task.CompletedTask;
     }
 

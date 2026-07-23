@@ -110,6 +110,19 @@ internal sealed class JsFolderAccess : IFolderAccess, IAsyncDisposable
         await module.InvokeVoidAsync("writeStatsFile", QuizStatsFile.FileName, json);
     }
 
+    public async Task<string?> ReadFiltersJsonAsync()
+    {
+        var module = await ModuleAsync();
+        return await module.InvokeAsync<string?>("readPickedFile", QuizFiltersFile.FileName);
+    }
+
+    public async Task WriteFiltersJsonAsync(string json)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+        var module = await ModuleAsync();
+        await module.InvokeVoidAsync("writePickedFile", QuizFiltersFile.FileName, json);
+    }
+
     public async ValueTask ClearPickedAsync()
     {
         var module = await ModuleAsync();

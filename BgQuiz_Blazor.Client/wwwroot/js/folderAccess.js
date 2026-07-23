@@ -106,6 +106,44 @@ export async function readFileData(name) {
     return await file.arrayBuffer();
 }
 
+// Text read of a named file from the PICKED slot — the saved-filters document
+// lives here, read at pick time (setup), before any quiz promotes the active
+// slot. null = the file doesn't exist yet (no filters saved for this folder —
+// not an error), mirroring readStatsFile's missing-file contract. Anything else
+// unexpected throws. Distinct from readFileData (which returns problem-file
+// bytes as an ArrayBuffer); this is small UTF-8 JSON returned as text.
+export async function readPickedFile(fileName) {
+    if (pickedHandle === null) {
+        throw new Error('No picked folder to read from.');
+    }
+    let fileHandle;
+    try {
+        fileHandle = await pickedHandle.getFileHandle(fileName);
+    } catch (e) {
+        if (e instanceof DOMException && e.name === 'NotFoundError') {
+            return null;
+        }
+        throw e;
+    }
+    const file = await fileHandle.getFile();
+    return await file.text();
+}
+
+// Text write of a named file into the PICKED slot, replacing any existing
+// content — the saved-filters document's persistence. Deliberately on the
+// picked slot, never the active one: saved filters are a setup-time concern on
+// the folder the user is configuring, isolated from a running quiz's stats
+// recording (which owns the active slot).
+export async function writePickedFile(fileName, text) {
+    if (pickedHandle === null) {
+        throw new Error('No picked folder to write to.');
+    }
+    const fileHandle = await pickedHandle.getFileHandle(fileName, { create: true });
+    const stream = await fileHandle.createWritable();
+    await stream.write(text);
+    await stream.close();
+}
+
 // Quiz-start bind: promote the picked slot's handle to the active slot.
 // False = no FS-Access handle picked (fallback pick, cleared, or never
 // picked) — the caller's no-stats signal.

@@ -134,4 +134,25 @@ public class JsFolderAccessTests : BunitContext
         Assert.Equal(QuizStatsFile.FileName, write.Arguments[0]);
         Assert.Equal("{}", write.Arguments[1]);
     }
+
+    [Fact]
+    public async Task FiltersReadAndWrite_PassTheFileNameConstantToJs()
+    {
+        // SSOT, filters edition: the saved-filters read/write ride the picked-slot
+        // JS ops and both carry QuizFiltersFile.FileName from the C# side — the JS
+        // module never hardcodes it (the same pin as the stats pair above).
+        var module = JSInterop.SetupModule(ModulePath);
+        module.Setup<string?>("readPickedFile", inv => true).SetResult(null);
+        module.SetupVoid("writePickedFile", inv => true).SetVoidResult();
+        var sut = new JsFolderAccess(JSInterop.JSRuntime);
+
+        await sut.ReadFiltersJsonAsync();
+        await sut.WriteFiltersJsonAsync("{}");
+
+        var read = module.VerifyInvoke("readPickedFile");
+        Assert.Equal(QuizFiltersFile.FileName, read.Arguments[0]);
+        var write = module.VerifyInvoke("writePickedFile");
+        Assert.Equal(QuizFiltersFile.FileName, write.Arguments[0]);
+        Assert.Equal("{}", write.Arguments[1]);
+    }
 }
