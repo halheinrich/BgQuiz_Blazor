@@ -567,6 +567,52 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public void Home_FsAccessPick_InFlight_ShowsPermissionGuidance()
+    {
+        // Task V: while an FS-Access pick is awaiting, Home shows in-page
+        // guidance pointing the user at the browser's (easily-missed) permission
+        // prompt; it clears when the pick returns. A gate freezes the pick so
+        // the transient in-flight state is observable.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        var gate = new TaskCompletionSource();
+        _folderAccess.PickGate = gate;
+        _folderAccess.NextPickOutcome = OneFileOutcome();
+
+        var cut = Render<HomePage>();
+        var click = cut.Find("#pickProblemFolder").ClickAsync(new()); // suspends at the gate
+
+        cut.WaitForAssertion(() =>
+            Assert.Contains("Check your browser for a permission prompt", cut.Markup));
+
+        gate.SetResult();
+        cut.WaitForAssertion(() =>
+            Assert.DoesNotContain("Check your browser for a permission prompt", cut.Markup));
+        Assert.True(click.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task Home_FallbackPick_ShowsNoPermissionGuidance()
+    {
+        // Over-trigger guard: the fallback mechanism opens its picker and
+        // returns immediately (no permission prompt), so the FS-Access guidance
+        // never shows.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.SupportsDirectoryPicker = false;
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.DoesNotContain("Check your browser for a permission prompt", cut.Markup);
+        Assert.Equal(1, _folderAccess.TriggerFallbackCallCount);
+    }
+
+    [Fact]
     public async Task Home_FallbackInputChange_CollectsFilesIntoHolder()
     {
         // The fallback landing: the hidden input's change event collects the

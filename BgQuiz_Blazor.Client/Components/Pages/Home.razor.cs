@@ -104,6 +104,17 @@ public partial class Home : ComponentBase
     private ElementReference _fallbackInput;
 
     /// <summary>
+    /// Set while a File System Access pick is in flight (from the Choose-folder
+    /// click until the pick returns), driving the in-page note that points the
+    /// user at the browser's permission prompt — which is browser-anchored and
+    /// easily missed. FS-Access only: the fallback mechanism opens its picker
+    /// and returns immediately (the pick arrives later via the input's change
+    /// event) and raises no permission prompt to guide toward. Per-visit
+    /// transient state, so a component field.
+    /// </summary>
+    private bool _awaitingPick;
+
+    /// <summary>
     /// Sibling of <see cref="_startError"/> for the empty-result <i>outcome</i> —
     /// distinct from the failure the error banner reports. A successful
     /// <see cref="QuizController.StartAsync"/> that leaves the controller already
@@ -272,7 +283,22 @@ public partial class Home : ComponentBase
         {
             if (await FolderAccess.SupportsDirectoryPickerAsync())
             {
-                await ApplyPickOutcomeAsync(await FolderAccess.PickFolderAsync());
+                // The FS-Access pick shows a folder picker and then a permission
+                // prompt, both browser-anchored and easy to miss. Show the
+                // in-page guidance for the whole in-flight pick so the user
+                // knows to look for (and Allow) the prompt; paint it before the
+                // interop blocks, and clear it however the pick ends.
+                _awaitingPick = true;
+                StateHasChanged();
+                await Task.Yield();
+                try
+                {
+                    await ApplyPickOutcomeAsync(await FolderAccess.PickFolderAsync());
+                }
+                finally
+                {
+                    _awaitingPick = false;
+                }
             }
             else
             {

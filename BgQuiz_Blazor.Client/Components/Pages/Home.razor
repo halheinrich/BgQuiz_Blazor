@@ -57,6 +57,16 @@
                 Choose folder…
             </button>
         </div>
+        @* In-flight FS-Access pick guidance: the folder-permission prompt is
+           browser-anchored (near the address bar) and easily missed, so point
+           the user at it while the pick is awaiting. Cleared when the pick
+           returns. Polite role="status". *@
+        @if (_awaitingPick)
+        {
+            <div class="text-muted small mt-1" role="status">
+                Check your browser for a permission prompt and click <strong>Allow</strong>.
+            </div>
+        }
         @* Fallback picker for browsers without showDirectoryPicker: a hidden
            webkitdirectory input, opened by the same button. Always rendered —
            not conditional on the capability probe — so the e2e suite can drive

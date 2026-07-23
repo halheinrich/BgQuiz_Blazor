@@ -24,6 +24,13 @@ internal sealed class FakeFolderAccess : IFolderAccess
     /// <summary>When set, <see cref="PickFolderAsync"/> / <see cref="CollectFallbackAsync"/> throw it instead.</summary>
     public Exception? PickException { get; set; }
 
+    /// <summary>
+    /// When set, <see cref="PickFolderAsync"/> awaits this gate before returning
+    /// (or throwing) — letting a test observe the in-flight pick state (the
+    /// awaiting-pick permission guidance) before completing the pick.
+    /// </summary>
+    public TaskCompletionSource? PickGate { get; set; }
+
     /// <summary>What <see cref="PromoteToActiveAsync"/> returns (default: an FS-Access handle is active).</summary>
     public bool PromoteResult { get; set; } = true;
 
@@ -57,8 +64,12 @@ internal sealed class FakeFolderAccess : IFolderAccess
 
     public ValueTask<bool> SupportsDirectoryPickerAsync() => ValueTask.FromResult(SupportsDirectoryPicker);
 
-    public Task<FolderPickOutcome> PickFolderAsync() =>
-        PickException is { } ex ? Task.FromException<FolderPickOutcome>(ex) : Task.FromResult(NextPickOutcome);
+    public async Task<FolderPickOutcome> PickFolderAsync()
+    {
+        if (PickGate is { } gate) await gate.Task;
+        if (PickException is { } ex) throw ex;
+        return NextPickOutcome;
+    }
 
     public Task TriggerFallbackPickerAsync(ElementReference fallbackInput)
     {
