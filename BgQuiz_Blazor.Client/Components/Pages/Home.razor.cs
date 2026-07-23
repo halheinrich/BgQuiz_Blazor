@@ -135,6 +135,37 @@ public partial class Home : ComponentBase
     private bool _mixRefused;
 
     /// <summary>
+    /// How many decisions the last-applied filter matched, shown near the
+    /// filters so the user knows what they selected before starting;
+    /// <see langword="null"/> when no count is shown (before an Apply, after a
+    /// filter edit, or after a new/cleared pick). A per-visit affordance, so a
+    /// component field. Set from <see cref="QuizController.CountMatchesAsync"/>
+    /// on Apply — pre-mix pool size, "decisions that match", not "problems
+    /// you'll see" (a few forced-move passes auto-skip at quiz time).
+    /// </summary>
+    private int? _matchCount;
+
+    /// <summary>
+    /// True while <see cref="QuizController.CountMatchesAsync"/> runs on Apply.
+    /// The first count after a pick parses the corpus once (warming the shared
+    /// cache so Start is then instant), so the whole setup surface disables and
+    /// the busy cursor shows — folded into the same fieldset-disable / app-busy
+    /// boundary the controller's transition gate drives, which also serializes
+    /// the count against a Start (no concurrent parse of the same corpus).
+    /// </summary>
+    private bool _isCounting;
+
+    /// <summary>
+    /// Monotonic id stamped on each count request so a stale result never
+    /// lands: <see cref="HandleFilterConfigApplied"/> captures it before the
+    /// await and discards the count if a newer Apply, a filter edit, or a
+    /// re-pick has bumped it since. Defence in depth — the busy fieldset also
+    /// blocks a second gesture mid-count — so the count stays correct even if
+    /// that busy strategy later changes.
+    /// </summary>
+    private int _countRequestId;
+
+    /// <summary>
     /// The hosted <see cref="FilterPanel"/>, captured by <c>@ref</c> so Home can
     /// drive the two imperative host-mediated saved-filter operations on it:
     /// <see cref="FilterPanel.LoadConfig"/> (stage a loaded config into the edit
@@ -327,15 +358,48 @@ public partial class Home : ComponentBase
         _noMatchNotice = null;
         _mixRefused = false; // a new pick can change stats capability
         _filterSaveError = null; // a new pick re-derives the saved-filters context
+        // A new/cleared pick changes the corpus, so any match count is stale;
+        // the bumped id also discards a count still in flight from before.
+        _matchCount = null;
+        _countRequestId++;
     }
 
-    private void HandleFilterConfigApplied(FilterConfig cfg)
+    private async Task HandleFilterConfigApplied(FilterConfig cfg)
     {
         // The user clicked Apply: record the deliberate applied state on the
         // scoped holder so it survives navigate-back (not a transient field).
         AppliedFilter.Set(cfg);
         _startError = null;
         _noMatchNotice = null;
+
+        // Show how many decisions this config matches. The first count after a
+        // pick parses the corpus once and warms the shared cache, so the Start
+        // that follows is instant — the count is not a separate cost. Counting
+        // lives in the controller; Home only stamps a request id (so a stale
+        // result can't land) and drives the busy affordance.
+        var requestId = ++_countRequestId;
+        _matchCount = null;
+        _isCounting = true;
+        // Paint the busy state before the (possibly one-time-parse) count
+        // begins — the same deliberate-yield idiom as the controller's gate.
+        StateHasChanged();
+        await Task.Yield();
+        try
+        {
+            var count = await Controller.CountMatchesAsync(cfg);
+            if (requestId != _countRequestId) return; // superseded — discard
+            _matchCount = count;
+        }
+        catch
+        {
+            // The count is advisory: never let it block Apply or fault the app.
+            // Start still validates the config and surfaces any real error.
+            if (requestId == _countRequestId) _matchCount = null;
+        }
+        finally
+        {
+            if (requestId == _countRequestId) _isCounting = false;
+        }
     }
 
     private void HandleFiltersDirty()
@@ -346,6 +410,10 @@ public partial class Home : ComponentBase
         // Editing also moots a stale save-as refusal — fixing the offending
         // position pattern is itself an edit, so the notice clears with it.
         _filterSaveError = null;
+        // …and invalidates any shown or in-flight match count (it described the
+        // now-abandoned config); the bumped id discards a late-landing result.
+        _matchCount = null;
+        _countRequestId++;
     }
 
     /// <summary>

@@ -19,8 +19,10 @@
 <PageTitle>BgQuiz</PageTitle>
 
 @* app-busy: the progress-cursor idiom (app.css) while the controller runs a
-   transition — set before the churn begins via the controller's gate yield. *@
-<div class="container py-3 @(Controller.IsBusy ? "app-busy" : null)">
+   transition — set before the churn begins via the controller's gate yield —
+   or while an Apply's match count runs (its first parse after a pick is the
+   same one-time corpus cost). *@
+<div class="container py-3 @((Controller.IsBusy || _isCounting) ? "app-busy" : null)">
     <h1>BgQuiz</h1>
 
     @* Reload-reset notice: a full reload rebooted the runtime and discarded a
@@ -40,7 +42,7 @@
        no disabled parameter of their own — so no panel needs busy-awareness
        and no control can slip through unlisted. Bootstrap's reboot zeroes
        fieldset chrome, so layout is unchanged. *@
-    <fieldset disabled="@Controller.IsBusy">
+    <fieldset disabled="@(Controller.IsBusy || _isCounting)">
 
     <div class="mb-3" style="max-width:800px">
         <label class="form-label" for="pickProblemFolder">
@@ -199,6 +201,24 @@
     <FilterPanel @ref="_filterPanel"
                  OnFilterConfigChanged="HandleFilterConfigApplied"
                  OnFilterDirty="HandleFiltersDirty" />
+
+    @* Match count on Apply: how many decisions the applied filters selected —
+       the pre-mix pool the quiz (and any weighted mix) draws from. Pass
+       positions are included because they auto-skip at quiz time, so the
+       wording is "decisions that match", not "problems you'll see". Polite
+       role="status"; advisory only (Start is gated by CanStart, not by this).
+       The busy line shows during the first-parse after a pick. *@
+    @if (_isCounting)
+    {
+        <div class="text-muted small mb-3" role="status">Counting matching decisions…</div>
+    }
+    else if (_matchCount is { } matchCount)
+    {
+        <div class="text-muted small mb-3" role="status">
+            <strong>@matchCount</strong>
+            @(matchCount == 1 ? "decision matches" : "decisions match") your filters.
+        </div>
+    }
 
     <MixPanel OnMixApplied="HandleMixApplied"
               OnMixRestored="HandleMixRestored"

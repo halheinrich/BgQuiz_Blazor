@@ -293,6 +293,63 @@ internal sealed class QuizController : IAsyncDisposable
     }
 
     /// <summary>
+    /// Count how many decisions in the picked corpus match
+    /// <paramref name="userConfig"/> — the pre-Start affordance that tells the
+    /// user what their filters selected. Builds the same controller-owned
+    /// pipeline <see cref="StartAsync"/> would (<see cref="FilterConfig.Build"/>)
+    /// and runs it through a source from the injected
+    /// <see cref="ProblemSetSourceFactory"/>, counting matches over a
+    /// <b>throwaway</b> enumerator.
+    ///
+    /// <para>
+    /// <b>Touches no live quiz state.</b> The source and its enumerator are
+    /// local — the shared <c>_enumerator</c>, <see cref="Current"/>,
+    /// <see cref="Score"/>, and the histories are never read or written — so a
+    /// count is safe to run against a controller with a quiz already in
+    /// progress. It deliberately does <b>not</b> take the transition gate: it
+    /// owns no shared enumerator to protect (the callers serialize Apply
+    /// against Start on their side).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Warms the parse cache.</b> The count is a byproduct of the source's
+    /// in-memory match pass. The first count after a pick pays the one-time
+    /// corpus parse and populates the shared cache
+    /// (<see cref="PickedProblemFolder.ParsedDecisions"/>, via the factory's
+    /// <c>CachedProblemSetSource</c>), so the Start that follows reuses it and
+    /// is near-instant — the count is not a cost added on top of Start.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Counts matches, not presentations.</b> Every matching decision is
+    /// counted, forced-move pass positions included — a few may auto-skip at
+    /// quiz time (<see cref="AdvanceAsync"/>), so the number is "decisions that
+    /// match", not "problems you'll be shown". An active mix composes from this
+    /// pool at Start, so this is the pre-mix pool size. The passed
+    /// <see cref="QuizMix.Empty"/> keeps the factory from wiring a composition
+    /// layer for the throwaway pass; the controller's own composition wiring is
+    /// unaffected.
+    /// </para>
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="userConfig"/> is null.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="userConfig"/> contains a malformed value — propagated
+    /// from <see cref="FilterConfig.Build"/>.
+    /// </exception>
+    public async Task<int> CountMatchesAsync(FilterConfig userConfig)
+    {
+        ArgumentNullException.ThrowIfNull(userConfig);
+
+        var pipeline = userConfig.Build();
+        var source = _sourceFactory(pipeline, QuizMix.Empty);
+
+        var count = 0;
+        await foreach (var _ in source.EnumerateAsync())
+            count++;
+        return count;
+    }
+
+    /// <summary>
     /// Score the user's <paramref name="play"/> against <see cref="Current"/>'s
     /// candidate list and enter the <i>review</i> state — set
     /// <see cref="Review"/> and fire <see cref="StateChanged"/> without

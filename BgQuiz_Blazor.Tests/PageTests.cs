@@ -356,6 +356,77 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_ApplyFilters_ShowsMatchCount()
+    {
+        // Task U: applying filters shows how many decisions matched, sourced
+        // from the controller's CountMatchesAsync over the source's items (the
+        // fake yields its whole list; production filters). Two items → "2".
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+
+        Assert.Contains("<strong>2</strong>", cut.Markup);
+        Assert.Contains("decisions match your filters", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_ApplyFilters_SingleMatch_UsesSingularWording()
+    {
+        // Pluralization pin: exactly one match reads "decision matches", not
+        // "decisions match".
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+
+        Assert.Contains("<strong>1</strong>", cut.Markup);
+        Assert.Contains("decision matches your filters", cut.Markup);
+        Assert.DoesNotContain("decisions match your filters", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_FiltersDirty_ClearsMatchCount()
+    {
+        // Editing any filter control invalidates the shown count — it described
+        // the now-abandoned config — so the notice disappears until re-Apply.
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        Assert.Contains("decisions match your filters", cut.Markup);
+
+        await cut.InvokeAsync(() => fp.Instance.OnFilterDirty.InvokeAsync());
+
+        Assert.DoesNotContain("decisions match your filters", cut.Markup);
+    }
+
+    [Fact]
     public async Task Home_FolderPick_StatsEnabled_ShowsSaveNotice()
     {
         // Capability rung 1: FS-Access pick with write granted → the polite

@@ -934,6 +934,81 @@ public class QuizControllerTests
     }
 
     // -----------------------------------------------------------------------
+    //  CountMatchesAsync — the pre-Start "N decisions match" affordance
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task CountMatchesAsync_NullConfig_Throws()
+    {
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => c.CountMatchesAsync(null!));
+    }
+
+    [Fact]
+    public async Task CountMatchesAsync_CountsWhatTheSourceYields()
+    {
+        // The count is a byproduct of enumerating the factory source (which
+        // applies the real filters in production; the fake yields its whole
+        // list). Three items in → three matches.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+
+        Assert.Equal(3, await c.CountMatchesAsync(new FilterConfig()));
+    }
+
+    [Fact]
+    public async Task CountMatchesAsync_EmptySource_ReturnsZero()
+    {
+        var c = Make();
+        Assert.Equal(0, await c.CountMatchesAsync(new FilterConfig()));
+    }
+
+    [Fact]
+    public async Task CountMatchesAsync_BuildsControllerOwnedPipelineFromConfig()
+    {
+        // The count reflects exactly what a Start with this config would admit:
+        // it builds the same controller-owned pipeline (FilterConfig.Build) and
+        // hands it to the factory. Capture that pipeline and assert the user's
+        // PlayerFilter survived the materialization.
+        var c = MakeCapturing(out var captured, TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+
+        await c.CountMatchesAsync(new FilterConfig { Players = ["Alice"] });
+
+        var pipeline = captured();
+        Assert.NotNull(pipeline);
+        Assert.True(pipeline!.Matches(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), onRoll: "Alice")));
+        Assert.False(pipeline.Matches(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), onRoll: "Bob")));
+    }
+
+    [Fact]
+    public async Task CountMatchesAsync_DoesNotDisturbLiveQuiz()
+    {
+        // The throwaway-enumerator guarantee: counting mid-quiz touches no live
+        // state — Current, Score, the histories, and IsFinished all survive.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync(); // now on the second problem, one scored
+        var currentIdBefore = c.Current!.Id;
+        var scoreBefore = c.Score;
+        var historyBefore = c.History.Count;
+
+        var count = await c.CountMatchesAsync(new FilterConfig());
+
+        Assert.Equal(2, count);
+        Assert.Equal(currentIdBefore, c.Current!.Id);
+        Assert.Equal(scoreBefore, c.Score);
+        Assert.Equal(historyBefore, c.History.Count);
+        Assert.False(c.IsFinished);
+    }
+
+    // -----------------------------------------------------------------------
     //  Lifetime-stats sink — bind at Start/Restart, fold on leaving review
     // -----------------------------------------------------------------------
 
