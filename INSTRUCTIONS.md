@@ -217,8 +217,9 @@ directive — that is how interactivity is set under WASM (see Render mode).
 ### Quiz flow
 
 ```
-/        Home.razor    → "Choose folder…" pick + FilterPanel + MixPanel +
-                          "Shuffle order" checkbox + Start Quiz button
+/        Home.razor    → "Choose folder…" pick; then (disclosed once files are
+                          picked) SavedFilters + FilterPanel + "N match" count +
+                          MixPanel + "Shuffle order" checkbox + Start Quiz button
                           on Start: Controller.StartAsync(filters, mix) — which
                           binds the lifetime-stats context (promote + load) and,
                           for a non-blank mix, composes the quiz from lifetime
@@ -429,6 +430,22 @@ mutable state ever exists between the page and the controller. The
 `DecisionFilterSet` (the source's contract is the runtime pipeline; the
 controller is the authority on assembling it), plus the run's effective
 `QuizMix` for shuffle arbitration (see the factory paragraph above).
+
+**Pre-Start match count.** `CountMatchesAsync(FilterConfig)` reports how many
+decisions a config would admit — the number Home shows on Apply ("N decisions
+match your filters"). It builds the same controller-owned pipeline `StartAsync`
+would (`FilterConfig.Build`) and counts a source from the factory over a
+**throwaway** enumerator: the shared enumerator, `Current`, `Score`, and the
+histories are never touched, so a count is safe against a live quiz. It
+deliberately takes **no** transition gate — it owns no shared enumerator to
+protect, and callers serialize Apply against Start on their side. The pass is a
+byproduct of the source's in-memory `Matches` filter, and it **warms the parse
+cache** (`PickedProblemFolder.ParsedDecisions`, via the factory's
+`CachedProblemSetSource`), so the Start that follows reuses it — the count
+front-loads Start's one-time corpus parse rather than adding a cost on top of
+it. It counts every matching decision, forced-move pass positions included (a
+few auto-skip at quiz time), so the number is the **pre-mix pool** the quiz and
+any weighted mix draw from — "decisions that match", not "problems you'll see".
 
 **Decision-type policy.** The user's `FilterConfig.DecisionType` choice
 governs which decisions the quiz admits — checker plays, cube decisions, or
@@ -710,7 +727,7 @@ null`) and `Config` are read only by `Home` (`CanStart`, `StartQuizAsync`).
 
 Holding the applied state here rather than in a transient component field is
 what lets the gate survive in-app navigation: on navigate-back `Home` is
-re-instantiated, but it re-derives `CanStart` from the two persisted holders
+re-instantiated, but it re-derives `CanStart` from the persisted holders
 instead of resetting to "not applied" and forcing a needless re-click of
 Apply (the filter-side twin of the picked-summary nit).
 
@@ -745,9 +762,13 @@ construction goes through the producer's validating factories with a
 try/catch backstop. A blank builder is always valid and commits
 `QuizMix.Empty` — the inert passthrough default.
 
-**Commit model mirrors FilterPanel** — `OnMixApplied` on Apply/Reset only
-(Reset is an explicit apply of Empty, the one sanctioned overwrite of the
-stored mix), `OnMixDirty` per edit — with one deliberate divergence: the
+**Commit model mirrors FilterPanel** — `OnMixApplied` on Apply, Reset, and
+**removing the last row** (both Reset and the last-row removal are an explicit
+apply of `QuizMix.Empty` through the shared `GoBlankAsync`, the sanctioned way
+this panel writes Empty over a stored mix; the last-row case closes the wedge
+where a mix edited down to zero rows stayed `IsDirty` while Apply was disabled
+at zero rows — only Reset cleared it, so Start was stranded), `OnMixDirty` per
+other edit — with one deliberate divergence: the
 first-render localStorage restore raises **`OnMixRestored`**, and Home
 *adopts* it into the holder. A persisted mix is by construction a
 previously-applied one, so holder and rendered rows agree without a re-Apply
@@ -900,11 +921,33 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   clear touches only the JS *picked* slot, so a running quiz keeps both its
   enumerator and its bound stats context
   (`PageTests.Home_ClearPickedFolder_RemovesSummaryDisablesStartClearsPickedSlotOnly`).
-  Start is gated on **two** conditions, both read from per-app scoped holders
-  so the gate survives navigation: filters Applied at least once *and* a
-  folder picked with at least one problem file
-  (`CanStart => AppliedFilter.IsApplied && Folder.HasFiles`).
-  Below the filter panel sits the **`MixPanel`** (its three callbacks land in
+  While a File System Access pick is in flight, an in-page note (`_awaitingPick`)
+  points the user at the browser's easily-missed permission prompt ("Check your
+  browser for a permission prompt and click Allow"); FS-Access-only, since the
+  fallback opens its picker and returns immediately with no prompt to guide
+  toward. **Progressive disclosure:** everything downstream of the pick — the
+  saved-filters panel (rendered *above* the `FilterPanel`, so load-then-refine
+  reads top-down), the `FilterPanel`, the match-count line, the `MixPanel`, the
+  shuffle checkbox, and Start (with all their hints and notices) — renders only
+  once `Folder.HasFiles`; pre-pick the page shows just the pick controls and
+  their status notices. Hiding what has nothing to act on yet keeps the required
+  first step unmistakable and makes the filter half of the gate true by
+  construction (no panel to apply pre-pick). The wrapping `@if (Folder.HasFiles)`
+  follows the enclosing `<fieldset>`'s whole-surface convention (no body
+  re-indent). Start is gated on **three** conditions, all read from per-app
+  scoped holders so the gate survives navigation: filters Applied at least once,
+  a folder picked with at least one problem file, and no uncommitted mix edits
+  (`CanStart => AppliedFilter.IsApplied && Folder.HasFiles && !AppliedMix.IsDirty`).
+  Below the filter panel Home shows a **match count** on Apply — it calls
+  `Controller.CountMatchesAsync(config)` and renders "N decisions match your
+  filters" (the pre-mix pool). Counting lives in the controller; Home only
+  displays and manages lifecycle: a request id stamped per Apply discards a
+  stale result landing after a newer Apply, and the count clears on any filter
+  edit (`HandleFiltersDirty`) or new/cleared pick (the corpus changed). The
+  first count after a pick parses the corpus once (warming the cache so Start is
+  then instant), so `_isCounting` folds into the same busy boundary as the
+  transition gate (below) — which also serializes the count against a Start.
+  Below that sits the **`MixPanel`** (its three callbacks land in
   `AppliedMix`: Apply/restore → `Apply`, dirty → `MarkDirty`; see the
   `MixPanel`/`AppliedMix` section), then a **"Shuffle order" checkbox** bound
   to the `ShuffleOption` holder (`HandleShuffleToggled` → `ShuffleOption.Set`).
@@ -923,11 +966,14 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   from pick capability × committed mix with no Start needed.
   **Busy affordances:** the whole setup surface (pick controls, both panels,
   shuffle, Start, the refusal override) sits inside one
-  `<fieldset disabled="@Controller.IsBusy">` — the native element disables
-  every form control within, including the Apply buttons *inside* the
-  imported `FilterPanel`/`MixPanel`, which expose no disabled parameter —
-  and the page container carries `app-busy` (the `cursor: progress` rule in
-  `app.css`) while `Controller.IsBusy`. The controller's gate yield is what
+  `<fieldset disabled="@(Controller.IsBusy || _isCounting)">` — the native
+  element disables every form control within, including the Apply buttons
+  *inside* the imported `FilterPanel`/`MixPanel`, which expose no disabled
+  parameter — and the page container carries `app-busy` (the `cursor: progress`
+  rule in `app.css`) while `Controller.IsBusy` **or** an Apply's match count is
+  running (`_isCounting`; its first parse after a pick is the same one-time
+  corpus cost). Disabling the surface during the count also prevents a Start
+  from racing its parse. The controller's gate yield is what
   lets that state paint before the Start churn; Home needs no `StateChanged`
   subscription because its own suspended handler triggers the re-renders.
   Subscribes to `OnFilterConfigChanged` → `AppliedFilter.Set` (the panel's
