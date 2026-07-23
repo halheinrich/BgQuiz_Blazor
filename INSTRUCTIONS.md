@@ -580,7 +580,11 @@ handle) **binds at Start/Restart, never at pick**: the controller's
 promotes picked → active (`promoteToActive`) and loads the stats file through
 the active handle. Home's Clear resets **only the picked slot**
 (`clearPicked`), so a mid-quiz Clear or re-pick never affects the running
-quiz's recording — recording changes only when the next Start re-binds.
+quiz's recording — recording changes only when the next Start re-binds. The
+picked slot also serves the **saved-filters** read/write pair
+(`readPickedFile`/`writePickedFile`, added for Arc B): a setup-time concern on
+the folder being configured, deliberately on the picked slot so it never
+requires a promote and never touches a running quiz's active handle.
 
 **`QuizStatsFile`** — the persistence SSOT: `FileName`
 (`bgquiz-stats.json`) and the one fixed `JsonSerializerOptions`
@@ -618,6 +622,31 @@ failure on the final Continue lands on Done without ever showing Quiz's
 notice): `LoadFailed` as a polite status, `WriteFailed` as an assertive
 alert. Quiz-context notices scope to the active context and reset at the next
 Start's re-bind.
+
+**Saved named filters (Arc B).** A per-directory `bgquiz-filters.json` beside
+the corpus lets the user save and reload `FilterPanel` configurations.
+`QuizFiltersFile` is the filename SSOT — and, unlike `QuizStatsFile`, carries
+**no** `JsonSerializerOptions`: `NamedFilterCollection` (XgFilter_Lib) owns its
+wire format through a type-level `[JsonConverter]`, so the app round-trips via
+the document's own `ToJson`/`TryFromJson`. `SavedFiltersStore` (scoped; deps
+`IFolderAccess`, `PickedProblemFolder`; read only by Home) owns the collection:
+`LoadForPickAsync` reads the picked slot at pick time (`generation`-guarded like
+the parse cache), `SaveAsync`/`DeleteAsync` apply the collection's withers and
+persist, `Reset` clears on Clear. Same **degrade-never-block** posture as
+`QuizStatsStore`, one status enum `SavedFiltersStatus` — `Ready` /
+`LoadFailed` (unreadable *or* unparseable: file preserved untouched, zero
+writes) / `WriteFailed` (in-memory kept, writes stop) / `Disabled` (no FS pick).
+The `SavedFiltersPanel` (XgFilter_Razor) is persistence-agnostic — it raises
+load/save/delete *requests* and Home mediates them; the store owns every
+document mutation (Home never calls `With`/`Without` itself). Home's capability
+mapping: `Enabled` → full panel; `PermissionDenied` → load-only
+(`CanPersist=false` + reason — the pick gesture grants read without the
+readwrite grant, and the read-failure-tolerant `LoadFailed` path keeps that
+assumption from being load-bearing); `BrowserUnsupported` → no panel (the
+fallback can't see the file). Save-as of an unparseable position pattern is
+refused by `FilterPanel.TryGetEditedConfig` (exactly Apply's gate) and Home
+surfaces the refusal as a notice — the panel already cleared its typed name
+optimistically, so a silent no-op would read as a lost save.
 
 ### `PickedProblemFolder` — the picked-folder holder
 
@@ -1476,6 +1505,29 @@ the route map:
   to touch the active slot — or moving the bind to pick time — re-opens the
   bug this shape exists to prevent: a user tidying up Home mid-quiz silently
   killing (or retargeting!) the quiz's stats recording.
+- **Saved filters read/write the *picked* slot, not the active one.** The
+  saved-filters document (`bgquiz-filters.json`) is a setup-time concern on the
+  folder the user is configuring, so `SavedFiltersStore` goes through
+  `readPickedFile`/`writePickedFile` (the picked-slot JS ops added for it), never
+  the active-slot `readStatsFile`/`writeStatsFile`. This is the same isolation
+  invariant as stats, from the other side: a mid-quiz re-pick reloads the
+  saved-filters context off the *new* picked folder while the running quiz keeps
+  recording stats through its *active* handle, untouched. Don't "unify" the two
+  file ops onto one slot — the picked-vs-active split is the whole point, and the
+  filters ops must not require a `promoteToActive` (they run before any quiz
+  binds). The active slot's stats file and the picked slot's filters file can
+  even be different folders when a quiz is live over an earlier pick.
+- **Never write over a saved-filters file that failed to read or parse.** A
+  non-null read that `NamedFilterCollection.TryFromJson` rejects (corrupt,
+  foreign, newer-schema), *or* a read that throws (`JSException` — an FS error,
+  or read genuinely withheld under `PermissionDenied`), both flip
+  `SavedFiltersStore` to `LoadFailed`: terminal for that pick, **zero writes**,
+  file preserved untouched. This is the stats store's `LoadFailed` guarantee,
+  filters edition — and it is what keeps load-only under `PermissionDenied` from
+  being load-bearing: if the read assumption (the pick gesture grants read even
+  without the readwrite grant) is ever false in some browser, the store degrades
+  to the notice instead of the panel, never worse. Keep the `SavedFiltersStore`
+  and page tests that pin the zero-writes half.
 - **The parse cache must stay unfiltered, holder-homed, and
   generation-guarded.** `PickedProblemFolder.ParsedDecisions` is the parse of
   the *whole* pick with no filters — caching a filtered parse would silently
