@@ -6,7 +6,7 @@
          at runtime from AssemblyInformationalVersionAttribute). Suppress the SDK's
          "+<gitsha>" build-metadata suffix so the informational version is the
          clean SemVer shown in the UI. -->
-    <Version>1.0.8</Version>
+    <Version>1.0.9</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <!-- Pin the browser-wasm runtime to the invariant culture regardless of the
          visitor's browser locale. Two payoffs:
