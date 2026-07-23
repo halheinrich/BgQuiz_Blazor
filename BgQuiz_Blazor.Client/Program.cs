@@ -47,6 +47,13 @@ builder.Services.AddScoped<IDecisionStatsSink>(sp => sp.GetRequiredService<QuizS
 // re-instantiated on navigate-back); read only by Home.
 builder.Services.AddScoped<AppliedFilter>();
 
+// Per-app holder for the picked folder's saved named-filter collection
+// (bgquiz-filters.json, beside the corpus and the stats file). Home loads it at
+// pick time and drives its save/delete edits; the store reads/writes the JS
+// module's picked slot, so it never touches a running quiz's active-slot stats.
+// Degrade-never-block like QuizStatsStore. Read only by Home.
+builder.Services.AddScoped<SavedFiltersStore>();
+
 // Per-app holder for the "Shuffle order" toggle — a presentation-only choice,
 // deliberately separate from AppliedFilter/FilterConfig. Scoped for the same
 // navigate-back-survival reason as the other start-gate holders.
