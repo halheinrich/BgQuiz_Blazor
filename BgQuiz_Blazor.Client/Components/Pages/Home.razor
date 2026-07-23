@@ -129,6 +129,17 @@
         }
     </div>
 
+    @* Progressive disclosure: the filters, saved filters, weighted mix, shuffle
+       toggle, and Start button (with all their hints and notices) appear only
+       once a folder with problem files is picked. Before a pick there is
+       nothing to filter, weight, or start, so showing them is noise that buries
+       the one required first step — picking a folder. Hiding them also makes
+       "Apply the filters to enable Start" true by construction (the panel isn't
+       there to apply pre-pick). Following the enclosing <fieldset>'s
+       whole-setup-surface convention, this wrapper does not re-indent its body. *@
+    @if (Folder.HasFiles)
+    {
+
     <FilterPanel @ref="_filterPanel"
                  OnFilterConfigChanged="HandleFilterConfigApplied"
                  OnFilterDirty="HandleFiltersDirty" />
@@ -268,6 +279,7 @@
             @_noMatchNotice
         </div>
     }
+    } @* end progressive-disclosure @if (Folder.HasFiles) *@
 
     </fieldset>
 

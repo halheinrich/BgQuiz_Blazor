@@ -12,6 +12,16 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// quiz-start gate.
 ///
 /// <para>
+/// <b>Progressive disclosure.</b> Only the folder-pick controls (and their
+/// pick-status notices) render before a folder with problem files is held;
+/// the filters, saved filters, weighted mix, shuffle toggle, and Start button
+/// are gated behind <see cref="PickedProblemFolder.HasFiles"/> in the markup.
+/// Pre-pick there is nothing to filter, weight, or start, so hiding them keeps
+/// the required first step — picking a folder — unmistakable, and makes the
+/// filter-half of the start gate true by construction (no panel to apply).
+/// </para>
+///
+/// <para>
 /// The user picks a local folder with one "Choose folder…" gesture, served by
 /// whichever mechanism the browser offers (probed at pick time through
 /// <see cref="IFolderAccess"/>): the File System Access directory picker where

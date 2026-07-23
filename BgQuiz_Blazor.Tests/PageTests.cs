@@ -182,19 +182,36 @@ public class PageTests : BunitContext
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void Home_BeforeFilterApply_StartButtonDisabled()
+    public async Task Home_ProgressiveDisclosure_HidesSetupUntilFolderPicked()
     {
-        // No file picked yet, so Start is disabled regardless of filters.
+        // Task S: before a folder with problem files is picked there is nothing
+        // to filter, weight, or start, so the FilterPanel, MixPanel, the shuffle
+        // toggle, and Start are not rendered at all — only the folder-pick
+        // controls show. A completed pick reveals the whole setup surface. This
+        // also makes the old "Start disabled before a folder is picked" true by
+        // construction: the button doesn't exist yet.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        // (empty PickedProblemFolder comes from the fixture default)
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome();
 
         var cut = Render<HomePage>();
 
-        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
-        Assert.True(startBtn.HasAttribute("disabled"));
+        // Pre-pick: the pick button is present; everything downstream is hidden.
+        Assert.NotNull(cut.Find("#pickProblemFolder"));
+        Assert.Empty(cut.FindComponents<FilterPanel>());
+        Assert.Empty(cut.FindComponents<MixPanelComponent>());
+        Assert.Empty(cut.FindAll("#shuffleOrder"));
+        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Start Quiz");
+
+        // Pick a folder with files → the setup surface appears.
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Single(cut.FindComponents<FilterPanel>());
+        Assert.Single(cut.FindComponents<MixPanelComponent>());
+        Assert.NotEmpty(cut.FindAll("#shuffleOrder"));
+        Assert.Contains(cut.FindAll("button"), b => b.TextContent.Trim() == "Start Quiz");
     }
 
     [Fact]
@@ -313,7 +330,8 @@ public class PageTests : BunitContext
     public async Task Home_FolderPickedAndFiltersApplied_EnablesStart()
     {
         // Both gates: a folder picked *and* filters applied — the migrated
-        // pick → start wire test.
+        // pick → start wire test. Progressive disclosure means the FilterPanel
+        // only exists after the pick, so the order is pick-then-apply.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
@@ -322,15 +340,16 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
 
-        // Filters applied but no folder yet → still disabled.
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        // Pick a folder → the setup surface (with FilterPanel and Start)
+        // appears, but Start stays disabled until filters are applied.
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.True(startBtn.HasAttribute("disabled"));
 
-        // Pick a folder → both gates satisfied → enabled.
-        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        // Apply filters → both gates satisfied → enabled.
+        var fp = cut.FindComponent<FilterPanel>();
+        await cut.InvokeAsync(() =>
+            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
 
         startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.False(startBtn.HasAttribute("disabled"));
@@ -414,10 +433,11 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_FolderPick_EmptyFolder_ShowsEmptyNoticeKeepsGateDisabled()
+    public async Task Home_FolderPick_EmptyFolder_ShowsEmptyNoticeKeepsSetupHidden()
     {
         // A completed pick with zero top-level problem files: polite outcome
-        // notice, holder stays clear, Start stays disabled.
+        // notice, holder stays clear. With no files held, progressive disclosure
+        // keeps the whole setup surface (incl. Start) hidden — the gate is moot.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter(new FilterConfig()); // filter half satisfied
         WithShuffleOption();
@@ -431,8 +451,7 @@ public class PageTests : BunitContext
         Assert.Contains("No .xg / .xgp files found", cut.Markup);
         var folder = Services.GetRequiredService<PickedProblemFolder>();
         Assert.False(folder.HasFiles);
-        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
-        Assert.True(startBtn.HasAttribute("disabled"));
+        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Start Quiz");
     }
 
     [Fact]
@@ -810,7 +829,7 @@ public class PageTests : BunitContext
         // no intermediate transient field to desync on navigate-back, matching
         // AppliedFilter / PickedProblemFolder's holder-first pattern.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        // (empty PickedProblemFolder comes from the fixture default)
+        WithPickedFolder(); // progressive disclosure: the checkbox shows only post-pick
         WithAppliedFilter();
         var shuffle = WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -956,13 +975,13 @@ public class PageTests : BunitContext
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.False(startBtn.HasAttribute("disabled"));
 
-        // Clear → summary gone, Start disabled, picked slot cleared.
+        // Clear → summary gone, setup surface (incl. Start) hidden by
+        // progressive disclosure (HasFiles false), picked slot cleared.
         var clear = cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear");
         await clear.ClickAsync(new());
 
         Assert.DoesNotContain("clear-me", cut.Markup);
-        startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
-        Assert.True(startBtn.HasAttribute("disabled"));
+        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Start Quiz");
         Assert.Equal(1, _folderAccess.ClearPickedCallCount);
     }
 
