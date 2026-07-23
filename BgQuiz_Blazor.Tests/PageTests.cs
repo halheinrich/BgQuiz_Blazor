@@ -572,6 +572,33 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_SavedFiltersPanel_RendersAboveFilterPanel()
+    {
+        // Task T: the Saved Filters panel renders above the FilterPanel, so
+        // loading a saved config (which stages into the panel below) reads
+        // top-down. Needs an FS-Access pick (Enabled) for the panel to show.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.FiltersJson = SavedFiltersJson();
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        // Address the two panels by their own unique inputs: the saved-filters
+        // save-name box and the filter panel's position-pattern box.
+        var markup = cut.Markup;
+        var savedFiltersIndex = markup.IndexOf("id=\"saveFilterName\"", StringComparison.Ordinal);
+        var filterPanelIndex = markup.IndexOf("id=\"positionPattern\"", StringComparison.Ordinal);
+        Assert.True(savedFiltersIndex >= 0, "SavedFiltersPanel should render for an FS-Access pick");
+        Assert.True(filterPanelIndex >= 0, "FilterPanel should render post-pick");
+        Assert.True(savedFiltersIndex < filterPanelIndex,
+            "SavedFiltersPanel must render above the FilterPanel");
+    }
+
+    [Fact]
     public async Task Home_SaveAsNewFilter_PersistsAndListsIt()
     {
         // Save-as: TryGetEditedConfig snapshots the panel, the store's With +

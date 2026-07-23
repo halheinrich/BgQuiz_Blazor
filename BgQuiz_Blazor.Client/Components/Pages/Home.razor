@@ -140,15 +140,13 @@
     @if (Folder.HasFiles)
     {
 
-    <FilterPanel @ref="_filterPanel"
-                 OnFilterConfigChanged="HandleFilterConfigApplied"
-                 OnFilterDirty="HandleFiltersDirty" />
-
-    @* Saved named filters for the picked folder (bgquiz-filters.json). Offered
-       only for a File System Access pick — the fallback mechanism can't see the
-       file (BrowserUnsupported → no panel), and a corrupt/unreadable file
-       degrades to the notice below instead of the panel. PermissionDenied is
-       load-only: the panel renders with saving disabled and a reason, because
+    @* Saved named filters for the picked folder (bgquiz-filters.json), rendered
+       above the FilterPanel: loading a saved filter stages it into the panel
+       below, so the "pick a saved config, then refine it" flow reads top-down.
+       Offered only for a File System Access pick — the fallback mechanism can't
+       see the file (BrowserUnsupported → no panel), and a corrupt/unreadable
+       file degrades to the notice below instead of the panel. PermissionDenied
+       is load-only: the panel renders with saving disabled and a reason, because
        the pick gesture grants read even when the readwrite request was declined
        — and if that read assumption fails the store degrades to LoadFailed, so
        the panel is never left claiming a capability it doesn't have. *@
@@ -197,6 +195,10 @@
             the folder.
         </div>
     }
+
+    <FilterPanel @ref="_filterPanel"
+                 OnFilterConfigChanged="HandleFilterConfigApplied"
+                 OnFilterDirty="HandleFiltersDirty" />
 
     <MixPanel OnMixApplied="HandleMixApplied"
               OnMixRestored="HandleMixRestored"

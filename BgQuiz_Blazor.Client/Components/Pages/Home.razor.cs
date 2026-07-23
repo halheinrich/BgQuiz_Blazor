@@ -383,7 +383,7 @@ public partial class Home : ComponentBase
         {
             _filterSaveError =
                 "The current filter's position pattern is invalid, so it can't be "
-                + "saved — fix it above, then Save.";
+                + "saved — fix it in the filters below, then Save.";
         }
     }
 
