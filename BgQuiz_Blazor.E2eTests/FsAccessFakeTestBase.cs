@@ -37,11 +37,22 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     /// <summary>The on-disk stats filename the app must use — the consumer-side pin.</summary>
     protected const string StatsFileName = "bgquiz-stats.json";
 
+    /// <summary>The on-disk saved-filters filename the app must use — the consumer-side pin.</summary>
+    protected const string FiltersFileName = "bgquiz-filters.json";
+
     protected override string? ContextInitScript => $$"""
         (() => {
           // Scenario config + captured writes. Defaults: write granted, no
-          // existing stats file. Page-level init scripts override per scenario.
-          window.__statsFake = { permission: 'granted', statsJson: null, writes: [] };
+          // existing stats or saved-filters file. Page-level init scripts
+          // override per scenario. The saved-filters slot is stateful — a write
+          // updates filtersJson so a later re-pick reads it back (the round-trip
+          // the persistence scenario proves), while filtersWrites records every
+          // write for assertion. (Stats deliberately isn't: each quiz re-reads
+          // the scenario-configured statsJson.)
+          window.__statsFake = {
+            permission: 'granted', statsJson: null, filtersJson: null,
+            writes: [], filtersWrites: [],
+          };
           const cfg = window.__statsFake;
           const notFound = () => new DOMException('not found', 'NotFoundError');
 
@@ -68,6 +79,23 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
             },
           };
 
+          // Saved-filters handle: reads filtersJson (setup-time, picked slot),
+          // and a write updates filtersJson (round-trip) as well as recording it.
+          const filtersHandle = {
+            kind: 'file', name: '{{FiltersFileName}}',
+            getFile: async () => {
+              if (cfg.filtersJson === null) throw notFound();
+              return new File([cfg.filtersJson], '{{FiltersFileName}}');
+            },
+            createWritable: async () => {
+              let buf = '';
+              return {
+                write: async d => { buf += d; },
+                close: async () => { cfg.filtersJson = buf; cfg.filtersWrites.push(buf); },
+              };
+            },
+          };
+
           const dir = {
             kind: 'directory', name: 'FakeCorpus',
             queryPermission: async () => cfg.permission,
@@ -77,6 +105,10 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
               if (name === '{{StatsFileName}}') {
                 if (cfg.statsJson === null && !(opts && opts.create)) throw notFound();
                 return statsHandle;
+              }
+              if (name === '{{FiltersFileName}}') {
+                if (cfg.filtersJson === null && !(opts && opts.create)) throw notFound();
+                return filtersHandle;
               }
               throw notFound();
             },
@@ -103,4 +135,8 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     /// <summary>Every stats write-back the fake writable captured, in order.</summary>
     protected Task<string[]> CapturedWritesAsync() =>
         Page.EvaluateAsync<string[]>("() => window.__statsFake.writes");
+
+    /// <summary>Every saved-filters write-back the fake writable captured, in order.</summary>
+    protected Task<string[]> CapturedFilterWritesAsync() =>
+        Page.EvaluateAsync<string[]>("() => window.__statsFake.filtersWrites");
 }

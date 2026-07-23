@@ -11,6 +11,7 @@
 @inject AppliedMix AppliedMix
 @inject ShuffleOption ShuffleOption
 @inject QuizStatsStore StatsStore
+@inject SavedFiltersStore SavedFilters
 @inject NavigationManager Nav
 @inject QuizController Controller
 @inject QuizLiveMarker Marker
@@ -128,8 +129,63 @@
         }
     </div>
 
-    <FilterPanel OnFilterConfigChanged="HandleFilterConfigApplied"
+    <FilterPanel @ref="_filterPanel"
+                 OnFilterConfigChanged="HandleFilterConfigApplied"
                  OnFilterDirty="HandleFiltersDirty" />
+
+    @* Saved named filters for the picked folder (bgquiz-filters.json). Offered
+       only for a File System Access pick — the fallback mechanism can't see the
+       file (BrowserUnsupported → no panel), and a corrupt/unreadable file
+       degrades to the notice below instead of the panel. PermissionDenied is
+       load-only: the panel renders with saving disabled and a reason, because
+       the pick gesture grants read even when the readwrite request was declined
+       — and if that read assumption fails the store degrades to LoadFailed, so
+       the panel is never left claiming a capability it doesn't have. *@
+    @if (SavedFiltersApplicable && SavedFilters.Status != SavedFiltersStatus.LoadFailed)
+    {
+        <SavedFiltersPanel Filters="SavedFilters.Filters"
+                           OnLoadRequested="HandleLoadSavedFilter"
+                           OnSaveAsRequested="HandleSaveSavedFilterAsync"
+                           OnDeleteRequested="HandleDeleteSavedFilterAsync"
+                           CanPersist="SavedFiltersCanPersist"
+                           PersistDisabledReason="@SavedFiltersDisabledReason" />
+    }
+
+    @* Save-as refusal: the current filter's position pattern is unparseable, so
+       TryGetEditedConfig refused (the one state Apply also refuses). The panel
+       already cleared its typed name optimistically, so a silent no-op would
+       read as a lost save — say why. Assertive, like the start/pick errors. *@
+    @if (_filterSaveError is not null)
+    {
+        <div class="alert alert-danger mb-4" style="max-width:800px" role="alert">
+            @_filterSaveError
+        </div>
+    }
+
+    @* Corrupt/unreadable saved-filters file: replaces the panel. The file is
+       preserved untouched (never overwritten), so this is a polite outcome, not
+       an error — role="status" like the other degrade notices. *@
+    @if (SavedFiltersApplicable && SavedFilters.Status == SavedFiltersStatus.LoadFailed)
+    {
+        <div class="alert alert-warning mb-4" style="max-width:800px" role="status">
+            Your saved-filters file (<strong>@QuizFiltersFile.FileName</strong>)
+            couldn't be read, so it's been left untouched — saving is disabled to
+            protect it.
+        </div>
+    }
+
+    @* Write-back failure: a save/delete couldn't be written to the folder. The
+       edit is kept in memory for this session but no further writes are made.
+       A degrade, not fatal — warning, but assertive (a save the user asked for
+       didn't reach disk). *@
+    @if (SavedFiltersApplicable && SavedFilters.Status == SavedFiltersStatus.WriteFailed)
+    {
+        <div class="alert alert-warning mb-4" style="max-width:800px" role="alert">
+            Couldn't save to <strong>@QuizFiltersFile.FileName</strong> — your
+            filters are kept for this session but are no longer being written to
+            the folder.
+        </div>
+    }
 
     <MixPanel OnMixApplied="HandleMixApplied"
               OnMixRestored="HandleMixRestored"

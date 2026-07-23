@@ -85,7 +85,10 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 
         await BootHomeAsync();
         await PickFakeFolderAsync();
-        await Expect(Page.GetByText("declined write access")).ToBeVisibleAsync();
+        // Target the stats notice specifically: under PermissionDenied the
+        // saved-filters panel also renders a "declined write access" reason
+        // (load-only), so the bare phrase now matches two elements.
+        await Expect(Page.GetByText("stats won't be saved")).ToBeVisibleAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();

@@ -56,6 +56,12 @@ public class PageTests : BunitContext
         Services.AddScoped<PickedProblemFolder>();
         Services.AddScoped<QuizStatsStore>();
 
+        // Home also injects SavedFiltersStore (deps: IFolderAccess +
+        // PickedProblemFolder, both above). Default construction is fine — the
+        // store is Disabled until a pick loads it, so ordinary flow tests that
+        // don't drive a saved-filters gesture render no panel.
+        Services.AddScoped<SavedFiltersStore>();
+
         // Home injects AppliedMix (and hosts MixPanel, whose restore path runs
         // under each test's JSInterop mode). The fixture-wide default is the
         // blank-mix holder; WithAppliedMix re-registers when a test needs a
@@ -492,6 +498,170 @@ public class PageTests : BunitContext
         Assert.Equal("fb.xgp", Assert.Single(folder.Files).FileName);
         Assert.Equal(StatsSaveCapability.BrowserUnsupported, folder.Capability);
         Assert.Contains("can't save quiz stats", cut.Markup);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Home.razor — saved filters (Arc B): the parent → SavedFiltersPanel →
+    //  handler wiring, driven through real picks so the SavedFiltersStore loads
+    //  from the FakeFolderAccess exactly as it would from the JS picked slot.
+    // -----------------------------------------------------------------------
+
+    /// <summary>A one-entry saved-filters document JSON, "Race" carrying a distinguishing player.</summary>
+    private static string SavedFiltersJson(string name = "Race", string player = "Magriel") =>
+        NamedFilterCollection.Empty.With(name, new FilterConfig { Players = [player] }).ToJson();
+
+    private static AngleSharp.Dom.IElement FindSavedFilterRowButton(
+        IRenderedComponent<HomePage> cut, string name, string buttonText)
+    {
+        var row = cut.FindAll("li.list-group-item")
+            .Single(li => li.QuerySelector("span")?.TextContent == name);
+        return row.QuerySelectorAll("button").Single(b => b.TextContent.Trim() == buttonText);
+    }
+
+    private static Task ClickSavedFilterButtonByTextAsync(
+        IRenderedComponent<HomePage> cut, string buttonText) =>
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == buttonText).ClickAsync(new());
+
+    [Fact]
+    public async Task Home_LoadSavedFilter_StagesConfigIntoPanel_AndRegatesStart()
+    {
+        // The load chain the arc turns on: clicking a saved filter's Load stages
+        // its config into the FilterPanel as a bulk edit (→ OnFilterDirty), which
+        // clears AppliedFilter and re-gates Start until the user re-Applies.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter(new FilterConfig()); // applied earlier → Start armed after pick
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.FiltersJson = SavedFiltersJson();
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        // Both gates met (folder picked + filters applied earlier): Start is armed.
+        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        Assert.False(startBtn.HasAttribute("disabled"));
+
+        await FindSavedFilterRowButton(cut, "Race", "Load").ClickAsync(new());
+
+        // The config staged into the panel — its players input now shows the value.
+        Assert.Equal("Magriel",
+            cut.Find("input[placeholder='e.g. Hal, Magriel']").GetAttribute("value"));
+        // …and the load's dirty signal cleared the applied filter, re-gating Start.
+        startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        Assert.True(startBtn.HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_SaveAsNewFilter_PersistsAndListsIt()
+    {
+        // Save-as: TryGetEditedConfig snapshots the panel, the store's With +
+        // persist writes once, and the new instance flows back so the pick list
+        // shows the name.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.FiltersJson = null; // fresh folder
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        cut.Find("#saveFilterName").Input("MyFilter");
+        await ClickSavedFilterButtonByTextAsync(cut, "Save");
+
+        Assert.Single(_folderAccess.FiltersWrites);
+        Assert.Contains("MyFilter", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_SaveAsInvalidPositionPattern_ShowsNoticeAndDoesNotWrite()
+    {
+        // The one state Apply refuses — an unparseable position pattern — is the
+        // one TryGetEditedConfig refuses. The host surfaces the refusal (the
+        // panel already cleared its typed name) and nothing is written.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.FiltersJson = null;
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        cut.Find("#positionPattern").Input("[6,2"); // unparseable
+        cut.Find("#saveFilterName").Input("Bad");
+        await ClickSavedFilterButtonByTextAsync(cut, "Save");
+
+        Assert.Contains("position pattern is invalid", cut.Markup);
+        Assert.Empty(_folderAccess.FiltersWrites);
+    }
+
+    [Fact]
+    public async Task Home_CorruptFiltersFile_ShowsNoticeHidesPanel_FileUntouched()
+    {
+        // A corrupt bgquiz-filters.json degrades to LoadFailed: the panel is
+        // replaced by the notice (naming the file), and the file is never
+        // overwritten — the zero-writes preservation guarantee.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.FiltersJson = "{ not valid json";
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Contains(QuizFiltersFile.FileName, cut.Markup);
+        Assert.Contains("couldn't be read", cut.Markup);
+        Assert.Empty(cut.FindAll("#saveFilterName")); // panel not rendered
+        Assert.Empty(_folderAccess.FiltersWrites);
+    }
+
+    [Fact]
+    public async Task Home_FiltersPermissionDenied_LoadOnly_SaveDisabledLoadEnabled()
+    {
+        // Capability mapping: PermissionDenied → load-only. The panel renders
+        // (the pick's implicit read grant loaded the collection), Save is
+        // disabled with the filters-specific reason, and Load stays enabled.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
+        _folderAccess.FiltersJson = SavedFiltersJson();
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Contains("saved filters can be loaded but not changed", cut.Markup);
+        Assert.True(cut.FindAll("button").Single(b => b.TextContent.Trim() == "Save").HasAttribute("disabled"));
+        Assert.False(FindSavedFilterRowButton(cut, "Race", "Load").HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_FiltersBrowserUnsupported_NoSavedFiltersPanel()
+    {
+        // A fallback pick can't see the file: no saved-filters panel at all, and
+        // the store never even reads (the JSON below is set but ignored).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextCollectOutcome = new FolderPickOutcome(
+            Cancelled: false, "FallbackDir",
+            [new PickedFile("fb.xgp", [9, 9])], StatsSaveCapability.BrowserUnsupported);
+        _folderAccess.FiltersJson = SavedFiltersJson();
+
+        var cut = Render<HomePage>();
+        await cut.Find("#problemFolderFallback").ChangeAsync(new ChangeEventArgs());
+
+        Assert.DoesNotContain("Saved Filters", cut.Markup);
+        Assert.Empty(cut.FindAll("#saveFilterName"));
+        Assert.Empty(_folderAccess.FiltersWrites);
     }
 
     [Fact]

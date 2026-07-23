@@ -3,6 +3,7 @@ using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
 using XgFilter_Lib.Filtering;
+using XgFilter_Razor.Components;
 
 namespace BgQuiz_Blazor.Client.Components.Pages;
 
@@ -124,6 +125,59 @@ public partial class Home : ComponentBase
     private bool _mixRefused;
 
     /// <summary>
+    /// The hosted <see cref="FilterPanel"/>, captured by <c>@ref</c> so Home can
+    /// drive the two imperative host-mediated saved-filter operations on it:
+    /// <see cref="FilterPanel.LoadConfig"/> (stage a loaded config into the edit
+    /// buffers) and <see cref="FilterPanel.TryGetEditedConfig"/> (snapshot the
+    /// live buffers for save-as). Null only before the first render.
+    /// </summary>
+    private FilterPanel? _filterPanel;
+
+    /// <summary>
+    /// Set when a save-as was refused because the current filter's position
+    /// pattern is unparseable — the one state
+    /// <see cref="FilterPanel.TryGetEditedConfig"/> refuses (exactly Apply's
+    /// gate). The panel clears its typed name optimistically on raise, so the
+    /// host must say why nothing was saved rather than no-op silently. A
+    /// per-visit outcome flag; cleared on any filter edit, a new pick, and the
+    /// next save attempt.
+    /// </summary>
+    private string? _filterSaveError;
+
+    /// <summary>
+    /// Whether the saved-filters affordance applies to the current pick: a
+    /// folder is held and it was picked via a File System Access mechanism (the
+    /// only ones exposing a readable directory handle). Gates the panel and all
+    /// three saved-filters notices; a fallback pick
+    /// (<see cref="StatsSaveCapability.BrowserUnsupported"/>) has none of them.
+    /// </summary>
+    private bool SavedFiltersApplicable =>
+        Folder.HasFiles
+        && Folder.Capability is StatsSaveCapability.Enabled or StatsSaveCapability.PermissionDenied;
+
+    /// <summary>
+    /// Whether the saved-filters panel may persist (Save / Delete enabled).
+    /// Requires the writable grant (<see cref="StatsSaveCapability.Enabled"/>)
+    /// and a healthy context: <see cref="StatsSaveCapability.PermissionDenied"/>
+    /// is load-only, and a prior write failure stops further writes.
+    /// </summary>
+    private bool SavedFiltersCanPersist =>
+        Folder.Capability == StatsSaveCapability.Enabled
+        && SavedFilters.Status == SavedFiltersStatus.Ready;
+
+    /// <summary>
+    /// The muted reason the panel shows while persistence is disabled but the
+    /// panel is still offered — the steady-state load-only case under
+    /// <see cref="StatsSaveCapability.PermissionDenied"/>. A write failure is a
+    /// louder, separate alert (rendered by Home), so it is deliberately not
+    /// folded in here; <see langword="null"/> leaves the panel's hint absent.
+    /// </summary>
+    private string? SavedFiltersDisabledReason =>
+        Folder.Capability == StatsSaveCapability.PermissionDenied
+            ? "You declined write access — saved filters can be loaded but not changed."
+            : null;
+
+    /// <summary>
     /// Three gates: filters applied, a folder with problem files picked, and
     /// no uncommitted mix edits (a dirty mix would let Start run a mix that
     /// differs from what the panel shows — the filter gate's hazard, mix
@@ -177,7 +231,7 @@ public partial class Home : ComponentBase
         {
             if (await FolderAccess.SupportsDirectoryPickerAsync())
             {
-                ApplyPickOutcome(await FolderAccess.PickFolderAsync());
+                await ApplyPickOutcomeAsync(await FolderAccess.PickFolderAsync());
             }
             else
             {
@@ -202,7 +256,7 @@ public partial class Home : ComponentBase
         ClearPickNotices();
         try
         {
-            ApplyPickOutcome(await FolderAccess.CollectFallbackAsync(_fallbackInput));
+            await ApplyPickOutcomeAsync(await FolderAccess.CollectFallbackAsync(_fallbackInput));
         }
         catch (Exception ex)
         {
@@ -219,18 +273,25 @@ public partial class Home : ComponentBase
     /// status notice derive from it (no transient field to keep in sync — that
     /// desynced on navigate-back, when Home re-instantiated).
     /// </summary>
-    private void ApplyPickOutcome(FolderPickOutcome outcome)
+    private async Task ApplyPickOutcomeAsync(FolderPickOutcome outcome)
     {
         if (outcome.Cancelled) return;
 
         if (outcome.Files.Count == 0)
         {
             Folder.Clear();
+            SavedFilters.Reset();
             _emptyFolderNotice = true;
             return;
         }
 
         Folder.Set(outcome.DirectoryName, outcome.Files, outcome.Capability);
+
+        // Load this folder's saved-filters document now — a setup-time, picked-
+        // slot read. The store guards on capability/handle and degrades on any
+        // read failure into its own status, so this never throws or blocks the
+        // pick (a fallback pick short-circuits to the no-context state).
+        await SavedFilters.LoadForPickAsync();
     }
 
     private async Task ClearPickedFolderAsync()
@@ -243,6 +304,7 @@ public partial class Home : ComponentBase
         // quiz's stats context lives in the ACTIVE slot, bound at Start, so
         // recording continues untouched until the next Start re-binds.
         Folder.Clear();
+        SavedFilters.Reset();
         await FolderAccess.ClearPickedAsync();
         ClearPickNotices();
     }
@@ -254,6 +316,7 @@ public partial class Home : ComponentBase
         _startError = null;
         _noMatchNotice = null;
         _mixRefused = false; // a new pick can change stats capability
+        _filterSaveError = null; // a new pick re-derives the saved-filters context
     }
 
     private void HandleFilterConfigApplied(FilterConfig cfg)
@@ -270,6 +333,55 @@ public partial class Home : ComponentBase
         // Any filter edit re-gates Start: a half-edited, un-applied set must
         // clear the applied state, not just a local flag.
         AppliedFilter.Clear();
+        // Editing also moots a stale save-as refusal — fixing the offending
+        // position pattern is itself an edit, so the notice clears with it.
+        _filterSaveError = null;
+    }
+
+    /// <summary>
+    /// Load a saved filter into the panel: resolve the config from the store's
+    /// collection and stage it via <see cref="FilterPanel.LoadConfig"/>. That
+    /// staging raises the panel's dirty signal (→ <see cref="HandleFiltersDirty"/>
+    /// → <see cref="AppliedFilter.Clear"/>), so Start re-gates until the user
+    /// Applies — a load is a bulk edit, not a commit. Read-only over the
+    /// in-memory collection; nothing is persisted.
+    /// </summary>
+    private void HandleLoadSavedFilter(string name)
+    {
+        _filterSaveError = null;
+        if (SavedFilters.Filters.TryGetConfig(name, out var config))
+        {
+            _filterPanel?.LoadConfig(config);
+        }
+    }
+
+    /// <summary>
+    /// Save-as: snapshot the panel's live edit buffers and hand them to the
+    /// store under <paramref name="name"/> (pre-normalized by the panel). The
+    /// snapshot uses Apply's exact gate — it refuses only an unparseable
+    /// position pattern — so a refusal surfaces the save-error notice rather
+    /// than silently dropping the save the panel already optimistically cleared.
+    /// </summary>
+    private async Task HandleSaveSavedFilterAsync(string name)
+    {
+        if (_filterPanel is not null && _filterPanel.TryGetEditedConfig(out var config))
+        {
+            _filterSaveError = null;
+            await SavedFilters.SaveAsync(name, config);
+        }
+        else
+        {
+            _filterSaveError =
+                "The current filter's position pattern is invalid, so it can't be "
+                + "saved — fix it above, then Save.";
+        }
+    }
+
+    /// <summary>Delete a saved filter (the panel confirmed) and persist the removal.</summary>
+    private async Task HandleDeleteSavedFilterAsync(string name)
+    {
+        _filterSaveError = null;
+        await SavedFilters.DeleteAsync(name);
     }
 
     private void HandleShuffleToggled(ChangeEventArgs e)
