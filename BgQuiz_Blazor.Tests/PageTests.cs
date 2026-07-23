@@ -2648,6 +2648,36 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_MixEmptiedToZeroRows_AutoCommits_UnGatesStart()
+    {
+        // The reported symptom, end to end through the real MixPanel: a mix
+        // built in the panel then emptied back to zero rows must not leave Start
+        // wedged. Removing the last row auto-commits the blank mix (MixPanel's
+        // fix), which clears AppliedMix's dirty flag so Start re-enables — no
+        // separate Reset click needed.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+
+        // Build a one-row mix in the real panel → dirty → Start gated.
+        await cut.Find("#mixAddRow").ClickAsync(new());
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains("Apply or reset the mix", cut.Markup);
+
+        // Remove that row → back to zero rows → auto-commit blank → Start un-gates.
+        await cut.FindAll(".mix-row")[0].QuerySelector("button[title='Remove']")!.ClickAsync(new());
+
+        Assert.Empty(cut.FindAll(".mix-row"));
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+        Assert.DoesNotContain("Apply or reset the mix", cut.Markup);
+    }
+
+    [Fact]
     public async Task Home_MixRestoredEvent_AdoptsIntoHolder_NoGating()
     {
         // The panel's restore path must adopt: holder and rendered rows agree

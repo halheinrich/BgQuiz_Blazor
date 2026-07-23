@@ -15,10 +15,11 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// <b>Commit model mirrors <c>FilterPanel</c>.</b>
-/// <see cref="OnMixApplied"/> fires only on Apply (and on Reset — an explicit
-/// apply of <see cref="QuizMix.Empty"/>, distinct from the never-silently-
-/// rewrite rule because the user asked for it); <see cref="OnMixDirty"/>
-/// fires on every control change so the parent can gate Start until the edit
+/// <see cref="OnMixApplied"/> fires on Apply, on Reset, and when the last row
+/// is removed (both Reset and the last-row removal are an explicit apply of
+/// <see cref="QuizMix.Empty"/>, distinct from the never-silently-rewrite rule
+/// because the user asked for the blank state); <see cref="OnMixDirty"/> fires
+/// on every other control change so the parent can gate Start until the edit
 /// is committed. One deliberate divergence: the first-render localStorage
 /// restore raises <see cref="OnMixRestored"/> so the parent's holder adopts
 /// the restored mix — a persisted mix is by construction a previously-applied
@@ -47,10 +48,11 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 public partial class MixPanel : ComponentBase
 {
     /// <summary>
-    /// Raised on <b>Apply</b> and on <b>Reset</b> — never per keystroke —
-    /// carrying the committed <see cref="QuizMix"/>. Required: the panel
-    /// exists to produce this, so a missing binding is an <c>RZ2012</c>
-    /// compile error rather than a silent Razor splat.
+    /// Raised on <b>Apply</b>, on <b>Reset</b>, and when the <b>last row is
+    /// removed</b> (which returns the builder to the blank passthrough state) —
+    /// never per keystroke — carrying the committed <see cref="QuizMix"/>.
+    /// Required: the panel exists to produce this, so a missing binding is an
+    /// <c>RZ2012</c> compile error rather than a silent Razor splat.
     /// </summary>
     [Parameter, EditorRequired] public EventCallback<QuizMix> OnMixApplied { get; set; }
 
@@ -151,8 +153,9 @@ public partial class MixPanel : ComponentBase
     /// <see cref="ApplyAsync"/> is a backstop, not the primary validation.
     /// A blank builder (zero rows) reports no error — it <i>would</i> build the
     /// inert <see cref="QuizMix.Empty"/> — but Apply is separately disabled at
-    /// zero rows: committing the blank mix is <see cref="ResetAsync"/>'s job (the
-    /// one sanctioned clear), so Apply requires at least one row.
+    /// zero rows: committing the blank mix is the blank path's job
+    /// (<see cref="GoBlankAsync"/>, shared by Reset and the last-row removal),
+    /// so Apply requires at least one row.
     /// </summary>
     private string? ValidationError
     {
@@ -300,10 +303,19 @@ public partial class MixPanel : ComponentBase
         MarkDirty();
     }
 
-    private void RemoveRow(int index)
+    private Task RemoveRow(int index)
     {
         _rows.RemoveAt(index);
+        // Removing the last row returns the builder to its blank (passthrough)
+        // state. Apply is disabled at zero rows (committing Empty is the blank
+        // path's job, not Apply's), so leaving this a mere dirty edit would
+        // strand AppliedMix dirty with no in-panel way to commit — Start wedged
+        // with only Reset as a non-obvious escape (the reported bug). Auto-
+        // commit the blank mix through the same channel Reset uses, so
+        // AppliedMix un-dirties, Start un-gates, and localStorage matches Reset.
+        if (_rows.Count == 0) return GoBlankAsync();
         MarkDirty();
+        return Task.CompletedTask;
     }
 
     /// <summary>Move the row at <paramref name="index"/> by <paramref name="delta"/> (±1) — order is semantic, so reordering is a real edit.</summary>
@@ -331,10 +343,21 @@ public partial class MixPanel : ComponentBase
         return PersistAndRaiseAsync(mix);
     }
 
-    private Task ResetAsync()
+    private Task ResetAsync() => GoBlankAsync();
+
+    /// <summary>
+    /// Normalize to the blank (passthrough) builder and commit
+    /// <see cref="QuizMix.Empty"/> — the shared path for the explicit Reset
+    /// gesture and for removing the last row, which lands in the same state.
+    /// Both persist Empty (localStorage stays consistent) and raise
+    /// <see cref="OnMixApplied"/>, the sanctioned way this panel writes Empty
+    /// over a stored mix. The toggle and length are reset to their blank-
+    /// builder defaults so "zero rows" means one state regardless of how it was
+    /// reached; both controls are disabled at zero rows, and Empty carries
+    /// neither, so the reset only affects a subsequently re-added row.
+    /// </summary>
+    private Task GoBlankAsync()
     {
-        // An explicit user gesture back to the blank (passthrough) mix — the
-        // one sanctioned way this panel writes Empty over a stored mix.
         _rows.Clear();
         _randomOrder = true;
         _lengthText = string.Empty;

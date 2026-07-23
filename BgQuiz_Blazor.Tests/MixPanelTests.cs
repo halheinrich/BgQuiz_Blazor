@@ -165,6 +165,53 @@ public class MixPanelTests : BunitContext
     }
 
     [Fact]
+    public async Task RemoveLastRow_AutoCommitsBlankMix_AndPersistsIt()
+    {
+        // The reported bug's root: a mix edited back to zero rows would stay
+        // dirty at the parent while Apply is disabled (zero rows), leaving Start
+        // wedged with only the non-obvious Reset as an escape. Removing the last
+        // row must instead auto-commit the blank mix through the Apply channel —
+        // the same effect as Reset — so the parent un-dirties and Start un-gates.
+        var cut = RenderPanel();
+        await ClickAsync(cut, "#mixAddRow"); // one row, dirty
+        Assert.Single(cut.FindAll(".mix-row"));
+
+        await ClickRowButtonAsync(cut, 0, "Remove"); // removes the last row
+
+        Assert.Empty(cut.FindAll(".mix-row"));
+        // OnMixApplied fired with a passthrough mix (not OnMixDirty) — the
+        // channel that un-dirties the parent's AppliedMix holder.
+        var applied = Assert.Single(_applied);
+        Assert.True(applied.IsPassthrough);
+
+        // localStorage matches Reset: the blank mix is persisted, so a later
+        // reload restores the blank builder rather than the removed mix.
+        var stored = JSInterop.Invocations["localStorage.setItem"]
+            .Last(i => (string?)i.Arguments[0] == MixPanel.MixKey)
+            .Arguments[1] as string;
+        Assert.True(QuizMix.FromJson(stored!).IsPassthrough);
+    }
+
+    [Fact]
+    public async Task RemoveNonLastRow_StaysDirty_DoesNotCommit()
+    {
+        // Over-trigger guard: removing a row while others remain is an ordinary
+        // edit — it raises dirty, not an Apply of Empty (the mix still has
+        // uncommitted rows the user must Apply).
+        var cut = RenderPanel();
+        await ClickAsync(cut, "#mixAddRow");
+        await ClickAsync(cut, "#mixAddRow");
+        cut.FindAll(".mix-row")[1].QuerySelector("select")!.Change("GotWrong");
+        _dirtyCount = 0; // ignore the setup edits; count only the removal
+
+        await ClickRowButtonAsync(cut, 0, "Remove");
+
+        Assert.Single(cut.FindAll(".mix-row"));
+        Assert.Equal(1, _dirtyCount); // a plain dirty edit
+        Assert.Empty(_applied);       // nothing committed — one row still pending
+    }
+
+    [Fact]
     public async Task PersistedMix_RoundTripsAcrossRemount()
     {
         var cut = RenderPanel();

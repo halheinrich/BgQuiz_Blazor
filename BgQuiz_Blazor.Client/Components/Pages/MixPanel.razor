@@ -5,8 +5,9 @@
 @* ── MixPanel.razor ──────────────────────────────────────────────────────────
    The stats-weighted mix builder: an ordered list of (category, percent) rows
    plus the Random-order toggle and an optional quiz length. Raises OnMixApplied
-   only on Apply (or Reset — an explicit apply of the blank mix); raises
-   OnMixDirty on every control change so the parent can gate Start until Apply;
+   on Apply, on Reset, and when the last row is removed (Reset and last-row
+   removal both being an explicit apply of the blank mix); raises OnMixDirty on
+   every other control change so the parent can gate Start until Apply;
    raises OnMixRestored once, after the first-render localStorage restore, so
    the parent's holder adopts the previously-applied mix (a persisted mix is by
    construction an applied one). Row order is semantic — earlier rows win
