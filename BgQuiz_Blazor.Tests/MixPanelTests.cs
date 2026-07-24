@@ -6,8 +6,9 @@ namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
 /// Tests for <see cref="MixPanel"/> — the stats-weighted mix builder. Pins the
-/// <c>FilterPanel</c>-mirroring commit model (Apply/Reset/dirty + the one
-/// deliberate divergence, the adopting restore), the single-key localStorage
+/// <c>FilterPanel</c>-mirroring commit model (Apply/Reset/dirty, and the
+/// require-Apply restore — hydrate the panel and signal dirty without
+/// committing), the single-key localStorage
 /// round-trip through the lib's <c>ToJson</c>/<c>TryFromJson</c>, the
 /// semantic row order (reorder survives Apply), per-kind parameter defaults,
 /// the percent-display/fraction-store rule for the wrong-rate row, and the
@@ -24,13 +25,11 @@ public class MixPanelTests : BunitContext
     }
 
     private readonly List<QuizMix> _applied = [];
-    private readonly List<QuizMix> _restored = [];
     private int _dirtyCount;
 
     private IRenderedComponent<MixPanel> RenderPanel() =>
         Render<MixPanel>(parameters => parameters
             .Add(p => p.OnMixApplied, (QuizMix m) => _applied.Add(m))
-            .Add(p => p.OnMixRestored, (QuizMix m) => _restored.Add(m))
             .Add(p => p.OnMixDirty, () => _dirtyCount++));
 
     private static Task ClickAsync(IRenderedComponent<MixPanel> cut, string selector) =>
@@ -47,18 +46,17 @@ public class MixPanelTests : BunitContext
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void Restore_NothingPersisted_BlankBuilder_NoRestoredEvent()
+    public void Restore_NothingPersisted_BlankBuilder_NoDirtyNoCommit()
     {
         var cut = RenderPanel();
 
         Assert.Empty(cut.FindAll(".mix-row"));
-        Assert.Empty(_restored);
+        Assert.Equal(0, _dirtyCount); // nothing to restore → no gate
         Assert.Empty(_applied);
-        Assert.Equal(0, _dirtyCount);
     }
 
     [Fact]
-    public void Restore_CorruptJson_BlankBuilder_NoEventNoCrash()
+    public void Restore_CorruptJson_BlankBuilder_NoDirtyNoCrash()
     {
         JSInterop.Setup<string?>("localStorage.getItem", MixPanel.MixKey)
             .SetResult("}{ not valid json");
@@ -66,11 +64,11 @@ public class MixPanelTests : BunitContext
         var cut = RenderPanel();
 
         Assert.Empty(cut.FindAll(".mix-row"));
-        Assert.Empty(_restored);
+        Assert.Equal(0, _dirtyCount);
     }
 
     [Fact]
-    public void Restore_PersistedMix_HydratesRowsInWireOrder_AndRaisesRestored()
+    public void Restore_PersistedMix_HydratesRowsInWireOrder_AndSignalsDirty()
     {
         var mix = new QuizMix(
             [
@@ -96,12 +94,26 @@ public class MixPanelTests : BunitContext
         Assert.Equal("25", cut.Find("#mixQuizLength").GetAttribute("value"));
         Assert.False(cut.Find("#mixRandomOrder").HasAttribute("checked"));
 
-        // The restore adopts: the parent's holder receives the parsed mix.
-        var restored = Assert.Single(_restored);
-        Assert.Equal(mix.Entries, restored.Entries); // QuizMixEntry is value-equal
-        Assert.Equal(25, restored.QuizLength);
-        Assert.False(restored.RandomOrder);
-        Assert.Empty(_applied); // restore is not an Apply gesture
+        // The restore hydrates but does NOT commit: a non-passthrough restore
+        // signals dirty (so Start gates until re-Apply) and raises no Apply.
+        Assert.Equal(1, _dirtyCount);
+        Assert.Empty(_applied);
+    }
+
+    [Fact]
+    public void Restore_PersistedPassthroughMix_HydratesBlank_NoDirty()
+    {
+        // A persisted passthrough (e.g. after a prior Reset) round-trips to zero
+        // rows with nothing to commit — so it must not raise a spurious dirty
+        // that would gate Start with no way to satisfy it via the panel.
+        JSInterop.Setup<string?>("localStorage.getItem", MixPanel.MixKey)
+            .SetResult(QuizMix.Empty.ToJson());
+
+        var cut = RenderPanel();
+
+        Assert.Empty(cut.FindAll(".mix-row"));
+        Assert.Equal(0, _dirtyCount);
+        Assert.Empty(_applied);
     }
 
     // -----------------------------------------------------------------------

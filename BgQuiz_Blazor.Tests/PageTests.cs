@@ -2930,24 +2930,86 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_MixRestoredEvent_AdoptsIntoHolder_NoGating()
+    public async Task Home_MixRestore_NonEmpty_HydratesDirty_GatesStartUntilApplied()
     {
-        // The panel's restore path must adopt: holder and rendered rows agree
-        // without a re-Apply, and the gate stays open (a restored mix is a
-        // committed one, not an edit).
+        // W: a persisted non-blank mix restores into the panel for convenience
+        // but is NOT adopted — it arrives dirty, so AppliedMix stays passthrough
+        // and Start gates until the user re-Applies (mirroring the FilterPanel).
+        // Driven through the real MixPanel restore (localStorage → panel), not a
+        // synthetic event, so it pins the parent → MixPanel → AppliedMix wire.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        var holder = WithAppliedMix(); // blank holder — the restore must not adopt into it
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        JSInterop.Setup<string?>("localStorage.getItem", MixPanelComponent.MixKey)
+            .SetResult(NeverSeenMix().ToJson());
+
+        var cut = Render<HomePage>();
+
+        // The panel restored its rows…
+        Assert.NotEmpty(cut.FindAll(".mix-row"));
+        // …but the holder was NOT adopted — it stays passthrough and dirty, and
+        // Start is gated on the uncommitted mix.
+        Assert.True(holder.Current.IsPassthrough);
+        Assert.True(holder.IsDirty);
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains("Apply or reset the mix", cut.Markup);
+
+        // Applying the restored mix through the panel commits it and un-gates.
+        await cut.Find("#mixApply").ClickAsync(new());
+
+        Assert.False(holder.Current.IsPassthrough);
+        Assert.False(holder.IsDirty);
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_MixRestore_NonEmpty_ResetClearsAndUngates()
+    {
+        // The other exit from the restored-dirty state: Reset commits the blank
+        // mix, so the rows clear, the holder un-dirties, and Start un-gates
+        // without ever running the restored mix.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: StatsSaveCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix();
         JSInterop.Mode = JSRuntimeMode.Loose;
+        JSInterop.Setup<string?>("localStorage.getItem", MixPanelComponent.MixKey)
+            .SetResult(NeverSeenMix().ToJson());
 
         var cut = Render<HomePage>();
-        var panel = cut.FindComponent<MixPanelComponent>();
-        var mix = NeverSeenMix();
-        await cut.InvokeAsync(() => panel.Instance.OnMixRestored.InvokeAsync(mix));
+        Assert.True(holder.IsDirty);
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
 
-        Assert.Same(mix, holder.Current);
+        await cut.Find("#mixReset").ClickAsync(new());
+
+        Assert.Empty(cut.FindAll(".mix-row"));
+        Assert.True(holder.Current.IsPassthrough);
+        Assert.False(holder.IsDirty);
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public void Home_MixRestore_Passthrough_NoGate()
+    {
+        // A persisted passthrough (e.g. after a prior Reset) restores to zero
+        // rows with nothing to commit — no dirty signal, Start free. This is the
+        // "user with no persisted mix sees no gate" invariant.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        var holder = WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        JSInterop.Setup<string?>("localStorage.getItem", MixPanelComponent.MixKey)
+            .SetResult(QuizMix.Empty.ToJson());
+
+        var cut = Render<HomePage>();
+
+        Assert.Empty(cut.FindAll(".mix-row"));
         Assert.False(holder.IsDirty);
         Assert.False(StartButton(cut).HasAttribute("disabled"));
     }

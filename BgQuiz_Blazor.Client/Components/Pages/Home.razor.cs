@@ -538,17 +538,6 @@ public partial class Home : ComponentBase
         _noMatchNotice = null;
     }
 
-    private void HandleMixRestored(QuizMix mix)
-    {
-        // The panel's first-render localStorage restore: adopt, don't gate. A
-        // persisted mix is by construction a previously-applied one, so the
-        // holder and the rendered rows agree without a re-Apply — unlike the
-        // filter panel's restore, which deliberately adopts nothing (its
-        // "applied" means a gesture in this visit). No notice-clearing: a
-        // restore is not a user gesture.
-        AppliedMix.Apply(mix);
-    }
-
     private void HandleMixDirty()
     {
         // Any mix edit re-gates Start until the user commits via Apply.

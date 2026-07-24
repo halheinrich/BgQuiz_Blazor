@@ -7,9 +7,9 @@ using BgGame_Lib;
 /// <see cref="QuizMix"/> the user has <b>committed</b> on <c>Home</c> — the
 /// mix sibling of <see cref="AppliedFilter"/>, completing the start gate's
 /// composition half. <c>Home.razor</c> writes it from the mix panel's events
-/// (<c>OnMixApplied</c> / <c>OnMixRestored</c> → <see cref="Apply"/>,
-/// <c>OnMixDirty</c> → <see cref="MarkDirty"/>); <c>Home</c> reads
-/// <see cref="Current"/> at Start and <see cref="IsDirty"/> in its gate.
+/// (<c>OnMixApplied</c> → <see cref="Apply"/>, <c>OnMixDirty</c> →
+/// <see cref="MarkDirty"/>); <c>Home</c> reads <see cref="Current"/> at Start
+/// and <see cref="IsDirty"/> in its gate.
 ///
 /// <para>
 /// <b>Semantics differ from <see cref="AppliedFilter"/> deliberately.</b> The
@@ -17,10 +17,13 @@ using BgGame_Lib;
 /// default — so there is no "never applied blocks Start" state; only
 /// <see cref="IsDirty"/> gates (an edited, uncommitted mix would silently
 /// diverge from what Start uses — the same hazard the filter gate guards).
-/// The panel's localStorage restore also <i>adopts</i> here (via its restored
-/// event): a persisted mix is by construction previously-applied, so on
-/// navigate-back or reload the holder and the rendered panel agree without a
-/// re-Apply.
+/// The panel's localStorage restore does <b>not</b> adopt here: like the
+/// filter panel it re-shows the persisted rows without committing them, so a
+/// restored non-blank mix arrives as <see cref="IsDirty"/> and Start gates
+/// until the user re-Applies. The two start-gate halves therefore block by
+/// different mechanisms, because their defaults differ: the filter blocks via
+/// not-yet-applied (it has no valid default), the mix via dirty (passthrough is
+/// its valid default, so "never applied" can't be the gate).
 /// </para>
 ///
 /// <para>
@@ -32,8 +35,8 @@ using BgGame_Lib;
 ///
 /// <para>
 /// In-memory only, reset on full reload — but unlike its sibling holders the
-/// underlying choice survives the reload in localStorage, and the panel's
-/// restore re-adopts it on the next boot.
+/// underlying choice survives the reload in localStorage, and the panel
+/// re-shows it (as a dirty, uncommitted mix) on the next boot.
 /// </para>
 /// </summary>
 internal sealed class AppliedMix
@@ -52,7 +55,7 @@ internal sealed class AppliedMix
     /// </summary>
     public bool IsDirty { get; private set; }
 
-    /// <summary>Commit <paramref name="mix"/> (Apply, Reset, or the panel's restore) and clear any dirty state.</summary>
+    /// <summary>Commit <paramref name="mix"/> (Apply or Reset) and clear any dirty state.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="mix"/> is null.</exception>
     public void Apply(QuizMix mix)
     {

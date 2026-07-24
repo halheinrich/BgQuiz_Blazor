@@ -61,9 +61,9 @@ builder.Services.AddScoped<ShuffleOption>();
 
 // Per-app holder for the committed stats-weighted mix — the mix sibling of
 // AppliedFilter. Blank (QuizMix.Empty) is the valid default, so only its
-// dirty state gates Start; the mix panel's localStorage restore re-adopts the
-// previously-applied mix here on boot. Scoped for navigate-back survival like
-// the other start-gate holders.
+// dirty state gates Start; the mix panel's localStorage restore re-shows the
+// persisted mix on boot but does not commit it (it arrives dirty, awaiting
+// Apply). Scoped for navigate-back survival like the other start-gate holders.
 builder.Services.AddScoped<AppliedMix>();
 
 // Per-app marker (sessionStorage-backed) recording that a quiz is live in this
