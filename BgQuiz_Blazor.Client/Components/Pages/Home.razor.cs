@@ -226,7 +226,7 @@ public partial class Home : ComponentBase
     /// </summary>
     private string? SavedFiltersDisabledReason =>
         Folder.Capability == StatsSaveCapability.PermissionDenied
-            ? "You declined write access — saved filters can be loaded but not changed."
+            ? "You declined write access — saved filters can be loaded but not changed or deleted."
             : null;
 
     /// <summary>

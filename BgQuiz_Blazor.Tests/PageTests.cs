@@ -800,7 +800,9 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        Assert.Contains("saved filters can be loaded but not changed", cut.Markup);
+        // The reason spells out that Delete is disabled too, not just Save — the
+        // panel offers both persistence gestures and PermissionDenied bars both.
+        Assert.Contains("saved filters can be loaded but not changed or deleted", cut.Markup);
         Assert.True(cut.FindAll("button").Single(b => b.TextContent.Trim() == "Save").HasAttribute("disabled"));
         Assert.False(FindSavedFilterRowButton(cut, "Race", "Load").HasAttribute("disabled"));
     }
