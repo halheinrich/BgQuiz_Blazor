@@ -830,6 +830,67 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_FiltersPermissionDenied_NoSavedFilters_HidesPanel()
+    {
+        // Task Y: under a read-only (PermissionDenied) pick saving is disabled,
+        // so a saved-filters section with nothing to load is pure clutter — hide
+        // it. A fresh folder (no bgquiz-filters.json) reads as Ready over an empty
+        // collection, so Count is 0 and the whole section is suppressed (panel and
+        // its load-only reason both).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
+        _folderAccess.FiltersJson = null; // fresh folder → Ready, zero saved filters
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Empty(cut.FindAll("#saveFilterName")); // no panel
+        Assert.DoesNotContain("can be loaded but not changed or deleted", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_FiltersPermissionDenied_WithSavedFilters_ShowsLoadOnlyPanel()
+    {
+        // Task Y over-trigger guard: read-only with at least one saved filter
+        // still shows the panel (load-only) — there is something to load, so it is
+        // not clutter.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
+        _folderAccess.FiltersJson = SavedFiltersJson(); // one saved filter
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.NotEmpty(cut.FindAll("#saveFilterName")); // panel present, load-only
+        Assert.Contains("can be loaded but not changed or deleted", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_FiltersEnabled_NoSavedFilters_ShowsPanel()
+    {
+        // Task Y boundary: an Enabled pick with zero saved filters still shows the
+        // panel — you can save into it, so an empty collection isn't clutter the
+        // way it is under read-only.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.FiltersJson = null; // fresh folder, zero saved filters
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.NotEmpty(cut.FindAll("#saveFilterName")); // savable, so shown even when empty
+    }
+
+    [Fact]
     public void Home_PreAppliedFilterHolder_EnablesStartWithoutReApply()
     {
         // Navigate-back regression (filter half): the applied filter lives in the

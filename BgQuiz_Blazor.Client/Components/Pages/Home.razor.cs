@@ -202,10 +202,22 @@ public partial class Home : ComponentBase
     /// only ones exposing a readable directory handle). Gates the panel and all
     /// three saved-filters notices; a fallback pick
     /// (<see cref="StatsSaveCapability.BrowserUnsupported"/>) has none of them.
+    ///
+    /// <para>
+    /// One asymmetry between the two applicable rungs: under
+    /// <see cref="StatsSaveCapability.Enabled"/> the section shows even with zero
+    /// saved filters (you can save into it), but under
+    /// <see cref="StatsSaveCapability.PermissionDenied"/> — where saving is
+    /// disabled — an empty collection has nothing to load and nothing to save,
+    /// so the section is pure clutter and is hidden. Read-only therefore requires
+    /// at least one saved filter to render.
+    /// </para>
     /// </summary>
     private bool SavedFiltersApplicable =>
         Folder.HasFiles
-        && Folder.Capability is StatsSaveCapability.Enabled or StatsSaveCapability.PermissionDenied;
+        && (Folder.Capability == StatsSaveCapability.Enabled
+            || (Folder.Capability == StatsSaveCapability.PermissionDenied
+                && SavedFilters.Filters.Count > 0));
 
     /// <summary>
     /// Whether the saved-filters panel may persist (Save / Delete enabled).
