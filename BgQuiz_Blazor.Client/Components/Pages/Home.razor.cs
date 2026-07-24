@@ -220,6 +220,26 @@ public partial class Home : ComponentBase
                 && SavedFilters.Filters.Count > 0));
 
     /// <summary>
+    /// Whether the current pick has a saved-filters <i>context</i> whose degrade
+    /// state is worth reporting — a folder held, picked via a File System Access
+    /// mechanism (the only ones exposing a readable directory handle). Gates the
+    /// <see cref="SavedFiltersStatus.LoadFailed"/> / <see cref="SavedFiltersStatus.WriteFailed"/>
+    /// notices, which — unlike the panel — must <b>not</b> be suppressed by an
+    /// empty collection. A LoadFailed notice exists precisely to say the file
+    /// couldn't be read and has been left untouched, and LoadFailed always leaves
+    /// the in-memory collection empty, so folding the panel's empty-hiding rule
+    /// (<see cref="SavedFiltersApplicable"/>) in here would swallow that
+    /// data-protection notice every time it fires. WriteFailed is only reachable
+    /// under <see cref="StatsSaveCapability.Enabled"/> (persistence is disabled
+    /// under PermissionDenied, so no write is attempted), so it is unaffected by
+    /// the split either way — routing it here keeps the two degrade notices
+    /// symmetric.
+    /// </summary>
+    private bool SavedFiltersContextApplicable =>
+        Folder.HasFiles
+        && Folder.Capability is StatsSaveCapability.Enabled or StatsSaveCapability.PermissionDenied;
+
+    /// <summary>
     /// Whether the saved-filters panel may persist (Save / Delete enabled).
     /// Requires the writable grant (<see cref="StatsSaveCapability.Enabled"/>)
     /// and a healthy context: <see cref="StatsSaveCapability.PermissionDenied"/>

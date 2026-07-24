@@ -891,6 +891,32 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_FiltersPermissionDenied_LoadFailed_HidesPanelButShowsUntouchedNotice()
+    {
+        // Task Y split: the panel-offering rule (hide when empty) and the
+        // degrade-reporting rule (report a read failure) are separate concerns.
+        // Under a read-only pick whose read is genuinely withheld, the store
+        // degrades to LoadFailed with an empty collection — so the panel stays
+        // hidden (nothing to offer), but the "couldn't be read, left untouched"
+        // data-protection notice must still show. LoadFailed always implies an
+        // empty collection, so gating it on the panel's empty-hiding predicate
+        // would swallow it every time it fires.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
+        _folderAccess.FiltersReadException = new JSException("read withheld"); // → LoadFailed
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Empty(cut.FindAll("#saveFilterName")); // panel hidden (empty, can't save)
+        Assert.Contains(QuizFiltersFile.FileName, cut.Markup);
+        Assert.Contains("couldn't be read", cut.Markup); // the data-protection notice survives
+    }
+
+    [Fact]
     public void Home_PreAppliedFilterHolder_EnablesStartWithoutReApply()
     {
         // Navigate-back regression (filter half): the applied filter lives in the

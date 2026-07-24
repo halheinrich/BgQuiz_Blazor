@@ -185,8 +185,11 @@
 
     @* Corrupt/unreadable saved-filters file: replaces the panel. The file is
        preserved untouched (never overwritten), so this is a polite outcome, not
-       an error — role="status" like the other degrade notices. *@
-    @if (SavedFiltersApplicable && SavedFilters.Status == SavedFiltersStatus.LoadFailed)
+       an error — role="status" like the other degrade notices. Gated on the
+       context predicate, not the panel one: LoadFailed always leaves the
+       collection empty, so the panel's empty-hiding rule would swallow this
+       data-protection notice. *@
+    @if (SavedFiltersContextApplicable && SavedFilters.Status == SavedFiltersStatus.LoadFailed)
     {
         <div class="alert alert-warning mb-4" style="max-width:800px" role="status">
             Your saved-filters file (<strong>@QuizFiltersFile.FileName</strong>)
@@ -199,7 +202,7 @@
        edit is kept in memory for this session but no further writes are made.
        A degrade, not fatal — warning, but assertive (a save the user asked for
        didn't reach disk). *@
-    @if (SavedFiltersApplicable && SavedFilters.Status == SavedFiltersStatus.WriteFailed)
+    @if (SavedFiltersContextApplicable && SavedFilters.Status == SavedFiltersStatus.WriteFailed)
     {
         <div class="alert alert-warning mb-4" style="max-width:800px" role="alert">
             Couldn't save to <strong>@QuizFiltersFile.FileName</strong> — your
