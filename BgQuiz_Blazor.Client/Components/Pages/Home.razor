@@ -111,20 +111,6 @@
                     break;
             }
         }
-        @* Signal early (the weighted-mix half of the capability story): the
-           user holds a committed non-blank mix, and this pick can't provide
-           the lifetime stats it composes from — say so before Start, not at
-           it. The Start gate remains the backstop (an unreadable stats file
-           is only discoverable there). Polite: an advisory, not a failure. *@
-        @if (Folder.HasFiles
-             && Folder.Capability != StatsSaveCapability.Enabled
-             && !AppliedMix.Current.IsPassthrough)
-        {
-            <div class="alert alert-warning mt-2" role="status">
-                Your weighted mix composes from lifetime stats, which this pick
-                can't provide — Start will offer to run without the mix.
-            </div>
-        }
         @* Empty-folder outcome (not a failure): a completed pick that yielded
            no problem files. Polite, like the no-match notice. *@
         @if (_emptyFolderNotice)
@@ -233,9 +219,22 @@
         </div>
     }
 
-    <MixPanel OnMixApplied="HandleMixApplied"
-              OnMixRestored="HandleMixRestored"
-              OnMixDirty="HandleMixDirty" />
+    @* Weighted mix — offered only when the pick can provide the lifetime stats
+       it composes from (Task X). Under a no-stats pick the mix plays no part in
+       Start, so hiding the panel makes that true by construction (there is no way
+       to build a mix, and every pick resets any committed one — see
+       ApplyPickOutcomeAsync). Keyed on the pick generation so every pick
+       re-mounts it: the fresh mount's restore re-offers the persisted mix as
+       dirty (reconciled against the just-reset holder), which both enforces "no
+       committed mix silently survives a pick" and avoids a stale-rows-vs-
+       passthrough-holder divergence on a re-pick that wouldn't otherwise remount. *@
+    @if (Folder.Capability == StatsSaveCapability.Enabled)
+    {
+        <MixPanel @key="Folder.PickGeneration"
+                  OnMixApplied="HandleMixApplied"
+                  OnMixRestored="HandleMixRestored"
+                  OnMixDirty="HandleMixDirty" />
+    }
 
     @* Disabled — not rewritten — while a committed mix owns presentation
        order: ShuffleOption keeps the user's value, so clearing the mix

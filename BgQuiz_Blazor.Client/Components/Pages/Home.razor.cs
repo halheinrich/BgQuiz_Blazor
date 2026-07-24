@@ -18,7 +18,13 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// are gated behind <see cref="PickedProblemFolder.HasFiles"/> in the markup.
 /// Pre-pick there is nothing to filter, weight, or start, so hiding them keeps
 /// the required first step — picking a folder — unmistakable, and makes the
-/// filter-half of the start gate true by construction (no panel to apply).
+/// filter-half of the start gate true by construction (no panel to apply). The
+/// weighted mix carries a <i>further</i> gate: it renders only when the pick can
+/// provide the lifetime stats it composes from
+/// (<see cref="StatsSaveCapability.Enabled"/>). Under a no-stats pick the mix
+/// plays no part in Start — the panel is hidden and every pick resets any
+/// committed mix to passthrough (see <see cref="ApplyPickOutcomeAsync"/>), so
+/// Start runs plain with no mix gate, warning, or refusal.
 /// </para>
 ///
 /// <para>
@@ -375,6 +381,15 @@ public partial class Home : ComponentBase
     private async Task ApplyPickOutcomeAsync(FolderPickOutcome outcome)
     {
         if (outcome.Cancelled) return;
+
+        // Every (non-cancelled) pick starts a fresh setup, so it clears any
+        // committed mix (Task X): under a no-stats pick the mix must play no
+        // part in Start, and under an Enabled pick the re-mounted panel re-offers
+        // the stored config as dirty. localStorage is untouched, so the panel's
+        // restore can still re-show it. This is what makes the removed
+        // "your mix can't be provided" advisory unreachable — a stats-less pick
+        // can never coexist with a committed non-blank mix.
+        AppliedMix.Reset();
 
         if (outcome.Files.Count == 0)
         {

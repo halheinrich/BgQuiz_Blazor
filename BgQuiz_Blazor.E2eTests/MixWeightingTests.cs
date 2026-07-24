@@ -69,31 +69,38 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
 }
 
 /// <summary>
-/// The no-stats refusal ruling, end to end on the fallback rung: a
-/// <c>webkitdirectory</c> pick can never provide lifetime stats, so a
-/// committed mix draws the early advisory, Start is refused with the
-/// actionable notice, and the one-click override runs the quiz unweighted —
-/// never a silent unweighted substitution. No FS-Access fake here: like the
-/// migrated flow scenarios, this drives the app's real fallback pick path.
+/// The weighted-start refusal ruling at its post-X reachable path. Task X
+/// offers the mix <i>only</i> for an Enabled (File System Access) pick — a
+/// stats-less pick hides the panel entirely — so a committed mix can meet
+/// absent stats in exactly one way: an Enabled pick whose existing
+/// <c>bgquiz-stats.json</c> is unreadable. The capability peek passes (write was
+/// granted), but the bind reads no document, so Start is refused with the
+/// actionable notice and the one-click override runs the quiz unweighted —
+/// never a silent unweighted substitution. Rides the FS-Access fake with a
+/// corrupt stats file injected per scenario (the old fallback-pick refusal is
+/// no longer reachable through the UI).
 /// </summary>
-public sealed class MixRefusalTests : E2eTestBase
+public sealed class MixRefusalTests : FsAccessFakeTestBase
 {
     public MixRefusalTests(PublishedAppFixture app, PlaywrightFixture playwright)
         : base(app, playwright) { }
 
     [Fact]
-    public async Task FallbackPick_WithCommittedMix_AdvisesThenRefuses_OverrideRunsUnweighted()
+    public async Task EnabledPickUnreadableStats_WithCommittedMix_Refuses_OverrideRunsUnweighted()
     {
+        // An existing stats file the converter must reject: the capability peek
+        // still passes (write granted), but the bind reads no document, so a
+        // committed mix is refused at the stage-2 check.
+        await Page.AddInitScriptAsync("window.__statsFake.statsJson = 'not json at all';");
+
         await BootHomeAsync();
-        await PickFixtureAsync(CubeFixture); // read-only by construction — no stats rung
+        await PickFakeFolderAsync();
         await ApplyFilterAsync();
         await AddDefaultMixRowAsync();
         await ApplyMixAsync();
 
-        // Signal early: the advisory renders before any Start attempt.
-        await Expect(Page.GetByText("Start will offer to run without the mix")).ToBeVisibleAsync();
-
-        // Gate late: Start is refused with the actionable notice; no navigation.
+        // The pick CAN provide stats (Enabled), so there is no early advisory —
+        // the unreadable file is discovered only at Start.
         await Expect(StartButton).ToBeEnabledAsync();
         await StartButton.ClickAsync();
         await Expect(Page.GetByText("weighted mix can't be applied")).ToBeVisibleAsync();

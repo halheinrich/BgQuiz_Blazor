@@ -2882,7 +2882,7 @@ public class PageTests : BunitContext
     public async Task Home_DirtyMix_DisablesStart_UntilApplied()
     {
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder();
+        WithPickedFolder(capability: StatsSaveCapability.Enabled); // mix panel is Enabled-gated (Task X)
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
@@ -2908,7 +2908,7 @@ public class PageTests : BunitContext
         // fix), which clears AppliedMix's dirty flag so Start re-enables — no
         // separate Reset click needed.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder();
+        WithPickedFolder(capability: StatsSaveCapability.Enabled); // mix panel is Enabled-gated (Task X)
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
@@ -3045,16 +3045,23 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_WeightedStartWithoutStats_RefusedWithNotice_OverrideRunsPassthrough()
+    public async Task Home_WeightedStart_EnabledButUnreadableStats_Refused_OverrideRunsPassthrough()
     {
-        // The ratified no-stats ruling end-to-end: Start with a committed mix
-        // and no stats capability refuses (no navigation, no quiz), renders
-        // the actionable notice, and its one-click override starts THIS quiz
-        // unweighted while the holder's mix survives for next time.
+        // The refusal ruling at its post-X reachable path. Under X the mix is
+        // offered ONLY for an Enabled pick, so a committed mix can meet absent
+        // stats in exactly one way: an Enabled pick whose stats file is
+        // unreadable (the capability peek passes — stage 1 — but the bind yields
+        // no document — stage 2). Start refuses with the actionable notice, no
+        // navigation; the one-click override starts THIS quiz unweighted while
+        // the stored mix survives. (The stage-1 no-capability refusal is now
+        // UI-unreachable — no committed mix can coexist with a no-stats pick, see
+        // Home_MixCommittedThenRepickNoStats — and stays covered at the
+        // controller layer.)
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        sink.CanBindStats = false;
-        WithPickedFolder(); // fallback pick — BrowserUnsupported
+        sink.CanBindStats = true;    // capability peek passes (stage 1)
+        sink.CurrentDocument = null; // ...but the bind yields no document (stage 2: unreadable file)
+        WithPickedFolder(capability: StatsSaveCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix(NeverSeenMix());
@@ -3065,7 +3072,6 @@ public class PageTests : BunitContext
 
         Assert.False(c.HasStarted);
         Assert.Contains("weighted mix can't be applied", cut.Markup);
-        Assert.Contains("can't save stats in your browser", cut.Markup); // capability-derived reason
         var nav = Services.GetRequiredService<BunitNavigationManager>();
         Assert.DoesNotContain("/quiz", nav.Uri);
 
@@ -3078,33 +3084,121 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public void Home_EarlyAdvisory_RendersOnlyForStatslessPickWithActiveMix()
+    public async Task Home_NoStatsPick_MixPanelHidden_StartRunsPassthrough()
     {
-        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(); // BrowserUnsupported — can't provide stats
+        // Task X: a no-stats pick can't provide the lifetime stats the mix
+        // composes from, so the mix panel isn't offered at all. With no way to
+        // build a mix (and every pick resetting any committed one), the mix plays
+        // no part in Start — it runs plain: no panel, no mix gate, passthrough.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
-        WithAppliedMix(NeverSeenMix());
+        WithAppliedMix();
         JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.BrowserUnsupported);
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        Assert.Contains("Start will offer to run without the mix", cut.Markup);
+        Assert.Empty(cut.FindComponents<MixPanelComponent>()); // no mix panel
+        var startBtn = StartButton(cut);
+        Assert.False(startBtn.HasAttribute("disabled")); // enabled, not mix-gated
+        Assert.DoesNotContain("Apply or reset the mix", cut.Markup);
+
+        await startBtn.ClickAsync(new());
+
+        Assert.True(c.HasStarted);
+        Assert.Null(c.LastComposition); // passthrough — no composition
+        Assert.EndsWith("/quiz", nav.Uri);
     }
 
     [Fact]
-    public void Home_EarlyAdvisory_AbsentWithBlankMix()
+    public async Task Home_MixCommittedThenRepickNoStats_ClearsMix_NoRefusal()
     {
-        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder();
+        // Task X unreachability proof (why the early "your mix can't be provided"
+        // advisory was removable): commit a mix under an Enabled pick, then
+        // re-pick a no-stats folder. Every pick resets the committed mix, and the
+        // no-stats pick hides the panel — so a stats-less pick can never coexist
+        // with a committed non-blank mix, the exact state that advisory reported.
+        // Start then runs plain, with no refusal.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
-        WithAppliedMix(); // blank
+        var holder = WithAppliedMix();
         JSInterop.Mode = JSRuntimeMode.Loose;
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<HomePage>();
 
-        Assert.DoesNotContain("Start will offer to run without the mix", cut.Markup);
+        // Enabled pick → panel shows; commit a mix through the wire.
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        var panel = cut.FindComponent<MixPanelComponent>();
+        await cut.InvokeAsync(() => panel.Instance.OnMixApplied.InvokeAsync(NeverSeenMix()));
+        Assert.False(holder.Current.IsPassthrough); // committed
+
+        // Re-pick a no-stats folder → the pick resets the committed mix; the panel hides.
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.BrowserUnsupported);
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.True(holder.Current.IsPassthrough); // mix cleared by the pick
+        Assert.False(holder.IsDirty);
+        Assert.Empty(cut.FindComponents<MixPanelComponent>()); // panel hidden
+
+        // Start runs plain — no refusal, no composition.
+        await StartButton(cut).ClickAsync(new());
+        Assert.True(c.HasStarted);
+        Assert.Null(c.LastComposition);
+        Assert.DoesNotContain("weighted mix can't be applied", cut.Markup);
+        Assert.EndsWith("/quiz", nav.Uri);
+    }
+
+    [Fact]
+    public async Task Home_MixSurfaceAcrossPickRepickClear_NeverDiverges()
+    {
+        // The X + W-refinement wire across all three transitions (the flagged
+        // re-restore lifecycle). With a persisted mix in localStorage:
+        //  • pick (Enabled): panel mounts, restore re-offers it as dirty.
+        //  • Apply: committed, un-gated.
+        //  • re-pick (Enabled): the pick resets the committed mix AND the keyed
+        //    panel re-mounts — its restore re-offers the persisted mix as dirty
+        //    (reconciled against the reset holder), so the panel never shows rows
+        //    while the holder sits committed-passthrough (the divergence a
+        //    non-remounting re-pick would leave).
+        //  • Clear: the whole mix surface vanishes; nothing to Start.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        var holder = WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        JSInterop.Setup<string?>("localStorage.getItem", MixPanelComponent.MixKey)
+            .SetResult(NeverSeenMix().ToJson()); // persisted from a prior session
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+
+        var cut = Render<HomePage>();
+
+        // Pick: panel mounts, restore re-offers the persisted mix as dirty.
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        Assert.NotEmpty(cut.FindAll(".mix-row"));
+        Assert.True(holder.IsDirty);
+
+        // Apply: committed, un-gated.
+        await cut.Find("#mixApply").ClickAsync(new());
+        Assert.False(holder.IsDirty);
+        Assert.False(holder.Current.IsPassthrough);
+
+        // Re-pick (Enabled): reset + keyed re-mount → re-offered as dirty.
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        Assert.NotEmpty(cut.FindAll(".mix-row"));  // panel re-shows the persisted mix
+        Assert.True(holder.Current.IsPassthrough);  // committed mix reset by the pick
+        Assert.True(holder.IsDirty);                // ...and re-offered as dirty (no divergence)
+        Assert.True(StartButton(cut).HasAttribute("disabled")); // Start re-gated
+
+        // Clear: the mix surface (and Start) vanish entirely.
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear").ClickAsync(new());
+        Assert.Empty(cut.FindComponents<MixPanelComponent>());
+        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Start Quiz");
     }
 
     [Fact]
@@ -3139,7 +3233,7 @@ public class PageTests : BunitContext
         // committed mix owns order, but ShuffleOption keeps the user's value,
         // so clearing the mix (apply blank) restores the prior preference.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder();
+        WithPickedFolder(capability: StatsSaveCapability.Enabled); // mix panel is Enabled-gated (Task X)
         WithAppliedFilter(new FilterConfig());
         var shuffle = WithShuffleOption(enabled: true);
         WithAppliedMix(NeverSeenMix());

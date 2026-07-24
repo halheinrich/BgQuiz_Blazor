@@ -70,4 +70,20 @@ internal sealed class AppliedMix
 
     /// <summary>Record an uncommitted edit; cleared by the next <see cref="Apply"/>.</summary>
     public void MarkDirty() => IsDirty = true;
+
+    /// <summary>
+    /// Reset to the passthrough default and clear any dirty state — the
+    /// committed-mix analogue of a fresh setup. Called on every folder pick
+    /// (<c>Home.ApplyPickOutcomeAsync</c>) so no committed mix silently survives
+    /// a re-pick: under a no-stats pick the mix must play no part in Start, and
+    /// under an <see cref="StatsSaveCapability.Enabled"/> pick the re-mounted
+    /// panel re-offers the persisted config as dirty (reconciled against this
+    /// now-passthrough state). Does not touch localStorage — the stored mix
+    /// survives for the panel to re-offer.
+    /// </summary>
+    public void Reset()
+    {
+        Current = QuizMix.Empty;
+        IsDirty = false;
+    }
 }
