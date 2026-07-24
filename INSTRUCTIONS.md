@@ -219,7 +219,8 @@ directive — that is how interactivity is set under WASM (see Render mode).
 ```
 /        Home.razor    → "Choose folder…" pick; then (disclosed once files are
                           picked) SavedFilters + FilterPanel + "N match" count +
-                          MixPanel + "Shuffle order" checkbox + Start Quiz button
+                          MixPanel (Enabled picks only) + "Shuffle order"
+                          checkbox + Start Quiz button
                           on Start: Controller.StartAsync(filters, mix) — which
                           binds the lifetime-stats context (promote + load) and,
                           for a non-blank mix, composes the quiz from lifetime
@@ -559,9 +560,11 @@ One "pick a folder" gesture on `Home`, served by whichever mechanism the
 browser offers — probed **at pick time**, per gesture:
 
 - **File System Access** (`showDirectoryPicker`, Chromium): native directory
-  picker, then a `requestPermission({mode:'readwrite'})` on the picked handle.
-  Granted ⇒ `StatsSaveCapability.Enabled` — lifetime stats save into the
-  folder; declined ⇒ `PermissionDenied` — quiz runs read-only.
+  picker, then a `requestPermission({mode:'readwrite'})` on the picked handle —
+  **two prompts, deliberately** (see Pitfalls). Granted ⇒
+  `StatsSaveCapability.Enabled` — lifetime stats save into the folder; declined
+  ⇒ `PermissionDenied` — the handle stays readable, so the file list loads and
+  the quiz runs read-only.
 - **`webkitdirectory` fallback** (everywhere else): a hidden
   `<input type="file" webkitdirectory>` opened by the same button. Read-only
   by construction ⇒ `BrowserUnsupported` — quiz runs without stats.
@@ -656,11 +659,23 @@ writes) / `WriteFailed` (in-memory kept, writes stop) / `Disabled` (no FS pick).
 The `SavedFiltersPanel` (XgFilter_Razor) is persistence-agnostic — it raises
 load/save/delete *requests* and Home mediates them; the store owns every
 document mutation (Home never calls `With`/`Without` itself). Home's capability
-mapping: `Enabled` → full panel; `PermissionDenied` → load-only
-(`CanPersist=false` + reason — the pick gesture grants read without the
-readwrite grant, and the read-failure-tolerant `LoadFailed` path keeps that
-assumption from being load-bearing); `BrowserUnsupported` → no panel (the
-fallback can't see the file). Save-as of an unparseable position pattern is
+mapping: `Enabled` → full panel, **even with zero saved filters** (you can save
+into it); `PermissionDenied` → load-only (`CanPersist=false` + a reason naming
+both barred gestures, "loaded but not changed or deleted" — the pick gesture
+grants read without the readwrite grant, and the read-failure-tolerant
+`LoadFailed` path keeps that assumption from being load-bearing) **and only when
+at least one filter is saved** — read-only with an empty collection can neither
+load nor save, so the section is pure clutter and is hidden;
+`BrowserUnsupported` → no panel (the fallback can't see the file).
+
+**Two predicates, deliberately.** `SavedFiltersApplicable` (the rule above)
+gates the *panel offering* and its load-only reason.
+`SavedFiltersContextApplicable` — the plain "a folder is held and it was picked
+via a File System Access mechanism" test — gates the `LoadFailed` /
+`WriteFailed` *degrade notices*. Emptiness must not suppress those: `LoadFailed`
+always leaves the in-memory collection empty, so gating it on the panel's
+empty-hiding rule would swallow the "your file couldn't be read, it's been left
+untouched" notice every time it fires (see Pitfalls). Save-as of an unparseable position pattern is
 refused by `FilterPanel.TryGetEditedConfig` (exactly Apply's gate) and Home
 surfaces the refusal as a notice — the panel already cleared its typed name
 optimistically, so a silent no-op would read as a lost save.
@@ -768,24 +783,50 @@ apply of `QuizMix.Empty` through the shared `GoBlankAsync`, the sanctioned way
 this panel writes Empty over a stored mix; the last-row case closes the wedge
 where a mix edited down to zero rows stayed `IsDirty` while Apply was disabled
 at zero rows — only Reset cleared it, so Start was stranded), `OnMixDirty` per
-other edit — with one deliberate divergence: the
-first-render localStorage restore raises **`OnMixRestored`**, and Home
-*adopts* it into the holder. A persisted mix is by construction a
-previously-applied one, so holder and rendered rows agree without a re-Apply
-(the filter panel's restore deliberately raises nothing because its
-"applied" means a gesture in *this* visit). Both wiring-critical callbacks
-are `[EditorRequired]`. Persistence is the lib trio over one key,
-**`xg_quizMix`**: `ToJson` on Apply, `TryFromJson` on restore —
-absent/corrupt yields a blank builder, never an error; the component never
-touches a JSON serializer.
+other edit. The first-render localStorage restore raises **`OnMixRestored`**
+carrying the restored mix, and Home ***reconciles*** it against the holder — it
+does **not** adopt it (the former adopt-on-restore silently committed the stored
+mix; removed in finding W). Home marks the mix dirty only when the restore is
+non-passthrough **and** `AppliedMix.Current` is still passthrough — a fresh
+load, where the shown-but-uncommitted mix must gate so Start can't run
+passthrough while a mix is displayed. When a committed mix already survives in
+the holder (navigate-back), the restore is left untouched, so no re-Apply is
+forced. No content-equality is needed: Start requires `!IsDirty`, so a surviving
+committed mix was either Applied (holder non-passthrough) or Reset/left blank
+(holder passthrough *and* localStorage Empty, so the restore is passthrough
+too). Both wiring-critical callbacks are `[EditorRequired]`. Persistence is the
+lib trio over one key, **`xg_quizMix`**: `ToJson` on Apply, `TryFromJson` on
+restore — absent/corrupt yields a blank builder, never an error; the component
+never touches a JSON serializer.
+
+**Offered only when the pick can provide stats (finding X).** Home renders
+`MixPanel` only for `StatsSaveCapability.Enabled`. The mix composes from
+lifetime stats, so under any other rung it has no valid role: the panel is
+hidden, there is no way to build a mix, and **every pick resets `AppliedMix` to
+passthrough+clean** (`AppliedMix.Reset()` in `ApplyPickOutcomeAsync`; Clear does
+the same, so the invariant is "no pick → passthrough"). Together those make a
+stats-less pick unable to coexist with a committed non-blank mix — which is what
+retired the old early won't-apply advisory. The panel is **`@key`-ed on
+`PickedProblemFolder.PickGeneration`** so every pick re-mounts it: the fresh
+mount's restore re-offers the persisted config as dirty (reconciled against the
+just-reset holder). That key is load-bearing — an Enabled→Enabled re-pick keeps
+both the capability and `HasFiles` true, so without it the panel would stay
+mounted showing stale rows while the holder sat passthrough-clean, leaving Start
+un-gated over a displayed mix.
 
 **`AppliedMix`** (Quiz/) is the committed-mix holder beside `AppliedFilter`:
-`Current` (default `QuizMix.Empty`) + `IsDirty`. Blank is the valid default,
-so there is no "never applied blocks Start" state — only dirtiness gates
+`Current` (default `QuizMix.Empty`) + `IsDirty` + `Reset()`. Blank is the valid
+default, so there is no "never applied blocks Start" state — only dirtiness gates
 (`CanStart` requires `!AppliedMix.IsDirty`), preventing Start from running a
-mix that differs from what the panel shows. Scoped for navigate-back
-survival like its siblings; unlike them the underlying choice also survives
-a reload (localStorage) and re-adopts on the next boot.
+mix that differs from what the panel shows. The two start-gate halves block by
+**different mechanisms**, because their defaults differ: the filter blocks via
+not-yet-applied (it has no valid default), the mix via dirty (passthrough *is*
+its valid default, so "never applied" can't be the gate). `Current` is
+pick-coupled (reset on every pick and on Clear); `AppliedFilter` is
+edit-coupled and deliberately is not. Scoped for navigate-back survival like its
+siblings; unlike them the underlying choice also survives a reload
+(localStorage), and the panel re-shows it — as a dirty, uncommitted mix — on the
+next boot.
 
 **`MixDisplay`** (Quiz/) is the wording SSOT: kind labels (the panel's
 picker), full category labels (the Quiz page's mix notices), the
@@ -795,14 +836,19 @@ actual draw in declared order, zero-draw entries included), and the
 refusal reason (Home's Start and Done's Restart render the same
 capability/status rule — neither page hand-words it).
 
-**Honest notices, all four.** (1) *Signal early*: Home shows a polite
-advisory the moment a stats-less pick coexists with a committed non-blank
-mix — before Start. (2) *Gate late*: a refused weighted Start/Restart
-renders an actionable `role="alert"` with the reason and the one-click
-per-run override ("Start without mix" / "Restart without mix"); the stored
-mix is kept either way, and the notice says so. (3) *Composed-to-zero*:
+**Honest notices, all three.** (There were four: the *signal early*
+won't-apply advisory — shown when a stats-less pick coexisted with a committed
+non-blank mix — was removed by finding X, which made that state unreachable.
+Don't re-add it: under X a stats-less pick hides the panel and every pick resets
+the holder, so the advisory has no trigger left.) (1) *Gate late*: a refused
+weighted Start/Restart renders an actionable `role="alert"` with the reason and
+the one-click per-run override ("Start without mix" / "Restart without mix");
+the stored mix is kept either way, and the notice says so. Post-X the reachable
+refusal is **stage 2** — an `Enabled` pick whose stats file is unreadable —
+since stage 1 (no capability) can no longer meet a committed mix through the UI.
+(2) *Composed-to-zero*:
 Home's empty-result branch keys on `LastComposition is { DrawnCount: 0 }`
-for mix-aware wording, parallel to filtered-to-zero. (4) *Composition-first
+for mix-aware wording, parallel to filtered-to-zero. (3) *Composition-first
 mix notices on Quiz* (the Finding (M) redesign): every mix notice leads with
 the effective quiz — `MixDisplay.CompositionSummary` over
 `Controller.LastComposition` — before any apportionment internals. A
@@ -932,7 +978,10 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   once `Folder.HasFiles`; pre-pick the page shows just the pick controls and
   their status notices. Hiding what has nothing to act on yet keeps the required
   first step unmistakable and makes the filter half of the gate true by
-  construction (no panel to apply pre-pick). The wrapping `@if (Folder.HasFiles)`
+  construction (no panel to apply pre-pick). The `MixPanel` carries a *second*
+  gate on top of that one — it renders only for a `StatsSaveCapability.Enabled`
+  pick (see the `MixPanel`/`AppliedMix` section); the shuffle checkbox does not,
+  being presentation-only and stats-independent. The wrapping `@if (Folder.HasFiles)`
   follows the enclosing `<fieldset>`'s whole-surface convention (no body
   re-indent). Start is gated on **three** conditions, all read from per-app
   scoped holders so the gate survives navigation: filters Applied at least once,
@@ -947,9 +996,11 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   first count after a pick parses the corpus once (warming the cache so Start is
   then instant), so `_isCounting` folds into the same busy boundary as the
   transition gate (below) — which also serializes the count against a Start.
-  Below that sits the **`MixPanel`** (its three callbacks land in
-  `AppliedMix`: Apply/restore → `Apply`, dirty → `MarkDirty`; see the
-  `MixPanel`/`AppliedMix` section), then a **"Shuffle order" checkbox** bound
+  Below that sits the **`MixPanel`** — rendered only for an `Enabled` pick and
+  `@key`-ed on `Folder.PickGeneration`; its three callbacks land in
+  `AppliedMix` (Apply → `Apply`, dirty → `MarkDirty`, restore → a *reconcile*
+  that marks dirty only on a fresh load; see the
+  `MixPanel`/`AppliedMix` section) — then a **"Shuffle order" checkbox** bound
   to the `ShuffleOption` holder (`HandleShuffleToggled` → `ShuffleOption.Set`).
   It is presentation-only and **not** part of `CanStart` — toggling it never
   gates or dirties Start; the source factory reads it live at Start to decide
@@ -961,9 +1012,10 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   leaves prior state, including a stale `IsFinished`): `MixRequiresStats`
   renders the actionable refusal alert (`_mixRefused`, reason via
   `MixDisplay.RefusalReason`, the "Start without mix" per-run override, a
-  pointer to the panel's Reset), the mix-aware composed-to-zero wording rides
-  the existing no-match branch, and the early won't-apply advisory renders
-  from pick capability × committed mix with no Start needed.
+  pointer to the panel's Reset), and the mix-aware composed-to-zero wording
+  rides the existing no-match branch. Under a no-stats pick none of that can
+  fire: the mix panel is hidden and the pick reset `AppliedMix` to passthrough,
+  so Start runs plain — no mix gate, warning, or refusal.
   **Busy affordances:** the whole setup surface (pick controls, both panels,
   shuffle, Start, the refusal override) sits inside one
   `<fieldset disabled="@(Controller.IsBusy || _isCounting)">` — the native
@@ -1277,9 +1329,15 @@ captured — the weighted run still records); and the composed-to-zero
 scenario runs a blank-mix quiz first, **feeds the app's own captured write
 back** as the pre-existing stats file (no hand-crafted wire format, no
 decision-id knowledge), then starts weighted and asserts the mix-aware zero
-notice with no 0/0 bounce. `MixRefusalTests` (no fake — the real fallback
-pick, like the migrated flow scenarios) pins the no-stats ruling end to end:
-early advisory → refused Start → "Start without mix" override → Done.
+notice with no 0/0 bounce. `MixRefusalTests` rides the same fake and pins the
+refusal ruling at its **post-X reachable path**: an `Enabled` pick whose
+existing stats file is corrupt (injected per scenario) — the capability peek
+passes, the bind reads no document, so a committed mix is refused at stage 2 →
+"Start without mix" override → Done. It used to drive the real *fallback* pick
+(no stats rung, stage-1 refusal); finding X made that unreachable, since the mix
+panel is offered only for an `Enabled` pick and every pick resets the committed
+mix. Don't move it back to the fallback rung — there is no way to commit a mix
+there any more.
 
 **Fail loud, never skip.** Missing Playwright browsers, a missing committed
 fixture, a publish failure, a port-bind or readiness failure — each fails the
@@ -1480,10 +1538,43 @@ the route map:
   auto-skipped pass positions never reach the sink at all (producer contract).
 - **Never silently clear or rewrite the stored `QuizMix`.** The persisted mix
   (`xg_quizMix`) outlives any session that can't honor it: a refused weighted
-  start, the per-run "Start/Restart without mix" override, and a corrupt
-  restore all leave it untouched (corrupt just yields a blank *builder*). The
+  start, the per-run "Start/Restart without mix" override, a corrupt restore,
+  and the pick/Clear resets of `AppliedMix` all leave it untouched (corrupt just
+  yields a blank *builder*; the resets touch only the in-memory holder). The
   one sanctioned overwrite is the panel's own Apply/Reset — an explicit user
   gesture. Same spirit as the never-overwrite-unreadable-stats rule below.
+- **The mix restore reconciles; it must never adopt.** The panel's first-render
+  restore raises `OnMixRestored`, and Home marks the mix dirty **only** when the
+  restore is non-passthrough *and* `AppliedMix.Current` is still passthrough.
+  Both halves are load-bearing. Drop the second and every navigate-back re-gates
+  a mix the user already applied. Make it adopt (the pre-W behavior — commit the
+  restored mix straight into the holder) and a persisted mix silently becomes
+  committed with no user gesture, which is what let a stats-less pick inherit
+  one. And it can't simply raise nothing the way `FilterPanel`'s restore does:
+  the filter's default already blocks Start (`IsApplied` false), whereas the
+  mix's passthrough default does *not*, so a silent restore would leave rows
+  showing while Start ran passthrough.
+- **`MixPanel`'s `@key` on `PickGeneration` is load-bearing — don't drop it.**
+  An Enabled→Enabled re-pick leaves both the capability gate and `HasFiles`
+  true, so without the key the panel never re-mounts, its first-render restore
+  never re-fires, and it keeps showing the previous pick's rows while
+  `ApplyPickOutcomeAsync` has just reset `AppliedMix` to passthrough+clean —
+  Start un-gated over a displayed mix, the exact divergence the dirty machinery
+  exists to prevent. The key forces the re-mount, and the reconcile then
+  re-offers the persisted config as dirty.
+- **Don't collapse the FS-Access pick to a single prompt.**
+  `showDirectoryPicker({ mode: 'readwrite' })` looks like a free UX win (one
+  prompt instead of the pick-then-`requestPermission` pair) and reads as an
+  equivalent contract. It is not: **tried and reverted 2026-07-24** — observed
+  in real Chrome, declining that single readwrite prompt aborts the *whole*
+  pick (`AbortError`, which `pickDirectory` maps to `cancelled`), returning the
+  app to its initial "Choose folder…" state with no folder and no read handle.
+  That destroys the `PermissionDenied` rung — decline write, file list still
+  loads, quiz runs without stats — which is a deliberate degrade, not an
+  accident. The two-prompt flow is retained deliberately; the full rationale
+  lives in the comment above `pickDirectory`. (Finding V's actual concern — the
+  prompt being missed in a busy UI — is already met by progressive disclosure
+  plus the in-page "check your browser" guidance, so a collapse buys nothing.)
 - **A refused weighted start touches no quiz state — check the outcome before
   `IsFinished`.** `StartAsync`/`RestartAsync` returning `MixRequiresStats`
   leaves the prior quiz (enumerator, scores, `Current`, `IsFinished`) and the
@@ -1574,6 +1665,15 @@ the route map:
   without the readwrite grant) is ever false in some browser, the store degrades
   to the notice instead of the panel, never worse. Keep the `SavedFiltersStore`
   and page tests that pin the zero-writes half.
+- **Don't gate the saved-filters degrade notices on the panel's empty rule.**
+  Home carries two predicates on purpose: `SavedFiltersApplicable` (panel
+  offering — hides a read-only section with nothing to load) and
+  `SavedFiltersContextApplicable` (degrade reporting). Collapsing them back into
+  one looks like tidy de-duplication and is a correctness bug: `LoadFailed`
+  always leaves the collection empty, so the panel's "hide when read-only and
+  empty" rule would suppress the "couldn't be read, left untouched"
+  data-protection notice **every time it fires** — exactly when the user most
+  needs it. Emptiness is irrelevant to whether a failure gets reported.
 - **The parse cache must stay unfiltered, holder-homed, and
   generation-guarded.** `PickedProblemFolder.ParsedDecisions` is the parse of
   the *whole* pick with no filters — caching a filtered parse would silently
