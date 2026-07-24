@@ -7,11 +7,12 @@
    plus the Random-order toggle and an optional quiz length. Raises OnMixApplied
    on Apply, on Reset, and when the last row is removed (Reset and last-row
    removal both being an explicit apply of the blank mix); raises OnMixDirty on
-   every other control change — and once after a non-passthrough first-render
-   localStorage restore, which hydrates the panel without committing (a restored
-   mix must be re-Applied before Start uses it, mirroring the FilterPanel) — so
-   the parent can gate Start until Apply. Row order is semantic — earlier rows
-   win contested overlap (producer contract) — hence the explicit ↑/↓ affordance.
+   every other control change so the parent can gate Start until Apply. The
+   first-render localStorage restore hydrates the panel and raises OnMixRestored
+   so the parent reconciles it against the committed-mix holder (gate on a fresh
+   load, leave a surviving committed mix untouched on navigate-back) — it never
+   commits. Row order is semantic — earlier rows win contested overlap (producer
+   contract) — hence the explicit ↑/↓ affordance.
    State persists as one QuizMix blob (xg_quizMix) via the lib's
    ToJson / TryFromJson; this component never touches a JSON serializer.
 ──────────────────────────────────────────────────────────────────────────── *@

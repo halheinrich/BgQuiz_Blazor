@@ -2930,13 +2930,14 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_MixRestore_NonEmpty_HydratesDirty_GatesStartUntilApplied()
+    public async Task Home_MixRestore_FreshLoad_HydratesDirty_GatesStartUntilApplied()
     {
-        // W: a persisted non-blank mix restores into the panel for convenience
-        // but is NOT adopted — it arrives dirty, so AppliedMix stays passthrough
-        // and Start gates until the user re-Applies (mirroring the FilterPanel).
-        // Driven through the real MixPanel restore (localStorage → panel), not a
-        // synthetic event, so it pins the parent → MixPanel → AppliedMix wire.
+        // W, fresh-load arm: the holder is at its passthrough default (a cold
+        // boot / reload), so a persisted non-blank mix restores into the panel
+        // for convenience but is NOT adopted — the reconcile gates Start (dirty)
+        // so it can't run passthrough while a mix is displayed. Driven through the
+        // real MixPanel restore (localStorage → panel → OnMixRestored → holder),
+        // not a synthetic event, so it pins the whole wire.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: StatsSaveCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
@@ -3010,6 +3011,35 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
 
         Assert.Empty(cut.FindAll(".mix-row"));
+        Assert.False(holder.IsDirty);
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public void Home_MixRestore_NavigateBack_CommittedMix_NoReGate()
+    {
+        // W-refinement, navigate-back arm: the Scoped AppliedMix survives in-app
+        // navigation already holding a committed mix. Re-mounting Home (as on
+        // navigate-back) re-fires the panel restore, but the reconcile sees the
+        // holder is NOT passthrough and leaves it untouched — no spurious
+        // re-gate, so the user needn't re-Apply what they already applied. This
+        // is the whole point of the refinement over plain restore-as-dirty; the
+        // fresh-load arm above is the fails-without contrast (it DOES gate).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        var holder = WithAppliedMix(NeverSeenMix()); // committed earlier this session
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        JSInterop.Setup<string?>("localStorage.getItem", MixPanelComponent.MixKey)
+            .SetResult(NeverSeenMix().ToJson()); // localStorage matches the committed mix
+
+        var cut = Render<HomePage>();
+
+        // Panel re-shows the rows, but the holder stays committed + clean and
+        // Start stays enabled — no re-Apply forced.
+        Assert.NotEmpty(cut.FindAll(".mix-row"));
+        Assert.False(holder.Current.IsPassthrough);
         Assert.False(holder.IsDirty);
         Assert.False(StartButton(cut).HasAttribute("disabled"));
     }

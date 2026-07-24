@@ -8,8 +8,9 @@ using BgGame_Lib;
 /// mix sibling of <see cref="AppliedFilter"/>, completing the start gate's
 /// composition half. <c>Home.razor</c> writes it from the mix panel's events
 /// (<c>OnMixApplied</c> → <see cref="Apply"/>, <c>OnMixDirty</c> →
-/// <see cref="MarkDirty"/>); <c>Home</c> reads <see cref="Current"/> at Start
-/// and <see cref="IsDirty"/> in its gate.
+/// <see cref="MarkDirty"/>, and <c>OnMixRestored</c> → a reconcile that marks
+/// <see cref="MarkDirty"/> only on a fresh load); <c>Home</c> reads
+/// <see cref="Current"/> at Start and <see cref="IsDirty"/> in its gate.
 ///
 /// <para>
 /// <b>Semantics differ from <see cref="AppliedFilter"/> deliberately.</b> The
@@ -18,12 +19,15 @@ using BgGame_Lib;
 /// <see cref="IsDirty"/> gates (an edited, uncommitted mix would silently
 /// diverge from what Start uses — the same hazard the filter gate guards).
 /// The panel's localStorage restore does <b>not</b> adopt here: like the
-/// filter panel it re-shows the persisted rows without committing them, so a
-/// restored non-blank mix arrives as <see cref="IsDirty"/> and Start gates
-/// until the user re-Applies. The two start-gate halves therefore block by
-/// different mechanisms, because their defaults differ: the filter blocks via
-/// not-yet-applied (it has no valid default), the mix via dirty (passthrough is
-/// its valid default, so "never applied" can't be the gate).
+/// filter panel it re-shows the persisted rows without committing them.
+/// <c>Home</c> <i>reconciles</i> the restore against this holder — a non-blank
+/// restore marks <see cref="IsDirty"/> only when <see cref="Current"/> is still
+/// passthrough (a fresh load, so Start gates until the user re-Applies); when a
+/// committed mix already survives here (navigate-back), the restore is left
+/// untouched, so no re-Apply is forced. The two start-gate halves therefore
+/// block by different mechanisms, because their defaults differ: the filter
+/// blocks via not-yet-applied (it has no valid default), the mix via dirty
+/// (passthrough is its valid default, so "never applied" can't be the gate).
 /// </para>
 ///
 /// <para>

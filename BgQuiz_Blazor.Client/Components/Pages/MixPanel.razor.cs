@@ -14,18 +14,20 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <see cref="QuizMix"/>.
 ///
 /// <para>
-/// <b>Commit model mirrors <c>FilterPanel</c> — including restore.</b>
+/// <b>Commit model mirrors <c>FilterPanel</c>.</b>
 /// <see cref="OnMixApplied"/> fires on Apply, on Reset, and when the last row
 /// is removed (both Reset and the last-row removal are an explicit apply of
 /// <see cref="QuizMix.Empty"/>, distinct from the never-silently-rewrite rule
 /// because the user asked for the blank state); <see cref="OnMixDirty"/> fires
 /// on every other control change so the parent can gate Start until the edit
 /// is committed. The first-render localStorage restore hydrates the panel for
-/// the user's convenience but does <b>not</b> commit: like the filter panel, a
-/// restored config must be re-Applied before Start uses it. A non-passthrough
-/// restore raises <see cref="OnMixDirty"/> so Start gates on it (never silently
-/// diverging from what the panel shows); a passthrough restore (e.g. after a
-/// prior Reset) has nothing to commit and leaves no gate.
+/// the user's convenience but does <b>not</b> commit — it raises
+/// <see cref="OnMixRestored"/> so the parent <i>reconciles</i>: a
+/// non-passthrough restore gates Start (dirty) on a fresh load, but is left
+/// untouched when a committed mix already survives in the holder
+/// (navigate-back), so the user isn't forced to re-Apply. This is deliberately
+/// <i>not</i> the earlier adopt-on-restore, which silently committed the stored
+/// mix (removed in finding W).
 /// </para>
 ///
 /// <para>
@@ -58,12 +60,26 @@ public partial class MixPanel : ComponentBase
     [Parameter, EditorRequired] public EventCallback<QuizMix> OnMixApplied { get; set; }
 
     /// <summary>
+    /// Raised once after the first-render localStorage restore succeeds, carrying
+    /// the restored mix so the parent can <b>reconcile</b> it against the
+    /// committed-mix holder — <i>not</i> adopt it (the adopt semantics were
+    /// removed in finding W). The parent gates Start (marks the mix dirty) only
+    /// when the restore is non-passthrough <i>and</i> the holder is still at its
+    /// passthrough default (a fresh load); when the holder already holds a
+    /// committed mix (navigate-back, the Scoped holder surviving), the restore is
+    /// left untouched so the user needn't re-Apply. Required: without the binding
+    /// a fresh-load restore wouldn't gate, and a non-passthrough mix would render
+    /// in the panel while Start silently ran passthrough — the exact divergence
+    /// the dirty machinery exists to prevent.
+    /// </summary>
+    [Parameter, EditorRequired] public EventCallback<QuizMix> OnMixRestored { get; set; }
+
+    /// <summary>
     /// Raised on every input change (row edit, add/remove/reorder, toggle,
-    /// length) so the parent can gate Start until the user commits via Apply —
-    /// and once after a non-passthrough first-render localStorage restore, which
-    /// hydrates the panel without committing (a restored mix must be re-Applied,
-    /// mirroring the filter panel). Optional by design, like the filter panel's
-    /// dirty callback.
+    /// length) so the parent can gate Start until the user commits via Apply.
+    /// Optional by design, like the filter panel's dirty callback. (The restore
+    /// path signals through <see cref="OnMixRestored"/>, not this — it reconciles
+    /// against the holder rather than unconditionally dirtying.)
     /// </summary>
     [Parameter] public EventCallback OnMixDirty { get; set; }
 
@@ -263,10 +279,10 @@ public partial class MixPanel : ComponentBase
     /// <summary>
     /// First-render restore: read the persisted mix and hydrate the builder
     /// through <see cref="QuizMix.TryFromJson"/> — absent or corrupt leaves it
-    /// blank, never an error. The restore does <b>not</b> commit (mirroring the
-    /// filter panel): a non-passthrough restore signals <see cref="OnMixDirty"/>
-    /// so Start gates until the user re-Applies, and a passthrough restore leaves
-    /// no gate.
+    /// blank, never an error — then raise <see cref="OnMixRestored"/> so the
+    /// parent reconciles the restored mix against the committed-mix holder (gate
+    /// on a fresh load, leave a surviving committed mix untouched). The restore
+    /// never commits or dirties here.
     /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -275,15 +291,14 @@ public partial class MixPanel : ComponentBase
         var stored = await JS.InvokeAsync<string?>("localStorage.getItem", MixKey);
         // Tolerant restore: a missing key, the literal null token, or corrupt
         // JSON all leave the builder blank — no try/catch here. A successful
-        // parse hydrates the panel for convenience, but does NOT commit: like the
-        // filter panel, a restored config is re-shown, not adopted. A
-        // non-passthrough restore signals dirty so Start gates until the user
-        // Applies or Resets; a passthrough restore (e.g. after a prior Reset) has
-        // nothing to commit and leaves no gate.
+        // parse hydrates the panel for convenience but does NOT commit: it raises
+        // OnMixRestored so the parent reconciles against the holder (dirty on a
+        // fresh load; untouched when a committed mix survives navigate-back). The
+        // panel neither adopts nor dirties on restore itself.
         if (QuizMix.TryFromJson(stored, out var mix))
         {
             HydrateFrom(mix);
-            if (!mix.IsPassthrough) MarkDirty();
+            await OnMixRestored.InvokeAsync(mix);
         }
 
         StateHasChanged();
