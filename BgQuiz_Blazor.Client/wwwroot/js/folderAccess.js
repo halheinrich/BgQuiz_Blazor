@@ -33,10 +33,27 @@ export function supportsDirectoryPicker() {
 
 // FS-Access pick: native picker (read mode), then a readwrite permission
 // request on the picked handle. AbortError is the user dismissing the picker —
-// an expected outcome, returned as { status: 'cancelled' }. If the readwrite
-// request auto-denies (some Chromium versions treat the transient user
-// activation as consumed by the picker), the single-prompt alternative is
-// showDirectoryPicker({ mode: 'readwrite' }) — same C#-visible contract.
+// an expected outcome, returned as { status: 'cancelled' }.
+//
+// Declining the readwrite request is NOT an abort: requestPermission resolves
+// 'denied', the picked handle stays READABLE, and the pick returns
+// writable:false — the PermissionDenied rung, where the file list still loads
+// and the quiz runs without stats. Same if that request ever auto-denies (some
+// Chromium versions treat the transient user activation as consumed by the
+// picker): the degrade is graceful either way.
+//
+// DON'T collapse this into one prompt. showDirectoryPicker({ mode: 'readwrite' })
+// looks like a free UX win — one prompt instead of two — and was tried and
+// reverted on 2026-07-24. Observed in real Chrome: declining that single
+// readwrite prompt ABORTS THE WHOLE PICK. It surfaces as AbortError, which this
+// function maps to 'cancelled', so the app returns to its initial
+// "Choose folder…" state with no folder and no read handle at all. That destroys
+// the read-only PermissionDenied rung above — a deliberate, valued degrade
+// (decline write, still take the quiz). One fewer prompt is not worth silently
+// losing it, so the two-prompt flow is retained deliberately. (Finding V's real
+// concern — the prompt being missed in a busy UI — is already addressed by
+// progressive disclosure and the in-page "check your browser" guidance on Home,
+// so there is nothing left for a prompt-collapse to buy.)
 export async function pickDirectory() {
     let handle;
     try {
