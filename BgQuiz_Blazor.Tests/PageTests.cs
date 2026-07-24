@@ -3195,10 +3195,16 @@ public class PageTests : BunitContext
         Assert.True(holder.IsDirty);                // ...and re-offered as dirty (no divergence)
         Assert.True(StartButton(cut).HasAttribute("disabled")); // Start re-gated
 
-        // Clear: the mix surface (and Start) vanish entirely.
+        // Clear: the mix surface (and Start) vanish entirely, and — because
+        // AppliedMix.Current is pick-coupled — Clear resets the holder to
+        // passthrough+clean too, completing the "no pick → passthrough"
+        // invariant (the !IsDirty assertion fails without Clear's
+        // AppliedMix.Reset(): the re-pick left the holder dirty).
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear").ClickAsync(new());
         Assert.Empty(cut.FindComponents<MixPanelComponent>());
         Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Start Quiz");
+        Assert.True(holder.Current.IsPassthrough);
+        Assert.False(holder.IsDirty);
     }
 
     [Fact]

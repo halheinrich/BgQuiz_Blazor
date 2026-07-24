@@ -419,6 +419,13 @@ public partial class Home : ComponentBase
         // recording continues untouched until the next Start re-binds.
         Folder.Clear();
         SavedFilters.Reset();
+        // AppliedMix.Current is pick-coupled (Task X resets it on every pick), so
+        // ending the pick via Clear must also return it to passthrough —
+        // completing the "no pick → passthrough" invariant and mirroring the
+        // SavedFilters.Reset() above (both are pick-coupled state that clears when
+        // the pick ends). AppliedFilter is deliberately NOT reset here: it is
+        // edit-coupled, not pick-coupled, so its lifecycle is unchanged.
+        AppliedMix.Reset();
         await FolderAccess.ClearPickedAsync();
         ClearPickNotices();
     }
