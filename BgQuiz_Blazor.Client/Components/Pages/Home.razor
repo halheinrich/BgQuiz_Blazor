@@ -70,12 +70,17 @@
 
            Describes the grants; quotes no browser's prompt text — see
            FolderPickDisplay for why any such quote would be wrong somewhere.
+           The lead-in promises no *count* of prompts on purpose: the readwrite
+           request auto-denies on some Chromium versions (folderAccess.js), and
+           on that path the second prompt never appears — so the list says what
+           the browser may ask, not that it will ask twice. Step 2's consequence
+           is worded "without it" rather than "decline and" for the same reason.
            Shown for the whole in-flight window, cleared when the pick returns.
            Polite role="status". *@
         @if (_awaitingPick)
         {
             <div class="text-muted small mt-1" role="status">
-                Your browser will ask you twice, near the address bar:
+                Your browser will ask about this folder, near the address bar:
                 <ol class="mb-0 mt-1">
                     <li>
                         <strong>To view this folder's files — required.</strong>
@@ -83,7 +88,7 @@
                     </li>
                     <li>
                         <strong>To save files into the folder — optional.</strong>
-                        The quiz runs either way; decline and
+                        The quiz runs either way; without it,
                         @(FolderPickDisplay.WriteAccessConsequence).
                     </li>
                 </ol>
@@ -127,11 +132,14 @@
                     </div>
                     break;
                 case StatsSaveCapability.PermissionDenied:
-                    @* Same consequence clause the in-flight guidance's step 2
-                       promised, rendered from the one constant so the warning
-                       and the follow-through can't drift. *@
+                    @* Both halves come from FolderPickDisplay: the premise is
+                       cause-agnostic (this rung is also reached by an auto-deny
+                       the user never saw, so "you declined" would attribute a
+                       decision they never made), and the consequence is the same
+                       clause the in-flight guidance's step 2 promised — one
+                       constant each, so warning and follow-through can't drift. *@
                     <div class="alert alert-warning mt-2" role="status">
-                        You declined write access — the quiz runs, but
+                        @(FolderPickDisplay.WriteAccessNotGranted) — the quiz runs, but
                         @(FolderPickDisplay.WriteAccessConsequence).
                     </div>
                     break;

@@ -296,10 +296,20 @@ public partial class Home : ComponentBase
     /// <see cref="StatsSaveCapability.PermissionDenied"/>. A write failure is a
     /// louder, separate alert (rendered by Home), so it is deliberately not
     /// folded in here; <see langword="null"/> leaves the panel's hint absent.
+    ///
+    /// <para>
+    /// The premise is <see cref="FolderPickDisplay.WriteAccessNotGranted"/>, not
+    /// a local literal: this is the second surface stating it, and the two had
+    /// already drifted once — both said "you declined", which this rung cannot
+    /// know (an auto-denied readwrite request lands here too), and only the
+    /// stats notice was corrected. Sharing the clause is what keeps the next
+    /// correction from being half-applied again.
+    /// </para>
     /// </summary>
     private string? SavedFiltersDisabledReason =>
         Folder.Capability == StatsSaveCapability.PermissionDenied
-            ? "You declined write access — saved filters can be loaded but not changed or deleted."
+            ? $"{FolderPickDisplay.WriteAccessNotGranted} — saved filters can be "
+              + "loaded but not changed or deleted."
             : null;
 
     /// <summary>

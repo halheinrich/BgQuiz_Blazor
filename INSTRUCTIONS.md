@@ -133,8 +133,9 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     PickedProblemFolder.cs          — picked-folder holder (+ PickedFile, Summary,
                                       pick-time StatsSaveCapability)
     PickedFileLimits.cs             — pick caps (bytes / count / derived MB)
-    FolderPickDisplay.cs            — folder-pick wording SSOT (what declining
-                                      write access costs; never quote prompts)
+    FolderPickDisplay.cs            — folder-pick wording SSOT (cause-agnostic
+                                      no-write-access premise + what it costs;
+                                      never quote prompts, never promise a count)
     QuizStatsFile.cs                — stats filename + JsonSerializerOptions SSOT
     QuizStatsStore.cs               — IDecisionStatsSink + the stats document
                                       lifecycle (bind at Start, fold + write-back)
@@ -567,9 +568,16 @@ browser offers — probed **at pick time**, per gesture:
   The *first* is load-bearing: decline it and the pick aborts holding nothing
   (⇒ `Cancelled`, indistinguishable from a dismissed picker). The *second* is
   the graceful rung: granted ⇒ `StatsSaveCapability.Enabled` — lifetime stats
-  save into the folder; declined ⇒ `PermissionDenied` — the handle stays
-  readable, so the file list loads and the quiz runs read-only. Home's in-flight
-  guidance names both grants and both consequences up front (see `Home`).
+  save into the folder; not granted ⇒ `PermissionDenied` — the handle stays
+  readable, so the file list loads and the quiz runs read-only. `PermissionDenied`
+  likewise carries **two** causes and can't tell them apart: the user answered
+  no, *or* the request **auto-denied** with no prompt shown (some Chromium
+  versions treat the transient user activation as consumed by the picker). So
+  every surface for this rung opens with the cause-agnostic
+  `FolderPickDisplay.WriteAccessNotGranted` — never "you declined", which on the
+  auto-deny path attributes a decision the user never made. Home's in-flight
+  guidance names both grants and both consequences up front (see `Home`), and
+  promises no *count* of prompts for the same reason.
 - **`webkitdirectory` fallback** (everywhere else): a hidden
   `<input type="file" webkitdirectory>` opened by the same button. Read-only
   by construction ⇒ `BrowserUnsupported` — quiz runs without stats.
@@ -991,7 +999,11 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   (save files into the folder) is optional — the quiz runs either way, but the
   lifetime record of which problems give the user difficulty is not kept. The
   note is FS-Access-only, since the fallback opens its picker and returns
-  immediately with no prompt to guide toward. It is **static, not stage-aware**:
+  immediately with no prompt to guide toward. Its lead-in deliberately promises
+  no *number* of prompts ("your browser will ask about this folder", not "will
+  ask you twice"): the readwrite request auto-denies on some Chromium versions,
+  and on that path only one prompt ever appears — the list says what the browser
+  may ask, not what it guarantees. It is **static, not stage-aware**:
   swapping the text as each prompt arrives was considered and *declined, not
   deferred* — it needs a Blazor render to land between two back-to-back prompts
   on WASM's single thread, and the two arrive seconds apart, so one read covers
@@ -1607,7 +1619,19 @@ the route map:
   string claiming to be what the user will read is wrong somewhere. Home's
   two-step guidance therefore names the grant being asked for, hedged ("your
   browser will ask…"), and asserts no exact prompt string — in markup, comments,
-  or docs. `FolderPickDisplay` carries the rule.
+  or docs. `FolderPickDisplay` carries the rule. It also asserts nothing about
+  *how many* prompts appear, or that a missing grant was a user decision — both
+  are false on the auto-deny path.
+- **Don't pin a user-visible string wider than it needs to be.** A test pin
+  should be the *minimum discriminating substring*: long enough to prove the
+  right surface rendered, short enough that a copy polish doesn't break it
+  spuriously. The `PermissionDenied` e2e pin is
+  `"which problems give you difficulty"` — the distinctive content — not the
+  whole sentence, whose lead-in buys no discrimination. Related: once a phrase
+  is single-sourced into `FolderPickDisplay`, **two** surfaces render it
+  verbatim, so a whole-markup `Contains` on it no longer proves *which* one —
+  scope such assertions to the element (bUnit `Find(...).TextContent`) or pair
+  them with a surface-specific lead-in.
 - **A refused weighted start touches no quiz state — check the outcome before
   `IsFinished`.** `StartAsync`/`RestartAsync` returning `MixRequiresStats`
   leaves the prior quiz (enumerator, scores, `Current`, `IsFinished`) and the

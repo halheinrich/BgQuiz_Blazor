@@ -86,12 +86,13 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await BootHomeAsync();
         await PickFakeFolderAsync();
         // Target the stats notice specifically: under PermissionDenied the
-        // saved-filters panel also renders a "declined write access" reason
-        // (load-only), so the bare phrase now matches two elements. The clause
-        // matched here is finding (AA)'s consequence wording — what declining
-        // actually costs, not a bare "stats won't be saved".
-        await Expect(Page.GetByText("lifetime record of which problems give you difficulty"))
-            .ToBeVisibleAsync();
+        // saved-filters panel opens with the same "write access wasn't granted"
+        // premise (load-only), so that phrase matches two elements. The
+        // consequence clause is unique to the stats notice — finding (AA)'s
+        // wording for what the missing grant costs, not "stats won't be saved".
+        // Pinned to the distinctive fragment only: the shorter the discriminating
+        // substring, the less a copy polish breaks it spuriously.
+        await Expect(Page.GetByText("which problems give you difficulty")).ToBeVisibleAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();
@@ -126,7 +127,7 @@ public sealed class FallbackPickNoticeTests : E2eTestBase
         // Finding (AA)'s two-step permission guidance is inherently FS-Access-
         // only — this mechanism raises no prompt to guide toward — so it must
         // never appear on this path, in flight or after.
-        await Expect(Page.GetByText("Your browser will ask you twice")).ToBeHiddenAsync();
+        await Expect(Page.GetByText("Your browser will ask about this folder")).ToBeHiddenAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();

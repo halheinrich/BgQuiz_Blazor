@@ -482,10 +482,17 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        Assert.Contains("declined write access", cut.Markup);
-        // Finding (AA): the notice says what that costs, from the shared
-        // constant — not a bare "stats won't be saved".
-        Assert.Contains(FolderPickDisplay.WriteAccessConsequence, cut.Markup);
+        // Scoped to the notice element, not cut.Markup: the in-flight guidance
+        // renders the very same consequence constant (that is the point of the
+        // SSOT), so a whole-markup Contains could be satisfied by the wrong
+        // surface. Pairing with the premise makes the sentence discriminating.
+        var notice = cut.Find(".alert.alert-warning");
+        Assert.Contains(FolderPickDisplay.WriteAccessNotGranted, notice.TextContent);
+        // Finding (AA): the notice says what that costs — not "stats won't be
+        // saved". And it never claims the user declined: this rung is also
+        // reached by a readwrite request that auto-denied with no prompt shown.
+        Assert.Contains(FolderPickDisplay.WriteAccessConsequence, notice.TextContent);
+        Assert.DoesNotContain("declined", notice.TextContent);
         var folder = Services.GetRequiredService<PickedProblemFolder>();
         Assert.True(folder.HasFiles);
     }
@@ -624,20 +631,28 @@ public class PageTests : BunitContext
 
         cut.WaitForAssertion(() =>
         {
-            Assert.Contains("Your browser will ask you twice", cut.Markup);
+            // The lead-in promises no count of prompts: the readwrite request
+            // auto-denies on some Chromium versions, and then only one prompt
+            // ever appears.
+            Assert.Contains("Your browser will ask about this folder", cut.Markup);
+            Assert.DoesNotContain("ask you twice", cut.Markup);
+
+            var steps = cut.FindAll("ol li");
+            Assert.Equal(2, steps.Count);
             // Step 1: load-bearing — nothing works without it.
-            Assert.Contains("view this folder's files", cut.Markup);
-            Assert.Contains("no folder is picked at all", cut.Markup);
+            Assert.Contains("view this folder's files", steps[0].TextContent);
+            Assert.Contains("no folder is picked at all", steps[0].TextContent);
             // Step 2: optional, and what it costs — from the shared constant, so
-            // this and the PermissionDenied notice cannot drift apart.
-            Assert.Contains("save files into the folder", cut.Markup);
-            Assert.Contains(FolderPickDisplay.WriteAccessConsequence, cut.Markup);
-            Assert.Equal(2, cut.FindAll("ol li").Count);
+            // this and the PermissionDenied notice cannot drift apart. Scoped to
+            // the step element precisely because that notice renders the same
+            // clause; a whole-markup Contains would not discriminate.
+            Assert.Contains("save files into the folder", steps[1].TextContent);
+            Assert.Contains(FolderPickDisplay.WriteAccessConsequence, steps[1].TextContent);
         });
 
         gate.SetResult();
         cut.WaitForAssertion(() =>
-            Assert.DoesNotContain("Your browser will ask you twice", cut.Markup));
+            Assert.DoesNotContain("Your browser will ask about this folder", cut.Markup));
         Assert.True(click.IsCompletedSuccessfully);
     }
 
@@ -656,7 +671,7 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        Assert.DoesNotContain("Your browser will ask you twice", cut.Markup);
+        Assert.DoesNotContain("Your browser will ask about this folder", cut.Markup);
         Assert.DoesNotContain(FolderPickDisplay.WriteAccessConsequence, cut.Markup);
         Assert.Equal(1, _folderAccess.TriggerFallbackCallCount);
     }
