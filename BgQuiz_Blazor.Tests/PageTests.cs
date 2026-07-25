@@ -446,6 +446,11 @@ public class PageTests : BunitContext
         // A completed pick that held a folder is neither of the no-folder
         // outcomes, and write access was granted — neither notice belongs here.
         Assert.DoesNotContain("No folder is picked", cut.Markup);
+        // The consequence clause is absent on two independent counts now: write
+        // access was granted (so the PermissionDenied notice is off), and a
+        // folder is held (so the pick guidance that renders the same clause has
+        // hidden — finding (AB)). Either alone would satisfy this; the pins for
+        // the second live in the guidance tests below.
         Assert.DoesNotContain(FolderPickDisplay.WriteAccessConsequence, cut.Markup);
     }
 
@@ -482,10 +487,12 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        // Scoped to the notice element, not cut.Markup: the in-flight guidance
+        // Scoped to the notice element, not cut.Markup: the pre-pick guidance
         // renders the very same consequence constant (that is the point of the
         // SSOT), so a whole-markup Contains could be satisfied by the wrong
         // surface. Pairing with the premise makes the sentence discriminating.
+        // (Under (AB) the guidance is in fact hidden here — a folder is held —
+        // but the scoping is what makes this assert say what it means.)
         var notice = cut.Find(".alert.alert-warning");
         Assert.Contains(FolderPickDisplay.WriteAccessNotGranted, notice.TextContent);
         // Finding (AA): the notice says what that costs — not "stats won't be
@@ -610,37 +617,35 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public void Home_FsAccessPick_InFlight_ShowsTwoStepPermissionGuidance()
+    public void Home_InitialRender_ShowsTwoStepPermissionGuidance()
     {
-        // Task V + finding (AA): while an FS-Access pick is awaiting, Home shows
+        // Task V + findings (AA)/(AB): on an FS-Access-capable browser Home shows
         // in-page guidance for BOTH of that mechanism's (easily-missed)
         // permission prompts, saying what declining each costs — step 1 required,
-        // step 2 optional with the shared write-access consequence. It clears
-        // when the pick returns. A gate freezes the pick so the transient
-        // in-flight state is observable.
+        // step 2 optional with the shared write-access consequence. (AB) moved it
+        // to *initial render*: it is only useful read before the gesture that
+        // raises the prompts, so no click is needed to observe it. The probe is
+        // awaited in OnInitializedAsync, hence WaitForAssertion — the note lands
+        // on the render pass after it resolves.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
-        var gate = new TaskCompletionSource();
-        _folderAccess.PickGate = gate;
-        _folderAccess.NextPickOutcome = OneFileOutcome();
 
         var cut = Render<HomePage>();
-        var click = cut.Find("#pickProblemFolder").ClickAsync(new()); // suspends at the gate
 
         cut.WaitForAssertion(() =>
         {
             // The lead-in promises no count of prompts: the readwrite request
             // auto-denies on some Chromium versions, and then only one prompt
             // ever appears.
-            Assert.Contains("Your browser will ask about this folder", cut.Markup);
+            Assert.Contains("Your browser will ask about the selected folder", cut.Markup);
             Assert.DoesNotContain("ask you twice", cut.Markup);
 
             var steps = cut.FindAll("ol li");
             Assert.Equal(2, steps.Count);
             // Step 1: load-bearing — nothing works without it.
-            Assert.Contains("view this folder's files", steps[0].TextContent);
+            Assert.Contains("view the selected folder's files", steps[0].TextContent);
             Assert.Contains("no folder is picked at all", steps[0].TextContent);
             // Step 2: optional, and what it costs — from the shared constant, so
             // this and the PermissionDenied notice cannot drift apart. Scoped to
@@ -649,19 +654,68 @@ public class PageTests : BunitContext
             Assert.Contains("save files into the folder", steps[1].TextContent);
             Assert.Contains(FolderPickDisplay.WriteAccessConsequence, steps[1].TextContent);
         });
-
-        gate.SetResult();
-        cut.WaitForAssertion(() =>
-            Assert.DoesNotContain("Your browser will ask about this folder", cut.Markup));
-        Assert.True(click.IsCompletedSuccessfully);
+        // No gesture was needed to surface it.
+        Assert.Equal(0, _folderAccess.TriggerFallbackCallCount);
     }
 
     [Fact]
-    public async Task Home_FallbackPick_ShowsNoPermissionGuidance()
+    public async Task Home_PickHoldsFolder_HidesPermissionGuidance()
     {
-        // Over-trigger guard: the fallback mechanism opens its picker and
-        // returns immediately (no permission prompt at all), so neither step of
-        // the FS-Access guidance ever shows — it is inherently FS-Access-only.
+        // The other end of (AB)'s visibility window: once a folder is held the
+        // guidance has done its job, and leaving it beside the populated summary
+        // would be stale noise. Clearing the pick brings it back — the window is
+        // "no folder held", not "not yet picked once".
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome();
+
+        var cut = Render<HomePage>();
+        cut.WaitForAssertion(() =>
+            Assert.Contains("Your browser will ask about the selected folder", cut.Markup));
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        Assert.True(Services.GetRequiredService<PickedProblemFolder>().HasFiles);
+        Assert.DoesNotContain("Your browser will ask about the selected folder", cut.Markup);
+
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear").ClickAsync(new());
+        Assert.Contains("Your browser will ask about the selected folder", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_CancelledPick_KeepsPermissionGuidance()
+    {
+        // A cancelled pick leaves no folder held — including when the cause was a
+        // declined view-files permission — so the guidance is still the next
+        // thing the user needs and must NOT hide. This is the case that makes
+        // the gate "no folder held" rather than "the pick has returned".
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = FolderPickOutcome.CancelledOutcome;
+
+        var cut = Render<HomePage>();
+        cut.WaitForAssertion(() =>
+            Assert.Contains("Your browser will ask about the selected folder", cut.Markup));
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.False(Services.GetRequiredService<PickedProblemFolder>().HasFiles);
+        Assert.Contains("Your browser will ask about the selected folder", cut.Markup);
+        Assert.Contains("No folder is picked", cut.Markup); // …alongside the cancelled notice
+    }
+
+    [Fact]
+    public async Task Home_NoFsAccessBrowser_ShowsNoPermissionGuidance()
+    {
+        // Over-trigger guard, and the real fallback-mechanism pin: a browser
+        // without showDirectoryPicker raises no permission prompt at all, so
+        // neither step of the guidance ever shows — not on load, and not around
+        // the pick. (AB) made the gate browser *capability*, so this — not the
+        // e2e fallback scenario, which runs in an FS-Access-capable Chromium —
+        // is what holds the note to FS-Access.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
@@ -669,9 +723,11 @@ public class PageTests : BunitContext
         _folderAccess.SupportsDirectoryPicker = false;
 
         var cut = Render<HomePage>();
+        Assert.DoesNotContain("Your browser will ask about the selected folder", cut.Markup);
+
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        Assert.DoesNotContain("Your browser will ask about this folder", cut.Markup);
+        Assert.DoesNotContain("Your browser will ask about the selected folder", cut.Markup);
         Assert.DoesNotContain(FolderPickDisplay.WriteAccessConsequence, cut.Markup);
         Assert.Equal(1, _folderAccess.TriggerFallbackCallCount);
     }

@@ -575,7 +575,7 @@ browser offers — probed **at pick time**, per gesture:
   versions treat the transient user activation as consumed by the picker). So
   every surface for this rung opens with the cause-agnostic
   `FolderPickDisplay.WriteAccessNotGranted` — never "you declined", which on the
-  auto-deny path attributes a decision the user never made. Home's in-flight
+  auto-deny path attributes a decision the user never made. Home's pre-pick
   guidance names both grants and both consequences up front (see `Home`), and
   promises no *count* of prompts for the same reason.
 - **`webkitdirectory` fallback** (everywhere else): a hidden
@@ -992,16 +992,29 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   clear touches only the JS *picked* slot, so a running quiz keeps both its
   enumerator and its bound stats context
   (`PageTests.Home_ClearPickedFolder_RemovesSummaryDisablesStartClearsPickedSlotOnly`).
-  While a File System Access pick is in flight, an in-page note (`_awaitingPick`)
-  covers **both** of that mechanism's easily-missed permission prompts as a
+  On an FS-Access-capable browser, an in-page note covers **both** of that
+  mechanism's easily-missed permission prompts as a
   two-step ordered list, naming what declining each costs: step 1 (view the
-  folder's files) is required — decline and no folder is picked at all; step 2
-  (save files into the folder) is optional — the quiz runs either way, but the
-  lifetime record of which problems give the user difficulty is not kept. The
-  note is FS-Access-only, since the fallback opens its picker and returns
-  immediately with no prompt to guide toward. Its lead-in deliberately promises
-  no *number* of prompts ("your browser will ask about this folder", not "will
-  ask you twice"): the readwrite request auto-denies on some Chromium versions,
+  selected folder's files) is required — decline and no folder is picked at all;
+  step 2 (save files into the folder) is optional — the quiz runs either way, but
+  the lifetime record of which problems give the user difficulty is not kept. It
+  is shown **from page load**, not only while a pick is in flight: knowing what
+  is coming is only useful *before* the gesture that raises the prompts. Its
+  visibility window is therefore "FS-Access capable **and** no folder held"
+  (`_fsAccessAvailable && !Folder.HasFiles`) — continuous from load through the
+  in-flight pick, hidden once a folder is held (job done; stale noise beside a
+  populated summary), back again after **Clear**, and deliberately still there
+  after a *cancelled* pick, which holds no folder and may well be about to be
+  retried. The gate is browser **capability**, not which mechanism served a pick:
+  `_fsAccessAvailable` is an init-time `SupportsDirectoryPickerAsync` snapshot
+  whose only consequence is whether advisory guidance renders, deliberately
+  *alongside* the per-gesture probe in `PickFolderAsync` that remains the
+  authoritative mechanism fork. Capability-gating (rather than showing it
+  unconditionally) is what keeps the note from promising prompts to fallback
+  browsers, which raise none — the same false-assertion class its wording avoids.
+  Its lead-in deliberately promises
+  no *number* of prompts ("your browser will ask about the selected folder", not
+  "will ask you twice"): the readwrite request auto-denies on some Chromium versions,
   and on that path only one prompt ever appears — the list says what the browser
   may ask, not what it guarantees. It is **static, not stage-aware**:
   swapping the text as each prompt arrives was considered and *declined, not

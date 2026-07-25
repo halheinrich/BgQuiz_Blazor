@@ -57,11 +57,24 @@
                 Choose folder…
             </button>
         </div>
-        @* In-flight FS-Access pick guidance: the pick deliberately raises *two*
+        @* FS-Access pick guidance: the pick deliberately raises *two*
            browser-anchored prompts (folderAccess.js pickDirectory records why
            collapsing them to one is a closed won't-do), both easily missed, and
            neither says what declining costs — yet the two declines are wildly
            asymmetric. So name both grants and both consequences.
+
+           Shown from page load, not only while the pick is in flight: knowing
+           what is coming is only useful *before* the gesture that triggers it.
+           So the note runs continuously from load, through the in-flight pick,
+           until a folder is held — at which point its job is done and leaving it
+           beside a populated summary would be stale noise. It reappears on
+           Clear, and deliberately survives a *cancelled* pick: no folder is
+           held, so the guidance is still the next thing the user needs.
+
+           Still capability-gated (_fsAccessAvailable), not ungated: the fallback
+           mechanism raises no permission prompt at all, so showing this there
+           would promise prompts that never come — the same false-assertion class
+           the wording below is written to avoid.
 
            Static, not stage-aware. Swapping the text as each prompt arrives was
            considered and DECLINED, not deferred: it needs a Blazor render to land
@@ -75,15 +88,14 @@
            on that path the second prompt never appears — so the list says what
            the browser may ask, not that it will ask twice. Step 2's consequence
            is worded "without it" rather than "decline and" for the same reason.
-           Shown for the whole in-flight window, cleared when the pick returns.
            Polite role="status". *@
-        @if (_awaitingPick)
+        @if (_fsAccessAvailable && !Folder.HasFiles)
         {
             <div class="text-muted small mt-1" role="status">
-                Your browser will ask about this folder, near the address bar:
+                Your browser will ask about the selected folder, near the address bar:
                 <ol class="mb-0 mt-1">
                     <li>
-                        <strong>To view this folder's files — required.</strong>
+                        <strong>To view the selected folder's files — required.</strong>
                         Nothing works without it: decline and no folder is picked at all.
                     </li>
                     <li>
@@ -97,8 +109,11 @@
         @* Fallback picker for browsers without showDirectoryPicker: a hidden
            webkitdirectory input, opened by the same button. Always rendered —
            not conditional on the capability probe — so the e2e suite can drive
-           it directly and the probe stays a pick-time concern. The FileList is
-           read by the JS module (Blazor's InputFile can't see
+           it directly. The probe now has two consumers with different jobs: the
+           init-time snapshot above, which only decides whether guidance is worth
+           showing, and the per-gesture probe in PickFolderAsync, which is the
+           authoritative mechanism fork. This input is gated by neither. The
+           FileList is read by the JS module (Blazor's InputFile can't see
            webkitRelativePath, which the top-level-only filter needs). *@
         <input type="file" id="problemFolderFallback" webkitdirectory class="d-none"
                @ref="_fallbackInput" @onchange="HandleFallbackPickedAsync" />
@@ -136,7 +151,7 @@
                        cause-agnostic (this rung is also reached by an auto-deny
                        the user never saw, so "you declined" would attribute a
                        decision they never made), and the consequence is the same
-                       clause the in-flight guidance's step 2 promised — one
+                       clause the pre-pick guidance's step 2 promised — one
                        constant each, so warning and follow-through can't drift. *@
                     <div class="alert alert-warning mt-2" role="status">
                         @(FolderPickDisplay.WriteAccessNotGranted) — the quiz runs, but

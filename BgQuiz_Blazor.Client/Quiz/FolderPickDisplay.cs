@@ -27,8 +27,8 @@ internal static class FolderPickDisplay
     /// <summary>
     /// What the absence of write access to the picked folder actually costs, in
     /// one clause that reads correctly mid-sentence on either surface that
-    /// renders it: Home's in-flight pick guidance (forward-looking — "without
-    /// it, …") and Home's <see cref="StatsSaveCapability.PermissionDenied"/>
+    /// renders it: Home's pre-pick permission guidance (forward-looking —
+    /// "without it, …") and Home's <see cref="StatsSaveCapability.PermissionDenied"/>
     /// outcome notice (after the fact — "the quiz runs, but …").
     ///
     /// <para>

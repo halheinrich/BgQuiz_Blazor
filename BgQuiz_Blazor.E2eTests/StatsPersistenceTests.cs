@@ -124,10 +124,16 @@ public sealed class FallbackPickNoticeTests : E2eTestBase
         await PickFixtureAsync(CubeFixture);
 
         await Expect(Page.GetByText("can't save quiz stats")).ToBeVisibleAsync();
-        // Finding (AA)'s two-step permission guidance is inherently FS-Access-
-        // only — this mechanism raises no prompt to guide toward — so it must
-        // never appear on this path, in flight or after.
-        await Expect(Page.GetByText("Your browser will ask about this folder")).ToBeHiddenAsync();
+        // Finding (AB) re-scoped this pin. The two-step permission guidance is
+        // now gated on browser *capability* (an init-time showDirectoryPicker
+        // probe) and on no folder being held — not on which mechanism served the
+        // pick. This scenario injects no fake, so the real Chromium underneath
+        // may well report the capability and show the note on load; what it can
+        // still pin is the other end of the window — a held folder hides it.
+        // FS-Access-onlyness is pinned by the unit test that reports no
+        // capability (PageTests.Home_NoFsAccessBrowser_ShowsNoPermissionGuidance),
+        // which is the only place that condition is reachable.
+        await Expect(Page.GetByText("Your browser will ask about the selected folder")).ToBeHiddenAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();

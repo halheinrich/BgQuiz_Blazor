@@ -32,8 +32,10 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// whichever mechanism the browser offers (probed at pick time through
 /// <see cref="IFolderAccess"/>): the File System Access directory picker where
 /// available — which can also grant the writable handle that enables lifetime
-/// stats, and which is guided while in flight by the two-step note naming both
-/// of that mechanism's permission prompts and what declining each costs — or the
+/// stats, and which is guided by the two-step note naming both of that
+/// mechanism's permission prompts and what declining each costs, shown from page
+/// load until a folder is held so it is read <i>before</i> the prompts arrive
+/// (gated on the init-time <see cref="_fsAccessAvailable"/> probe) — or the
 /// hidden <c>webkitdirectory</c> input elsewhere (read-only, no prompt to guide;
 /// the quiz runs without stats). Either way the folder's top-level <c>.xg</c> /
 /// <c>.xgp</c> files are buffered into <see cref="PickedFile"/>s (bytes +
@@ -143,17 +145,30 @@ public partial class Home : ComponentBase
     private ElementReference _fallbackInput;
 
     /// <summary>
-    /// Set while a File System Access pick is in flight (from the Choose-folder
-    /// click until the pick returns), driving the in-page guidance for the
-    /// <i>two</i> browser-anchored permission prompts that pick raises — both
-    /// easily missed, and each with a very different cost to declining (see the
-    /// markup, and <c>folderAccess.js</c>'s <c>pickDirectory</c> for why the two
-    /// prompts cannot be collapsed into one). FS-Access only: the fallback
-    /// mechanism opens its picker and returns immediately (the pick arrives
-    /// later via the input's change event) and raises no permission prompt to
-    /// guide toward. Per-visit transient state, so a component field.
+    /// Whether this browser offers the File System Access directory picker,
+    /// probed once in <see cref="OnInitializedAsync"/>. Gates the in-page
+    /// guidance for the <i>two</i> browser-anchored permission prompts that
+    /// mechanism's pick raises — both easily missed, and each with a very
+    /// different cost to declining (see the markup, and <c>folderAccess.js</c>'s
+    /// <c>pickDirectory</c> for why the two prompts cannot be collapsed into
+    /// one). The guidance is inherently FS-Access-only: the fallback mechanism
+    /// raises no permission prompt to guide toward, so showing it there would
+    /// promise prompts that never arrive.
+    ///
+    /// <para>
+    /// A deliberate <i>second</i> probe, not a replacement for the pick-time one
+    /// in <see cref="PickFolderAsync"/>, and the two have different jobs.
+    /// Capability is a property of the moment (see
+    /// <see cref="IFolderAccess.SupportsDirectoryPickerAsync"/>), so the
+    /// mechanism fork stays per-gesture and authoritative; this one is an
+    /// init-time snapshot whose only consequence is whether advisory guidance is
+    /// worth rendering — and it must run at init precisely because the guidance
+    /// has to be readable <i>before</i> the gesture it describes.
+    /// </para>
+    ///
+    /// <para>Per-visit derived state, so a component field.</para>
     /// </summary>
-    private bool _awaitingPick;
+    private bool _fsAccessAvailable;
 
     /// <summary>
     /// Sibling of <see cref="_startError"/> for the empty-result <i>outcome</i> —
@@ -332,7 +347,8 @@ public partial class Home : ComponentBase
     /// On boot, surface the reload-reset notice when the marker says a quiz was
     /// live but the controller has none — the signature of a full reload having
     /// rebooted the runtime out from under an in-progress quiz. Then clear the
-    /// marker so the notice shows once.
+    /// marker so the notice shows once. Also takes the
+    /// <see cref="_fsAccessAvailable"/> snapshot the pick guidance is gated on.
     ///
     /// <para>
     /// The <see cref="QuizController.HasStarted"/> guard is what distinguishes a
@@ -349,6 +365,8 @@ public partial class Home : ComponentBase
             _showReloadNotice = true;
             await Marker.ClearAsync();
         }
+
+        _fsAccessAvailable = await FolderAccess.SupportsDirectoryPickerAsync();
     }
 
     /// <summary>
@@ -364,24 +382,13 @@ public partial class Home : ComponentBase
         ClearPickNotices();
         try
         {
+            // The authoritative mechanism fork, re-probed per gesture. No
+            // guidance state is toggled here: the prompt note is already on
+            // screen (rendered since init — see _fsAccessAvailable) and hides
+            // itself once this pick leaves a folder held.
             if (await FolderAccess.SupportsDirectoryPickerAsync())
             {
-                // The FS-Access pick shows a folder picker and then a permission
-                // prompt, both browser-anchored and easy to miss. Show the
-                // in-page guidance for the whole in-flight pick so the user
-                // knows to look for (and Allow) the prompt; paint it before the
-                // interop blocks, and clear it however the pick ends.
-                _awaitingPick = true;
-                StateHasChanged();
-                await Task.Yield();
-                try
-                {
-                    await ApplyPickOutcomeAsync(await FolderAccess.PickFolderAsync());
-                }
-                finally
-                {
-                    _awaitingPick = false;
-                }
+                await ApplyPickOutcomeAsync(await FolderAccess.PickFolderAsync());
             }
             else
             {
