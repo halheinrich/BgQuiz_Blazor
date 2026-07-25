@@ -6,6 +6,7 @@ using BackgammonDiagram_Lib.Rendering;
 using BgDataTypes_Lib;
 using BgDiag_Razor.Components;
 using BgGame_Lib;
+using BgQuiz_Blazor.Client;
 using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
 using Bunit.TestDoubles;
@@ -730,6 +731,76 @@ public class PageTests : BunitContext
         Assert.DoesNotContain("Your browser will ask about the selected folder", cut.Markup);
         Assert.DoesNotContain(FolderPickDisplay.WriteAccessConsequence, cut.Markup);
         Assert.Equal(1, _folderAccess.TriggerFallbackCallCount);
+    }
+
+    [Fact]
+    public void Home_NoFsAccessBrowser_StillStatesTheSupportedBrowsers()
+    {
+        // The beta wave's device statement, and the case that decides its gate.
+        // A visitor whose browser has no directory picker — a phone, where the
+        // webkitdirectory fallback is weak-to-absent — meets a pick button that
+        // may raise nothing at all, with no code path that ever runs to explain
+        // it. So unlike the two-step permission guidance directly beneath it,
+        // this line is NOT behind the FS-Access probe: the reader it exists for
+        // is exactly the one that probe excludes. Pinned together here so the
+        // two gates can't be conflated by a later edit.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.SupportsDirectoryPicker = false;
+
+        var cut = Render<HomePage>();
+
+        Assert.Contains(FolderPickDisplay.SupportedBrowsers, cut.Markup);
+        // …while its capability-gated neighbour stays absent on this browser.
+        Assert.DoesNotContain("Your browser will ask about the selected folder", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_PickHoldsFolder_HidesTheSupportedBrowsersStatement()
+    {
+        // The other end of the window: once a folder is held the pick demonstrably
+        // worked on this browser, so the caution is moot and would be stale noise
+        // beside a populated summary. Clearing brings it back — the gate is "no
+        // folder held", matching its neighbour's window (this pick is an FS-Access
+        // one, so both lines are on screen beforehand).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome();
+
+        var cut = Render<HomePage>();
+        Assert.Contains(FolderPickDisplay.SupportedBrowsers, cut.Markup);
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        Assert.True(Services.GetRequiredService<PickedProblemFolder>().HasFiles);
+        Assert.DoesNotContain(FolderPickDisplay.SupportedBrowsers, cut.Markup);
+
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear").ClickAsync(new());
+        Assert.Contains(FolderPickDisplay.SupportedBrowsers, cut.Markup);
+    }
+
+    [Fact]
+    public void Home_OffersTheFeedbackMailto_BesideTheVersionFooter()
+    {
+        // The beta feedback affordance, footer-side. It sits beside the version
+        // because the version is what makes a report actionable — and both halves
+        // read from AppInfo, so the subject line cannot name a different build
+        // than the footer the tester is looking at. Pinned to AppInfo rather than
+        // to a literal address for the same reason Help's copy is: one link, two
+        // surfaces, no way to drift.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+
+        var link = cut.Find("a[href^='mailto:']");
+        Assert.Equal(AppInfo.FeedbackMailto, link.GetAttribute("href"));
+        Assert.Contains($"v{AppInfo.Version}", cut.Find("#appVersion").TextContent);
     }
 
     [Fact]
@@ -2654,10 +2725,13 @@ public class PageTests : BunitContext
     [Fact]
     public void Help_RendersTheFlowSectionsAndTheSemanticsSection()
     {
-        // The page exists to teach the flow, the click vocabulary of a checker play,
-        // *and* the semantics a user cannot discover by clicking around; pin its
-        // section skeleton so a future edit can't quietly drop part of it. The
-        // headings alone are pinned, never the prose beneath them.
+        // The page exists to teach the prerequisites, the flow, the click
+        // vocabulary of a checker play, *and* the semantics a user cannot discover
+        // by clicking around; pin its section skeleton so a future edit can't
+        // quietly drop part of it. The headings alone are pinned, never the prose
+        // beneath them. Order is part of the pin: the two setup features live where
+        // the user meets them on Home (filters, then saved filters, then the mix),
+        // and the prerequisites lead because everything after them assumes them.
         WithController();
 
         var cut = Render<HelpPage>();
@@ -2665,8 +2739,11 @@ public class PageTests : BunitContext
         var headings = cut.FindAll("h2").Select(h => h.TextContent.Trim()).ToList();
         Assert.Equal(
             [
+                "Before you start",
                 "Pick your folder",
                 "Choose filters",
+                "Save filters you use often",
+                "Weight the quiz by your lifetime stats",
                 "Answer the position",
                 "Making a checker play",
                 "Scoring",
@@ -2674,8 +2751,110 @@ public class PageTests : BunitContext
                 "Stats and finishing",
                 "Lifetime stats",
                 "Things worth knowing",
+                "Send feedback",
             ],
             headings);
+    }
+
+    [Fact]
+    public void Help_BeforeYouStart_StatesTheBrowserRuleFromTheSharedConstant()
+    {
+        // The beta wave's prerequisites lead. The browser sentence is the one
+        // clause Help renders *verbatim* from FolderPickDisplay rather than
+        // restating in its own voice (the class doc records why): Home says the
+        // same thing beside the pick button, and a reader who checks Help before
+        // trying, then hits the dead entry point anyway, must not find two
+        // differently-worded rules. Asserting the constant is what makes a
+        // future edit to one surface fail here rather than drift.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        Assert.Contains(FolderPickDisplay.SupportedBrowsers, cut.Markup);
+    }
+
+    [Fact]
+    public void Help_BeforeYouStart_NamesBothFilesBgQuizWritesIntoTheFolder()
+    {
+        // Same page/rule discipline the caps and the stats filename already use,
+        // extended to the second file the app writes: the prerequisites lead tells
+        // a tester exactly what will appear in their folder, sourced from the two
+        // constants the two stores actually write — so neither can drift.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        Assert.Contains(QuizStatsFile.FileName, cut.Markup);
+        Assert.Contains(QuizFiltersFile.FileName, cut.Markup);
+    }
+
+    [Fact]
+    public void Help_DocumentsSavedFiltersAndTheWeightedMix()
+    {
+        // Both features shipped user-facing and undocumented. The headings are
+        // pinned above; this pins that each section carries the load-bearing fact
+        // a user cannot discover by clicking — saved filters live per-folder in a
+        // named file, and the mix needs the lifetime stats it composes from
+        // (which is why it is offered only for a stats-capable pick).
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        var headings = cut.FindAll("h2").ToList();
+        var savedFilters = headings.Single(h => h.TextContent.Trim() == "Save filters you use often");
+        var mix = headings.Single(
+            h => h.TextContent.Trim() == "Weight the quiz by your lifetime stats");
+
+        Assert.Contains(QuizFiltersFile.FileName, SectionText(savedFilters));
+        Assert.Contains("lifetime stats", SectionText(mix), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The rendered text of one Help section: everything from the given heading
+    /// up to the next <c>h2</c>. Lets a section-scoped assertion say what it
+    /// means on a page where the same term legitimately appears in several
+    /// sections (a whole-markup <c>Contains</c> would not discriminate).
+    /// </summary>
+    private static string SectionText(AngleSharp.Dom.IElement heading)
+    {
+        var text = new System.Text.StringBuilder();
+        for (var node = heading.NextElementSibling;
+             node is not null && !string.Equals(node.TagName, "H2", StringComparison.OrdinalIgnoreCase);
+             node = node.NextElementSibling)
+        {
+            text.Append(node.TextContent);
+        }
+        return text.ToString();
+    }
+
+    [Fact]
+    public void Help_OffersTheFeedbackMailto_CarryingTheRunningVersion()
+    {
+        // The beta feedback affordance. Asserted against AppInfo — the hoisted
+        // app-level SSOT both pages now read — rather than a literal address, so
+        // the two surfaces cannot render different links; the version half is
+        // asserted separately below (it is what makes a report actionable, and a
+        // hardcoded subject would drift at every deploy).
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        var link = cut.Find("a[href^='mailto:']");
+        Assert.Equal(AppInfo.FeedbackMailto, link.GetAttribute("href"));
+    }
+
+    [Fact]
+    public void FeedbackMailto_AddressesTheBetaMailbox_AndEscapesTheVersionIntoTheSubject()
+    {
+        // The link's contract, independent of either page. The version must ride
+        // the subject *escaped*: a non-shipping build's "+g<shortsha>" suffix
+        // contains a '+', which a mail client decoding the query as form data
+        // reads as a space — the commit being reported against would arrive
+        // mangled. Asserting the escaped form is what pins that.
+        Assert.StartsWith($"mailto:{AppInfo.FeedbackAddress}?subject=", AppInfo.FeedbackMailto);
+        Assert.Contains(Uri.EscapeDataString($"BgQuiz feedback ({AppInfo.Version})"),
+            AppInfo.FeedbackMailto);
+        Assert.DoesNotContain(" ", AppInfo.FeedbackMailto);
     }
 
     [Fact]

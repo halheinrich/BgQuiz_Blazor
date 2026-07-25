@@ -1,0 +1,10 @@
+# BgQuiz is handed to invited beta testers by private link. There is nothing
+# here for a search engine to serve to anyone, and being indexed is how a
+# hand-distributed address stops being hand-distributed — a published URL that
+# gets crawled gets harvested. So: nothing is crawlable.
+#
+# This is a request, not a control. It is honoured by the major crawlers and
+# ignored by anything that does not want to honour it; it is not, and must not
+# be mistaken for, access control.
+User-agent: *
+Disallow: /

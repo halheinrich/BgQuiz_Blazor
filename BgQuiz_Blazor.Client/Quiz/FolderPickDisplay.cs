@@ -10,7 +10,11 @@ namespace BgQuiz_Blazor.Client.Quiz;
 /// Deliberately <b>not</b> a home for every string on the pick surface: a phrase
 /// earns a constant here only once a second surface renders it. Help's prose
 /// stays prose — it explains the same rules at length and in its own voice, so
-/// pinning it to these constants would fight the page rather than serve it.
+/// pinning it to these constants would fight the page rather than serve it. The
+/// one exception is <see cref="SupportedBrowsers"/>, which Help's "before you
+/// start" lead renders <i>verbatim</i> rather than restating: it is a single
+/// sentence of fact, not an explanation, and the two surfaces must agree
+/// exactly — see its own remarks.
 /// </para>
 ///
 /// <para>
@@ -24,6 +28,41 @@ namespace BgQuiz_Blazor.Client.Quiz;
 /// </summary>
 internal static class FolderPickDisplay
 {
+    /// <summary>
+    /// Which browsers and devices the folder pick actually works on, in one
+    /// sentence pair that reads correctly standing alone (Home, beside the pick
+    /// button) and inside a prerequisites list (Help's "before you start" lead).
+    ///
+    /// <para>
+    /// It exists because the pick is a <b>dead entry point</b> where it isn't
+    /// supported: on a phone the <c>webkitdirectory</c> fallback is weak to
+    /// absent, so the button may raise nothing at all and leave the visitor on an
+    /// unchanged page with no account of why — the same silence the cancelled-pick
+    /// notice was added to end, except that no code path here ever runs to report
+    /// it. Only a statement made <i>before</i> the gesture can cover that case.
+    /// </para>
+    ///
+    /// <para>
+    /// Home renders it <b>ungated by the File System Access probe</b>, unlike the
+    /// two-step permission guidance: the readers it is written for are exactly the
+    /// ones the probe excludes. It hides once a folder is held (the pick worked;
+    /// the caution is moot), the same "no folder held" window its neighbour uses.
+    /// </para>
+    ///
+    /// <para>
+    /// The middle clause is hedged on purpose. A desktop non-Chromium browser is
+    /// not broken — the fallback picker works and the quiz runs, it just cannot
+    /// write, which is the <see cref="StatsSaveCapability.BrowserUnsupported"/>
+    /// rung. Only the phone case is genuinely "may not work at all", and it says
+    /// <i>may</i>: this asserts no behavior of a browser we cannot observe from
+    /// here, the same discipline as the never-quote-a-prompt rule above.
+    /// </para>
+    /// </summary>
+    internal const string SupportedBrowsers =
+        "BgQuiz supports desktop Chrome and Edge. Other desktop browsers can "
+        + "usually run the quiz but save nothing; on phones, choosing a folder "
+        + "may not work at all.";
+
     /// <summary>
     /// What the absence of write access to the picked folder actually costs, in
     /// one clause that reads correctly mid-sentence on either surface that

@@ -1,4 +1,3 @@
-using System.Reflection;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
@@ -72,6 +71,19 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
+/// Two statements on this page are about the <i>app</i> rather than about the
+/// quiz, and neither is gated on any pick state the setup surface uses. Beside
+/// the pick button, <see cref="FolderPickDisplay.SupportedBrowsers"/> names the
+/// browsers and devices the pick actually works on — deliberately <b>not</b>
+/// behind the <see cref="_fsAccessAvailable"/> probe, because the visitor it is
+/// written for (a phone, where the pick may raise nothing at all) is precisely
+/// the one that probe excludes. In the footer, <see cref="AppInfo.Version"/>
+/// and <see cref="AppInfo.FeedbackMailto"/> render together: the version is what
+/// makes a beta report actionable, and putting the feedback link beside it means
+/// the two cannot disagree.
+/// </para>
+///
+/// <para>
 /// A third, ungated toggle — "Shuffle order" — lives alongside the gate in the
 /// per-app <see cref="ShuffleOption"/> holder. It is presentation-only (order,
 /// not admission), so it plays no part in <c>CanStart</c>: the source factory
@@ -81,25 +93,6 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </summary>
 public partial class Home : ComponentBase
 {
-    /// <summary>
-    /// App version surfaced on the landing page, resolved once from the client
-    /// assembly's <see cref="AssemblyInformationalVersionAttribute"/> — declared
-    /// via <c>&lt;Version&gt;</c> in the csproj, the single source of truth (no
-    /// hardcoded literal). Rendered as <c>v{AppVersion}</c>. Falls back to the
-    /// assembly version, then a placeholder, if the attribute is ever absent.
-    /// <para>
-    /// A build that is not the shipping publish appends <c>+g&lt;shortsha&gt;</c>
-    /// (see <c>StampGitShaSuffix</c> in the csproj), so a deploy candidate under
-    /// acceptance names the commit it was built from rather than looking like the
-    /// release it is not yet. The leading SemVer is always <c>&lt;Version&gt;</c>.
-    /// </para>
-    /// </summary>
-    internal static string AppVersion { get; } =
-        typeof(Home).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion
-        ?? typeof(Home).Assembly.GetName().Version?.ToString()
-        ?? "unknown";
-
     private string? _startError;
 
     /// <summary>

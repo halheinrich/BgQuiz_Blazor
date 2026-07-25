@@ -57,6 +57,28 @@
                 Choose folder…
             </button>
         </div>
+        @* Supported-device statement. A tester who opens BgQuiz on a phone meets
+           a dead entry point: the webkitdirectory fallback is weak-to-absent
+           there, so the button may raise nothing at all and no code path here
+           ever runs to explain it. Only a statement made *before* the gesture
+           reaches that reader.
+
+           Deliberately NOT gated on _fsAccessAvailable, unlike the permission
+           guidance below: the readers this is written for are exactly the ones
+           that probe excludes. Gated only on "no folder held" — once a pick
+           lands, the pick worked and the caution is moot — which is the same
+           window its neighbour uses.
+
+           Rendered from FolderPickDisplay, not a literal: Help's "before you
+           start" lead states the identical rule, and a second surface is that
+           class's stated bar for owning a phrase. Polite role="status", like
+           every other outcome/advisory line on this page. *@
+        @if (!Folder.HasFiles)
+        {
+            <div class="text-muted small mt-1" role="status">
+                @FolderPickDisplay.SupportedBrowsers
+            </div>
+        }
         @* FS-Access pick guidance: the pick deliberately raises *two*
            browser-anchored prompts (folderAccess.js pickDirectory records why
            collapsing them to one is a closed won't-do), both easily missed, and
@@ -381,6 +403,16 @@
 
     </fieldset>
 
-    @* Explicit-expression parens: bare "v@AppVersion" is parsed as an email literal. *@
-    <div class="text-muted small mt-4">v@(AppVersion)</div>
+    @* Version + beta feedback, one footer line. The link sits here because the
+       version is what makes a report actionable and this is where the version
+       already is — a tester reads the build they are on and mails about it in
+       one gesture, with no chance of quoting the wrong one: both halves come
+       from AppInfo, so the subject can't drift from the footer.
+
+       Explicit-expression parens: bare "v@AppInfo.Version" is parsed as an
+       email literal. *@
+    <div class="text-muted small mt-4">
+        <span id="appVersion">v@(AppInfo.Version)</span>
+        · <a href="@AppInfo.FeedbackMailto">Send feedback</a>
+    </div>
 </div>

@@ -108,6 +108,14 @@ BgQuiz_Blazor/                      — thin ASP.NET Core WASM host (server)
       Error.razor
       NotFound.razor
   wwwroot/                          — static assets (favicon, app.css, Bootstrap)
+    robots.txt                      — Disallow: / for every crawler. The URL is
+                                      hand-distributed to invited beta testers,
+                                      so indexing serves nothing and is how a
+                                      private address gets harvested. Belongs to
+                                      the HOST wwwroot (the one that serves
+                                      app.css/favicon) — the .Client wwwroot
+                                      holds js/ only, and a copy there would
+                                      build, publish, and 404.
 
 BgQuiz_Blazor.Client/              — WASM client (the whole interactive surface)
   BgQuiz_Blazor.Client.csproj       — Sdk.BlazorWebAssembly; the bg-lib closure
@@ -120,6 +128,12 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
                                       QuizLiveMarker, ProblemSetSourceFactory
                                       (all scoped)
   _Imports.razor
+  AppInfo.cs                        — app-level identity SSOT: the running
+                                      version (from the assembly's
+                                      InformationalVersion) + the beta feedback
+                                      mailto both Home and Help render. At the
+                                      client root, not under Quiz/ — nothing
+                                      here is about quizzing
   wwwroot/
     js/folderAccess.js              — the app's ONE authored JS module: both pick
                                       mechanisms + stats read/write; two-slot
@@ -135,7 +149,9 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     PickedFileLimits.cs             — pick caps (bytes / count / derived MB)
     FolderPickDisplay.cs            — folder-pick wording SSOT (cause-agnostic
                                       no-write-access premise + what it costs;
-                                      never quote prompts, never promise a count)
+                                      supported-browsers statement, the one
+                                      clause Help renders verbatim; never quote
+                                      prompts, never promise a count)
     QuizStatsFile.cs                — stats filename + JsonSerializerOptions SSOT
     QuizStatsStore.cs               — IDecisionStatsSink + the stats document
                                       lifecycle (bind at Start, fold + write-back)
@@ -208,6 +224,9 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (Playwright/Chromi
   MixWeightingTests.cs              — weighted start to Done; composed-to-zero via
                                       the app's own write fed back; refusal + override
   HelpAndTitlesTests.cs             — /help renders; document.title contract
+  BetaOnboardingTests.cs            — robots.txt served over HTTP; the one
+                                      feedback mailto on Home and Help, subject
+                                      carrying the built version off the footer
   NotFoundTests.cs                  — unknown URL → 404 status + styled body
 ```
 
@@ -992,6 +1011,23 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   clear touches only the JS *picked* slot, so a running quiz keeps both its
   enumerator and its bound stats context
   (`PageTests.Home_ClearPickedFolder_RemovesSummaryDisablesStartClearsPickedSlotOnly`).
+  Beside the pick button, ungated by any capability probe, sits the
+  **supported-browsers statement** (`FolderPickDisplay.SupportedBrowsers`): the
+  pick is a *dead entry point* where it isn't supported — on a phone the
+  `webkitdirectory` fallback is weak-to-absent, so the button may raise nothing
+  at all and no code path here ever runs to say why. Only a statement made
+  *before* the gesture reaches that visitor, which is exactly why it must **not**
+  be behind `_fsAccessAvailable` the way the permission guidance below it is: the
+  readers it exists for are the ones that probe excludes. Its gate is only "no
+  folder held" (a completed pick proves the browser works; the caution is then
+  stale noise), matching the guidance's window. It lives in `FolderPickDisplay`
+  rather than as a literal because Help's *Before you start* lead renders the
+  same sentence verbatim — the sole exception to that class's "Help's prose stays
+  prose" rule, recorded on the constant: it is one sentence of fact, not an
+  explanation, and the two surfaces must agree exactly. Its middle clause is
+  hedged on purpose (a desktop non-Chromium browser is the working
+  `BrowserUnsupported` rung, not a broken one; only the phone case is "may not
+  work at all", and it says *may*).
   On an FS-Access-capable browser, an in-page note covers **both** of that
   mechanism's easily-missed permission prompts as a
   two-step ordered list, naming what declining each costs: step 1 (view the
@@ -1105,7 +1141,9 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   `QuizLiveMarker` set with no live controller — a full reload reset a quiz that
   was underway. `Home` sets the marker on Start (past the empty-result guard) and
   clears it when it shows the notice; see the `QuizLiveMarker` section for the
-  full lifecycle and the `HasStarted` discriminator.
+  full lifecycle and the `HasStarted` discriminator. The page **footer** carries
+  `AppInfo.Version` (in a `#appVersion` span) and, beside it, the beta feedback
+  `mailto:` from the same `AppInfo` — see that section.
 - **`Quiz.razor`** — mirrors the controller's three-state flow, branching on
   `Controller.Review`. In the **answering** state (`Review` null) it routes the
   board region by `Current.Decision.IsCube` over
@@ -1189,7 +1227,16 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   "resume where you left off" for free, with no state to persist or restore.
   Direct nav with no quiz in progress bounces to `/`; with the quiz already
   finished, to `/done` — the same guards `Quiz` applies to itself.
-- **`Help.razor`** — end-user documentation: the six beats of the flow (pick
+- **`Help.razor`** — end-user documentation, opening with a **Before you start**
+  prerequisites lead (added for the second beta wave, whose testers are recruited
+  on the premise that they already own a corpus): a folder of the reader's own
+  `.xg` / `.xgp` files is required and BgQuiz ships none; the supported browsers,
+  rendered *verbatim* from `FolderPickDisplay.SupportedBrowsers` so this and
+  Home's line beside the pick button cannot say different things; the two files
+  BgQuiz writes into that folder, named from `QuizStatsFile.FileName` /
+  `QuizFiltersFile.FileName`; and the nothing-leaves-your-machine stance. It
+  leads because everything after it assumes it — a reader can otherwise arrive
+  with nothing the app can act on. Then the six beats of the flow (pick
   folder → filters → answering → scoring → review → stats/done), a **Making a
   checker play** section sitting inside the answering beat, a **Lifetime
   stats** section (what's saved and where, the Chromium requirement, only
@@ -1201,7 +1248,20 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   scores as two decisions in-quiz, clicking the dice on the solution diagram
   advances like Continue, and a full browser reload resets everything (in-app
   navigation does not — and the stats file survives reload in the user's own
-  folder). The checker-play section documents
+  folder). Two setup features sit between the filters beat and the answering
+  beat, in the order the user meets them on Home: **Save filters you use often**
+  (the `SavedFiltersPanel` — save/load/delete by name, the per-folder
+  `QuizFiltersFile.FileName` document, a load being an edit that re-gates Start,
+  the write-access requirement and the leave-it-untouched degrade) and **Weight
+  the quiz by your lifetime stats** (the `MixPanel` — categories summing to 100,
+  earlier rows winning contested overlap, optional quiz length, the mix owning
+  presentation order while applied, the refusal-never-degrade ruling, and Apply
+  gating Start). The mix section forward-references *Lifetime stats* rather than
+  moving after it: journey order is the page's rhythm, and forward references are
+  already its idiom. The page closes with **Send feedback**, rendering
+  `AppInfo.FeedbackMailto` — the same link Home's footer carries, from the same
+  value, so a report can never quote a build the tester isn't running. The
+  checker-play section documents
   the one-click entry model the board actually ships, and is organized **by
   click target** — mirroring the component's own dispatch, so each bullet is
   exhaustive about one thing the user can click: a point you occupy
@@ -1226,8 +1286,11 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   bookmark. Only the "Back to quiz" button is conditional, on the exact
   predicate `Stats` guards with (`HasStarted && !IsFinished`). It does not
   subscribe to `StateChanged` — nothing changes while the user reads. The file
-  caps render from `PickedFileLimits` and the stats filename from
-  `QuizStatsFile.FileName`, never as literals. The host's
+  caps render from `PickedFileLimits`, the two written filenames from
+  `QuizStatsFile.FileName` / `QuizFiltersFile.FileName`, the browser rule from
+  `FolderPickDisplay.SupportedBrowsers`, and the feedback link + version from
+  `AppInfo` — never as literals. `PageTests` pins the full `h2` skeleton in
+  order, so a future edit cannot quietly drop or reorder a section. The host's
   `NavMenu` Help link is the **only** entry point; `Quiz`'s action row
   deliberately gets no "?" button, because its fixed height is load-bearing for
   board sizing.
@@ -1271,12 +1334,41 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   `Total`. Kept separate from `ScorePanel` rather than a `Detailed` flag so
   each component owns one layout.
 
+### `AppInfo` — app-level identity, and the beta feedback link
+
+`internal static class AppInfo` at the **client root** (not under `Quiz/`, which
+is the quiz domain's home — nothing here is about quizzing) owns the two facts
+the app states about *itself*:
+
+- **`Version`** — the running build's informational version (see the version
+  footer section below). It began as `Home.AppVersion` because exactly one
+  surface needed it; the beta feedback link made `Help` a second consumer, and a
+  page class is the wrong owner of app-level metadata the moment another page
+  reaches into it (`Help` would depend on `Home` for a fact with nothing to do
+  with the landing page). Hoisting leaves each page depending on the app.
+- **`FeedbackAddress` / `FeedbackMailto`** — the beta mailbox and the
+  `mailto:` href Home's footer and Help's *Send feedback* section both render,
+  with `Version` pre-filled into the subject. A plain mailbox is deliberate: the
+  app has no server and nothing to POST to, so any other channel would
+  contradict the privacy stance Help states.
+
+The subject is **percent-encoded** (`Uri.EscapeDataString`), not interpolated
+raw. A non-shipping build's version carries a `+` (`1.0.10+gabc1234`), and a bare
+`+` in a URI query is decoded as a space by mail clients that treat the query as
+form data — the commit the tester is reporting against would silently arrive
+mangled. `PageTests` pins the escaped form; the e2e suite rebuilds the expected
+href from its own literals (address, subject wording, escaping) against the
+version read off the rendered footer, so app and pin stay independent.
+
 ### The version footer (`<Version>` + `StampGitShaSuffix`)
 
-Home's `v{version}` footer renders `Home.AppVersion`, read once at runtime from
+Home's `v{version}` footer renders `AppInfo.Version`, read once at runtime from
 the `.Client` assembly's `AssemblyInformationalVersionAttribute`. `<Version>` in
 `BgQuiz_Blazor.Client.csproj` is the sole source of the release number — no
-literal anywhere in code, tests, or e2e repeats it.
+literal anywhere in code, tests, or e2e repeats it. The footer's `#appVersion`
+span is the e2e handle for reading the built version back out of a running
+artifact; the feedback link sits beside it precisely so the version a tester
+reads and the version their mail quotes cannot be different builds.
 
 Build metadata is appended to that number, never substituted for it. The
 `StampShortGitShaOnInformationalVersion` target (same csproj) suffixes
@@ -1432,6 +1524,19 @@ panel is offered only for an `Enabled` pick and every pick resets the committed
 mix. Don't move it back to the fallback rung — there is no way to commit a mix
 there any more.
 
+**Beta-onboarding surfaces.** `BetaOnboardingTests` covers the two things only a
+real request against the publish output can see. `robots.txt` is a **host**
+static file, not a Blazor route, so bUnit is structurally blind to it — and a
+copy misplaced into the `.Client` wwwroot would build, publish, and 404, with the
+host's `UseStatusCodePagesWithReExecute` serving a styled NotFound body, so the
+status *and* the body are both asserted. The feedback `mailto:` is checked
+against the version the **built** assembly reports: the test reads it off the
+`#appVersion` footer of the running artifact and rebuilds the expected href from
+its own literals (address, subject wording, `Uri.EscapeDataString`), then asserts
+Home's and Help's single link both match it. That is what proves the
+`+g<shortsha>` suffix survives into the subject — the whole reason the version is
+there — without the suite ever referencing an app assembly.
+
 **Fail loud, never skip.** Missing Playwright browsers, a missing committed
 fixture, a publish failure, a port-bind or readiness failure — each fails the
 suite with an actionable message (the browser-missing failure names the install
@@ -1492,7 +1597,7 @@ plain-C# client type (`QuizController` + `QuizStartOutcome`, the scoped holders
 `PickedFile`, `IFolderAccess` / `JsFolderAccess` (+ its wire DTOs),
 `StatsSaveCapability`, `FolderPickOutcome`, `QuizStatsFile`,
 `IDecisionStatsSink` / `QuizStatsStore` / `QuizStatsStatus`, `MixDisplay`,
-`FolderPickDisplay`,
+`FolderPickDisplay`, `AppInfo`,
 `WasmUploadedProblemSetSource` / `CachedProblemSetSource`, `ProblemReview`, and the `ProblemSetSourceFactory`
 delegate) is `internal`, reachable by the test project only through the
 `InternalsVisibleTo` grant. The only `public` types are the Razor components — the
@@ -1924,6 +2029,16 @@ the route map:
     discriminator at that point is **content negotiation on the `Accept` header** —
     a path-prefix or extension sniff duplicates routing knowledge inside middleware
     and still misses cases like `/no-such.json`.
+- **There are two `wwwroot`s — a served static file belongs to the host's.**
+  `BgQuiz_Blazor/wwwroot` is what the host serves (`app.css`, `favicon.png`,
+  `lib/`, `robots.txt`); `BgQuiz_Blazor.Client/wwwroot` holds `js/` and reaches
+  the browser only as the client's static *web assets*, under its own path. A
+  file that must answer at a fixed URL (`/robots.txt`, and anything else a
+  crawler, a browser, or a platform probe asks for by name) goes in the host's,
+  and the mistake is silent in every layer but one: it still builds, still
+  publishes, and 404s at runtime — where the re-execute above dresses the 404 in
+  the styled NotFound page, so it doesn't even look bare. `BetaOnboardingTests`
+  is the only thing that catches it.
 
 ## Subproject-internal next steps
 

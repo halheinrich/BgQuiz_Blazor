@@ -17,6 +17,38 @@
         against XG's evaluation of that position.
     </p>
 
+    @* Prerequisites, ahead of the flow. BgQuiz ships no sample files and does
+       not work on every browser, so a reader can arrive with nothing it can
+       act on — and everything below assumes those two things are already true.
+       The browser sentence is rendered from FolderPickDisplay rather than
+       restated, so this lead and Home's line beside the pick button say the
+       identical thing; the file names come from the constants the stores
+       actually write, the same discipline the caps and stats-file prose use. *@
+    <h2 class="h4 mt-4">Before you start</h2>
+    <ul>
+        <li>
+            <strong>Your own analyzed positions.</strong> BgQuiz quizzes you on
+            <code>.xg</code> match files and <code>.xgp</code> position files
+            that you already have. It ships none of its own, so you need a folder
+            of them on this machine before anything below applies.
+        </li>
+        <li>
+            <strong>A supported browser.</strong> @FolderPickDisplay.SupportedBrowsers
+        </li>
+        <li>
+            <strong>Two small files, written into that folder.</strong> BgQuiz
+            saves <code>@QuizStatsFile.FileName</code> (your lifetime record) and
+            <code>@QuizFiltersFile.FileName</code> (filters you save by name)
+            beside your problem files. It writes nothing else, and never changes
+            the files it quizzes you on.
+        </li>
+        <li>
+            <strong>Nothing leaves your machine.</strong> Your files are read,
+            parsed, and written entirely in your browser. There is no account, no
+            upload, and no server for anything to be sent to.
+        </li>
+    </ul>
+
     <h2 class="h4 mt-4">Pick your folder</h2>
     <p>
         On the home page, choose the local folder holding your <code>.xg</code> match
@@ -36,6 +68,69 @@
         press Apply again. Optionally tick <em>Shuffle order</em> to see positions in a
         random order rather than in file order.
     </p>
+
+    <h2 class="h4 mt-4">Save filters you use often</h2>
+    <p>
+        Above the filter panel, <em>Saved Filters</em> keeps named copies of
+        filter settings you want back later — a race-position set, one opponent,
+        a particular band of mistake sizes. Type a name and press <em>Save</em>
+        to store the filters as they currently stand; <em>Load</em> puts a saved
+        set back into the panel below, and <em>Delete</em> removes one (both
+        overwriting and deleting ask you to confirm first). A loaded set arrives
+        as an edit, not as a decision — Start stays disabled until you press
+        Apply, so you are free to adjust it first.
+    </p>
+    <p>
+        Saved filters live in a file named <code>@QuizFiltersFile.FileName</code>
+        inside your problem folder, so they belong to that folder and travel with
+        it. They need the same write access lifetime stats need: without it you
+        can still load filters saved earlier, but not save, change, or delete
+        them. If the file can't be read, BgQuiz leaves it exactly as it found it
+        and switches saving off rather than risk overwriting it.
+    </p>
+
+    <h2 class="h4 mt-4">Weight the quiz by your lifetime stats</h2>
+    <p>
+        Below the filters, <em>Weighted mix</em> composes the quiz out of your
+        <em>Lifetime stats</em> (below) instead of simply taking everything the
+        filters matched. Add categories — never seen, ever got wrong, not seen in
+        so many days, average equity loss over a threshold, wrong more than some
+        share of the time — give each a percentage, and make the percentages
+        total 100. You get a quiz built to those proportions from the problems
+        your filters selected.
+    </p>
+    <ul>
+        <li>
+            <strong>Row order settles overlap.</strong> A problem that fits two
+            of your categories counts toward the <em>earlier</em> row, so the
+            ↑ / ↓ buttons are how you say which category gets first claim.
+            <em>Everything else</em> catches whatever the rows above it didn't.
+        </li>
+        <li>
+            <strong>Quiz length is optional.</strong> Left blank, the mix takes
+            every problem its categories can reach; set it and the percentages
+            divide up that many problems instead.
+        </li>
+        <li>
+            <strong>An applied mix owns the order.</strong> Its own
+            <em>Random order</em> setting then decides how problems are
+            presented, and the page's Shuffle order checkbox is disabled — your
+            choice there is kept, and comes back when you reset the mix.
+        </li>
+        <li>
+            <strong>No lifetime stats, no mix.</strong> The mix is offered only
+            for a folder pick that can save stats, because that record is what it
+            composes from. If the stats turn out to be unusable when you press
+            Start, BgQuiz refuses rather than quietly running an unweighted quiz:
+            it offers to start that one quiz without the mix, and keeps the mix
+            you built either way.
+        </li>
+        <li>
+            <strong>Apply it like a filter.</strong> Editing the mix un-applies
+            it, and Start stays disabled until you press <em>Apply Mix</em> or
+            <em>Reset</em>.
+        </li>
+    </ul>
 
     <h2 class="h4 mt-4">Answer the position</h2>
     <p>
@@ -207,6 +302,20 @@
             the folder again resumes it.
         </li>
     </ul>
+
+    @* Feedback. Same href as Home's footer link, from the one AppInfo value, so
+       the version in the subject can never be the version of some other build.
+       Naming the version in the prose too is deliberate: a tester who mails from
+       a different device still knows what to quote. *@
+    <h2 class="h4 mt-4">Send feedback</h2>
+    <p>
+        BgQuiz is in beta, and the point of this round is to hear what breaks,
+        what confuses, and what is missing.
+        <a href="@AppInfo.FeedbackMailto">Email the BgQuiz beta address</a> — the
+        subject line comes pre-filled with the exact build you are running
+        (<code>@AppInfo.Version</code>), which is the first thing needed to make
+        sense of a report.
+    </p>
 
     @if (Controller.HasStarted && !Controller.IsFinished)
     {
