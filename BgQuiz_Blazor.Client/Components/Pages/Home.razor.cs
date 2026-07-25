@@ -32,8 +32,10 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// whichever mechanism the browser offers (probed at pick time through
 /// <see cref="IFolderAccess"/>): the File System Access directory picker where
 /// available — which can also grant the writable handle that enables lifetime
-/// stats — or the hidden <c>webkitdirectory</c> input elsewhere (read-only; the
-/// quiz runs without stats). Either way the folder's top-level <c>.xg</c> /
+/// stats, and which is guided while in flight by the two-step note naming both
+/// of that mechanism's permission prompts and what declining each costs — or the
+/// hidden <c>webkitdirectory</c> input elsewhere (read-only, no prompt to guide;
+/// the quiz runs without stats). Either way the folder's top-level <c>.xg</c> /
 /// <c>.xgp</c> files are buffered into <see cref="PickedFile"/>s (bytes +
 /// extension-bearing names) held in the per-app
 /// <see cref="PickedProblemFolder"/>; the bytes are parsed entirely in the
@@ -57,7 +59,11 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <see cref="WasmUploadedProblemSetSource"/> over the picked files, and the
 /// app navigates to <c>/quiz</c>. Pick failures and
 /// <see cref="FilterConfig.Build"/> / source-construction failures are caught
-/// and surfaced as banners rather than faulting the WebAssembly app; a
+/// and surfaced as banners rather than faulting the WebAssembly app. The two
+/// non-failure pick outcomes — a pick that ended holding no folder, and one that
+/// held a folder with no problem files — each get their own polite notice rather
+/// than silence, so no gesture ever returns the user to an unchanged page with
+/// no account of what happened. A
 /// weighted start with no lifetime stats is <i>refused</i> as an outcome (the
 /// actionable notice with its per-run "Start without mix" override — see
 /// <see cref="StartCoreAsync"/>), never silently run unweighted.
@@ -103,6 +109,33 @@ public partial class Home : ComponentBase
     private bool _emptyFolderNotice;
 
     /// <summary>
+    /// Set when a pick returned <see cref="FolderPickOutcome.Cancelled"/> — it
+    /// ended holding no folder. Sibling of <see cref="_emptyFolderNotice"/>: an
+    /// outcome (polite notice), not a failure, with the holder left untouched.
+    ///
+    /// <para>
+    /// This <i>reverses</i> the earlier deliberate silence. Cancellation covers
+    /// two causes — the picker was dismissed, or the required view-files
+    /// permission was declined — and the second is not the user changing their
+    /// mind: it is the load-bearing grant refused, leaving them on an unchanged,
+    /// empty page with no explanation. The browser reports both as
+    /// <c>AbortError</c>, so they are indistinguishable here; the notice is
+    /// worded to be true under either and to stay non-accusatory (see the markup
+    /// comment). Distinguishing them is not attempted.
+    /// </para>
+    ///
+    /// <para>
+    /// FS-Access-only in practice, and inherently so: only
+    /// <see cref="IFolderAccess.PickFolderAsync"/> ever reports a cancellation.
+    /// A dismissed <c>webkitdirectory</c> picker fires no change event at all,
+    /// and an empty selection lands on <see cref="_emptyFolderNotice"/> instead.
+    /// </para>
+    ///
+    /// <para>Per-visit outcome state, so a component field.</para>
+    /// </summary>
+    private bool _cancelledPickNotice;
+
+    /// <summary>
     /// The hidden <c>webkitdirectory</c> input the fallback mechanism drives.
     /// The JS module reads its FileList directly (for <c>webkitRelativePath</c>);
     /// this reference is only ever handed across <see cref="IFolderAccess"/>.
@@ -111,12 +144,14 @@ public partial class Home : ComponentBase
 
     /// <summary>
     /// Set while a File System Access pick is in flight (from the Choose-folder
-    /// click until the pick returns), driving the in-page note that points the
-    /// user at the browser's permission prompt — which is browser-anchored and
-    /// easily missed. FS-Access only: the fallback mechanism opens its picker
-    /// and returns immediately (the pick arrives later via the input's change
-    /// event) and raises no permission prompt to guide toward. Per-visit
-    /// transient state, so a component field.
+    /// click until the pick returns), driving the in-page guidance for the
+    /// <i>two</i> browser-anchored permission prompts that pick raises — both
+    /// easily missed, and each with a very different cost to declining (see the
+    /// markup, and <c>folderAccess.js</c>'s <c>pickDirectory</c> for why the two
+    /// prompts cannot be collapsed into one). FS-Access only: the fallback
+    /// mechanism opens its picker and returns immediately (the pick arrives
+    /// later via the input's change event) and raises no permission prompt to
+    /// guide toward. Per-visit transient state, so a component field.
     /// </summary>
     private bool _awaitingPick;
 
@@ -371,16 +406,24 @@ public partial class Home : ComponentBase
     }
 
     /// <summary>
-    /// The shared landing for both mechanisms' outcomes. A cancelled picker
-    /// changes nothing (no notice — the user changed their mind); an empty
-    /// folder surfaces the polite outcome notice and leaves the holder clear;
-    /// otherwise the holder takes the pick, and the rendered summary + stats
-    /// status notice derive from it (no transient field to keep in sync — that
-    /// desynced on navigate-back, when Home re-instantiated).
+    /// The shared landing for both mechanisms' outcomes. A cancelled pick and an
+    /// empty folder each leave the holder clear and surface their own polite
+    /// outcome notice; otherwise the holder takes the pick, and the rendered
+    /// summary + stats status notice derive from it (no transient field to keep
+    /// in sync — that desynced on navigate-back, when Home re-instantiated).
     /// </summary>
     private async Task ApplyPickOutcomeAsync(FolderPickOutcome outcome)
     {
-        if (outcome.Cancelled) return;
+        if (outcome.Cancelled)
+        {
+            // Not silent any more: cancellation also covers a declined
+            // view-files permission, which leaves the user on an unchanged empty
+            // page needing an explanation — see _cancelledPickNotice. Safe to
+            // set on the way out because ClearPickNotices ran at pick *start*,
+            // not here.
+            _cancelledPickNotice = true;
+            return;
+        }
 
         // Every (non-cancelled) pick starts a fresh setup, so it clears any
         // committed mix (Task X): under a no-stats pick the mix must play no
@@ -434,6 +477,7 @@ public partial class Home : ComponentBase
     {
         _pickError = null;
         _emptyFolderNotice = false;
+        _cancelledPickNotice = false;
         _startError = null;
         _noMatchNotice = null;
         _mixRefused = false; // a new pick can change stats capability

@@ -57,14 +57,36 @@
                 Choose folder…
             </button>
         </div>
-        @* In-flight FS-Access pick guidance: the folder-permission prompt is
-           browser-anchored (near the address bar) and easily missed, so point
-           the user at it while the pick is awaiting. Cleared when the pick
-           returns. Polite role="status". *@
+        @* In-flight FS-Access pick guidance: the pick deliberately raises *two*
+           browser-anchored prompts (folderAccess.js pickDirectory records why
+           collapsing them to one is a closed won't-do), both easily missed, and
+           neither says what declining costs — yet the two declines are wildly
+           asymmetric. So name both grants and both consequences.
+
+           Static, not stage-aware. Swapping the text as each prompt arrives was
+           considered and DECLINED, not deferred: it needs a Blazor render to land
+           between two back-to-back prompts on WASM's single thread, and the two
+           arrive seconds apart, so one read covers both.
+
+           Describes the grants; quotes no browser's prompt text — see
+           FolderPickDisplay for why any such quote would be wrong somewhere.
+           Shown for the whole in-flight window, cleared when the pick returns.
+           Polite role="status". *@
         @if (_awaitingPick)
         {
             <div class="text-muted small mt-1" role="status">
-                Check your browser for a permission prompt and click <strong>Allow</strong>.
+                Your browser will ask you twice, near the address bar:
+                <ol class="mb-0 mt-1">
+                    <li>
+                        <strong>To view this folder's files — required.</strong>
+                        Nothing works without it: decline and no folder is picked at all.
+                    </li>
+                    <li>
+                        <strong>To save files into the folder — optional.</strong>
+                        The quiz runs either way; decline and
+                        @(FolderPickDisplay.WriteAccessConsequence).
+                    </li>
+                </ol>
             </div>
         }
         @* Fallback picker for browsers without showDirectoryPicker: a hidden
@@ -105,11 +127,30 @@
                     </div>
                     break;
                 case StatsSaveCapability.PermissionDenied:
+                    @* Same consequence clause the in-flight guidance's step 2
+                       promised, rendered from the one constant so the warning
+                       and the follow-through can't drift. *@
                     <div class="alert alert-warning mt-2" role="status">
-                        You declined write access — the quiz runs, but stats won't be saved.
+                        You declined write access — the quiz runs, but
+                        @(FolderPickDisplay.WriteAccessConsequence).
                     </div>
                     break;
             }
+        }
+        @* Cancelled-pick outcome (not a failure): the pick ended holding no
+           folder. Two causes reach here — the picker was dismissed, or the
+           required view-files permission was declined — and they are
+           deliberately not distinguished, so the wording must be true under
+           both and stay non-accusatory toward the user who simply backed out.
+           Silence (the earlier choice) left them on an unchanged, empty page
+           with no explanation of why nothing happened. Polite role="status",
+           like its sibling outcome notices. *@
+        @if (_cancelledPickNotice)
+        {
+            <div class="alert alert-warning mt-2" role="status">
+                No folder is picked, so there's nothing for BgQuiz to read yet —
+                choose a folder and allow your browser's request to view its files.
+            </div>
         }
         @* Empty-folder outcome (not a failure): a completed pick that yielded
            no problem files. Polite, like the no-match notice. *@

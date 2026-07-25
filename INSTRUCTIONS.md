@@ -133,6 +133,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     PickedProblemFolder.cs          — picked-folder holder (+ PickedFile, Summary,
                                       pick-time StatsSaveCapability)
     PickedFileLimits.cs             — pick caps (bytes / count / derived MB)
+    FolderPickDisplay.cs            — folder-pick wording SSOT (what declining
+                                      write access costs; never quote prompts)
     QuizStatsFile.cs                — stats filename + JsonSerializerOptions SSOT
     QuizStatsStore.cs               — IDecisionStatsSink + the stats document
                                       lifecycle (bind at Start, fold + write-back)
@@ -561,10 +563,13 @@ browser offers — probed **at pick time**, per gesture:
 
 - **File System Access** (`showDirectoryPicker`, Chromium): native directory
   picker, then a `requestPermission({mode:'readwrite'})` on the picked handle —
-  **two prompts, deliberately** (see Pitfalls). Granted ⇒
-  `StatsSaveCapability.Enabled` — lifetime stats save into the folder; declined
-  ⇒ `PermissionDenied` — the handle stays readable, so the file list loads and
-  the quiz runs read-only.
+  **two prompts, deliberately** (see Pitfalls), with wildly asymmetric declines.
+  The *first* is load-bearing: decline it and the pick aborts holding nothing
+  (⇒ `Cancelled`, indistinguishable from a dismissed picker). The *second* is
+  the graceful rung: granted ⇒ `StatsSaveCapability.Enabled` — lifetime stats
+  save into the folder; declined ⇒ `PermissionDenied` — the handle stays
+  readable, so the file list loads and the quiz runs read-only. Home's in-flight
+  guidance names both grants and both consequences up front (see `Home`).
 - **`webkitdirectory` fallback** (everywhere else): a hidden
   `<input type="file" webkitdirectory>` opened by the same button. Read-only
   by construction ⇒ `BrowserUnsupported` — quiz runs without stats.
@@ -584,7 +589,12 @@ stats store — depends on the `IFolderAccess` interface. Directory handles
 booleans. Error signaling is by kind: expected outcomes are result values (a
 cancelled picker ⇒ `FolderPickOutcome.Cancelled`, a denied write ⇒ the
 capability enum, a missing stats file ⇒ `null` read); only unexpected browser
-failures throw (`JSException`), which callers catch and degrade on. Byte
+failures throw (`JSException`), which callers catch and degrade on.
+`Cancelled` carries **two** causes and does not say which — the picker was
+dismissed, *or* the load-bearing view-files permission was declined; the browser
+reports both as `AbortError`. Callers must read it as "no folder was picked",
+never as "the user changed their mind" (Home's cancelled notice is worded to be
+true under either). Byte
 transfer is `IJSStreamReference` per file; `JsFolderAccess` enforces the
 `PickedFileLimits` caps against the enumerated *metadata* before any bytes
 move, and re-asserts the byte cap as `OpenReadStreamAsync(maxAllowedSize:)`.
@@ -954,10 +964,17 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   runs behind `IFolderAccess`; the page never touches raw interop. The pick
   lands in the per-app `PickedProblemFolder` (extension-bearing names +
   bytes + pick-time `StatsSaveCapability`); the bytes are parsed in-browser
-  and never uploaded. A cancelled picker changes nothing, silently; an empty
-  folder shows a polite outcome notice and leaves the holder clear; the
-  capability drives the pick-time stats status notice (see Folder picking &
-  lifetime stats). The pick label renders straight from
+  and never uploaded. The two no-folder outcomes each leave the holder clear and
+  each show their own polite notice — a cancelled pick (`_cancelledPickNotice`)
+  and an empty folder (`_emptyFolderNotice`) — so no pick ever returns the user
+  to an unchanged page with no account of what happened; the capability drives
+  the pick-time stats status notice (see Folder picking &
+  lifetime stats). The cancelled notice is deliberately **cause-agnostic**: the
+  outcome covers both a dismissed picker and a declined view-files permission
+  (indistinguishable — see `IFolderAccess`), so it says only that no folder is
+  held and nothing can be read until one is, and stays non-accusatory toward the
+  user who simply backed out. It is inherently FS-Access-only, since only
+  `PickFolderAsync` ever reports a cancellation. The pick label renders straight from
   `PickedProblemFolder.Summary` (the SSOT — not a transient field), with a
   **Clear** affordance beside it (`Folder.Clear()` +
   `FolderAccess.ClearPickedAsync()`); the summary then disappears and the
@@ -968,10 +985,18 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   enumerator and its bound stats context
   (`PageTests.Home_ClearPickedFolder_RemovesSummaryDisablesStartClearsPickedSlotOnly`).
   While a File System Access pick is in flight, an in-page note (`_awaitingPick`)
-  points the user at the browser's easily-missed permission prompt ("Check your
-  browser for a permission prompt and click Allow"); FS-Access-only, since the
-  fallback opens its picker and returns immediately with no prompt to guide
-  toward. **Progressive disclosure:** everything downstream of the pick — the
+  covers **both** of that mechanism's easily-missed permission prompts as a
+  two-step ordered list, naming what declining each costs: step 1 (view the
+  folder's files) is required — decline and no folder is picked at all; step 2
+  (save files into the folder) is optional — the quiz runs either way, but the
+  lifetime record of which problems give the user difficulty is not kept. The
+  note is FS-Access-only, since the fallback opens its picker and returns
+  immediately with no prompt to guide toward. It is **static, not stage-aware**:
+  swapping the text as each prompt arrives was considered and *declined, not
+  deferred* — it needs a Blazor render to land between two back-to-back prompts
+  on WASM's single thread, and the two arrive seconds apart, so one read covers
+  both. It also **quotes no browser's prompt text** (see `FolderPickDisplay`).
+  **Progressive disclosure:** everything downstream of the pick — the
   saved-filters panel (rendered *above* the `FilterPanel`, so load-then-refine
   reads top-down), the `FilterPanel`, the match-count line, the `MixPanel`, the
   shuffle checkbox, and Start (with all their hints and notices) — renders only
@@ -1399,6 +1424,7 @@ plain-C# client type (`QuizController` + `QuizStartOutcome`, the scoped holders
 `PickedFile`, `IFolderAccess` / `JsFolderAccess` (+ its wire DTOs),
 `StatsSaveCapability`, `FolderPickOutcome`, `QuizStatsFile`,
 `IDecisionStatsSink` / `QuizStatsStore` / `QuizStatsStatus`, `MixDisplay`,
+`FolderPickDisplay`,
 `WasmUploadedProblemSetSource` / `CachedProblemSetSource`, `ProblemReview`, and the `ProblemSetSourceFactory`
 delegate) is `internal`, reachable by the test project only through the
 `InternalsVisibleTo` grant. The only `public` types are the Razor components — the
@@ -1574,7 +1600,14 @@ the route map:
   accident. The two-prompt flow is retained deliberately; the full rationale
   lives in the comment above `pickDirectory`. (Finding V's actual concern — the
   prompt being missed in a busy UI — is already met by progressive disclosure
-  plus the in-page "check your browser" guidance, so a collapse buys nothing.)
+  plus the in-page two-step guidance, so a collapse buys nothing.)
+- **Never quote a browser's permission-prompt text — describe the grant.**
+  Chrome and Edge word both File System Access prompts differently, and Edge
+  interpolates the picked folder's *own name* into the write prompt, so any
+  string claiming to be what the user will read is wrong somewhere. Home's
+  two-step guidance therefore names the grant being asked for, hedged ("your
+  browser will ask…"), and asserts no exact prompt string — in markup, comments,
+  or docs. `FolderPickDisplay` carries the rule.
 - **A refused weighted start touches no quiz state — check the outcome before
   `IsFinished`.** `StartAsync`/`RestartAsync` returning `MixRequiresStats`
   leaves the prior quiz (enumerator, scores, `Current`, `IsFinished`) and the

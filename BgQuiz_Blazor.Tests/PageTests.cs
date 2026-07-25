@@ -443,6 +443,10 @@ public class PageTests : BunitContext
         Assert.Contains(QuizStatsFile.FileName, cut.Markup);
         Assert.Contains("stats will be saved", cut.Markup);
         Assert.Contains("role=\"status\"", cut.Markup); // outcome, not an alert
+        // A completed pick that held a folder is neither of the no-folder
+        // outcomes, and write access was granted — neither notice belongs here.
+        Assert.DoesNotContain("No folder is picked", cut.Markup);
+        Assert.DoesNotContain(FolderPickDisplay.WriteAccessConsequence, cut.Markup);
     }
 
     [Fact]
@@ -479,15 +483,20 @@ public class PageTests : BunitContext
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         Assert.Contains("declined write access", cut.Markup);
+        // Finding (AA): the notice says what that costs, from the shared
+        // constant — not a bare "stats won't be saved".
+        Assert.Contains(FolderPickDisplay.WriteAccessConsequence, cut.Markup);
         var folder = Services.GetRequiredService<PickedProblemFolder>();
         Assert.True(folder.HasFiles);
     }
 
     [Fact]
-    public async Task Home_FolderPick_Cancelled_ChangesNothingShowsNothing()
+    public async Task Home_FolderPick_Cancelled_ShowsNeutralNotice()
     {
-        // A dismissed picker is an expected outcome: no holder change, no
-        // notice — the user simply changed their mind.
+        // Finding (AA), reversing the earlier silence: a pick that ended holding
+        // no folder now says so. Cancellation covers both a dismissed picker and
+        // a declined view-files permission, so the notice must be neutral —
+        // polite role="status", never the assertive error banner.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
@@ -498,9 +507,33 @@ public class PageTests : BunitContext
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         var folder = Services.GetRequiredService<PickedProblemFolder>();
-        Assert.False(folder.HasFiles);
-        Assert.DoesNotContain("alert-warning", cut.Markup);
+        Assert.False(folder.HasFiles); // the holder is still untouched
+        Assert.Contains("No folder is picked", cut.Markup);
+        Assert.Contains("role=\"status\"", cut.Markup);
         Assert.DoesNotContain("alert-danger", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_FolderPick_Cancelled_NoticeClearsOnNextPick()
+    {
+        // The notice is per-attempt: ClearPickNotices runs at pick *start*, so a
+        // following successful pick leaves no stale "no folder is picked" line
+        // beside the folder it just picked.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = FolderPickOutcome.CancelledOutcome;
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        Assert.Contains("No folder is picked", cut.Markup);
+
+        _folderAccess.NextPickOutcome = OneFileOutcome();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.DoesNotContain("No folder is picked", cut.Markup);
+        Assert.True(Services.GetRequiredService<PickedProblemFolder>().HasFiles);
     }
 
     [Fact]
@@ -520,6 +553,9 @@ public class PageTests : BunitContext
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         Assert.Contains("No .xg / .xgp files found", cut.Markup);
+        // The two no-folder outcomes stay distinct: this pick completed and held
+        // a folder, so the cancelled-pick notice must not also fire.
+        Assert.DoesNotContain("No folder is picked", cut.Markup);
         var folder = Services.GetRequiredService<PickedProblemFolder>();
         Assert.False(folder.HasFiles);
         Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Start Quiz");
@@ -567,12 +603,14 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public void Home_FsAccessPick_InFlight_ShowsPermissionGuidance()
+    public void Home_FsAccessPick_InFlight_ShowsTwoStepPermissionGuidance()
     {
-        // Task V: while an FS-Access pick is awaiting, Home shows in-page
-        // guidance pointing the user at the browser's (easily-missed) permission
-        // prompt; it clears when the pick returns. A gate freezes the pick so
-        // the transient in-flight state is observable.
+        // Task V + finding (AA): while an FS-Access pick is awaiting, Home shows
+        // in-page guidance for BOTH of that mechanism's (easily-missed)
+        // permission prompts, saying what declining each costs — step 1 required,
+        // step 2 optional with the shared write-access consequence. It clears
+        // when the pick returns. A gate freezes the pick so the transient
+        // in-flight state is observable.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
@@ -585,11 +623,21 @@ public class PageTests : BunitContext
         var click = cut.Find("#pickProblemFolder").ClickAsync(new()); // suspends at the gate
 
         cut.WaitForAssertion(() =>
-            Assert.Contains("Check your browser for a permission prompt", cut.Markup));
+        {
+            Assert.Contains("Your browser will ask you twice", cut.Markup);
+            // Step 1: load-bearing — nothing works without it.
+            Assert.Contains("view this folder's files", cut.Markup);
+            Assert.Contains("no folder is picked at all", cut.Markup);
+            // Step 2: optional, and what it costs — from the shared constant, so
+            // this and the PermissionDenied notice cannot drift apart.
+            Assert.Contains("save files into the folder", cut.Markup);
+            Assert.Contains(FolderPickDisplay.WriteAccessConsequence, cut.Markup);
+            Assert.Equal(2, cut.FindAll("ol li").Count);
+        });
 
         gate.SetResult();
         cut.WaitForAssertion(() =>
-            Assert.DoesNotContain("Check your browser for a permission prompt", cut.Markup));
+            Assert.DoesNotContain("Your browser will ask you twice", cut.Markup));
         Assert.True(click.IsCompletedSuccessfully);
     }
 
@@ -597,8 +645,8 @@ public class PageTests : BunitContext
     public async Task Home_FallbackPick_ShowsNoPermissionGuidance()
     {
         // Over-trigger guard: the fallback mechanism opens its picker and
-        // returns immediately (no permission prompt), so the FS-Access guidance
-        // never shows.
+        // returns immediately (no permission prompt at all), so neither step of
+        // the FS-Access guidance ever shows — it is inherently FS-Access-only.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
@@ -608,7 +656,8 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        Assert.DoesNotContain("Check your browser for a permission prompt", cut.Markup);
+        Assert.DoesNotContain("Your browser will ask you twice", cut.Markup);
+        Assert.DoesNotContain(FolderPickDisplay.WriteAccessConsequence, cut.Markup);
         Assert.Equal(1, _folderAccess.TriggerFallbackCallCount);
     }
 

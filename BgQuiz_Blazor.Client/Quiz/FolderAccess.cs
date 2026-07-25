@@ -32,13 +32,24 @@ internal enum StatsSaveCapability
 
 /// <summary>
 /// The result of one folder-pick gesture, whichever mechanism served it.
-/// <see cref="Cancelled"/> <c>true</c> means the user dismissed the picker —
-/// an expected outcome, not an error, carrying no other data. Otherwise
+/// <see cref="Cancelled"/> <c>true</c> means the pick ended with no folder — an
+/// expected outcome, not an error, carrying no other data. Otherwise
 /// <see cref="Files"/> holds the folder's top-level <c>.xg</c> / <c>.xgp</c>
 /// files fully buffered (extension-bearing names — the DecisionId-stamping
 /// contract), and <see cref="Capability"/> says whether stats can be saved.
+///
+/// <para>
+/// <b>Cancelled has two causes, and does not say which.</b> The user dismissed
+/// the native picker, <i>or</i> declined the load-bearing view-files permission
+/// the File System Access mechanism requests first — the browser reports both as
+/// <c>AbortError</c>, so nothing downstream can tell them apart. Callers must
+/// treat it as "no folder was picked", never as "the user changed their mind".
+/// (Declining the <i>second</i>, readwrite prompt is not cancellation: it keeps
+/// the readable handle and lands on
+/// <see cref="StatsSaveCapability.PermissionDenied"/>.)
+/// </para>
 /// </summary>
-/// <param name="Cancelled">True when the user dismissed the picker.</param>
+/// <param name="Cancelled">True when the pick ended holding no folder — see the type remarks.</param>
 /// <param name="DirectoryName">The picked folder's leaf name (empty when cancelled).</param>
 /// <param name="Files">Top-level problem files, buffered (empty when cancelled).</param>
 /// <param name="Capability">Whether stats can be saved into this folder.</param>
@@ -76,7 +87,8 @@ internal sealed record FolderPickOutcome(
 ///
 /// <para>
 /// <b>Error signaling.</b> Expected outcomes are values, never exceptions: a
-/// cancelled picker is <see cref="FolderPickOutcome.Cancelled"/>, a write
+/// pick that ended with no folder — dismissed picker or declined read — is
+/// <see cref="FolderPickOutcome.Cancelled"/>, a write
 /// denial is <see cref="StatsSaveCapability.PermissionDenied"/>, a missing
 /// stats file is a <c>null</c> read. Unexpected browser failures surface as
 /// <see cref="Microsoft.JSInterop.JSException"/> for callers to catch and

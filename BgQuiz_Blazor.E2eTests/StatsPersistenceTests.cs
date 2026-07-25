@@ -87,8 +87,11 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await PickFakeFolderAsync();
         // Target the stats notice specifically: under PermissionDenied the
         // saved-filters panel also renders a "declined write access" reason
-        // (load-only), so the bare phrase now matches two elements.
-        await Expect(Page.GetByText("stats won't be saved")).ToBeVisibleAsync();
+        // (load-only), so the bare phrase now matches two elements. The clause
+        // matched here is finding (AA)'s consequence wording — what declining
+        // actually costs, not a bare "stats won't be saved".
+        await Expect(Page.GetByText("lifetime record of which problems give you difficulty"))
+            .ToBeVisibleAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();
@@ -120,6 +123,10 @@ public sealed class FallbackPickNoticeTests : E2eTestBase
         await PickFixtureAsync(CubeFixture);
 
         await Expect(Page.GetByText("can't save quiz stats")).ToBeVisibleAsync();
+        // Finding (AA)'s two-step permission guidance is inherently FS-Access-
+        // only — this mechanism raises no prompt to guide toward — so it must
+        // never appear on this path, in flight or after.
+        await Expect(Page.GetByText("Your browser will ask you twice")).ToBeHiddenAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();
