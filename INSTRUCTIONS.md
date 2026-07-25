@@ -1271,6 +1271,49 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   `Total`. Kept separate from `ScorePanel` rather than a `Detailed` flag so
   each component owns one layout.
 
+### The version footer (`<Version>` + `StampGitShaSuffix`)
+
+Home's `v{version}` footer renders `Home.AppVersion`, read once at runtime from
+the `.Client` assembly's `AssemblyInformationalVersionAttribute`. `<Version>` in
+`BgQuiz_Blazor.Client.csproj` is the sole source of the release number — no
+literal anywhere in code, tests, or e2e repeats it.
+
+Build metadata is appended to that number, never substituted for it. The
+`StampShortGitShaOnInformationalVersion` target (same csproj) suffixes
+`+g<shortsha>` — 7 chars, the short form the umbrella's docs quote commits in —
+so a running build names the commit it came from. It is **on by default**; the
+shipping publish is the one caller that opts out:
+
+```
+dotnet publish BgQuiz_Blazor/BgQuiz_Blazor.csproj -c Release -p:StampGitShaSuffix=false
+```
+
+Default-on is the point. The deploy recipe hands the user a Release publish
+built at the current pointer for acceptance *before* the `<Version>` bump, so
+that candidate would otherwise render the previous release number — a build
+claiming to be something it isn't. `Configuration` therefore cannot be the
+discriminator: candidate and shipped artifact are both Release, and only the
+latter should read clean.
+
+Two mechanics worth knowing. The SDK's own
+`IncludeSourceRevisionInInformationalVersion` stays `false` — it appends the
+*full* 40-char sha, and leaving it on would stack both suffixes. And the stamp
+is doubly guarded (`SourceControlInformationFeatureSupported`, non-empty
+`SourceRevisionId`), because `Substring(0, 7)` on an empty property is a hard
+build failure; a build outside a git working copy degrades to the clean SemVer
+instead. `SourceRevisionId` is populated by a plain local `dotnet build`, so no
+`Exec`-a-`git`-command fallback is needed. Read a built assembly back with:
+
+```
+pwsh -c "[System.Diagnostics.FileVersionInfo]::GetVersionInfo('BgQuiz_Blazor.Tests/bin/Debug/net10.0/BgQuiz_Blazor.Client.dll').ProductVersion"
+```
+
+`PageTests` pins both halves without hardcoding a version: the footer equals the
+assembly's informational version whatever its shape, and that version's leading
+SemVer equals `AssemblyVersion` (the same `<Version>`, but immune to build
+metadata) with any suffix matching `^\+g[0-9a-f]{7}$`. The suffix assertion is
+gated on presence, so the suite passes for a clean-release build too.
+
 ### Render mode
 
 `InteractiveWebAssembly` — the whole quiz runs in the browser-wasm runtime

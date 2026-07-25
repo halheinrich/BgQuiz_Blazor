@@ -1457,6 +1457,34 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public void AppVersion_LeadingSemVerIsTheReleaseNumber_AnyGitShaSuffixIsWellFormed()
+    {
+        // The informational version may carry a "+g<shortsha>" build-metadata
+        // suffix naming the commit a build came from (StampGitShaSuffix in
+        // BgQuiz_Blazor.Client.csproj — on by default, off for the shipping
+        // publish), so this must hold for a stamped and a clean build alike:
+        //
+        //   1. Whatever follows, the release number the user reads is the
+        //      csproj <Version> and nothing else — a suffix appends, it never
+        //      displaces or corrupts. AssemblyVersion is the cross-check: it
+        //      flows from the same <Version> (padded to a 4th field) but takes
+        //      no build metadata, so the two agreeing pins <Version> as the
+        //      single source without hardcoding a literal here.
+        //   2. When a suffix *is* present it is the short-sha form, not some
+        //      other trailing text that happened to land in the footer.
+        var informational = AssemblyInformationalVersion();
+        var assemblyVersion = typeof(HomePage).Assembly.GetName().Version!;
+        var release = $"{assemblyVersion.Major}.{assemblyVersion.Minor}.{assemblyVersion.Build}";
+
+        var plus = informational.IndexOf('+');
+        Assert.Equal(release, plus < 0 ? informational : informational[..plus]);
+        if (plus >= 0)
+        {
+            Assert.Matches(@"^\+g[0-9a-f]{7}$", informational[plus..]);
+        }
+    }
+
+    [Fact]
     public async Task Quiz_DoesNotRenderAppVersion()
     {
         // F placement: the version string is a Home-only footer — the quiz view

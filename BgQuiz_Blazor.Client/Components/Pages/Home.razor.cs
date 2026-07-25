@@ -87,6 +87,12 @@ public partial class Home : ComponentBase
     /// via <c>&lt;Version&gt;</c> in the csproj, the single source of truth (no
     /// hardcoded literal). Rendered as <c>v{AppVersion}</c>. Falls back to the
     /// assembly version, then a placeholder, if the attribute is ever absent.
+    /// <para>
+    /// A build that is not the shipping publish appends <c>+g&lt;shortsha&gt;</c>
+    /// (see <c>StampGitShaSuffix</c> in the csproj), so a deploy candidate under
+    /// acceptance names the commit it was built from rather than looking like the
+    /// release it is not yet. The leading SemVer is always <c>&lt;Version&gt;</c>.
+    /// </para>
     /// </summary>
     internal static string AppVersion { get; } =
         typeof(Home).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()

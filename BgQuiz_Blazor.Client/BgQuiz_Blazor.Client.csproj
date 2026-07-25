@@ -3,11 +3,23 @@
   <PropertyGroup>
     <RootNamespace>BgQuiz_Blazor.Client</RootNamespace>
     <!-- Single source of truth for the app version the Home page surfaces (read
-         at runtime from AssemblyInformationalVersionAttribute). Suppress the SDK's
-         "+<gitsha>" build-metadata suffix so the informational version is the
-         clean SemVer shown in the UI. -->
+         at runtime from AssemblyInformationalVersionAttribute). The release
+         number itself always comes from here and nothing may displace it; a
+         build-metadata suffix (below) may follow it. -->
     <Version>1.0.10</Version>
+    <!-- Suppress the SDK's own "+<gitsha>" suffix, which appends the *full*
+         40-char sha. StampShortGitShaOnInformationalVersion (below) puts back a
+         readable short form instead; leaving the SDK's version on as well would
+         stack both (SemVer 2.0 says a second append becomes ".<sha>"). -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- Stamp "+g<shortsha>" onto the informational version so a build is
+         identifiable from the UI footer alone. Deliberately defaults to ON:
+         every dev build, and every deploy *candidate* handed to the user for
+         acceptance, is built at some pointer and should say which one. Only the
+         shipping publish opts out (-p:StampGitShaSuffix=false) to render the
+         clean SemVer. Configuration is NOT the discriminator — the acceptance
+         candidate and the shipped artifact are both Release. -->
+    <StampGitShaSuffix Condition="'$(StampGitShaSuffix)' == ''">true</StampGitShaSuffix>
     <!-- Pin the browser-wasm runtime to the invariant culture regardless of the
          visitor's browser locale. Two payoffs:
 
@@ -34,6 +46,29 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
   </ItemGroup>
+
+  <!-- Append "+g<shortsha>" to the informational version, mirroring the SDK's own
+       AddSourceRevisionToInformationalVersion (Microsoft.NET.GenerateAssemblyInfo
+       .targets) but with a 7-char sha — the short form the umbrella's docs quote
+       commits in, so a footer sha can be matched against them by eye.
+
+       Hooked the same way the SDK hooks its version: GetAssemblyAttributes
+       depends on InitializeSourceControlInformation, so $(SourceRevisionId) is
+       populated by the time a BeforeTargets="GetAssemblyAttributes" target runs.
+
+       Both guards matter. SourceControlInformationFeatureSupported is false when
+       no source-control provider is in play, and SourceRevisionId is empty for a
+       build outside a git working copy (a source archive, an export) — either
+       way Substring(0, 7) would hard-fail the build, so such a build degrades to
+       the clean SemVer instead. -->
+  <Target Name="StampShortGitShaOnInformationalVersion"
+          DependsOnTargets="InitializeSourceControlInformation"
+          BeforeTargets="GetAssemblyAttributes"
+          Condition="'$(StampGitShaSuffix)' == 'true' and '$(SourceControlInformationFeatureSupported)' == 'true'">
+    <PropertyGroup Condition="'$(SourceRevisionId)' != ''">
+      <InformationalVersion>$(InformationalVersion)+g$(SourceRevisionId.Substring(0, 7))</InformationalVersion>
+    </PropertyGroup>
+  </Target>
 
   <ItemGroup>
     <!-- The test project asserts rendered page prose against the internal constants
