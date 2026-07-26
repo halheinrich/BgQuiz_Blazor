@@ -68,6 +68,25 @@
         press Apply again. Optionally tick <em>Shuffle order</em> to see positions in a
         random order rather than in file order.
     </p>
+    @* The count line, previously undocumented anywhere. Two things about it are
+       easy to read wrongly — it counts matching *decisions* rather than problems
+       you will be shown, and it describes the filters alone — and the second is
+       load-bearing once a mix is applied, since the quiz can then be far smaller
+       than the number on screen. Home states that caveat beside the number in its
+       own voice; this stays prose, per FolderPickDisplay's "Help's prose stays
+       prose" rule (a shared constant is earned only by two surfaces rendering the
+       same sentence). *@
+    <p>
+        Each time you press Apply, a line below the panel says how many decisions
+        your filters matched. That is the pool your quiz is drawn from — and it
+        counts <em>decisions</em>, not problems you will be shown: a position whose
+        dice leave no legal play is counted here and then skipped for you at quiz
+        time. It also describes the filters only. So if you have applied a weighted
+        mix, the mix draws the quiz from that pool rather than presenting all of
+        it, and the quiz can be much smaller than the number shown. Starting is
+        what composes the mix, and the quiz page then tells you exactly what it
+        drew.
+    </p>
 
     <h2 class="h4 mt-4">Save filters you use often</h2>
     <p>

@@ -224,6 +224,17 @@ public partial class Home : ComponentBase
     /// component field. Set from <see cref="QuizController.CountMatchesAsync"/>
     /// on Apply — pre-mix pool size, "decisions that match", not "problems
     /// you'll see" (a few forced-move passes auto-skip at quiz time).
+    ///
+    /// <para>
+    /// Because the count is filter-only (<see cref="QuizController.CountMatchesAsync"/>
+    /// composes with <see cref="QuizMix.Empty"/>), a committed mix makes it the
+    /// size of the pool the quiz is <i>drawn from</i> rather than the size of the
+    /// quiz — potentially far larger. The markup states that relationship beside
+    /// the number whenever <see cref="HasCommittedMix"/>; the count itself stays
+    /// pool-only. Showing the composed length instead would mean composing
+    /// against the lifetime stats before Start, which is Start's job and
+    /// deliberately not attempted here.
+    /// </para>
     /// </summary>
     private int? _matchCount;
 
@@ -351,12 +362,24 @@ public partial class Home : ComponentBase
     private bool CanStart => AppliedFilter.IsApplied && Folder.HasFiles && !AppliedMix.IsDirty;
 
     /// <summary>
+    /// Whether a non-passthrough mix is committed — the single fact two
+    /// unrelated statements on this page derive from (the match count's caveat
+    /// and the shuffle checkbox's disabled state, via
+    /// <see cref="MixOwnsOrder"/>), so neither can be true while the other
+    /// reads the mix differently.
+    /// </summary>
+    private bool HasCommittedMix => !AppliedMix.Current.IsPassthrough;
+
+    /// <summary>
     /// True while the committed mix has entries: presentation order belongs to
     /// the mix's own Random-order setting, so the standalone Shuffle checkbox
     /// is disabled — but its held value is deliberately left untouched, so
-    /// clearing the mix restores the user's prior shuffle preference.
+    /// clearing the mix restores the user's prior shuffle preference. A named
+    /// <i>consequence</i> of <see cref="HasCommittedMix"/>, not a second copy of
+    /// the predicate: the markup that disables the checkbox should say why it is
+    /// disabled.
     /// </summary>
-    private bool MixOwnsOrder => !AppliedMix.Current.IsPassthrough;
+    private bool MixOwnsOrder => HasCommittedMix;
 
     /// <summary>
     /// On boot, surface the reload-reset notice when the marker says a quiz was

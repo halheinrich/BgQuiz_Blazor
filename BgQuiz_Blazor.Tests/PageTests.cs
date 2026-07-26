@@ -409,6 +409,54 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_ApplyFilters_CommittedMix_CountCarriesThePoolCaveat()
+    {
+        // The count is filter-only (CountMatchesAsync composes with QuizMix.Empty),
+        // so with a mix committed the number is the pool the quiz is *drawn from* —
+        // the quiz itself can be far smaller. The caveat says so beside the number,
+        // inside the same role="status" region, and the count stays pool-only (both
+        // decisions here matched, so it still reads 2).
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithAppliedMix(NeverSeenMix()); // committed, non-passthrough
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        var count = cut.FindAll("div[role=status]")
+                       .First(d => d.TextContent.Contains("decisions match your filters"));
+        Assert.Contains("2", count.TextContent);
+        Assert.Contains("draws the quiz from these matches", count.TextContent);
+        Assert.Contains("can be much smaller", count.TextContent);
+    }
+
+    [Fact]
+    public async Task Home_ApplyFilters_NoMix_CountCarriesNoCaveat()
+    {
+        // Passthrough (the default): the quiz presents what the filters matched, so
+        // there is nothing to qualify — the caveat must not appear.
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithAppliedMix(); // blank
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        Assert.Contains("decisions match your filters", cut.Markup);
+        Assert.DoesNotContain("draws the quiz from these matches", cut.Markup);
+    }
+
+    [Fact]
     public async Task Home_FiltersDirty_ClearsMatchCount()
     {
         // Editing any filter control invalidates the shown count — it described
@@ -2879,6 +2927,29 @@ public class PageTests : BunitContext
 
         Assert.Contains(QuizFiltersFile.FileName, SectionText(savedFilters));
         Assert.Contains("lifetime stats", SectionText(mix), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Help_ChooseFilters_DocumentsTheMatchCountAndItsMixCaveat()
+    {
+        // The count line shipped undocumented. Two readings of it are wrong and
+        // both are pinned here: it counts matching *decisions* (pass positions
+        // included, then skipped at quiz time), and it describes the filters only —
+        // so with a mix applied the quiz is drawn from that pool and can be much
+        // smaller than the number shown. Section-scoped, since "mix" appears in
+        // several sections legitimately.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        var section = SectionText(
+            cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters"));
+
+        // Substrings deliberately kept inside a single source line: the rendered
+        // text carries the razor file's own line breaks and indentation.
+        Assert.Contains("says how many decisions", section);
+        Assert.Contains("not problems you will be shown", section);
+        Assert.Contains("can be much smaller than the number shown", section);
     }
 
     /// <summary>

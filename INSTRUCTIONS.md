@@ -1105,7 +1105,24 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   filters" (the pre-mix pool). Counting lives in the controller; Home only
   displays and manages lifecycle: a request id stamped per Apply discards a
   stale result landing after a newer Apply, and the count clears on any filter
-  edit (`HandleFiltersDirty`) or new/cleared pick (the corpus changed). The
+  edit (`HandleFiltersDirty`) or new/cleared pick (the corpus changed).
+  **The count is filter-only, and says so when a mix is committed.**
+  `CountMatchesAsync` composes with `QuizMix.Empty`, so with a mix applied the
+  number is the size of the pool the quiz is *drawn from*, which the quiz can fall
+  far short of — a number the user would otherwise read as the quiz's length. When
+  `HasCommittedMix`, a caveat renders *inside* the same `role="status"` region
+  (count and qualification announced together) saying the mix draws the quiz from
+  these matches rather than presenting all of them, so the quiz itself **can** be
+  much smaller. Hedged, not "will be": a capless *Everything else* mix can
+  legitimately draw the whole pool. The count itself stays pool-only —
+  substituting a composed length would mean composing against the lifetime stats
+  before Start, which is Start's work, and a **pre-Start composition preview is
+  deliberately not built**. `HasCommittedMix` is the single predicate behind both
+  this caveat and (via `MixOwnsOrder`, kept as a named consequence so the shuffle
+  markup still says *why* it is disabled) the shuffle checkbox's disabled state.
+  Help's *Choose filters* section documents the count line and this caveat in its
+  own prose — per `FolderPickDisplay`'s standing rule, a shared constant is earned
+  only when two surfaces render the same sentence, which these don't. The
   first count after a pick parses the corpus once (warming the cache so Start is
   then instant), so `_isCounting` folds into the same busy boundary as the
   transition gate (below) — which also serializes the count against a Start.
@@ -1303,7 +1320,11 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   answered problems count, a cube records two decisions there too, an unreadable
   file is left alone, and — extending the privacy stance — the stats file
   never leaves the machine), and then the semantics a user cannot discover by
-  clicking around — pass positions are auto-skipped and never shown, an
+  clicking around — the **match count** below the filter panel counts matching
+  *decisions* (pass positions included, then skipped for the user at quiz time)
+  and describes the filters alone, so an applied mix draws the quiz from that pool
+  and the quiz can be much smaller than the number shown; pass positions are
+  auto-skipped and never shown, an
   off-list play counts as a skip rather than a wrong answer, a cube position
   scores as two decisions in-quiz, clicking the dice on the solution diagram
   advances like Continue, and a full browser reload resets everything (in-app
