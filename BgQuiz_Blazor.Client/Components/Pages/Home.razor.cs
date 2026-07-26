@@ -22,7 +22,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// provide the lifetime stats it composes from
 /// (<see cref="StatsSaveCapability.Enabled"/>). Under a no-stats pick the mix
 /// plays no part in Start — the panel is hidden and every pick resets any
-/// committed mix to passthrough (see <see cref="ApplyPickOutcomeAsync"/>), so
+/// committed mix to passthrough (see <see cref="EndCurrentSetupAsync"/>), so
 /// Start runs plain with no mix gate, warning, or refusal.
 /// </para>
 ///
@@ -71,19 +71,32 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// <b>A pick starts a fresh setup.</b> Every (non-cancelled) pick returns the
-/// whole setup surface to its pre-setup state, because nothing the user selected
-/// against the previous corpus can be assumed to mean the same thing against the
-/// new one: the committed mix resets (<see cref="AppliedMix.Reset"/>, whose
-/// <c>@key</c>-ed panel re-mounts with it), the applied filter clears and the
-/// panel's edit buffers go back to defaults (<see cref="ResetFilterSurface"/>),
-/// and the match count — which described the old corpus — is dropped by
-/// <see cref="ClearPickNotices"/> along with every pick-scoped notice. So Start
-/// is always re-gated by a pick, never inherited across one. Two things are
-/// deliberately <i>not</i> reset: <see cref="ShuffleOption"/>, a
-/// presentation-only preference in the same class as the mix panel's persisted
-/// rows, and the lifetime-stats slot, whose whole point is to <i>resume</i> when
-/// its folder is picked again.
+/// <b>A pick ends the current setup — at the click.</b> Choosing a folder
+/// returns the whole setup surface to its pre-setup state
+/// (<see cref="EndCurrentSetupAsync"/>, shared with the <c>Clear</c> affordance,
+/// which encodes the same decision): folder and picked slot, saved filters,
+/// committed mix, filter surface, and every pick-scoped notice and match count.
+/// Nothing the user selected against the previous corpus can be assumed to mean
+/// the same thing against the next one, so Start is always re-gated by a pick,
+/// never inherited across one. Two things deliberately survive:
+/// <see cref="ShuffleOption"/>, a presentation-only preference in the same class
+/// as the mix panel's persisted rows, and the lifetime-stats slot, whose whole
+/// point is to <i>resume</i> when its folder is picked again.
+/// </para>
+///
+/// <para>
+/// The reset fires on the <i>gesture</i>, before the picker opens — not on a
+/// successful outcome. That is what keeps the OS picker and the browser's
+/// permission prompts from playing out over the outgoing setup's populated
+/// screen, and it settles the cancelled case by construction: a cancelled pick
+/// lands on the initial screen plus <see cref="_cancelledPickNotice"/>, and the
+/// folder that was held is gone. Deliberate — the previous folder is
+/// <i>not</i> snapshotted and restored, because "choose a folder" ends the
+/// current setup whatever the picker then returns. One consequence to expect: a
+/// successful pick re-mounts the <see cref="FilterPanel"/> the reset unmounted,
+/// so its <c>localStorage</c> restore re-stages the persisted config as dirty on
+/// <i>every</i> pick — the already-accepted fresh-load behavior, now routine
+/// rather than exceptional (see <see cref="ResetFilterSurface"/>).
 /// </para>
 ///
 /// <para>
@@ -142,10 +155,24 @@ public partial class Home : ComponentBase
     /// </para>
     ///
     /// <para>
-    /// FS-Access-only in practice, and inherently so: only
-    /// <see cref="IFolderAccess.PickFolderAsync"/> ever reports a cancellation.
-    /// A dismissed <c>webkitdirectory</c> picker fires no change event at all,
-    /// and an empty selection lands on <see cref="_emptyFolderNotice"/> instead.
+    /// <b>Both mechanisms reach it, by different routes.</b> Only
+    /// <see cref="IFolderAccess.PickFolderAsync"/> ever <i>reports</i> a
+    /// cancellation as an outcome; a dismissed <c>webkitdirectory</c> picker
+    /// fires no change event at all, so the fallback's dismissal is caught
+    /// instead through that input's own <c>cancel</c> event
+    /// (<see cref="HandleFallbackCancelled"/>). Wiring it became necessary when
+    /// the setup reset moved to the click: silence there would now leave the user
+    /// on a screen the gesture had just emptied. (An empty <i>selection</i> is a
+    /// different outcome and lands on <see cref="_emptyFolderNotice"/>.)
+    /// </para>
+    ///
+    /// <para>
+    /// The <c>cancel</c> route is best-effort by nature: it depends on the
+    /// browser firing that event, which current Chromium, Firefox, and Safari do
+    /// but older versions may not. Where it never arrives the outcome degrades to
+    /// the silence that preceded it — no wrong statement is made, only a missing
+    /// one. Blazor's side is not in doubt: it registers <c>cancel</c> as a
+    /// non-bubbling event and attaches a direct listener to the element.
     /// </para>
     ///
     /// <para>Per-visit outcome state, so a component field.</para>
@@ -413,17 +440,36 @@ public partial class Home : ComponentBase
     /// enumeration, buffering) completes inside <see cref="IFolderAccess"/>;
     /// without it, this click only opens the hidden <c>webkitdirectory</c>
     /// input's picker and the pick arrives later via that input's own change
-    /// event (<see cref="HandleFallbackPickedAsync"/>).
+    /// event (<see cref="HandleFallbackPickedAsync"/>) or, on a dismissal, its
+    /// cancel event (<see cref="HandleFallbackCancelled"/>).
+    ///
+    /// <para>
+    /// <b>The setup ends at the click.</b> <see cref="EndCurrentSetupAsync"/>
+    /// runs <i>before</i> the mechanism fork, so the screen is back at its
+    /// initial no-folder state — guidance up, nothing else disclosed — by the
+    /// time the OS picker and the browser's permission prompts appear. They
+    /// used to play out over the previous folder's fully-populated screen, which
+    /// read as though that setup were still standing behind them. It is the
+    /// whole reset (see that method), not a cosmetic one: choosing a folder ends
+    /// the current setup whatever the picker then returns.
+    /// </para>
+    ///
+    /// <para>
+    /// The reset is inside the <c>try</c>: its one fallible step is the picked-
+    /// slot interop, and a browser failure there belongs in the pick-error
+    /// banner like every other, never faulting the WebAssembly app.
+    /// </para>
     /// </summary>
     private async Task PickFolderAsync()
     {
-        ClearPickNotices();
         try
         {
+            await EndCurrentSetupAsync();
+
             // The authoritative mechanism fork, re-probed per gesture. No
-            // guidance state is toggled here: the prompt note is already on
-            // screen (rendered since init — see _fsAccessAvailable) and hides
-            // itself once this pick leaves a folder held.
+            // guidance state is toggled here: the prompt note is back on screen
+            // (the reset above cleared the folder that was hiding it) and hides
+            // itself again once this pick leaves a folder held.
             if (await FolderAccess.SupportsDirectoryPickerAsync())
             {
                 await ApplyPickOutcomeAsync(await FolderAccess.PickFolderAsync());
@@ -445,10 +491,14 @@ public partial class Home : ComponentBase
     /// filtered by the JS module (top-level <c>.xg</c> / <c>.xgp</c> only).
     /// Capability is always <see cref="StatsSaveCapability.BrowserUnsupported"/>
     /// on this mechanism — no writable handle exists.
+    ///
+    /// <para>
+    /// No reset of its own: this is the tail of a gesture
+    /// <see cref="PickFolderAsync"/> already ended the setup for.
+    /// </para>
     /// </summary>
     private async Task HandleFallbackPickedAsync(ChangeEventArgs _)
     {
-        ClearPickNotices();
         try
         {
             await ApplyPickOutcomeAsync(await FolderAccess.CollectFallbackAsync(_fallbackInput));
@@ -458,6 +508,19 @@ public partial class Home : ComponentBase
             Folder.Clear();
             _pickError = ex.Message;
         }
+    }
+
+    /// <summary>
+    /// The hidden <c>webkitdirectory</c> input's dismissal: the fallback
+    /// mechanism's cancelled pick, landing on the same
+    /// <see cref="_cancelledPickNotice"/> the File System Access mechanism uses
+    /// (its wording is cause-agnostic, so it is true here too). Without this the
+    /// gesture would end on a screen the click had just reset, with no account
+    /// of why — the very silence the notice exists to end.
+    /// </summary>
+    private void HandleFallbackCancelled()
+    {
+        _cancelledPickNotice = true;
     }
 
     /// <summary>
@@ -472,28 +535,21 @@ public partial class Home : ComponentBase
         if (outcome.Cancelled)
         {
             // Not silent any more: cancellation also covers a declined
-            // view-files permission, which leaves the user on an unchanged empty
-            // page needing an explanation — see _cancelledPickNotice. Safe to
-            // set on the way out because ClearPickNotices ran at pick *start*,
-            // not here.
+            // view-files permission, which leaves the user needing an
+            // explanation — see _cancelledPickNotice. Safe to set on the way out
+            // because EndCurrentSetupAsync ran at pick *start*, not here; the
+            // screen it left is the initial no-folder one, which this notice now
+            // accounts for.
             _cancelledPickNotice = true;
             return;
         }
 
-        // Every (non-cancelled) pick starts a fresh setup, so it clears any
-        // committed mix (Task X): under a no-stats pick the mix must play no
-        // part in Start, and under an Enabled pick the re-mounted panel re-offers
-        // the stored config as dirty. localStorage is untouched, so the panel's
-        // restore can still re-show it. This is what makes the removed
-        // "your mix can't be provided" advisory unreachable — a stats-less pick
-        // can never coexist with a committed non-blank mix.
-        AppliedMix.Reset();
-
-        // …and the filter half of that same fresh setup.
-        ResetFilterSurface();
-
         if (outcome.Files.Count == 0)
         {
+            // Both are already clear — EndCurrentSetupAsync ran at the click and
+            // nothing since could have set them. Re-stated so this shared landing
+            // carries its own postcondition ("an empty pick holds no folder")
+            // rather than inheriting it from whoever called it.
             Folder.Clear();
             SavedFilters.Reset();
             _emptyFolderNotice = true;
@@ -512,22 +568,21 @@ public partial class Home : ComponentBase
     /// <summary>
     /// Return the filter half of the setup surface to its pre-setup state — the
     /// <see cref="AppliedMix.Reset"/> sibling, called from the same place for the
-    /// same reason: a pick starts a fresh setup, so nothing the user selected
-    /// against the <i>previous</i> corpus may silently carry over to the new one.
-    /// Without this a re-pick left the old filter applied — Start enabled
-    /// immediately, against a folder whose files the filter had never been
-    /// weighed against.
+    /// same reason: ending a setup must leave nothing the user selected against
+    /// the <i>previous</i> corpus silently in force. Without this a re-pick left
+    /// the old filter applied — Start enabled immediately, against a folder whose
+    /// files the filter had never been weighed against.
     ///
     /// <para>
     /// Two writes, and the first is <b>not</b> redundant.
     /// <see cref="FilterPanel.LoadConfig"/> raises the panel's dirty signal (→
     /// <see cref="HandleFiltersDirty"/> → <see cref="AppliedFilter.Clear"/>,
-    /// which also drops any shown/in-flight match count), so on a re-pick the
-    /// explicit <see cref="AppliedFilter.Clear"/> merely runs first. It carries
-    /// the invariant in the case where <i>no panel is mounted</i>: the panel sits
-    /// behind the progressive-disclosure gate, so a pick made from the no-folder
-    /// state has none to call, and relying on that callback would leave a filter
-    /// applied from before a <c>Clear</c> still satisfying the gate.
+    /// which also drops any shown/in-flight match count), so where a panel is
+    /// mounted the explicit <see cref="AppliedFilter.Clear"/> merely runs first.
+    /// It carries the invariant in the case where <i>no panel is mounted</i>: the
+    /// panel sits behind the progressive-disclosure gate, so a gesture made from
+    /// the no-folder state has none to call, and relying on that callback would
+    /// leave a filter applied from an earlier setup still satisfying the gate.
     /// </para>
     ///
     /// <para>
@@ -547,11 +602,15 @@ public partial class Home : ComponentBase
     /// filter panel would re-run its first-render <c>localStorage</c> restore and
     /// stage the <i>persisted</i> config — the opposite of defaults. (MixPanel is
     /// keyed for precisely that effect: re-offering the persisted mix as dirty.)
-    /// The one place the panel does re-mount is a pick made after a
-    /// <c>Clear</c>, where the gate had unmounted it: there the fresh instance
-    /// restores from <c>localStorage</c> like any fresh load, and the
-    /// <see cref="AppliedFilter.Clear"/> above is what still holds — Start
-    /// re-gates, so the shown config is never claimed as applied.
+    /// That distinction now decides less than it reads: since the reset moved to
+    /// the click, <b>every</b> pick unmounts the panel (the gate closes with the
+    /// folder) and the successful ones re-mount it, so the persisted config is
+    /// re-staged on every pick, exactly as on a fresh load. The
+    /// <see cref="AppliedFilter.Clear"/> above is what holds either way — Start
+    /// re-gates behind its Apply hint, so a re-staged config is shown but never
+    /// claimed as applied. What the un-keyed panel still buys is the
+    /// <i>cancelled</i> pick and the <c>Clear</c>, which end with no panel at all
+    /// and no restore to re-stage anything.
     /// </para>
     /// </summary>
     private void ResetFilterSurface()
@@ -560,26 +619,63 @@ public partial class Home : ComponentBase
         _filterPanel?.LoadConfig(new FilterConfig());
     }
 
-    private async Task ClearPickedFolderAsync()
+    /// <summary>
+    /// End the current setup: return the whole surface to its pre-setup,
+    /// no-folder state. The single reset behind <i>both</i> gestures that end a
+    /// setup — the <c>Clear</c> affordance, and the <i>start</i> of a pick
+    /// gesture (<see cref="PickFolderAsync"/>) — because they encode the same
+    /// decision, and two spellings of one decision drift.
+    ///
+    /// <para>
+    /// <b>Everything pick-scoped goes.</b> The folder holder and the JS module's
+    /// picked slot, this folder's saved filters, the committed mix, the filter
+    /// surface (<see cref="ResetFilterSurface"/>), and every pick-scoped notice
+    /// and match count (<see cref="ClearPickNotices"/>). Two things deliberately
+    /// survive, and the class summary says why: <see cref="ShuffleOption"/> and
+    /// the lifetime-stats slot.
+    /// </para>
+    ///
+    /// <para>
+    /// <b><see cref="AppliedFilter"/> is reset here too</b> — superseding an
+    /// earlier ruling that <c>Clear</c> should leave it alone as "edit-coupled,
+    /// not pick-coupled". Under one shared reset the applied filter is coupled to
+    /// neither gesture in particular but to the <i>setup</i>: ending one ends it.
+    /// (It stays edit-coupled as well — <see cref="HandleFiltersDirty"/> clears it
+    /// on any edit. The two rules are independent, not duplicates.) On the
+    /// <c>Clear</c> path this is invisible in the UI, since the panel and Start
+    /// are both behind the disclosure gate a cleared folder closes; the value is
+    /// that there is now one reset to reason about instead of two that differed
+    /// by a line.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Safe mid-quiz.</b> The picked files are read only at Start time (the
+    /// source factory reads <see cref="PickedProblemFolder.Files"/> in
+    /// <see cref="QuizController.StartAsync"/>) and the JS side clears the
+    /// <i>picked</i> slot only — a running quiz's stats context lives in the
+    /// <i>active</i> slot, bound at Start, so recording continues untouched until
+    /// the next Start re-binds.
+    /// </para>
+    ///
+    /// <para>
+    /// The render is deliberate, not incidental: a pick's next step is the OS
+    /// picker and the browser's permission prompts, which must not appear over
+    /// the outgoing setup's populated screen. <c>StateHasChanged</c>
+    /// queues the returned-to-initial paint and the awaited picked-slot interop
+    /// yields the thread for it to land — the same paint-before-the-churn idiom
+    /// <see cref="HandleFilterConfigApplied"/> uses.
+    /// </para>
+    /// </summary>
+    private async Task EndCurrentSetupAsync()
     {
-        // Discards the pick; the Start gate re-disables by construction
-        // (HasFiles goes false) and the holder-derived summary and stats
-        // notice disappear. Safe to call mid-quiz: the picked files are read
-        // only at Start time (the source factory reads Folder.Files in
-        // StartAsync) and the JS side clears the PICKED slot only — a running
-        // quiz's stats context lives in the ACTIVE slot, bound at Start, so
-        // recording continues untouched until the next Start re-binds.
         Folder.Clear();
         SavedFilters.Reset();
-        // AppliedMix.Current is pick-coupled (Task X resets it on every pick), so
-        // ending the pick via Clear must also return it to passthrough —
-        // completing the "no pick → passthrough" invariant and mirroring the
-        // SavedFilters.Reset() above (both are pick-coupled state that clears when
-        // the pick ends). AppliedFilter is deliberately NOT reset here: it is
-        // edit-coupled, not pick-coupled, so its lifecycle is unchanged.
         AppliedMix.Reset();
-        await FolderAccess.ClearPickedAsync();
+        ResetFilterSurface();
         ClearPickNotices();
+
+        StateHasChanged();
+        await FolderAccess.ClearPickedAsync();
     }
 
     private void ClearPickNotices()

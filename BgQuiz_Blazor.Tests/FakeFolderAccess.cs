@@ -24,6 +24,15 @@ internal sealed class FakeFolderAccess : IFolderAccess
     /// <summary>When set, <see cref="PickFolderAsync"/> / <see cref="CollectFallbackAsync"/> throw it instead.</summary>
     public Exception? PickException { get; set; }
 
+    /// <summary>
+    /// Invoked at the top of <see cref="PickFolderAsync"/> — i.e. at the instant
+    /// the real implementation would raise the OS picker and the browser's
+    /// permission prompts. The observation point for "what does the user see
+    /// behind the picker?": a test inspects app state from inside it. Nothing
+    /// else in the fake calls it, so it observes only the FS-Access mechanism.
+    /// </summary>
+    public Action? OnPickCalled { get; set; }
+
     /// <summary>What <see cref="PromoteToActiveAsync"/> returns (default: an FS-Access handle is active).</summary>
     public bool PromoteResult { get; set; } = true;
 
@@ -57,8 +66,13 @@ internal sealed class FakeFolderAccess : IFolderAccess
 
     public ValueTask<bool> SupportsDirectoryPickerAsync() => ValueTask.FromResult(SupportsDirectoryPicker);
 
-    public Task<FolderPickOutcome> PickFolderAsync() =>
-        PickException is { } ex ? Task.FromException<FolderPickOutcome>(ex) : Task.FromResult(NextPickOutcome);
+    public Task<FolderPickOutcome> PickFolderAsync()
+    {
+        OnPickCalled?.Invoke();
+        return PickException is { } ex
+            ? Task.FromException<FolderPickOutcome>(ex)
+            : Task.FromResult(NextPickOutcome);
+    }
 
     public Task TriggerFallbackPickerAsync(ElementReference fallbackInput)
     {

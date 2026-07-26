@@ -136,15 +136,25 @@
            showing, and the per-gesture probe in PickFolderAsync, which is the
            authoritative mechanism fork. This input is gated by neither. The
            FileList is read by the JS module (Blazor's InputFile can't see
-           webkitRelativePath, which the top-level-only filter needs). *@
+           webkitRelativePath, which the top-level-only filter needs).
+
+           Two landings, because this mechanism reports its two outcomes on two
+           different events: change carries a selection, and cancel is the only
+           signal a dismissal gives (no change event fires). The cancel binding
+           is what keeps a dismissed fallback pick from ending on the screen the
+           click just reset with nothing said — see _cancelledPickNotice for its
+           best-effort nature. *@
         <input type="file" id="problemFolderFallback" webkitdirectory class="d-none"
-               @ref="_fallbackInput" @onchange="HandleFallbackPickedAsync" />
+               @ref="_fallbackInput" @onchange="HandleFallbackPickedAsync"
+               @oncancel="HandleFallbackCancelled" />
         @if (!string.IsNullOrEmpty(Folder.Summary))
         {
             <div class="text-muted small mt-1 d-flex align-items-center gap-2">
                 <span>@Folder.Summary</span>
+                @* Clear and "Choose folder…" end the current setup identically —
+                   one handler, so the two can't drift. *@
                 <button type="button" class="btn btn-link btn-sm p-0 align-baseline"
-                        @onclick="ClearPickedFolderAsync">
+                        @onclick="EndCurrentSetupAsync">
                     Clear
                 </button>
             </div>
@@ -328,11 +338,16 @@
        it composes from (Task X). Under a no-stats pick the mix plays no part in
        Start, so hiding the panel makes that true by construction (there is no way
        to build a mix, and every pick resets any committed one — see
-       ApplyPickOutcomeAsync). Keyed on the pick generation so every pick
+       EndCurrentSetupAsync). Keyed on the pick generation so every pick
        re-mounts it: the fresh mount's restore re-offers the persisted mix as
        dirty (reconciled against the just-reset holder), which both enforces "no
        committed mix silently survives a pick" and avoids a stale-rows-vs-
-       passthrough-holder divergence on a re-pick that wouldn't otherwise remount. *@
+       passthrough-holder divergence on a re-pick that wouldn't otherwise remount.
+
+       The @key now decides less than it did: since the reset moved to the click,
+       the enclosing HasFiles gate already unmounts this panel on every pick. The
+       key stays because it — not the gate — is what guarantees the remount, and
+       nothing here should depend on the gate's timing. *@
     @if (Folder.Capability == StatsSaveCapability.Enabled)
     {
         <MixPanel @key="Folder.PickGeneration"

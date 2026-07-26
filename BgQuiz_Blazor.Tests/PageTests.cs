@@ -606,6 +606,128 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_PickGesture_ResetsTheSetupBeforeThePickerOpens()
+    {
+        // The deliverable's actual claim: the reset fires at the *click*, not on
+        // a successful outcome. Observed from inside the fake's PickFolderAsync —
+        // the instant the real implementation raises the OS picker and the
+        // browser's permission prompts — so what this asserts is precisely what
+        // the user would be looking at behind those prompts. Before the move, all
+        // three reads were the previous setup's: picker and prompts played out
+        // over a fully-populated screen.
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        var mix = WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome("First", "first.xg");
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await ApplyFiltersAsync(cut);
+        await cut.InvokeAsync(() => cut.FindComponent<MixPanelComponent>()
+                                       .Instance.OnMixApplied.InvokeAsync(NeverSeenMix()));
+
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        var filter = Services.GetRequiredService<AppliedFilter>();
+        Assert.True(folder.HasFiles);          // fully armed…
+        Assert.True(filter.IsApplied);
+        Assert.False(mix.Current.IsPassthrough);
+
+        // …then a second pick gesture, sampled at the picker.
+        bool? heldAtPicker = null, appliedAtPicker = null, mixedAtPicker = null;
+        _folderAccess.OnPickCalled = () =>
+        {
+            heldAtPicker = folder.HasFiles;
+            appliedAtPicker = filter.IsApplied;
+            mixedAtPicker = !mix.Current.IsPassthrough;
+        };
+        _folderAccess.NextPickOutcome = OneFileOutcome("Second", "second.xg");
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.False(heldAtPicker);            // the picker opened over the initial screen
+        Assert.False(appliedAtPicker);
+        Assert.False(mixedAtPicker);
+    }
+
+    [Fact]
+    public async Task Home_CancelledRePick_EndsTheHeldSetupAndLosesTheFolder()
+    {
+        // The settled semantic, and the flip from the old behavior: choosing a
+        // folder ends the current setup at the click, so a *cancelled* re-pick
+        // lands on the initial screen — guidance up, cancelled-pick notice — with
+        // the previously held folder deliberately gone. No snapshot, no restore.
+        // Before the move a cancelled re-pick left the whole previous setup
+        // standing, which is what made the reset look like it had never run.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        var mix = WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.FiltersJson = SavedFiltersJson();
+        _folderAccess.NextPickOutcome = OneFileOutcome("Held", "held.xg");
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await ApplyFiltersAsync(cut);
+        await cut.InvokeAsync(() => cut.FindComponent<MixPanelComponent>()
+                                       .Instance.OnMixApplied.InvokeAsync(NeverSeenMix()));
+        Assert.Contains("Held", cut.Markup);
+        Assert.Contains("Race", cut.Markup); // the folder's saved filter
+
+        _folderAccess.NextPickOutcome = FolderPickOutcome.CancelledOutcome;
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        // The held folder is gone, along with everything scoped to it…
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        Assert.False(folder.HasFiles);
+        Assert.DoesNotContain("Held", cut.Markup);
+        Assert.DoesNotContain("Race", cut.Markup);
+        Assert.Equal(0, Services.GetRequiredService<SavedFiltersStore>().Filters.Count);
+        Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied);
+        Assert.True(mix.Current.IsPassthrough);
+        Assert.False(mix.IsDirty);
+        // The picked slot too — once per gesture, this test's two included.
+        Assert.Equal(2, _folderAccess.ClearPickedCallCount);
+
+        // …and the screen is the initial one, with the cancellation accounted for.
+        Assert.Contains("Your browser will ask about the selected folder", cut.Markup);
+        Assert.Contains("No folder is picked", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_FallbackPick_Dismissed_ShowsCancelledNotice()
+    {
+        // The fallback mechanism fires no change event on a dismissal, so without
+        // the input's cancel event the gesture would end on the screen the click
+        // just emptied with nothing said. Pins the binding (bUnit can only do
+        // that — whether a given browser fires `cancel` is the browser's half).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.SupportsDirectoryPicker = false;
+        _folderAccess.NextCollectOutcome = new FolderPickOutcome(
+            Cancelled: false, "FallbackDir",
+            [new PickedFile("fb.xgp", [9, 9])], StatsSaveCapability.BrowserUnsupported);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await cut.Find("#problemFolderFallback").ChangeAsync(new ChangeEventArgs());
+        Assert.Contains("FallbackDir", cut.Markup);
+
+        // Re-pick, then dismiss the native picker: the input reports it here.
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        Assert.DoesNotContain("FallbackDir", cut.Markup); // the click already ended the setup
+        await cut.Find("#problemFolderFallback").TriggerEventAsync("oncancel", EventArgs.Empty);
+
+        Assert.Contains("No folder is picked", cut.Markup);
+        Assert.DoesNotContain("alert-danger", cut.Markup); // an outcome, never an error
+    }
+
+    [Fact]
     public async Task Home_FolderPick_EmptyFolder_ShowsEmptyNoticeKeepsSetupHidden()
     {
         // A completed pick with zero top-level problem files: polite outcome
@@ -1217,14 +1339,15 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_RePick_ResetsAppliedFilterAndPanelBuffersToDefaults()
     {
-        // A pick starts a fresh setup — the filter half of the rule the mix half
+        // A pick ends the current setup — the filter half of the rule the mix half
         // already followed. Type a player and Apply against one folder (Start
         // armed, count shown), then re-pick another: the applied state clears (so
         // Start re-gates behind its Apply hint), the panel's edit buffers go back
         // to defaults, and the stale count line is gone. Without the reset the old
         // filter stays applied and Start is live against a corpus that filter was
         // never weighed against. Driven through the FS-Access mechanism, but the
-        // reset sits in ApplyPickOutcomeAsync — the landing both mechanisms share.
+        // reset sits in the gesture (PickFolderAsync) — one click, one reset,
+        // whichever mechanism then serves it.
         WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));

@@ -73,9 +73,10 @@ internal sealed class AppliedMix
 
     /// <summary>
     /// Reset to the passthrough default and clear any dirty state — the
-    /// committed-mix analogue of a fresh setup. Called on every folder pick
-    /// (<c>Home.ApplyPickOutcomeAsync</c>) so no committed mix silently survives
-    /// a re-pick: under a no-stats pick the mix must play no part in Start, and
+    /// committed-mix analogue of a fresh setup. Called from
+    /// <c>Home.EndCurrentSetupAsync</c> — i.e. at the start of every pick gesture,
+    /// and on Clear — so no committed mix silently survives the end of the setup
+    /// it was built for: under a no-stats pick the mix must play no part in Start, and
     /// under an <see cref="StatsSaveCapability.Enabled"/> pick the re-mounted
     /// panel re-offers the persisted config as dirty (reconciled against this
     /// now-passthrough state). Does not touch localStorage — the stored mix

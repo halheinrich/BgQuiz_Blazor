@@ -842,8 +842,9 @@ never touches a JSON serializer.
 `MixPanel` only for `StatsSaveCapability.Enabled`. The mix composes from
 lifetime stats, so under any other rung it has no valid role: the panel is
 hidden, there is no way to build a mix, and **every pick resets `AppliedMix` to
-passthrough+clean** (`AppliedMix.Reset()` in `ApplyPickOutcomeAsync`; Clear does
-the same, so the invariant is "no pick → passthrough"). Together those make a
+passthrough+clean** (`AppliedMix.Reset()` in `EndCurrentSetupAsync`, which both
+the pick gesture and Clear run, so the invariant is "no pick → passthrough").
+Together those make a
 stats-less pick unable to coexist with a committed non-blank mix — which is what
 retired the old early won't-apply advisory. The panel is **`@key`-ed on
 `PickedProblemFolder.PickGeneration`** so every pick re-mounts it: the fresh
@@ -1027,11 +1028,23 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   outcome covers both a dismissed picker and a declined view-files permission
   (indistinguishable — see `IFolderAccess`), so it says only that no folder is
   held and nothing can be read until one is, and stays non-accusatory toward the
-  user who simply backed out. It is inherently FS-Access-only, since only
-  `PickFolderAsync` ever reports a cancellation. The pick label renders straight from
+  user who simply backed out. **Both mechanisms reach it, by different routes:**
+  only `PickFolderAsync` reports a cancellation as an *outcome*, while a
+  dismissed `webkitdirectory` picker fires no change event at all — so the
+  fallback's dismissal is caught through that input's own `cancel` event
+  (`@oncancel` → `HandleFallbackCancelled`). Wiring it became necessary when the
+  setup reset moved to the click: silence there would now leave the user on a
+  screen the gesture had just emptied. That route is best-effort — it depends on
+  the browser firing `cancel` (current Chromium/Firefox/Safari do; older versions
+  may not), and where it never arrives the outcome degrades to the silence that
+  preceded it, making no wrong statement, only a missing one. Blazor's half is
+  not in doubt: it registers `cancel` as a non-bubbling event and attaches a
+  direct listener. bUnit can pin the binding
+  (`PageTests.Home_FallbackPick_Dismissed_ShowsCancelledNotice`) but not the
+  browser's delivery. The pick label renders straight from
   `PickedProblemFolder.Summary` (the SSOT — not a transient field), with a
-  **Clear** affordance beside it (`Folder.Clear()` +
-  `FolderAccess.ClearPickedAsync()`); the summary then disappears and the
+  **Clear** affordance beside it (bound directly to `EndCurrentSetupAsync`, the
+  same handler the pick gesture runs); the summary then disappears and the
   folder half of the gate re-disables Start by construction. Clearing is safe
   mid-quiz and is left unguarded on purpose — the picked files are read only
   at Start time (the source factory reads `Files` in `StartAsync`) and the
@@ -1146,37 +1159,59 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   rides the existing no-match branch. Under a no-stats pick none of that can
   fire: the mix panel is hidden and the pick reset `AppliedMix` to passthrough,
   so Start runs plain — no mix gate, warning, or refusal.
-  **A pick starts a fresh setup.** Every (non-cancelled) pick returns the whole
-  setup surface to its pre-setup state, because nothing selected against the
-  previous corpus can be assumed to mean the same thing against the new one:
-  `ApplyPickOutcomeAsync` resets the committed mix (`AppliedMix.Reset`, its
-  `@key`-ed panel re-mounting with it) **and** the filter half via
-  `ResetFilterSurface` — `AppliedFilter.Clear()` plus
-  `FilterPanel.LoadConfig(new FilterConfig())` — while `ClearPickNotices` (run at
-  pick *start*) has already dropped the match count and every pick-scoped notice.
-  So Start is always re-gated by a pick, never inherited across one; the bug this
-  closed was a re-pick leaving the old filter applied, with Start live against a
-  folder that filter had never been weighed against. The explicit
+  **A pick ends the current setup — at the click.** `EndCurrentSetupAsync` is
+  the single reset behind *both* gestures that end a setup (the pick gesture and
+  the `Clear` affordance — they encode the same decision, so they share one
+  spelling): folder holder + JS picked slot, saved filters, committed mix
+  (`AppliedMix.Reset`), filter surface (`ResetFilterSurface`), and every
+  pick-scoped notice and match count (`ClearPickNotices`). Nothing selected
+  against the previous corpus can be assumed to mean the same thing against the
+  next one, so Start is always re-gated by a pick, never inherited across one;
+  the bug this closed was a re-pick leaving the old filter applied, with Start
+  live against a folder that filter had never been weighed against.
+  It runs at the **start of the gesture**, before the mechanism fork — so the
+  screen is back at its initial no-folder state (guidance up) before the OS
+  picker and the browser's permission prompts appear, rather than those playing
+  out over the outgoing setup's populated screen. A `StateHasChanged()` plus the
+  awaited picked-slot interop is what lets that paint land first (the same
+  paint-before-the-churn idiom the count uses). Consequences, all settled and
+  deliberate: a **cancelled pick loses the folder that was held** and lands on
+  the initial screen plus the cancelled-pick notice (no snapshot/restore — the
+  gesture ended the setup whatever the picker then returned); and a successful
+  pick re-mounts the `FilterPanel` the reset unmounted, whose `localStorage`
+  restore re-stages the persisted config as dirty on **every** pick — the
+  already-accepted fresh-load behavior, now routine rather than exceptional.
+  `AppliedFilter` is reset here too, superseding an earlier ruling that `Clear`
+  should leave it alone as "edit-coupled, not pick-coupled": under one shared
+  reset it is coupled to the *setup*, and ending one ends it (it stays
+  edit-coupled as well, via `HandleFiltersDirty` — two independent rules, not
+  duplicates). The explicit
   `AppliedFilter.Clear()` is **not** redundant with `LoadConfig`'s dirty signal
   (→ `HandleFiltersDirty` → the same clear): the panel lives behind the
-  progressive-disclosure gate, so a pick made from the no-folder state has no
-  panel to call, and a filter applied before a `Clear` would keep satisfying the
-  gate. `new FilterConfig()` is exactly what the panel's own *Reset* hydrates
+  progressive-disclosure gate, so a gesture made from the no-folder state has no
+  panel to call, and a filter applied in an earlier setup would keep satisfying
+  the gate. `new FilterConfig()` is exactly what the panel's own *Reset* hydrates
   from, so "defaults" needs no second definition; `LoadConfig` stages without
   persisting, so the user's last-applied filter survives in the panel's
   `localStorage` and still restores on the next boot — the same hands-off
   treatment `AppliedMix.Reset` gives the stored mix. It is deliberately **not**
   `@key`-based like `MixPanel`: re-mounting the filter panel would re-run its
   first-render `localStorage` restore and stage the *persisted* config, the
-  opposite of defaults (MixPanel is keyed to get exactly that effect). The one
-  case where the panel does re-mount is a pick made after a `Clear` — the gate
-  had unmounted it — and there the fresh instance restores from `localStorage`
-  like any fresh load, with `AppliedFilter.Clear()` still holding the line so the
-  shown config is never claimed as applied. Two things are deliberately *not*
+  opposite of defaults (MixPanel is keyed to get exactly that effect). That
+  distinction now decides less than it reads — since the reset moved to the
+  click, the `HasFiles` gate unmounts the panel on every pick and the successful
+  ones re-mount it, so the persisted config is re-staged every time, exactly as
+  on a fresh load; `AppliedFilter.Clear()` holds the line either way, so a
+  re-staged config is shown but never claimed as applied. What the un-keyed panel
+  still buys is the *cancelled* pick and the `Clear`, which end with no panel at
+  all and no restore to re-stage anything. Two things are deliberately *not*
   reset: `ShuffleOption` (presentation-only preference, same class as the mix
   panel's persisted rows) and the lifetime-stats slot, whose whole point is to
   *resume* when its folder is picked again.
-  `PageTests.Home_RePick_ResetsAppliedFilterAndPanelBuffersToDefaults` pins it.
+  `PageTests.Home_RePick_ResetsAppliedFilterAndPanelBuffersToDefaults`,
+  `Home_PickGesture_ResetsTheSetupBeforeThePickerOpens` (sampled from inside the
+  fake's picker — the "at the click" claim itself) and
+  `Home_CancelledRePick_EndsTheHeldSetupAndLosesTheFolder` pin it.
   **Busy affordances:** the whole setup surface (pick controls, both panels,
   shuffle, Start, the refusal override) sits inside one
   `<fieldset disabled="@(Controller.IsBusy || _isCounting)">` — the native
@@ -1838,7 +1873,7 @@ the route map:
   An Enabled→Enabled re-pick leaves both the capability gate and `HasFiles`
   true, so without the key the panel never re-mounts, its first-render restore
   never re-fires, and it keeps showing the previous pick's rows while
-  `ApplyPickOutcomeAsync` has just reset `AppliedMix` to passthrough+clean —
+  `EndCurrentSetupAsync` has just reset `AppliedMix` to passthrough+clean —
   Start un-gated over a displayed mix, the exact divergence the dirty machinery
   exists to prevent. The key forces the re-mount, and the reconcile then
   re-offers the persisted config as dirty.
