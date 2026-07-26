@@ -67,6 +67,14 @@ builder.Services.AddScoped<ShuffleOption>();
 // Scoped for navigate-back survival like the other start-gate holders.
 builder.Services.AddScoped<AppliedMix>();
 
+// Per-app dismissal state for the Quiz page's mix composition notice: the notice
+// says how the running quiz was composed — read before answering, stale chrome
+// after — so the first submitted answer retires it. Scoped rather than a page
+// field so the Show-stats round trip can't resurrect it; keyed on the
+// composition's identity, so a new run's notice shows again with no reset call
+// site. The controller's composition telemetry is never touched.
+builder.Services.AddScoped<MixNoticeDismissal>();
+
 // Per-app marker (sessionStorage-backed) recording that a quiz is live in this
 // tab, so a full reload — which reboots the runtime and discards quiz state —
 // can be acknowledged on the next boot instead of dumping the user on a blank

@@ -68,6 +68,12 @@ public class PageTests : BunitContext
         // blank-mix holder; WithAppliedMix re-registers when a test needs a
         // committed mix in place.
         Services.AddScoped<AppliedMix>();
+
+        // Quiz injects MixNoticeDismissal (its composition notice checks it before
+        // rendering). Scoped, as in Program.cs, so a test that re-renders the page
+        // sees the same dismissal the first instance recorded — the navigate-back
+        // case the holder exists for.
+        Services.AddScoped<MixNoticeDismissal>();
     }
 
     /// <summary>The sessionStorage key <see cref="QuizLiveMarker"/> reads/writes.</summary>
@@ -2535,6 +2541,21 @@ public class PageTests : BunitContext
         cut.InvokeAsync(() =>
             cut.FindComponent<BackgammonCubeActions>().Instance.ValueChanged.InvokeAsync(answer));
 
+    /// <summary>
+    /// Answers the rendered play-answering page the way the user does: latch the
+    /// finished play through <see cref="BackgammonPlayEntry"/>'s
+    /// <c>OnPlayCompleted</c> (what the board's clicks raise), then click the
+    /// page's own Submit. Tests that merely need a review state on screen call
+    /// <c>Controller.SubmitPlay</c> directly and skip the page entirely; a test
+    /// about the page's <c>Submit</c> handler has to go through the button.
+    /// </summary>
+    private static async Task SubmitPlayThroughPageAsync(IRenderedComponent<QuizPage> cut, Play play)
+    {
+        await cut.InvokeAsync(() =>
+            cut.FindComponent<BackgammonPlayEntry>().Instance.OnPlayCompleted.InvokeAsync(play));
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
+    }
+
     // -----------------------------------------------------------------------
     //  Done.razor
     // -----------------------------------------------------------------------
@@ -3730,6 +3751,99 @@ public class PageTests : BunitContext
         Assert.DoesNotContain("requested", cut.Markup);
         Assert.DoesNotContain("ran short", cut.Markup);
         Assert.Empty(cut.FindAll("div.alert-warning"));
+    }
+
+    [Fact]
+    public async Task Quiz_MixNotice_ShortfallVariant_RetiresOnFirstSubmittedPlay()
+    {
+        // The notice says how this quiz was built — read before answering, stale
+        // chrome above the board for every problem after. The first submitted
+        // answer retires it. Driven here on the assertive shortfall variant with a
+        // checker play.
+        var c = WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<QuizPage>();
+        Assert.Contains("Your quiz has 1 problem", cut.Markup);
+
+        await SubmitPlayThroughPageAsync(cut, BestPlay());
+        Assert.NotNull(c.Review); // the submit landed
+
+        Assert.DoesNotContain("Your quiz has", cut.Markup);
+        Assert.DoesNotContain("asked for 5 problems", cut.Markup);
+        // Telemetry is untouched — the notice was dismissed, not deleted. The
+        // problem counter reads the same composition.
+        Assert.NotNull(c.LastComposition);
+        Assert.Equal(1, c.ProblemCount);
+    }
+
+    [Fact]
+    public async Task Quiz_MixNotice_CaplessVariant_RetiresOnFirstSubmittedCubeAnswer()
+    {
+        // The cube half of the same rule, on the polite capless variant: a cube
+        // answer is a submitted answer too, so it retires the notice identically.
+        var c = WithWeighableController(out var sink, TestFixtures.CubeDecision());
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        await c.StartAsync(new FilterConfig(), NeverSeenMix()); // capless
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<QuizPage>();
+        Assert.NotNull(cut.Find("div.alert-info[role=status]"));
+
+        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
+
+        Assert.DoesNotContain("Your quiz has", cut.Markup);
+        Assert.Empty(cut.FindAll("div.alert-info[role=status]"));
+    }
+
+    [Fact]
+    public async Task Quiz_MixNotice_DismissedThenShowStatsRoundTrip_StaysRetired()
+    {
+        // Why the dismissal is a scoped holder and not a page field: "Show stats"
+        // is a mainline mid-quiz gesture and returning re-instantiates this page,
+        // which would resurrect a notice the user had already dismissed. A fresh
+        // render against the same composition must stay quiet.
+        var c = WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<QuizPage>();
+        await SubmitPlayThroughPageAsync(cut, BestPlay());
+        Assert.DoesNotContain("Your quiz has", cut.Markup);
+
+        // Navigate away and back — a second Quiz instance over the same run.
+        Assert.DoesNotContain("Your quiz has", Render<QuizPage>().Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_MixNotice_SkipIsNotADismissal()
+    {
+        // Skip moves past a problem without answering it, so the composition is
+        // still the thing the user hasn't engaged with — the settled rule is
+        // "first submitted answer", and Skip isn't one.
+        var c = WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp")),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp")));
+        sink.CanBindStats = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<QuizPage>();
+        Assert.Contains("Your quiz has", cut.Markup);
+
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Skip").ClickAsync(new());
+
+        Assert.Contains("Your quiz has", cut.Markup);
     }
 
     [Fact]

@@ -102,6 +102,23 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
+/// <b>The mix composition notice retires on the first answer.</b> Both variants
+/// above the board — the capless composition-only status line and the length-bound
+/// shortfall alert — render from <see cref="QuizController.LastComposition"/>,
+/// which lives as long as the run does, so they used to sit above every problem
+/// for the whole quiz. They now disappear once the user submits their first
+/// answer, checker or cube alike (see <see cref="Submit"/>): the notice describes
+/// how this quiz was built, worth reading before answering and stale chrome after.
+/// The dismissal is recorded in the scoped <see cref="MixNoticeDismissal"/> holder
+/// — <i>not</i> by clearing the controller's telemetry, which still frames the
+/// notice, carries <see cref="QuizController.ProblemCount"/>, and feeds Home's
+/// composed-to-zero wording, and <i>not</i> in a page field, which the
+/// <c>Show stats</c> round trip would reset (this page is re-instantiated on
+/// in-app navigation). Keyed on the composition instance, so the next
+/// Start/Restart's notice shows again without any reset call site.
+/// </para>
+///
+/// <para>
 /// <b>IsFinished transition.</b> Subscribed to
 /// <see cref="QuizController.StateChanged"/>. When the controller's
 /// <see cref="QuizController.IsFinished"/> flips true (source exhausted on
@@ -320,6 +337,21 @@ public partial class Quiz : ComponentBase, IDisposable
             Controller.SubmitPlay(play);
         }
         // The relevant latch is cleared by HandleStateChanged; nothing else to do.
+
+        // The first answer retires the mix composition notice — it described how
+        // this quiz was built, which the user has now read and acted on. Gated on
+        // Review having been set rather than on having called a Submit: both
+        // controller mutators no-op under the transition gate (a Submit landing
+        // inside a pending Continue/Skip), and dismissing on a call that scored
+        // nothing would drop the notice without the user ever answering. Review
+        // non-null is the proof, and it covers an off-list play too — that is a
+        // submitted answer with a review to read, just an unscored one. Skip is
+        // deliberately not a dismissal: it moves past a problem without answering
+        // it, so the composition is still the thing the user hasn't engaged with.
+        if (Controller.Review is not null && Controller.LastComposition is { } comp)
+        {
+            MixNotice.Dismiss(comp);
+        }
     }
 
     private async Task ContinueAsync()

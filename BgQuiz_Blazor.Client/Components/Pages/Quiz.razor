@@ -8,6 +8,7 @@
 
 @inject QuizController Controller
 @inject QuizStatsStore StatsStore
+@inject MixNoticeDismissal MixNotice
 @inject NavigationManager Nav
 @implements IDisposable
 
@@ -45,8 +46,17 @@
        capless: the quiz is the whole deduped union). A length-bound mix keeps
        the honest shortfall alert (assertive — the quiz underway differs from
        what was asked), leading with the composition and demoting the
-       per-entry apportionment internals to the explanation below it. *@
-    @if (Controller.LastComposition is { } comp)
+       per-entry apportionment internals to the explanation below it.
+
+       Both variants retire on the user's first submitted answer: the notice says
+       how this quiz was built, which is worth reading before answering and is
+       stale chrome above the board for every problem after. The dismissal lives
+       in MixNoticeDismissal — a holder, not a page field, so the Show-stats round
+       trip can't resurrect it — keyed on this composition's identity so the next
+       run's notice shows again. The controller's telemetry is deliberately left
+       intact: it still frames this notice, counts the quiz's problems, and feeds
+       Home's composed-to-zero wording. *@
+    @if (Controller.LastComposition is { } comp && !MixNotice.IsDismissed(comp))
     {
         @if (!Controller.ActiveMixHasLength)
         {

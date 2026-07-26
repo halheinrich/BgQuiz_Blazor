@@ -158,6 +158,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     AppliedFilter.cs                — applied-filter holder (start-gate half)
     AppliedMix.cs                   — committed-mix holder (start-gate third)
     MixDisplay.cs                   — mix wording SSOT (labels + refusal reason)
+    MixNoticeDismissal.cs           — Quiz's composition-notice dismissal,
+                                      keyed on the composition's identity
     ShuffleOption.cs                — "shuffle order" toggle holder
     QuizLiveMarker.cs               — sessionStorage was-a-quiz-live marker
     WasmUploadedProblemSetSource.cs — in-browser stream-backed source (the parser)
@@ -902,6 +904,31 @@ guarantees Drawn == Target capless). The page keys the split on
 `Controller.ActiveMixHasLength`; a length-bound mix that filled exactly
 shows no notice at all.
 
+**Both mix notices retire on the first submitted answer.** They render from
+`Controller.LastComposition`, which lives as long as the run, so they used to sit
+above the board for the whole quiz; they say how *this* quiz was built — worth
+reading before answering, stale chrome after. `Quiz.Submit` therefore dismisses
+them once an answer lands, checker or cube alike. Three deliberate choices:
+- **Dismissal, not deletion.** The controller's telemetry is untouched:
+  `LastComposition` and `ActiveMixHasLength` still choose the framing, still carry
+  `ProblemCount`, and Home's composed-to-zero branch still reads them. A
+  presentation concern must not destroy load-bearing state.
+- **A scoped holder (`MixNoticeDismissal`), not a page field.** *Show stats* is a
+  mainline mid-quiz gesture and returning re-instantiates `Quiz`, so a field would
+  resurrect a notice the user had already dismissed
+  (`PageTests.Quiz_MixNotice_DismissedThenShowStatsRoundTrip_StaysRetired`).
+- **Keyed on the composition instance** (`ReferenceEquals`, never `==` — the
+  record's value equality would keep an identically-drawn Restart dismissed). Each
+  Start/Restart builds a fresh `MixedProblemSetSource` and therefore a fresh
+  `MixComposition`, so the next run's notice shows again with **no reset call
+  site** on Home or Done to forget.
+The trigger is `Controller.Review is not null` after the submit call, not the call
+itself: both controller mutators no-op under the transition gate, and dismissing on
+a submit that scored nothing would drop the notice with no answer given. That
+predicate also covers an off-list play (a submitted answer with a review to read,
+just an unscored one). **Skip is deliberately not a dismissal** — it moves past a
+problem without answering it (`PageTests.Quiz_MixNotice_SkipIsNotADismissal`).
+
 ### `ShuffleOption` — the "Shuffle order" toggle holder
 
 The per-app (`Scoped`, one-per-tab in WASM) holder for the **"Shuffle order"**
@@ -1244,7 +1271,9 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   render in the same block from `Controller.LastComposition` —
   composition-first, capless vs. length-bound framing keyed on
   `Controller.ActiveMixHasLength` (see the `MixPanel`/`AppliedMix` section's
-  honest-notices list). The `ScorePanel` here carries the problem-position
+  honest-notices list) — and gated on `!MixNotice.IsDismissed(comp)`, since
+  `Submit` retires the notice on the user's first answer without touching the
+  telemetry behind it (same section). The `ScorePanel` here carries the problem-position
   indicator ("Problem N of M") from `Controller.ProblemNumber` /
   `Controller.ProblemCount`.
 - **`Stats.razor`** — read-only mid-quiz stats view: the same `ScorePanel` /
