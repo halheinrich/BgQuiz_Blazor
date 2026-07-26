@@ -71,6 +71,22 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
+/// <b>A pick starts a fresh setup.</b> Every (non-cancelled) pick returns the
+/// whole setup surface to its pre-setup state, because nothing the user selected
+/// against the previous corpus can be assumed to mean the same thing against the
+/// new one: the committed mix resets (<see cref="AppliedMix.Reset"/>, whose
+/// <c>@key</c>-ed panel re-mounts with it), the applied filter clears and the
+/// panel's edit buffers go back to defaults (<see cref="ResetFilterSurface"/>),
+/// and the match count — which described the old corpus — is dropped by
+/// <see cref="ClearPickNotices"/> along with every pick-scoped notice. So Start
+/// is always re-gated by a pick, never inherited across one. Two things are
+/// deliberately <i>not</i> reset: <see cref="ShuffleOption"/>, a
+/// presentation-only preference in the same class as the mix panel's persisted
+/// rows, and the lifetime-stats slot, whose whole point is to <i>resume</i> when
+/// its folder is picked again.
+/// </para>
+///
+/// <para>
 /// Two statements on this page are about the <i>app</i> rather than about the
 /// quiz, and neither is gated on any pick state the setup surface uses. Beside
 /// the pick button, <see cref="FolderPickDisplay.SupportedBrowsers"/> names the
@@ -450,6 +466,9 @@ public partial class Home : ComponentBase
         // can never coexist with a committed non-blank mix.
         AppliedMix.Reset();
 
+        // …and the filter half of that same fresh setup.
+        ResetFilterSurface();
+
         if (outcome.Files.Count == 0)
         {
             Folder.Clear();
@@ -465,6 +484,57 @@ public partial class Home : ComponentBase
         // read failure into its own status, so this never throws or blocks the
         // pick (a fallback pick short-circuits to the no-context state).
         await SavedFilters.LoadForPickAsync();
+    }
+
+    /// <summary>
+    /// Return the filter half of the setup surface to its pre-setup state — the
+    /// <see cref="AppliedMix.Reset"/> sibling, called from the same place for the
+    /// same reason: a pick starts a fresh setup, so nothing the user selected
+    /// against the <i>previous</i> corpus may silently carry over to the new one.
+    /// Without this a re-pick left the old filter applied — Start enabled
+    /// immediately, against a folder whose files the filter had never been
+    /// weighed against.
+    ///
+    /// <para>
+    /// Two writes, and the first is <b>not</b> redundant.
+    /// <see cref="FilterPanel.LoadConfig"/> raises the panel's dirty signal (→
+    /// <see cref="HandleFiltersDirty"/> → <see cref="AppliedFilter.Clear"/>,
+    /// which also drops any shown/in-flight match count), so on a re-pick the
+    /// explicit <see cref="AppliedFilter.Clear"/> merely runs first. It carries
+    /// the invariant in the case where <i>no panel is mounted</i>: the panel sits
+    /// behind the progressive-disclosure gate, so a pick made from the no-folder
+    /// state has none to call, and relying on that callback would leave a filter
+    /// applied from before a <c>Clear</c> still satisfying the gate.
+    /// </para>
+    ///
+    /// <para>
+    /// A <see cref="FilterConfig"/> straight from its parameterless constructor
+    /// is exactly what the panel's own <i>Reset</i> button hydrates from, so
+    /// "defaults" needs no second definition here.
+    /// <see cref="FilterPanel.LoadConfig"/> is staging-only — it persists
+    /// nothing — so the user's last-applied filter survives in the panel's
+    /// <c>localStorage</c> and still restores on the next boot, mirroring
+    /// <see cref="AppliedMix.Reset"/>'s deliberate hands-off treatment of the
+    /// stored mix. The reset is about this session's setup not outliving its
+    /// corpus, never about defeating the panel's persistence.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Not <c>@key</c>-based, unlike <c>MixPanel</c>.</b> Re-mounting the
+    /// filter panel would re-run its first-render <c>localStorage</c> restore and
+    /// stage the <i>persisted</i> config — the opposite of defaults. (MixPanel is
+    /// keyed for precisely that effect: re-offering the persisted mix as dirty.)
+    /// The one place the panel does re-mount is a pick made after a
+    /// <c>Clear</c>, where the gate had unmounted it: there the fresh instance
+    /// restores from <c>localStorage</c> like any fresh load, and the
+    /// <see cref="AppliedFilter.Clear"/> above is what still holds — Start
+    /// re-gates, so the shown config is never claimed as applied.
+    /// </para>
+    /// </summary>
+    private void ResetFilterSurface()
+    {
+        AppliedFilter.Clear();
+        _filterPanel?.LoadConfig(new FilterConfig());
     }
 
     private async Task ClearPickedFolderAsync()

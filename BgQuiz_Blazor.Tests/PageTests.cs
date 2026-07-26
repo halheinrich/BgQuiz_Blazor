@@ -856,7 +856,7 @@ public class PageTests : BunitContext
         // its config into the FilterPanel as a bulk edit (→ OnFilterDirty), which
         // clears AppliedFilter and re-gates Start until the user re-Applies.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithAppliedFilter(new FilterConfig()); // applied earlier → Start armed after pick
+        WithAppliedFilter();
         WithShuffleOption();
         JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
@@ -864,8 +864,9 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await ApplyFiltersAsync(cut); // post-pick, since the pick resets the applied state
 
-        // Both gates met (folder picked + filters applied earlier): Start is armed.
+        // Both gates met (folder picked + filters applied): Start is armed.
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.False(startBtn.HasAttribute("disabled"));
 
@@ -1157,6 +1158,56 @@ public class PageTests : BunitContext
 
         startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.True(startBtn.HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_RePick_ResetsAppliedFilterAndPanelBuffersToDefaults()
+    {
+        // A pick starts a fresh setup — the filter half of the rule the mix half
+        // already followed. Type a player and Apply against one folder (Start
+        // armed, count shown), then re-pick another: the applied state clears (so
+        // Start re-gates behind its Apply hint), the panel's edit buffers go back
+        // to defaults, and the stale count line is gone. Without the reset the old
+        // filter stays applied and Start is live against a corpus that filter was
+        // never weighed against. Driven through the FS-Access mechanism, but the
+        // reset sits in ApplyPickOutcomeAsync — the landing both mechanisms share.
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome("First", "first.xg");
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        // Set a filter through the panel's own controls and commit it with its own
+        // Apply button — the real gesture, not a synthesized callback.
+        cut.Find("input[placeholder='e.g. Hal, Magriel']").Input("Magriel");
+        await cut.FindAll("button")
+                 .First(b => b.TextContent.Trim() == "Apply Filter")
+                 .ClickAsync(new());
+
+        Assert.Equal("Magriel",
+            cut.Find("input[placeholder='e.g. Hal, Magriel']").GetAttribute("value"));
+        Assert.True(Services.GetRequiredService<AppliedFilter>().IsApplied);
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains("decisions match your filters", cut.Markup);
+
+        // Re-pick a different folder.
+        _folderAccess.NextPickOutcome = OneFileOutcome("Second", "second.xg");
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        // Panel buffers back to defaults…
+        Assert.Equal(string.Empty,
+            cut.Find("input[placeholder='e.g. Hal, Magriel']").GetAttribute("value"));
+        // …applied state dropped, so Start re-gates behind the Apply hint…
+        Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied);
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains("Apply the filters above to enable Start", cut.Markup);
+        // …and the count that described the old corpus is gone.
+        Assert.DoesNotContain("decisions match your filters", cut.Markup);
     }
 
     [Fact]
@@ -3176,6 +3227,18 @@ public class PageTests : BunitContext
     private static AngleSharp.Dom.IElement StartButton(IRenderedComponent<HomePage> cut) =>
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
 
+    /// <summary>
+    /// Satisfies the filter half of the start gate through the hosted
+    /// <see cref="FilterPanel"/>'s own Apply callback. Every pick resets the
+    /// applied state (see
+    /// <see cref="Home_RePick_ResetsAppliedFilterAndPanelBuffersToDefaults"/>), so
+    /// a test that picks and then wants Start armed has to apply <i>after</i> its
+    /// last pick — pre-arming the holder is not enough.
+    /// </summary>
+    private static Task ApplyFiltersAsync(IRenderedComponent<HomePage> cut) =>
+        cut.InvokeAsync(() => cut.FindComponent<FilterPanel>()
+                                 .Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+
     [Fact]
     public async Task Home_MixAppliedInPanel_StartComposesWeightedQuiz()
     {
@@ -3427,6 +3490,7 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await ApplyFiltersAsync(cut); // the pick reset the applied filter
 
         Assert.Empty(cut.FindComponents<MixPanelComponent>()); // no mix panel
         var startBtn = StartButton(cut);
@@ -3473,7 +3537,9 @@ public class PageTests : BunitContext
         Assert.False(holder.IsDirty);
         Assert.Empty(cut.FindComponents<MixPanelComponent>()); // panel hidden
 
-        // Start runs plain — no refusal, no composition.
+        // Start runs plain — no refusal, no composition. (The re-pick reset the
+        // applied filter too, so the gate needs a fresh Apply first.)
+        await ApplyFiltersAsync(cut);
         await StartButton(cut).ClickAsync(new());
         Assert.True(c.HasStarted);
         Assert.Null(c.LastComposition);

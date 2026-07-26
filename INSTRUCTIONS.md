@@ -1102,6 +1102,37 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   rides the existing no-match branch. Under a no-stats pick none of that can
   fire: the mix panel is hidden and the pick reset `AppliedMix` to passthrough,
   so Start runs plain — no mix gate, warning, or refusal.
+  **A pick starts a fresh setup.** Every (non-cancelled) pick returns the whole
+  setup surface to its pre-setup state, because nothing selected against the
+  previous corpus can be assumed to mean the same thing against the new one:
+  `ApplyPickOutcomeAsync` resets the committed mix (`AppliedMix.Reset`, its
+  `@key`-ed panel re-mounting with it) **and** the filter half via
+  `ResetFilterSurface` — `AppliedFilter.Clear()` plus
+  `FilterPanel.LoadConfig(new FilterConfig())` — while `ClearPickNotices` (run at
+  pick *start*) has already dropped the match count and every pick-scoped notice.
+  So Start is always re-gated by a pick, never inherited across one; the bug this
+  closed was a re-pick leaving the old filter applied, with Start live against a
+  folder that filter had never been weighed against. The explicit
+  `AppliedFilter.Clear()` is **not** redundant with `LoadConfig`'s dirty signal
+  (→ `HandleFiltersDirty` → the same clear): the panel lives behind the
+  progressive-disclosure gate, so a pick made from the no-folder state has no
+  panel to call, and a filter applied before a `Clear` would keep satisfying the
+  gate. `new FilterConfig()` is exactly what the panel's own *Reset* hydrates
+  from, so "defaults" needs no second definition; `LoadConfig` stages without
+  persisting, so the user's last-applied filter survives in the panel's
+  `localStorage` and still restores on the next boot — the same hands-off
+  treatment `AppliedMix.Reset` gives the stored mix. It is deliberately **not**
+  `@key`-based like `MixPanel`: re-mounting the filter panel would re-run its
+  first-render `localStorage` restore and stage the *persisted* config, the
+  opposite of defaults (MixPanel is keyed to get exactly that effect). The one
+  case where the panel does re-mount is a pick made after a `Clear` — the gate
+  had unmounted it — and there the fresh instance restores from `localStorage`
+  like any fresh load, with `AppliedFilter.Clear()` still holding the line so the
+  shown config is never claimed as applied. Two things are deliberately *not*
+  reset: `ShuffleOption` (presentation-only preference, same class as the mix
+  panel's persisted rows) and the lifetime-stats slot, whose whole point is to
+  *resume* when its folder is picked again.
+  `PageTests.Home_RePick_ResetsAppliedFilterAndPanelBuffersToDefaults` pins it.
   **Busy affordances:** the whole setup surface (pick controls, both panels,
   shuffle, Start, the refusal override) sits inside one
   `<fieldset disabled="@(Controller.IsBusy || _isCounting)">` — the native
