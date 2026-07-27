@@ -2586,6 +2586,43 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Quiz_UndoButtons_UsableFromTheFirstRenderOfAnEntry()
+    {
+        // Both Undo buttons were gated on `_playEntry is null` — an @ref Blazor
+        // assigns only AFTER the render that creates the entry, so the answering
+        // branch's first render always read null and disabled them. Nothing
+        // re-renders this page during click-by-click assembly (the entry raises
+        // no callback until the play completes), so they stayed disabled for the
+        // whole entry and enabled only at completion — when Undo is no longer
+        // the thing you want. This asserts the state at the first render, which
+        // is the start of assembly and the exact moment that failed.
+        var decision = TestFixtures.BearOffOneDecision();
+        var c = WithController(decision);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        Assert.False(UndoButton(cut, "Undo last").HasAttribute("disabled"));
+        Assert.False(UndoButton(cut, "Undo all").HasAttribute("disabled"));
+
+        // And usable on an entry with nothing entered: the producer documents
+        // both as no-ops there, which is what makes always-enabled honest rather
+        // than a promise the click discovers is empty. The play is still
+        // un-assembled afterwards, so Submit stays gated and no answer was scored.
+        await UndoButton(cut, "Undo last").ClickAsync(new());
+        await UndoButton(cut, "Undo all").ClickAsync(new());
+
+        Assert.Null(c.Review);
+        Assert.True(cut.FindAll("button")
+                       .First(b => b.TextContent.Trim() == "Submit").HasAttribute("disabled"));
+        Assert.False(UndoButton(cut, "Undo last").HasAttribute("disabled"));
+    }
+
+    /// <summary>The named Undo button in the quiz page's answering action row.</summary>
+    private static AngleSharp.Dom.IElement UndoButton(
+        IRenderedComponent<QuizPage> cut, string label) =>
+        cut.FindAll("button").First(b => b.TextContent.Trim() == label);
+
+    [Fact]
     public async Task Quiz_ShowStatsButton_PresentInAnsweringAndReviewStates()
     {
         // The "Show stats" affordance must be reachable regardless of

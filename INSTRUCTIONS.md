@@ -1272,7 +1272,10 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   Submit. The action row varies by kind: cube places the `BackgammonCubeActions`
   radios ahead of Submit / Skip and has no Undo (no partial-move state); checker
   keeps Undo last / Undo all (clearing the latched play, since the component does
-  not notify on undo). Both trail with a "Show stats" button in the row's
+  not notify on undo). **Both Undo buttons are disabled only while
+  `Controller.IsBusy`** — deliberately *not* on `_playEntry` being assigned; see
+  the `@ref`-timing pitfall below for the dead-window that produced. Both trail
+  with a "Show stats" button in the row's
   `ms-auto` slot. In the **review** state
   (`Review` set, after Submit) it renders a read-only `BackgammonDiagram`
   in `DiagramMode.Solution` — the filled analysis panel, the same view the PPTX
@@ -1746,6 +1749,28 @@ the route map:
   umbrella's `TestData/FixtureFiles/` stays append-only and untouched. First-run
   setup (`playwright install chromium`) and the run commands are in the
   Architecture section.
+- **Never gate a control's `disabled` on an `@ref` field.** Blazor assigns a
+  component `@ref` *after* the render that creates the component, so any markup
+  reading it renders one pass stale — the first render of a branch always sees
+  `null`. Both quiz Undo buttons carried `disabled="@(_playEntry is null || …)"`
+  and were therefore dead for exactly the window they exist to serve: nothing
+  re-renders `Quiz` during click-by-click play assembly (`BackgammonPlayEntry`
+  raises no callback until the play *completes*), so they stayed disabled until
+  completion and enabled only once Undo was pointless. Two things made it read as
+  intermittent rather than broken: Blazor never nulls a component ref on unmount,
+  so from the second play problem onward the stale-but-non-null ref rendered them
+  enabled; and the dead window returned on the first play problem of every run
+  and after each `Show stats` round trip (which re-instantiates the page). It was
+  first observed under a write-denied run, which had nothing to do with it —
+  **check `@ref` timing before believing a capability correlation.** The fix is
+  to drop the term: the enclosing branch already guarantees the component is
+  rendered, and a click can only land after the ref is assigned.
+  `PageTests.Quiz_UndoButtons_UsableFromTheFirstRenderOfAnEntry` pins the first
+  render. Enabled-*iff*-undoable would be more honest but needs two producer
+  surfaces `BackgammonPlayEntry` does not expose (a `CanUndo` predicate **and** a
+  per-click change notification — without the latter any predicate read here is
+  stale from the first render); that is booked umbrella-side against
+  `BgDiag_Razor`, not worked around here.
 - **State resets on full reload, not on in-app navigation.** "Scoped" in
   WASM is one instance per loaded app (one tab), so `QuizController`,
   `PickedProblemFolder`, `AppliedFilter`, and `ShuffleOption` survive `/` ↔

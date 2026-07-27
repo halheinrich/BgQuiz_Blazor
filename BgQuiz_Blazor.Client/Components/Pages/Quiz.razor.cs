@@ -93,7 +93,10 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// <b>Action row by kind.</b> In the answering state, checker decisions offer
-/// Submit / Skip / Undo last / Undo all; cube decisions place the
+/// Submit / Skip / Undo last / Undo all — the two Undo buttons live for the
+/// whole of the entry, disabled only while the controller is busy (see
+/// <see cref="UndoLast"/> for why gating them on the entry's <c>@ref</c> made
+/// them dead for exactly the window they exist to serve); cube decisions place the
 /// <see cref="BackgammonCubeActions"/> radios inline (the answer input, since the
 /// board region is board-only) ahead of Submit / Skip — a cube answer has no
 /// partial-move state, so Undo does not apply. Both trail with Show stats in the
@@ -364,6 +367,41 @@ public partial class Quiz : ComponentBase, IDisposable
         await Controller.SkipCurrentAsync();
     }
 
+    /// <summary>
+    /// Roll back the last committed move in the entry being assembled.
+    ///
+    /// <para>
+    /// <b>Enabled whenever the controller isn't busy</b> — deliberately not
+    /// gated on <see cref="_playEntry"/> being assigned. Blazor assigns an
+    /// <c>@ref</c> only <i>after</i> the render that creates the component, so a
+    /// <c>_playEntry is null</c> term made the answering branch's first render
+    /// disable both Undo buttons; and because
+    /// <see cref="BackgammonPlayEntry"/> raises no callback until the play is
+    /// complete, nothing re-rendered this page during assembly to re-evaluate
+    /// it. The buttons therefore stayed disabled for the entire entry and
+    /// enabled only at <see cref="HandlePlayCompleted"/> — exactly when Undo
+    /// stops being wanted. (The symptom looked intermittent because Blazor never
+    /// nulls a component ref on unmount: from the second play problem onward the
+    /// stale-but-non-null ref rendered them enabled. It returned on the first
+    /// play problem of a run and after every <c>Show stats</c> round trip, which
+    /// re-instantiates this page.) Nothing about write capability was ever
+    /// involved, despite where it was first observed.
+    /// </para>
+    ///
+    /// <para>
+    /// Dropping the term is safe on both counts the branch already settles: the
+    /// enclosing <c>!IsCube</c> branch guarantees an entry is rendered, and a
+    /// click can only arrive after that render assigned the ref. Undo on an
+    /// entry with nothing entered is a documented no-op in the producer, so
+    /// always-enabled is honest rather than a promise the click discovers is
+    /// empty. Enabled-<i>iff</i>-undoable would be more honest still, but it
+    /// needs two producer surfaces <see cref="BackgammonPlayEntry"/> does not
+    /// expose — a <c>CanUndo</c> predicate <i>and</i> a per-click change
+    /// notification, without which any predicate read here is stale from the
+    /// first render. That is booked as a producer change, not worked around
+    /// here.
+    /// </para>
+    /// </summary>
     private void UndoLast()
     {
         _playEntry?.UndoLast();
@@ -372,6 +410,10 @@ public partial class Quiz : ComponentBase, IDisposable
         _completedPlay = null;
     }
 
+    /// <summary>
+    /// Restore the entry's initial position. Same enablement rule and rationale
+    /// as <see cref="UndoLast"/>.
+    /// </summary>
     private void UndoAll()
     {
         _playEntry?.UndoAll();

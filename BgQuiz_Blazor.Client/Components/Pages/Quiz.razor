@@ -232,13 +232,23 @@
                                 @onclick="SkipAsync">
                             Skip
                         </button>
+                        @* Busy-only, deliberately not "_playEntry is not null":
+                           that @ref is assigned *after* the render that creates
+                           the entry, so this branch's first render always read
+                           null and disabled both buttons — and nothing
+                           re-renders this page during click-by-click assembly,
+                           so they stayed disabled until the play completed. The
+                           branch already guarantees an entry is rendered
+                           (!IsCube), and a click can only land after the ref is
+                           assigned, so the null term tested nothing this branch
+                           had not already established. See UndoLast. *@
                         <button class="btn btn-outline-secondary"
-                                disabled="@(_playEntry is null || Controller.IsBusy)"
+                                disabled="@Controller.IsBusy"
                                 @onclick="UndoLast">
                             Undo last
                         </button>
                         <button class="btn btn-outline-secondary"
-                                disabled="@(_playEntry is null || Controller.IsBusy)"
+                                disabled="@Controller.IsBusy"
                                 @onclick="UndoAll">
                             Undo all
                         </button>
