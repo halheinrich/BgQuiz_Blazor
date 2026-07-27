@@ -1048,6 +1048,9 @@ public class PageTests : BunitContext
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.False(startBtn.HasAttribute("disabled"));
 
+        // Players lives behind the panel's disclosure, so open it to read the
+        // staged value back off the real control.
+        await ExpandMoreFiltersAsync(cut);
         await FindSavedFilterRowButton(cut, "Race", "Load").ClickAsync(new());
 
         // The config staged into the panel — its players input now shows the value.
@@ -1074,11 +1077,13 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        // Address the two panels by their own unique inputs: the saved-filters
-        // save-name box and the filter panel's position-pattern box.
+        // Address the two panels by their own unique, always-rendered controls:
+        // the saved-filters save-name box and the filter panel's more-filters
+        // disclosure toggle. (Not the position-pattern box — it sits inside the
+        // disclosure and is absent from the DOM while collapsed.)
         var markup = cut.Markup;
         var savedFiltersIndex = markup.IndexOf("id=\"saveFilterName\"", StringComparison.Ordinal);
-        var filterPanelIndex = markup.IndexOf("id=\"positionPattern\"", StringComparison.Ordinal);
+        var filterPanelIndex = markup.IndexOf("id=\"moreFiltersToggle\"", StringComparison.Ordinal);
         Assert.True(savedFiltersIndex >= 0, "SavedFiltersPanel should render for an FS-Access pick");
         Assert.True(filterPanelIndex >= 0, "FilterPanel should render post-pick");
         Assert.True(savedFiltersIndex < filterPanelIndex,
@@ -1124,6 +1129,8 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
+        // Position pattern sits behind the panel's disclosure — open it to type.
+        await ExpandMoreFiltersAsync(cut);
         cut.Find("#positionPattern").Input("[6,2"); // unparseable
         cut.Find("#saveFilterName").Input("Bad");
         await ClickSavedFilterButtonByTextAsync(cut, "Save");
@@ -1362,7 +1369,15 @@ public class PageTests : BunitContext
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         // Set a filter through the panel's own controls and commit it with its own
-        // Apply button — the real gesture, not a synthesized callback.
+        // Apply button — the real gesture, not a synthesized callback. Players
+        // lives behind the panel's disclosure, so open it first. It is opened once
+        // and read on both sides of the re-pick: the fake's pick completes without
+        // a render at the empty-folder state, so the panel is never re-mounted here
+        // and the reset reaches it as LoadConfig — which stages values without
+        // moving the disclosure. (If that ever changes, the panel re-mounts
+        // collapsed and the post-pick read below fails to find the input — a loud
+        // failure, not a silent pass.)
+        await ExpandMoreFiltersAsync(cut);
         cut.Find("input[placeholder='e.g. Hal, Magriel']").Input("Magriel");
         await cut.FindAll("button")
                  .First(b => b.TextContent.Trim() == "Apply Filter")
@@ -3497,6 +3512,24 @@ public class PageTests : BunitContext
     private static Task ApplyFiltersAsync(IRenderedComponent<HomePage> cut) =>
         cut.InvokeAsync(() => cut.FindComponent<FilterPanel>()
                                  .Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+
+    /// <summary>
+    /// Opens the <see cref="FilterPanel"/>'s "more filters" disclosure through
+    /// the panel's own toggle button. The panel keeps the error-range section
+    /// first and always visible; its other eight sections (player names,
+    /// decision type, match scores, move number range, contact type, analysis
+    /// depth, dice rolls, position pattern) render <i>only</i> while expanded —
+    /// they are absent from the DOM when collapsed, not merely styled away — so
+    /// any test driving one of those controls has to expand first. Error-range
+    /// edits, Apply, and Clear filters need no expansion.
+    /// <para>
+    /// Toggling is navigation, not an edit: the panel raises no
+    /// <c>OnFilterDirty</c> for it, so calling this never disturbs a test's
+    /// applied/dirty expectations.
+    /// </para>
+    /// </summary>
+    private static Task ExpandMoreFiltersAsync(IRenderedComponent<HomePage> cut) =>
+        cut.Find("#moreFiltersToggle").ClickAsync(new());
 
     [Fact]
     public async Task Home_MixAppliedInPanel_StartComposesWeightedQuiz()

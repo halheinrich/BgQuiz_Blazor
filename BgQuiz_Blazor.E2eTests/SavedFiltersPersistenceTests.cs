@@ -49,7 +49,9 @@ public sealed class SavedFiltersPersistenceTests : FsAccessFakeTestBase
         // Clear the pick, then re-pick the same folder — whose persisted
         // bgquiz-filters.json is now populated. The saved filter reloads through
         // the real picked-slot read + NamedFilterCollection parse: the round-trip.
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Clear" }).ClickAsync();
+        // Exact: the filter panel's own "Clear filters" button is on screen too,
+        // and Playwright's default accessible-name match is a substring.
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Clear", Exact = true }).ClickAsync();
         await Expect(Page.GetByText("MyRace")).ToHaveCountAsync(0);
 
         await PickFakeFolderAsync();

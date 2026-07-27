@@ -60,13 +60,31 @@
     </p>
 
     <h2 class="h4 mt-4">Choose filters</h2>
+    @* The panel's information hierarchy is user-visible, so the tour has to
+       describe it: a reader told they can filter "by player" who then sees only
+       an error range would conclude the feature is gone. Named in the panel's
+       own words (Show more filters / Clear filters) so the page and the control
+       can be matched up at a glance. The hidden-active signal is called out
+       because it is the answer to "why is my quiz smaller than I expect" when a
+       filter is in force out of sight. *@
     <p>
-        The filter panel narrows which decisions the quiz will ask you. You can restrict
-        by decision type (checker plays, cube decisions, or both), by player, by how
-        costly the recorded mistake was, and more. Filters must be <strong>applied</strong>
-        before Start becomes available — editing any control un-applies them until you
-        press Apply again. Optionally tick <em>Shuffle order</em> to see positions in a
-        random order rather than in file order.
+        The filter panel narrows which decisions the quiz will ask you. The
+        <em>error range</em> — how costly the recorded mistake was — is the control
+        most people reach for, so it sits at the top and is always shown. The rest
+        (decision type, player, match score, move number, contact type, analysis
+        depth, dice rolls, position pattern) sits behind <em>Show more filters</em>;
+        open it once and BgQuiz remembers that for next time. While it is closed the
+        button carries a count and names the hidden sections that currently hold a
+        filter, so nothing you set can quietly stay in force out of sight.
+    </p>
+    <p>
+        Filters must be <strong>applied</strong> before Start becomes available —
+        editing any control un-applies them until you press <em>Apply Filter</em>
+        again. Opening or closing <em>Show more filters</em> is not an edit, so it
+        never un-applies anything. <em>Clear filters</em> puts every control back to
+        its default and applies that, leaving the quiz unfiltered. Optionally tick
+        <em>Shuffle order</em> to see positions in a random order rather than in
+        file order.
     </p>
     @* The count line, previously undocumented anywhere. Two things about it are
        easy to read wrongly — it counts matching *decisions* rather than problems

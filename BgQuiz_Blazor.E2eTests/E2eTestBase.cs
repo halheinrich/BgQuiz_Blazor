@@ -182,6 +182,30 @@ public abstract class E2eTestBase : IAsyncLifetime
     }
 
     /// <summary>
+    /// Open the filter panel's "more filters" disclosure and wait for it to
+    /// land. The panel keeps its error-range section first and always visible;
+    /// its other eight sections (player names, decision type, match scores,
+    /// move number range, contact type, analysis depth, dice rolls, position
+    /// pattern) render only while expanded — absent from the DOM when
+    /// collapsed, not merely hidden — so any scenario setting one of those
+    /// facets must expand first. Error-range edits, Apply, and Clear filters
+    /// need no expansion.
+    ///
+    /// <para>
+    /// The toggle's two labels are pinned here as literals, per this suite's
+    /// independent-literal convention: they are what the user reads on the
+    /// control, and the flip from one to the other is the user-visible proof
+    /// the disclosure opened.
+    /// </para>
+    /// </summary>
+    protected async Task ExpandMoreFiltersAsync()
+    {
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Show more filters" }).ClickAsync();
+        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = "Hide more filters" }))
+            .ToBeVisibleAsync();
+    }
+
+    /// <summary>
     /// Apply the filter panel as-is and wait for the applied state to land
     /// (the "apply filters to enable Start" hint disappears).
     /// </summary>

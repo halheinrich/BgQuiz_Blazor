@@ -775,7 +775,7 @@ project rather than widening them to public.
 The per-app (`Scoped`, one-per-tab in WASM) holder for the `FilterConfig` the
 user has **deliberately applied** on `Home` — the sibling of `PickedProblemFolder`
 for the filter half of the start gate. `Home.razor` writes it: `Set(config)`
-when the panel raises `OnFilterConfigChanged` (Apply / Reset), `Clear()` when
+when the panel raises `OnFilterConfigChanged` (Apply / Clear filters), `Clear()` when
 it raises `OnFilterDirty` (any control edit). `IsApplied` (= `Config is not
 null`) and `Config` are read only by `Home` (`CanStart`, `StartQuizAsync`).
 
@@ -1190,8 +1190,8 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
   (→ `HandleFiltersDirty` → the same clear): the panel lives behind the
   progressive-disclosure gate, so a gesture made from the no-folder state has no
   panel to call, and a filter applied in an earlier setup would keep satisfying
-  the gate. `new FilterConfig()` is exactly what the panel's own *Reset* hydrates
-  from, so "defaults" needs no second definition; `LoadConfig` stages without
+  the gate. `new FilterConfig()` is exactly what the panel's own *Clear filters*
+  hydrates from, so "defaults" needs no second definition; `LoadConfig` stages without
   persisting, so the user's last-applied filter survives in the panel's
   `localStorage` and still restores on the next boot — the same hands-off
   treatment `AppliedMix.Reset` gives the stored mix. It is deliberately **not**
@@ -1749,6 +1749,21 @@ the route map:
   umbrella's `TestData/FixtureFiles/` stays append-only and untouched. First-run
   setup (`playwright install chromium`) and the run commands are in the
   Architecture section.
+- **Most `FilterPanel` controls are behind its disclosure — a test that drives
+  one must expand first.** The panel keeps the error-range section always
+  visible and renders its other eight sections (player names, decision type,
+  match scores, move number range, contact type, analysis depth, dice rolls,
+  position pattern) *only while expanded* — absent from the DOM when collapsed,
+  not styled away — so a selector for any of them silently finds nothing.
+  Both suites go through their own one-line helper (`ExpandMoreFiltersAsync`)
+  that clicks the panel's real `#moreFiltersToggle` button, never a JS or field
+  poke; toggling raises no `OnFilterDirty`, so it never disturbs an
+  applied/dirty expectation. Error-range edits, Apply, and Clear filters need
+  no expansion. Two related traps: address the panel in an ordering assertion
+  by an *always-rendered* element (`#moreFiltersToggle`), not by
+  `#positionPattern`; and Playwright's accessible-name match is a substring, so
+  the panel's `Clear filters` button collides with Home's `Clear` — that
+  locator needs `Exact = true`.
 - **Never gate a control's `disabled` on an `@ref` field.** Blazor assigns a
   component `@ref` *after* the render that creates the component, so any markup
   reading it renders one pass stale — the first render of a branch always sees
