@@ -689,7 +689,9 @@ public class PageTests : BunitContext
         Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied);
         Assert.True(mix.Current.IsPassthrough);
         Assert.False(mix.IsDirty);
-        // The picked slot too — once per gesture, this test's two included.
+        // The picked slot too. Derivation: EndCurrentSetupAsync clears it once
+        // per gesture that ends a setup, and this test makes two pick gestures
+        // (the held pick, then the cancelled one) — so 2, not 1.
         Assert.Equal(2, _folderAccess.ClearPickedCallCount);
 
         // …and the screen is the initial one, with the cancellation accounted for.
@@ -1634,6 +1636,11 @@ public class PageTests : BunitContext
 
         Assert.DoesNotContain("clear-me", cut.Markup);
         Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Start Quiz");
+        // Derivation: WithPickedFolder seeds the holder directly rather than
+        // picking through the button, so no pick gesture ran and the Clear click
+        // is the only thing that reached the picked slot — 1. (A test that picks
+        // through the button adds one per gesture; see
+        // Home_CancelledRePick_EndsTheHeldSetupAndLosesTheFolder.)
         Assert.Equal(1, _folderAccess.ClearPickedCallCount);
     }
 
