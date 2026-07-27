@@ -2221,11 +2221,14 @@ the route map:
   is a deferred arc of its own, distinct from the stats file (which lives on
   the user's disk and already survives reload via re-pick). Until then,
   reload-reset is the intended default.
-- **Mobile folder picking.** Logged under the umbrella's mobile-assessment
-  item: `webkitdirectory` is weak-to-absent on mobile browsers (iOS Safari
-  and many Android browsers offer no real directory upload), so on phones the
-  fallback pick — and with it the whole app's pick gesture — may not work at
-  all. Assess alongside the general mobile-layout pass; not solved here.
+- **Mobile assessment — layout and folder picking.** Mobile layout has never
+  been assessed: the beta-readiness live drive was text/DOM-only (browser-pane
+  screenshots were broken that session). Verify on a real phone, or via the
+  pane once screenshots work. The quiz-stats arc raised the stakes:
+  `webkitdirectory` is weak-to-absent on mobile browsers (iOS Safari and many
+  Android browsers offer no real directory upload), so on phones the fallback
+  pick — and with it the whole app's pick gesture — may not work at all.
+  Assess the pick alongside the layout pass; neither is solved here.
 - **Done-page retrospective.** Per-problem review now ships *in-quiz* (the
   review state's solution diagram shows the best play/action, the equity gap,
   and — for cube — which half the user got wrong). What's still missing is a
@@ -2233,3 +2236,21 @@ the route map:
   aggregate Play/Double/Take/Total accuracy, with no way to revisit individual
   problems after finishing. A scrollable list of the `History` / `CubeHistory`
   entries (each re-rendering its solution diagram) would close the loop.
+- **Evaluate `RunAOTCompilation` for the Client publish.** The deployed WASM
+  runs the Mono interpreter — measured ~8× native on the start-path parse
+  (2026-07-20, start-path arc) — and AOT would cut the residual *first*-Start
+  parse cost after the parse-once cache lands. Costs to measure before
+  committing: publish time, payload size (dotnet.wasm growth vs the ICU-drop
+  win), and the umbrella `infra/` zip-deploy recipe re-verified. Split out of
+  the start-path arc deliberately.
+- **e2e Too-Good coverage gap.** No e2e exercises a Too-Good cube answer end
+  to end — the committed cube fixture `BothAnalysis.xgp` is (NoDouble, Take);
+  the bUnit case
+  `Quiz_Review_CubeVerdict_LabelsHalvesByUsersSubmittedActions` covers the
+  verdict + scoring path meanwhile. Close by sourcing a Too-Good
+  single-decision `.xgp` (`nd ≥ 1.0 && dt ≥ 1.0`) from the corpus via
+  ExtractFromXgToCsv's slice export — **anonymize ON**, the fixture commits to
+  a public repo — into `E2eTests/Fixtures/`, plus a `QuizFlowTests` case
+  (banner "Too Good" + `No Double: … · Pass: …` verdict → Done). Synthesis was
+  rejected: the producer's clean writer surface is unanalyzed by design.
+  Surfaced at the Arc A close-out (2026-07-22).
