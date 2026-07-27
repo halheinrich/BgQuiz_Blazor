@@ -21,31 +21,27 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
 
 ## Depends on
 
-- **BgGame_Lib** — substrate. `IProblemSetSource`, `ShuffledProblemSetSource`,
-  `SubmittedPlay`, `SubmittedCubeAction`, `QuizScore` (segmented:
-  `PlayDecisions` / `DoubleDecisions` / `TakeDecisions` + derived `Total`),
-  the stats-weighted composition surface — `QuizCategory`/`QuizCategoryKind`
-  (predicates over lifetime stats), `QuizMix`/`QuizMixEntry` (the versioned
-  strict-JSON mix config; `ToJson`/`FromJson`/`TryFromJson` is the
-  localStorage trio), `MixedProblemSetSource` (the composing decorator the
-  controller wires for a non-blank mix) + `MixComposition` telemetry —
-  and the lifetime-stats model `DecisionStats` / `DecisionStatsDocument`
-  (immutable; `doc = doc.Plus(submission, TimeProvider)`; bundled type-level
-  JSON converter, so `JsonSerializer.Deserialize<DecisionStatsDocument>` needs
-  no registration and any bad load throws `JsonException`; a cube position
-  folds as **two** lifetime decisions — one per half, counted separately —
+- **BgGame_Lib** — substrate. `IProblemSetSource`, `ShuffledProblemSetSource`
+  (the decorator the source factory wraps the picked set in when "Shuffle
+  order" is on; the app uses the **unseeded** ctor — shuffling is
+  user-facing, the seeded ctor is test-only), `SubmittedPlay`,
+  `SubmittedCubeAction`, `QuizScore` (segmented: `PlayDecisions` /
+  `DoubleDecisions` / `TakeDecisions` + derived `Total`), the stats-weighted
+  composition surface — `QuizCategory`/`QuizCategoryKind`,
+  `QuizMix`/`QuizMixEntry` (the versioned strict-JSON mix config;
+  `ToJson`/`FromJson`/`TryFromJson` is the localStorage trio),
+  `MixedProblemSetSource` (the composing decorator the controller wires for
+  a non-blank mix) + `MixComposition` telemetry — and the lifetime-stats
+  model `DecisionStats` / `DecisionStatsDocument` (immutable;
+  `doc = doc.Plus(submission, TimeProvider)`; bundled type-level JSON
+  converter — deserializes with no registration, any bad load throws
+  `JsonException`; a cube position folds as **two** lifetime decisions,
   matching `QuizScore`'s two-half fold, so a half-right cube reads 1-of-2).
   The controller talks to the source through `IProblemSetSource` and scores
-  via `QuizScore.Plus(SubmittedPlay)` / `QuizScore.Plus(SubmittedCubeAction)`;
-  the stats store folds finalized submissions via the document's `Plus`.
-  `ShuffledProblemSetSource` is the decorator the source factory wraps the
-  picked set in when "Shuffle order" is on; per its own doc (BgGame_Lib
-  INSTRUCTIONS.md) it draws a **fresh Fisher-Yates permutation per
-  enumeration** — so a Restart reshuffles rather than replaying the same
-  order — and exposes two constructors: the **unseeded** one (used here, in
-  production) seeds from a non-deterministic source, the **seeded** one is for
-  deterministic tests. It materializes the inner source up front to shuffle,
-  and passes `Name` / `Count` through unchanged.
+  via `QuizScore.Plus`; the stats store folds finalized submissions via the
+  document's `Plus`. Producer behavior — e.g. the per-enumeration reshuffle
+  that makes a Restart reshuffle rather than replay — lives in BgGame_Lib's
+  own INSTRUCTIONS.md.
 - **BgDataTypes_Lib** — data types. `BgDecisionData`, `Play`,
   `PlayCandidate`, `BoardState`, `CubeDecisionPair`, `CubeAction`. The
   matcher compares the submitted `Play` against each `PlayCandidate.Play`
@@ -63,18 +59,16 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   diagram and the cube-answering board).
 - **BackgammonDiagram_Lib** — `DiagramRequest` + `DiagramOptions`. The
   answering view uses `DiagramRequest.FromDecisionData(BgDecisionData,
-  DiagramMode.Problem)`, the canonical data-to-renderer mapping (Problem mode
-  blanks the analysis panel for both play and cube decisions, so it never leaks
-  the answer). The review view uses `DiagramRequest.Builder.From(..., 
-  DiagramMode.Solution)` and overrides `UserPlayIndex` / `UserDoubleError` /
-  `UserTakeError` to mark the quiz user's answer (`FromDecisionData` can't be
-  used there — it would default those marks from the recorded player). Direct
-  `<ProjectReference>` — the page calls the factory by name, so the dependency
-  is made explicit rather than relying on BgDiag_Razor's transitive surface.
-  Only the **native-free core** is referenced; the raster/export sibling
-  `BackgammonDiagram_Lib.ExportRaster` (SkiaSharp / QuestPDF / OpenXml) is
-  deliberately **not** referenced — the quiz renders SVG only, and the core
-  must stay native-free to run under browser-wasm (see Pitfalls).
+  DiagramMode.Problem)` (Problem mode blanks the analysis panel, so it never
+  leaks the answer); the review view uses `DiagramRequest.Builder.From(...,
+  DiagramMode.Solution)` and overrides the user marks (`FromDecisionData`
+  can't be used there — it would default them from the recorded player).
+  Direct `<ProjectReference>` — the page calls the factory by name, so the
+  dependency is explicit rather than riding BgDiag_Razor's transitive
+  surface. Only the **native-free core** is referenced; the raster/export
+  sibling `BackgammonDiagram_Lib.ExportRaster` is deliberately **not** —
+  the quiz renders SVG only (see Pitfalls: the WASM closure stays
+  native-free).
 - **XgFilter_Lib** — `DecisionFilterSet`, `FilterConfig`,
   `DecisionTypeFilter` / `DecisionTypeOption` (materialized from the user's
   decision-type choice; the controller adds no filter of its own).
@@ -108,32 +102,21 @@ BgQuiz_Blazor/                      — thin ASP.NET Core WASM host (server)
       Error.razor
       NotFound.razor
   wwwroot/                          — static assets (favicon, app.css, Bootstrap)
-    robots.txt                      — Disallow: / for every crawler. The URL is
-                                      hand-distributed to invited beta testers,
-                                      so indexing serves nothing and is how a
-                                      private address gets harvested. Belongs to
-                                      the HOST wwwroot (the one that serves
-                                      app.css/favicon) — the .Client wwwroot
-                                      holds js/ only, and a copy there would
-                                      build, publish, and 404.
+    robots.txt                      — Disallow: / for every crawler (the URL
+                                      is hand-distributed to invited beta
+                                      testers; indexing only harvests it).
+                                      Must live in the HOST wwwroot — see
+                                      Pitfalls (two wwwroots)
 
 BgQuiz_Blazor.Client/              — WASM client (the whole interactive surface)
   BgQuiz_Blazor.Client.csproj       — Sdk.BlazorWebAssembly; the bg-lib closure
   Program.cs                        — WebAssemblyHostBuilder; registers
-                                      TimeProvider.System (singleton) +
-                                      QuizController, IFolderAccess/JsFolderAccess,
-                                      PickedProblemFolder, QuizStatsStore
-                                      (aliased as IDecisionStatsSink),
-                                      AppliedFilter, AppliedMix, ShuffleOption,
-                                      QuizLiveMarker, ProblemSetSourceFactory
-                                      (all scoped)
+                                      TimeProvider.System (singleton) + the
+                                      controller, holders, stores, and
+                                      ProblemSetSourceFactory (all scoped)
   _Imports.razor
-  AppInfo.cs                        — app-level identity SSOT: the running
-                                      version (from the assembly's
-                                      InformationalVersion) + the beta feedback
-                                      mailto both Home and Help render. At the
-                                      client root, not under Quiz/ — nothing
-                                      here is about quizzing
+  AppInfo.cs                        — app-level identity SSOT (version + beta
+                                      feedback mailto); see § AppInfo
   wwwroot/
     js/folderAccess.js              — the app's ONE authored JS module: both pick
                                       mechanisms + stats read/write; two-slot
@@ -148,16 +131,19 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
                                       pick-time StatsSaveCapability)
     PickedFileLimits.cs             — pick caps (bytes / count / derived MB)
     FolderPickDisplay.cs            — folder-pick wording SSOT (cause-agnostic
-                                      no-write-access premise + what it costs;
-                                      supported-browsers statement, the one
-                                      clause Help renders verbatim; never quote
-                                      prompts, never promise a count)
+                                      premise; supported-browsers statement;
+                                      never quote prompts or promise a count)
     QuizStatsFile.cs                — stats filename + JsonSerializerOptions SSOT
     QuizStatsStore.cs               — IDecisionStatsSink + the stats document
                                       lifecycle (bind at Start, fold + write-back)
+    QuizFiltersFile.cs              — saved-filters filename SSOT (no options —
+                                      the collection owns its wire format)
+    SavedFiltersStore.cs            — saved named filters over the picked slot
     AppliedFilter.cs                — applied-filter holder (start-gate half)
     AppliedMix.cs                   — committed-mix holder (start-gate third)
     MixDisplay.cs                   — mix wording SSOT (labels + refusal reason)
+    CubeActionDisplay.cs            — cube-verdict wording SSOT (labels the
+                                      halves by the user's submitted actions)
     MixNoticeDismissal.cs           — Quiz's composition-notice dismissal,
                                       keyed on the composition's identity
     ShuffleOption.cs                — "shuffle order" toggle holder
@@ -189,9 +175,11 @@ BgQuiz_Blazor.Tests/
   QuizControllerTests.cs
   QuizControllerOverlapTests.cs     — the transition-gate overlap suite
   CachedProblemSetSourceTests.cs    — parse-once / invalidation / equivalence
+  CubeActionDisplayTests.cs
   MixPanelTests.cs                  — builder round-trip / validation / order pins
   AppliedMixTests.cs
   QuizStatsStoreTests.cs            — bind / fold / write-back / degrade guarantees
+  SavedFiltersStoreTests.cs         — load / persist / degrade (zero-writes pins)
   JsFolderAccessTests.cs            — interop result mapping via bUnit SetupModule
   WasmUploadedProblemSetSourceTests.cs
   PickedProblemFolderTests.cs
@@ -216,25 +204,24 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (Playwright/Chromi
   E2eCollection.cs                  — the single (sequential) test collection
   E2eTestBase.cs                    — per-test browser context + shared flow helpers
                                       (+ ContextInitScript seam; temp-dir folder picks)
-  FsAccessFakeTestBase.cs           — the fake showDirectoryPicker seam, shared by
-                                      the stats-persistence and mix-weighting suites
+  FsAccessFakeTestBase.cs           — the fake showDirectoryPicker seam, shared
+                                      by the FS-Access-path suites
   QuizFlowTests.cs                  — cube + checker primary paths, pick → Done
   EmptyFilterBannerTests.cs         — empty-result banner; no 0/0 bounce
   ReloadNoticeTests.cs              — reload-reset notice, Start and Restart paths
   StatsPersistenceTests.cs          — FS-Access stats path via the fake (+ fallback
                                       notice pin)
+  SavedFiltersPersistenceTests.cs   — saved-filters FS path via the fake
   MixWeightingTests.cs              — weighted start to Done; composed-to-zero via
-                                      the app's own write fed back; refusal + override
+                                      the app's own write fed back; + MixRefusalTests
+                                      (refusal + "Start without mix" override)
+  CommaDecimalLocaleTests.cs        — nb-NO comma-decimal guard
   HelpAndTitlesTests.cs             — /help renders; document.title contract
   BetaOnboardingTests.cs            — robots.txt served over HTTP; the one
                                       feedback mailto on Home and Help, subject
                                       carrying the built version off the footer
   NotFoundTests.cs                  — unknown URL → 404 status + styled body
 ```
-
-Each page carries a per-page
-`@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))`
-directive — that is how interactivity is set under WASM (see Render mode).
 
 ## Architecture
 
@@ -245,14 +232,11 @@ directive — that is how interactivity is set under WASM (see Render mode).
                           picked) SavedFilters + FilterPanel + "N match" count +
                           MixPanel (Enabled picks only) + "Shuffle order"
                           checkbox + Start Quiz button
-                          on Start: Controller.StartAsync(filters, mix) — which
-                          binds the lifetime-stats context (promote + load) and,
-                          for a non-blank mix, composes the quiz from lifetime
-                          stats (or REFUSES when stats are unavailable — the
+                          on Start: Controller.StartAsync(filters, mix) — binds
+                          the lifetime-stats context and, for a non-blank mix,
+                          composes from lifetime stats (or REFUSES — the
                           actionable notice with "Start without mix") — then
                           Nav→/quiz
-                          (shuffle read live at Start; off the start gate;
-                          disabled while a committed mix owns order)
 
 /quiz    Quiz.razor    → per problem: answering → review → advance
                           "Show stats" button (both states, trailing ms-auto
@@ -289,22 +273,17 @@ directive — that is how interactivity is set under WASM (see Render mode).
 
 ### `QuizController` — per-app state machine
 
-Scoped DI lifetime — but in the WASM client "scoped" resolves to **one
-instance per loaded app (one browser tab)**, not per Blazor Server circuit.
-The practical effect: quiz state **survives in-app navigation** between `/`,
-`/quiz`, and `/done`, and is reset only by a **full browser reload** (which
-tears down and re-boots the WASM runtime, constructing a fresh instance).
-Reload-survival (persistence) is a deferred arc — see *next steps*.
-
-The controller holds the active `IProblemSetSource` enumerator, the running
-`QuizScore`, the per-problem `SubmittedPlay` (`History`) and
-`SubmittedCubeAction` (`CubeHistory`) histories, and a `SkippedCount` for
-non-scoring outcomes (off-list submissions, explicit Skip). The two
-histories are kept separate (mirroring `_history`/`History`) because the two
-scored-result types are distinct shapes — a unified history would force
-consumers to type-test. Pages observe state transitions via the
-`StateChanged` event: each gated async transition (below) fires it exactly
-twice — busy-on, then busy-off with the end state in place — and the
+Scoped DI lifetime — in the WASM client "scoped" resolves to **one instance
+per loaded app (one browser tab)**, so quiz state survives in-app navigation
+and is reset only by a full browser reload (see Pitfalls; reload-survival is
+a deferred arc). The controller holds the active `IProblemSetSource`
+enumerator, the running `QuizScore`, the per-problem `SubmittedPlay`
+(`History`) and `SubmittedCubeAction` (`CubeHistory`) histories — kept
+separate because the two scored-result types are distinct shapes; a unified
+history would force consumers to type-test — and a `SkippedCount` for
+non-scoring outcomes (off-list submissions, explicit Skip). Pages observe
+transitions via `StateChanged`: each gated async transition (below) fires it
+exactly twice — busy-on, then busy-off with the end state in place — and the
 synchronous mutators (Submit, Redo) fire it once.
 
 **The transition gate.** The four async transitions — `StartAsync` /
@@ -314,13 +293,11 @@ not queue). The controller owns exactly one live enumerator, and an
 overlapped `MoveNextAsync` — or a dispose during one — throws on a
 thread-pool continuation no page can catch, terminating the WASM runtime
 (the v1.0.4 double-Start crash). The per-method state guards can't close
-that window: mid-advance they read *stale* state (`Review` already null,
-`Current` still the outgoing problem), so Skip/Submit would stale-pass, and
-a Continue suspended in the awaited stats fold still has `Review` set, so a
-second Continue would double-fold. The gate lives in the controller — pages
-never need the enumerator contract to be safe (the Quiz page's dice-click +
-Continue double-binding stays as-is; the gate is what makes it safe). The
-synchronous mutators (`SubmitPlay` / `SubmitCubeAction` / `RedoAsync`)
+that window: mid-advance they read *stale* state, so Skip/Submit would
+stale-pass and a second Continue would double-fold. The gate lives in the
+controller — pages never need the enumerator contract to be safe (which is
+what makes the Quiz page's dice-click + Continue double-binding safe as-is).
+The synchronous mutators (`SubmitPlay` / `SubmitCubeAction` / `RedoAsync`)
 can't overlap an await themselves but can land *inside* one, so they no-op
 on `IsBusy` too. Mechanics: `IsBusy` (observable; pages drive their busy
 affordances from it) flips on inside the gate's check-and-set, `StateChanged`
@@ -330,76 +307,66 @@ time-budgeted yields keep paints possible during the churn itself); a
 `try`/`finally` releases the gate on completion *and* failure, firing
 `StateChanged` again — the single completion signal (`AdvanceAsync` itself
 no longer fires). Overlapped Start/Restart return `QuizStartOutcome.Busy`,
-which callers treat as do-nothing (no navigation, no notice — the in-flight
-transition owns the UI); overlapped Continue/Skip return silently. The
-never-started `RestartAsync` throw is checked *inside* the gate — an
-overlap is an outcome (Busy), not the caller bug the throw exists for.
-`QuizControllerOverlapTests` pins all of it via `GatedProblemSetSource`
-(externally-completable `MoveNextAsync`) and the fake sink's `RecordGate`
-(freezes the fold window).
+which callers treat as do-nothing (the in-flight transition owns the UI);
+overlapped Continue/Skip return silently. The never-started `RestartAsync`
+throw is checked *inside* the gate — an overlap is an outcome (Busy), not
+the caller bug the throw exists for. `QuizControllerOverlapTests` pins all
+of it via `GatedProblemSetSource` and the fake sink's `RecordGate`.
 
-**Three-state per-problem flow.** Each problem moves through *answering*
-→ *review* → *advance*, surfaced via `Current` and the nullable `Review`
-property:
+**Three-state per-problem flow.** Each problem moves through *answering* →
+*review* → *advance*, surfaced via `Current` and the nullable `Review`:
 
-- **Submit** — `SubmitPlay(Play)` / `SubmitCubeAction(CubeDecisionPair)`
-  are **synchronous** (the only `await` was the advance, now deferred).
-  They score the answer, set `Review`, and fire `StateChanged` **without
-  advancing** — `Current` still points at the answered problem. Both are
-  no-ops outside the answering state (before start, after finish, or while
-  a `Review` is already set — guarding against double-scoring).
-- **`Review`** — a closed `ProblemReview` record (`Play` / `Cube`, see
-  below) carrying exactly the marks the solution diagram needs. Non-null
-  marks the review state.
+- **Submit** — `SubmitPlay(Play)` / `SubmitCubeAction(CubeDecisionPair)` are
+  **synchronous** (the only `await` was the advance, now deferred). They
+  score the answer, set `Review`, and fire `StateChanged` **without
+  advancing** — `Current` still points at the answered problem. No-ops
+  outside the answering state (guarding against double-scoring).
+- **`Review`** — a closed `ProblemReview` record (`Play` / `Cube`) carrying
+  exactly the marks the solution diagram needs. Non-null marks the review
+  state.
 - **`RedoAsync`** — the inverse of Submit: pops the just-added entry from
   `History` / `CubeHistory` (or decrements `SkippedCount` for an off-list
   play, which never added a history entry), recomputes `Score` by refolding
   both histories from `QuizScore.Empty`, and clears `Review` — returning to
-  the *answering* state on the same `Current` problem. `Current`, the source
-  enumerator, and `IsFinished` are untouched. No-op outside review.
+  *answering* on the same `Current` problem. The source enumerator and
+  `IsFinished` are untouched. No-op outside review.
 - **`ContinueAsync`** — the only *forward* exit from review: folds the
   just-reviewed submission into the `IDecisionStatsSink` (the lifetime-stats
-  fold point — see the folder/stats section and Pitfalls: on Continue, never
-  at Submit), clears `Review`, and advances to the next problem. Exhausting
-  the source here flips `IsFinished` — after the fold, so the final answer
-  records. No-op outside review.
+  fold point — see Pitfalls: on Continue, never at Submit), clears `Review`,
+  and advances. Exhausting the source here flips `IsFinished` — after the
+  fold, so the final answer records. No-op outside review.
 - **`SkipCurrentAsync`** — bypasses review and advances immediately, but
   only from the answering state (no-op while a `Review` is showing).
 
 `ProblemReview` lives in `BgQuiz_Blazor.Client` (not BgGame_Lib): it is
-per-app UI state, and adding it to the `SubmittedPlay` / `SubmittedCubeAction`
-submodule would cross the boundary. `ProblemReview.Play` carries the
-matched candidate index (`-1` off-list); `ProblemReview.Cube` carries the
-two per-half equity losses. The Quiz page maps these onto the solution
-request's `UserPlayIndex` / `UserDoubleError` + `UserTakeError` so the
-diagram marks the *quiz user's* answer rather than the .xg-recorded
-player's.
+per-app UI state, and adding it to the submodule would cross the boundary.
+`ProblemReview.Play` carries the matched candidate index (`-1` off-list);
+`ProblemReview.Cube` the two per-half equity losses. The Quiz page maps
+these onto `UserPlayIndex` / `UserDoubleError` + `UserTakeError` so the
+diagram marks the *quiz user's* answer, not the .xg-recorded player's.
 
 **Source construction is factory-injected.** The controller takes a
 `ProblemSetSourceFactory` delegate (`(DecisionFilterSet, QuizMix) →
-IProblemSetSource`) rather than constructing a source directly. The client's
-`Program.cs` registers the delegate scoped as a lambda that reads the
-`PickedProblemFolder` holder and builds a `CachedProblemSetSource` over
-the picked folder (the parse-once layer — see its section), then reads the
-`ShuffleOption` holder and conditionally wraps that source — `mix.IsPassthrough && shuffle.Enabled ? new
-ShuffledProblemSetSource(inner) : inner` (the unseeded ctor: shuffling is
-user-facing, reproducibility is a test-only concern). The mix parameter exists
-for exactly that one rule — **shuffle arbitration**: an active mix owns
-presentation order through its own `RandomOrder`, and a shuffled inner under
-the composing decorator would silently break `RandomOrder: false`'s
-source-order determinism. The factory never wires the composition layer
-itself (that is the controller's — below). Both holders are read at
-**invocation** time (`StartAsync`), not at DI registration, so a folder choice
-*and* a shuffle-toggle choice made before Start take effect. Future
+IProblemSetSource`). The client's `Program.cs` registers it scoped as a
+lambda that reads the `PickedProblemFolder` holder, builds a
+`CachedProblemSetSource` over the pick (the parse-once layer — see its
+section), then reads the `ShuffleOption` holder and conditionally wraps:
+`mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner)
+: inner`. The mix parameter exists for exactly that one rule — **shuffle
+arbitration**: an active mix owns presentation order through its own
+`RandomOrder`, and a shuffled inner under the composing decorator would
+silently break `RandomOrder: false`'s source-order determinism. The factory
+never wires the composition layer itself (that is the controller's —
+below). Both holders are read at **invocation** time (`StartAsync`), not at
+DI registration, so choices made before Start take effect. Future
 alternatives (deployed bundles, curated libraries) plug in by registering a
-different factory; the controller is unchanged. Unit tests substitute a fake
-source the same way.
+different factory; unit tests substitute a fake source the same way.
 
 **Mix ownership mirrors filter ownership, and a weighted start can be
 refused.** `StartAsync(FilterConfig, QuizMix, bool ignoreMix = false)` takes
 the committed mix beside the filter config — user config in at Start, stored
-for Restart, no caller-set mutation — and returns a `QuizStartOutcome`. For a
-non-blank *effective* mix (the stored mix, unless the per-run `ignoreMix`
+for Restart, no caller-set mutation — and returns a `QuizStartOutcome`. For
+a non-blank *effective* mix (the stored mix, unless the per-run `ignoreMix`
 override), `ResetAndAdvanceAsync` wires the producer's
 `MixedProblemSetSource` around the factory source, holding the typed
 reference so `LastComposition` telemetry surfaces without type-testing; the
@@ -407,19 +374,18 @@ stats provider resolves `IDecisionStatsSink.CurrentDocument` fresh per
 enumeration, so **Restart recomposes against the lifetime record as it
 stands, this session's folds included** (deliberate, producer-documented).
 Composing without stats is banned (ratified: no stats → feature unavailable,
-never silently unweighted; the producer's provider contract throws on null by
-design), so the start is **refused** in two stages: stage 1, the
-side-effect-free `IDecisionStatsSink.CanBindStats` capability peek (fallback
-pick / denied / nothing picked — refuses before even the stats bind); stage 2,
-after `BeginQuizAsync` (now ordered **before** the source build, because the
-wrap decision needs the bound context), when the bind yielded no document
-(unreadable file). Either refusal returns `MixRequiresStats` having touched
-**no quiz state** — the prior quiz, its scores, and the stored config all
-survive, and the only `StateChanged` firings are the transition gate's two
-busy flips (delivering unchanged quiz state) — so Done's summary stands
-behind a refused Restart. `RestartAsync(bool ignoreMix = false)` re-attempts the
-stored mix every time, so the mix re-applies whenever stats allow; the
-override is strictly per-run and the stored mix is never rewritten.
+never silently unweighted), so the start is **refused** in two stages: stage
+1, the side-effect-free `IDecisionStatsSink.CanBindStats` capability peek —
+refuses before even the stats bind; stage 2, after `BeginQuizAsync` (ordered
+**before** the source build, because the wrap decision needs the bound
+context), when the bind yielded no document (unreadable file). Either
+refusal returns `MixRequiresStats` having touched **no quiz state** — the
+prior quiz, its scores, and the stored config all survive, and the only
+`StateChanged` firings are the gate's two busy flips — so Done's summary
+stands behind a refused Restart. `RestartAsync(bool ignoreMix = false)`
+re-attempts the stored mix every time, so the mix re-applies whenever stats
+allow; the override is strictly per-run and the stored mix is never
+rewritten.
 
 **Presentation telemetry for the Quiz page.** `ActiveMixHasLength` exposes
 the one fact the mix-notice framing needs — whether the run's *effective*
@@ -456,28 +422,25 @@ mutable state ever exists between the page and the controller. The
 controller is the authority on assembling it), plus the run's effective
 `QuizMix` for shuffle arbitration (see the factory paragraph above).
 
-**Pre-Start match count.** `CountMatchesAsync(FilterConfig)` reports how many
-decisions a config would admit — the number Home shows on Apply ("N decisions
-match your filters"). It builds the same controller-owned pipeline `StartAsync`
-would (`FilterConfig.Build`) and counts a source from the factory over a
-**throwaway** enumerator: the shared enumerator, `Current`, `Score`, and the
-histories are never touched, so a count is safe against a live quiz. It
-deliberately takes **no** transition gate — it owns no shared enumerator to
-protect, and callers serialize Apply against Start on their side. The pass is a
-byproduct of the source's in-memory `Matches` filter, and it **warms the parse
-cache** (`PickedProblemFolder.ParsedDecisions`, via the factory's
-`CachedProblemSetSource`), so the Start that follows reuses it — the count
-front-loads Start's one-time corpus parse rather than adding a cost on top of
-it. It counts every matching decision, forced-move pass positions included (a
-few auto-skip at quiz time), so the number is the **pre-mix pool** the quiz and
-any weighted mix draw from — "decisions that match", not "problems you'll see".
+**Pre-Start match count.** `CountMatchesAsync(FilterConfig)` reports how
+many decisions a config would admit — the number Home shows on Apply. It
+builds the same controller-owned pipeline `StartAsync` would and counts a
+source from the factory over a **throwaway** enumerator: the shared
+enumerator, `Current`, `Score`, and the histories are never touched, so a
+count is safe against a live quiz. It deliberately takes **no** transition
+gate — it owns no shared enumerator to protect, and callers serialize Apply
+against Start on their side. The pass is a byproduct of the source's
+in-memory `Matches` filter, and it **warms the parse cache**, so the Start
+that follows reuses it — the count front-loads Start's one-time corpus parse
+rather than adding a cost on top of it. It counts every matching decision,
+forced-move pass positions included, so the number is the **pre-mix pool**
+the quiz and any weighted mix draw from — "decisions that match", not
+"problems you'll see".
 
 **Decision-type policy.** The user's `FilterConfig.DecisionType` choice
-governs which decisions the quiz admits — checker plays, cube decisions, or
-both. `FilterConfig.Build()` adds a `DecisionTypeFilter` only for a
-non-`Both` choice; the controller adds none of its own. Both checker plays
-(`SubmitPlay`) and cube decisions (`SubmitCubeAction`) flow when
-the user's filter admits them.
+governs which decisions the quiz admits; `FilterConfig.Build()` adds a
+`DecisionTypeFilter` only for a non-`Both` choice, and the controller adds
+none of its own.
 
 **Cube scoring.** A cube position is two independent atomic decisions — the
 doubler's offer and the taker's response. `SubmitCubeAction(CubeDecisionPair)`
@@ -488,25 +451,20 @@ folded into the score's `DoubleDecisions` and `TakeDecisions` segments via
 `QuizScore.Plus(SubmittedCubeAction)`.
 
 **Pass-position auto-skip.** Each `AdvanceAsync` step pulls the next
-decision and tests it with `MoveGenerator.GeneratePlays(board, d1, d2)`.
-The no-legal-play sentinel from BgMoveGen is `count == 1 && plays[0].Count == 0`
-(a single Play of zero moves — dice forfeited), **not** an empty list. Pass
-positions are silently skipped; they don't show to the user and don't
-count toward `SkippedCount`.
+decision and tests it with `MoveGenerator.GeneratePlays(board, d1, d2)`; the
+no-legal-play sentinel (see Pitfalls) marks a pass position, which is
+silently skipped — never shown, never counted toward `SkippedCount`.
 
-**Off-list submission.** `SubmitPlay(Play)` matches the user's play
-against `Current.Decision.Plays` by canonical `Play` equality (order- and
-decomposition-insensitive, hit-sensitive) — so a candidate entered as
-decomposed hops still matches its combined listing, but a play whose
-intermediate hop hits stays off-list against a non-hitting candidate. An
-in-list match contributes to the score: `EquityLoss == 0.0`
-is the "best play" test (matching the established `PlayCandidate`
-convention — multiple candidates may share zero loss). An off-list match
-counts as a skip (`SkippedCount++`, no history entry, score unchanged).
-There's no equity loss to record, and off-list submissions usually signal
-an analysis omission rather than a user mistake. Either way a `Review`
-(`ProblemReview.Play`, `OffList` true and index `-1` for off-list) is set
-so the user still sees the best play on the solution diagram.
+**Off-list submission.** `SubmitPlay(Play)` matches the user's play against
+`Current.Decision.Plays` by canonical `Play` equality (order- and
+decomposition-insensitive, hit-sensitive — decomposed hops match their
+combined listing; an intermediate hit stays off-list against a non-hitting
+candidate). An in-list match contributes to the score: `EquityLoss == 0.0`
+is the "best play" test (multiple candidates may share zero loss). An
+off-list match counts as a skip (`SkippedCount++`, no history entry, score
+unchanged) — see Pitfalls for the semantics. Either way a `Review`
+(`OffList` true, index `-1`) is set so the user still sees the best play on
+the solution diagram.
 
 ### `WasmUploadedProblemSetSource` — the in-browser source
 
@@ -519,18 +477,16 @@ contract doesn't leak the inner type. The files are parsed **entirely in the
 browser** and never leave it.
 
 **Re-iterability.** The source holds the file *bytes* (`PickedFile.Bytes`),
-not open streams, and mints a fresh `MemoryStream` at position zero for every
-`EnumerateAsync` call (wrapped in an `XgFileStream` carrying the
-extension-bearing name). The stream iterator reads each stream exactly once,
-forward, so buffering up front is what lets a Restart re-enumerate the same
-set. `EnumerateAsync` also yields cooperatively so a long synchronous run
-doesn't monopolise the single WASM thread — via BgGame_Lib's
-`CooperativeYielder` (one per enumeration; time-budgeted, ~50 ms), not a
-per-item `Task.Yield`: the per-item form paid an event-loop round-trip for
-every decision, which dominated large parses, while the budgeted form yields
-often enough for the browser to repaint (the busy cursor) and rarely enough
-to cost nothing. The pacing clock is a ctor `TimeProvider` (production: the
-DI system clock) — pure pacing, never affecting which decisions flow.
+not open streams, and mints a fresh `MemoryStream` at position zero for
+every `EnumerateAsync` call (wrapped in an `XgFileStream` carrying the
+extension-bearing name) — the stream iterator reads each stream exactly
+once, forward, so buffering up front is what lets a Restart re-enumerate.
+`EnumerateAsync` also yields cooperatively so a long synchronous run doesn't
+monopolise the single WASM thread — BgGame_Lib's `CooperativeYielder` (one
+per enumeration; time-budgeted ~50 ms, not per-item `Task.Yield`, whose
+event-loop round-trip per decision dominated large parses). The pacing clock
+is a ctor `TimeProvider` (production: the DI system clock) — pure pacing,
+never affecting which decisions flow.
 
 `Count` is null (an up-front count would require a full filtered pre-pass).
 `Name` is `"No files"` / the single file's name / `"{N} files"`. Decision-type
@@ -542,9 +498,9 @@ no policy of its own.
 The production source the `Program.cs` factory builds (the stream source
 above remains the parser under it): parse the picked files **once**, then
 serve every Start/Restart by filtering the cached decisions in memory.
-Measured against v1.0.4, every shuffled/weighted Start re-parsed the corpus
-from the picked bytes (~7.5 s warm); with the cache only the first Start
-after a pick parses — repeat Starts are milliseconds.
+Pre-cache (v1.0.4), every shuffled/weighted Start re-parsed the corpus
+(~7.5 s warm); with the cache only the first Start after a pick parses —
+repeat Starts are milliseconds.
 
 - **Cache home & lifecycle.** The cache slot is
   `PickedProblemFolder.ParsedDecisions` — on the holder, so cache lifecycle
@@ -641,9 +597,9 @@ the active handle. Home's Clear resets **only the picked slot**
 (`clearPicked`), so a mid-quiz Clear or re-pick never affects the running
 quiz's recording — recording changes only when the next Start re-binds. The
 picked slot also serves the **saved-filters** read/write pair
-(`readPickedFile`/`writePickedFile`, added for Arc B): a setup-time concern on
-the folder being configured, deliberately on the picked slot so it never
-requires a promote and never touches a running quiz's active handle.
+(`readPickedFile`/`writePickedFile`): a setup-time concern on the folder
+being configured, deliberately on the picked slot so it never requires a
+promote and never touches a running quiz's active handle.
 
 **`QuizStatsFile`** — the persistence SSOT: `FileName`
 (`bgquiz-stats.json`) and the one fixed `JsonSerializerOptions`
@@ -682,42 +638,37 @@ notice): `LoadFailed` as a polite status, `WriteFailed` as an assertive
 alert. Quiz-context notices scope to the active context and reset at the next
 Start's re-bind.
 
-**Saved named filters (Arc B).** A per-directory `bgquiz-filters.json` beside
-the corpus lets the user save and reload `FilterPanel` configurations.
+**Saved named filters.** A per-directory `bgquiz-filters.json` beside the
+corpus lets the user save and reload `FilterPanel` configurations.
 `QuizFiltersFile` is the filename SSOT — and, unlike `QuizStatsFile`, carries
-**no** `JsonSerializerOptions`: `NamedFilterCollection` (XgFilter_Lib) owns its
-wire format through a type-level `[JsonConverter]`, so the app round-trips via
-the document's own `ToJson`/`TryFromJson`. `SavedFiltersStore` (scoped; deps
-`IFolderAccess`, `PickedProblemFolder`; read only by Home) owns the collection:
-`LoadForPickAsync` reads the picked slot at pick time (`generation`-guarded like
-the parse cache), `SaveAsync`/`DeleteAsync` apply the collection's withers and
-persist, `Reset` clears on Clear. Same **degrade-never-block** posture as
-`QuizStatsStore`, one status enum `SavedFiltersStatus` — `Ready` /
+**no** `JsonSerializerOptions`: `NamedFilterCollection` (XgFilter_Lib) owns
+its wire format, so the app round-trips via the document's own
+`ToJson`/`TryFromJson`. `SavedFiltersStore` (scoped; deps `IFolderAccess`,
+`PickedProblemFolder`; read only by Home) owns the collection:
+`LoadForPickAsync` reads the picked slot at pick time (`generation`-guarded
+like the parse cache), `SaveAsync`/`DeleteAsync` apply the collection's
+withers and persist, `Reset` clears on Clear. Same **degrade-never-block**
+posture as `QuizStatsStore`, one status enum `SavedFiltersStatus` — `Ready` /
 `LoadFailed` (unreadable *or* unparseable: file preserved untouched, zero
-writes) / `WriteFailed` (in-memory kept, writes stop) / `Disabled` (no FS pick).
-The `SavedFiltersPanel` (XgFilter_Razor) is persistence-agnostic — it raises
-load/save/delete *requests* and Home mediates them; the store owns every
-document mutation (Home never calls `With`/`Without` itself). Home's capability
-mapping: `Enabled` → full panel, **even with zero saved filters** (you can save
-into it); `PermissionDenied` → load-only (`CanPersist=false` + a reason naming
-both barred gestures, "loaded but not changed or deleted" — the pick gesture
-grants read without the readwrite grant, and the read-failure-tolerant
-`LoadFailed` path keeps that assumption from being load-bearing) **and only when
-at least one filter is saved** — read-only with an empty collection can neither
-load nor save, so the section is pure clutter and is hidden;
-`BrowserUnsupported` → no panel (the fallback can't see the file).
-
-**Two predicates, deliberately.** `SavedFiltersApplicable` (the rule above)
-gates the *panel offering* and its load-only reason.
-`SavedFiltersContextApplicable` — the plain "a folder is held and it was picked
-via a File System Access mechanism" test — gates the `LoadFailed` /
-`WriteFailed` *degrade notices*. Emptiness must not suppress those: `LoadFailed`
-always leaves the in-memory collection empty, so gating it on the panel's
-empty-hiding rule would swallow the "your file couldn't be read, it's been left
-untouched" notice every time it fires (see Pitfalls). Save-as of an unparseable position pattern is
-refused by `FilterPanel.TryGetEditedConfig` (exactly Apply's gate) and Home
-surfaces the refusal as a notice — the panel already cleared its typed name
-optimistically, so a silent no-op would read as a lost save.
+writes) / `WriteFailed` (in-memory kept, writes stop) / `Disabled` (no FS
+pick). The `SavedFiltersPanel` (XgFilter_Razor) is persistence-agnostic — it
+raises load/save/delete *requests* and Home mediates them; the store owns
+every document mutation. Home's capability mapping: `Enabled` → full panel,
+**even with zero saved filters** (you can save into it); `PermissionDenied` →
+load-only (`CanPersist=false` + a reason naming both barred gestures — the
+pick gesture grants read without the readwrite grant, and the
+read-failure-tolerant `LoadFailed` path keeps that assumption from being
+load-bearing) **and only when at least one filter is saved** — read-only
+over an empty collection can neither load nor save, so the section is
+hidden; `BrowserUnsupported` → no panel (the fallback can't see the file).
+Two predicates gate this, deliberately: `SavedFiltersApplicable` (the rule
+above) gates the *panel offering*; `SavedFiltersContextApplicable` (folder
+held + FS-Access pick) gates the `LoadFailed` / `WriteFailed` *degrade
+notices* — they must never collapse into one (see Pitfalls). Save-as of an
+unparseable position pattern is refused by `FilterPanel.TryGetEditedConfig`
+(exactly Apply's gate) and Home surfaces the refusal as a notice — the panel
+already cleared its typed name optimistically, so a silent no-op would read
+as a lost save.
 
 ### `PickedProblemFolder` — the picked-folder holder
 
@@ -739,15 +690,11 @@ the contract.
   `"'{FolderName}' — {N} problem file(s)"`, `null` when nothing is picked.
   The **single source of truth** for how a pick describes itself; `Home`
   renders it directly rather than caching text in a component field (the old
-  field desynced on navigate-back). `PickedProblemFolderTests` pins the
-  branches; the bUnit `Home_PrePopulatedHolder_RendersSummaryAndEnablesStart`
-  pins the navigate-back render.
+  field desynced on navigate-back).
 
-The pick is **in-memory only**: it survives in-app navigation but is reset by
-a full browser reload (the WASM runtime re-boots). Reload-survival is a
-deferred arc, matching `QuizController` — but note the stats *file* is not
-lost with it: it lives in the user's folder, and re-picking the folder
-resumes it.
+The pick is **in-memory only**: it survives in-app navigation but is reset
+by a full browser reload — same deferred-arc caveat as the other holders
+(the stats *file* is not lost with it; re-picking the folder resumes it).
 
 ### `PickedFileLimits` — the pick caps, single-sourced
 
@@ -760,13 +707,10 @@ enumerated metadata before any bytes cross the boundary; the byte cap is also
 re-asserted as the `IJSStreamReference.OpenReadStreamAsync` max on the actual
 transfer), `Help` *documents* them. Leaving them as private constants on the
 enforcing type would have forced the help page to restate "50 MB" / "500" as
-prose, so raising a cap would silently make the documentation wrong. Deriving
-the megabyte figure (rather than writing `50` twice) is what makes the SSOT
-actually hold.
-`PageTests.Help_StatesFileCaps_SourcedFromTheConstantsThePickEnforces` asserts
-the rendered prose against the constants, not against the literals, so page and
-rule cannot drift (and `Help_NamesTheStatsFile_FromTheConstantTheStoreWrites`
-extends the same discipline to `QuizStatsFile.FileName`). The constants stay
+prose, so raising a cap would silently make the documentation wrong; deriving
+the megabyte figure is what makes the SSOT actually hold. `PageTests` pins
+Help's rendered prose against the constants (and the stats filename against
+`QuizStatsFile.FileName`), so page and rule cannot drift. The constants stay
 `internal`; the `.Client` csproj grants `InternalsVisibleTo` to the test
 project rather than widening them to public.
 
@@ -780,19 +724,16 @@ it raises `OnFilterDirty` (any control edit). `IsApplied` (= `Config is not
 null`) and `Config` are read only by `Home` (`CanStart`, `StartQuizAsync`).
 
 Holding the applied state here rather than in a transient component field is
-what lets the gate survive in-app navigation: on navigate-back `Home` is
-re-instantiated, but it re-derives `CanStart` from the persisted holders
-instead of resetting to "not applied" and forcing a needless re-click of
-Apply (the filter-side twin of the picked-summary nit).
+what lets the gate survive in-app navigation: on navigate-back `Home`
+re-derives `CanStart` from the persisted holders instead of resetting to
+"not applied" and forcing a needless re-click of Apply.
 
 **Gate semantics — applied, not merely present.** `IsApplied` means the user
 took the Apply action, so a half-edited set must clear it (`OnFilterDirty →
 Clear`). The interaction with `FilterPanel`'s localStorage restore is safe by
 construction: restore writes the panel's own fields directly and raises
 **neither** callback, so it can't spuriously mark applied or clear an existing
-applied state — the holder is the sole authority on "applied". `AppliedFilterTests`
-pins the holder; the bUnit `Home_PreAppliedFilterHolder_EnablesStartWithoutReApply`
-and `Home_FiltersDirty_ClearsAppliedState_DisablesStart` pin the gate.
+applied state — the holder is the sole authority on "applied".
 
 In-memory only, reset on full reload — same deferred-arc caveat as its sibling
 holders (`PickedProblemFolder`, `ShuffleOption`).
@@ -814,55 +755,46 @@ producer's fraction — thresholds are fractions; rendering is a display
 concern. Validation disables Apply with an inline reason; category
 construction goes through the producer's validating factories with a
 try/catch backstop. A blank builder is always valid and commits
-`QuizMix.Empty` — the inert passthrough default.
-
-**Add category is styled `btn-outline-primary`, not the panel's secondary
-grey — don't "unify" it** (finding AF). Adding a row is always valid, so the
-button is never disabled; but at zero rows its three neighbours (Random
-order, Quiz length, Apply Mix) *are*, and in secondary grey it read as a
-fourth switched-off control — the one misreading that must never happen,
-since it is the only way out of the zero-row state. The class matches Home's
-`Choose folder…`, the page's other required-but-unstarted step.
-`MixPanelTests.BlankBuilder_AddCategoryIsUsable_AndDoesNotLookDisabled` pins
+`QuizMix.Empty` — the inert passthrough default. **Add category is styled
+`btn-outline-primary`, not the panel's secondary grey — don't "unify" it**:
+the button is never disabled (adding a row is always valid), but at zero
+rows its three neighbours *are*, and in secondary grey it read as a fourth
+switched-off control — the one misreading that must never happen, since it
+is the only way out of the zero-row state. The class matches Home's `Choose
+folder…`, the page's other required-but-unstarted step; `MixPanelTests` pins
 state and appearance together, because the defect was the gap between them.
 
 **Commit model mirrors FilterPanel** — `OnMixApplied` on Apply, Reset, and
-**removing the last row** (both Reset and the last-row removal are an explicit
-apply of `QuizMix.Empty` through the shared `GoBlankAsync`, the sanctioned way
-this panel writes Empty over a stored mix; the last-row case closes the wedge
-where a mix edited down to zero rows stayed `IsDirty` while Apply was disabled
-at zero rows — only Reset cleared it, so Start was stranded), `OnMixDirty` per
+**removing the last row** (both Reset and the last-row removal are an
+explicit apply of `QuizMix.Empty` through the shared `GoBlankAsync`, the
+sanctioned way this panel writes Empty over a stored mix; the last-row case
+closes the wedge where a mix edited down to zero rows stayed `IsDirty` with
+Apply disabled at zero rows, stranding Start until Reset), `OnMixDirty` per
 other edit. The first-render localStorage restore raises **`OnMixRestored`**
-carrying the restored mix, and Home ***reconciles*** it against the holder — it
-does **not** adopt it (the former adopt-on-restore silently committed the stored
-mix; removed in finding W). Home marks the mix dirty only when the restore is
-non-passthrough **and** `AppliedMix.Current` is still passthrough — a fresh
-load, where the shown-but-uncommitted mix must gate so Start can't run
-passthrough while a mix is displayed. When a committed mix already survives in
-the holder (navigate-back), the restore is left untouched, so no re-Apply is
-forced. No content-equality is needed: Start requires `!IsDirty`, so a surviving
-committed mix was either Applied (holder non-passthrough) or Reset/left blank
-(holder passthrough *and* localStorage Empty, so the restore is passthrough
-too). Both wiring-critical callbacks are `[EditorRequired]`. Persistence is the
-lib trio over one key, **`xg_quizMix`**: `ToJson` on Apply, `TryFromJson` on
-restore — absent/corrupt yields a blank builder, never an error; the component
-never touches a JSON serializer.
+carrying the restored mix, and Home ***reconciles*** it against the holder —
+marked dirty only on a fresh load, never adopted, never re-gating a
+surviving committed mix; the full rule and its rationale live in Pitfalls
+(*the mix restore reconciles; it must never adopt*). No content-equality is
+needed: Start requires `!IsDirty`, so a surviving committed mix was either
+Applied (holder non-passthrough) or Reset/left blank (holder passthrough
+*and* localStorage Empty, so the restore is passthrough too). Both
+wiring-critical callbacks are `[EditorRequired]`. Persistence is the lib
+trio over one key, **`xg_quizMix`**: `ToJson` on Apply, `TryFromJson` on
+restore — absent/corrupt yields a blank builder, never an error; the
+component never touches a JSON serializer.
 
-**Offered only when the pick can provide stats (finding X).** Home renders
-`MixPanel` only for `StatsSaveCapability.Enabled`. The mix composes from
-lifetime stats, so under any other rung it has no valid role: the panel is
-hidden, there is no way to build a mix, and **every pick resets `AppliedMix` to
-passthrough+clean** (`AppliedMix.Reset()` in `EndCurrentSetupAsync`, which both
-the pick gesture and Clear run, so the invariant is "no pick → passthrough").
-Together those make a
-stats-less pick unable to coexist with a committed non-blank mix — which is what
-retired the old early won't-apply advisory. The panel is **`@key`-ed on
-`PickedProblemFolder.PickGeneration`** so every pick re-mounts it: the fresh
-mount's restore re-offers the persisted config as dirty (reconciled against the
-just-reset holder). That key is load-bearing — an Enabled→Enabled re-pick keeps
-both the capability and `HasFiles` true, so without it the panel would stay
-mounted showing stale rows while the holder sat passthrough-clean, leaving Start
-un-gated over a displayed mix.
+**Offered only when the pick can provide stats.** Home renders `MixPanel`
+only for `StatsSaveCapability.Enabled`. The mix composes from lifetime
+stats, so under any other rung it has no valid role: the panel is hidden,
+there is no way to build a mix, and **every pick resets `AppliedMix` to
+passthrough+clean** (`AppliedMix.Reset()` in `EndCurrentSetupAsync`, which
+both the pick gesture and Clear run — the invariant is "no pick →
+passthrough"). Together those make a stats-less pick unable to coexist with
+a committed non-blank mix — which is what retired the old early won't-apply
+advisory. The panel is **`@key`-ed on `PickedProblemFolder.PickGeneration`**
+so every pick re-mounts it and the fresh mount's restore re-offers the
+persisted config as dirty (reconciled against the just-reset holder); the
+key is load-bearing (see Pitfalls).
 
 **`AppliedMix`** (Quiz/) is the committed-mix holder beside `AppliedFilter`:
 `Current` (default `QuizMix.Empty`) + `IsDirty` + `Reset()`. Blank is the valid
@@ -886,21 +818,19 @@ actual draw in declared order, zero-draw entries included), and the
 refusal reason (Home's Start and Done's Restart render the same
 capability/status rule — neither page hand-words it).
 
-**Honest notices, all three.** (There were four: the *signal early*
-won't-apply advisory — shown when a stats-less pick coexisted with a committed
-non-blank mix — was removed by finding X, which made that state unreachable.
-Don't re-add it: under X a stats-less pick hides the panel and every pick resets
-the holder, so the advisory has no trigger left.) (1) *Gate late*: a refused
-weighted Start/Restart renders an actionable `role="alert"` with the reason and
-the one-click per-run override ("Start without mix" / "Restart without mix");
-the stored mix is kept either way, and the notice says so. Post-X the reachable
-refusal is **stage 2** — an `Enabled` pick whose stats file is unreadable —
-since stage 1 (no capability) can no longer meet a committed mix through the UI.
-(2) *Composed-to-zero*:
-Home's empty-result branch keys on `LastComposition is { DrawnCount: 0 }`
-for mix-aware wording, parallel to filtered-to-zero. (3) *Composition-first
-mix notices on Quiz* (the Finding (M) redesign): every mix notice leads with
-the effective quiz — `MixDisplay.CompositionSummary` over
+**Honest notices, all three.** (A fourth — the *signal early* won't-apply
+advisory, shown when a stats-less pick coexisted with a committed mix — was
+removed when the panel became stats-gated, which made that state
+unreachable; don't re-add it, it has no trigger left.) (1) *Gate late*: a
+refused weighted Start/Restart renders an actionable `role="alert"` with the
+reason and the one-click per-run override ("Start without mix" / "Restart
+without mix"); the stored mix is kept either way, and the notice says so.
+The reachable refusal is **stage 2** — an `Enabled` pick whose stats file is
+unreadable — since stage 1 (no capability) can no longer meet a committed
+mix through the UI. (2) *Composed-to-zero*: Home's empty-result branch keys
+on `LastComposition is { DrawnCount: 0 }` for mix-aware wording, parallel to
+filtered-to-zero. (3) *Composition-first mix notices on Quiz*: every mix
+notice leads with the effective quiz — `MixDisplay.CompositionSummary` over
 `Controller.LastComposition` — before any apportionment internals. A
 **length-bound** mix that fell short keeps the assertive `role="alert"`
 framing under that lead: the asked-for-X-drew-Y line plus per-entry
@@ -915,540 +845,405 @@ guarantees Drawn == Target capless). The page keys the split on
 `Controller.ActiveMixHasLength`; a length-bound mix that filled exactly
 shows no notice at all.
 
-**Both mix notices retire on the first submitted answer.** They render from
-`Controller.LastComposition`, which lives as long as the run, so they used to sit
-above the board for the whole quiz; they say how *this* quiz was built — worth
-reading before answering, stale chrome after. `Quiz.Submit` therefore dismisses
-them once an answer lands, checker or cube alike. Three deliberate choices:
-- **Dismissal, not deletion.** The controller's telemetry is untouched:
-  `LastComposition` and `ActiveMixHasLength` still choose the framing, still carry
-  `ProblemCount`, and Home's composed-to-zero branch still reads them. A
-  presentation concern must not destroy load-bearing state.
-- **A scoped holder (`MixNoticeDismissal`), not a page field.** *Show stats* is a
-  mainline mid-quiz gesture and returning re-instantiates `Quiz`, so a field would
-  resurrect a notice the user had already dismissed
-  (`PageTests.Quiz_MixNotice_DismissedThenShowStatsRoundTrip_StaysRetired`).
-- **Keyed on the composition instance** (`ReferenceEquals`, never `==` — the
-  record's value equality would keep an identically-drawn Restart dismissed). Each
-  Start/Restart builds a fresh `MixedProblemSetSource` and therefore a fresh
-  `MixComposition`, so the next run's notice shows again with **no reset call
-  site** on Home or Done to forget.
-The trigger is `Controller.Review is not null` after the submit call, not the call
-itself: both controller mutators no-op under the transition gate, and dismissing on
-a submit that scored nothing would drop the notice with no answer given. That
-predicate also covers an off-list play (a submitted answer with a review to read,
-just an unscored one). **Skip is deliberately not a dismissal** — it moves past a
-problem without answering it (`PageTests.Quiz_MixNotice_SkipIsNotADismissal`).
+**Both mix notices retire on the first submitted answer.** They say how
+*this* quiz was built — worth reading before answering, stale chrome after —
+so `Quiz.Submit` dismisses them once an answer lands, checker or cube alike.
+Three deliberate choices: **dismissal, not deletion** (the controller's
+telemetry is untouched — `LastComposition` and `ActiveMixHasLength` still
+choose the framing and Home's composed-to-zero branch still reads them; a
+presentation concern must not destroy load-bearing state); **a scoped holder
+(`MixNoticeDismissal`), not a page field** (*Show stats* is a mainline
+mid-quiz gesture and returning re-instantiates `Quiz`, so a field would
+resurrect a dismissed notice); **keyed on the composition instance**
+(`ReferenceEquals`, never `==` — the record's value equality would keep an
+identically-drawn Restart dismissed; each Start/Restart builds a fresh
+`MixComposition`, so the next run's notice shows again with **no reset call
+site** on Home or Done to forget). The trigger is `Controller.Review is not
+null` after the submit call, not the call itself: both mutators no-op under
+the transition gate, and dismissing on a submit that scored nothing would
+drop the notice with no answer given; the predicate also covers an off-list
+play (a submitted answer with a review to read, just an unscored one).
+**Skip is deliberately not a dismissal** — it moves past a problem without
+answering it.
 
 ### `ShuffleOption` — the "Shuffle order" toggle holder
 
-The per-app (`Scoped`, one-per-tab in WASM) holder for the **"Shuffle order"**
-checkbox on `Home` — a sibling of `PickedProblemFolder` and `AppliedFilter`, same
-lifetime, so the toggle survives in-app navigation (`Home` is re-instantiated
-on navigate-back and re-reads `Enabled`). Surface is minimal: `bool Enabled`
-(private setter) + `Set(bool)`. `Home.razor` writes it on the checkbox's
-`@onchange`; the `ProblemSetSourceFactory` reads `Enabled` to decide whether to
-wrap the picked set in a `ShuffledProblemSetSource` — at **invocation** time
-(`StartAsync`), the same read-live-at-Start discipline as `PickedProblemFolder`.
-
-**Presentation-only, and off the start gate.** Shuffling changes only the
-*order* decisions are presented in, never which decisions are *admitted*, so it
-is deliberately **not** folded into `FilterConfig` and plays **no part in
-`CanStart`** (`AppliedFilter.IsApplied && Folder.HasFiles &&
-!AppliedMix.IsDirty`). Toggling it
-does **not** dirty the start gate — `HandleShuffleToggled` only records the
-choice; there is no applied/dirty machinery the way `AppliedFilter` needs it,
-because a checkbox has no half-edited intermediate state. Every toggle is a
-complete, immediately valid choice read live at Start; there is nothing to
-"apply".
-
-**Disabled — never rewritten — under an active mix.** While the committed
-mix has entries, presentation order belongs to the mix's own Random-order
-setting, so Home disables the checkbox with a hint and the factory suppresses
-the shuffle wrap; `Enabled` keeps the user's value untouched throughout, so
-clearing the mix restores their prior shuffle preference (pinned in
-`PageTests`).
-
-In-memory only, reset on full reload — same deferred-arc caveat as the other
-holders.
+The per-app (`Scoped`, one-per-tab in WASM) holder for the **"Shuffle
+order"** checkbox on `Home` — a sibling of `PickedProblemFolder` and
+`AppliedFilter`, same lifetime, so the toggle survives in-app navigation.
+Surface: `bool Enabled` (private setter) + `Set(bool)`. `Home.razor` writes
+it on the checkbox's `@onchange`; the `ProblemSetSourceFactory` reads
+`Enabled` at **invocation** time (`StartAsync`) — the same
+read-live-at-Start discipline as `PickedProblemFolder`.
+**Presentation-only, and off the start gate**: shuffling changes only the
+*order* decisions are presented in, never which are *admitted*, so it is not
+folded into `FilterConfig` and plays no part in `CanStart`; toggling never
+dirties the gate — a checkbox has no half-edited intermediate state, so
+every toggle is a complete, immediately valid choice with nothing to
+"apply". **Disabled — never rewritten — under an active mix**: while the
+committed mix has entries, presentation order belongs to the mix's own
+Random-order setting, so Home disables the checkbox with a hint and the
+factory suppresses the shuffle wrap; `Enabled` keeps the user's value
+untouched, so clearing the mix restores the prior preference (pinned).
+In-memory only, reset on full reload — same deferred-arc caveat as the
+other holders.
 
 ### `QuizLiveMarker` — the reload-reset honesty marker
 
 The per-app (`Scoped`, one-per-tab in WASM) service recording that a quiz is
 **live** in this tab, backed by the browser's `sessionStorage` through
-`IJSRuntime`. BgQuiz's first JS-interop *service* (the clipboard call in
-`XgidLabel` and the filter panel's `localStorage` are inline in their
-components); it's encapsulated because it has a lifecycle spread across two pages
-and a storage constraint worth stating once.
+`IJSRuntime` — BgQuiz's first JS-interop *service*, encapsulated because it
+has a lifecycle spread across two pages and a storage constraint worth
+stating once. This is the **honesty slice of reload-resume, not resume
+itself**: a full reload reboots the WASM runtime and silently discards all
+quiz state; the marker is the one thing that survives, so a fresh boot that
+finds it can *explain* the loss (real resume remains the deferred IndexedDB
+arc). Surface: `MarkLiveAsync()` / `WasLiveAsync()` / `ClearAsync()`.
+Lifecycle:
 
-This is the **honesty slice of reload-resume, not resume itself**. A full reload
-reboots the WASM runtime and silently discards all quiz state; the user lands on
-a fresh `Home` with no hint their quiz vanished. The marker is the one thing that
-survives a reload, so a fresh boot that finds it can say so. It *explains* the
-loss; it does not prevent it (real resume — persisting the picked bytes and
-progress — remains the deferred IndexedDB arc).
-
-Surface: `MarkLiveAsync()` / `WasLiveAsync()` / `ClearAsync()`. Lifecycle:
-
-- **Set wherever a quiz becomes live** (`MarkLiveAsync`): `Home` on a successful
-  Start — *after* the empty-result guard, so the no-match path (which stays on `/`
-  with no live quiz) never marks — **and** `Done` on *Restart*, which makes a quiz
-  live again from the same pipeline. Both writers matter: without the Restart one,
-  a reload during a restarted quiz falls back to the old silent reset, a
-  one-click-wide hole in the very guarantee this marker exists to make.
-- **`Home` reads** it on boot (`OnInitializedAsync`): `WasLiveAsync() &&
-  !Controller.HasStarted` ⇒ show the polite reset notice, then `ClearAsync()` so
-  it shows once. The `HasStarted` guard is the discriminator — a set marker with
-  a *live* controller is in-app navigation back to `Home` mid-quiz (same per-tab
-  controller, quiz survived), **not** a reload, so no notice fires and the marker
-  is left in place for a genuine later reload.
-- **`Done` clears** it (`ClearAsync`) on honest completion — reaching Done means
-  the quiz ended as intended, so there's no reset to announce on a later boot. (A
-  reload that killed a live quiz never reaches Done, which requires the surviving
-  in-memory controller.) *Restart* re-sets it immediately after (above), so the
+- **Set wherever a quiz becomes live**: `Home` on a successful Start —
+  *after* the empty-result guard, so the no-match path never marks — **and**
+  `Done` on *Restart*, which makes a quiz live again from the same pipeline
+  (without the Restart writer, a reload during a restarted quiz falls back
+  to the old silent reset — a one-click-wide hole in the very guarantee the
+  marker exists to make).
+- **`Home` reads** it on boot: `WasLiveAsync() && !Controller.HasStarted` ⇒
+  show the polite reset notice, then `ClearAsync()` so it shows once. The
+  `HasStarted` guard is the discriminator — a set marker with a *live*
+  controller is in-app navigation back mid-quiz, **not** a reload, so no
+  notice fires and the marker stays for a genuine later reload.
+- **`Done` clears** it on honest completion — no reset to announce (a reload
+  that killed a live quiz never reaches Done, which requires the surviving
+  in-memory controller). *Restart* re-sets it immediately after, so the
   clear-then-re-set order across a Done→Restart round trip is deliberate.
 
-`PageTests` pins all of it: `Home_BootWithLiveMarker_…` (fails without the boot
-check), `Home_BootWithoutMarker_…` and `Home_MarkerPresentButQuizLive_…`
-(over-trigger guards), `Home_StartClick_MarksQuizLive` /
-`…_EmptyResult_DoesNotMarkQuizLive`, and `Done_ReachingDone_ClearsLiveQuizMarker`.
-
-**Storage is `sessionStorage`, deliberately — not `localStorage`** (see
-Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
-*exception* that survives one boot, then get cleared).
+`PageTests` pins the whole lifecycle. **Storage is `sessionStorage`,
+deliberately — not `localStorage`** (see Pitfalls).
 
 ### Pages
 
-- **`Home.razor`** — a **"Choose folder…"** button (`#pickProblemFolder`)
-  above the `FilterPanel` from XgFilter_Razor, plus a hidden, always-rendered
+- **`Home.razor`** — the setup page; wiring notes below, contracts in their
+  owning sections.
+  **Pick.** A **"Choose folder…"** button (`#pickProblemFolder`) above the
+  `FilterPanel`, plus a hidden, always-rendered
   `<input type="file" webkitdirectory>` fallback the same button opens where
   File System Access is absent (a plain `<input>`, not `InputFile` — the JS
-  module reads the FileList itself for `webkitRelativePath`; always in the DOM
-  so the e2e suite can drive it directly). The whole pick — mechanism probe,
-  permission, top-level enumeration, caps from `PickedFileLimits`, buffering —
-  runs behind `IFolderAccess`; the page never touches raw interop. The pick
-  lands in the per-app `PickedProblemFolder` (extension-bearing names +
-  bytes + pick-time `StatsSaveCapability`); the bytes are parsed in-browser
-  and never uploaded. The two no-folder outcomes each leave the holder clear and
-  each show their own polite notice — a cancelled pick (`_cancelledPickNotice`)
-  and an empty folder (`_emptyFolderNotice`) — so no pick ever returns the user
-  to an unchanged page with no account of what happened; the capability drives
-  the pick-time stats status notice (see Folder picking &
-  lifetime stats). The cancelled notice is deliberately **cause-agnostic**: the
-  outcome covers both a dismissed picker and a declined view-files permission
-  (indistinguishable — see `IFolderAccess`), so it says only that no folder is
-  held and nothing can be read until one is, and stays non-accusatory toward the
-  user who simply backed out. **Both mechanisms reach it, by different routes:**
-  only `PickFolderAsync` reports a cancellation as an *outcome*, while a
-  dismissed `webkitdirectory` picker fires no change event at all — so the
-  fallback's dismissal is caught through that input's own `cancel` event
-  (`@oncancel` → `HandleFallbackCancelled`). Wiring it became necessary when the
-  setup reset moved to the click: silence there would now leave the user on a
-  screen the gesture had just emptied. That route is best-effort — it depends on
-  the browser firing `cancel` (current Chromium/Firefox/Safari do; older versions
-  may not), and where it never arrives the outcome degrades to the silence that
-  preceded it, making no wrong statement, only a missing one. Blazor's half is
-  not in doubt: it registers `cancel` as a non-bubbling event and attaches a
-  direct listener. bUnit can pin the binding
-  (`PageTests.Home_FallbackPick_Dismissed_ShowsCancelledNotice`) but not the
-  browser's delivery. The pick label renders straight from
-  `PickedProblemFolder.Summary` (the SSOT — not a transient field), with a
-  **Clear** affordance beside it (bound directly to `EndCurrentSetupAsync`, the
-  same handler the pick gesture runs); the summary then disappears and the
-  folder half of the gate re-disables Start by construction. Clearing is safe
-  mid-quiz and is left unguarded on purpose — the picked files are read only
-  at Start time (the source factory reads `Files` in `StartAsync`) and the
-  clear touches only the JS *picked* slot, so a running quiz keeps both its
-  enumerator and its bound stats context
-  (`PageTests.Home_ClearPickedFolder_RemovesSummaryDisablesStartClearsPickedSlotOnly`).
-  Beside the pick button, ungated by any capability probe, sits the
-  **supported-browsers statement** (`FolderPickDisplay.SupportedBrowsers`): the
-  pick is a *dead entry point* where it isn't supported — on a phone the
-  `webkitdirectory` fallback is weak-to-absent, so the button may raise nothing
-  at all and no code path here ever runs to say why. Only a statement made
-  *before* the gesture reaches that visitor, which is exactly why it must **not**
-  be behind `_fsAccessAvailable` the way the permission guidance below it is: the
-  readers it exists for are the ones that probe excludes. Its gate is only "no
-  folder held" (a completed pick proves the browser works; the caution is then
-  stale noise), matching the guidance's window. It lives in `FolderPickDisplay`
-  rather than as a literal because Help's *Before you start* lead renders the
-  same sentence verbatim — the sole exception to that class's "Help's prose stays
-  prose" rule, recorded on the constant: it is one sentence of fact, not an
-  explanation, and the two surfaces must agree exactly. Its middle clause is
-  hedged on purpose (a desktop non-Chromium browser is the working
-  `BrowserUnsupported` rung, not a broken one; only the phone case is "may not
-  work at all", and it says *may*).
-  On an FS-Access-capable browser, an in-page note covers **both** of that
-  mechanism's easily-missed permission prompts as a
-  two-step ordered list, naming what declining each costs: step 1 (view the
-  selected folder's files) is required — decline and no folder is picked at all;
-  step 2 (save files into the folder) is optional — the quiz runs either way, but
-  the lifetime record of which problems give the user difficulty is not kept. It
-  is shown **from page load**, not only while a pick is in flight: knowing what
-  is coming is only useful *before* the gesture that raises the prompts. Its
-  visibility window is therefore "FS-Access capable **and** no folder held"
-  (`_fsAccessAvailable && !Folder.HasFiles`) — continuous from load through the
-  in-flight pick, hidden once a folder is held (job done; stale noise beside a
-  populated summary), back again after **Clear**, and deliberately still there
-  after a *cancelled* pick, which holds no folder and may well be about to be
-  retried. The gate is browser **capability**, not which mechanism served a pick:
-  `_fsAccessAvailable` is an init-time `SupportsDirectoryPickerAsync` snapshot
-  whose only consequence is whether advisory guidance renders, deliberately
-  *alongside* the per-gesture probe in `PickFolderAsync` that remains the
-  authoritative mechanism fork. Capability-gating (rather than showing it
-  unconditionally) is what keeps the note from promising prompts to fallback
-  browsers, which raise none — the same false-assertion class its wording avoids.
-  Its lead-in deliberately promises
-  no *number* of prompts ("your browser will ask about the selected folder", not
-  "will ask you twice"): the readwrite request auto-denies on some Chromium versions,
-  and on that path only one prompt ever appears — the list says what the browser
-  may ask, not what it guarantees. It is **static, not stage-aware**:
-  swapping the text as each prompt arrives was considered and *declined, not
-  deferred* — it needs a Blazor render to land between two back-to-back prompts
-  on WASM's single thread, and the two arrive seconds apart, so one read covers
-  both. It also **quotes no browser's prompt text** (see `FolderPickDisplay`).
-  **Progressive disclosure:** everything downstream of the pick — the
-  saved-filters panel (rendered *above* the `FilterPanel`, so load-then-refine
-  reads top-down), the `FilterPanel`, the match-count line, the `MixPanel`, the
-  shuffle checkbox, and Start (with all their hints and notices) — renders only
-  once `Folder.HasFiles`; pre-pick the page shows just the pick controls and
-  their status notices. Hiding what has nothing to act on yet keeps the required
-  first step unmistakable and makes the filter half of the gate true by
-  construction (no panel to apply pre-pick). The `MixPanel` carries a *second*
-  gate on top of that one — it renders only for a `StatsSaveCapability.Enabled`
-  pick (see the `MixPanel`/`AppliedMix` section); the shuffle checkbox does not,
-  being presentation-only and stats-independent. The wrapping `@if (Folder.HasFiles)`
-  follows the enclosing `<fieldset>`'s whole-surface convention (no body
-  re-indent). Start is gated on **three** conditions, all read from per-app
-  scoped holders so the gate survives navigation: filters Applied at least once,
-  a folder picked with at least one problem file, and no uncommitted mix edits
-  (`CanStart => AppliedFilter.IsApplied && Folder.HasFiles && !AppliedMix.IsDirty`).
-  Below the filter panel Home shows a **match count** on Apply — it calls
-  `Controller.CountMatchesAsync(config)` and renders "N decisions match your
-  filters" (the pre-mix pool). Counting lives in the controller; Home only
-  displays and manages lifecycle: a request id stamped per Apply discards a
-  stale result landing after a newer Apply, and the count clears on any filter
-  edit (`HandleFiltersDirty`) or new/cleared pick (the corpus changed).
-  **The count is filter-only, and says so when a mix is committed.**
-  `CountMatchesAsync` composes with `QuizMix.Empty`, so with a mix applied the
-  number is the size of the pool the quiz is *drawn from*, which the quiz can fall
-  far short of — a number the user would otherwise read as the quiz's length. When
-  `HasCommittedMix`, a caveat renders *inside* the same `role="status"` region
-  (count and qualification announced together) saying the mix draws the quiz from
-  these matches rather than presenting all of them, so the quiz itself **can** be
-  much smaller. Hedged, not "will be": a capless *Everything else* mix can
-  legitimately draw the whole pool. The count itself stays pool-only —
-  substituting a composed length would mean composing against the lifetime stats
-  before Start, which is Start's work, and a **pre-Start composition preview is
-  deliberately not built**. `HasCommittedMix` is the single predicate behind both
-  this caveat and (via `MixOwnsOrder`, kept as a named consequence so the shuffle
-  markup still says *why* it is disabled) the shuffle checkbox's disabled state.
-  Help's *Choose filters* section documents the count line and this caveat in its
-  own prose — per `FolderPickDisplay`'s standing rule, a shared constant is earned
-  only when two surfaces render the same sentence, which these don't. The
-  first count after a pick parses the corpus once (warming the cache so Start is
-  then instant), so `_isCounting` folds into the same busy boundary as the
-  transition gate (below) — which also serializes the count against a Start.
-  Below that sits the **`MixPanel`** — rendered only for an `Enabled` pick and
-  `@key`-ed on `Folder.PickGeneration`; its three callbacks land in
-  `AppliedMix` (Apply → `Apply`, dirty → `MarkDirty`, restore → a *reconcile*
-  that marks dirty only on a fresh load; see the
-  `MixPanel`/`AppliedMix` section) — then a **"Shuffle order" checkbox** bound
-  to the `ShuffleOption` holder (`HandleShuffleToggled` → `ShuffleOption.Set`).
-  It is presentation-only and **not** part of `CanStart` — toggling it never
-  gates or dirties Start; the source factory reads it live at Start to decide
-  whether to wrap the picked set in a `ShuffledProblemSetSource` (see the
-  `ShuffleOption` section), and it renders disabled (value untouched) while
-  the committed mix owns order. Start hands `AppliedMix.Current` to
-  `Controller.StartAsync` beside the filter config and checks the returned
-  outcome **before** the empty-result `IsFinished` check (a refused start
-  leaves prior state, including a stale `IsFinished`): `MixRequiresStats`
-  renders the actionable refusal alert (`_mixRefused`, reason via
+  module reads the FileList itself for `webkitRelativePath`; always in the
+  DOM so the e2e suite can drive it directly). The whole pick runs behind
+  `IFolderAccess` (§ Folder picking); the page never touches raw interop,
+  the pick lands in `PickedProblemFolder`, and the bytes are parsed
+  in-browser and never uploaded. The two no-folder outcomes each leave the
+  holder clear and each show their own polite notice (`_cancelledPickNotice`,
+  `_emptyFolderNotice`) — no pick ever returns the user to an unchanged page
+  with no account of what happened; the capability drives the pick-time
+  stats status notice (§ Folder picking). The cancelled notice is
+  deliberately **cause-agnostic** (a dismissed picker and a declined
+  view-files permission are indistinguishable — see `IFolderAccess`): it
+  says only that no folder is held, non-accusatory toward a user who simply
+  backed out. **Both mechanisms reach it, by different routes:** only
+  `PickFolderAsync` reports cancellation as an *outcome*; a dismissed
+  `webkitdirectory` picker fires no change event at all, so the fallback's
+  dismissal is caught through the input's own `cancel` event (`@oncancel` →
+  `HandleFallbackCancelled`) — wired when the setup reset moved to the
+  click, where silence would leave the user on a screen the gesture had just
+  emptied. That route is best-effort: where a browser never fires `cancel`
+  the outcome degrades to silence — no wrong statement, only a missing one
+  (Blazor's half is not in doubt; bUnit pins the binding, not the browser's
+  delivery). The pick label renders straight from
+  `PickedProblemFolder.Summary` (the SSOT), with a **Clear** affordance
+  beside it bound to `EndCurrentSetupAsync`, the same handler the pick
+  gesture runs; the summary then disappears and the folder half of the gate
+  re-disables Start by construction. Clearing is safe mid-quiz and left
+  unguarded on purpose — files are read only at Start time and the clear
+  touches only the JS *picked* slot, so a running quiz keeps both its
+  enumerator and its bound stats context (pinned).
+  **Supported-browsers statement** (`FolderPickDisplay.SupportedBrowsers`),
+  beside the pick button, **ungated by any capability probe**: where the pick
+  isn't supported (phones — `webkitdirectory` is weak-to-absent) the button
+  is a *dead entry point* and no code path ever runs to say why, so only a
+  statement made *before* the gesture reaches that visitor — the readers it
+  exists for are exactly the ones a probe excludes. Its gate is only "no
+  folder held" (a completed pick proves the browser works; the caution is
+  then stale noise). It lives in `FolderPickDisplay` because Help's *Before
+  you start* lead renders the same sentence verbatim — the sole exception to
+  that class's "Help's prose stays prose" rule, recorded on the constant:
+  one sentence of fact, and the two surfaces must agree exactly. Its middle
+  clause is hedged on purpose (a desktop non-Chromium browser is the working
+  `BrowserUnsupported` rung, not a broken one; only the phone case is "may
+  not work at all", and it says *may*).
+  **Two-step permission guidance.** On an FS-Access-capable browser, an
+  in-page note covers **both** easily-missed permission prompts as an
+  ordered list naming what declining each costs: step 1 (view the selected
+  folder's files) is required — decline and no folder is picked; step 2
+  (save files into the folder) is optional — the quiz runs either way, but
+  the lifetime record is not kept. Shown **from page load** (knowing what is
+  coming is only useful *before* the gesture); its visibility window is
+  `_fsAccessAvailable && !Folder.HasFiles` — continuous through an in-flight
+  pick, hidden once a folder is held, back after **Clear**, and deliberately
+  still there after a *cancelled* pick, which may be about to be retried.
+  The gate is browser **capability**, not which mechanism served a pick:
+  `_fsAccessAvailable` is an init-time `SupportsDirectoryPickerAsync`
+  snapshot whose only consequence is whether advisory guidance renders; the
+  per-gesture probe in `PickFolderAsync` remains the authoritative mechanism
+  fork. Capability-gating keeps the note from promising prompts to fallback
+  browsers, which raise none. Its lead-in promises no *number* of prompts
+  (the readwrite request auto-denies on some Chromium versions, so only one
+  prompt may appear — the list says what the browser may ask, not what it
+  guarantees). It is **static, not stage-aware** — stage-swapping was
+  *declined, not deferred*: it needs a Blazor render to land between two
+  back-to-back prompts on WASM's single thread, and the two arrive seconds
+  apart, so one read covers both. It **quotes no browser's prompt text**
+  (see Pitfalls).
+  **Progressive disclosure.** Everything downstream of the pick — the
+  saved-filters panel (rendered *above* the `FilterPanel`, so load-then-
+  refine reads top-down), the `FilterPanel`, the match-count line, the
+  `MixPanel`, the shuffle checkbox, and Start — renders only once
+  `Folder.HasFiles`. Hiding what has nothing to act on yet keeps the
+  required first step unmistakable and makes the filter half of the gate
+  true by construction (no panel to apply pre-pick). The `MixPanel` carries
+  a *second* gate (Enabled picks only) and a `@key` on
+  `Folder.PickGeneration` (§ MixPanel); its three callbacks land in
+  `AppliedMix` (Apply → `Apply`, dirty → `MarkDirty`, restore → reconcile).
+  The shuffle checkbox binds to the `ShuffleOption` holder —
+  presentation-only, off the gate, rendered disabled (value untouched) while
+  the committed mix owns order (§ ShuffleOption). The wrapping `@if` follows
+  the enclosing `<fieldset>`'s whole-surface convention (no body re-indent).
+  Start is gated on **three** conditions, all read from per-app scoped
+  holders so the gate survives navigation:
+  `CanStart => AppliedFilter.IsApplied && Folder.HasFiles && !AppliedMix.IsDirty`.
+  **Match count.** On Apply, Home calls `Controller.CountMatchesAsync`
+  (mechanism in § Pre-Start match count) and renders "N decisions match your
+  filters" (the pre-mix pool). Home owns only display and lifecycle: a
+  request id stamped per Apply discards a stale result landing after a newer
+  Apply, and the count clears on any filter edit or new/cleared pick. **The
+  count is filter-only, and says so when a mix is committed**: with
+  `HasCommittedMix` a caveat renders *inside* the same `role="status"`
+  region (count and qualification announced together) — the mix draws the
+  quiz from these matches rather than presenting all of them, so the quiz
+  **can** be much smaller. Hedged, not "will be": a capless *Everything
+  else* mix can legitimately draw the whole pool. The count stays pool-only —
+  a **pre-Start composition preview is deliberately not built** (composing
+  against the lifetime stats is Start's work). `HasCommittedMix` is the
+  single predicate behind both this caveat and (via `MixOwnsOrder`, kept as
+  a named consequence so the shuffle markup says *why* it is disabled) the
+  shuffle checkbox's disabled state. Help documents the count in its own
+  prose — a shared constant is earned only when two surfaces render the same
+  sentence, which these don't. The first count after a pick parses the
+  corpus once (warming the cache so Start is then instant), so `_isCounting`
+  folds into the same busy boundary as the transition gate, which also
+  serializes the count against a Start.
+  **Start.** Hands `AppliedFilter.Config` + `AppliedMix.Current` to
+  `Controller.StartAsync` and checks the returned outcome **before** the
+  empty-result `IsFinished` check (a refused start leaves prior state,
+  including a stale `IsFinished` — see Pitfalls): `MixRequiresStats` renders
+  the actionable refusal alert (`_mixRefused`, reason via
   `MixDisplay.RefusalReason`, the "Start without mix" per-run override, a
   pointer to the panel's Reset), and the mix-aware composed-to-zero wording
-  rides the existing no-match branch. Under a no-stats pick none of that can
-  fire: the mix panel is hidden and the pick reset `AppliedMix` to passthrough,
-  so Start runs plain — no mix gate, warning, or refusal.
-  **A pick ends the current setup — at the click.** `EndCurrentSetupAsync` is
-  the single reset behind *both* gestures that end a setup (the pick gesture and
-  the `Clear` affordance — they encode the same decision, so they share one
-  spelling): folder holder + JS picked slot, saved filters, committed mix
-  (`AppliedMix.Reset`), filter surface (`ResetFilterSurface`), and every
-  pick-scoped notice and match count (`ClearPickNotices`). Nothing selected
-  against the previous corpus can be assumed to mean the same thing against the
-  next one, so Start is always re-gated by a pick, never inherited across one;
-  the bug this closed was a re-pick leaving the old filter applied, with Start
-  live against a folder that filter had never been weighed against.
-  It runs at the **start of the gesture**, before the mechanism fork — so the
-  screen is back at its initial no-folder state (guidance up) before the OS
-  picker and the browser's permission prompts appear, rather than those playing
-  out over the outgoing setup's populated screen. A `StateHasChanged()` plus the
-  awaited picked-slot interop is what lets that paint land first (the same
-  paint-before-the-churn idiom the count uses). Consequences, all settled and
-  deliberate: a **cancelled pick loses the folder that was held** and lands on
-  the initial screen plus the cancelled-pick notice (no snapshot/restore — the
-  gesture ended the setup whatever the picker then returned); and a successful
-  pick re-mounts the `FilterPanel` the reset unmounted, whose `localStorage`
-  restore re-stages the persisted config as dirty on **every** pick — the
-  already-accepted fresh-load behavior, now routine rather than exceptional.
-  `AppliedFilter` is reset here too, superseding an earlier ruling that `Clear`
-  should leave it alone as "edit-coupled, not pick-coupled": under one shared
-  reset it is coupled to the *setup*, and ending one ends it (it stays
-  edit-coupled as well, via `HandleFiltersDirty` — two independent rules, not
-  duplicates). The explicit
-  `AppliedFilter.Clear()` is **not** redundant with `LoadConfig`'s dirty signal
-  (→ `HandleFiltersDirty` → the same clear): the panel lives behind the
-  progressive-disclosure gate, so a gesture made from the no-folder state has no
-  panel to call, and a filter applied in an earlier setup would keep satisfying
-  the gate. `new FilterConfig()` is exactly what the panel's own *Clear filters*
-  hydrates from, so "defaults" needs no second definition; `LoadConfig` stages without
-  persisting, so the user's last-applied filter survives in the panel's
-  `localStorage` and still restores on the next boot — the same hands-off
-  treatment `AppliedMix.Reset` gives the stored mix. It is deliberately **not**
-  `@key`-based like `MixPanel`: re-mounting the filter panel would re-run its
-  first-render `localStorage` restore and stage the *persisted* config, the
-  opposite of defaults (MixPanel is keyed to get exactly that effect). That
-  distinction now decides less than it reads — since the reset moved to the
-  click, the `HasFiles` gate unmounts the panel on every pick and the successful
-  ones re-mount it, so the persisted config is re-staged every time, exactly as
-  on a fresh load; `AppliedFilter.Clear()` holds the line either way, so a
-  re-staged config is shown but never claimed as applied. What the un-keyed panel
-  still buys is the *cancelled* pick and the `Clear`, which end with no panel at
-  all and no restore to re-stage anything. Two things are deliberately *not*
-  reset: `ShuffleOption` (presentation-only preference, same class as the mix
-  panel's persisted rows) and the lifetime-stats slot, whose whole point is to
-  *resume* when its folder is picked again.
-  `PageTests.Home_RePick_ResetsAppliedFilterAndPanelBuffersToDefaults`,
-  `Home_PickGesture_ResetsTheSetupBeforeThePickerOpens` (sampled from inside the
-  fake's picker — the "at the click" claim itself) and
-  `Home_CancelledRePick_EndsTheHeldSetupAndLosesTheFolder` pin it.
-  **Busy affordances:** the whole setup surface (pick controls, both panels,
-  shuffle, Start, the refusal override) sits inside one
+  rides the no-match branch. Under a no-stats pick none of that can fire:
+  the mix panel is hidden and the pick reset `AppliedMix` to passthrough, so
+  Start runs plain.
+  **A pick ends the current setup — at the click.** `EndCurrentSetupAsync`
+  is the single reset behind *both* gestures that end a setup (the pick
+  gesture and the `Clear` affordance — they encode the same decision, so
+  they share one spelling): folder holder + JS picked slot, saved filters,
+  committed mix (`AppliedMix.Reset`), filter surface (`ResetFilterSurface`),
+  and every pick-scoped notice and match count. Nothing selected against the
+  previous corpus can be assumed to mean the same thing against the next
+  one, so Start is always re-gated by a pick, never inherited across one
+  (the bug this closed: a re-pick leaving the old filter applied, with Start
+  live against a folder that filter had never been weighed against). It runs
+  at the **start of the gesture**, before the mechanism fork — the screen is
+  back at its initial no-folder state (guidance up) before the OS picker and
+  permission prompts appear; a `StateHasChanged()` plus the awaited
+  picked-slot interop lets that paint land first (the same
+  paint-before-the-churn idiom the count uses). Settled consequences: a
+  **cancelled pick loses the folder that was held** (no snapshot/restore —
+  the gesture ended the setup whatever the picker then returned), and a
+  successful pick re-mounts the `FilterPanel`, whose `localStorage` restore
+  re-stages the persisted config as dirty on **every** pick — the accepted
+  fresh-load behavior, now routine. `AppliedFilter` is reset here too: under
+  one shared reset it is coupled to the *setup* (superseding the earlier
+  "edit-coupled, not pick-coupled" ruling), and it stays edit-coupled as
+  well via `HandleFiltersDirty` — two independent rules, not duplicates. The
+  explicit `AppliedFilter.Clear()` is **not** redundant with `LoadConfig`'s
+  dirty signal: a gesture made from the no-folder state has no panel to
+  call, and a filter applied in an earlier setup would keep satisfying the
+  gate. `LoadConfig(new FilterConfig())` stages without persisting, so the
+  user's last-applied filter survives in the panel's `localStorage` — the
+  same hands-off treatment `AppliedMix.Reset` gives the stored mix. The
+  reset is deliberately **not** `@key`-based like `MixPanel`: re-mounting
+  would re-stage the *persisted* config, the opposite of defaults (MixPanel
+  is keyed to get exactly that effect); what the un-keyed panel still buys
+  is the cancelled pick and the Clear, which end with no panel and no
+  restore to re-stage anything. Two things are deliberately *not* reset:
+  `ShuffleOption` (presentation-only preference) and the lifetime-stats
+  slot, whose whole point is to *resume* when its folder is picked again.
+  `PageTests` pins the reset, the at-the-click timing (sampled from inside
+  the fake's picker), and the cancelled-re-pick loss.
+  **Busy affordances.** The whole setup surface sits inside one
   `<fieldset disabled="@(Controller.IsBusy || _isCounting)">` — the native
   element disables every form control within, including the Apply buttons
   *inside* the imported `FilterPanel`/`MixPanel`, which expose no disabled
-  parameter — and the page container carries `app-busy` (the `cursor: progress`
-  rule in `app.css`) while `Controller.IsBusy` **or** an Apply's match count is
-  running (`_isCounting`; its first parse after a pick is the same one-time
-  corpus cost). Disabling the surface during the count also prevents a Start
-  from racing its parse. The controller's gate yield is what
-  lets that state paint before the Start churn; Home needs no `StateChanged`
-  subscription because its own suspended handler triggers the re-renders.
-  Subscribes to `OnFilterConfigChanged` → `AppliedFilter.Set` (the panel's
-  emit-event after Apply) and `OnFilterDirty` → `AppliedFilter.Clear`; on
-  Start hands `AppliedFilter.Config` to `Controller.StartAsync`. Catches pick
-  failures (unexpected `JSException`, caps exceeded — the `_pickError` banner)
-  and start-time exceptions (`FilterConfig.Build()` validation failure, source
-  construction failure — the `_startError` banner) and surfaces them instead
-  of faulting the WASM app. A *successful* Start that leaves the controller
-  already `IsFinished` (the source admitted no showable problem) is caught the
-  same way — the page stays on `/` and shows a neutral `role="status"` no-match
-  banner rather than navigating into a `0/0` `/quiz` → `/done` bounce. This is a
-  post-Start check, not a pre-flight enumeration: `StartAsync` already advances
-  to the first showable problem, so `IsFinished` immediately after it *is* the
-  empty-result signal — no second pass over the buffered files. Two
-  indistinguishable causes flip it (zero filter matches; every match auto-skipped
-  as a pass position), so the wording claims neither. The notice is a sibling
-  component field to the error banner (`_noMatchNotice` vs `_startError`) —
-  distinct because it reports an *outcome*, not a *failure*: `alert-warning` +
-  polite `role="status"`, not the error's `alert-danger` + assertive
-  `role="alert"`. Both are genuinely per-visit state, so component fields (see
-  Pitfalls). `PageTests.Home_StartClick_EmptyFilterResult_ShowsBannerAndStaysHome`
-  pins the zero-match path, `…_AllMatchesAutoSkippedPasses_ShowsSameBanner` the
-  pass-only path, and `…_NonEmptyResult_NavigatesToQuizWithoutBanner` guards
-  against over-triggering. A **third** per-visit notice (`_showReloadNotice`,
-  polite `role="status"` like the no-match one) fires on a boot that finds the
-  `QuizLiveMarker` set with no live controller — a full reload reset a quiz that
-  was underway. `Home` sets the marker on Start (past the empty-result guard) and
-  clears it when it shows the notice; see the `QuizLiveMarker` section for the
-  full lifecycle and the `HasStarted` discriminator. The page **footer** carries
-  `AppInfo.Version` (in a `#appVersion` span) and, beside it, the beta feedback
-  `mailto:` from the same `AppInfo` — see that section.
+  parameter — and the page container carries `app-busy` (the
+  `cursor: progress` rule in `app.css`) while either flag is set. Disabling
+  the surface during the count also prevents a Start from racing its parse;
+  the controller's gate yield lets the state paint before the Start churn,
+  and Home needs no `StateChanged` subscription because its own suspended
+  handlers trigger the re-renders. Subscribes to `OnFilterConfigChanged` →
+  `AppliedFilter.Set` and `OnFilterDirty` → `AppliedFilter.Clear`.
+  **Failure and outcome banners.** Pick failures (unexpected `JSException`,
+  caps exceeded — `_pickError`) and start-time exceptions
+  (`FilterConfig.Build()` validation, source construction — `_startError`)
+  surface as banners instead of faulting the WASM app. A *successful* Start
+  that leaves the controller already `IsFinished` (no showable problem)
+  stays on `/` with a neutral no-match banner rather than navigating into a
+  `0/0` `/quiz` → `/done` bounce — a post-Start check, not a pre-flight
+  enumeration: `StartAsync` already advances to the first showable problem,
+  so `IsFinished` immediately after it *is* the empty-result signal. Two
+  indistinguishable causes flip it (zero filter matches; every match
+  auto-skipped as a pass position), so the wording claims neither.
+  `_noMatchNotice` is a sibling field to `_startError`, distinct because it
+  reports an *outcome*, not a *failure*: `alert-warning` + polite
+  `role="status"`, not `alert-danger` + assertive `role="alert"`. Both are
+  genuinely per-visit state, so component fields (see Pitfalls); `PageTests`
+  pins both flip paths and the over-trigger guard. A **third** per-visit
+  notice (`_showReloadNotice`, polite) fires on a boot that finds the
+  `QuizLiveMarker` set with no live controller (§ QuizLiveMarker). The page
+  **footer** carries `AppInfo.Version` (in a `#appVersion` span) and, beside
+  it, the beta feedback `mailto:` from the same `AppInfo` — see that
+  section.
 - **`Quiz.razor`** — mirrors the controller's three-state flow, branching on
-  `Controller.Review`. In the **answering** state (`Review` null) it routes the
-  board region by `Current.Decision.IsCube` over
-  `DiagramRequest.FromDecisionData(Current, DiagramMode.Problem)`: checker
-  decisions to `BackgammonPlayEntry` (click-driven play assembly); cube decisions
-  to a **board-only** `BackgammonDiagram` — the same read-only shape as the review
-  branch, because the cube answer is not entered on the board. `BackgammonPlayEntry`
-  is strict — it throws `NotImplementedException` on a cube decision — so the
-  checker route must be exact; the cube route renders a plain view carrying no such
-  guard. Submit (a synchronous handler, since the controller's Submit no longer
-  awaits) is gated on the relevant answer being held: a play via `OnPlayCompleted`
-  → `_completedPlay`; a cube via the `BackgammonCubeActions` radios in the action
-  row, whose `@bind-Value` keeps `_completedCube` current. Both fields reset on
-  every transition. The radios re-fire on every selection change, so
-  `_completedCube` always holds the latest pair and the user can revise before
-  Submit. The action row varies by kind: cube places the `BackgammonCubeActions`
-  radios ahead of Submit / Skip and has no Undo (no partial-move state); checker
-  keeps Undo last / Undo all (clearing the latched play, since the component does
-  not notify on undo). **Both Undo buttons are disabled only while
-  `Controller.IsBusy`** — deliberately *not* on `_playEntry` being assigned; see
-  the `@ref`-timing pitfall below for the dead-window that produced. Both trail
-  with a "Show stats" button in the row's
-  `ms-auto` slot. In the **review** state
-  (`Review` set, after Submit) it renders a read-only `BackgammonDiagram`
-  in `DiagramMode.Solution` — the filled analysis panel, the same view the PPTX
-  exporter renders — plus Continue / Redo / Show stats (Show stats again the
-  row's trailing `ms-auto` slot). Between the score panel and either action row
-  sits an always-rendered, **fixed-height status strip** (`.status-strip`,
-  `app.css`): a one-line legend slot and a two-line-clamped verdict band. While
-  answering it shows a neutral state-appropriate prompt (legend empty); at
-  review the legend (`* played · † your answer`) and the outcome-coloured
-  verdict fill in. Because the strip's height is a designed constant, chrome
-  height — and therefore the board's flex remainder under the desktop fold
-  cap — is identical across the answering and review states and across
-  questions, so the board does not change size when Submit flips into review.
-  The board itself is bounded through BgDiag_Razor's bounded-height contract:
-  the desktop fold column hands `.board-container`'s definite post-flex height
-  to the `BackgammonPlayEntry` wrapper (`height: 100%`), whose internal
-  `bg-board-slot` + `.bg-diagram` contain-fit default letterbox the board. The
-  cube-answering and review states render a bare `.bg-diagram` as a direct child
-  of `.board-container`, so the contain-fit default engages against the region's
-  definite height with no wrapper glue at all. The
-  solution request is built with `DiagramRequest.Builder.From(Current.Position,
-  Current.Decision, Current.Descriptive, DiagramMode.Solution)`, then the user's
-  marks are overridden from `Review`: `UserPlayIndex` for a play (`-1` off-list
-  draws no marker), or `UserDoubleError` / `UserTakeError` for a cube.
-  `FromDecisionData` is **not** used here because it defaults those marks from
-  the .xg-recorded player, not the quiz user. **Busy affordances:** every
-  transition-driving button (Submit, Skip, Undo, Continue, Redo) also
-  disables on `Controller.IsBusy` and the container carries `app-busy` — the
-  honest mirror of the controller's transition gate, which would no-op the
-  clicks anyway; "Show stats" stays enabled (navigation only). The page's
-  existing `StateChanged` subscription re-renders the busy flips. The review diagram's
-  `OnDiceClicked` is bound to the same `ContinueAsync` handler as the Continue
-  button, so clicking the dice hit-region advances past the solution exactly
-  like Continue. Redo calls `Controller.RedoAsync()`, falling back to the
-  answering branch on the same problem; no explicit reset or `@key` is needed
-  to give the returning entry component a clean slate — Submit already
-  unmounted it when the page swapped into the review branch, so Blazor
-  constructs a genuinely new instance on the way back regardless of whether
-  the incoming request describes the same problem (which is exactly what
-  Redo returns to). "Show stats" navigates to `/stats`. Subscribes to
-  `Controller.StateChanged` **and** `QuizStatsStore.StatusChanged` in
-  `OnInitialized`, unsubscribes from both in `IDisposable.Dispose`; redirects
-  to `/done` when `IsFinished` flips. Above the board it renders the
-  active-context stats notices — `LoadFailed` as a polite `role="status"`
-  (quiz runs, file untouched), `WriteFailed` as an assertive `role="alert"`
-  (quiz continues, writes stopped); the store-status subscription is what
-  surfaces a mid-quiz write failure the moment it happens. The mix notices
-  render in the same block from `Controller.LastComposition` —
-  composition-first, capless vs. length-bound framing keyed on
-  `Controller.ActiveMixHasLength` (see the `MixPanel`/`AppliedMix` section's
-  honest-notices list) — and gated on `!MixNotice.IsDismissed(comp)`, since
-  `Submit` retires the notice on the user's first answer without touching the
-  telemetry behind it (same section). The `ScorePanel` here carries the problem-position
-  indicator ("Problem N of M") from `Controller.ProblemNumber` /
-  `Controller.ProblemCount`.
+  `Controller.Review`. **Answering** (`Review` null): routes the board region
+  by `Current.Decision.IsCube` over
+  `DiagramRequest.FromDecisionData(Current, DiagramMode.Problem)` — checker
+  decisions to `BackgammonPlayEntry` (click-driven play assembly; strict on
+  decision type, so the route must be exact — see Pitfalls), cube decisions
+  to a **board-only** `BackgammonDiagram` (the cube answer is not entered on
+  the board). Submit (a synchronous handler, since the controller's Submit
+  no longer awaits) is gated on the relevant answer being held: a play via
+  `OnPlayCompleted` → `_completedPlay`; a cube via the
+  `BackgammonCubeActions` radios in the action row, whose `@bind-Value`
+  keeps `_completedCube` current (re-fires on every change, so the user can
+  revise before Submit). Both fields reset on every transition. The action
+  row varies by kind: cube places the radios ahead of Submit / Skip and has
+  no Undo (no partial-move state); checker keeps Undo last / Undo all
+  (clearing the latched play, since the component does not notify on undo).
+  **Both Undo buttons are disabled only while `Controller.IsBusy`** —
+  deliberately *not* on `_playEntry` being assigned (see the `@ref`-timing
+  pitfall). Both rows trail with a "Show stats" button in the `ms-auto`
+  slot. **Review** (`Review` set): a read-only `BackgammonDiagram` in
+  `DiagramMode.Solution` plus Continue / Redo / Show stats. The solution
+  request is built with `DiagramRequest.Builder.From(Current.Position,
+  Current.Decision, Current.Descriptive, DiagramMode.Solution)`, then the
+  user's marks are overridden from `Review`: `UserPlayIndex` for a play
+  (`-1` off-list draws no marker), or `UserDoubleError` / `UserTakeError`
+  for a cube — `FromDecisionData` is **not** used here because it defaults
+  those marks from the .xg-recorded player, not the quiz user. The review
+  diagram's `OnDiceClicked` is bound to the same `ContinueAsync` handler as
+  Continue, so clicking the dice advances exactly like Continue (safe under
+  the transition gate). Redo falls back to the answering branch on the same
+  problem; no explicit reset or `@key` is needed (see Pitfalls). Between the
+  score panel and either action row sits an always-rendered, **fixed-height
+  status strip** (`.status-strip`, `app.css`): a one-line legend slot and a
+  two-line-clamped verdict band — a neutral prompt while answering; the
+  legend (`* played · † your answer`) and outcome-coloured verdict at
+  review. Because the strip's height is a designed constant, chrome height —
+  and therefore the board's flex remainder under the desktop fold cap — is
+  identical across states and questions, so the board never changes size
+  when Submit flips into review. Board sizing rides BgDiag_Razor's
+  bounded-height contract: the fold column hands `.board-container`'s
+  definite post-flex height to the `BackgammonPlayEntry` wrapper
+  (`height: 100%`); the cube-answering and review states render a bare
+  `.bg-diagram` as a direct child of `.board-container`, contain-fit
+  engaging with no wrapper glue (see Pitfalls). **Busy affordances:** every
+  transition-driving button (Submit, Skip, Undo, Continue, Redo) disables on
+  `Controller.IsBusy` and the container carries `app-busy` — the honest
+  mirror of the gate, which would no-op the clicks anyway; "Show stats"
+  stays enabled (navigation only). Subscribes to `Controller.StateChanged`
+  **and** `QuizStatsStore.StatusChanged` in `OnInitialized`, unsubscribes
+  from both in `Dispose`; redirects to `/done` when `IsFinished` flips.
+  Above the board: the active-context stats notices (`LoadFailed` polite,
+  `WriteFailed` assertive — the store subscription surfaces a mid-quiz write
+  failure the moment it happens) and the mix notices from
+  `Controller.LastComposition`, framed per § MixPanel's honest-notices list
+  and gated on `!MixNotice.IsDismissed(comp)`. The `ScorePanel` carries
+  "Problem N of M" from `Controller.ProblemNumber` / `ProblemCount`.
 - **`Stats.razor`** — read-only mid-quiz stats view: the same `ScorePanel` /
-  `ScoreBreakdown` pair `Done` shows at the end, rendered here against the
-  live, in-progress `QuizController` (`Heading="Progress so far"` /
-  `"Detailed evaluation so far"` — honest mid-quiz wording, not `Done`'s
-  `"Final"`). Reachable only from `Quiz`'s "Show stats" button; a "Back to
-  quiz" button returns to `/quiz`. Never calls Submit / Continue / Skip, so
-  the round trip leaves `Controller.Current` / `Controller.Review` untouched —
-  combined with the controller's per-tab scoped lifetime, this is what gives
-  "resume where you left off" for free, with no state to persist or restore.
-  Direct nav with no quiz in progress bounces to `/`; with the quiz already
+  `ScoreBreakdown` pair `Done` shows, rendered against the live in-progress
+  `QuizController` with honest mid-quiz wording ("Progress so far", not
+  `Done`'s "Final"). Reachable only from `Quiz`'s "Show stats" button;
+  "Back to quiz" returns to `/quiz`. Never calls Submit / Continue / Skip,
+  so the round trip leaves `Current` / `Review` untouched — combined with
+  the per-tab scoped controller, this gives "resume where you left off" for
+  free. Direct nav with no quiz in progress bounces to `/`; with it already
   finished, to `/done` — the same guards `Quiz` applies to itself.
-- **`Help.razor`** — end-user documentation, opening with a **Before you start**
-  prerequisites lead (added for the second beta wave, whose testers are recruited
-  on the premise that they already own a corpus): a folder of the reader's own
-  `.xg` / `.xgp` files is required and BgQuiz ships none; the supported browsers,
-  rendered *verbatim* from `FolderPickDisplay.SupportedBrowsers` so this and
-  Home's line beside the pick button cannot say different things; the two files
-  BgQuiz writes into that folder, named from `QuizStatsFile.FileName` /
-  `QuizFiltersFile.FileName`; and the nothing-leaves-your-machine stance. It
-  leads because everything after it assumes it — a reader can otherwise arrive
-  with nothing the app can act on. Then the six beats of the flow (pick
-  folder → filters → answering → scoring → review → stats/done), a **Making a
-  checker play** section sitting inside the answering beat, a **Lifetime
-  stats** section (what's saved and where, the Chromium requirement, only
-  answered problems count, a cube records two decisions there too, an unreadable
-  file is left alone, and — extending the privacy stance — the stats file
-  never leaves the machine), and then the semantics a user cannot discover by
-  clicking around — the **match count** below the filter panel counts matching
-  *decisions* (pass positions included, then skipped for the user at quiz time)
-  and describes the filters alone, so an applied mix draws the quiz from that pool
-  and the quiz can be much smaller than the number shown; pass positions are
-  auto-skipped and never shown, an
-  off-list play counts as a skip rather than a wrong answer, a cube position
-  scores as two decisions in-quiz, clicking the dice on the solution diagram
-  advances like Continue, and a full browser reload resets everything (in-app
-  navigation does not — and the stats file survives reload in the user's own
-  folder). Two setup features sit between the filters beat and the answering
-  beat, in the order the user meets them on Home: **Save filters you use often**
-  (the `SavedFiltersPanel` — save/load/delete by name, the per-folder
-  `QuizFiltersFile.FileName` document, a load being an edit that re-gates Start,
-  the write-access requirement and the leave-it-untouched degrade) and **Weight
-  the quiz by your lifetime stats** (the `MixPanel` — categories summing to 100,
-  earlier rows winning contested overlap, optional quiz length, the mix owning
-  presentation order while applied, the refusal-never-degrade ruling, and Apply
-  gating Start). The mix section forward-references *Lifetime stats* rather than
-  moving after it: journey order is the page's rhythm, and forward references are
-  already its idiom. The page closes with **Send feedback**, rendering
-  `AppInfo.FeedbackMailto` — the same link Home's footer carries, from the same
-  value, so a report can never quote a build the tester isn't running. The
-  checker-play section documents
-  the one-click entry model the board actually ships, and is organized **by
-  click target** — mirroring the component's own dispatch, so each bullet is
-  exhaustive about one thing the user can click: a point you occupy
-  (source-advance by one die, leftmost die preferred, bearing off when the move
-  carries the checker off), a point that is empty or holds an opposing blot
-  (make-the-point, else land one checker, else — on two equally short ways — a
-  silent no-op; it also enters from the bar, the entry taken first and the rest
-  of the roll free to move any checker), the bar (enter; the only route onto a
-  point you already occupy while on the bar), and the tray (bear-off-max, a
-  no-op when two ways bear off equally many). The dice click (swap the displayed
-  order while incomplete, submit once complete) and Undo last / Undo all follow.
-  Its source of truth is BgDiag_Razor's
-  `BackgammonPlayEntry` + BgMoveGen's `MoveEntryState` (whose legality rests in
-  turn on `MoveGenerator.NextMove`, where bar-first is enforced), whose doc
-  comments are the contract this prose restates; it deliberately says nothing
-  about legal-click highlighting, which `MoveEntryState.LegalNextClicks`
-  supports but no shipped BgQuiz surface renders. Text-first; the illustrative board
-  diagram is a deferred nicety. Lives in the `.Client` (not as a static host
-  page) so a mid-quiz Help → Back round trip doesn't disturb the WASM runtime
-  holding quiz state — the same reason `Stats` does. Unlike `Stats` it **never
-  redirects**: help is reachable from any state, including a cold visit or a
-  bookmark. Only the "Back to quiz" button is conditional, on the exact
-  predicate `Stats` guards with (`HasStarted && !IsFinished`). It does not
-  subscribe to `StateChanged` — nothing changes while the user reads. The file
-  caps render from `PickedFileLimits`, the two written filenames from
-  `QuizStatsFile.FileName` / `QuizFiltersFile.FileName`, the browser rule from
-  `FolderPickDisplay.SupportedBrowsers`, and the feedback link + version from
-  `AppInfo` — never as literals. `PageTests` pins the full `h2` skeleton in
-  order, so a future edit cannot quietly drop or reorder a section. The host's
-  `NavMenu` Help link is the **only** entry point; `Quiz`'s action row
-  deliberately gets no "?" button, because its fixed height is load-bearing for
-  board sizing.
+- **`Help.razor`** — end-user documentation. Structure (`PageTests` pins the
+  full `h2` skeleton in order, so an edit cannot quietly drop or reorder a
+  section): a **Before you start** prerequisites lead — a folder of the
+  reader's own `.xg` / `.xgp` files is required and BgQuiz ships none; the
+  supported browsers, rendered *verbatim* from
+  `FolderPickDisplay.SupportedBrowsers` so this and Home's line beside the
+  pick button cannot say different things; the two files BgQuiz writes,
+  named from `QuizStatsFile.FileName` / `QuizFiltersFile.FileName`; and the
+  nothing-leaves-your-machine stance. It leads because everything after it
+  assumes it. Then the six beats of the flow (pick folder → filters →
+  answering → scoring → review → stats/done), with **Save filters you use
+  often** and **Weight the quiz by your lifetime stats** between the filters
+  and answering beats in the order the user meets them on Home (the mix
+  section forward-references *Lifetime stats* rather than moving after it —
+  journey order is the page's rhythm, and forward references are its idiom),
+  a **Making a checker play** section inside the answering beat, a
+  **Lifetime stats** section, and then the semantics a user cannot discover
+  by clicking around — the match count counts matching *decisions* and
+  describes the filters alone (an applied mix draws from that pool, so the
+  quiz can be much smaller); pass positions are auto-skipped and never
+  shown; an off-list play counts as a skip, not a wrong answer; a cube
+  position scores as two decisions; clicking the dice on the solution
+  diagram advances like Continue; a full browser reload resets everything
+  (in-app navigation does not, and the stats file survives in the user's own
+  folder). It closes with **Send feedback**, rendering
+  `AppInfo.FeedbackMailto` — the same link Home's footer carries, from the
+  same value, so a report can never quote a build the tester isn't running.
+  The checker-play section documents the one-click entry model, organized
+  **by click target** — mirroring the component's own dispatch, so each
+  bullet is exhaustive about one thing the user can click; its source of
+  truth is BgDiag_Razor's `BackgammonPlayEntry` + BgMoveGen's
+  `MoveEntryState`, whose doc comments are the contract this prose restates,
+  and it deliberately says nothing about legal-click highlighting, which no
+  shipped BgQuiz surface renders. Every documented constant renders from its
+  SSOT — file caps from `PickedFileLimits`, filenames from `QuizStatsFile` /
+  `QuizFiltersFile`, the browser rule from `FolderPickDisplay`, feedback +
+  version from `AppInfo` — never as literals. Lives in the `.Client` (not a
+  static host page) so a mid-quiz Help → Back round trip doesn't disturb the
+  WASM runtime holding quiz state. Unlike `Stats` it **never redirects**:
+  help is reachable from any state, including a cold visit or a bookmark;
+  only the "Back to quiz" button is conditional, on the exact predicate
+  `Stats` guards with (`HasStarted && !IsFinished`). No `StateChanged`
+  subscription — nothing changes while the user reads. The host `NavMenu`'s
+  Help link is the **only** entry point; `Quiz`'s action row deliberately
+  gets no "?" button, because its fixed height is load-bearing for board
+  sizing.
 - **`Done.razor`** — final `ScorePanel` (Total) + `ScoreBreakdown`
   (four-way) + total problems shown + **Restart with same filters** /
   **Back to setup**. "Problems shown" is `PlayDecisions.Submitted +
   DoubleDecisions.Submitted + SkippedCount` — **not** `Total.Submitted`,
-  which counts decisions and so double-counts each cube position (one
-  Double + one Take). The second button is **navigation only** — it navigates to
-  `Home`, and the start-gate holders persist across that, so `Home` arrives armed
-  with the same picks and filters. Its label describes that navigation ("Back to
-  setup") rather than promising a reset it doesn't perform; the former "Start over
-  (new filters)" lied (nothing resets — Restart and Back-to-setup differ only in
-  *where they land*, not in what they clear). Done also participates in the
-  `QuizLiveMarker` lifecycle both ways: reaching it clears the marker
-  (`OnInitializedAsync` — honest completion has no reload-reset to announce), and
-  *Restart* re-sets it (a restarted quiz is live again, so a reload during it is
-  acknowledged like one during a fresh Start). Done also mirrors Quiz's
+  which counts decisions and so double-counts each cube position (one Double
+  + one Take). "Back to setup" is **navigation only** — the start-gate
+  holders persist, so `Home` arrives armed with the same picks and filters;
+  its label describes that navigation rather than promising a reset it
+  doesn't perform (the former "Start over (new filters)" lied — Restart and
+  Back-to-setup differ only in *where they land*, not in what they clear).
+  Done participates in the `QuizLiveMarker` lifecycle both ways (clears on
+  reaching it, re-sets on Restart — § QuizLiveMarker) and mirrors Quiz's
   active-context stats notices (`LoadFailed` status / `WriteFailed` alert) —
   a failure on the *final* Continue lands the user here without ever seeing
-  the in-quiz notice. No subscription needed: the status cannot change while
-  Done is shown (no folds happen here; Restart navigates away and re-binds).
-  Restart re-attempts the stored mix and handles the refusal like Home's
-  Start: `MixRequiresStats` renders the refusal alert with **"Restart without
-  mix"**, the summary underneath survives by the refusal's touches-no-state
-  guarantee, and the `QuizLiveMarker` stays cleared (nothing became live).
-  Both Restart buttons disable on `Controller.IsBusy` and the container
-  carries `app-busy` while a Restart transition runs ("Back to setup" stays
-  enabled — navigation only); no subscription needed, the suspended Restart
+  the in-quiz notice; no subscription needed, the status cannot change while
+  Done is shown. Restart re-attempts the stored mix and handles refusal like
+  Home's Start: `MixRequiresStats` renders the refusal alert with **"Restart
+  without mix"**, the summary underneath survives by the refusal's
+  touches-no-state guarantee, and the marker stays cleared (nothing became
+  live). Both Restart buttons disable on `Controller.IsBusy` + `app-busy`
+  ("Back to setup" stays enabled — navigation only); the suspended Restart
   handler's own re-renders cover the flips.
 - **`ScorePanel.razor`** — compact status strip used by both Quiz and Done.
   Renders the `Total` segment: Submitted / Correct (with %) / Skipped /
@@ -1465,65 +1260,61 @@ Pitfalls). Reset on full reload otherwise (the marker's whole job is to be the
 
 ### `AppInfo` — app-level identity, and the beta feedback link
 
-`internal static class AppInfo` at the **client root** (not under `Quiz/`, which
-is the quiz domain's home — nothing here is about quizzing) owns the two facts
-the app states about *itself*:
+`internal static class AppInfo` at the **client root** (not under `Quiz/` —
+nothing here is about quizzing) owns the two facts the app states about
+*itself*:
 
 - **`Version`** — the running build's informational version (see the version
-  footer section below). It began as `Home.AppVersion` because exactly one
-  surface needed it; the beta feedback link made `Help` a second consumer, and a
-  page class is the wrong owner of app-level metadata the moment another page
-  reaches into it (`Help` would depend on `Home` for a fact with nothing to do
-  with the landing page). Hoisting leaves each page depending on the app.
+  footer section below). Hoisted off `Home.AppVersion` when Help became a
+  second consumer: a page class is the wrong owner of app-level metadata the
+  moment another page reaches into it.
 - **`FeedbackAddress` / `FeedbackMailto`** — the beta mailbox and the
-  `mailto:` href Home's footer and Help's *Send feedback* section both render,
-  with `Version` pre-filled into the subject. A plain mailbox is deliberate: the
-  app has no server and nothing to POST to, so any other channel would
-  contradict the privacy stance Help states.
+  `mailto:` href Home's footer and Help's *Send feedback* section both
+  render, with `Version` pre-filled into the subject. A plain mailbox is
+  deliberate: the app has no server and nothing to POST to, so any other
+  channel would contradict the privacy stance Help states.
 
-The subject is **percent-encoded** (`Uri.EscapeDataString`), not interpolated
-raw. A non-shipping build's version carries a `+` (`1.0.10+gabc1234`), and a bare
-`+` in a URI query is decoded as a space by mail clients that treat the query as
-form data — the commit the tester is reporting against would silently arrive
-mangled. `PageTests` pins the escaped form; the e2e suite rebuilds the expected
-href from its own literals (address, subject wording, escaping) against the
-version read off the rendered footer, so app and pin stay independent.
+The subject is **percent-encoded** (`Uri.EscapeDataString`), not
+interpolated raw: a non-shipping build's version carries a `+`
+(`1.0.10+gabc1234`), and a bare `+` in a URI query is decoded as a space by
+mail clients that treat the query as form data — the commit the tester is
+reporting against would silently arrive mangled. `PageTests` pins the
+escaped form; the e2e suite rebuilds the expected href from its own literals
+against the version read off the rendered footer, so app and pin stay
+independent.
 
 ### The version footer (`<Version>` + `StampGitShaSuffix`)
 
-Home's `v{version}` footer renders `AppInfo.Version`, read once at runtime from
-the `.Client` assembly's `AssemblyInformationalVersionAttribute`. `<Version>` in
-`BgQuiz_Blazor.Client.csproj` is the sole source of the release number — no
-literal anywhere in code, tests, or e2e repeats it. The footer's `#appVersion`
-span is the e2e handle for reading the built version back out of a running
-artifact; the feedback link sits beside it precisely so the version a tester
-reads and the version their mail quotes cannot be different builds.
+Home's `v{version}` footer renders `AppInfo.Version`, read at runtime from
+the `.Client` assembly's `AssemblyInformationalVersionAttribute`.
+`<Version>` in `BgQuiz_Blazor.Client.csproj` is the sole source of the
+release number — no literal anywhere repeats it. The `#appVersion` span is
+the e2e handle for reading the built version off a running artifact; the
+feedback link sits beside it precisely so the version a tester reads and the
+version their mail quotes cannot be different builds.
 
 Build metadata is appended to that number, never substituted for it. The
 `StampShortGitShaOnInformationalVersion` target (same csproj) suffixes
-`+g<shortsha>` — 7 chars, the short form the umbrella's docs quote commits in —
-so a running build names the commit it came from. It is **on by default**; the
-shipping publish is the one caller that opts out:
+`+g<shortsha>` — 7 chars, the short form the umbrella's docs quote — so a
+running build names its commit. It is **on by default**; the shipping
+publish is the one caller that opts out:
 
 ```
 dotnet publish BgQuiz_Blazor/BgQuiz_Blazor.csproj -c Release -p:StampGitShaSuffix=false
 ```
 
 Default-on is the point. The deploy recipe hands the user a Release publish
-built at the current pointer for acceptance *before* the `<Version>` bump, so
-that candidate would otherwise render the previous release number — a build
-claiming to be something it isn't. `Configuration` therefore cannot be the
-discriminator: candidate and shipped artifact are both Release, and only the
-latter should read clean.
-
-Two mechanics worth knowing. The SDK's own
-`IncludeSourceRevisionInInformationalVersion` stays `false` — it appends the
-*full* 40-char sha, and leaving it on would stack both suffixes. And the stamp
-is doubly guarded (`SourceControlInformationFeatureSupported`, non-empty
-`SourceRevisionId`), because `Substring(0, 7)` on an empty property is a hard
-build failure; a build outside a git working copy degrades to the clean SemVer
-instead. `SourceRevisionId` is populated by a plain local `dotnet build`, so no
-`Exec`-a-`git`-command fallback is needed. Read a built assembly back with:
+built at the current pointer for acceptance *before* the `<Version>` bump,
+so that candidate would otherwise render the previous release number — a
+build claiming to be something it isn't; `Configuration` cannot be the
+discriminator, since candidate and shipped artifact are both Release. Two
+mechanics worth knowing: the SDK's own
+`IncludeSourceRevisionInInformationalVersion` stays `false` (it appends the
+*full* 40-char sha and would stack both suffixes), and the stamp is doubly
+guarded (`SourceControlInformationFeatureSupported`, non-empty
+`SourceRevisionId`) because `Substring(0, 7)` on an empty property is a hard
+build failure — a build outside a git working copy degrades to the clean
+SemVer. Read a built assembly back with:
 
 ```
 pwsh -c "[System.Diagnostics.FileVersionInfo]::GetVersionInfo('BgQuiz_Blazor.Tests/bin/Debug/net10.0/BgQuiz_Blazor.Client.dll').ProductVersion"
@@ -1557,11 +1348,9 @@ Each routable page (`Home`, `Quiz`, `Stats`, `Done`, `Help`) carries its own
 `@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))`
 directive — that page-level directive is how interactivity is set in this
 model (there is no global `<Routes @rendermode>` setting). `prerender: false`
-skips the static-prerender pass: the picked-file holder and quiz state live in
-WASM-runtime memory that doesn't exist during a server prerender, so prerender
-would render an empty first frame and double-run `OnInitialized`. A full
-browser reload re-boots the runtime and resets all state (persistence is a
-deferred arc).
+skips the static-prerender pass: the picked-file holder and quiz state live
+in WASM-runtime memory that doesn't exist during a server prerender, so
+prerender would render an empty first frame and double-run `OnInitialized`.
 
 That choice propagates to `<head>`. Because no routable page renders in the
 static pass, `App.razor` carries **both** halves of the title contract:
@@ -1591,13 +1380,12 @@ publish output booting a real WASM runtime in a real browser.
 **Layer under test = the publish output.** A collection fixture
 (`PublishedAppFixture`) runs `dotnet publish` (Release) once per test run,
 spawns `dotnet BgQuiz_Blazor.dll --urls http://127.0.0.1:0 --contentRoot
-<publish dir>`, resolves the OS-assigned port from Kestrel's "Now listening on"
-line, probes readiness, and tears the process down on dispose. Not `dotnet run`
-and not `TestServer` — those put a different layer under test. The
-`--contentRoot` is load-bearing: without it `MapStaticAssets` resolves against
-the wrong web root and serves 0-byte framework assets (unstyled page, WASM
-never boots). The publish output carries three `runtimeconfig.json`; the host's
-`BgQuiz_Blazor.dll` is the entry point.
+<publish dir>`, resolves the OS-assigned port from Kestrel's listening line,
+probes readiness, and tears down on dispose. Not `dotnet run` and not
+`TestServer` — those put a different layer under test. The `--contentRoot`
+is load-bearing: without it `MapStaticAssets` resolves against the wrong web
+root and serves 0-byte framework assets (unstyled page, WASM never boots).
+The host's `BgQuiz_Blazor.dll` is the entry point.
 
 **Base-URL seam.** `BGQUIZ_E2E_BASE_URL` overrides the target: when set, the
 suite skips publish/spawn and drives that URL — the same scenarios can
@@ -1616,61 +1404,48 @@ that's correct — they assert quiz flow, not stats.
 
 **The FS-Access path** lives in `FsAccessFakeTestBase`, riding the base
 class's second customization seam, `ContextInitScript` (applied via
-`AddInitScriptAsync` *before* the page is created — parallel to the
-`ContextOptions` locale seam): Playwright cannot drive the native directory
-picker or its permission prompts, so the base injects a fake
-`window.showDirectoryPicker` — a scripted directory handle (async `values()`
-enumeration over the real fixture's bytes, `getFileHandle`, `createWritable`
-capturing writes, scripted permissions). The faking stops at the browser-API
-boundary: the app ships **no test seams**, and everything from the app's own
-`folderAccess.js` inward runs for real — if the module's use of the File
-System Access surface drifts from what the fake mirrors, the pick fails
-visibly and the scenarios fail loudly. Per-scenario variation (corrupt stats
-file, denied permission) is a page-level init script overriding the fake's
-config object — context scripts run first, so the override wins — and a
-mid-test `EvaluateAsync` can mutate it between quizzes (the app re-reads the
-stats file at every Start's re-bind). Two suites ride the fake.
-`StatsPersistenceTests` pins: one fold ⇒ one captured write with
-`schemaVersion` 1, one decision record, a cube-as-two-decisions tally
-(2 submitted / 2 correct), indented; corrupt file ⇒ polite notice + **zero
+`AddInitScriptAsync` *before* the page is created): Playwright cannot drive
+the native directory picker or its permission prompts, so the base injects a
+fake `window.showDirectoryPicker` — a scripted directory handle over the
+real fixture's bytes, `getFileHandle`, `createWritable` capturing writes,
+scripted permissions. The faking stops at the browser-API boundary: the app
+ships **no test seams**, and everything from the app's own `folderAccess.js`
+inward runs for real — if the module's use of the FS-Access surface drifts
+from what the fake mirrors, the scenarios fail loudly. Per-scenario
+variation (corrupt stats file, denied permission) is a page-level init
+script overriding the fake's config object; a mid-test `EvaluateAsync` can
+mutate it between quizzes (the app re-reads the stats file at every Start's
+re-bind). Three suites ride the fake. `StatsPersistenceTests` pins: one fold
+⇒ one captured write with `schemaVersion` 1, one decision record, a
+cube-as-two-decisions tally, indented; corrupt file ⇒ polite notice + **zero
 writes**; denied ⇒ denied notice + zero writes; and the fallback pick's
 "can't save stats" notice. The stats filename and wire property names are
-deliberately hardcoded in the suite — it is the consumer-side pin of those
+deliberately hardcoded in the suite — the consumer-side pin of those
 contracts (the e2e project references no app assembly by design).
 `MixWeightingTests` drives the weighted path: a 100%-never-seen mix built
-through the panel UI composes the unseen fixture and runs to Done (one write
-captured — the weighted run still records); and the composed-to-zero
-scenario runs a blank-mix quiz first, **feeds the app's own captured write
-back** as the pre-existing stats file (no hand-crafted wire format, no
-decision-id knowledge), then starts weighted and asserts the mix-aware zero
-notice with no 0/0 bounce. `MixRefusalTests` rides the same fake and pins the
-refusal ruling at its **post-X reachable path**: an `Enabled` pick whose
-existing stats file is corrupt (injected per scenario) — the capability peek
-passes, the bind reads no document, so a committed mix is refused at stage 2 →
-"Start without mix" override → Done. It used to drive the real *fallback* pick
-(no stats rung, stage-1 refusal); finding X made that unreachable, since the mix
-panel is offered only for an `Enabled` pick and every pick resets the committed
-mix. Don't move it back to the fallback rung — there is no way to commit a mix
-there any more.
+through the panel UI runs to Done (one write captured — the weighted run
+still records), and the composed-to-zero scenario **feeds the app's own
+captured write back** as the pre-existing stats file (no hand-crafted wire
+format), then starts weighted and asserts the mix-aware zero notice with no
+0/0 bounce. `MixRefusalTests` pins the refusal at its one reachable path: an
+`Enabled` pick whose existing stats file is corrupt — capability peek
+passes, the bind reads no document, refusal at stage 2 → "Start without mix"
+override → Done. Don't move it back to the fallback rung: the mix panel is
+offered only for an `Enabled` pick and every pick resets the committed mix,
+so no mix can be committed there any more.
 
-**Beta-onboarding surfaces.** `BetaOnboardingTests` covers the two things only a
-real request against the publish output can see. `robots.txt` is a **host**
-static file, not a Blazor route, so bUnit is structurally blind to it — and a
-copy misplaced into the `.Client` wwwroot would build, publish, and 404, with the
-host's `UseStatusCodePagesWithReExecute` serving a styled NotFound body, so the
-status *and* the body are both asserted. The feedback `mailto:` is checked
-against the version the **built** assembly reports: the test reads it off the
-`#appVersion` footer of the running artifact and rebuilds the expected href from
-its own literals (address, subject wording, `Uri.EscapeDataString`), then asserts
-Home's and Help's single link both match it. That is what proves the
-`+g<shortsha>` suffix survives into the subject — the whole reason the version is
-there — without the suite ever referencing an app assembly.
+**Beta-onboarding surfaces.** `BetaOnboardingTests` covers the two things
+only a real request against the publish output can see: `robots.txt` (a
+**host** static file, not a Blazor route — bUnit is structurally blind to
+it; status *and* body are asserted, since a misplaced copy 404s in a styled
+NotFound dressing), and the feedback `mailto:` checked against the version
+the **built** assembly reports off the `#appVersion` footer — which is what
+proves the `+g<shortsha>` suffix survives into the subject without the suite
+ever referencing an app assembly.
 
-**Fail loud, never skip.** Missing Playwright browsers, a missing committed
-fixture, a publish failure, a port-bind or readiness failure — each fails the
-suite with an actionable message (the browser-missing failure names the install
-command). Nothing skips: a skipped smoke that reads as green is the exact
-defect class the gate exists to kill.
+**Fail loud, never skip.** Every broken precondition (missing browsers,
+fixture, publish, port-bind) fails the suite with an actionable message —
+the never-skip ruling lives in Pitfalls.
 
 **Determinism.** No `Task.Delay` sleeps anywhere — Playwright auto-wait and
 explicit `Expect` assertions only. Every flow helper ends by awaiting the
@@ -1720,16 +1495,17 @@ republishes take seconds.
 
 This is an application, not a library — no exported types or HTTP
 endpoints, and the `.Client` assembly enforces that at the type level: every
-plain-C# client type (`QuizController` + `QuizStartOutcome`, the scoped holders
-`PickedProblemFolder` / `AppliedFilter` / `AppliedMix` / `ShuffleOption` /
-`QuizLiveMarker`,
-`PickedFile`, `IFolderAccess` / `JsFolderAccess` (+ its wire DTOs),
-`StatsSaveCapability`, `FolderPickOutcome`, `QuizStatsFile`,
-`IDecisionStatsSink` / `QuizStatsStore` / `QuizStatsStatus`, `MixDisplay`,
-`FolderPickDisplay`, `AppInfo`,
-`WasmUploadedProblemSetSource` / `CachedProblemSetSource`, `ProblemReview`, and the `ProblemSetSourceFactory`
-delegate) is `internal`, reachable by the test project only through the
-`InternalsVisibleTo` grant. The only `public` types are the Razor components — the
+plain-C# client type (`QuizController` + `QuizStartOutcome`, the scoped
+holders `PickedProblemFolder` / `AppliedFilter` / `AppliedMix` /
+`ShuffleOption` / `QuizLiveMarker` / `MixNoticeDismissal`, `PickedFile`,
+`IFolderAccess` / `JsFolderAccess` (+ its wire DTOs),
+`StatsSaveCapability`, `FolderPickOutcome`, `QuizStatsFile` /
+`QuizFiltersFile`, `IDecisionStatsSink` / `QuizStatsStore` /
+`QuizStatsStatus`, `SavedFiltersStore` / `SavedFiltersStatus`,
+`MixDisplay`, `CubeActionDisplay`, `FolderPickDisplay`, `AppInfo`,
+`WasmUploadedProblemSetSource` / `CachedProblemSetSource`, `ProblemReview`,
+and the `ProblemSetSourceFactory` delegate) is `internal`, reachable by the
+test project only through the `InternalsVisibleTo` grant. The only `public` types are the Razor components — the
 framework requires them public (see Pitfalls). The externally visible surface is
 the route map:
 
@@ -1739,91 +1515,78 @@ the route map:
 - `/done` → `Done` — final summary (redirects to `/` if no quiz)
 - `/help` → `Help` — end-user documentation (never redirects; linked from the nav menu)
 - Default error page → `Error.razor`
-- `/not-found` → `NotFound.razor` — the 404 page, and a **mapped route in its own
-  right** (requesting it directly is a 200). It is reached two ways, and both are
-  needed: `Routes.razor`'s `NotFoundPage` covers *client-side* navigation once the
-  runtime has booted, and `Program.cs`'s `UseStatusCodePagesWithReExecute("/not-found")`
-  covers *server-side* unmatched paths, which never reach Blazor at all (see
-  Pitfalls). The re-execute preserves the 404 status.
+- `/not-found` → `NotFound.razor` — the 404 page, and a **mapped route in
+  its own right** (requesting it directly is a 200). Reached two ways, both
+  needed: `Routes.razor`'s `NotFoundPage` for client-side navigation,
+  `UseStatusCodePagesWithReExecute("/not-found")` for server-side unmatched
+  paths (see Pitfalls); the re-execute preserves the 404 status.
 
 ## Pitfalls
 
-- **The e2e suite is the smoke gate AGENTS.md mandates — pointer bumps run it,
-  and it must never learn to skip.** `BgQuiz_Blazor.E2eTests` is the layer that
-  sees what bUnit and the wire tests structurally cannot (see Architecture § The
-  e2e smoke gate), so it is the gate to run before a pointer bump ships. Two
-  standing rules: (1) never convert a broken precondition — missing browsers,
-  missing fixture, failed publish — into a `Skip`; the suite's fail-loud posture
-  is deliberate, because a skipped smoke reads as green, which is the defect
-  class it was built to kill. (2) Its `Fixtures/` are committed copies; the
-  umbrella's `TestData/FixtureFiles/` stays append-only and untouched. First-run
-  setup (`playwright install chromium`) and the run commands are in the
-  Architecture section.
-- **Most `FilterPanel` controls are behind its disclosure — a test that drives
-  one must expand first.** The panel keeps the error-range section always
-  visible and renders its other eight sections (player names, decision type,
-  match scores, move number range, contact type, analysis depth, dice rolls,
-  position pattern) *only while expanded* — absent from the DOM when collapsed,
-  not styled away — so a selector for any of them silently finds nothing.
-  Both suites go through their own one-line helper (`ExpandMoreFiltersAsync`)
-  that clicks the panel's real `#moreFiltersToggle` button, never a JS or field
-  poke; toggling raises no `OnFilterDirty`, so it never disturbs an
-  applied/dirty expectation. Error-range edits, Apply, and Clear filters need
-  no expansion. Two related traps: address the panel in an ordering assertion
+- **The e2e suite is the smoke gate AGENTS.md mandates — pointer bumps run
+  it, and it must never learn to skip.** It sees what bUnit and the wire
+  tests structurally cannot (see Architecture § The e2e smoke gate). Two
+  standing rules: (1) never convert a broken precondition — missing
+  browsers, missing fixture, failed publish — into a `Skip`; a skipped smoke
+  reads as green, the defect class the gate was built to kill. (2) Its
+  `Fixtures/` are committed copies; the umbrella's `TestData/FixtureFiles/`
+  stays append-only and untouched.
+- **Most `FilterPanel` controls are behind its disclosure — a test that
+  drives one must expand first.** The panel keeps the error-range section
+  always visible and renders its other eight sections *only while
+  expanded* — absent from the DOM when collapsed, not styled away — so a
+  selector for any of them silently finds nothing. Both suites go through
+  their own one-line helper (`ExpandMoreFiltersAsync`) that clicks the
+  panel's real `#moreFiltersToggle` button, never a JS or field poke;
+  toggling raises no `OnFilterDirty`, so it never disturbs an applied/dirty
+  expectation. Error-range edits, Apply, and Clear filters need no
+  expansion. Two related traps: address the panel in an ordering assertion
   by an *always-rendered* element (`#moreFiltersToggle`), not by
-  `#positionPattern`; and Playwright's accessible-name match is a substring, so
-  the panel's `Clear filters` button collides with Home's `Clear` — that
+  `#positionPattern`; and Playwright's accessible-name match is a substring,
+  so the panel's `Clear filters` button collides with Home's `Clear` — that
   locator needs `Exact = true`.
 - **Never gate a control's `disabled` on an `@ref` field.** Blazor assigns a
-  component `@ref` *after* the render that creates the component, so any markup
-  reading it renders one pass stale — the first render of a branch always sees
-  `null`. Both quiz Undo buttons carried `disabled="@(_playEntry is null || …)"`
-  and were therefore dead for exactly the window they exist to serve: nothing
-  re-renders `Quiz` during click-by-click play assembly (`BackgammonPlayEntry`
-  raises no callback until the play *completes*), so they stayed disabled until
-  completion and enabled only once Undo was pointless. Two things made it read as
-  intermittent rather than broken: Blazor never nulls a component ref on unmount,
-  so from the second play problem onward the stale-but-non-null ref rendered them
-  enabled; and the dead window returned on the first play problem of every run
-  and after each `Show stats` round trip (which re-instantiates the page). It was
-  first observed under a write-denied run, which had nothing to do with it —
-  **check `@ref` timing before believing a capability correlation.** The fix is
-  to drop the term: the enclosing branch already guarantees the component is
-  rendered, and a click can only land after the ref is assigned.
-  `PageTests.Quiz_UndoButtons_UsableFromTheFirstRenderOfAnEntry` pins the first
-  render. Enabled-*iff*-undoable would be more honest but needs two producer
-  surfaces `BackgammonPlayEntry` does not expose (a `CanUndo` predicate **and** a
-  per-click change notification — without the latter any predicate read here is
-  stale from the first render); that is booked umbrella-side against
-  `BgDiag_Razor`, not worked around here.
+  component `@ref` *after* the render that creates it, so any markup reading
+  it renders one pass stale — the first render of a branch always sees
+  `null`. Both quiz Undo buttons carried `disabled="@(_playEntry is null ||
+  …)"` and were dead for exactly the window they exist to serve: nothing
+  re-renders `Quiz` during click-by-click play assembly, so they stayed
+  disabled until the play completed and enabled only once Undo was
+  pointless. It read as intermittent because Blazor never nulls a component
+  ref on unmount (from the second play problem on, the stale-but-non-null
+  ref rendered them enabled), and it was first observed under a write-denied
+  run that had nothing to do with it — **check `@ref` timing before
+  believing a capability correlation.** The fix is to drop the term: the
+  enclosing branch already guarantees the component is rendered, and a click
+  can only land after the ref is assigned (pinned).
+  Enabled-*iff*-undoable would be more honest but needs two producer
+  surfaces `BackgammonPlayEntry` does not expose; that is booked
+  umbrella-side against BgDiag_Razor, not worked around here.
 - **State resets on full reload, not on in-app navigation.** "Scoped" in
-  WASM is one instance per loaded app (one tab), so `QuizController`,
-  `PickedProblemFolder`, `AppliedFilter`, and `ShuffleOption` survive `/` ↔
-  `/quiz` ↔ `/done` navigation but a full browser reload re-boots the runtime
-  and loses everything (picked folder, applied filter, shuffle choice, quiz
-  progress — though not the stats *file*, which lives on disk in the user's
-  folder and resumes on re-pick). Reload-survival
-  is a deferred arc — don't assume reload resumes. Anything that *should*
-  survive navigation belongs in a scoped holder, not a component field —
-  the two halves of Home's start gate were moved off transient fields for
-  exactly this reason. (Genuinely per-visit page state — e.g. Home's
-  `_startError` banner — correctly stays a component field and resets on
-  navigate-back.) The one thing that *does* survive a reload is the
-  `QuizLiveMarker` (`sessionStorage`), and that is deliberate — it exists solely
-  to acknowledge the reset on the next boot; see the next bullet.
+  WASM is one instance per loaded app (one tab), so the controller and the
+  holders survive `/` ↔ `/quiz` ↔ `/done` navigation, but a full browser
+  reload re-boots the runtime and loses everything (though not the stats
+  *file*, which lives on disk and resumes on re-pick). Reload-survival is a
+  deferred arc — don't assume reload resumes. Anything that *should* survive
+  navigation belongs in a scoped holder, not a component field — the two
+  halves of Home's start gate were moved off transient fields for exactly
+  this reason. (Genuinely per-visit page state — e.g. Home's `_startError`
+  banner — correctly stays a component field and resets on navigate-back.)
+  The one thing that *does* survive a reload is the `QuizLiveMarker`
+  (`sessionStorage`), deliberately — see the next bullet.
 - **The `QuizLiveMarker` is `sessionStorage`, not `localStorage` — don't
-  "upgrade" it.** The marker records "a quiz is live in *this tab*" so a reload
-  can be acknowledged on the next boot. `sessionStorage` is per-tab: it survives
-  a reload but is invisible to other tabs and dies with the tab — exactly those
-  semantics. `localStorage` is shared across every tab of the origin, so a quiz
-  live in tab A would set a marker a freshly-opened tab B reads on *its* first
-  boot, making B falsely announce "your quiz was reset" for a quiz it never ran.
-  It looks like the "bigger, more durable" store; it is the wrong one here. (The
-  real reload-*resume* arc will need durable storage — IndexedDB for the buffered
-  bytes — but that is a different concern from this per-tab liveness flag.) The
-  controller-side `HasStarted` guard in `Home.OnInitializedAsync` is the
-  complementary defence: it suppresses the notice during in-app navigation back to
-  `Home` mid-quiz, where the marker is legitimately set but no reload happened.
+  "upgrade" it.** The marker records "a quiz is live in *this tab*" so a
+  reload can be acknowledged on the next boot. `sessionStorage` is per-tab:
+  it survives a reload but is invisible to other tabs and dies with the
+  tab — exactly those semantics. `localStorage` is shared across every tab
+  of the origin, so a quiz live in tab A would make a freshly-opened tab B
+  falsely announce "your quiz was reset" on *its* first boot. It looks like
+  the "bigger, more durable" store; it is the wrong one here. (The real
+  reload-*resume* arc will need durable storage — IndexedDB — but that is a
+  different concern from this per-tab liveness flag.) The controller-side
+  `HasStarted` guard in `Home.OnInitializedAsync` is the complementary
+  defence, suppressing the notice on in-app navigation back mid-quiz, where
+  the marker is legitimately set but no reload happened.
 - **Cube decisions carry `Dice == [0, 0]` — never auto-skip them.**
   `IsPassPosition` runs `MoveGenerator.GeneratePlays` on the dice; a cube
   decision's `[0, 0]` produces the no-legal-play sentinel, so without the
@@ -1845,29 +1608,22 @@ the route map:
   `<FilterPanel OnFiltersChanged="..."/>` against a panel that exposes
   `OnFilterConfigChanged` does not fail at build or render time — the
   binding is simply never invoked. Symptom is a callback that "obviously"
-  fires never firing. When wiring an event from an RCL-imported
-  component, verify the parameter name against the source. The bUnit
-  regression test `PageTests.Home_FilterPanelEmitsConfig_EnablesStartButton`
-  guards against this trap.
-- **Client plain-C# types are `internal`; only Razor components are `public`.**
-  The controller, the scoped holders, `PickedFile`, the folder/stats types
-  (`IFolderAccess` / `JsFolderAccess`, `QuizStatsFile`, `QuizStatsStore` and
-  friends), `WasmUploadedProblemSetSource` / `CachedProblemSetSource`, `ProblemReview`, and the
-  `ProblemSetSourceFactory` delegate are all `internal`, with `InternalsVisibleTo`
-  granting the test project access. Don't widen one to `public`: the tests already
-  see it through the IVT grant, and a page reaches it through `@inject` — which
-  binds a service **by type from DI**, not through the public surface. The
-  narrowing is total (9 candidates → 9 internalized / 0 held) precisely because
-  Razor's `@inject` generates a **private** property, so a DI-injected type never
-  lands in a public signature, and none of these types is a component
-  `[Parameter]`. The one move that *forces* a client type back to `public` is
-  putting it in a public component's `[Parameter]` (or any other public member
-  signature) — that trips **CS0053** (inconsistent accessibility), the same
-  constraint the earlier component-surface narrowing hit; the fix is to keep the
-  crossing type a library/wire type, not to re-widen the app type. The pages, in
-  turn, **cannot** go internal: the router discovers routable components by
-  scanning the assembly's *public* (`ExportedTypes`) surface, so that public
-  boundary is framework-required, not a missed narrowing.
+  fires never firing. When wiring an event from an RCL-imported component,
+  verify the parameter name against the source. A bUnit regression test
+  guards the FilterPanel wiring.
+- **Client plain-C# types are `internal`; only Razor components are
+  `public`** (the list is in Public API). Don't widen one to `public`: the
+  tests already see it through the `InternalsVisibleTo` grant, and a page
+  reaches it through `@inject`, which binds a service **by type from DI**
+  and generates a **private** property — so a DI-injected type never lands
+  in a public signature. The one move that *forces* a client type back to
+  `public` is putting it in a public component's `[Parameter]` (or any other
+  public member signature) — that trips **CS0053** (inconsistent
+  accessibility); the fix is to keep the crossing type a library/wire type,
+  not to re-widen the app type. The pages, in turn, **cannot** go internal:
+  the router discovers routable components by scanning the assembly's
+  *public* (`ExportedTypes`) surface, so that boundary is
+  framework-required, not a missed narrowing.
 - **Off-list submission semantics.** A structurally-legal play that
   doesn't appear in the analyzer's candidate list counts as a skip, not
   a scoring miss. This is rare on well-analyzed positions and signals
@@ -1885,14 +1641,12 @@ the route map:
 - **A picked file's name must keep its extension.** The stream iterator
   discriminates `.xg` vs `.xgp` from the file-name extension to stamp the
   `DecisionId`, so an extensionless `PickedFile.FileName` is a usage error
-  the iterator throws `ArgumentException` on when it reaches that entry —
-  lazily, mid-enumeration, not at construction. Both of `folderAccess.js`'s
-  pick paths preserve the browser's extension-bearing entry names precisely
-  for this (`JsFolderAccessTests` pins the carry;
-  `WasmUploadedProblemSetSourceTests.EnumerateAsync_ExtensionlessName_…`
-  guards the failure mode). Start-time exceptions (this, plus
-  `FilterConfig.Build()` validation) surface on `Controller.StartAsync` and
-  `Home.razor` shows them as a banner rather than faulting the app.
+  the iterator throws `ArgumentException` on — lazily, mid-enumeration, not
+  at construction. Both of `folderAccess.js`'s pick paths preserve the
+  browser's extension-bearing entry names precisely for this (pinned on both
+  sides). Start-time exceptions (this, plus `FilterConfig.Build()`
+  validation) surface on `Controller.StartAsync` and `Home.razor` shows them
+  as a banner rather than faulting the app.
 - **Lifetime stats fold on Continue, never at Submit.** `RedoAsync` pops the
   last submission *while `Review` is set*, and `DecisionStatsDocument` has no
   `Minus` — folding at Submit would let a redone answer fold twice with no way
@@ -1912,9 +1666,9 @@ the route map:
   restore raises `OnMixRestored`, and Home marks the mix dirty **only** when the
   restore is non-passthrough *and* `AppliedMix.Current` is still passthrough.
   Both halves are load-bearing. Drop the second and every navigate-back re-gates
-  a mix the user already applied. Make it adopt (the pre-W behavior — commit the
-  restored mix straight into the holder) and a persisted mix silently becomes
-  committed with no user gesture, which is what let a stats-less pick inherit
+  a mix the user already applied. Make it adopt (commit the restored mix
+  straight into the holder) and a persisted mix silently becomes committed
+  with no user gesture, which is what let a stats-less pick inherit
   one. And it can't simply raise nothing the way `FilterPanel`'s restore does:
   the filter's default already blocks Start (`IsApplied` false), whereas the
   mix's passthrough default does *not*, so a silent restore would leave rows
@@ -1930,16 +1684,15 @@ the route map:
 - **Don't collapse the FS-Access pick to a single prompt.**
   `showDirectoryPicker({ mode: 'readwrite' })` looks like a free UX win (one
   prompt instead of the pick-then-`requestPermission` pair) and reads as an
-  equivalent contract. It is not: **tried and reverted 2026-07-24** — observed
-  in real Chrome, declining that single readwrite prompt aborts the *whole*
-  pick (`AbortError`, which `pickDirectory` maps to `cancelled`), returning the
-  app to its initial "Choose folder…" state with no folder and no read handle.
-  That destroys the `PermissionDenied` rung — decline write, file list still
-  loads, quiz runs without stats — which is a deliberate degrade, not an
-  accident. The two-prompt flow is retained deliberately; the full rationale
-  lives in the comment above `pickDirectory`. (Finding V's actual concern — the
-  prompt being missed in a busy UI — is already met by progressive disclosure
-  plus the in-page two-step guidance, so a collapse buys nothing.)
+  equivalent contract. It is not: **tried and reverted 2026-07-24** — in
+  real Chrome, declining that single readwrite prompt aborts the *whole*
+  pick (`AbortError` ⇒ `cancelled`, no folder and no read handle), which
+  destroys the `PermissionDenied` rung — decline write, file list still
+  loads, quiz runs without stats — a deliberate degrade, not an accident.
+  The two-prompt flow is retained deliberately; the full rationale lives in
+  the comment above `pickDirectory`. (The underlying concern — the prompt
+  being missed in a busy UI — is already met by progressive disclosure plus
+  the two-step guidance, so a collapse buys nothing.)
 - **Never quote a browser's permission-prompt text — describe the grant.**
   Chrome and Edge word both File System Access prompts differently, and Edge
   interpolates the picked folder's *own name* into the write prompt, so any
@@ -1982,15 +1735,14 @@ the route map:
 - **The stage-2 refusal's re-bind is a real side effect — including the
   WriteFailed sub-case.** Stage 1 (capability peek) refuses with zero side
   effects, but a stage-2 refusal has already run `BeginQuizAsync`, which
-  unconditionally resets the in-memory document and reloads from disk. If the
-  *prior* quiz sat in `WriteFailed` with folds living only in memory, those
-  folds are dropped by the refused start even though no new quiz begins — the
-  one variant of the re-bind that loses data rather than merely re-reading
-  (the same in-memory loss any Start/Restart always caused; the file itself
-  is never overwritten on the LoadFailed path). Rare×rare and accepted: a
-  "skip the re-load when the bound context is WriteFailed on the same folder"
-  guard would need JS handle-identity interop. Don't move the bind back after
-  the source build to "fix" it — the wrap decision needs the bound context.
+  unconditionally resets the in-memory document and reloads from disk. If
+  the *prior* quiz sat in `WriteFailed` with folds living only in memory,
+  those folds are dropped by the refused start even though no new quiz
+  begins — the same in-memory loss any Start/Restart always caused; the file
+  itself is never overwritten on the LoadFailed path. Rare×rare and
+  accepted: a skip-the-reload guard would need JS handle-identity interop.
+  Don't move the bind back after the source build to "fix" it — the wrap
+  decision needs the bound context.
 - **`QuizMix` entry order is semantic — preserve it everywhere.** Earlier
   entries win contested overlap (producer contract), so the mix panel's rows,
   the persisted JSON, the restore hydration, and the mix notices'
@@ -2027,28 +1779,28 @@ the route map:
   bug this shape exists to prevent: a user tidying up Home mid-quiz silently
   killing (or retargeting!) the quiz's stats recording.
 - **Saved filters read/write the *picked* slot, not the active one.** The
-  saved-filters document (`bgquiz-filters.json`) is a setup-time concern on the
-  folder the user is configuring, so `SavedFiltersStore` goes through
-  `readPickedFile`/`writePickedFile` (the picked-slot JS ops added for it), never
-  the active-slot `readStatsFile`/`writeStatsFile`. This is the same isolation
-  invariant as stats, from the other side: a mid-quiz re-pick reloads the
-  saved-filters context off the *new* picked folder while the running quiz keeps
-  recording stats through its *active* handle, untouched. Don't "unify" the two
-  file ops onto one slot — the picked-vs-active split is the whole point, and the
-  filters ops must not require a `promoteToActive` (they run before any quiz
-  binds). The active slot's stats file and the picked slot's filters file can
-  even be different folders when a quiz is live over an earlier pick.
+  saved-filters document is a setup-time concern on the folder being
+  configured, so `SavedFiltersStore` goes through
+  `readPickedFile`/`writePickedFile`, never the active-slot
+  `readStatsFile`/`writeStatsFile` — the same isolation invariant as stats,
+  from the other side: a mid-quiz re-pick reloads the saved-filters context
+  off the *new* picked folder while the running quiz keeps recording through
+  its *active* handle, untouched. Don't "unify" the two file ops onto one
+  slot — the picked-vs-active split is the whole point, the filters ops must
+  not require a `promoteToActive` (they run before any quiz binds), and the
+  two slots can legitimately be different folders when a quiz is live over
+  an earlier pick.
 - **Never write over a saved-filters file that failed to read or parse.** A
   non-null read that `NamedFilterCollection.TryFromJson` rejects (corrupt,
-  foreign, newer-schema), *or* a read that throws (`JSException` — an FS error,
-  or read genuinely withheld under `PermissionDenied`), both flip
-  `SavedFiltersStore` to `LoadFailed`: terminal for that pick, **zero writes**,
-  file preserved untouched. This is the stats store's `LoadFailed` guarantee,
-  filters edition — and it is what keeps load-only under `PermissionDenied` from
-  being load-bearing: if the read assumption (the pick gesture grants read even
-  without the readwrite grant) is ever false in some browser, the store degrades
-  to the notice instead of the panel, never worse. Keep the `SavedFiltersStore`
-  and page tests that pin the zero-writes half.
+  foreign, newer-schema), *or* a read that throws (`JSException` — an FS
+  error, or read genuinely withheld under `PermissionDenied`), both flip
+  `SavedFiltersStore` to `LoadFailed`: terminal for that pick, **zero
+  writes**, file preserved untouched. The stats store's `LoadFailed`
+  guarantee, filters edition — and what keeps load-only under
+  `PermissionDenied` from being load-bearing: if the read-grant assumption
+  is ever false in some browser, the store degrades to the notice instead of
+  the panel, never worse. Keep the store and page tests that pin the
+  zero-writes half.
 - **Don't gate the saved-filters degrade notices on the panel's empty rule.**
   Home carries two predicates on purpose: `SavedFiltersApplicable` (panel
   offering — hides a read-only section with nothing to load) and
@@ -2059,19 +1811,20 @@ the route map:
   data-protection notice **every time it fires** — exactly when the user most
   needs it. Emptiness is irrelevant to whether a failure gets reported.
 - **The parse cache must stay unfiltered, holder-homed, and
-  generation-guarded.** `PickedProblemFolder.ParsedDecisions` is the parse of
-  the *whole* pick with no filters — caching a filtered parse would silently
-  serve one filter config's subset to every later Start. Its invalidation is
-  `Set`/`Clear` nulling it (cache lifecycle = pick lifecycle); don't move the
-  slot off the holder and re-create the forgotten-invalidation-wiring
-  hazard, and don't drop `StoreParsed`'s generation check — the pick gesture
-  is async, so a re-pick can complete inside a Start's await points, and an
-  unguarded store would install the *old* pick's parse as the *new* pick's
-  cache. Post-hoc `Matches` over the cache is equivalent to
-  filter-during-parse only because the iterator's skip/advance votes are
-  contractually pure early-exit hints; a future filter whose votes cut rows
-  its `Matches` would admit breaks that contract (and this cache) — the
-  contract lives on `IDecisionFilter`/`IMatchFilter` in XgFilter_Lib.
+  generation-guarded.** `PickedProblemFolder.ParsedDecisions` is the parse
+  of the *whole* pick with no filters — caching a filtered parse would
+  silently serve one filter config's subset to every later Start. Its
+  invalidation is `Set`/`Clear` nulling it (cache lifecycle = pick
+  lifecycle); don't move the slot off the holder and re-create the
+  forgotten-invalidation-wiring hazard, and don't drop `StoreParsed`'s
+  generation check — the pick gesture is async, so a re-pick can complete
+  inside a Start's await points, and an unguarded store would install the
+  *old* pick's parse as the *new* pick's cache. Post-hoc `Matches` over the
+  cache is equivalent to filter-during-parse only because the iterator's
+  skip/advance votes are contractually pure early-exit hints (the contract
+  lives on `IDecisionFilter`/`IMatchFilter` in XgFilter_Lib); a filter whose
+  votes cut rows its `Matches` would admit breaks that contract and this
+  cache.
 - **Browser directory handles live in JS module state only.**
   `FileSystemDirectoryHandle` / `File` objects cannot round-trip the interop
   boundary; `folderAccess.js` owns them and C# sees names/bytes/booleans
@@ -2086,42 +1839,38 @@ the route map:
   SVG, never raster. This is why the split exists; don't re-add the raster
   reference to make some export "just work" client-side.
 - **`BackgammonPlayEntry` doesn't need a `@key` to reset across Redo — the
-  branch swap already does it.** It suppresses its own internal reset when the
-  incoming `Request` describes the same problem as last time (same Mop/Dice) — a
-  defense against losing in-progress click state on a same-problem re-render.
-  It's tempting to assume `RedoAsync` (which returns to that exact same problem)
-  needs an explicit reset call or a changing `@key` to work around that
-  suppression. It doesn't: the entry lives in the `else` branch of
-  `@if (Controller.Review is { } review) { ... } else { ... }`, and Submit already
-  unmounts it entirely when the page swaps into the review branch. By the time
-  Redo swaps back, the entry did not exist in the immediately prior render at
-  all, so Blazor cannot reuse an instance that wasn't there — a fresh one is
-  constructed unconditionally, same-problem suppression or not. Verified (not just
-  reasoned about) by temporarily adding a redo-generation `@key` and confirming
-  the suite stayed green with it removed. Don't reintroduce that key defensively;
-  if a future refactor keeps the entry mounted across review (e.g. overlaying the
-  solution instead of swapping branches), *that's* the point to re-examine. The
-  cube answer needs none of this: `BackgammonCubeActions` is strictly controlled
-  off `_completedCube`, which `HandleStateChanged` nulls on every transition, so
-  its radios clear on Redo with no internal state to reset.
+  branch swap already does it.** The component suppresses its own internal
+  reset when the incoming `Request` describes the same problem as last time,
+  so it's tempting to assume Redo (which returns to that exact problem)
+  needs an explicit reset or a changing `@key` to work around the
+  suppression. It doesn't: the entry lives in the `else` branch of the
+  review `@if`, and Submit already unmounted it entirely when the page
+  swapped into the review branch — by the time Redo swaps back, the entry
+  did not exist in the immediately prior render, so Blazor constructs a
+  fresh instance unconditionally. Verified, not just reasoned about: a
+  temporary redo-generation `@key` was added and the suite stayed green with
+  it removed. Don't reintroduce the key defensively; if a future refactor
+  keeps the entry mounted across review (e.g. overlaying the solution
+  instead of swapping branches), *that's* the point to re-examine. The cube
+  answer needs none of this: `BackgammonCubeActions` is strictly controlled
+  off `_completedCube`, which nulls on every transition.
 - **The status strip must stay fixed-height, and the board-sizing glue must
   stay retired.** The strip's whole purpose is state-invariant chrome: equal
-  chrome height ⇒ equal board flex remainder ⇒ no answering↔review board-size
-  jump. Sizing it by content (`min-height`, auto height) reintroduces the
-  per-question jitter it was built to remove — long content clamps instead
-  (legend one line, verdict two). On the board side, sizing belongs to
-  BgDiag_Razor's bounded-height contract (bound the `BackgammonPlayEntry` wrapper
-  with a real height; the producer's `bg-board-slot` and `.bg-diagram` contain-fit
-  default do the rest) — re-adding consumer `max-height` glue, `display: contents`
-  on a wrapper, or styles inside `.bg-board-slot` breaks the contract (see the
-  producer's pitfalls; `AppCss_RetiredBoundedHeightGlue_StaysGone` pins this). The
-  cube-answering board is now a bare `.bg-diagram` (a direct child of
-  `.board-container`, like review) — the cube radios moved out of the board region
-  into the action row — so all three states (play-answering, cube-answering,
-  review) size the board identically under the fold cap. This retired the former
-  residual (the cube-answering board running radios-height shorter than its
-  review); unifying it any other way would have meant re-encoding producer chrome
-  height in the consumer, the magic-constant pattern this arc removed.
+  chrome height ⇒ equal board flex remainder ⇒ no answering↔review
+  board-size jump. Sizing it by content (`min-height`, auto height)
+  reintroduces the per-question jitter it was built to remove — long content
+  clamps instead (legend one line, verdict two). On the board side, sizing
+  belongs to BgDiag_Razor's bounded-height contract (bound the
+  `BackgammonPlayEntry` wrapper with a real height; the producer's
+  `bg-board-slot` and `.bg-diagram` contain-fit default do the rest) —
+  re-adding consumer `max-height` glue, `display: contents` on a wrapper, or
+  styles inside `.bg-board-slot` breaks the contract (see the producer's
+  pitfalls; `AppCss_RetiredBoundedHeightGlue_StaysGone` pins this). The
+  cube-answering board is a bare `.bg-diagram` directly under
+  `.board-container`, like review — the cube radios live in the action
+  row — so all three states size the board identically under the fold cap;
+  unifying it any other way would re-encode producer chrome height in the
+  consumer, the magic-constant pattern this arc removed.
 - **Pages set render mode per-page, not via `<Routes>`.** Each routable page
   carries `@rendermode @(new InteractiveWebAssemblyRenderMode(prerender:
   false))`. There is no global `<Routes @rendermode>` here (that was the old
@@ -2141,24 +1890,22 @@ the route map:
   title until the ~19.5 MB payload boots, so removing the static title reinstates
   a titleless first-load window and leaves crawlers and no-JS clients with no
   title ever.
-- **`/Error` shows `BgQuiz`, not `Error` — deliberately.** `Error.razor` is a
-  server-side, statically-rendered page, so its `<PageTitle>Error</PageTitle>` can
-  only reach a static-pass outlet, and the outlet is now interactive (above). Its
-  title therefore falls back to the static `<title>`. Verified, not assumed:
-  `/Error` renders its `Error.` heading with `document.title === "BgQuiz"`.
-  (`/not-found` also shows `BgQuiz`, but it never declared a `<PageTitle>` at all,
-  so nothing regressed there.) This is an accepted trade — a terminal page nobody
-  navigates to on purpose, in exchange for correct titles on the five pages people
-  use. **Do not "fix" it** by reverting the outlet to a bare one; that restores
-  `<title>Error</title>` on `/Error` and silently re-breaks all five real pages.
-  The title is not the whole cost. The render-moded `HeadOutlet` is a WASM **root
-  component on every page**, `/Error` and `/not-found` included — so both of those
-  server-rendered terminal pages now boot the ~19.5 MB payload to accomplish
-  nothing, since neither has a `<PageTitle>` the outlet can receive. The pages
-  render and read correctly before the boot completes; the payload is pure waste on
-  them. Accepted for the same reason as the title: they are pages nobody reaches on
-  purpose. If that ever stops being true (a heavily-linked 404, say), the fix is to
-  give the head outlet a narrower home, **not** to un-render-mode it.
+- **`/Error` shows `BgQuiz`, not `Error` — deliberately.** `Error.razor` is
+  server-side, statically rendered, so its `<PageTitle>` can only reach a
+  static-pass outlet — and the outlet is now interactive (above), so its
+  title falls back to the static `<title>`. Verified, not assumed: `/Error`
+  renders its heading with `document.title === "BgQuiz"` (`/not-found` never
+  declared a `<PageTitle>`, so nothing regressed there). An accepted trade —
+  a terminal page nobody navigates to on purpose, in exchange for correct
+  titles on the five pages people use. **Do not "fix" it** by reverting the
+  outlet to a bare one; that restores `<title>Error</title>` on `/Error` and
+  silently re-breaks all five real pages. The title is not the whole cost:
+  the render-moded `HeadOutlet` is a WASM **root component on every page**,
+  so both server-rendered terminal pages boot the ~19.5 MB payload to
+  accomplish nothing (they render and read correctly before the boot
+  completes). Accepted for the same reason; if a terminal page ever becomes
+  heavily linked, the fix is a narrower home for the outlet, **not**
+  un-render-moding it.
 - **`NotFoundPage` covers client-side navigation only; server-side unmatched paths
   need `UseStatusCodePagesWithReExecute`.** `Routes.razor`'s
   `NotFoundPage="typeof(Pages.NotFound)"` is the Router's answer for a route the
@@ -2172,29 +1919,23 @@ the route map:
   Keep it **before** `UseAntiforgery()` (see Render mode). `NotFoundPipelineTests`
   pins the status contract; a bUnit render cannot.
 - **The re-execute also catches missing *assets*, and that is accepted — on
-  purpose.** `UseStatusCodePagesWithReExecute` intercepts every bodyless 4xx/5xx, so
-  `/_framework/no-such-asset.js` and `/no-such.json` come back as 404 with the
-  NotFound page's `text/html` body rather than an empty one. This is not a
-  misrepresentation: on a 4xx the body is an *error document*, not a representation
-  of the requested resource — RFC 9110 has the server send "a representation
-  containing an explanation of the error situation," and `text/html` truthfully
-  describes the body actually sent. The 404 status, which is what every consumer
-  keys on (Blazor's boot loader included), is correct and preserved, and the body is
-  inert: nothing executes a script-tag document returned to a `fetch` for a `.js`
-  file. Assets that *exist* are untouched — the middleware only engages on an error
-  response with no body.
-  - **Reordering cannot fix the asset case.** A missing static file is not answered
-    by `UseStaticFiles`/`MapStaticAssets`; those call `next()` and the 404 is
-    produced downstream by routing. The status-code-pages middleware wraps
-    everything downstream of itself, so moving it *after* the static-file
-    middleware changes nothing. Don't try.
-  - **The trigger for revisiting.** When the attribution/persistence arc adds
-    server-side JSON API endpoints, a typed client calling `ReadFromJsonAsync`
-    against a 404 will throw a confusing `JsonException` instead of surfacing the
-    status. *That* is when narrowing acquires a real consumer. The only defensible
-    discriminator at that point is **content negotiation on the `Accept` header** —
-    a path-prefix or extension sniff duplicates routing knowledge inside middleware
-    and still misses cases like `/no-such.json`.
+  purpose.** `UseStatusCodePagesWithReExecute` intercepts every bodyless
+  4xx/5xx, so `/_framework/no-such-asset.js` comes back 404 with the
+  NotFound page's `text/html` body rather than an empty one. Not a
+  misrepresentation: on a 4xx the body is an *error document* (RFC 9110);
+  the 404 status every consumer keys on (Blazor's boot loader included) is
+  preserved, and the body is inert. Assets that *exist* are untouched — the
+  middleware only engages on an error response with no body. **Reordering
+  cannot fix the asset case**: a missing static file is not answered by
+  `UseStaticFiles`/`MapStaticAssets` — those call `next()` and the 404 is
+  produced downstream by routing, which the status-code-pages middleware
+  wraps wherever it sits. Don't try. **The trigger for revisiting**: when
+  server-side JSON API endpoints arrive, a typed client's `ReadFromJsonAsync`
+  against a 404 throws a confusing `JsonException` instead of surfacing the
+  status — at that point the only defensible discriminator is content
+  negotiation on the `Accept` header; a path-prefix or extension sniff
+  duplicates routing knowledge inside middleware and still misses cases like
+  `/no-such.json`.
 - **There are two `wwwroot`s — a served static file belongs to the host's.**
   `BgQuiz_Blazor/wwwroot` is what the host serves (`app.css`, `favicon.png`,
   `lib/`, `robots.txt`); `BgQuiz_Blazor.Client/wwwroot` holds `js/` and reaches
@@ -2215,42 +1956,34 @@ the route map:
   retrospective below, and the three two-agent modes (user-vs-user,
   user-vs-bot, bot-vs-bot tournament).
 - **Reload-resume (persistence).** A full browser reload re-boots the WASM
-  runtime and loses the picked folder and quiz progress. Surviving a reload
-  needs the picked bytes + decisions/progress persisted client-side
-  (IndexedDB — `localStorage` is too small for buffered `.xg` bytes); this
-  is a deferred arc of its own, distinct from the stats file (which lives on
-  the user's disk and already survives reload via re-pick). Until then,
-  reload-reset is the intended default.
+  runtime and loses the picked folder and quiz progress. Surviving it needs
+  the picked bytes + progress persisted client-side (IndexedDB —
+  `localStorage` is too small for buffered `.xg` bytes); a deferred arc of
+  its own, distinct from the stats file (which lives on the user's disk and
+  survives via re-pick). Until then, reload-reset is the intended default.
 - **Mobile assessment — layout and folder picking.** Mobile layout has never
-  been assessed: the beta-readiness live drive was text/DOM-only (browser-pane
-  screenshots were broken that session). Verify on a real phone, or via the
-  pane once screenshots work. The quiz-stats arc raised the stakes:
-  `webkitdirectory` is weak-to-absent on mobile browsers (iOS Safari and many
-  Android browsers offer no real directory upload), so on phones the fallback
-  pick — and with it the whole app's pick gesture — may not work at all.
-  Assess the pick alongside the layout pass; neither is solved here.
-- **Done-page retrospective.** Per-problem review now ships *in-quiz* (the
-  review state's solution diagram shows the best play/action, the equity gap,
-  and — for cube — which half the user got wrong). What's still missing is a
-  *post-quiz* retrospective on Done: the four-way `ScoreBreakdown` reports only
-  aggregate Play/Double/Take/Total accuracy, with no way to revisit individual
-  problems after finishing. A scrollable list of the `History` / `CubeHistory`
-  entries (each re-rendering its solution diagram) would close the loop.
+  been assessed (the beta-readiness live drive was text/DOM-only). The
+  quiz-stats arc raised the stakes: `webkitdirectory` is weak-to-absent on
+  mobile browsers, so on phones the fallback pick — and with it the whole
+  app's pick gesture — may not work at all. Assess the pick alongside the
+  layout pass; neither is solved here.
+- **Done-page retrospective.** Per-problem review ships *in-quiz*; what's
+  missing is a *post-quiz* retrospective on Done — the four-way
+  `ScoreBreakdown` reports only aggregates, with no way to revisit
+  individual problems after finishing. A scrollable list of the `History` /
+  `CubeHistory` entries (each re-rendering its solution diagram) would close
+  the loop.
 - **Evaluate `RunAOTCompilation` for the Client publish.** The deployed WASM
   runs the Mono interpreter — measured ~8× native on the start-path parse
-  (2026-07-20, start-path arc) — and AOT would cut the residual *first*-Start
-  parse cost after the parse-once cache lands. Costs to measure before
-  committing: publish time, payload size (dotnet.wasm growth vs the ICU-drop
-  win), and the umbrella `infra/` zip-deploy recipe re-verified. Split out of
-  the start-path arc deliberately.
+  (2026-07-20) — and AOT would cut the residual *first*-Start parse cost.
+  Costs to measure before committing: publish time, payload size, and the
+  umbrella `infra/` zip-deploy recipe re-verified.
 - **e2e Too-Good coverage gap.** No e2e exercises a Too-Good cube answer end
-  to end — the committed cube fixture `BothAnalysis.xgp` is (NoDouble, Take);
-  the bUnit case
-  `Quiz_Review_CubeVerdict_LabelsHalvesByUsersSubmittedActions` covers the
-  verdict + scoring path meanwhile. Close by sourcing a Too-Good
+  to end — the committed cube fixture is (NoDouble, Take); a bUnit case
+  covers the verdict + scoring path meanwhile. Close by sourcing a Too-Good
   single-decision `.xgp` (`nd ≥ 1.0 && dt ≥ 1.0`) from the corpus via
-  ExtractFromXgToCsv's slice export — **anonymize ON**, the fixture commits to
-  a public repo — into `E2eTests/Fixtures/`, plus a `QuizFlowTests` case
-  (banner "Too Good" + `No Double: … · Pass: …` verdict → Done). Synthesis was
-  rejected: the producer's clean writer surface is unanalyzed by design.
-  Surfaced at the Arc A close-out (2026-07-22).
+  ExtractFromXgToCsv's slice export — **anonymize ON**, the fixture commits
+  to a public repo — into `E2eTests/Fixtures/`, plus a `QuizFlowTests` case
+  (banner "Too Good" + `No Double: … · Pass: …` verdict → Done). Synthesis
+  was rejected: the producer's clean writer surface is unanalyzed by design.
+  Surfaced 2026-07-22.
