@@ -78,7 +78,15 @@
         }
 
         <div class="d-flex align-items-center gap-3 mb-3">
-            <button type="button" id="mixAddRow" class="btn btn-outline-secondary btn-sm"
+            @* Outline-*primary*, not the secondary grey the panel's other
+               buttons wear. Adding a row is always valid — there is no state in
+               which this is disabled — but at zero rows it is surrounded by
+               three controls that genuinely are (Random order, Quiz length,
+               Apply Mix), so in secondary grey it read as a fourth switched-off
+               control, which is the one reading that must never happen: it is
+               the only way out of the zero-row state. Same class as Home's
+               "Choose folder…" — the page's other required-but-unstarted step. *@
+            <button type="button" id="mixAddRow" class="btn btn-outline-primary btn-sm"
                     @onclick="AddRow">
                 Add category
             </button>

@@ -376,6 +376,29 @@ public class MixPanelTests : BunitContext
     }
 
     [Fact]
+    public void BlankBuilder_AddCategoryIsUsable_AndDoesNotLookDisabled()
+    {
+        // Finding (AF). At zero rows the panel's other three controls are
+        // *genuinely* disabled, so Add category — which is never disabled, and
+        // is the only way out of the zero-row state — sat in a cluster of
+        // switched-off controls wearing the same secondary grey and read as one
+        // of them. Both halves are pinned together, because the defect was the
+        // gap between them: the button is enabled (state) and carries the
+        // actionable outline-primary styling (appearance). Disabling it, or
+        // restyling it back into the muted grey, fails here.
+        var cut = RenderPanel();
+
+        var addRow = cut.Find("#mixAddRow");
+        Assert.False(addRow.HasAttribute("disabled"));
+        Assert.Contains("btn-outline-primary", addRow.ClassName);
+
+        // The context that made the misread reasonable — asserted, not assumed.
+        Assert.True(cut.Find("#mixApply").HasAttribute("disabled"));
+        Assert.True(cut.Find("#mixRandomOrder").HasAttribute("disabled"));
+        Assert.True(cut.Find("#mixQuizLength").HasAttribute("disabled"));
+    }
+
+    [Fact]
     public void BlankBuilder_ApplyDisabled_ResetIsTheBlankPath()
     {
         var cut = RenderPanel();

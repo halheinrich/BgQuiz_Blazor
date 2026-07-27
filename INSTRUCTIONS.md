@@ -816,6 +816,16 @@ construction goes through the producer's validating factories with a
 try/catch backstop. A blank builder is always valid and commits
 `QuizMix.Empty` — the inert passthrough default.
 
+**Add category is styled `btn-outline-primary`, not the panel's secondary
+grey — don't "unify" it** (finding AF). Adding a row is always valid, so the
+button is never disabled; but at zero rows its three neighbours (Random
+order, Quiz length, Apply Mix) *are*, and in secondary grey it read as a
+fourth switched-off control — the one misreading that must never happen,
+since it is the only way out of the zero-row state. The class matches Home's
+`Choose folder…`, the page's other required-but-unstarted step.
+`MixPanelTests.BlankBuilder_AddCategoryIsUsable_AndDoesNotLookDisabled` pins
+state and appearance together, because the defect was the gap between them.
+
 **Commit model mirrors FilterPanel** — `OnMixApplied` on Apply, Reset, and
 **removing the last row** (both Reset and the last-row removal are an explicit
 apply of `QuizMix.Empty` through the shared `GoBlankAsync`, the sanctioned way
