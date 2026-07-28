@@ -224,9 +224,10 @@ public abstract class E2eTestBase : IAsyncLifetime
     }
 
     /// <summary>
-    /// Add one row to the weighted-mix builder. The fresh row lands as the
-    /// default "Never seen" category with its percent auto-completed — on an
-    /// empty builder that is a complete, valid 100% never-seen mix.
+    /// Add one row to the weighted-mix builder. The fresh row takes the first
+    /// unused category and the rows rebalance to an even 100% split, so on the
+    /// empty builder this helper requires it is a complete, valid 100%
+    /// "Never seen" mix.
     /// </summary>
     protected async Task AddDefaultMixRowAsync()
     {

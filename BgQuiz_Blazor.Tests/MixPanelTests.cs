@@ -1,3 +1,4 @@
+using System.Globalization;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Components.Pages;
 using Bunit;
@@ -11,8 +12,9 @@ namespace BgQuiz_Blazor.Tests;
 /// the parent decides whether to gate), the single-key localStorage
 /// round-trip through the lib's <c>ToJson</c>/<c>TryFromJson</c>, the
 /// semantic row order (reorder survives Apply), per-kind parameter defaults,
-/// the percent-display/fraction-store rule for the wrong-rate row, and the
-/// validation states that disable Apply.
+/// the row-count-owns-the-percents rebalance and next-unused-kind seeding
+/// (findings AH/AI), the percent-display/fraction-store rule for the wrong-rate
+/// row, and the validation states that disable Apply.
 /// </summary>
 public class MixPanelTests : BunitContext
 {
@@ -42,6 +44,16 @@ public class MixPanelTests : BunitContext
         IRenderedComponent<MixPanel> cut, int rowIndex, string title) =>
         cut.FindAll(".mix-row")[rowIndex].QuerySelector($"button[title='{title}']")!
             .ClickAsync(new());
+
+    /// <summary>Every row's percent field, in row order — the (AH) observable.</summary>
+    private static string[] Percents(IRenderedComponent<MixPanel> cut) =>
+        [.. cut.FindAll(".mix-row")
+            .Select(r => r.QuerySelector(".mix-percent")!.GetAttribute("value")!)];
+
+    /// <summary>Every row's selected kind, in row order — the (AI) observable.</summary>
+    private static string[] Kinds(IRenderedComponent<MixPanel> cut) =>
+        [.. cut.FindAll(".mix-row")
+            .Select(r => r.QuerySelector("option[selected]")!.GetAttribute("value")!)];
 
     // -----------------------------------------------------------------------
     //  Restore (first-render localStorage hydration)
@@ -222,15 +234,16 @@ public class MixPanelTests : BunitContext
         // edit — it raises dirty, not an Apply of Empty (the mix still has
         // uncommitted rows the user must Apply).
         var cut = RenderPanel();
-        await ClickAsync(cut, "#mixAddRow");
-        await ClickAsync(cut, "#mixAddRow");
-        cut.FindAll(".mix-row")[1].QuerySelector("select")!.Change("GotWrong");
+        await ClickAsync(cut, "#mixAddRow"); // NeverSeen
+        await ClickAsync(cut, "#mixAddRow"); // GotWrong — the next unused kind (AI)
         _dirtyCount = 0; // ignore the setup edits; count only the removal
 
         await ClickRowButtonAsync(cut, 0, "Remove");
 
         Assert.Single(cut.FindAll(".mix-row"));
-        Assert.Equal(1, _dirtyCount); // a plain dirty edit
+        // One dirty for the whole gesture, even though the removal also
+        // rebalanced the survivor's percent.
+        Assert.Equal(1, _dirtyCount);
         Assert.Empty(_applied);       // nothing committed — one row still pending
     }
 
@@ -300,9 +313,10 @@ public class MixPanelTests : BunitContext
     public async Task Reorder_MoveUp_SurvivesThroughApply()
     {
         var cut = RenderPanel();
-        await ClickAsync(cut, "#mixAddRow"); // NeverSeen, 100
-        await ClickAsync(cut, "#mixAddRow"); // NeverSeen, 1 — make it distinct + fix sum
-        cut.FindAll(".mix-row")[1].QuerySelector("select")!.Change("GotWrong");
+        await ClickAsync(cut, "#mixAddRow"); // NeverSeen
+        await ClickAsync(cut, "#mixAddRow"); // GotWrong — the next unused kind (AI)
+        // Hand-edited away from the even 50/50 the Add produced: the reorder must
+        // carry the percents with their rows, not re-derive them.
         cut.FindAll(".mix-row")[0].QuerySelector(".mix-percent")!.Input("60");
         cut.FindAll(".mix-row")[1].QuerySelector(".mix-percent")!.Input("40");
 
@@ -314,20 +328,148 @@ public class MixPanelTests : BunitContext
         var applied = Assert.Single(_applied);
         Assert.Equal(QuizCategory.GotWrong, applied.Entries[0].Category);
         Assert.Equal(QuizCategory.NeverSeen, applied.Entries[1].Category);
+        // Each percent travelled with its row: reordering is not a row-count
+        // change, so it does not rebalance (that would silently retune the mix).
+        Assert.Equal(40, applied.Entries[0].Percent);
+        Assert.Equal(60, applied.Entries[1].Percent);
     }
 
     [Fact]
     public async Task RemoveRow_DropsExactlyThatRow()
     {
         var cut = RenderPanel();
-        await ClickAsync(cut, "#mixAddRow");
-        await ClickAsync(cut, "#mixAddRow");
-        cut.FindAll(".mix-row")[1].QuerySelector("select")!.Change("GotWrong");
+        await ClickAsync(cut, "#mixAddRow"); // NeverSeen
+        await ClickAsync(cut, "#mixAddRow"); // GotWrong — the next unused kind (AI)
 
         await ClickRowButtonAsync(cut, 0, "Remove");
 
         var row = Assert.Single(cut.FindAll(".mix-row"));
         Assert.Equal("GotWrong", row.QuerySelector("option[selected]")!.GetAttribute("value"));
+    }
+
+    // -----------------------------------------------------------------------
+    //  The row count owns the percents and the new row's kind (findings AH/AI)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Add_RebalancesEveryRow_ToAnEven100Split_OverHandEditedPercents()
+    {
+        // Finding (AH). Add used to leave the existing rows alone, so the user
+        // hand-balanced back to the 100 the panel demands. Overwriting deliberate
+        // edits is the intent, not a side effect: the gesture restructures the
+        // mix, and the panel already knows the arithmetic.
+        var cut = RenderPanel();
+        await ClickAsync(cut, "#mixAddRow");
+        await ClickAsync(cut, "#mixAddRow");
+        cut.FindAll(".mix-row")[0].QuerySelector(".mix-percent")!.Input("90");
+        cut.FindAll(".mix-row")[1].QuerySelector(".mix-percent")!.Input("10");
+
+        await ClickAsync(cut, "#mixAddRow");
+
+        Assert.Equal(["34", "33", "33"], Percents(cut));
+    }
+
+    [Theory]
+    [InlineData(1, new[] { "100" })]
+    [InlineData(2, new[] { "50", "50" })]
+    [InlineData(3, new[] { "34", "33", "33" })]
+    [InlineData(6, new[] { "17", "17", "17", "17", "16", "16" })]
+    [InlineData(7, new[] { "15", "15", "14", "14", "14", "14", "14" })]
+    public async Task Add_FloorsTheShare_AndHandsTheRemainderOutFromTheTop(
+        int rowCount, string[] expected)
+    {
+        var cut = RenderPanel();
+        for (var i = 0; i < rowCount; i++) await ClickAsync(cut, "#mixAddRow");
+
+        Assert.Equal(expected, Percents(cut));
+        // The point of pinning the exact policy: the total lands on 100 by
+        // construction, so the "must reach 100%" error can never be the
+        // immediate consequence of an Add.
+        Assert.Equal(100, expected.Sum(p => int.Parse(p, CultureInfo.InvariantCulture)));
+        Assert.Contains("Total: 100%", cut.Markup);
+        Assert.DoesNotContain("must reach 100", cut.Markup);
+    }
+
+    [Fact]
+    public async Task SuccessiveAdds_WalkTheKindList_InPickerOrder()
+    {
+        // Finding (AI). Every Add used to land on NeverSeen, so building a mix
+        // meant re-picking each row's kind by hand — and the second row was born
+        // a duplicate of the first.
+        var cut = RenderPanel();
+        for (var i = 0; i < 7; i++) await ClickAsync(cut, "#mixAddRow");
+
+        Assert.Equal(
+            [
+                "NeverSeen", "GotWrong", "SeenFewerThan", "NotSeenInDays",
+                "AvgEquityLossOver", "WrongRateOver", "EverythingElse",
+            ],
+            Kinds(cut));
+        // Walking the list to its end is the whole point: EverythingElse, the
+        // residual, is offered last.
+        Assert.DoesNotContain("Duplicate category", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Add_SeedsTheNewKindsDefaultParameter_SoTheRowIsNeverBornInvalid()
+    {
+        // (AI) can now seat a *parameterized* kind on a fresh row, so Add must
+        // seed that kind's default exactly as picking it by hand does.
+        var cut = RenderPanel();
+        await ClickAsync(cut, "#mixAddRow"); // NeverSeen
+        await ClickAsync(cut, "#mixAddRow"); // GotWrong
+        await ClickAsync(cut, "#mixAddRow"); // SeenFewerThan — takes a parameter
+
+        Assert.Equal("3",
+            cut.FindAll(".mix-row")[2].QuerySelector(".mix-param")!.GetAttribute("value"));
+        Assert.False(cut.Find("#mixApply").HasAttribute("disabled")); // valid as built
+    }
+
+    [Fact]
+    public async Task Add_WhenEveryKindIsUsed_FallsBackToTheFirstKind()
+    {
+        var cut = RenderPanel();
+        for (var i = 0; i < 8; i++) await ClickAsync(cut, "#mixAddRow"); // one past the list
+
+        var kinds = Kinds(cut);
+        Assert.Equal(8, kinds.Length);
+        Assert.Equal("NeverSeen", kinds[^1]);
+        // The fallback does not pretend the row is usable — beyond the list every
+        // choice is a duplicate, and the existing validation says so.
+        Assert.Contains("Duplicate category", cut.Markup);
+        // The rebalance still lands on exactly 100, duplicate or not.
+        Assert.Equal(["13", "13", "13", "13", "12", "12", "12", "12"], Percents(cut));
+    }
+
+    [Fact]
+    public async Task Remove_RebalancesTheSurvivingRows_ToAnEven100Split()
+    {
+        // Settled symmetric with Add: a removal must not strand the panel showing
+        // "must reach 100%" for percent the user never chose to give away.
+        var cut = RenderPanel();
+        for (var i = 0; i < 3; i++) await ClickAsync(cut, "#mixAddRow");
+
+        await ClickRowButtonAsync(cut, 1, "Remove");
+
+        Assert.Equal(["50", "50"], Percents(cut));
+        Assert.Equal(["NeverSeen", "SeenFewerThan"], Kinds(cut)); // exactly that row went
+        Assert.DoesNotContain("must reach 100", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Add_RaisesDirtyOnce_HoweverManyRowsItRebalanced()
+    {
+        // Dirty is per gesture, not per row touched — the parent's Start gate
+        // counts commits, and a rebalance that fanned out N dirty events would
+        // still be one uncommitted edit.
+        var cut = RenderPanel();
+
+        await ClickAsync(cut, "#mixAddRow");
+        await ClickAsync(cut, "#mixAddRow");
+        await ClickAsync(cut, "#mixAddRow");
+
+        Assert.Equal(3, _dirtyCount);
+        Assert.Empty(_applied); // and the rebalance is an edit, never a commit
     }
 
     // -----------------------------------------------------------------------
@@ -353,12 +495,15 @@ public class MixPanelTests : BunitContext
     public async Task Apply_Disabled_OnDuplicateCategory()
     {
         var cut = RenderPanel();
-        await ClickAsync(cut, "#mixAddRow");
-        await ClickAsync(cut, "#mixAddRow");
-        cut.FindAll(".mix-row")[0].QuerySelector(".mix-percent")!.Input("50");
-        cut.FindAll(".mix-row")[1].QuerySelector(".mix-percent")!.Input("50");
+        await ClickAsync(cut, "#mixAddRow"); // NeverSeen, 100
+        await ClickAsync(cut, "#mixAddRow"); // GotWrong, and both rebalanced to 50
 
-        // Both rows are NeverSeen — same kind, no parameter: a duplicate.
+        // Add no longer produces a duplicate on its own (AI), so the collision is
+        // now what it should be: a deliberate hand pick. The panel does not fight
+        // it — the row shows the chosen kind and validation reports the clash.
+        cut.FindAll(".mix-row")[1].QuerySelector("select")!.Change("NeverSeen");
+
+        Assert.Equal(["NeverSeen", "NeverSeen"], Kinds(cut));
         Assert.True(cut.Find("#mixApply").HasAttribute("disabled"));
         Assert.Contains("Duplicate category", cut.Markup);
     }

@@ -176,7 +176,8 @@ BgQuiz_Blazor.Tests/
   QuizControllerOverlapTests.cs     — the transition-gate overlap suite
   CachedProblemSetSourceTests.cs    — parse-once / invalidation / equivalence
   CubeActionDisplayTests.cs
-  MixPanelTests.cs                  — builder round-trip / validation / order pins
+  MixPanelTests.cs                  — builder round-trip / validation / order /
+                                      rebalance + next-kind pins
   AppliedMixTests.cs
   QuizStatsStoreTests.cs            — bind / fold / write-back / degrade guarantees
   SavedFiltersStoreTests.cs         — load / persist / degrade (zero-writes pins)
@@ -750,7 +751,21 @@ length-without-entries is invalid by producer rule, and "cap without
 weighting" is one Everything-else row at 100 plus a length). Row order is
 **semantic** (earlier rows win contested overlap — producer contract), so
 rows carry explicit ↑/↓ reorder buttons and both commit and restore preserve
-order exactly. The wrong-rate row *displays* percent and *stores* the
+order exactly. **The row count owns the percents**: Add *and* Remove alike
+re-derive every row's percent as an even split totalling exactly 100 (floor
+share; the remainder handed out one apiece from the top, so the
+overlap-winning early rows carry it), deliberately overwriting hand-edited
+values — the panel demands a 100 total, so a structural edit that left the
+old numbers standing only handed the user arithmetic, and the split always
+lands on 100 so "must reach 100%" can never be the *consequence* of an
+Add/Remove (findings AH/AI). A new row likewise starts on the first kind no
+existing row uses, seeded with that kind's default parameter, so successive
+Adds walk the picker order and finish on the residual `Everything else`
+rather than stacking duplicate `Never seen` rows. Both are seeding at
+Add/Remove time **only**: an existing row's kind and percent stay the
+user's, a hand-picked duplicate is left to stand as the validation error it
+is, and reordering — not a row-count change — never rebalances. The
+wrong-rate row *displays* percent and *stores* the
 producer's fraction — thresholds are fractions; rendering is a display
 concern. Validation disables Apply with an inline reason; category
 construction goes through the producer's validating factories with a

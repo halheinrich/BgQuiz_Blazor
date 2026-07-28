@@ -38,6 +38,23 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
+/// <b>The row count owns the percents.</b> Every change to the number of rows
+/// — Add and Remove alike — re-derives <i>all</i> percents as an even split
+/// totalling exactly 100 (<see cref="RebalancePercentsEvenly"/>), deliberately
+/// overwriting hand-edited values: the panel demands a 100 total, so a
+/// structural edit that left the old numbers standing simply handed the user
+/// arithmetic (findings AH/AI). Because the split always lands on 100, the
+/// "must reach 100%" error can never appear as a <i>consequence</i> of
+/// Add/Remove — only of a subsequent hand edit, which is the one case where it
+/// is informative. A new row also starts on the first kind no existing row uses
+/// (<see cref="NextUnusedKind"/>), so successive Adds walk
+/// <see cref="CategoryKinds"/> in order instead of piling up duplicates. Both
+/// rules are Add/Remove-time seeding only: once a row exists the user owns its
+/// kind and its percent, and a duplicate kind chosen by hand is left to stand
+/// as the validation error it is.
+/// </para>
+///
+/// <para>
 /// <b>Persistence</b> is the <c>FilterPanel</c> trio over one localStorage
 /// key (<see cref="MixKey"/>): <see cref="QuizMix.ToJson"/> on Apply,
 /// <see cref="QuizMix.TryFromJson"/> on restore — absent or corrupt yields
@@ -93,11 +110,13 @@ public partial class MixPanel : ComponentBase
     /// in-progress typing needs a string distinct from the committed value —
     /// hydrated from a restored mix, flushed into a <see cref="QuizMixEntry"/>
     /// on Apply, never persisted on their own (the <c>FilterPanel</c> buffer
-    /// pattern).
+    /// pattern). <see cref="Kind"/> is <c>required</c>: the enum starts at 1, so
+    /// there is no meaningful default, and each of the two construction sites
+    /// (Add, restore-hydrate) chooses the kind deliberately.
     /// </summary>
     private sealed class MixRow
     {
-        public QuizCategoryKind Kind { get; set; } = QuizCategoryKind.NeverSeen;
+        public required QuizCategoryKind Kind { get; set; }
         public string ParamText { get; set; } = string.Empty;
         public string PercentText { get; set; } = string.Empty;
     }
@@ -306,15 +325,52 @@ public partial class MixPanel : ComponentBase
 
     private void MarkDirty() => OnMixDirty.InvokeAsync();
 
+    /// <summary>
+    /// The kind a newly added row starts on: the first entry of
+    /// <see cref="CategoryKinds"/> no existing row already uses, so successive
+    /// Adds walk the picker's display order (finding AI) rather than stacking
+    /// duplicate <c>NeverSeen</c> rows the user must then re-pick one by one.
+    /// The list is ordered from most- to least-specific and ends in
+    /// <c>EverythingElse</c>, which suits it as the last one offered. When every
+    /// kind is in use, fall back to the first: further rows can only be
+    /// duplicates whatever we pick, and the existing "Duplicate category" error
+    /// says so plainly.
+    /// </summary>
+    private QuizCategoryKind NextUnusedKind() =>
+        CategoryKinds.FirstOrDefault(
+            kind => !_rows.Any(row => row.Kind == kind), CategoryKinds[0]);
+
+    /// <summary>
+    /// Re-derive every row's percent as an even split summing to <b>exactly</b>
+    /// 100 (finding AH). Rounding policy: each row takes the floor share, and
+    /// the leftover units are handed out one apiece from the top, so the total
+    /// is 100 by construction and the earlier — contested-overlap-winning — rows
+    /// carry the extra unit. Deliberately overwrites hand-edited percents; the
+    /// gesture that changes the row count is a restructuring of the mix, and the
+    /// alternative is leaving the user to redo the arithmetic the panel already
+    /// knows. Above 100 rows the floor share is 0 and the per-row 1–100 check
+    /// reports it: that state is genuinely uncommittable, not a rounding bug.
+    /// Both call sites guarantee at least one row — Add has just appended, and
+    /// Remove hands zero rows to the blank path before reaching here.
+    /// </summary>
+    private void RebalancePercentsEvenly()
+    {
+        var share = 100 / _rows.Count;
+        var remainder = 100 % _rows.Count;
+        for (var i = 0; i < _rows.Count; i++)
+            _rows[i].PercentText = (share + (i < remainder ? 1 : 0))
+                .ToString(CultureInfo.InvariantCulture);
+    }
+
     private void AddRow()
     {
-        // A fresh row lands valid: default kind takes no parameter, and its
-        // percent defaults to whatever completes the sum (at least 1).
-        _rows.Add(new MixRow
-        {
-            PercentText = Math.Clamp(100 - PercentSum, 1, 100)
-                .ToString(CultureInfo.InvariantCulture),
-        });
+        // A fresh row lands valid and distinct: the next unused kind, seeded
+        // with that kind's default parameter (a row is never born invalid), and
+        // then every row's percent re-derived to an even 100 total.
+        var kind = NextUnusedKind();
+        _rows.Add(new MixRow { Kind = kind, ParamText = DefaultParamText(kind) });
+        RebalancePercentsEvenly();
+        // One dirty per gesture, however many rows the rebalance touched.
         MarkDirty();
     }
 
@@ -329,6 +385,10 @@ public partial class MixPanel : ComponentBase
         // commit the blank mix through the same channel Reset uses, so
         // AppliedMix un-dirties, Start un-gates, and localStorage matches Reset.
         if (_rows.Count == 0) return GoBlankAsync();
+        // Symmetric with Add: the surviving rows split 100 evenly, so a removal
+        // never strands the panel showing "must reach 100%" for percent the user
+        // did not choose to give away.
+        RebalancePercentsEvenly();
         MarkDirty();
         return Task.CompletedTask;
     }
