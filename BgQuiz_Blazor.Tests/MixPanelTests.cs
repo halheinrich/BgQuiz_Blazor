@@ -8,8 +8,9 @@ namespace BgQuiz_Blazor.Tests;
 /// <summary>
 /// Tests for <see cref="MixPanel"/> — the stats-weighted mix builder. Pins the
 /// <c>FilterPanel</c>-mirroring commit model (Apply/Reset/dirty, and the
-/// reconcile-not-adopt restore — the panel hydrates and raises OnMixRestored,
-/// the parent decides whether to gate), the single-key localStorage
+/// reconcile-not-adopt hydration — the panel hydrates and raises OnMixHydrated
+/// whether or not anything was stored, the parent decides whether to gate), the
+/// single-key localStorage
 /// round-trip through the lib's <c>ToJson</c>/<c>TryFromJson</c>, the
 /// semantic row order (reorder survives Apply), per-kind parameter defaults,
 /// the row-count-owns-the-percents rebalance and next-unused-kind seeding
@@ -27,13 +28,13 @@ public class MixPanelTests : BunitContext
     }
 
     private readonly List<QuizMix> _applied = [];
-    private readonly List<QuizMix> _restored = [];
+    private readonly List<QuizMix> _hydrated = [];
     private int _dirtyCount;
 
     private IRenderedComponent<MixPanel> RenderPanel() =>
         Render<MixPanel>(parameters => parameters
             .Add(p => p.OnMixApplied, (QuizMix m) => _applied.Add(m))
-            .Add(p => p.OnMixRestored, (QuizMix m) => _restored.Add(m))
+            .Add(p => p.OnMixHydrated, (QuizMix m) => _hydrated.Add(m))
             .Add(p => p.OnMixDirty, () => _dirtyCount++));
 
     private static Task ClickAsync(IRenderedComponent<MixPanel> cut, string selector) =>
@@ -56,34 +57,57 @@ public class MixPanelTests : BunitContext
             .Select(r => r.QuerySelector("option[selected]")!.GetAttribute("value")!)];
 
     // -----------------------------------------------------------------------
-    //  Restore (first-render localStorage hydration)
+    //  Hydration (first-render localStorage restore)
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void Restore_NothingPersisted_BlankBuilder_NoRestoredEvent()
+    public void Hydrate_NothingPersisted_BlankBuilder_RaisesHydratedWithBlankMix()
     {
+        // The signal is TOTAL (finding AK): "nothing was stored" is a statement
+        // the parent needs — it is what proves a dirty flag surviving from a
+        // previous, now-unmounted instance of this panel stale. Silence here left
+        // that flag standing and wedged Start.
         var cut = RenderPanel();
 
         Assert.Empty(cut.FindAll(".mix-row"));
-        Assert.Empty(_restored); // nothing parsed → nothing to reconcile
-        Assert.Empty(_applied);
-        Assert.Equal(0, _dirtyCount);
+        var hydrated = Assert.Single(_hydrated);
+        Assert.True(hydrated.IsPassthrough); // exactly what the blank panel shows
+        Assert.Empty(_applied);              // still no commit…
+        Assert.Equal(0, _dirtyCount);        // …and no dirty of its own
     }
 
     [Fact]
-    public void Restore_CorruptJson_BlankBuilder_NoRestoredEvent()
+    public void Hydrate_CorruptJson_BlankBuilder_RaisesHydratedWithBlankMix()
     {
+        // Corrupt is the absent case's twin: the builder is blank, so the panel
+        // says so rather than staying silent. The stored blob is left untouched
+        // (never-silently-clear), which is why this can't be folded into a write.
         JSInterop.Setup<string?>("localStorage.getItem", MixPanel.MixKey)
             .SetResult("}{ not valid json");
 
         var cut = RenderPanel();
 
         Assert.Empty(cut.FindAll(".mix-row"));
-        Assert.Empty(_restored);
+        var hydrated = Assert.Single(_hydrated);
+        Assert.True(hydrated.IsPassthrough);
+        Assert.Empty(_applied);
+        Assert.Equal(0, _dirtyCount);
     }
 
     [Fact]
-    public void Restore_PersistedMix_HydratesRowsInWireOrder_AndRaisesRestored()
+    public void Hydrate_NothingPersisted_LeavesRandomOrderDefaultOn()
+    {
+        // The blank-hydration arm must not project TryFromJson's Empty fallback
+        // onto the builder: Empty carries RandomOrder false, while the blank
+        // builder's default — and the checkbox a first-time user sees — is on.
+        // Only a *successful* parse hydrates; the raise is what became total.
+        var cut = RenderPanel();
+
+        Assert.True(cut.Find("#mixRandomOrder").HasAttribute("checked"));
+    }
+
+    [Fact]
+    public void Hydrate_PersistedMix_HydratesRowsInWireOrder_AndRaisesHydrated()
     {
         var mix = new QuizMix(
             [
@@ -112,29 +136,29 @@ public class MixPanelTests : BunitContext
         // The panel hands the parsed mix to the parent for reconciliation — it
         // neither commits (no Apply) nor dirties itself (the gate decision is the
         // parent's, against its holder).
-        var restored = Assert.Single(_restored);
-        Assert.Equal(mix.Entries, restored.Entries); // QuizMixEntry is value-equal
-        Assert.Equal(25, restored.QuizLength);
-        Assert.False(restored.RandomOrder);
+        var hydrated = Assert.Single(_hydrated);
+        Assert.Equal(mix.Entries, hydrated.Entries); // QuizMixEntry is value-equal
+        Assert.Equal(25, hydrated.QuizLength);
+        Assert.False(hydrated.RandomOrder);
         Assert.Empty(_applied);
         Assert.Equal(0, _dirtyCount);
     }
 
     [Fact]
-    public void Restore_PersistedPassthroughMix_HydratesBlank_RaisesRestored()
+    public void Hydrate_PersistedPassthroughMix_HydratesBlank_RaisesHydrated()
     {
         // A persisted passthrough (e.g. after a prior Reset) round-trips to zero
-        // rows. The panel still raises OnMixRestored so the parent can reconcile
-        // (it will no-op on passthrough); the panel itself neither dirties nor
-        // commits.
+        // rows. The panel raises OnMixHydrated so the parent can reconcile — the
+        // same blank statement the nothing-stored case makes, reached the other
+        // way; the panel itself neither dirties nor commits.
         JSInterop.Setup<string?>("localStorage.getItem", MixPanel.MixKey)
             .SetResult(QuizMix.Empty.ToJson());
 
         var cut = RenderPanel();
 
         Assert.Empty(cut.FindAll(".mix-row"));
-        var restored = Assert.Single(_restored);
-        Assert.True(restored.IsPassthrough);
+        var hydrated = Assert.Single(_hydrated);
+        Assert.True(hydrated.IsPassthrough);
         Assert.Equal(0, _dirtyCount);
         Assert.Empty(_applied);
     }

@@ -809,24 +809,46 @@ public partial class Home : ComponentBase
         _noMatchNotice = null;
     }
 
-    private void HandleMixRestored(QuizMix mix)
+    /// <summary>
+    /// The panel's first-render hydration settled: <b>reconcile</b> what it now
+    /// displays against the committed-mix holder — never adopt. The one point
+    /// where a freshly-mounted panel and the surviving holder are compared, and
+    /// it moves the gate in both directions.
+    ///
+    /// <para>
+    /// <b>Holder still passthrough</b> — nothing is committed, so the panel's
+    /// contents decide. A non-passthrough hydration <i>gates</i> (a fresh load:
+    /// the shown-but-uncommitted mix must gate, or Start would run passthrough
+    /// while a mix is displayed). A passthrough one <i>un-gates</i>: a just-mounted
+    /// blank panel holds no edit and nothing is stored, so any surviving
+    /// <see cref="AppliedMix.IsDirty"/> was left by an edit that unmounted with the
+    /// previous panel instance — the flag is Scoped, the rows are not. Without
+    /// this arm that flag wedged Start behind "Apply or reset the mix" with an
+    /// empty panel, Apply disabled at zero rows, and only the panel's Reset as an
+    /// escape (finding AK).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Holder non-passthrough</b> — a committed mix survived navigate-back, so
+    /// the hydration is left entirely alone: no re-gate (the user needn't re-Apply
+    /// what they applied) and no un-gate (this arm must never clear a flag while a
+    /// committed mix stands behind it; the panel there is populated, so Apply is
+    /// the visible escape). Reachable states make the check airtight: Start (the
+    /// only way off Home into a quiz) requires <c>!IsDirty</c>, so a committed mix
+    /// could only have been Applied (holder non-passthrough) or Reset/left blank
+    /// (holder passthrough <i>and</i> localStorage Empty → this hydration is
+    /// passthrough too), never a non-passthrough hydration against a passthrough
+    /// holder that wasn't a genuine fresh load.
+    /// </para>
+    /// </summary>
+    private void HandleMixHydrated(QuizMix mix)
     {
-        // The panel's first-render localStorage restore: reconcile, don't adopt.
-        // Gate Start (mark dirty) only when the restore is non-passthrough AND
-        // the holder is still at its passthrough default — a fresh load, where
-        // the shown-but-uncommitted mix must gate so Start can't run passthrough
-        // while a mix is displayed. When the holder already holds a committed
-        // mix, this is navigate-back (the Scoped holder survived), so leave it
-        // untouched — the user needn't re-Apply what they already applied. The
-        // holder-passthrough check is airtight for reachable states: Start (the
-        // only way off Home into a quiz) requires !IsDirty, so a committed mix
-        // could only have been Applied (holder non-passthrough) or Reset/left
-        // blank (holder passthrough, localStorage Empty → this restore is
-        // passthrough too), never a non-passthrough restore against a passthrough
-        // holder that wasn't a genuine fresh load. This is NOT the removed
-        // adopt-on-restore — it never commits the stored mix.
-        if (!mix.IsPassthrough && AppliedMix.Current.IsPassthrough)
+        if (!AppliedMix.Current.IsPassthrough) return;
+
+        if (!mix.IsPassthrough)
             AppliedMix.MarkDirty();
+        else
+            AppliedMix.ClearDirty();
     }
 
     private void HandleMixDirty()

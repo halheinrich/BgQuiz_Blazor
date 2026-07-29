@@ -8,9 +8,11 @@ using BgGame_Lib;
 /// mix sibling of <see cref="AppliedFilter"/>, completing the start gate's
 /// composition half. <c>Home.razor</c> writes it from the mix panel's events
 /// (<c>OnMixApplied</c> → <see cref="Apply"/>, <c>OnMixDirty</c> →
-/// <see cref="MarkDirty"/>, and <c>OnMixRestored</c> → a reconcile that marks
-/// <see cref="MarkDirty"/> only on a fresh load); <c>Home</c> reads
-/// <see cref="Current"/> at Start and <see cref="IsDirty"/> in its gate.
+/// <see cref="MarkDirty"/>, and <c>OnMixHydrated</c> → a reconcile that marks
+/// <see cref="MarkDirty"/> only on a fresh load and clears it
+/// (<see cref="ClearDirty"/>) when the freshly-mounted panel is blank);
+/// <c>Home</c> reads <see cref="Current"/> at Start and <see cref="IsDirty"/> in
+/// its gate.
 ///
 /// <para>
 /// <b>Semantics differ from <see cref="AppliedFilter"/> deliberately.</b> The
@@ -24,7 +26,10 @@ using BgGame_Lib;
 /// restore marks <see cref="IsDirty"/> only when <see cref="Current"/> is still
 /// passthrough (a fresh load, so Start gates until the user re-Applies); when a
 /// committed mix already survives here (navigate-back), the restore is left
-/// untouched, so no re-Apply is forced. The two start-gate halves therefore
+/// untouched, so no re-Apply is forced; and a <i>blank</i> hydration against a
+/// passthrough <see cref="Current"/> <see cref="ClearDirty"/>s, because a
+/// freshly-mounted blank panel proves the edit the flag stood for no longer
+/// exists anywhere (finding AK). The two start-gate halves therefore
 /// block by different mechanisms, because their defaults differ: the filter
 /// blocks via not-yet-applied (it has no valid default), the mix via dirty
 /// (passthrough is its valid default, so "never applied" can't be the gate).
@@ -70,6 +75,31 @@ internal sealed class AppliedMix
 
     /// <summary>Record an uncommitted edit; cleared by the next <see cref="Apply"/>.</summary>
     public void MarkDirty() => IsDirty = true;
+
+    /// <summary>
+    /// Drop a dirty flag that no longer stands for anything — the un-gate arm of
+    /// <c>Home</c>'s hydration reconcile, and its <b>only</b> legitimate caller.
+    ///
+    /// <para>
+    /// The flag and the edit it describes have different lifetimes: this holder is
+    /// Scoped (it survives in-app navigation) while the edit lives in
+    /// <c>MixPanel</c>'s rows, which die with the component. Navigating away
+    /// therefore leaves <see cref="IsDirty"/> pointing at a draft that no longer
+    /// exists in the panel, in storage, or here — Start gated on nothing, with
+    /// Apply disabled at zero rows and only the panel's Reset as an escape
+    /// (finding AK, pre-existing on v1.1.0). A panel that has just hydrated blank
+    /// while <see cref="Current"/> is passthrough is proof of exactly that state,
+    /// and this clears it.
+    /// </para>
+    ///
+    /// <para>
+    /// Deliberately <i>not</i> a general un-gate: clearing the flag while an
+    /// uncommitted edit is still on screen is precisely the divergence the gate
+    /// exists to prevent (Start would run a mix the panel doesn't show). Committing
+    /// is <see cref="Apply"/>'s job; ending the setup is <see cref="Reset"/>'s.
+    /// </para>
+    /// </summary>
+    public void ClearDirty() => IsDirty = false;
 
     /// <summary>
     /// Reset to the passthrough default and clear any dirty state — the

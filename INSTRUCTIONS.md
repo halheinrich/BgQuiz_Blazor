@@ -785,14 +785,16 @@ explicit apply of `QuizMix.Empty` through the shared `GoBlankAsync`, the
 sanctioned way this panel writes Empty over a stored mix; the last-row case
 closes the wedge where a mix edited down to zero rows stayed `IsDirty` with
 Apply disabled at zero rows, stranding Start until Reset), `OnMixDirty` per
-other edit. The first-render localStorage restore raises **`OnMixRestored`**
-carrying the restored mix, and Home ***reconciles*** it against the holder —
-marked dirty only on a fresh load, never adopted, never re-gating a
-surviving committed mix; the full rule and its rationale live in Pitfalls
-(*the mix restore reconciles; it must never adopt*). No content-equality is
-needed: Start requires `!IsDirty`, so a surviving committed mix was either
-Applied (holder non-passthrough) or Reset/left blank (holder passthrough
-*and* localStorage Empty, so the restore is passthrough too). Both
+other edit. The first-render localStorage restore raises **`OnMixHydrated`**
+carrying **what the panel then shows** — always, `QuizMix.Empty` when nothing
+was stored or the blob was corrupt — and Home ***reconciles*** it against the
+holder: marked dirty only on a fresh load, never adopted, never re-gating a
+surviving committed mix, and **un-gated when a blank hydration meets a
+passthrough holder** (finding AK). The full rule and its rationale live in
+Pitfalls (*the mix restore reconciles; it must never adopt*). No
+content-equality is needed: Start requires `!IsDirty`, so a surviving committed
+mix was either Applied (holder non-passthrough) or Reset/left blank (holder
+passthrough *and* localStorage Empty, so the hydration is passthrough too). Both
 wiring-critical callbacks are `[EditorRequired]`. Persistence is the lib
 trio over one key, **`xg_quizMix`**: `ToJson` on Apply, `TryFromJson` on
 restore — absent/corrupt yields a blank builder, never an error; the
@@ -1678,8 +1680,8 @@ the route map:
   one sanctioned overwrite is the panel's own Apply/Reset — an explicit user
   gesture. Same spirit as the never-overwrite-unreadable-stats rule below.
 - **The mix restore reconciles; it must never adopt.** The panel's first-render
-  restore raises `OnMixRestored`, and Home marks the mix dirty **only** when the
-  restore is non-passthrough *and* `AppliedMix.Current` is still passthrough.
+  restore raises `OnMixHydrated`, and Home marks the mix dirty **only** when the
+  hydration is non-passthrough *and* `AppliedMix.Current` is still passthrough.
   Both halves are load-bearing. Drop the second and every navigate-back re-gates
   a mix the user already applied. Make it adopt (commit the restored mix
   straight into the holder) and a persisted mix silently becomes committed
@@ -1688,6 +1690,20 @@ the route map:
   the filter's default already blocks Start (`IsApplied` false), whereas the
   mix's passthrough default does *not*, so a silent restore would leave rows
   showing while Start ran passthrough.
+- **The hydration signal is total — silence is not an option either.** Raising
+  `OnMixHydrated` only on a successful parse (as it was through v1.1.0) wedged
+  Start: `AppliedMix` is Scoped and `MixPanel`'s rows are not, so an edit made
+  and then navigated away from left `IsDirty` true with the draft gone from the
+  panel, from localStorage, and from the holder — Start disabled behind "Apply or
+  reset the mix", Apply disabled at zero rows, only the panel's Reset as an
+  escape (finding AK). The blank hydration *is* the fact that clears it, so the
+  panel raises it whether or not anything restored and Home's one reconcile point
+  moves the gate both ways (`AppliedMix.ClearDirty()`, whose only legitimate
+  caller that is). Un-gating stays confined to the passthrough-holder arm: a
+  hydration meeting a *committed* mix is left alone, both ways.
+  Only a successful parse **hydrates**, though — `TryFromJson`'s `Empty`
+  fallback is a usable mix, but projecting it would overwrite the blank
+  builder's `RandomOrder` default (true) with `Empty`'s (false).
 - **`MixPanel`'s `@key` on `PickGeneration` is load-bearing — don't drop it.**
   An Enabled→Enabled re-pick leaves both the capability gate and `HasFiles`
   true, so without the key the panel never re-mounts, its first-render restore

@@ -3618,7 +3618,7 @@ public class PageTests : BunitContext
         // boot / reload), so a persisted non-blank mix restores into the panel
         // for convenience but is NOT adopted — the reconcile gates Start (dirty)
         // so it can't run passthrough while a mix is displayed. Driven through the
-        // real MixPanel restore (localStorage → panel → OnMixRestored → holder),
+        // real MixPanel restore (localStorage → panel → OnMixHydrated → holder),
         // not a synthetic event, so it pins the whole wire.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: StatsSaveCapability.Enabled);
@@ -3722,6 +3722,79 @@ public class PageTests : BunitContext
         // Start stays enabled — no re-Apply forced.
         Assert.NotEmpty(cut.FindAll(".mix-row"));
         Assert.False(holder.Current.IsPassthrough);
+        Assert.False(holder.IsDirty);
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_MixEditedThenNavigatedAway_RemountsBlank_UnGatesStart()
+    {
+        // Finding (AK), the wedge: the dirty flag and the edit it stands for have
+        // different lifetimes. AppliedMix is Scoped (it survives in-app
+        // navigation); MixPanel's rows are component state and die on unmount. Edit
+        // the panel, navigate away, come back — and the flag pointed at a draft
+        // that existed nowhere: panel blank, nothing in localStorage, holder
+        // passthrough, yet Start disabled behind "Apply or reset the mix" with
+        // Apply disabled at zero rows. The remount's (now total) hydration signal
+        // is what clears it. Fails against pre-fix code, where a blank hydration
+        // raised nothing and Home's reconcile never ran.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder(capability: StatsSaveCapability.Enabled); // mix panel is Enabled-gated
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        var holder = WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose; // getItem → null: nothing was ever applied
+
+        var cut = Render<HomePage>();
+
+        // Add a category and stop there — an uncommitted edit, so Start gates.
+        await cut.Find("#mixAddRow").ClickAsync(new());
+        Assert.True(holder.IsDirty);
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains("Apply or reset the mix", cut.Markup);
+
+        // Navigate away: Home and its MixPanel unmount, taking the draft rows.
+        // The holders (Singleton here, Scoped in the app) survive, as on a real
+        // in-app navigation to Help and back.
+        await DisposeComponentsAsync();
+        var back = Render<HomePage>();
+
+        // The remounted panel is authoritatively blank — and so is the holder, so
+        // there is no uncommitted edit anywhere for the gate to protect.
+        Assert.Empty(back.FindAll(".mix-row"));
+        Assert.True(holder.Current.IsPassthrough);
+        Assert.False(holder.IsDirty);
+        Assert.False(StartButton(back).HasAttribute("disabled"));
+        Assert.DoesNotContain("Apply or reset the mix", back.Markup);
+    }
+
+    [Fact]
+    public async Task Home_DirtyMixOverBlankPanel_ResetStillUnGatesStart()
+    {
+        // The escape hatch (AK) kept working: whatever leaves the holder dirty
+        // over a zero-row panel, the panel's Reset commits the blank mix and
+        // un-gates Start — the route the user actually found. Pinned separately
+        // from the wedge because the fix above removes the wedge but must not
+        // remove this: Apply is (correctly) disabled at zero rows, so Reset is the
+        // only in-panel commit there.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        var holder = WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        var panel = cut.FindComponent<MixPanelComponent>();
+        await cut.InvokeAsync(() => panel.Instance.OnMixDirty.InvokeAsync());
+
+        Assert.Empty(cut.FindAll(".mix-row"));
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.True(cut.Find("#mixApply").HasAttribute("disabled")); // no escape via Apply
+
+        await cut.Find("#mixReset").ClickAsync(new());
+
+        Assert.True(holder.Current.IsPassthrough);
         Assert.False(holder.IsDirty);
         Assert.False(StartButton(cut).HasAttribute("disabled"));
     }
