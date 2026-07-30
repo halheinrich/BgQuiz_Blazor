@@ -1,22 +1,20 @@
 @using BgGame_Lib
 @using BgQuiz_Blazor.Client.Quiz
-@inject IJSRuntime JS
+@inject MixDraft Draft
 
 @* ── MixPanel.razor ──────────────────────────────────────────────────────────
-   The stats-weighted mix builder: an ordered list of (category, percent) rows
-   plus the Random-order toggle and an optional quiz length. Raises OnMixApplied
-   on Apply, on Reset, and when the last row is removed (Reset and last-row
-   removal both being an explicit apply of the blank mix); raises OnMixDirty on
-   every other control change so the parent can gate Start until Apply. The
-   first-render localStorage restore hydrates the panel and raises OnMixHydrated
-   — always, carrying what the panel then shows (Empty when nothing was stored)
-   — so the parent reconciles it against the committed-mix holder (gate on a
-   fresh load, leave a surviving committed mix untouched on navigate-back,
-   un-gate a blank panel) — it never commits. Row order is semantic — earlier
-   rows win contested overlap (producer contract) — hence the explicit ↑/↓
-   affordance.
-   State persists as one QuizMix blob (xg_quizMix) via the lib's
-   ToJson / TryFromJson; this component never touches a JSON serializer.
+   The stats-weighted mix builder: a VIEW over the app-scoped MixDraft — an
+   ordered list of (category, percent) rows plus the Random-order toggle and an
+   optional quiz length, all owned by the draft so edits survive in-app
+   navigation. Raises OnMixApplied on Apply, on Reset, and when the last row is
+   removed (Reset and last-row removal both being an explicit apply of the
+   blank mix); mere edits raise nothing — the draft notifies its subscribers
+   and the start gate derives from draft-vs-committed content equality. Init
+   triggers the draft's once-per-setup localStorage hydration; it never
+   commits. Row order is semantic — earlier rows win contested overlap
+   (producer contract) — hence the explicit ↑/↓ affordance.
+   The committed mix persists as one QuizMix blob (xg_quizMix) via the draft's
+   PersistAsync; this component never touches a serializer or localStorage.
 ──────────────────────────────────────────────────────────────────────────── *@
 
 <div class="card mb-4" style="max-width:800px">
@@ -26,7 +24,7 @@
     </div>
     <div class="card-body">
 
-        @if (_rows.Count == 0)
+        @if (Draft.Rows.Count == 0)
         {
             <p class="text-muted small">
                 No mix: the quiz takes every matching problem, as usual. Add a
@@ -43,14 +41,14 @@
             </p>
         }
 
-        @for (var i = 0; i < _rows.Count; i++)
+        @for (var i = 0; i < Draft.Rows.Count; i++)
         {
-            var row = _rows[i];
+            var row = Draft.Rows[i];
             var index = i; // capture per iteration for the lambdas below
             <div class="d-flex flex-wrap align-items-center gap-2 mb-2 mix-row">
                 <select class="form-select form-select-sm w-auto" aria-label="Category"
-                        @onchange="e => HandleKindChanged(row, e)">
-                    @foreach (var kind in CategoryKinds)
+                        @onchange="e => HandleKindChanged(index, e)">
+                    @foreach (var kind in MixDraft.CategoryKinds)
                     {
                         <option value="@kind" selected="@(row.Kind == kind)">@MixDisplay.KindLabel(kind)</option>
                     }
@@ -60,21 +58,21 @@
                     <input class="form-control form-control-sm mix-param" style="max-width:90px"
                            aria-label="@ParameterLabel(row.Kind)"
                            value="@row.ParamText"
-                           @oninput="e => { row.ParamText = e.Value?.ToString() ?? string.Empty; MarkDirty(); }" />
+                           @oninput="e => Draft.SetParamText(index, e.Value?.ToString() ?? string.Empty)" />
                     <span class="text-muted small">@ParameterUnit(row.Kind)</span>
                 }
                 <input class="form-control form-control-sm mix-percent" style="max-width:80px"
                        type="number" min="1" max="100" aria-label="Percent"
                        value="@row.PercentText"
-                       @oninput="e => { row.PercentText = e.Value?.ToString() ?? string.Empty; MarkDirty(); }" />
+                       @oninput="e => Draft.SetPercentText(index, e.Value?.ToString() ?? string.Empty)" />
                 <span class="text-muted small">%</span>
                 <div class="btn-group btn-group-sm ms-auto" role="group">
                     <button type="button" class="btn btn-outline-secondary" title="Move up"
-                            disabled="@(index == 0)" @onclick="() => MoveRow(index, -1)">↑</button>
+                            disabled="@(index == 0)" @onclick="() => Draft.MoveRow(index, -1)">↑</button>
                     <button type="button" class="btn btn-outline-secondary" title="Move down"
-                            disabled="@(index == _rows.Count - 1)" @onclick="() => MoveRow(index, +1)">↓</button>
+                            disabled="@(index == Draft.Rows.Count - 1)" @onclick="() => Draft.MoveRow(index, +1)">↓</button>
                     <button type="button" class="btn btn-outline-secondary" title="Remove"
-                            @onclick="() => RemoveRow(index)">✕</button>
+                            @onclick="() => RemoveRowAsync(index)">✕</button>
                 </div>
             </div>
         }
@@ -89,21 +87,21 @@
                the only way out of the zero-row state. Same class as Home's
                "Choose folder…" — the page's other required-but-unstarted step. *@
             <button type="button" id="mixAddRow" class="btn btn-outline-primary btn-sm"
-                    @onclick="AddRow">
+                    @onclick="Draft.AddRow">
                 Add category
             </button>
-            @if (_rows.Count > 0)
+            @if (Draft.Rows.Count > 0)
             {
-                <span class="small @(PercentSum == 100 ? "text-muted" : "text-danger")">
-                    Total: @PercentSum% @(PercentSum == 100 ? "" : "— must reach 100%")
+                <span class="small @(Draft.PercentSum == 100 ? "text-muted" : "text-danger")">
+                    Total: @Draft.PercentSum% @(Draft.PercentSum == 100 ? "" : "— must reach 100%")
                 </span>
             }
         </div>
 
         <div class="mb-2 form-check">
             <input class="form-check-input" type="checkbox" id="mixRandomOrder"
-                   checked="@_randomOrder" disabled="@(_rows.Count == 0)"
-                   @onchange="e => { _randomOrder = e.Value is true; MarkDirty(); }" />
+                   checked="@Draft.RandomOrder" disabled="@(Draft.Rows.Count == 0)"
+                   @onchange="e => Draft.SetRandomOrder(e.Value is true)" />
             <label class="form-check-label" for="mixRandomOrder">
                 Random order
                 <small class="text-muted">(off = draw and present in file order)</small>
@@ -114,24 +112,24 @@
             <label class="form-label" for="mixQuizLength">
                 Quiz length
                 <small class="text-muted">
-                    (blank = every problem the categories reach@(_rows.Count == 0 ? "; needs at least one category" : ""))
+                    (blank = every problem the categories reach@(Draft.Rows.Count == 0 ? "; needs at least one category" : ""))
                 </small>
             </label>
             <input class="form-control" style="max-width:140px" id="mixQuizLength"
                    type="number" min="1" placeholder="No cap"
-                   disabled="@(_rows.Count == 0)"
-                   value="@_lengthText"
-                   @oninput="e => { _lengthText = e.Value?.ToString() ?? string.Empty; MarkDirty(); }" />
+                   disabled="@(Draft.Rows.Count == 0)"
+                   value="@Draft.LengthText"
+                   @oninput="e => Draft.SetLengthText(e.Value?.ToString() ?? string.Empty)" />
         </div>
 
-        @if (ValidationError is { } error)
+        @if (Draft.ValidationError is { } error)
         {
             <div class="text-danger small mb-2" role="status">@error</div>
         }
 
         <div class="d-flex gap-2">
             <button class="btn btn-primary btn-sm" id="mixApply"
-                    disabled="@(_rows.Count == 0 || ValidationError is not null)"
+                    disabled="@(Draft.Rows.Count == 0 || Draft.ValidationError is not null)"
                     @onclick="ApplyAsync">
                 Apply Mix
             </button>

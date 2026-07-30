@@ -49,12 +49,14 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// Start is gated on three conditions: the filters Applied at least once, a
-/// folder picked with at least one problem file, and no uncommitted mix edits.
-/// All three live in per-app scoped holders (<see cref="AppliedFilter"/>,
-/// <see cref="PickedProblemFolder"/>, <see cref="AppliedMix"/>) rather than
-/// transient component fields, so the gate survives in-app navigation — when
-/// the page is re-instantiated on navigate-back it re-derives from the holders
-/// instead of resetting. On Start the applied <see cref="FilterConfig"/> and
+/// folder picked with at least one problem file, and the mix draft agreeing
+/// with the committed mix (<see cref="MixDraft.Matches"/> — derived per
+/// render, never stored; see <see cref="MixDirty"/>). Everything the gate
+/// reads lives in per-app scoped services (<see cref="AppliedFilter"/>,
+/// <see cref="PickedProblemFolder"/>, <see cref="AppliedMix"/>,
+/// <see cref="MixDraft"/>) rather than transient component fields, so the
+/// gate survives in-app navigation — when the page is re-instantiated on
+/// navigate-back it re-derives from the holders instead of resetting. On Start the applied <see cref="FilterConfig"/> and
 /// the committed <see cref="BgGame_Lib.QuizMix"/> are handed to the
 /// <see cref="QuizController"/>, whose source factory builds a
 /// <see cref="WasmUploadedProblemSetSource"/> over the picked files, and the
@@ -75,7 +77,8 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// returns the whole setup surface to its pre-setup state
 /// (<see cref="EndCurrentSetupAsync"/>, shared with the <c>Clear</c> affordance,
 /// which encodes the same decision): folder and picked slot, saved filters,
-/// committed mix, filter surface, and every pick-scoped notice and match count.
+/// committed mix and mix draft, filter surface, and every pick-scoped notice
+/// and match count.
 /// Nothing the user selected against the previous corpus can be assumed to mean
 /// the same thing against the next one, so Start is always re-gated by a pick,
 /// never inherited across one. Two things deliberately survive:
@@ -120,7 +123,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <c>ShuffledProblemSetSource</c>.
 /// </para>
 /// </summary>
-public partial class Home : ComponentBase
+public partial class Home : ComponentBase, IDisposable
 {
     private string? _startError;
 
@@ -381,12 +384,30 @@ public partial class Home : ComponentBase
             : null;
 
     /// <summary>
-    /// Three gates: filters applied, a folder with problem files picked, and
-    /// no uncommitted mix edits (a dirty mix would let Start run a mix that
-    /// differs from what the panel shows — the filter gate's hazard, mix
-    /// flavored). A blank mix is the valid default and never gates.
+    /// The mix half of the start gate, <b>derived</b> on every read — never a
+    /// stored flag: the draft is dirty exactly while it fails to build or
+    /// builds something other than the committed mix
+    /// (<see cref="MixDraft.Matches"/> over <see cref="QuizMix"/> content
+    /// equality). A dirty mix would let Start run a mix that differs from what
+    /// the panel shows — the filter gate's hazard, mix flavored. The blank
+    /// draft builds <see cref="QuizMix.Empty"/> and so matches the passthrough
+    /// default: a user who never touches the mix is never gated. Because
+    /// draft and holder are sibling Scoped services, the judgment cannot
+    /// outlive the state it judges — the stored flag's three wedge variants
+    /// (remove-last-row, finding AK's navigate-away, navigate-back-over-
+    /// committed) are unrepresentable, and their reconcile choreography is
+    /// gone. Gated-but-recoverable is the worst remaining state: whenever this
+    /// is true, the panel is showing the divergent draft with Apply or Reset
+    /// as the visible way out.
     /// </summary>
-    private bool CanStart => AppliedFilter.IsApplied && Folder.HasFiles && !AppliedMix.IsDirty;
+    private bool MixDirty => !MixDraft.Matches(AppliedMix.Current);
+
+    /// <summary>
+    /// Three gates: filters applied, a folder with problem files picked, and
+    /// the mix draft in agreement with the committed mix (see
+    /// <see cref="MixDirty"/>).
+    /// </summary>
+    private bool CanStart => AppliedFilter.IsApplied && Folder.HasFiles && !MixDirty;
 
     /// <summary>
     /// Whether a non-passthrough mix is committed — the single fact two
@@ -425,6 +446,14 @@ public partial class Home : ComponentBase
     /// </summary>
     protected override async Task OnInitializedAsync()
     {
+        // The start gate derives from the mix draft (see MixDirty), and the
+        // draft is edited inside MixPanel — a child whose gestures don't pass
+        // through this component. Subscribe so any draft change re-renders the
+        // gate (the standard Blazor state-container pattern; every mutation
+        // happens on the renderer's sync context, so StateHasChanged is safe
+        // to hand over directly). Unsubscribed in Dispose.
+        MixDraft.Changed += StateHasChanged;
+
         if (await Marker.WasLiveAsync() && !Controller.HasStarted)
         {
             _showReloadNotice = true;
@@ -433,6 +462,9 @@ public partial class Home : ComponentBase
 
         _fsAccessAvailable = await FolderAccess.SupportsDirectoryPickerAsync();
     }
+
+    /// <summary>Detach from the app-scoped draft — the page dies before the Scoped service does.</summary>
+    public void Dispose() => MixDraft.Changed -= StateHasChanged;
 
     /// <summary>
     /// The one "pick a folder" gesture. Probes the mechanism at pick time:
@@ -601,7 +633,8 @@ public partial class Home : ComponentBase
     /// <b>Not <c>@key</c>-based, unlike <c>MixPanel</c>.</b> Re-mounting the
     /// filter panel would re-run its first-render <c>localStorage</c> restore and
     /// stage the <i>persisted</i> config — the opposite of defaults. (MixPanel is
-    /// keyed for precisely that effect: re-offering the persisted mix as dirty.)
+    /// keyed for precisely that effect: its re-mount re-hydrates the discarded
+    /// draft, re-offering the persisted mix gated by the derived rule.)
     /// That distinction now decides less than it reads: since the reset moved to
     /// the click, <b>every</b> pick unmounts the panel (the gate closes with the
     /// folder) and the successful ones re-mount it, so the persisted config is
@@ -628,8 +661,10 @@ public partial class Home : ComponentBase
     ///
     /// <para>
     /// <b>Everything pick-scoped goes.</b> The folder holder and the JS module's
-    /// picked slot, this folder's saved filters, the committed mix, the filter
-    /// surface (<see cref="ResetFilterSurface"/>), and every pick-scoped notice
+    /// picked slot, this folder's saved filters, both halves of the mix state
+    /// (the committed <see cref="AppliedMix"/> and the <see cref="MixDraft"/>,
+    /// see the inline comment), the filter surface
+    /// (<see cref="ResetFilterSurface"/>), and every pick-scoped notice
     /// and match count (<see cref="ClearPickNotices"/>). Two things deliberately
     /// survive, and the class summary says why: <see cref="ShuffleOption"/> and
     /// the lifetime-stats slot.
@@ -670,7 +705,17 @@ public partial class Home : ComponentBase
     {
         Folder.Clear();
         SavedFilters.Reset();
+        // Both halves of the mix state end with the setup: the committed mix
+        // (a pick means a new corpus and possibly a new stats slot) and the
+        // draft's uncommitted edits (made against the outgoing slot — stale
+        // noise against the next). Discard also forgets hydration, so an
+        // Enabled pick's re-mounted panel re-offers the persisted mix — gated
+        // by the derived rule against the now-passthrough holder — while a
+        // no-stats pick mounts no panel, re-hydrates nothing, and leaves the
+        // blank draft matching the reset holder: the mix plays no part in its
+        // Start, with no capability fork in the gate.
         AppliedMix.Reset();
+        MixDraft.Discard();
         ResetFilterSurface();
         ClearPickNotices();
 
@@ -800,61 +845,16 @@ public partial class Home : ComponentBase
 
     private void HandleMixApplied(QuizMix mix)
     {
-        // The user clicked Apply (or Reset — an explicit apply of the blank
-        // mix): commit to the scoped holder so the gate clears and the choice
-        // survives navigate-back. A commit also moots any standing refusal.
+        // The user committed (Apply, Reset, or the last-row removal — the
+        // latter two an explicit apply of the blank mix): adopt into the
+        // scoped holder, so the derived gate agrees with the draft again and
+        // the choice survives navigate-back. A commit also moots any standing
+        // refusal. The panel has already persisted the commit (committed-only
+        // persistence, via MixDraft.PersistAsync).
         AppliedMix.Apply(mix);
         _mixRefused = false;
         _startError = null;
         _noMatchNotice = null;
-    }
-
-    /// <summary>
-    /// The panel's first-render hydration settled: <b>reconcile</b> what it now
-    /// displays against the committed-mix holder — never adopt. The one point
-    /// where a freshly-mounted panel and the surviving holder are compared, and
-    /// it moves the gate in both directions.
-    ///
-    /// <para>
-    /// <b>Holder still passthrough</b> — nothing is committed, so the panel's
-    /// contents decide. A non-passthrough hydration <i>gates</i> (a fresh load:
-    /// the shown-but-uncommitted mix must gate, or Start would run passthrough
-    /// while a mix is displayed). A passthrough one <i>un-gates</i>: a just-mounted
-    /// blank panel holds no edit and nothing is stored, so any surviving
-    /// <see cref="AppliedMix.IsDirty"/> was left by an edit that unmounted with the
-    /// previous panel instance — the flag is Scoped, the rows are not. Without
-    /// this arm that flag wedged Start behind "Apply or reset the mix" with an
-    /// empty panel, Apply disabled at zero rows, and only the panel's Reset as an
-    /// escape (finding AK).
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Holder non-passthrough</b> — a committed mix survived navigate-back, so
-    /// the hydration is left entirely alone: no re-gate (the user needn't re-Apply
-    /// what they applied) and no un-gate (this arm must never clear a flag while a
-    /// committed mix stands behind it; the panel there is populated, so Apply is
-    /// the visible escape). Reachable states make the check airtight: Start (the
-    /// only way off Home into a quiz) requires <c>!IsDirty</c>, so a committed mix
-    /// could only have been Applied (holder non-passthrough) or Reset/left blank
-    /// (holder passthrough <i>and</i> localStorage Empty → this hydration is
-    /// passthrough too), never a non-passthrough hydration against a passthrough
-    /// holder that wasn't a genuine fresh load.
-    /// </para>
-    /// </summary>
-    private void HandleMixHydrated(QuizMix mix)
-    {
-        if (!AppliedMix.Current.IsPassthrough) return;
-
-        if (!mix.IsPassthrough)
-            AppliedMix.MarkDirty();
-        else
-            AppliedMix.ClearDirty();
-    }
-
-    private void HandleMixDirty()
-    {
-        // Any mix edit re-gates Start until the user commits via Apply.
-        AppliedMix.MarkDirty();
     }
 
     private Task StartQuizAsync() => StartCoreAsync(ignoreMix: false);

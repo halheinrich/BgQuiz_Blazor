@@ -6,43 +6,39 @@ namespace BgQuiz_Blazor.Tests;
 /// <summary>
 /// Tests for <see cref="AppliedMix"/> — the committed-mix half of Home's start
 /// gate. Blank is the valid default (no "never applied" blocking state, unlike
-/// <see cref="AppliedFilter"/>); only dirtiness gates.
+/// <see cref="AppliedFilter"/>). The holder stores <b>no dirtiness</b>: the
+/// gate derives from <see cref="MixDraft.Matches"/> against
+/// <see cref="Current"/> (see <see cref="MixDraftTests"/>), so this type is
+/// nothing but the commitment.
 /// </summary>
 public class AppliedMixTests
 {
     [Fact]
-    public void Defaults_BlankMix_NotDirty()
+    public void Defaults_BlankMix()
     {
-        var holder = new AppliedMix();
-
-        Assert.True(holder.Current.IsPassthrough);
-        Assert.False(holder.IsDirty);
+        Assert.True(new AppliedMix().Current.IsPassthrough);
     }
 
     [Fact]
-    public void Apply_SetsCurrent_AndClearsDirty()
+    public void Apply_SetsCurrent()
     {
         var holder = new AppliedMix();
-        holder.MarkDirty();
         var mix = new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)]);
 
         holder.Apply(mix);
 
         Assert.Same(mix, holder.Current);
-        Assert.False(holder.IsDirty);
     }
 
     [Fact]
-    public void MarkDirty_SetsDirty_KeepsCurrent()
+    public void Reset_ReturnsToPassthrough()
     {
         var holder = new AppliedMix();
-        var mix = new QuizMix([new QuizMixEntry(QuizCategory.GotWrong, 100)]);
-        holder.Apply(mix);
+        holder.Apply(new QuizMix([new QuizMixEntry(QuizCategory.GotWrong, 100)]));
 
-        holder.MarkDirty();
+        holder.Reset();
 
-        Assert.True(holder.IsDirty);
-        Assert.Same(mix, holder.Current); // dirty edits never rewrite the committed mix
+        Assert.True(holder.Current.IsPassthrough);
     }
 
     [Fact]

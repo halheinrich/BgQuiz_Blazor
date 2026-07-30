@@ -38,6 +38,43 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
     }
 
     [Fact]
+    public async Task MixEdit_SurvivesInAppNavigation_GatedUntilApplied()
+    {
+        // The derived-dirtiness architecture's headline surface, in a real
+        // browser: the mix draft is app-scoped, so an uncommitted edit survives
+        // in-app navigation (client-side routing — the WASM runtime and its
+        // Scoped services live on; a full reload is the separate, reset story).
+        // This supersedes finding (AK)'s letter — the old remount came back
+        // BLANK and had to un-gate a stale flag; now the edit itself comes
+        // back, still gating Start, with Apply as the visible way out. Gated,
+        // never wedged.
+        await BootHomeAsync();
+        await PickFakeFolderAsync();
+        await ApplyFilterAsync();
+        await AddDefaultMixRowAsync(); // an uncommitted edit — Start gates
+
+        await Expect(StartButton).ToBeDisabledAsync();
+        await Expect(Page.GetByText("Apply or reset the mix above to enable Start"))
+            .ToBeVisibleAsync();
+
+        await Page.GetByRole(AriaRole.Link, new() { Name = "Help" }).ClickAsync();
+        await ExpectUrlAsync("/help");
+        await Page.GetByRole(AriaRole.Link, new() { Name = "Home" }).ClickAsync();
+        await ExpectUrlAsync("/");
+
+        // The edit is still on screen and still gating; the filter half also
+        // survived (Scoped holder), so the hint is the mix's specifically.
+        await Expect(Page.Locator(".mix-row")).ToHaveCountAsync(1);
+        await Expect(StartButton).ToBeDisabledAsync();
+        await Expect(Page.GetByText("Apply or reset the mix above to enable Start"))
+            .ToBeVisibleAsync();
+        await Expect(Page.Locator("#mixApply")).ToBeEnabledAsync(); // the way out
+
+        await ApplyMixAsync();
+        await Expect(StartButton).ToBeEnabledAsync();
+    }
+
+    [Fact]
     public async Task WeightedStart_EverythingAlreadySeen_ComposesToZero_MixNoticeStaysHome()
     {
         // Quiz 1 (blank mix) folds the one decision into the stats file; its

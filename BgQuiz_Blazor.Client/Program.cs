@@ -59,13 +59,18 @@ builder.Services.AddScoped<SavedFiltersStore>();
 // navigate-back-survival reason as the other start-gate holders.
 builder.Services.AddScoped<ShuffleOption>();
 
-// Per-app holder for the committed stats-weighted mix — the mix sibling of
-// AppliedFilter. Blank (QuizMix.Empty) is the valid default, so only its
-// dirty state gates Start; the mix panel's localStorage restore re-shows the
-// persisted mix on boot but does not commit it — Home reconciles the restore
-// against this holder (dirty on a fresh load, untouched on navigate-back).
-// Scoped for navigate-back survival like the other start-gate holders.
+// The stats-weighted mix, as two sibling per-app services with one lifetime:
+// the committed mix (AppliedMix — the mix sibling of AppliedFilter; blank is
+// the valid default) and the mix draft (MixDraft — the panel's edit state,
+// hoisted out of the component so mix edits survive in-app navigation).
+// Start's mix gate is derived per render from the pair (the draft builds and
+// content-equals the commitment), never stored; giving both the same Scoped
+// lifetime is what makes that judgment safe. The draft also owns the one
+// localStorage key: committed-only persistence on Apply, and a once-per-setup
+// hydration that re-offers the stored mix — gated by the derived rule — on
+// boot and after every pick.
 builder.Services.AddScoped<AppliedMix>();
+builder.Services.AddScoped<MixDraft>();
 
 // Per-app dismissal state for the Quiz page's mix composition notice: the notice
 // says how the running quiz was composed — read before answering, stale chrome

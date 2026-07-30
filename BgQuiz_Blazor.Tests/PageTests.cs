@@ -63,11 +63,16 @@ public class PageTests : BunitContext
         // don't drive a saved-filters gesture render no panel.
         Services.AddScoped<SavedFiltersStore>();
 
-        // Home injects AppliedMix (and hosts MixPanel, whose restore path runs
-        // under each test's JSInterop mode). The fixture-wide default is the
-        // blank-mix holder; WithAppliedMix re-registers when a test needs a
-        // committed mix in place.
+        // Home injects both halves of the mix state: AppliedMix (the committed
+        // holder — fixture default is blank; WithAppliedMix re-registers when a
+        // test needs a committed mix in place) and MixDraft (the app-scoped
+        // edit state MixPanel views; its hydration runs under each test's
+        // JSInterop mode, resolving the bUnit IJSRuntime from the container).
+        // The start gate derives from the pair — draft builds and
+        // content-equals the commitment — so tests arm it through the panel UI
+        // or via WithAppliedMix's staged localStorage, never a stored flag.
         Services.AddScoped<AppliedMix>();
+        Services.AddScoped<MixDraft>();
 
         // Quiz injects MixNoticeDismissal (its composition notice checks it before
         // rendering). Scoped, as in Program.cs, so a test that re-renders the page
@@ -149,13 +154,28 @@ public class PageTests : BunitContext
     /// <summary>
     /// Register an <see cref="AppliedMix"/> for the rendered <c>Home</c> page,
     /// optionally pre-committed with <paramref name="mix"/> — simulating
-    /// navigate-back (or a panel restore) with a mix the user applied earlier.
-    /// Returns the holder so tests can assert commit/dirty transitions.
+    /// navigate-back with a mix the user applied earlier. Returns the holder so
+    /// tests can assert commit transitions.
+    /// <para>
+    /// A non-null <paramref name="mix"/> also stages the localStorage blob to
+    /// match, because that is the app's invariant: every commit persists
+    /// (committed-only persistence via <see cref="MixDraft.PersistAsync"/>), so
+    /// a committed mix always has its content in storage. The rendered panel's
+    /// hydration then fills the draft with the same content and the derived
+    /// gate reads clean — pre-committing <i>without</i> the blob would fabricate
+    /// a state no user can reach (committed mix, divergent draft → Start
+    /// gated). Tests probing divergence stage their own blob afterwards.
+    /// </para>
     /// </summary>
     private AppliedMix WithAppliedMix(QuizMix? mix = null)
     {
         var holder = new AppliedMix();
-        if (mix is not null) holder.Apply(mix);
+        if (mix is not null)
+        {
+            holder.Apply(mix);
+            JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
+                .SetResult(mix.ToJson());
+        }
         Services.AddSingleton(holder);
         return holder;
     }
@@ -627,8 +647,7 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
         await ApplyFiltersAsync(cut);
-        await cut.InvokeAsync(() => cut.FindComponent<MixPanelComponent>()
-                                       .Instance.OnMixApplied.InvokeAsync(NeverSeenMix()));
+        await ApplyMixThroughPanelAsync(cut);
 
         var folder = Services.GetRequiredService<PickedProblemFolder>();
         var filter = Services.GetRequiredService<AppliedFilter>();
@@ -672,8 +691,7 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
         await ApplyFiltersAsync(cut);
-        await cut.InvokeAsync(() => cut.FindComponent<MixPanelComponent>()
-                                       .Instance.OnMixApplied.InvokeAsync(NeverSeenMix()));
+        await ApplyMixThroughPanelAsync(cut);
         Assert.Contains("Held", cut.Markup);
         Assert.Contains("Race", cut.Markup); // the folder's saved filter
 
@@ -688,7 +706,9 @@ public class PageTests : BunitContext
         Assert.Equal(0, Services.GetRequiredService<SavedFiltersStore>().Filters.Count);
         Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied);
         Assert.True(mix.Current.IsPassthrough);
-        Assert.False(mix.IsDirty);
+        // Both mix halves ended with the setup: the discarded draft is blank,
+        // so it agrees with the reset holder — no derived gate survives.
+        Assert.True(Services.GetRequiredService<MixDraft>().Matches(mix.Current));
         // The picked slot too. Derivation: EndCurrentSetupAsync clears it once
         // per gesture that ends a setup, and this test makes two pick gestures
         // (the held pick, then the cancelled one) — so 2, not 1.
@@ -3514,6 +3534,20 @@ public class PageTests : BunitContext
                                  .Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
 
     /// <summary>
+    /// Commit a minimal one-row mix (NeverSeen, 100%) through the real panel —
+    /// Add category, then Apply Mix. The UI route matters under the derived
+    /// gate: invoking <c>OnMixApplied</c> directly would commit to the holder
+    /// while leaving the draft blank, fabricating a committed-but-divergent
+    /// state no user can reach (every real commit flows draft → build →
+    /// holder, so committed and shown agree at the moment of commit).
+    /// </summary>
+    private static async Task ApplyMixThroughPanelAsync(IRenderedComponent<HomePage> cut)
+    {
+        await cut.Find("#mixAddRow").ClickAsync(new());
+        await cut.Find("#mixApply").ClickAsync(new());
+    }
+
+    /// <summary>
     /// Opens the <see cref="FilterPanel"/>'s "more filters" disclosure through
     /// the panel's own toggle button. The panel keeps the error-range section
     /// first and always visible; its other eight sections (player names,
@@ -3549,8 +3583,7 @@ public class PageTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
-        var panel = cut.FindComponent<MixPanelComponent>();
-        await cut.InvokeAsync(() => panel.Instance.OnMixApplied.InvokeAsync(NeverSeenMix()));
+        await ApplyMixThroughPanelAsync(cut);
         await StartButton(cut).ClickAsync(new());
 
         Assert.True(c.HasStarted);
@@ -3561,8 +3594,13 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_DirtyMix_DisablesStart_UntilApplied()
+    public async Task Home_MixEdit_DisablesStart_UntilApplied()
     {
+        // The derived gate's basic arc through the real UI: an edit makes the
+        // draft diverge from the (blank) commitment, so Start gates with the
+        // hint; Apply commits what the panel shows, agreement returns, Start
+        // re-enables. No dirty event exists — Home re-renders off the draft's
+        // Changed notification and re-derives the comparison.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: StatsSaveCapability.Enabled); // mix panel is Enabled-gated (Task X)
         WithAppliedFilter(new FilterConfig());
@@ -3571,24 +3609,86 @@ public class PageTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
-        var panel = cut.FindComponent<MixPanelComponent>();
+        Assert.False(StartButton(cut).HasAttribute("disabled")); // blank draft, blank holder: clean
 
-        await cut.InvokeAsync(() => panel.Instance.OnMixDirty.InvokeAsync());
+        await cut.Find("#mixAddRow").ClickAsync(new());
         Assert.True(StartButton(cut).HasAttribute("disabled"));
         Assert.Contains("Apply or reset the mix", cut.Markup);
 
-        await cut.InvokeAsync(() => panel.Instance.OnMixApplied.InvokeAsync(QuizMix.Empty));
+        await cut.Find("#mixApply").ClickAsync(new());
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+        Assert.DoesNotContain("Apply or reset the mix", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_MixEditedBackToCommittedContent_DerivesCleanWithoutReApply()
+    {
+        // The deferred displayed==committed variant, now free: dirtiness is a
+        // comparison, not a latch. Editing a committed mix gates Start; editing
+        // it back to the exact committed content un-gates with NO Apply click —
+        // there is no stored flag left dangling to clear. (Under the stored
+        // flag this state stayed wedged-dirty until a re-Apply.)
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        await ApplyMixThroughPanelAsync(cut); // committed: NeverSeen at 100%
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+
+        // Divergence gates…
+        cut.FindAll(".mix-row")[0].QuerySelector(".mix-percent")!.Input("90");
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains("Apply or reset the mix", cut.Markup);
+
+        // …and identical content un-gates, however it came about.
+        cut.FindAll(".mix-row")[0].QuerySelector(".mix-percent")!.Input("100");
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+        Assert.DoesNotContain("Apply or reset the mix", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_MixReordered_GatesStart_OrderIsSemantic()
+    {
+        // Reorder alone — no text changed — is a real divergence: entry order
+        // decides contested-overlap draws (producer contract), so the same
+        // rows reordered are a different mix and Start must gate until the
+        // user commits (or reorders back).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithAppliedFilter(new FilterConfig());
+        WithShuffleOption();
+        WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        await cut.Find("#mixAddRow").ClickAsync(new()); // NeverSeen
+        await cut.Find("#mixAddRow").ClickAsync(new()); // GotWrong (AI)
+        await cut.Find("#mixApply").ClickAsync(new());
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+
+        await cut.FindAll(".mix-row")[1].QuerySelector("button[title='Move up']")!.ClickAsync(new());
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains("Apply or reset the mix", cut.Markup);
+
+        await cut.FindAll(".mix-row")[0].QuerySelector("button[title='Move down']")!.ClickAsync(new());
         Assert.False(StartButton(cut).HasAttribute("disabled"));
     }
 
     [Fact]
     public async Task Home_MixEmptiedToZeroRows_AutoCommits_UnGatesStart()
     {
-        // The reported symptom, end to end through the real MixPanel: a mix
-        // built in the panel then emptied back to zero rows must not leave Start
-        // wedged. Removing the last row auto-commits the blank mix (MixPanel's
-        // fix), which clears AppliedMix's dirty flag so Start re-enables — no
-        // separate Reset click needed.
+        // The pre-beta wedge's shape, end to end through the real MixPanel: a
+        // mix built in the panel then emptied back to zero rows must not leave
+        // Start gated with Apply disabled (zero rows) and only Reset as an
+        // escape. Removing the last row auto-commits the blank mix, so holder
+        // and draft agree at Empty and Start re-enables — no Reset click
+        // needed. (Under derivation the gate would also clear if the holder
+        // were still Empty, but the auto-commit is what keeps localStorage and
+        // a previously committed mix consistent with the blank the user chose.)
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: StatsSaveCapability.Enabled); // mix panel is Enabled-gated (Task X)
         WithAppliedFilter(new FilterConfig());
@@ -3612,132 +3712,125 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_MixRestore_FreshLoad_HydratesDirty_GatesStartUntilApplied()
+    public async Task Home_MixRestore_FreshLoad_ShowsStoredMixGated_UntilApplied()
     {
-        // W, fresh-load arm: the holder is at its passthrough default (a cold
-        // boot / reload), so a persisted non-blank mix restores into the panel
-        // for convenience but is NOT adopted — the reconcile gates Start (dirty)
-        // so it can't run passthrough while a mix is displayed. Driven through the
-        // real MixPanel restore (localStorage → panel → OnMixHydrated → holder),
-        // not a synthetic event, so it pins the whole wire.
+        // W's fresh-load surface, now derived: the holder is at its passthrough
+        // default (a cold boot / reload), so the persisted non-blank mix
+        // hydrates into the draft for convenience but is NOT committed — the
+        // draft diverges from the blank commitment, so Start gates and can't
+        // run passthrough while a mix is displayed. No reconcile code fires:
+        // the gate IS the comparison. Driven through the real hydration wire
+        // (localStorage → MixDraft → panel), not a synthetic event.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: StatsSaveCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
-        var holder = WithAppliedMix(); // blank holder — the restore must not adopt into it
+        var holder = WithAppliedMix(); // blank holder — hydration must not commit into it
         JSInterop.Mode = JSRuntimeMode.Loose;
-        JSInterop.Setup<string?>("localStorage.getItem", MixPanelComponent.MixKey)
+        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
             .SetResult(NeverSeenMix().ToJson());
 
         var cut = Render<HomePage>();
 
-        // The panel restored its rows…
+        // The panel shows the stored rows…
         Assert.NotEmpty(cut.FindAll(".mix-row"));
-        // …but the holder was NOT adopted — it stays passthrough and dirty, and
-        // Start is gated on the uncommitted mix.
+        // …but nothing was committed, so shown ≠ applied and Start is gated.
         Assert.True(holder.Current.IsPassthrough);
-        Assert.True(holder.IsDirty);
         Assert.True(StartButton(cut).HasAttribute("disabled"));
         Assert.Contains("Apply or reset the mix", cut.Markup);
 
         // Applying the restored mix through the panel commits it and un-gates.
         await cut.Find("#mixApply").ClickAsync(new());
 
-        Assert.False(holder.Current.IsPassthrough);
-        Assert.False(holder.IsDirty);
+        Assert.Equal(NeverSeenMix(), holder.Current); // committed exactly what was shown
         Assert.False(StartButton(cut).HasAttribute("disabled"));
     }
 
     [Fact]
     public async Task Home_MixRestore_NonEmpty_ResetClearsAndUngates()
     {
-        // The other exit from the restored-dirty state: Reset commits the blank
-        // mix, so the rows clear, the holder un-dirties, and Start un-gates
-        // without ever running the restored mix.
+        // The other exit from the restored-gated state: Reset commits the blank
+        // mix, so the rows clear, holder and draft agree at Empty, and Start
+        // un-gates without ever running the restored mix.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: StatsSaveCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix();
         JSInterop.Mode = JSRuntimeMode.Loose;
-        JSInterop.Setup<string?>("localStorage.getItem", MixPanelComponent.MixKey)
+        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
             .SetResult(NeverSeenMix().ToJson());
 
         var cut = Render<HomePage>();
-        Assert.True(holder.IsDirty);
         Assert.True(StartButton(cut).HasAttribute("disabled"));
 
         await cut.Find("#mixReset").ClickAsync(new());
 
         Assert.Empty(cut.FindAll(".mix-row"));
         Assert.True(holder.Current.IsPassthrough);
-        Assert.False(holder.IsDirty);
         Assert.False(StartButton(cut).HasAttribute("disabled"));
     }
 
     [Fact]
     public void Home_MixRestore_Passthrough_NoGate()
     {
-        // A persisted passthrough (e.g. after a prior Reset) restores to zero
-        // rows with nothing to commit — no dirty signal, Start free. This is the
-        // "user with no persisted mix sees no gate" invariant.
+        // A persisted passthrough (e.g. after a prior Reset) hydrates to zero
+        // rows — the blank draft builds Empty and matches the fresh holder, so
+        // Start is free. This is the "user with no persisted mix sees no gate"
+        // invariant, falling out of the one rule rather than a special case.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: StatsSaveCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
-        var holder = WithAppliedMix();
+        WithAppliedMix();
         JSInterop.Mode = JSRuntimeMode.Loose;
-        JSInterop.Setup<string?>("localStorage.getItem", MixPanelComponent.MixKey)
+        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
             .SetResult(QuizMix.Empty.ToJson());
 
         var cut = Render<HomePage>();
 
         Assert.Empty(cut.FindAll(".mix-row"));
-        Assert.False(holder.IsDirty);
         Assert.False(StartButton(cut).HasAttribute("disabled"));
     }
 
     [Fact]
     public void Home_MixRestore_NavigateBack_CommittedMix_NoReGate()
     {
-        // W-refinement, navigate-back arm: the Scoped AppliedMix survives in-app
-        // navigation already holding a committed mix. Re-mounting Home (as on
-        // navigate-back) re-fires the panel restore, but the reconcile sees the
-        // holder is NOT passthrough and leaves it untouched — no spurious
-        // re-gate, so the user needn't re-Apply what they already applied. This
-        // is the whole point of the refinement over plain restore-as-dirty; the
-        // fresh-load arm above is the fails-without contrast (it DOES gate).
+        // Navigate-back with a committed mix: the Scoped holder survives, the
+        // Scoped draft survives showing the same content (here freshly hydrated
+        // from the matching blob a real Apply always leaves — WithAppliedMix
+        // stages it), so shown == applied and Start stays enabled. No re-Apply
+        // forced, and no reconcile arm deciding whom to believe: the equality
+        // is the whole judgment. The fresh-load test above is the
+        // fails-without contrast (blank holder, same blob → gated).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: StatsSaveCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix(NeverSeenMix()); // committed earlier this session
         JSInterop.Mode = JSRuntimeMode.Loose;
-        JSInterop.Setup<string?>("localStorage.getItem", MixPanelComponent.MixKey)
-            .SetResult(NeverSeenMix().ToJson()); // localStorage matches the committed mix
 
         var cut = Render<HomePage>();
 
-        // Panel re-shows the rows, but the holder stays committed + clean and
-        // Start stays enabled — no re-Apply forced.
+        // Panel re-shows the rows, the holder stays committed, Start enabled.
         Assert.NotEmpty(cut.FindAll(".mix-row"));
         Assert.False(holder.Current.IsPassthrough);
-        Assert.False(holder.IsDirty);
         Assert.False(StartButton(cut).HasAttribute("disabled"));
     }
 
     [Fact]
-    public async Task Home_MixEditedThenNavigatedAway_RemountsBlank_UnGatesStart()
+    public async Task Home_MixEditedThenNavigatedAway_DraftSurvives_GatedButNeverWedged()
     {
-        // Finding (AK), the wedge: the dirty flag and the edit it stands for have
-        // different lifetimes. AppliedMix is Scoped (it survives in-app
-        // navigation); MixPanel's rows are component state and die on unmount. Edit
-        // the panel, navigate away, come back — and the flag pointed at a draft
-        // that existed nowhere: panel blank, nothing in localStorage, holder
-        // passthrough, yet Start disabled behind "Apply or reset the mix" with
-        // Apply disabled at zero rows. The remount's (now total) hydration signal
-        // is what clears it. Fails against pre-fix code, where a blank hydration
-        // raised nothing and Home's reconcile never ran.
+        // Finding (AK)'s scenario under the ratified successor semantics. The
+        // letter of (AK) — "navigate-away un-gates Start" — is SUPERSEDED: the
+        // draft is now app-scoped, so the edit no longer dies with the panel.
+        // Its spirit holds and is what this pins: after navigate-away/back the
+        // user is never wedged. The edit is still on screen, Start is gated
+        // exactly because an uncommitted mix is displayed, and Apply (enabled —
+        // the rows are there) or Reset resolves it. The (AK) wedge — Start
+        // gated over a BLANK panel with Apply disabled and the edit existing
+        // nowhere — is unrepresentable under derivation: a blank draft builds
+        // Empty and cannot disagree with a passthrough holder.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: StatsSaveCapability.Enabled); // mix panel is Enabled-gated
         WithAppliedFilter(new FilterConfig());
@@ -3749,34 +3842,37 @@ public class PageTests : BunitContext
 
         // Add a category and stop there — an uncommitted edit, so Start gates.
         await cut.Find("#mixAddRow").ClickAsync(new());
-        Assert.True(holder.IsDirty);
         Assert.True(StartButton(cut).HasAttribute("disabled"));
         Assert.Contains("Apply or reset the mix", cut.Markup);
 
-        // Navigate away: Home and its MixPanel unmount, taking the draft rows.
-        // The holders (Singleton here, Scoped in the app) survive, as on a real
-        // in-app navigation to Help and back.
+        // Navigate away and back: Home and its MixPanel unmount, but the draft
+        // — like the holders — is Scoped (Singleton here) and survives, as on a
+        // real in-app navigation to Help and back.
         await DisposeComponentsAsync();
         var back = Render<HomePage>();
 
-        // The remounted panel is authoritatively blank — and so is the holder, so
-        // there is no uncommitted edit anywhere for the gate to protect.
-        Assert.Empty(back.FindAll(".mix-row"));
-        Assert.True(holder.Current.IsPassthrough);
-        Assert.False(holder.IsDirty);
+        // The edit is still on screen, still gating — and Apply is the visible,
+        // enabled way out, so gated never means wedged.
+        var row = Assert.Single(back.FindAll(".mix-row"));
+        Assert.Equal("NeverSeen", row.QuerySelector("option[selected]")!.GetAttribute("value"));
+        Assert.True(StartButton(back).HasAttribute("disabled"));
+        Assert.Contains("Apply or reset the mix", back.Markup);
+        Assert.False(back.Find("#mixApply").HasAttribute("disabled"));
+
+        await back.Find("#mixApply").ClickAsync(new());
+
+        Assert.False(holder.Current.IsPassthrough); // the surviving edit, committed
         Assert.False(StartButton(back).HasAttribute("disabled"));
-        Assert.DoesNotContain("Apply or reset the mix", back.Markup);
     }
 
     [Fact]
-    public async Task Home_DirtyMixOverBlankPanel_ResetStillUnGatesStart()
+    public async Task Home_UnbuildableDraft_GatesStart_ResetUngates()
     {
-        // The escape hatch (AK) kept working: whatever leaves the holder dirty
-        // over a zero-row panel, the panel's Reset commits the blank mix and
-        // un-gates Start — the route the user actually found. Pinned separately
-        // from the wedge because the fix above removes the wedge but must not
-        // remove this: Apply is (correctly) disabled at zero rows, so Reset is the
-        // only in-panel commit there.
+        // Matrix arm: an unbuildable draft is dirty by definition — it cannot
+        // agree with any commitment, so Start gates while the panel's own
+        // validation says why Apply is disabled. Reset remains the in-panel
+        // escape (the blank commit), exactly as it was for the old wedge state
+        // this replaces — gated always comes with a visible way out.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: StatsSaveCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
@@ -3785,17 +3881,16 @@ public class PageTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
-        var panel = cut.FindComponent<MixPanelComponent>();
-        await cut.InvokeAsync(() => panel.Instance.OnMixDirty.InvokeAsync());
+        await cut.Find("#mixAddRow").ClickAsync(new());
+        cut.FindAll(".mix-row")[0].QuerySelector(".mix-percent")!.Input("85"); // sum ≠ 100
 
-        Assert.Empty(cut.FindAll(".mix-row"));
         Assert.True(StartButton(cut).HasAttribute("disabled"));
-        Assert.True(cut.Find("#mixApply").HasAttribute("disabled")); // no escape via Apply
+        Assert.True(cut.Find("#mixApply").HasAttribute("disabled")); // invalid — no commit via Apply
 
         await cut.Find("#mixReset").ClickAsync(new());
 
         Assert.True(holder.Current.IsPassthrough);
-        Assert.False(holder.IsDirty);
+        Assert.Empty(cut.FindAll(".mix-row"));
         Assert.False(StartButton(cut).HasAttribute("disabled"));
     }
 
@@ -3887,19 +3982,20 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
 
-        // Enabled pick → panel shows; commit a mix through the wire.
+        // Enabled pick → panel shows; commit a mix through the real UI.
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
         await cut.Find("#pickProblemFolder").ClickAsync(new());
-        var panel = cut.FindComponent<MixPanelComponent>();
-        await cut.InvokeAsync(() => panel.Instance.OnMixApplied.InvokeAsync(NeverSeenMix()));
+        await ApplyMixThroughPanelAsync(cut);
         Assert.False(holder.Current.IsPassthrough); // committed
 
-        // Re-pick a no-stats folder → the pick resets the committed mix; the panel hides.
+        // Re-pick a no-stats folder → the pick resets the committed mix and
+        // discards the draft; the panel hides, so nothing re-hydrates and the
+        // blank draft agrees with the reset holder — no gate, no divergence.
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.BrowserUnsupported);
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         Assert.True(holder.Current.IsPassthrough); // mix cleared by the pick
-        Assert.False(holder.IsDirty);
+        Assert.True(Services.GetRequiredService<MixDraft>().Matches(holder.Current));
         Assert.Empty(cut.FindComponents<MixPanelComponent>()); // panel hidden
 
         // Start runs plain — no refusal, no composition. (The re-pick reset the
@@ -3915,54 +4011,59 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_MixSurfaceAcrossPickRepickClear_NeverDiverges()
     {
-        // The X + W-refinement wire across all three transitions (the flagged
-        // re-restore lifecycle). With a persisted mix in localStorage:
-        //  • pick (Enabled): panel mounts, restore re-offers it as dirty.
+        // The setup lifecycle across all three transitions, under discard-then-
+        // re-hydrate. With a persisted mix in localStorage:
+        //  • pick (Enabled): panel mounts, the draft hydrates the stored mix —
+        //    shown ≠ committed (holder blank), so Start gates.
         //  • Apply: committed, un-gated.
-        //  • re-pick (Enabled): the pick resets the committed mix AND the keyed
-        //    panel re-mounts — its restore re-offers the persisted mix as dirty
-        //    (reconciled against the reset holder), so the panel never shows rows
-        //    while the holder sits committed-passthrough (the divergence a
-        //    non-remounting re-pick would leave).
+        //  • re-pick (Enabled): the pick resets the committed mix AND discards
+        //    the draft; the keyed panel re-mounts and re-hydrates, re-offering
+        //    the persisted mix against the reset holder — gated again, and the
+        //    panel never shows rows while the gate reads them as committed (the
+        //    divergence a surviving-draft re-pick would leave).
         //  • Clear: the whole mix surface vanishes; nothing to Start.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix();
         JSInterop.Mode = JSRuntimeMode.Loose;
-        JSInterop.Setup<string?>("localStorage.getItem", MixPanelComponent.MixKey)
+        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
             .SetResult(NeverSeenMix().ToJson()); // persisted from a prior session
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
 
         var cut = Render<HomePage>();
 
-        // Pick: panel mounts, restore re-offers the persisted mix as dirty.
+        // Pick: panel mounts, hydration re-offers the persisted mix — gated.
+        // (Each pick also resets the applied filter, so re-arm that half after
+        // every pick to keep Start reading the mix half alone.)
         await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await ApplyFiltersAsync(cut);
         Assert.NotEmpty(cut.FindAll(".mix-row"));
-        Assert.True(holder.IsDirty);
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains("Apply or reset the mix", cut.Markup);
 
         // Apply: committed, un-gated.
         await cut.Find("#mixApply").ClickAsync(new());
-        Assert.False(holder.IsDirty);
         Assert.False(holder.Current.IsPassthrough);
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
 
-        // Re-pick (Enabled): reset + keyed re-mount → re-offered as dirty.
+        // Re-pick (Enabled): reset + discard + keyed re-mount → re-hydrated,
+        // re-offered, re-gated.
         await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await ApplyFiltersAsync(cut);
         Assert.NotEmpty(cut.FindAll(".mix-row"));  // panel re-shows the persisted mix
         Assert.True(holder.Current.IsPassthrough);  // committed mix reset by the pick
-        Assert.True(holder.IsDirty);                // ...and re-offered as dirty (no divergence)
         Assert.True(StartButton(cut).HasAttribute("disabled")); // Start re-gated
+        Assert.Contains("Apply or reset the mix", cut.Markup);  // by the mix half specifically
 
         // Clear: the mix surface (and Start) vanish entirely, and — because
-        // AppliedMix.Current is pick-coupled — Clear resets the holder to
-        // passthrough+clean too, completing the "no pick → passthrough"
-        // invariant (the !IsDirty assertion fails without Clear's
-        // AppliedMix.Reset(): the re-pick left the holder dirty).
+        // both mix halves are pick-coupled — holder and draft agree at
+        // passthrough, completing the "no pick → passthrough" invariant.
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear").ClickAsync(new());
         Assert.Empty(cut.FindComponents<MixPanelComponent>());
         Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Start Quiz");
         Assert.True(holder.Current.IsPassthrough);
-        Assert.False(holder.IsDirty);
+        Assert.True(Services.GetRequiredService<MixDraft>().Matches(holder.Current));
     }
 
     [Fact]

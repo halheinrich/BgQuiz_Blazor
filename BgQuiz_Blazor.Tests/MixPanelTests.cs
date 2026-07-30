@@ -1,41 +1,50 @@
 using System.Globalization;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Components.Pages;
+using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
-/// Tests for <see cref="MixPanel"/> — the stats-weighted mix builder. Pins the
-/// <c>FilterPanel</c>-mirroring commit model (Apply/Reset/dirty, and the
-/// reconcile-not-adopt hydration — the panel hydrates and raises OnMixHydrated
-/// whether or not anything was stored, the parent decides whether to gate), the
-/// single-key localStorage
-/// round-trip through the lib's <c>ToJson</c>/<c>TryFromJson</c>, the
-/// semantic row order (reorder survives Apply), per-kind parameter defaults,
-/// the row-count-owns-the-percents rebalance and next-unused-kind seeding
-/// (findings AH/AI), the percent-display/fraction-store rule for the wrong-rate
-/// row, and the validation states that disable Apply.
+/// Tests for <see cref="MixPanel"/> — the stats-weighted mix builder, a view
+/// over the app-scoped <see cref="MixDraft"/>. Pins the commit model (Apply /
+/// Reset / last-row removal commit and persist; mere edits never do — there
+/// is no dirty event to raise, the gate derives from the draft elsewhere),
+/// the draft hydration surfacing through the panel (hydrate-don't-commit; the
+/// re-offer after a <see cref="MixDraft.Discard"/>), the single-key
+/// localStorage round-trip through the lib's <c>ToJson</c>/<c>TryFromJson</c>,
+/// the semantic row order (reorder survives Apply), per-kind parameter
+/// defaults, the row-count-owns-the-percents rebalance and next-unused-kind
+/// seeding (findings AH/AI), the percent-display/fraction-store rule for the
+/// wrong-rate row, and the validation states that disable Apply. The derived
+/// dirtiness rule itself is pinned in <see cref="MixDraftTests"/> (service
+/// level) and <c>PageTests</c> (the Home wire).
 /// </summary>
 public class MixPanelTests : BunitContext
 {
+    private readonly MixDraft _draft;
+
     public MixPanelTests()
     {
-        // Loose mode — OnAfterRenderAsync issues a localStorage.getItem; the
+        // Loose mode — the draft's hydration issues a localStorage.getItem; the
         // mock returns default (null) = "no persisted mix" unless a test sets
         // up an explicit value.
         JSInterop.Mode = JSRuntimeMode.Loose;
+
+        // The panel injects the app-scoped draft; registering one instance up
+        // front lets tests assert draft state and drive its setup lifecycle
+        // (Discard) the way Home does.
+        _draft = new MixDraft(JSInterop.JSRuntime);
+        Services.AddSingleton(_draft);
     }
 
     private readonly List<QuizMix> _applied = [];
-    private readonly List<QuizMix> _hydrated = [];
-    private int _dirtyCount;
 
     private IRenderedComponent<MixPanel> RenderPanel() =>
         Render<MixPanel>(parameters => parameters
-            .Add(p => p.OnMixApplied, (QuizMix m) => _applied.Add(m))
-            .Add(p => p.OnMixHydrated, (QuizMix m) => _hydrated.Add(m))
-            .Add(p => p.OnMixDirty, () => _dirtyCount++));
+            .Add(p => p.OnMixApplied, (QuizMix m) => _applied.Add(m)));
 
     private static Task ClickAsync(IRenderedComponent<MixPanel> cut, string selector) =>
         cut.Find(selector).ClickAsync(new());
@@ -57,57 +66,49 @@ public class MixPanelTests : BunitContext
             .Select(r => r.QuerySelector("option[selected]")!.GetAttribute("value")!)];
 
     // -----------------------------------------------------------------------
-    //  Hydration (first-render localStorage restore)
+    //  Hydration (the draft's once-per-setup localStorage restore, panel-triggered)
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void Hydrate_NothingPersisted_BlankBuilder_RaisesHydratedWithBlankMix()
+    public void Hydrate_NothingPersisted_BlankBuilder_NoCommit()
     {
-        // The signal is TOTAL (finding AK): "nothing was stored" is a statement
-        // the parent needs — it is what proves a dirty flag surviving from a
-        // previous, now-unmounted instance of this panel stale. Silence here left
-        // that flag standing and wedged Start.
         var cut = RenderPanel();
 
         Assert.Empty(cut.FindAll(".mix-row"));
-        var hydrated = Assert.Single(_hydrated);
-        Assert.True(hydrated.IsPassthrough); // exactly what the blank panel shows
-        Assert.Empty(_applied);              // still no commit…
-        Assert.Equal(0, _dirtyCount);        // …and no dirty of its own
+        Assert.Empty(_applied);                     // hydration never commits…
+        Assert.True(_draft.Matches(QuizMix.Empty)); // …and a blank draft derives clean
     }
 
     [Fact]
-    public void Hydrate_CorruptJson_BlankBuilder_RaisesHydratedWithBlankMix()
+    public void Hydrate_CorruptJson_BlankBuilder_NoCommit()
     {
-        // Corrupt is the absent case's twin: the builder is blank, so the panel
-        // says so rather than staying silent. The stored blob is left untouched
-        // (never-silently-clear), which is why this can't be folded into a write.
-        JSInterop.Setup<string?>("localStorage.getItem", MixPanel.MixKey)
+        // Corrupt is the absent case's twin: the builder is blank. The stored
+        // blob is left untouched (never-silently-clear), which is why this
+        // can't be folded into a write.
+        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
             .SetResult("}{ not valid json");
 
         var cut = RenderPanel();
 
         Assert.Empty(cut.FindAll(".mix-row"));
-        var hydrated = Assert.Single(_hydrated);
-        Assert.True(hydrated.IsPassthrough);
         Assert.Empty(_applied);
-        Assert.Equal(0, _dirtyCount);
+        Assert.True(_draft.Matches(QuizMix.Empty));
     }
 
     [Fact]
     public void Hydrate_NothingPersisted_LeavesRandomOrderDefaultOn()
     {
-        // The blank-hydration arm must not project TryFromJson's Empty fallback
-        // onto the builder: Empty carries RandomOrder false, while the blank
-        // builder's default — and the checkbox a first-time user sees — is on.
-        // Only a *successful* parse hydrates; the raise is what became total.
+        // The blank hydration must not project TryFromJson's Empty fallback
+        // onto the draft: only a *successful* parse projects, so the blank
+        // builder keeps its own defaults — the checkbox a first-time user
+        // sees is on.
         var cut = RenderPanel();
 
         Assert.True(cut.Find("#mixRandomOrder").HasAttribute("checked"));
     }
 
     [Fact]
-    public void Hydrate_PersistedMix_HydratesRowsInWireOrder_AndRaisesHydrated()
+    public void Hydrate_PersistedMix_ShowsRowsInWireOrder_WithoutCommitting()
     {
         var mix = new QuizMix(
             [
@@ -115,7 +116,7 @@ public class MixPanelTests : BunitContext
                 new QuizMixEntry(QuizCategory.SeenFewerThan(3), 40),
             ],
             quizLength: 25, randomOrder: false);
-        JSInterop.Setup<string?>("localStorage.getItem", MixPanel.MixKey)
+        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
             .SetResult(mix.ToJson());
 
         var cut = RenderPanel();
@@ -133,34 +134,48 @@ public class MixPanelTests : BunitContext
         Assert.Equal("25", cut.Find("#mixQuizLength").GetAttribute("value"));
         Assert.False(cut.Find("#mixRandomOrder").HasAttribute("checked"));
 
-        // The panel hands the parsed mix to the parent for reconciliation — it
-        // neither commits (no Apply) nor dirties itself (the gate decision is the
-        // parent's, against its holder).
-        var hydrated = Assert.Single(_hydrated);
-        Assert.Equal(mix.Entries, hydrated.Entries); // QuizMixEntry is value-equal
-        Assert.Equal(25, hydrated.QuizLength);
-        Assert.False(hydrated.RandomOrder);
+        // Hydration fills the draft for editing but commits nothing — on a
+        // fresh load the holder stays passthrough, so the derived gate holds
+        // Start until the user Applies or Resets what the panel now shows.
         Assert.Empty(_applied);
-        Assert.Equal(0, _dirtyCount);
+        Assert.True(_draft.Matches(mix)); // shows exactly what was stored…
+        Assert.False(_draft.Matches(QuizMix.Empty)); // …which diverges from a fresh holder
     }
 
     [Fact]
-    public void Hydrate_PersistedPassthroughMix_HydratesBlank_RaisesHydrated()
+    public void Hydrate_PersistedPassthroughMix_ShowsBlank_NoCommit()
     {
-        // A persisted passthrough (e.g. after a prior Reset) round-trips to zero
-        // rows. The panel raises OnMixHydrated so the parent can reconcile — the
-        // same blank statement the nothing-stored case makes, reached the other
-        // way; the panel itself neither dirties nor commits.
-        JSInterop.Setup<string?>("localStorage.getItem", MixPanel.MixKey)
+        // A persisted passthrough (e.g. after a prior Reset) round-trips to
+        // zero rows — the same blank, clean state the nothing-stored case
+        // reaches the other way.
+        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
             .SetResult(QuizMix.Empty.ToJson());
 
         var cut = RenderPanel();
 
         Assert.Empty(cut.FindAll(".mix-row"));
-        var hydrated = Assert.Single(_hydrated);
-        Assert.True(hydrated.IsPassthrough);
-        Assert.Equal(0, _dirtyCount);
         Assert.Empty(_applied);
+        Assert.True(_draft.Matches(QuizMix.Empty));
+    }
+
+    [Fact]
+    public async Task Remount_WithinASetup_KeepsTheSurvivingDraftEdits()
+    {
+        // The ratified navigate-away semantics at the panel's level: the draft
+        // is app-scoped and hydration is once per setup, so a re-mounted panel
+        // (navigate away and back) re-renders the surviving edits — it does
+        // NOT re-run the restore over them. Superseded behavior: the old
+        // component-owned rows died with the instance (finding AK's wedge).
+        var cut = RenderPanel();
+        await ClickAsync(cut, "#mixAddRow"); // an uncommitted edit
+        await DisposeComponentsAsync();      // navigate away: the panel unmounts
+
+        var back = RenderPanel();
+
+        var row = Assert.Single(back.FindAll(".mix-row"));
+        Assert.Equal("NeverSeen", row.QuerySelector("option[selected]")!.GetAttribute("value"));
+        Assert.Empty(_applied); // still uncommitted — surviving is not committing
+        Assert.Single(JSInterop.Invocations["localStorage.getItem"]); // no re-read
     }
 
     // -----------------------------------------------------------------------
@@ -184,10 +199,13 @@ public class MixPanelTests : BunitContext
 
         // One blob under the one key, round-trippable by the lib.
         var stored = JSInterop.Invocations["localStorage.setItem"]
-            .Last(i => (string?)i.Arguments[0] == MixPanel.MixKey)
+            .Last(i => (string?)i.Arguments[0] == MixDraft.StorageKey)
             .Arguments[1] as string;
         Assert.NotNull(stored);
-        Assert.Equal(applied.Entries, QuizMix.FromJson(stored!).Entries);
+        Assert.Equal(applied, QuizMix.FromJson(stored!)); // full content equality (leg 1)
+
+        // The committed-agrees-with-shown postcondition the derived gate reads.
+        Assert.True(_draft.Matches(applied));
     }
 
     [Fact]
@@ -218,7 +236,7 @@ public class MixPanelTests : BunitContext
         Assert.Equal(2, _applied.Count);
         Assert.True(_applied[^1].IsPassthrough); // an explicit apply of Empty
         var stored = JSInterop.Invocations["localStorage.setItem"]
-            .Last(i => (string?)i.Arguments[0] == MixPanel.MixKey)
+            .Last(i => (string?)i.Arguments[0] == MixDraft.StorageKey)
             .Arguments[1] as string;
         Assert.True(QuizMix.FromJson(stored!).IsPassthrough);
     }
@@ -226,54 +244,55 @@ public class MixPanelTests : BunitContext
     [Fact]
     public async Task RemoveLastRow_AutoCommitsBlankMix_AndPersistsIt()
     {
-        // The reported bug's root: a mix edited back to zero rows would stay
-        // dirty at the parent while Apply is disabled (zero rows), leaving Start
-        // wedged with only the non-obvious Reset as an escape. Removing the last
-        // row must instead auto-commit the blank mix through the Apply channel —
-        // the same effect as Reset — so the parent un-dirties and Start un-gates.
+        // The pre-beta wedge's root: a mix edited back to zero rows left an
+        // uncommitted divergence while Apply is disabled (zero rows), gating
+        // Start with only the non-obvious Reset as an escape. Removing the
+        // last row must instead auto-commit the blank mix through the Apply
+        // channel — the same effect as Reset — so committed and shown agree
+        // and Start un-gates.
         var cut = RenderPanel();
-        await ClickAsync(cut, "#mixAddRow"); // one row, dirty
+        await ClickAsync(cut, "#mixAddRow"); // one row, uncommitted
         Assert.Single(cut.FindAll(".mix-row"));
 
         await ClickRowButtonAsync(cut, 0, "Remove"); // removes the last row
 
         Assert.Empty(cut.FindAll(".mix-row"));
-        // OnMixApplied fired with a passthrough mix (not OnMixDirty) — the
-        // channel that un-dirties the parent's AppliedMix holder.
+        // OnMixApplied fired with a passthrough mix — the commit that keeps the
+        // derived gate clean.
         var applied = Assert.Single(_applied);
         Assert.True(applied.IsPassthrough);
 
         // localStorage matches Reset: the blank mix is persisted, so a later
         // reload restores the blank builder rather than the removed mix.
         var stored = JSInterop.Invocations["localStorage.setItem"]
-            .Last(i => (string?)i.Arguments[0] == MixPanel.MixKey)
+            .Last(i => (string?)i.Arguments[0] == MixDraft.StorageKey)
             .Arguments[1] as string;
         Assert.True(QuizMix.FromJson(stored!).IsPassthrough);
     }
 
     [Fact]
-    public async Task RemoveNonLastRow_StaysDirty_DoesNotCommit()
+    public async Task RemoveNonLastRow_IsAnEdit_DoesNotCommit()
     {
-        // Over-trigger guard: removing a row while others remain is an ordinary
-        // edit — it raises dirty, not an Apply of Empty (the mix still has
+        // Over-trigger guard: removing a row while others remain is an
+        // ordinary edit — never an Apply of Empty (the mix still has
         // uncommitted rows the user must Apply).
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow"); // NeverSeen
         await ClickAsync(cut, "#mixAddRow"); // GotWrong — the next unused kind (AI)
-        _dirtyCount = 0; // ignore the setup edits; count only the removal
 
         await ClickRowButtonAsync(cut, 0, "Remove");
 
         Assert.Single(cut.FindAll(".mix-row"));
-        // One dirty for the whole gesture, even though the removal also
-        // rebalanced the survivor's percent.
-        Assert.Equal(1, _dirtyCount);
-        Assert.Empty(_applied);       // nothing committed — one row still pending
+        Assert.Empty(_applied);                      // nothing committed — one row still pending
+        Assert.False(_draft.Matches(QuizMix.Empty)); // and the survivor derives dirty until Apply
     }
 
     [Fact]
-    public async Task PersistedMix_RoundTripsAcrossRemount()
+    public async Task PersistedMix_RoundTripsIntoTheNextSetup()
     {
+        // Commit in one setup, Discard (the pick / Clear path), and the next
+        // panel mount re-offers exactly the committed content from storage —
+        // the localStorage round-trip driven the way Home actually drives it.
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow");
         var select = cut.FindAll(".mix-row")[0].QuerySelector("select")!;
@@ -281,9 +300,11 @@ public class MixPanelTests : BunitContext
         await ClickAsync(cut, "#mixApply");
 
         var stored = JSInterop.Invocations["localStorage.setItem"]
-            .Last(i => (string?)i.Arguments[0] == MixPanel.MixKey)
+            .Last(i => (string?)i.Arguments[0] == MixDraft.StorageKey)
             .Arguments[1] as string;
-        JSInterop.Setup<string?>("localStorage.getItem", MixPanel.MixKey).SetResult(stored);
+        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey).SetResult(stored);
+        await DisposeComponentsAsync();
+        _draft.Discard(); // the setup ended; hydration is forgotten
 
         var remounted = RenderPanel();
 
@@ -437,7 +458,7 @@ public class MixPanelTests : BunitContext
     [Fact]
     public async Task Add_SeedsTheNewKindsDefaultParameter_SoTheRowIsNeverBornInvalid()
     {
-        // (AI) can now seat a *parameterized* kind on a fresh row, so Add must
+        // (AI) can seat a *parameterized* kind on a fresh row, so Add must
         // seed that kind's default exactly as picking it by hand does.
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow"); // NeverSeen
@@ -478,22 +499,6 @@ public class MixPanelTests : BunitContext
         Assert.Equal(["50", "50"], Percents(cut));
         Assert.Equal(["NeverSeen", "SeenFewerThan"], Kinds(cut)); // exactly that row went
         Assert.DoesNotContain("must reach 100", cut.Markup);
-    }
-
-    [Fact]
-    public async Task Add_RaisesDirtyOnce_HoweverManyRowsItRebalanced()
-    {
-        // Dirty is per gesture, not per row touched — the parent's Start gate
-        // counts commits, and a rebalance that fanned out N dirty events would
-        // still be one uncommitted edit.
-        var cut = RenderPanel();
-
-        await ClickAsync(cut, "#mixAddRow");
-        await ClickAsync(cut, "#mixAddRow");
-        await ClickAsync(cut, "#mixAddRow");
-
-        Assert.Equal(3, _dirtyCount);
-        Assert.Empty(_applied); // and the rebalance is an edit, never a commit
     }
 
     // -----------------------------------------------------------------------
@@ -581,22 +586,25 @@ public class MixPanelTests : BunitContext
     }
 
     // -----------------------------------------------------------------------
-    //  Dirty signaling
+    //  Edits never commit (the commit channel is Apply/Reset/last-row only)
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task EveryEdit_RaisesDirty_ApplyDoesNot()
+    public async Task EveryEdit_LeavesTheCommitChannelSilent()
     {
+        // There is no per-edit event any more — edits mutate the draft, and the
+        // gate derives from it elsewhere — so the one thing to hold here is
+        // that no edit ever slips out as a commit.
         var cut = RenderPanel();
 
-        await ClickAsync(cut, "#mixAddRow");                                   // 1
-        cut.FindAll(".mix-row")[0].QuerySelector("select")!.Change("GotWrong"); // 2
-        cut.FindAll(".mix-row")[0].QuerySelector(".mix-percent")!.Input("100"); // 3
-        cut.Find("#mixRandomOrder").Change(false);                              // 4
-        cut.Find("#mixQuizLength").Input("5");                                  // 5
-        Assert.Equal(5, _dirtyCount);
+        await ClickAsync(cut, "#mixAddRow");
+        cut.FindAll(".mix-row")[0].QuerySelector("select")!.Change("GotWrong");
+        cut.FindAll(".mix-row")[0].QuerySelector(".mix-percent")!.Input("100");
+        cut.Find("#mixRandomOrder").Change(false);
+        cut.Find("#mixQuizLength").Input("5");
+        Assert.Empty(_applied);
 
         await ClickAsync(cut, "#mixApply");
-        Assert.Equal(5, _dirtyCount); // Apply commits; it is not an edit
+        Assert.Single(_applied); // Apply is the commit — exactly once
     }
 }

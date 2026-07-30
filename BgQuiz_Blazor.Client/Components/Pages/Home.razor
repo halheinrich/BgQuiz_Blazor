@@ -9,6 +9,7 @@
 @inject PickedProblemFolder Folder
 @inject AppliedFilter AppliedFilter
 @inject AppliedMix AppliedMix
+@inject MixDraft MixDraft
 @inject ShuffleOption ShuffleOption
 @inject QuizStatsStore StatsStore
 @inject SavedFiltersStore SavedFilters
@@ -336,13 +337,15 @@
 
     @* Weighted mix — offered only when the pick can provide the lifetime stats
        it composes from (Task X). Under a no-stats pick the mix plays no part in
-       Start, so hiding the panel makes that true by construction (there is no way
-       to build a mix, and every pick resets any committed one — see
-       EndCurrentSetupAsync). Keyed on the pick generation so every pick
-       re-mounts it: the fresh mount's restore re-offers the persisted mix as
-       dirty (reconciled against the just-reset holder), which both enforces "no
-       committed mix silently survives a pick" and avoids a stale-rows-vs-
-       passthrough-holder divergence on a re-pick that wouldn't otherwise remount.
+       Start, so hiding the panel makes that true by construction: there is no
+       way to build a mix, every pick resets the committed mix and discards the
+       draft (see EndCurrentSetupAsync), and with no panel mounted nothing
+       re-hydrates — the blank draft matches the passthrough holder, so the
+       derived gate never fires. Keyed on the pick generation so every pick
+       re-mounts it: the fresh mount triggers the discarded draft's re-hydration,
+       which re-offers the persisted mix — gated by the derived draft-vs-committed
+       rule against the just-reset holder — enforcing "no committed mix silently
+       survives a pick" with no reconcile code.
 
        The @key now decides less than it did: since the reset moved to the click,
        the enclosing HasFiles gate already unmounts this panel on every pick. The
@@ -351,9 +354,7 @@
     @if (Folder.Capability == StatsSaveCapability.Enabled)
     {
         <MixPanel @key="Folder.PickGeneration"
-                  OnMixApplied="HandleMixApplied"
-                  OnMixHydrated="HandleMixHydrated"
-                  OnMixDirty="HandleMixDirty" />
+                  OnMixApplied="HandleMixApplied" />
     }
 
     @* Disabled — not rewritten — while a committed mix owns presentation
@@ -389,7 +390,7 @@
     {
         <small class="text-muted ms-2">Pick a folder containing .xg / .xgp files to enable Start.</small>
     }
-    else if (AppliedMix.IsDirty)
+    else if (MixDirty)
     {
         <small class="text-muted ms-2">Apply or reset the mix above to enable Start.</small>
     }
