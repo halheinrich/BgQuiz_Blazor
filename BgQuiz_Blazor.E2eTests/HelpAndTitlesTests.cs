@@ -28,6 +28,15 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Scoring" }))
             .ToBeVisibleAsync();
 
+        // The facet reference is XgFilter_Razor's FilterHelp, embedded rather
+        // than restated. bUnit already pins the embed; what only a browser can
+        // show is that the producer component actually renders inside the
+        // published WASM app — a component pulled from a project reference that
+        // never reached the trimmed output would leave this section silently
+        // blank while every unit test stayed green.
+        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Analysis depth", Exact = true }))
+            .ToBeVisibleAsync();
+
         // Post-boot the interactive HeadOutlet must carry the page title (the
         // static fallback alone would leave it at plain "BgQuiz").
         await Expect(Page).ToHaveTitleAsync("BgQuiz — Help");

@@ -13,6 +13,7 @@ using Bunit.TestDoubles;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.JSInterop;
+using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Razor.Components;
 
@@ -1366,6 +1367,60 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_DepthFacetEdit_RegatesStart_AndAppliesTheModeIntent()
+    {
+        // The start gate over the redesigned depth facet (XgFilter_Lib cbca4b3 /
+        // XgFilter_Razor f227f25), driven through the panel's real controls: the
+        // facet is now three per-mode toggles, each with its own level list, and
+        // nothing here re-derives that — the arc pinned is edit → dirty → Start
+        // re-gated → Apply → the raw intent lands in AppliedFilter.
+        //
+        // Worth its own case because BgQuiz names no depth member anywhere: the
+        // compiler could not have caught the facet's rewrite, and no existing test
+        // touched a depth control. Asserting IncludeRollouts off the *applied*
+        // config (rather than the panel's checkbox) is what proves the toggle
+        // reaches the config the quiz is built from, across the panel's emit.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        _folderAccess.NextPickOutcome = OneFileOutcome();
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        // Apply through the panel's own button, not ApplyFiltersAsync: that helper
+        // invokes OnFilterConfigChanged with a *fresh* FilterConfig, which arms the
+        // gate but discards whatever the panel's controls hold — it could never
+        // carry a depth selection, and this case is about exactly that payload.
+        await ClickApplyFilterAsync(cut);
+
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+
+        // Analysis depth sits behind the panel's disclosure, like every facet but
+        // the error range. The mode toggle ids are the panel's own
+        // md_<AnalysisMode> convention — a level group renders only once its mode
+        // is checked, which is itself part of what a bare toggle click asserts.
+        await ExpandMoreFiltersAsync(cut);
+        await cut.Find($"#md_{AnalysisMode.Rollout}").ChangeAsync(new ChangeEventArgs { Value = true });
+
+        // The edit is a dirty signal like any other: Start re-gates until Apply.
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied);
+
+        await ClickApplyFilterAsync(cut);
+
+        var applied = Services.GetRequiredService<AppliedFilter>().Config;
+        Assert.NotNull(applied);
+        Assert.True(applied!.IncludeRollouts);
+        // Untouched toggles stay off, and an untoggled mode's level list stays
+        // empty — the facet is a union over the enabled toggles only.
+        Assert.False(applied.IncludeEvaluations);
+        Assert.False(applied.IncludeBookRollouts);
+        Assert.Empty(applied.RolloutLevels); // no level checked = any level
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+    }
+
+    [Fact]
     public async Task Home_RePick_ResetsAppliedFilterAndPanelBuffersToDefaults()
     {
         // A pick ends the current setup — the filter half of the rule the mix half
@@ -1399,9 +1454,7 @@ public class PageTests : BunitContext
         // failure, not a silent pass.)
         await ExpandMoreFiltersAsync(cut);
         cut.Find("input[placeholder='e.g. Hal, Magriel']").Input("Magriel");
-        await cut.FindAll("button")
-                 .First(b => b.TextContent.Trim() == "Apply Filter")
-                 .ClickAsync(new());
+        await ClickApplyFilterAsync(cut);
 
         Assert.Equal("Magriel",
             cut.Find("input[placeholder='e.g. Hal, Magriel']").GetAttribute("value"));
@@ -3154,6 +3207,56 @@ public class PageTests : BunitContext
         Assert.Contains("can be much smaller than the number shown", section);
     }
 
+    [Fact]
+    public void Help_ChooseFilters_EmbedsTheProducerOwnedFacetReference()
+    {
+        // Facet documentation has one owner, and it is not this app: XgFilter_Razor
+        // renders FilterHelp beside the panel that implements the facets, and Help
+        // embeds it rather than restating what each filter admits. Pinning the
+        // embedded *component* (not prose) is what makes a future edit that deletes
+        // it — or replaces it with a hand-written copy — fail here; the copy would
+        // otherwise pass every existing test while drifting from the lib on the next
+        // facet redesign, the way the depth facet's rewrite into per-mode clauses
+        // would have, had BgQuiz ever described that facet.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        Assert.NotNull(cut.FindComponent<FilterHelp>());
+
+        // ...and it lands inside Choose filters, where the surrounding framing puts
+        // it, rather than floating somewhere the reader meets before the panel.
+        var section = SectionText(
+            cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters"));
+        Assert.Contains(FilterFacet.AnalysisDepth.ToLabel(), section);
+        Assert.Contains(FilterFacet.ErrorRange.ToLabel(), section);
+    }
+
+    [Fact]
+    public void Help_ChooseFilters_KeepsItsFramingAndWritesNoFacetProseOfItsOwn()
+    {
+        // The other half of the ruling: what stays app-level is what FilterHelp
+        // cannot know — where the panel sits in the start flow, and that filters
+        // must be applied before Start. Pinned so a later "the producer documents
+        // filters now" sweep can't take the framing with it.
+        //
+        // The negative half names the one gloss the embed retired: Help used to
+        // define the error-range facet in its own voice ("how costly the recorded
+        // mistake was"). Asserting its absence is narrow on purpose — a general
+        // "no facet prose" assertion isn't expressible — but it pins the specific
+        // second encoding this leg removed against being pasted back.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        var section = SectionText(
+            cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters"));
+
+        Assert.Contains("Show more filters", section);
+        Assert.Contains("before Start becomes available", section);
+        Assert.DoesNotContain("how costly the recorded mistake was", section);
+    }
+
     /// <summary>
     /// The rendered text of one Help section: everything from the given heading
     /// up to the next <c>h2</c>. Lets a section-scoped assertion say what it
@@ -3528,10 +3631,30 @@ public class PageTests : BunitContext
     /// <see cref="Home_RePick_ResetsAppliedFilterAndPanelBuffersToDefaults"/>), so
     /// a test that picks and then wants Start armed has to apply <i>after</i> its
     /// last pick — pre-arming the holder is not enough.
+    /// <para>
+    /// It emits a <b>fresh, empty</b> <see cref="FilterConfig"/>, not whatever the
+    /// panel's controls currently hold: it satisfies the gate and says nothing
+    /// about the payload. A test that sets a facet and then asserts what reached
+    /// <see cref="AppliedFilter"/> must go through
+    /// <see cref="ClickApplyFilterAsync"/> instead — this helper would silently
+    /// discard the selection and the assertion would fail for the wrong reason.
+    /// </para>
     /// </summary>
     private static Task ApplyFiltersAsync(IRenderedComponent<HomePage> cut) =>
         cut.InvokeAsync(() => cut.FindComponent<FilterPanel>()
                                  .Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+
+    /// <summary>
+    /// Apply through the <see cref="FilterPanel"/>'s own <i>Apply Filter</i>
+    /// button — the real gesture, so the config that reaches
+    /// <see cref="AppliedFilter"/> is the one the panel built from its controls.
+    /// The route to use whenever a test cares <i>what</i> was applied rather than
+    /// merely that the gate opened (contrast <see cref="ApplyFiltersAsync"/>).
+    /// </summary>
+    private static Task ClickApplyFilterAsync(IRenderedComponent<HomePage> cut) =>
+        cut.FindAll("button")
+           .First(b => b.TextContent.Trim() == "Apply Filter")
+           .ClickAsync(new());
 
     /// <summary>
     /// Commit a minimal one-row mix (NeverSeen, 100%) through the real panel —

@@ -33,6 +33,18 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// constants <c>Home</c> enforces the pick against — rather than restated as prose,
 /// so the page cannot document a rule the picker no longer applies.
 /// </para>
+///
+/// <para>
+/// The same discipline governs the filter facets, one tier up: what each filter
+/// admits is rendered by <c>XgFilter_Razor</c>'s <c>FilterHelp</c>, embedded at the
+/// end of the <i>Choose filters</i> section, and this page writes none of that prose
+/// itself. Facet semantics belong to the lib that implements them; a copy here would
+/// be a second encoding that drifts silently when the lib's rules change. What stays
+/// app-level is everything <c>FilterHelp</c> cannot know: where the panel sits in the
+/// start flow, that filters must be applied before Start, what the match count
+/// counts, and how a weighted mix draws from it. Prose <c>FilterHelp</c> lacks is
+/// extended in <c>XgFilter_Razor</c>, never restored here.
+/// </para>
 /// </summary>
 public partial class Help : ComponentBase
 {

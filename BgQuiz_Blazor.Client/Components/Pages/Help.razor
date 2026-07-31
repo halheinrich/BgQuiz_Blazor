@@ -2,6 +2,7 @@
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
 
 @using BgQuiz_Blazor.Client.Quiz
+@using XgFilter_Razor.Components
 
 @inject QuizController Controller
 @inject NavigationManager Nav
@@ -61,21 +62,28 @@
 
     <h2 class="h4 mt-4">Choose filters</h2>
     @* The panel's information hierarchy is user-visible, so the tour has to
-       describe it: a reader told they can filter "by player" who then sees only
-       an error range would conclude the feature is gone. Named in the panel's
-       own words (Show more filters / Clear filters) so the page and the control
-       can be matched up at a glance. The hidden-active signal is called out
-       because it is the answer to "why is my quiz smaller than I expect" when a
-       filter is in force out of sight. *@
+       describe it: a reader who sees only an error range needs telling that the
+       rest exists and where it went. Named in the panel's own words (Show more
+       filters / Clear filters) so the page and the control can be matched up at
+       a glance. The hidden-active signal is called out because it is the answer
+       to "why is my quiz smaller than I expect" when a filter is in force out
+       of sight.
+
+       Which filters those are, and what each one admits, is deliberately not
+       written here — FilterHelp is embedded at the end of this section and
+       names every facet from the lib's own labels. This paragraph carries only
+       what FilterHelp cannot know: where the controls sit in *this* app's
+       panel, and that the disclosure remembers its state. The facet list this
+       paragraph used to recite was a hand-maintained copy of the panel's
+       sections, which is the drift the embed exists to end. *@
     <p>
         The filter panel narrows which decisions the quiz will ask you. The
-        <em>error range</em> — how costly the recorded mistake was — is the control
-        most people reach for, so it sits at the top and is always shown. The rest
-        (decision type, player, match score, move number, contact type, analysis
-        depth, dice rolls, position pattern) sits behind <em>Show more filters</em>;
-        open it once and BgQuiz remembers that for next time. While it is closed the
-        button carries a count and names the hidden sections that currently hold a
-        filter, so nothing you set can quietly stay in force out of sight.
+        <em>error range</em> is the control most people reach for, so it sits at
+        the top and is always shown; every other filter sits behind
+        <em>Show more filters</em>, and opening it once is remembered for next
+        time. While it is closed the button carries a count and names the hidden
+        sections that currently hold a filter, so nothing you set can quietly
+        stay in force out of sight.
     </p>
     <p>
         Filters must be <strong>applied</strong> before Start becomes available —
@@ -105,6 +113,25 @@
         what composes the mix, and the quiz page then tells you exactly what it
         drew.
     </p>
+
+    @* Per-facet reference, rendered by XgFilter_Razor's own FilterHelp rather
+       than restated here. The facets are the panel's behavior, and the panel is
+       the producer's; a description of them written on this page would be a
+       second encoding of lib rules that drifts the moment those rules change,
+       with no test anywhere able to notice. The depth facet's redesign into
+       per-mode clauses is what settled it: BgQuiz was spared only because it
+       had never described that facet, which is luck, not a discipline. The
+       producer's Pitfalls make it a rule — a host embeds FilterHelp and adds
+       app-level framing only, and prose FilterHelp lacks is extended there,
+       never written here.
+
+       Placed last in the section so the app's own framing — where the controls
+       live, that Apply gates Start, what the count means — reads as continuous
+       prose before the reference block. FilterHelp brings its own headings
+       (an h4 lead and one h5 per facet), which sit below this page's h2s and so
+       leave the pinned section skeleton alone. It is render-only and
+       parameterless: no state, no JS, nothing for this page to wire. *@
+    <FilterHelp />
 
     <h2 class="h4 mt-4">Save filters you use often</h2>
     <p>

@@ -73,7 +73,10 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `DecisionTypeFilter` / `DecisionTypeOption` (materialized from the user's
   decision-type choice; the controller adds no filter of its own).
 - **XgFilter_Razor** — `FilterPanel.razor`. Hosted on `/` so quiz-start
-  filters share the same UI used by `ExtractFromXgToCsv`.
+  filters share the same UI used by `ExtractFromXgToCsv`. Also
+  `FilterHelp.razor`, the producer's own facet documentation, embedded by
+  `/help` — facet prose has one owner, and it is not this app (see
+  `Help.razor` under Components and the Pitfall).
 - **ConvertXgToJson_Lib** — picked up transitively via the filter pipeline
   (parses the user's browser-picked `.xg` / `.xgp` bytes in-browser, via
   `FilteredDecisionIterator.IterateXgStreamDiagrams`).
@@ -1276,7 +1279,13 @@ deliberately — not `localStorage`** (see Pitfalls).
   shipped BgQuiz surface renders. Every documented constant renders from its
   SSOT — file caps from `PickedFileLimits`, filenames from `QuizStatsFile` /
   `QuizFiltersFile`, the browser rule from `FolderPickDisplay`, feedback +
-  version from `AppInfo` — never as literals. Lives in the `.Client` (not a
+  version from `AppInfo` — never as literals. The *Choose filters* section
+  extends that discipline one tier up: it embeds `XgFilter_Razor`'s
+  `FilterHelp` (render-only, parameterless) as its per-facet reference and
+  writes **no facet prose of its own**. What stays here is app-level framing
+  `FilterHelp` cannot know — where the panel sits in the start flow, that
+  filters must be applied before Start, what the match count counts, and how
+  a weighted mix draws from that pool. Lives in the `.Client` (not a
   static host page) so a mid-quiz Help → Back round trip doesn't disturb the
   WASM runtime holding quiz state. Unlike `Stats` it **never redirects**:
   help is reachable from any state, including a cold visit or a bookmark;
@@ -1554,6 +1563,18 @@ The fast unit suite stays browser-free: run it via
 the WASM closure to take several minutes (IL trimming, cold); incremental
 republishes take seconds.
 
+**All 21 failing at once with a ~5-minute wait and a 25 ms duration is a
+publish failure, not 21 defects.** The fixture publishes before any test
+runs, so a broken publish fails every test identically through
+`PublishedAppFixture.InitializeAsync`; read the exception text, which
+carries the whole `dotnet publish` log. One cause seen locally is
+`MSB4216` — *could not create or connect to a task host* — from
+`ComputeWasmBuildAssets`, an MSBuild node-pool problem rather than
+anything in this repo; it followed a force-killed `testhost` leaving stale
+nodes behind. Kill any lingering `MSBuild` / `dotnet` processes and re-run
+with `MSBUILDDISABLENODEREUSE=1`. Don't go looking for an app regression
+until the publish itself succeeds.
+
 ## Public API
 
 This is an application, not a library — no exported types or HTTP
@@ -1594,6 +1615,29 @@ the route map:
   reads as green, the defect class the gate was built to kill. (2) Its
   `Fixtures/` are committed copies; the umbrella's `TestData/FixtureFiles/`
   stays append-only and untouched.
+- **`ApplyFiltersAsync` arms the gate; it does not carry the panel's
+  values.** The bUnit helper invokes `OnFilterConfigChanged` with a *fresh*
+  `FilterConfig`, so a test that sets a facet through the panel's controls
+  and then applies with it asserts against an empty config — the selection
+  is silently discarded and the failure points at the facet rather than at
+  the helper (this cost a debug cycle on the depth-facet leg, and it is the
+  same shape as `SubmitPlay` bypassing the page handler). Use
+  `ClickApplyFilterAsync`, which clicks the panel's real *Apply Filter*
+  button, whenever the assertion is about *what* was applied.
+- **Never describe a filter facet in BgQuiz's own prose.** What a facet
+  admits is the lib's behavior, so its documentation lives with the lib:
+  `/help` embeds `XgFilter_Razor`'s `FilterHelp` and adds app-level framing
+  only. A description written here is a second encoding that passes every
+  test on the day it ships and silently goes wrong the next time the lib
+  changes. BgQuiz got off lightly on the depth facet's redesign into per-mode
+  clauses (XgFilter_Lib `cbca4b3`) only because it had never described that
+  facet; what it *had* written host-side — a one-line gloss of the error
+  range, and a hand-kept list of the panel's sections — is the same class of
+  copy, and both went out with the embed. If `FilterHelp` lacks prose the
+  app needs, extend it in `XgFilter_Razor`; don't restore it here.
+  Corollary for the sweep after a producer facet change: grep BgQuiz for the
+  retired *field* names **and** read the user-facing copy — the compiler
+  catches the first class and nothing catches the second.
 - **Most `FilterPanel` controls are behind its disclosure — a test that
   drives one must expand first.** The panel keeps the error-range section
   always visible and renders its other eight sections *only while
