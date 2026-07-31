@@ -3115,6 +3115,7 @@ public class PageTests : BunitContext
         Assert.Equal(
             [
                 "Before you start",
+                "Your data stays yours",
                 "Pick your folder",
                 "Choose filters",
                 "Save filters you use often",
@@ -3161,6 +3162,88 @@ public class PageTests : BunitContext
 
         Assert.Contains(QuizStatsFile.FileName, cut.Markup);
         Assert.Contains(QuizFiltersFile.FileName, cut.Markup);
+    }
+
+    [Fact]
+    public void Help_DataSection_NamesItsOwnBrowserStorageFromTheOwningConstants()
+    {
+        // The wiring half of the copy-pin split (the phrasing is pinned as
+        // independent literals in the e2e suite). Both entries the app keeps in
+        // the browser are rendered from the constant that actually writes them —
+        // MixDraft owns xg_quizMix in both directions, QuizLiveMarker owns its
+        // sessionStorage mark — so a key rename that left the prose behind fails
+        // here rather than shipping a name the reader can't find in devtools.
+        // That is the reason QuizLiveMarker's key was widened from private to
+        // internal at all; asserting it is what keeps the widening earning its
+        // keep.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        var section = SectionText(
+            cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Your data stays yours"));
+
+        Assert.Contains(MixDraft.StorageKey, section);
+        Assert.Contains(QuizLiveMarker.StorageKey, section);
+    }
+
+    [Fact]
+    public void Help_DataSection_PointsAtTheFilterPanelsStorageInsteadOfDescribingIt()
+    {
+        // The producer-owns-its-own-prose split, pinned. XgFilter_Razor documents
+        // what FilterPanel persists inside FilterHelp, rendered from the panel's
+        // own key constants; this page links into that anchor and names no key of
+        // the panel's. The positive half is the link. The negative half asserts
+        // the section's <code> elements are *exactly* the app's own two keys —
+        // stated that way rather than as "does not contain xg_filter_config",
+        // because the panel's key names are internal to another repo, so a
+        // literal here could rot into a negative assertion that passes for the
+        // wrong reason. An inlined copy of the panel's list would add <code>
+        // elements and fail, whatever those keys end up being called.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        var heading = cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Your data stays yours");
+
+        var links = new List<AngleSharp.Dom.IElement>();
+        var codes = new List<string>();
+        for (var node = heading.NextElementSibling;
+             node is not null && !string.Equals(node.TagName, "H2", StringComparison.OrdinalIgnoreCase);
+             node = node.NextElementSibling)
+        {
+            links.AddRange(node.QuerySelectorAll("a"));
+            codes.AddRange(node.QuerySelectorAll("code").Select(c => c.TextContent.Trim()));
+        }
+
+        // EndsWith, not equality: the href is the page's own address plus the
+        // fragment, because a bare "#fragment" resolves against <base href="/">
+        // and would land the reader on Home. That the *link* works is an e2e
+        // question; what this pins is that the pointer exists and aims at the
+        // producer's anchor.
+        Assert.Contains(links, a => a.GetAttribute("href")!.EndsWith("#fh-what-is-remembered"));
+        Assert.Equal([MixDraft.StorageKey, QuizLiveMarker.StorageKey], codes);
+    }
+
+    [Fact]
+    public void Help_DataSection_LeavesTheTwoWrittenFilesToThePrerequisitesList()
+    {
+        // The other half of "compose, don't consolidate": the files BgQuiz writes
+        // into the user's folder are already named from QuizStatsFile /
+        // QuizFiltersFile in Before you start, so the data section points back at
+        // them rather than restating them. Pinned because the natural instinct
+        // when writing a section called "where everything is stored" is to list
+        // all of it in one place — which would put the two filenames on the page
+        // twice and make the next rename a two-site edit.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        var section = SectionText(
+            cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Your data stays yours"));
+
+        Assert.DoesNotContain(QuizStatsFile.FileName, section);
+        Assert.DoesNotContain(QuizFiltersFile.FileName, section);
     }
 
     [Fact]

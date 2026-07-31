@@ -49,8 +49,24 @@ internal sealed class QuizLiveMarker
     /// <summary>
     /// The <c>sessionStorage</c> key. Namespaced so it can't collide with the
     /// filter panel's own <c>localStorage</c> keys (a different store anyway).
+    ///
+    /// <para>
+    /// <b><c>internal</c>, and named for its sibling.</b> <c>Help</c>'s data
+    /// section names this entry to the user and renders it from here, so the
+    /// name a reader verifies in devtools cannot drift from the name this type
+    /// actually writes — the same discipline <see cref="QuizStatsFile.FileName"/>
+    /// and <see cref="PickedFileLimits"/> established, and the posture
+    /// <c>FilterPanel</c>'s own key constants take for <c>FilterHelp</c>. It is
+    /// widened exactly as far as that one doc surface needs: <c>internal</c>,
+    /// never <c>public</c> (the test project sees it through
+    /// <c>InternalsVisibleTo</c>). It was renamed from <c>Key</c> when it became
+    /// documented surface, to match <see cref="MixDraft.StorageKey"/> — the two
+    /// are rendered side by side in that section, and a documented pair reading
+    /// <c>Key</c> / <c>StorageKey</c> would invite the reader to look for a
+    /// distinction that isn't there.
+    /// </para>
     /// </summary>
-    private const string Key = "bgquiz.quizLive";
+    internal const string StorageKey = "bgquiz.quizLive";
 
     private readonly IJSRuntime _js;
 
@@ -61,7 +77,7 @@ internal sealed class QuizLiveMarker
 
     /// <summary>Record that a quiz is now live in this tab.</summary>
     public ValueTask MarkLiveAsync() =>
-        _js.InvokeVoidAsync("sessionStorage.setItem", Key, "1");
+        _js.InvokeVoidAsync("sessionStorage.setItem", StorageKey, "1");
 
     /// <summary>
     /// True when the marker is present — i.e. a quiz <i>was</i> live in this tab
@@ -69,12 +85,12 @@ internal sealed class QuizLiveMarker
     /// stored value counts; only <see cref="MarkLiveAsync"/> ever writes one.
     /// </summary>
     public async ValueTask<bool> WasLiveAsync() =>
-        await _js.InvokeAsync<string?>("sessionStorage.getItem", Key) is not null;
+        await _js.InvokeAsync<string?>("sessionStorage.getItem", StorageKey) is not null;
 
     /// <summary>
     /// Clear the marker — on honest quiz completion (Done) or once the reset
     /// notice has been shown, so it fires only once per reload.
     /// </summary>
     public ValueTask ClearAsync() =>
-        _js.InvokeVoidAsync("sessionStorage.removeItem", Key);
+        _js.InvokeVoidAsync("sessionStorage.removeItem", StorageKey);
 }

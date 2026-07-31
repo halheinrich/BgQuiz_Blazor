@@ -43,20 +43,75 @@
             beside your problem files. It writes nothing else, and never changes
             the files it quizzes you on.
         </li>
+    </ul>
+
+    @* Data ownership and storage, directly after the prerequisites and ahead of
+       the flow: a reader who wants to know what happens to their positions wants
+       that answer before handing over a folder, not twelve sections later. The
+       "Nothing leaves your machine" bullet that used to close the list above was
+       *moved* here rather than copied — the same page asserting it twice is
+       exactly the duplication a consolidated section is prone to.
+
+       The two browser entries are rendered from the constants that write them
+       (MixDraft.StorageKey, QuizLiveMarker.StorageKey), never typed as prose
+       literals, so a name a reader checks in devtools cannot drift from the name
+       the code stores under — the discipline the file names and pick caps already
+       use. The two files BgQuiz writes into the folder are deliberately NOT
+       restated: they are named from their own constants in the list above, and
+       this section points back at them.
+
+       The filter panel's storage is a POINTER, not a description. XgFilter_Razor
+       owns that prose and renders it from the panel's own constants inside
+       FilterHelp (#fh-what-is-remembered), which this page already embeds under
+       Choose filters. Naming or describing the panel's keys here would be a
+       second encoding of a producer's internals that no test in this repo could
+       notice drifting — the same ruling that removed this page's facet prose. *@
+    <h2 class="h4 mt-4">Your data stays yours</h2>
+    <p>
+        Your positions and matches are yours, and BgQuiz treats them that way. It
+        reads the files you point it at and parses them inside your browser; they
+        are never uploaded, and neither are the positions in them, the answers you
+        give, or your scores. There is no account to create, and the server BgQuiz
+        is downloaded from has nothing to receive any of it — it hands your browser
+        the app and plays no further part.
+    </p>
+    <p>
+        BgQuiz does keep two small entries in the browser itself, so your setup is
+        still there when you come back:
+    </p>
+    <ul>
         <li>
-            <strong>Nothing leaves your machine.</strong> Your files are read,
-            parsed, and written entirely in your browser. There is no account, no
-            upload, and no server for anything to be sent to.
+            <code>@MixDraft.StorageKey</code> — the weighted mix you last applied,
+            in this site's local storage. It survives reloading the page and
+            closing the browser, and it holds the mix settings only: the
+            categories, their percentages and order, and the quiz length.
+        </li>
+        <li>
+            <code>@QuizLiveMarker.StorageKey</code> — a single mark noting that a
+            quiz was running, which is how BgQuiz can tell you afterwards that a
+            reload reset it. It is kept in <em>session</em> storage, which belongs
+            to this browser tab alone: another tab never sees it, and it
+            disappears when you close this one.
         </li>
     </ul>
+    <p>
+        You can see both under this site's storage in your browser's developer
+        tools, and delete them there whenever you like. The filter panel keeps its
+        own settings in your browser as well —
+        <a href="@PanelStorageHref">What the panel remembers</a>, in
+        <em>Choose filters</em> below, lists exactly what those are.
+    </p>
+    <p>
+        Everything else BgQuiz keeps, it writes into your own problem folder: the
+        two files named above, and nothing besides.
+    </p>
 
     <h2 class="h4 mt-4">Pick your folder</h2>
     <p>
         On the home page, choose the local folder holding your <code>.xg</code> match
         files and <code>.xgp</code> position files. Only files directly in that folder
-        are used — subfolders are ignored. The files are read and parsed entirely in
-        your browser — nothing is uploaded, and no file ever leaves your machine. A
-        folder can hold up to @PickedFileLimits.MaxFileCount problem files, each up to
+        are used — subfolders are ignored. A folder can hold up to
+        @PickedFileLimits.MaxFileCount problem files, each up to
         @(PickedFileLimits.MaxFileMegabytes) MB.
     </p>
 

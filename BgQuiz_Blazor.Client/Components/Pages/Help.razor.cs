@@ -48,6 +48,37 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </summary>
 public partial class Help : ComponentBase
 {
+    /// <summary>
+    /// The <c>id</c> of <c>FilterHelp</c>'s storage section — the one anchor this
+    /// page links into. A literal because it belongs to another repo and is not
+    /// exported as a constant; the drift that would leave behind is caught where
+    /// it can be, by the e2e test that clicks the link and asserts the target
+    /// actually comes into view, rather than by anything in this assembly.
+    /// </summary>
+    private const string PanelStorageAnchor = "fh-what-is-remembered";
+
+    /// <summary>
+    /// Href for the data section's pointer into <c>FilterHelp</c>'s
+    /// "what the panel remembers" — this page's own URL plus the fragment,
+    /// deliberately <b>not</b> the bare <c>#fragment</c> an ordinary page would
+    /// use.
+    ///
+    /// <para>
+    /// A fragment-only href resolves against the document's <c>&lt;base
+    /// href="/"&gt;</c>, not against the current address, so on <c>/help</c> it
+    /// resolves to <c>/#fh-what-is-remembered</c> — the router matches
+    /// <c>/</c>, and the reader is dropped on <c>Home</c> instead of moved down
+    /// the page they were reading. Observed in a browser, not theorised.
+    /// Computing the href from <see cref="NavigationManager.Uri"/> rather than
+    /// writing <c>/help#…</c> keeps it correct if the app is ever served from a
+    /// sub-path (where the base href is no longer <c>/</c>); the split drops any
+    /// fragment already on the address, so re-rendering after the link has been
+    /// followed cannot accumulate a second one.
+    /// </para>
+    /// </summary>
+    private string PanelStorageHref =>
+        $"{Nav.Uri.Split('#')[0]}#{PanelStorageAnchor}";
+
     private void BackToQuiz()
     {
         Nav.NavigateTo("/quiz");

@@ -74,9 +74,12 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   decision-type choice; the controller adds no filter of its own).
 - **XgFilter_Razor** — `FilterPanel.razor`. Hosted on `/` so quiz-start
   filters share the same UI used by `ExtractFromXgToCsv`. Also
-  `FilterHelp.razor`, the producer's own facet documentation, embedded by
-  `/help` — facet prose has one owner, and it is not this app (see
-  `Help.razor` under Components and the Pitfall).
+  `FilterHelp.razor`, the producer's own facet documentation **and** its
+  account of what the panel persists (`#fh-what-is-remembered`, rendered from
+  `FilterPanel`'s own key constants), embedded by `/help` — that prose has one
+  owner, and it is not this app; BgQuiz's data section links into the anchor
+  rather than restating any of it (see `Help.razor` under Components and the
+  two Pitfalls).
 - **ConvertXgToJson_Lib** — picked up transitively via the filter pipeline
   (parses the user's browser-picked `.xg` / `.xgp` bytes in-browser, via
   `FilteredDecisionIterator.IterateXgStreamDiagrams`).
@@ -982,6 +985,17 @@ Lifecycle:
 `PageTests` pins the whole lifecycle. **Storage is `sessionStorage`,
 deliberately — not `localStorage`** (see Pitfalls).
 
+**`StorageKey` is `internal`, and named for its sibling.** `Help`'s data
+section names this entry to the user, so the key is rendered from here rather
+than typed as prose — the discipline `QuizStatsFile.FileName` and
+`PickedFileLimits` established, and the posture `FilterPanel`'s own key
+constants take for `FilterHelp`. It is widened exactly as far as that one doc
+surface needs — `internal`, never `public`; the test project sees it through
+`InternalsVisibleTo`. It was **renamed** from `Key` on becoming documented
+surface, to match `MixDraft.StorageKey`: the two render side by side in that
+section, and a documented pair reading `Key` / `StorageKey` invites a reader
+to look for a distinction that isn't there.
+
 ### Pages
 
 - **`Home.razor`** — the setup page; wiring notes below, contracts in their
@@ -1250,9 +1264,9 @@ deliberately — not `localStorage`** (see Pitfalls).
   supported browsers, rendered *verbatim* from
   `FolderPickDisplay.SupportedBrowsers` so this and Home's line beside the
   pick button cannot say different things; the two files BgQuiz writes,
-  named from `QuizStatsFile.FileName` / `QuizFiltersFile.FileName`; and the
-  nothing-leaves-your-machine stance. It leads because everything after it
-  assumes it. Then the six beats of the flow (pick folder → filters →
+  named from `QuizStatsFile.FileName` / `QuizFiltersFile.FileName`. It leads
+  because everything after it assumes it. Then **Your data stays yours** (§
+  below), then the six beats of the flow (pick folder → filters →
   answering → scoring → review → stats/done), with **Save filters you use
   often** and **Weight the quiz by your lifetime stats** between the filters
   and answering beats in the order the user meets them on Home (the mix
@@ -1295,6 +1309,41 @@ deliberately — not `localStorage`** (see Pitfalls).
   Help link is the **only** entry point; `Quiz`'s action row deliberately
   gets no "?" button, because its fixed height is load-bearing for board
   sizing.
+
+  **`Help`'s data section — "Your data stays yours".** Sits directly after
+  *Before you start* and ahead of the flow: a reader who wants to know what
+  happens to their positions wants it before handing over a folder, not
+  twelve sections later. It carries the ownership statement (the files are
+  the reader's; they are parsed in the browser and never uploaded; there is
+  no account and the server it is downloaded from has nothing to receive
+  them) and names **everything BgQuiz stores**, each from its owning
+  constant:
+
+  - `MixDraft.StorageKey` (`xg_quizMix`) — localStorage, the applied
+    weighted mix.
+  - `QuizLiveMarker.StorageKey` (`bgquiz.quizLive`) — **sessionStorage**,
+    described as what it is: current-tab-only, invisible to other tabs, gone
+    when the tab closes. That is not an implementation detail to gloss —
+    § `QuizLiveMarker` records why it must never become localStorage, and
+    user copy claiming otherwise would be the same lie in a second place.
+  - The two files written into the user's folder are **not** restated —
+    *Before you start* already names them from `QuizStatsFile.FileName` /
+    `QuizFiltersFile.FileName`, and this section points back at them.
+  - `FilterPanel`'s own localStorage entries are **not named or described**
+    — one sentence in user terms plus a link into `FilterHelp`'s
+    `#fh-what-is-remembered`. See Pitfalls.
+
+  Composing rather than consolidating is the constraint: the
+  nothing-leaves-your-machine bullet was **moved** out of *Before you start*
+  into this section, and *Pick your folder*'s in-browser-parse clause was
+  dropped, so the claim is asserted once. `PageTests` pins the wiring (both
+  keys from their constants; the section's `<code>` elements are *exactly*
+  those two; the anchor link present; neither filename restated);
+  `HelpAndTitlesTests` pins the phrasing as independent literals and clicks
+  the anchor in a real browser.
+
+  **`Help.PanelStorageHref`** — the anchor href is **computed**, never
+  written as a bare `#fragment`. See Pitfalls (`<base href="/">`).
 - **`Done.razor`** — final `ScorePanel` (Total) + `ScoreBreakdown`
   (four-way) + total problems shown + **Restart with same filters** /
   **Back to setup**. "Problems shown" is `PlayDecisions.Submitted +
@@ -1638,6 +1687,35 @@ the route map:
   Corollary for the sweep after a producer facet change: grep BgQuiz for the
   retired *field* names **and** read the user-facing copy — the compiler
   catches the first class and nothing catches the second.
+- **Same rule for what the panel *stores*: point, never restate.** `Help`'s
+  data section says in plain user terms that the filter panel also remembers
+  its settings in the reader's browser, and links into `FilterHelp`'s
+  `#fh-what-is-remembered` for the verifiable detail. It **must not** name or
+  describe `FilterPanel`'s localStorage keys — those are the producer's, are
+  rendered there from the panel's own constants, and are `internal` to
+  `XgFilter_Razor`, so a copy here could only be a prose literal that nothing
+  in this repo can catch drifting. Inlining that list "so the reader doesn't
+  have to follow a link" is the tempting edit and is exactly the defect: the
+  section reads complete on the day it ships and goes silently wrong the next
+  time the panel renames or adds a key. The pin is
+  `Help_DataSection_PointsAtTheFilterPanelsStorageInsteadOfDescribingIt`,
+  which asserts the section's `<code>` elements are *exactly* BgQuiz's own two
+  keys — a form that survives the panel renaming its keys, which a
+  `DoesNotContain("xg_filter_config")` would not.
+- **A bare `#fragment` href navigates to Home, not down the page.** `App.razor`
+  sets `<base href="/">`, and an anchor with a fragment-only href resolves
+  against the **base URI**, not the current address — so on `/help`,
+  `href="#fh-what-is-remembered"` resolves to `/#fh-what-is-remembered`, the
+  router matches `/`, and the reader lands on `Home`. Observed, not theorised:
+  the first cut of the data-section pointer did exactly this, and the markup
+  looked right. `Help.PanelStorageHref` composes the href from
+  `NavigationManager.Uri` (fragment stripped) instead — correct under a
+  sub-path deployment too, where `/help#…` would not be. Blazor then handles
+  the same-document navigation itself (it calls `preventDefault` and scrolls),
+  which is *also* not assumable — verify any in-page anchor in a running
+  browser. A bUnit href assertion cannot see any of this; the e2e test clicks
+  the link and asserts the target moves into the viewport, having first
+  asserted it was outside it.
 - **Most `FilterPanel` controls are behind its disclosure — a test that
   drives one must expand first.** The panel keeps the error-range section
   always visible and renders its other eight sections *only while
