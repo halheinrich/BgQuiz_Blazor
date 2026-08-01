@@ -233,8 +233,10 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (Playwright/Chromi
   CommaDecimalLocaleTests.cs        — nb-NO comma-decimal guard
   HelpAndTitlesTests.cs             — /help renders; document.title contract
   SidebarCollapseTests.cs           — the desktop nav-panel collapse: the fold,
-                                      the chevron state signal, and how long the
-                                      choice lasts (Architecture § The host layout)
+                                      the chevron state signal, and both halves of
+                                      how long the choice lasts — survives a worked
+                                      run, resets on navigation/reload
+                                      (Architecture § The host layout)
   BetaOnboardingTests.cs            — robots.txt served over HTTP; the one
                                       feedback mailto on Home and Help, subject
                                       carrying the built version off the footer
@@ -1528,18 +1530,30 @@ does, matching the checkbox's own semantics; `title` is deliberately a
 different, state-neutral string, because no CSS can rewrite an attribute and
 only the chevron can carry the state.
 
-**The choice does not survive navigation — verified, not assumed.** The layout
-renders statically, so every in-app route change re-renders it and Blazor's
-enhanced-navigation DOM synchronization resets the checkbox: the panel returns
-on **every** navigation, including the app's own `NavigationManager` path
-(Start Quiz, Show stats), not merely on anchor clicks. A full reload resets it
-for the ordinary reason. `data-permanent` on the checkbox does **not** preserve
-it (measured — the attribute governs element content, and form-control state is
-synchronized regardless). Making the choice stick would take JS — an
-`enhancedload` listener over a storage entry — which is a live question, not a
-settled one; nothing here does it today. `Help` tells the reader the panel
-returns on navigation or reload, and `SidebarCollapseTests` pins that claim
-alongside the fold itself and the chevron flip.
+**The choice is scoped to the route, not to time — verified, not assumed.** The
+reset is triggered by **navigation** and nothing else. The layout renders
+statically, so every in-app route change re-renders it and Blazor's
+enhanced-navigation DOM synchronization resets the checkbox — on the app's own
+`NavigationManager` path (Start Quiz, Show stats, the last Continue into
+`/done`) as much as on anchor clicks — and a full reload resets it for the
+ordinary reason. `data-permanent` on the checkbox does **not** preserve it
+(measured: the attribute governs element content, and form-control state is
+synchronized regardless).
+
+Everything *inside* a route leaves it alone, which is the half that matters to
+a user: Submit, Skip, Continue-within-a-run, and Undo are in-page WASM
+re-renders that never re-render the layout, so **the fold survives a whole
+worked run** and gives way only on the navigation that ends it. That is also
+the reconciliation of the contrary report this issue started from — collapsing
+the rail and then quizzing without changing route looks exactly like
+persistence. `Help` states both halves, positive first, and
+`SidebarCollapseTests` pins both alongside the fold itself and the chevron
+flip; the worked-run scenario gates each step on the problem indicator
+advancing, so a click that failed to land cannot masquerade as survival.
+
+Making the choice outlive navigation would take JS — an `enhancedload` listener
+over a storage entry — which is an open question, not a settled one; nothing
+here does it today.
 
 **What collapsing buys is room, not reliably a bigger board.** `.board-page` is
 height-capped, so the reclaimed 250px becomes board only while the board is

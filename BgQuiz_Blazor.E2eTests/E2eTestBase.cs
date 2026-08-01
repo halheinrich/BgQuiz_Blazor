@@ -157,7 +157,7 @@ public abstract class E2eTestBase : IAsyncLifetime
     }
 
     /// <summary>
-    /// Pick a committed fixture as a <i>folder</i> through the hidden
+    /// Pick a committed fixture as a single-problem <i>folder</i> through the hidden
     /// <c>webkitdirectory</c> input: the fixture is copied into a fresh staged
     /// temp directory (named after the fixture, so scenarios stay
     /// distinguishable in failure output) and the directory is handed to the
@@ -168,17 +168,39 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// construction (the fallback mechanism has no writable handle); the
     /// FS-Access + stats path is covered by <c>StatsPersistenceTests</c>.
     /// </summary>
-    protected async Task PickFixtureAsync(string fixtureFileName)
+    protected Task PickFixtureAsync(string fixtureFileName) =>
+        PickFixtureCopiesAsync(fixtureFileName, copies: 1);
+
+    /// <summary>
+    /// The multi-problem form of <see cref="PickFixtureAsync"/>: stage
+    /// <paramref name="copies"/> copies of one committed fixture into the folder,
+    /// so the quiz has several problems to walk through.
+    ///
+    /// <para>
+    /// Copies of a single fixture rather than the two different committed
+    /// fixtures, deliberately: every problem in the run is then the same kind
+    /// with the same right answer, so a scenario that walks the run needs no
+    /// knowledge of which problem the source happens to hand it first — and the
+    /// source's ordering is not a contract these scenarios should depend on.
+    /// </para>
+    /// </summary>
+    protected async Task PickFixtureCopiesAsync(string fixtureFileName, int copies)
     {
         string dirName = Path.GetFileNameWithoutExtension(fixtureFileName);
+        string extension = Path.GetExtension(fixtureFileName);
         string stagedDir = Path.Combine(
             Path.GetTempPath(), "bgquiz-e2e", $"{dirName}-{Guid.NewGuid():N}", dirName);
         Directory.CreateDirectory(stagedDir);
         _stagedDirs.Add(Path.GetDirectoryName(stagedDir)!);
-        File.Copy(FixturePath(fixtureFileName), Path.Combine(stagedDir, fixtureFileName));
+
+        string source = FixturePath(fixtureFileName);
+        File.Copy(source, Path.Combine(stagedDir, fixtureFileName));
+        for (int copy = 2; copy <= copies; copy++)
+            File.Copy(source, Path.Combine(stagedDir, $"{dirName}-{copy}{extension}"));
 
         await FallbackFolderInput.SetInputFilesAsync(stagedDir);
-        await Expect(Page.GetByText("1 problem file")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(copies == 1 ? "1 problem file" : $"{copies} problem files"))
+            .ToBeVisibleAsync();
     }
 
     /// <summary>

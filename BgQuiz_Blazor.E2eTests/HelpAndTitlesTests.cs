@@ -105,10 +105,13 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await Expect(body).ToContainTextAsync("The side panel folds out of the way");
         await Expect(body).ToContainTextAsync("narrow strip down the left edge");
 
-        // The state signal, and the lifetime of the choice — the two things a
-        // reader cannot work out by looking at the control.
+        // The state signal, and both halves of the lifetime — the things a reader
+        // cannot work out by looking at the control. The positive half leads: the
+        // fold surviving a worked run is the fact that makes the control worth
+        // using, and a note carrying only the reset would undersell it.
         await Expect(body).ToContainTextAsync("points the way the panel will move");
-        await Expect(body).ToContainTextAsync("returns on its own whenever you move to another page or reload");
+        await Expect(body).ToContainTextAsync("stays put while you work through the quiz");
+        await Expect(body).ToContainTextAsync("comes back when you move to another page or reload");
 
         // The note is about the CONTROL, never an inventory of what the panel
         // contains: issue #30 adds a Settings entry to that nav, and prose naming

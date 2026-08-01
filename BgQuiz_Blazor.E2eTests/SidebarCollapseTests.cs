@@ -105,6 +105,63 @@ public sealed class SidebarCollapseTests : E2eTestBase
             "a reload brings the panel back — Help tells the reader so");
     }
 
+    /// <summary>
+    /// The half of the story a user actually lives with: the reset is triggered
+    /// by <i>navigation</i>, not by time or by interacting with the quiz. Submit,
+    /// Skip and Continue-within-a-run are in-page WASM re-renders that never
+    /// re-render the (static) layout, so the fold survives a whole worked run —
+    /// which is exactly the case the tester was in, and why the collapse was
+    /// reported as persisting. It gives way only on the navigation that ends the
+    /// run.
+    ///
+    /// <para>
+    /// Each step asserts the app actually advanced (the problem indicator moves)
+    /// before asserting the panel stayed folded: a click that silently failed to
+    /// land would otherwise read as "the fold survived answering" while nothing
+    /// had been answered at all.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task FoldSurvivesAWorkedRun_AndGivesWayOnlyToTheNavigationThatEndsIt()
+    {
+        await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
+        await BootHomeAsync();
+        await PickFixtureCopiesAsync(CubeFixture, copies: 3);
+        await ApplyFilterAsync();
+        await StartQuizAsync();
+
+        await CollapseRail.ClickAsync();
+        Assert.Equal(0d, await PanelWidthAsync());
+        await Expect(Page.GetByText("Problem 1")).ToBeVisibleAsync();
+
+        // Skip: advances without scoring, entirely in-page.
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Skip" }).ClickAsync();
+        await Expect(Page.GetByText("Problem 2")).ToBeVisibleAsync();
+        Assert.Equal(0d, await PanelWidthAsync());
+
+        // Submit: scores and shows the solution, still in-page.
+        await AnswerCubeNoDoubleAsync();
+        Assert.Equal(0d, await PanelWidthAsync());
+
+        // Continue through that solution — the step that ends a run when it is
+        // the last problem, and here is just an advance.
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Continue" }).ClickAsync();
+        await Expect(Page.GetByText("Problem 3")).ToBeVisibleAsync();
+        await ExpectUrlAsync("/quiz");
+        Assert.Equal(0d, await PanelWidthAsync());
+        await Expect(CollapseRail).ToBeCheckedAsync();
+
+        // The last Continue exhausts the source and navigates to /done — and
+        // that navigation, not the answering before it, is what unfolds it.
+        await AnswerCubeNoDoubleAsync();
+        Assert.Equal(0d, await PanelWidthAsync());
+        await ContinueToDoneAsync();
+
+        await Expect(CollapseRail).Not.ToBeCheckedAsync();
+        Assert.True(await PanelWidthAsync() > 0,
+            "the navigation that ends the run brings the panel back");
+    }
+
     private Task<double> PanelWidthAsync() =>
         NavigationPanel.EvaluateAsync<double>("el => el.getBoundingClientRect().width");
 
