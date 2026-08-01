@@ -1,7 +1,16 @@
 ﻿@inherits LayoutComponentBase
 
 <div class="page">
-    <input type="checkbox" title="Toggle navigation" class="sidebar-toggle-checkbox" />
+    @* The desktop sidebar-collapse control. Pure CSS by necessity — MainLayout
+       cannot be interactive (see MainLayoutTests' class docs), so the state is
+       this checkbox and the collapse is `:checked ~ .sidebar` in the scoped CSS.
+       It MUST stay a PRECEDING sibling of .sidebar for that combinator to reach
+       it. Checked = panel hidden, which is exactly what the accessible name
+       says; the title stays state-neutral because no CSS can rewrite it, while
+       the chevron the CSS draws does carry the state. *@
+    <input type="checkbox" class="sidebar-toggle-checkbox"
+           aria-label="Hide navigation panel"
+           title="Show or hide the navigation panel" />
 
     <div class="sidebar">
         <NavMenu />

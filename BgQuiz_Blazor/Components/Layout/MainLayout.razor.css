@@ -65,24 +65,54 @@ main {
         top: 0;
     }
 
+    /* The collapse rail: a full-height strip at the window's left edge carrying
+       a chevron chip near the top, level with the brand row. The chevron points
+       the way the panel will move — left to fold it away, right to bring it
+       back — so the control says both what it does and which state it is in.
+       The button-like chip is a background layer of its own, held in
+       --rail-chip, so the two state rules below differ by nothing but the
+       chevron: no extra DOM element may be introduced between this checkbox
+       and .sidebar without breaking the `~` collapse rule, so the whole
+       affordance has to come out of :hover / :focus-visible / :checked, and
+       the chip's appearance must not end up written twice. All three
+       background-* values below are single values across both layers — CSS
+       repeats a short list to match the layer count. */
     .sidebar-toggle-checkbox {
+        --rail-chip: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3crect x='2.5' y='2.5' width='25' height='25' rx='7' fill='%23ffffff' fill-opacity='0.14' stroke='%23ffffff' stroke-opacity='0.45'/%3e%3c/svg%3e");
+
         display: block;
         appearance: none;
+        margin: 0;
         cursor: pointer;
         flex: 0 0 1.75rem;
         height: 100vh;
         position: sticky;
         top: 0;
         border: none;
-        background-color: rgb(5, 39, 103);
-        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%28255, 255, 255, 0.55%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+        /* Seam against the panel's gradient, so the rail reads as its own
+           surface rather than as the panel's left margin. */
+        border-right: 1px solid rgba(255, 255, 255, 0.18);
+        background-color: rgb(4, 30, 79);
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath d='M17.5 9.5 12 15l5.5 5.5' fill='none' stroke='%23ffffff' stroke-opacity='0.92' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3e%3c/svg%3e"), var(--rail-chip);
         background-repeat: no-repeat;
-        background-position: center 0.75rem;
-        background-size: 1.1rem;
+        background-position: center 1rem;
+        background-size: 1.5rem;
+        transition: background-color 0.12s ease-in-out;
     }
 
+    .sidebar-toggle-checkbox:hover {
+        background-color: rgb(9, 52, 128);
+    }
+
+    .sidebar-toggle-checkbox:focus-visible {
+        outline: 2px solid #fff;
+        outline-offset: -4px;
+    }
+
+    /* Collapsed: the chevron reverses to point at the panel it will restore.
+       Only the image changes, so the hover tint above survives both states. */
     .sidebar-toggle-checkbox:checked {
-        background-color: rgb(3, 25, 66);
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath d='M12.5 9.5 18 15l-5.5 5.5' fill='none' stroke='%23ffffff' stroke-opacity='0.92' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3e%3c/svg%3e"), var(--rail-chip);
     }
 
     .sidebar-toggle-checkbox:checked ~ .sidebar {

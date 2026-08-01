@@ -88,6 +88,40 @@ public sealed class HelpAndTitlesTests : E2eTestBase
     }
 
     /// <summary>
+    /// The note covering the desktop collapse rail. A beta tester asked for the
+    /// side panel gone while quizzing when the control that does exactly that
+    /// already existed, so the fix is half affordance and half telling people it
+    /// is there — and the telling half is only real if the words are on the page.
+    /// Independent literals per the copy-pin split; the behaviour the words
+    /// describe is pinned in <c>SidebarCollapseTests</c>.
+    /// </summary>
+    [Fact]
+    public async Task HelpDescribesTheCollapsibleSidePanel()
+    {
+        await Page.GotoAsync(BaseUrl + "/help");
+
+        var body = Page.Locator("body");
+
+        await Expect(body).ToContainTextAsync("The side panel folds out of the way");
+        await Expect(body).ToContainTextAsync("narrow strip down the left edge");
+
+        // The state signal, and the lifetime of the choice — the two things a
+        // reader cannot work out by looking at the control.
+        await Expect(body).ToContainTextAsync("points the way the panel will move");
+        await Expect(body).ToContainTextAsync("returns on its own whenever you move to another page or reload");
+
+        // The note is about the CONTROL, never an inventory of what the panel
+        // contains: issue #30 adds a Settings entry to that nav, and prose naming
+        // the entries rots the day it lands. Scoped to the bullet itself, so this
+        // guards the shape of the note rather than one phrasing of it.
+        string note = await Page.Locator("li")
+            .Filter(new() { HasText = "The side panel folds out of the way" })
+            .InnerTextAsync();
+        Assert.DoesNotContain("Home", note);
+        Assert.DoesNotContain("Settings", note);
+    }
+
+    /// <summary>
     /// The pointer into XgFilter_Razor's own storage section has to actually
     /// land. A bare fragment href goes through Blazor's navigation interception
     /// in the running app, so "the anchor is in the markup" is not evidence that

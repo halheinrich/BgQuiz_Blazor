@@ -232,6 +232,9 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (Playwright/Chromi
                                       "Start without mix" override)
   CommaDecimalLocaleTests.cs        — nb-NO comma-decimal guard
   HelpAndTitlesTests.cs             — /help renders; document.title contract
+  SidebarCollapseTests.cs           — the desktop nav-panel collapse: the fold,
+                                      the chevron state signal, and how long the
+                                      choice lasts (Architecture § The host layout)
   BetaOnboardingTests.cs            — robots.txt served over HTTP; the one
                                       feedback mailto on Home and Help, subject
                                       carrying the built version off the footer
@@ -1279,7 +1282,9 @@ to look for a distinction that isn't there.
   quiz can be much smaller); pass positions are auto-skipped and never
   shown; an off-list play counts as a skip, not a wrong answer; a cube
   position scores as two decisions; clicking the dice on the solution
-  diagram advances like Continue; a full browser reload resets everything
+  diagram advances like Continue; the desktop side panel folds away behind
+  the rail at the window's left edge (§ The host layout — and see Pitfalls
+  for what that note may say); a full browser reload resets everything
   (in-app navigation does not, and the stats file survives in the user's own
   folder). It closes with **Send feedback**, rendering
   `AppInfo.FeedbackMailto` — the same link Home's footer carries, from the
@@ -1485,6 +1490,64 @@ Neither alone is sufficient (see Pitfalls). There is no duplicate-`<title>`
 hazard: with `prerender: false` the outlet emits nothing into the static pass,
 so every route serves exactly one `<title>`.
 
+### The host layout — the desktop navigation-panel collapse
+
+`MainLayout` (host project) is `.page` → collapse checkbox → `.sidebar`
+(holding `NavMenu`) → `main`. The checkbox folds the panel away on desktop
+(`min-width: 641px`); mobile has its own `navbar-toggler` in
+`NavMenu.razor.css` for unrelated reasons and is untouched by any of this.
+
+**Why a checkbox and not state.** `MainLayout` **cannot be interactive**:
+`RouteView` passes `@Body` in as a `RenderFragment`, and a `RenderFragment`
+cannot cross a rendermode boundary — declaring `@rendermode` on the layout
+throws at runtime. So there is no C# to hold the state and the collapse is a
+CSS checkbox hack, mirroring the mobile toggler. Two consequences are
+load-bearing:
+
+- The checkbox **must stay a preceding sibling** of `.sidebar` — CSS's `~`
+  combinator only reaches later siblings, so reordering silently kills the
+  feature. `MainLayoutTests` pins the ordering (bUnit's AngleSharp has no CSS
+  engine, so ordering is the most it can pin).
+- `NavMenu` is a different component with its own scoped CSS, so the collapse
+  reaches the nav inside it through the inherited custom property
+  `--nav-scrollable-display`, which crosses the scoped-CSS boundary that a
+  class selector could not.
+
+**The rail (issue #29).** A beta tester asked for the panel gone while
+quizzing when this control already did exactly that — the defect was
+discoverability, not absence. The strip is now a rail with a chevron chip:
+one SVG background (chip + chevron) that **reverses direction on `:checked`**,
+so the control states both what it does and which state it is in; plus a
+hover tint, a `:focus-visible` ring, and a hairline `border-right` seam so the
+rail reads as its own surface rather than as the panel's left margin. Chip and
+chevron are one background image on purpose — no element may be introduced
+between the checkbox and `.sidebar` without breaking the `~` rule, so every
+state has to come from `:hover` / `:focus-visible` / `:checked` alone. The
+accessible name (`aria-label="Hide navigation panel"`) states what *checking*
+does, matching the checkbox's own semantics; `title` is deliberately a
+different, state-neutral string, because no CSS can rewrite an attribute and
+only the chevron can carry the state.
+
+**The choice does not survive navigation — verified, not assumed.** The layout
+renders statically, so every in-app route change re-renders it and Blazor's
+enhanced-navigation DOM synchronization resets the checkbox: the panel returns
+on **every** navigation, including the app's own `NavigationManager` path
+(Start Quiz, Show stats), not merely on anchor clicks. A full reload resets it
+for the ordinary reason. `data-permanent` on the checkbox does **not** preserve
+it (measured — the attribute governs element content, and form-control state is
+synchronized regardless). Making the choice stick would take JS — an
+`enhancedload` listener over a storage entry — which is a live question, not a
+settled one; nothing here does it today. `Help` tells the reader the panel
+returns on navigation or reload, and `SidebarCollapseTests` pins that claim
+alongside the fold itself and the chevron flip.
+
+**What collapsing buys is room, not reliably a bigger board.** `.board-page` is
+height-capped, so the reclaimed 250px becomes board only while the board is
+width-bound: measured at 1280×800 the diagram goes 922×519 → 977×550 and at
+1280×1400 it goes 922×519 → 1172×659, but at 1600×900 and 1920×1080 it is
+already height-capped and the width becomes margin. User-facing copy therefore
+speaks to crowding, never to board size.
+
 ### The e2e smoke gate (`BgQuiz_Blazor.E2eTests`)
 
 The primary-path smoke gate AGENTS.md mandates: scenarios driving the
@@ -1673,6 +1736,17 @@ the route map:
   same shape as `SubmitPlay` bypassing the page handler). Use
   `ClickApplyFilterAsync`, which clicks the panel's real *Apply Filter*
   button, whenever the assertion is about *what* was applied.
+- **Never inventory the navigation panel in prose.** `Help`'s collapse note
+  describes the *control* and its behaviour — where the rail is, which way
+  the chevron points, how long the choice lasts — and deliberately names
+  nothing the panel contains. The panel's entries change (issue #30 adds a
+  Settings page to it), so a note reading "the panel holds Home and Help"
+  rots the day the next entry lands, and nothing about the collapse would
+  fail to make it rot loudly. `HelpAndTitlesTests` scopes a guard to that
+  bullet's own `<li>`, so the rule survives a rewrite of the wording. The
+  same note must not promise a **bigger board** either — Architecture § The
+  host layout has the measurements showing when the reclaimed width becomes
+  margin instead.
 - **Never describe a filter facet in BgQuiz's own prose.** What a facet
   admits is the lib's behavior, so its documentation lives with the lib:
   `/help` embeds `XgFilter_Razor`'s `FilterHelp` and adds app-level framing

@@ -54,6 +54,29 @@ public class MainLayoutTests : BunitContext
         Assert.False(checkbox.HasAttribute("checked"));
     }
 
+    /// <summary>
+    /// The control is a bare <c>&lt;input&gt;</c> with no visible label and no
+    /// wrapping <c>&lt;label&gt;</c> — its only accessible name is the one
+    /// declared here, so losing the attribute leaves it announced as an unnamed
+    /// checkbox. The name states what CHECKING it does, matching the checkbox's
+    /// own semantics (checked = panel hidden). The tooltip is separate on
+    /// purpose: no CSS can rewrite an attribute, so <c>title</c> stays neutral
+    /// about the state while the chevron the CSS draws carries it.
+    /// </summary>
+    [Fact]
+    public void SidebarToggleCheckbox_IsNamedForWhatCheckingItDoes()
+    {
+        var cut = Render<MainLayout>(parameters => parameters
+            .Add(p => p.Body, "body content"));
+
+        var checkbox = cut.Find("input.sidebar-toggle-checkbox");
+
+        Assert.Equal("Hide navigation panel", checkbox.GetAttribute("aria-label"));
+        Assert.False(string.IsNullOrWhiteSpace(checkbox.GetAttribute("title")),
+            "the rail is unlabelled to the eye, so the hover tooltip is the " +
+            "sighted-mouse-user half of the affordance.");
+    }
+
     [Fact]
     public void Body_RendersInsideMainArticle()
     {
