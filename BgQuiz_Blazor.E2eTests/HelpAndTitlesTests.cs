@@ -125,6 +125,28 @@ public sealed class HelpAndTitlesTests : E2eTestBase
     }
 
     /// <summary>
+    /// Help's account of the answer-type breakdown. The zero reading is the part
+    /// that has to be in words: a user looking at "Too good to double: 0" can
+    /// read it as a category that failed to load unless the documentation says
+    /// the list is exhaustive and a zero is a fact about their folder.
+    /// Independent literals per the copy-pin split; that the paragraph does not
+    /// recite the bucket labels themselves is pinned in bUnit, against the
+    /// display class that owns them.
+    /// </summary>
+    [Fact]
+    public async Task HelpExplainsTheAnswerTypeBreakdownAndWhatAZeroMeans()
+    {
+        await Page.GotoAsync(BaseUrl + "/help");
+
+        var body = Page.Locator("body");
+
+        await Expect(body).ToContainTextAsync("breaks the pool down by the kind of");
+        await Expect(body).ToContainTextAsync("Every kind is listed every time");
+        await Expect(body).ToContainTextAsync("holds none of that kind");
+        await Expect(body).ToContainTextAsync("If you suspect your saved positions lean one way");
+    }
+
+    /// <summary>
     /// The pointer into XgFilter_Razor's own storage section has to actually
     /// land. A bare fragment href goes through Blazor's navigation interception
     /// in the running app, so "the anchor is in the markup" is not evidence that

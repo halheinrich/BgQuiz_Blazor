@@ -387,7 +387,7 @@ public class PageTests : BunitContext
     public async Task Home_ApplyFilters_ShowsMatchCount()
     {
         // Task U: applying filters shows how many decisions matched, sourced
-        // from the controller's CountMatchesAsync over the source's items (the
+        // from the controller's SummarizeMatchesAsync over the source's items (the
         // fake yields its whole list; production filters). Two items → "2".
         WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
@@ -432,7 +432,7 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_ApplyFilters_CommittedMix_CountCarriesThePoolCaveat()
     {
-        // The count is filter-only (CountMatchesAsync composes with QuizMix.Empty),
+        // The count is filter-only (SummarizeMatchesAsync composes with QuizMix.Empty),
         // so with a mix committed the number is the pool the quiz is *drawn from* —
         // the quiz itself can be far smaller. The caveat says so beside the number,
         // inside the same role="status" region, and the count stays pool-only (both
@@ -478,10 +478,103 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_ApplyFilters_BreaksThePoolDownByAnswerType()
+    {
+        // Issue #35: the count line is joined by the answer-type breakdown, so a
+        // user can see what their collection is made of before starting. The
+        // pool here is deliberately lopsided — two checker plays and one
+        // double/take — because the interesting reading is the categories that
+        // are *missing*, and every bucket must be on screen for that to be
+        // legible. Bucket labels are AnswerTypeDisplay's, read from the class so
+        // this test pins the wiring, not the copy (the e2e suite pins the copy).
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.CubeDecision(noDoubleEquity: 0.5, doubleTakeEquity: 0.7));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        var region = MatchSummaryRegion(cut);
+        Assert.Contains("By answer type", region.TextContent);
+
+        // The two populated buckets, and — the point of the feature — the three
+        // empty ones, present and reading zero rather than quietly dropped.
+        var expected = AnswerTypeDisplay.Buckets(new AnswerTypeDistribution(
+            CheckerPlays: 2, NoDoubleTake: 0, TooGood: 0, DoubleTake: 1, DoublePass: 0));
+        Assert.Equal(
+            expected.Select(b => $"{b.Label}: {b.Count}"),
+            region.QuerySelectorAll("li").Select(li => Normalize(li.TextContent)));
+    }
+
+    [Fact]
+    public async Task Home_ApplyFilters_CountAndBreakdownComeFromOneDistribution()
+    {
+        // The wiring guarantee behind replacing the int-returning count: the
+        // number the user reads and the buckets under it are two renderings of
+        // one AnswerTypeDistribution from one enumeration, so they cannot
+        // disagree. Asserted the way a user could check it — the buckets sum to
+        // the count — which fails the moment a second computation creeps in.
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.CubeDecision(noDoubleEquity: 0.8, doubleTakeEquity: 0.7),
+            TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5),
+            TestFixtures.CubeDecision(noDoubleEquity: 0.5, doubleTakeEquity: 1.5));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        var region = MatchSummaryRegion(cut);
+        var renderedCount = int.Parse(region.QuerySelector("strong")!.TextContent);
+        var buckets = region.QuerySelectorAll("li")
+                            .Select(li => int.Parse(li.QuerySelector("strong")!.TextContent))
+                            .ToList();
+
+        Assert.Equal(4, renderedCount);
+        Assert.Equal(5, buckets.Count);
+        Assert.Equal(renderedCount, buckets.Sum());
+        Assert.Contains("decisions match your filters", region.TextContent);
+    }
+
+    [Fact]
+    public async Task Home_ApplyFilters_NoMatches_ShowsTheCountWithoutABreakdown()
+    {
+        // The one case the breakdown is suppressed: an empty pool has no
+        // make-up to describe, and five zeros under "0 decisions match" would be
+        // noise exactly where the page should be quiet. Distinct from a zero
+        // *bucket* inside a real pool, which always renders (test above).
+        WithController();
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithAppliedMix();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        var region = MatchSummaryRegion(cut);
+        Assert.Contains("0 decisions match your filters", Normalize(region.TextContent));
+        Assert.DoesNotContain("By answer type", region.TextContent);
+    }
+
+    [Fact]
     public async Task Home_FiltersDirty_ClearsMatchCount()
     {
         // Editing any filter control invalidates the shown count — it described
         // the now-abandoned config — so the notice disappears until re-Apply.
+        // The breakdown is part of that same summary and goes with it: a stale
+        // make-up of an abandoned pool is exactly as wrong as a stale number.
         WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -496,11 +589,32 @@ public class PageTests : BunitContext
         await cut.InvokeAsync(() =>
             fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
         Assert.Contains("decisions match your filters", cut.Markup);
+        Assert.Contains("By answer type", cut.Markup);
 
         await cut.InvokeAsync(() => fp.Instance.OnFilterDirty.InvokeAsync());
 
         Assert.DoesNotContain("decisions match your filters", cut.Markup);
+        Assert.DoesNotContain("By answer type", cut.Markup);
     }
+
+    /// <summary>
+    /// Home's applied-filter summary region — the one polite <c>role="status"</c>
+    /// block carrying the match count, its mix caveat, and the answer-type
+    /// breakdown. Scoping assertions to it is what proves the breakdown is
+    /// announced <i>with</i> the count rather than merely present on the page.
+    /// </summary>
+    private static AngleSharp.Dom.IElement MatchSummaryRegion(IRenderedComponent<HomePage> cut) =>
+        cut.FindAll("div[role=status]")
+           .First(d => d.TextContent.Contains("match your filters")
+                    || d.TextContent.Contains("matches your filters"));
+
+    /// <summary>
+    /// Collapse the whitespace Razor leaves between an element's text and its
+    /// nested markup, so a rendered list item can be compared to the string a
+    /// reader sees.
+    /// </summary>
+    private static string Normalize(string text) =>
+        string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     [Fact]
     public async Task Home_FolderPick_StatsEnabled_ShowsSaveNotice()
@@ -3288,6 +3402,37 @@ public class PageTests : BunitContext
         Assert.Contains("says how many decisions", section);
         Assert.Contains("not problems you will be shown", section);
         Assert.Contains("can be much smaller than the number shown", section);
+    }
+
+    [Fact]
+    public void Help_ChooseFilters_DocumentsTheAnswerTypeBreakdownAndItsZeros()
+    {
+        // The count line now carries a breakdown, so the paragraph that explains
+        // the line has to explain that too — and specifically the reading a user
+        // cannot get from the control itself: the list is exhaustive, so a bucket
+        // at zero is a fact about their collection, not a missing row.
+        //
+        // What is pinned is the *explanation*, never the five bucket names: those
+        // are AnswerTypeDisplay's copy, rendered on Home, and reciting them here
+        // would be the second encoding this page's prose deliberately avoids.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        var section = SectionText(
+            cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters"));
+
+        Assert.Contains("breaks the pool down by the kind of", section);
+        Assert.Contains("Every kind is listed every time", section);
+        Assert.Contains("holds none of that kind", section);
+
+        // The four cube-verdict labels specifically: "checker plays" is ordinary
+        // English this paragraph is entitled to use, but the cube verdicts have
+        // exact spellings only AnswerTypeDisplay gets to choose, so their
+        // appearance here would be the recitation. (Skip(1) drops the checker
+        // bucket — the order is pinned in AnswerTypeDisplayTests.)
+        foreach (var bucket in AnswerTypeDisplay.Buckets(AnswerTypeDistribution.Empty).Skip(1))
+            Assert.DoesNotContain(bucket.Label, section, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

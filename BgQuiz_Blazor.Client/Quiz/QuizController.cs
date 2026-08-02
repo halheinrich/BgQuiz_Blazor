@@ -293,13 +293,23 @@ internal sealed class QuizController : IAsyncDisposable
     }
 
     /// <summary>
-    /// Count how many decisions in the picked corpus match
-    /// <paramref name="userConfig"/> — the pre-Start affordance that tells the
-    /// user what their filters selected. Builds the same controller-owned
-    /// pipeline <see cref="StartAsync"/> would (<see cref="FilterConfig.Build"/>)
-    /// and runs it through a source from the injected
-    /// <see cref="ProblemSetSourceFactory"/>, counting matches over a
-    /// <b>throwaway</b> enumerator.
+    /// Summarize the decisions in the picked corpus that match
+    /// <paramref name="userConfig"/>, bucketed by the kind of answer each one
+    /// calls for — the pre-Start affordance that tells the user what their
+    /// filters selected, and what that selection is made of. Builds the same
+    /// controller-owned pipeline <see cref="StartAsync"/> would
+    /// (<see cref="FilterConfig.Build"/>) and folds a source from the injected
+    /// <see cref="ProblemSetSourceFactory"/> over a <b>throwaway</b> enumerator.
+    ///
+    /// <para>
+    /// <b>The match count is <see cref="AnswerTypeDistribution.Total"/>.</b>
+    /// Every <see cref="AnswerTypeDistribution.Add"/> increments exactly one
+    /// bucket (producer contract), so the pool's size falls out of the same fold
+    /// that classifies it — one enumeration, one encoding of "what matches",
+    /// nothing that can drift. There is deliberately no separate count-returning
+    /// overload: a second way to ask the question is a second answer waiting to
+    /// disagree.
+    /// </para>
     ///
     /// <para>
     /// <b>Touches no live quiz state.</b> The source and its enumerator are
@@ -323,12 +333,22 @@ internal sealed class QuizController : IAsyncDisposable
     /// <para>
     /// <b>Counts matches, not presentations.</b> Every matching decision is
     /// counted, forced-move pass positions included — a few may auto-skip at
-    /// quiz time (<see cref="AdvanceAsync"/>), so the number is "decisions that
-    /// match", not "problems you'll be shown". An active mix composes from this
-    /// pool at Start, so this is the pre-mix pool size. The passed
+    /// quiz time (<see cref="AdvanceAsync"/>), so the numbers are "decisions
+    /// that match", not "problems you'll be shown". An active mix composes from
+    /// this pool at Start, so this is the pre-mix pool. The passed
     /// <see cref="QuizMix.Empty"/> keeps the factory from wiring a composition
     /// layer for the throwaway pass; the controller's own composition wiring is
     /// unaffected.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Classification is the producer's.</b> Each decision is folded via
+    /// <see cref="AnswerTypeDistribution.Add"/>, which keys a cube decision by
+    /// its analysis-declared best pair; nothing here re-derives an answer type
+    /// from equities. Note the fold takes
+    /// <see cref="BgDecisionData.Decision"/> — the composite forwards
+    /// <see cref="BgDecisionData.IsCube"/> but not the best-pair halves, so the
+    /// inner <see cref="DecisionData"/> is what carries the classification.
     /// </para>
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="userConfig"/> is null.</exception>
@@ -336,17 +356,17 @@ internal sealed class QuizController : IAsyncDisposable
     /// <paramref name="userConfig"/> contains a malformed value — propagated
     /// from <see cref="FilterConfig.Build"/>.
     /// </exception>
-    public async Task<int> CountMatchesAsync(FilterConfig userConfig)
+    public async Task<AnswerTypeDistribution> SummarizeMatchesAsync(FilterConfig userConfig)
     {
         ArgumentNullException.ThrowIfNull(userConfig);
 
         var pipeline = userConfig.Build();
         var source = _sourceFactory(pipeline, QuizMix.Empty);
 
-        var count = 0;
-        await foreach (var _ in source.EnumerateAsync())
-            count++;
-        return count;
+        var distribution = AnswerTypeDistribution.Empty;
+        await foreach (var decision in source.EnumerateAsync())
+            distribution = distribution.Add(decision.Decision);
+        return distribution;
     }
 
     /// <summary>

@@ -247,29 +247,37 @@ public partial class Home : ComponentBase, IDisposable
     private bool _mixRefused;
 
     /// <summary>
-    /// How many decisions the last-applied filter matched, shown near the
-    /// filters so the user knows what they selected before starting;
-    /// <see langword="null"/> when no count is shown (before an Apply, after a
-    /// filter edit, or after a new/cleared pick). A per-visit affordance, so a
-    /// component field. Set from <see cref="QuizController.CountMatchesAsync"/>
-    /// on Apply — pre-mix pool size, "decisions that match", not "problems
-    /// you'll see" (a few forced-move passes auto-skip at quiz time).
+    /// What the last-applied filter matched, shown near the filters so the user
+    /// knows what they selected before starting; <see langword="null"/> when
+    /// nothing is shown (before an Apply, after a filter edit, or after a
+    /// new/cleared pick). A per-visit affordance, so a component field. Set from
+    /// <see cref="QuizController.SummarizeMatchesAsync"/> on Apply — the pre-mix
+    /// pool, "decisions that match", not "problems you'll see" (a few
+    /// forced-move passes auto-skip at quiz time).
     ///
     /// <para>
-    /// Because the count is filter-only (<see cref="QuizController.CountMatchesAsync"/>
+    /// <b>One value carries both halves of the display.</b> The count line
+    /// renders <see cref="AnswerTypeDistribution.Total"/> and the breakdown
+    /// renders the five buckets, so the number and its decomposition come from a
+    /// single fold of a single enumeration and cannot disagree — the reason this
+    /// field is the distribution rather than an <c>int</c> beside one.
+    /// </para>
+    ///
+    /// <para>
+    /// Because the summary is filter-only (<see cref="QuizController.SummarizeMatchesAsync"/>
     /// composes with <see cref="QuizMix.Empty"/>), a committed mix makes it the
-    /// size of the pool the quiz is <i>drawn from</i> rather than the size of the
-    /// quiz — potentially far larger. The markup states that relationship beside
-    /// the number whenever <see cref="HasCommittedMix"/>; the count itself stays
+    /// pool the quiz is <i>drawn from</i> rather than the quiz itself —
+    /// potentially far larger. The markup states that relationship beside the
+    /// number whenever <see cref="HasCommittedMix"/>; the summary itself stays
     /// pool-only. Showing the composed length instead would mean composing
     /// against the lifetime stats before Start, which is Start's job and
     /// deliberately not attempted here.
     /// </para>
     /// </summary>
-    private int? _matchCount;
+    private AnswerTypeDistribution? _matchSummary;
 
     /// <summary>
-    /// True while <see cref="QuizController.CountMatchesAsync"/> runs on Apply.
+    /// True while <see cref="QuizController.SummarizeMatchesAsync"/> runs on Apply.
     /// The first count after a pick parses the corpus once (warming the shared
     /// cache so Start is then instant), so the whole setup surface disables and
     /// the busy cursor shows — folded into the same fieldset-disable / app-busy
@@ -732,9 +740,9 @@ public partial class Home : ComponentBase, IDisposable
         _noMatchNotice = null;
         _mixRefused = false; // a new pick can change stats capability
         _filterSaveError = null; // a new pick re-derives the saved-filters context
-        // A new/cleared pick changes the corpus, so any match count is stale;
+        // A new/cleared pick changes the corpus, so any match summary is stale;
         // the bumped id also discards a count still in flight from before.
-        _matchCount = null;
+        _matchSummary = null;
         _countRequestId++;
     }
 
@@ -746,13 +754,14 @@ public partial class Home : ComponentBase, IDisposable
         _startError = null;
         _noMatchNotice = null;
 
-        // Show how many decisions this config matches. The first count after a
-        // pick parses the corpus once and warms the shared cache, so the Start
-        // that follows is instant — the count is not a separate cost. Counting
-        // lives in the controller; Home only stamps a request id (so a stale
-        // result can't land) and drives the busy affordance.
+        // Show what this config matches — how many decisions, and what kinds of
+        // answer they call for. The first pass after a pick parses the corpus
+        // once and warms the shared cache, so the Start that follows is instant
+        // — the count is not a separate cost. Summarizing lives in the
+        // controller; Home only stamps a request id (so a stale result can't
+        // land) and drives the busy affordance.
         var requestId = ++_countRequestId;
-        _matchCount = null;
+        _matchSummary = null;
         _isCounting = true;
         // Paint the busy state before the (possibly one-time-parse) count
         // begins — the same deliberate-yield idiom as the controller's gate.
@@ -760,15 +769,15 @@ public partial class Home : ComponentBase, IDisposable
         await Task.Yield();
         try
         {
-            var count = await Controller.CountMatchesAsync(cfg);
+            var summary = await Controller.SummarizeMatchesAsync(cfg);
             if (requestId != _countRequestId) return; // superseded — discard
-            _matchCount = count;
+            _matchSummary = summary;
         }
         catch
         {
             // The count is advisory: never let it block Apply or fault the app.
             // Start still validates the config and surfaces any real error.
-            if (requestId == _countRequestId) _matchCount = null;
+            if (requestId == _countRequestId) _matchSummary = null;
         }
         finally
         {
@@ -784,9 +793,10 @@ public partial class Home : ComponentBase, IDisposable
         // Editing also moots a stale save-as refusal — fixing the offending
         // position pattern is itself an edit, so the notice clears with it.
         _filterSaveError = null;
-        // …and invalidates any shown or in-flight match count (it described the
-        // now-abandoned config); the bumped id discards a late-landing result.
-        _matchCount = null;
+        // …and invalidates any shown or in-flight match summary (it described
+        // the now-abandoned config); the bumped id discards a late-landing
+        // result.
+        _matchSummary = null;
         _countRequestId++;
     }
 

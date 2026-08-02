@@ -31,7 +31,10 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `QuizMix`/`QuizMixEntry` (the versioned strict-JSON mix config;
   `ToJson`/`FromJson`/`TryFromJson` is the localStorage trio),
   `MixedProblemSetSource` (the composing decorator the controller wires for
-  a non-blank mix) + `MixComposition` telemetry — and the lifetime-stats
+  a non-blank mix) + `MixComposition` telemetry — `AnswerTypeDistribution`
+  (the collection-scoped answer-type fold behind Home's pre-Start summary:
+  five buckets, `Add(DecisionData)` increments exactly one, so `Total` *is*
+  the match count) — and the lifetime-stats
   model `DecisionStats` / `DecisionStatsDocument` (immutable;
   `doc = doc.Plus(submission, TimeProvider)`; bundled type-level JSON
   converter — deserializes with no registration, any bad load throws
@@ -153,6 +156,9 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     MixDisplay.cs                   — mix wording SSOT (labels + refusal reason)
     CubeActionDisplay.cs            — cube-verdict wording SSOT (labels the
                                       halves by the user's submitted actions)
+    AnswerTypeDisplay.cs            — answer-type wording SSOT (labels the five
+                                      AnswerTypeDistribution buckets; always all
+                                      five, zeros included)
     MixNoticeDismissal.cs           — Quiz's composition-notice dismissal,
                                       keyed on the composition's identity
     ShuffleOption.cs                — "shuffle order" toggle holder
@@ -186,6 +192,8 @@ BgQuiz_Blazor.Tests/
   QuizControllerOverlapTests.cs     — the transition-gate overlap suite
   CachedProblemSetSourceTests.cs    — parse-once / invalidation / equivalence
   CubeActionDisplayTests.cs
+  AnswerTypeDisplayTests.cs         — bucket→field mapping, order, and the
+                                      always-five rule (never the label copy)
   MixPanelTests.cs                  — builder round-trip / validation / order /
                                       rebalance + next-kind pins (panel-level)
   MixDraftTests.cs                  — derived-gate matrix + hydration
@@ -232,6 +240,9 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (Playwright/Chromi
                                       "Start without mix" override)
   CommaDecimalLocaleTests.cs        — nb-NO comma-decimal guard
   HelpAndTitlesTests.cs             — /help renders; document.title contract
+  AnswerTypeBreakdownTests.cs       — the pre-Start answer-type breakdown over a
+                                      heterogeneous two-fixture folder: the
+                                      labels a user reads, and the empty buckets
   SidebarCollapseTests.cs           — the desktop nav-panel collapse: the fold,
                                       the chevron state signal, and both halves of
                                       how long the choice lasts — survives a worked
@@ -442,20 +453,33 @@ mutable state ever exists between the page and the controller. The
 controller is the authority on assembling it), plus the run's effective
 `QuizMix` for shuffle arbitration (see the factory paragraph above).
 
-**Pre-Start match count.** `CountMatchesAsync(FilterConfig)` reports how
-many decisions a config would admit — the number Home shows on Apply. It
-builds the same controller-owned pipeline `StartAsync` would and counts a
-source from the factory over a **throwaway** enumerator: the shared
-enumerator, `Current`, `Score`, and the histories are never touched, so a
-count is safe against a live quiz. It deliberately takes **no** transition
-gate — it owns no shared enumerator to protect, and callers serialize Apply
-against Start on their side. The pass is a byproduct of the source's
-in-memory `Matches` filter, and it **warms the parse cache**, so the Start
-that follows reuses it — the count front-loads Start's one-time corpus parse
-rather than adding a cost on top of it. It counts every matching decision,
-forced-move pass positions included, so the number is the **pre-mix pool**
-the quiz and any weighted mix draw from — "decisions that match", not
-"problems you'll see".
+**Pre-Start match summary.** `SummarizeMatchesAsync(FilterConfig)` reports
+what a config would admit — as an `AnswerTypeDistribution`, the record Home
+renders both its match count and its answer-type breakdown from. It builds
+the same controller-owned pipeline `StartAsync` would and folds a source from
+the factory over a **throwaway** enumerator: the shared enumerator,
+`Current`, `Score`, and the histories are never touched, so a summary is safe
+against a live quiz. It deliberately takes **no** transition gate — it owns
+no shared enumerator to protect, and callers serialize Apply against Start on
+their side. The pass is a byproduct of the source's in-memory `Matches`
+filter, and it **warms the parse cache**, so the Start that follows reuses
+it — the summary front-loads Start's one-time corpus parse rather than adding
+a cost on top of it. It counts every matching decision, forced-move pass
+positions included, so it describes the **pre-mix pool** the quiz and any
+weighted mix draw from — "decisions that match", not "problems you'll see".
+
+**The count is `Total`, and there is no second surface for it.** The
+producer's fold contract (every `Add` increments exactly one bucket) makes
+the pool's size fall out of the same pass that classifies it, so "how many
+match" and "what kinds are they" have **one** encoding — the int-returning
+`CountMatchesAsync` was removed rather than kept beside this, since a second
+way to ask the question is a second answer waiting to disagree. The fold
+takes `BgDecisionData.Decision`: the composite forwards `IsCube` but not
+`BestDoublerAction` / `BestTakerAction`, so folding it would misbucket every
+cube decision (BgGame_Lib's Pitfalls carry the trap). Classification itself
+is never re-derived here — a cube decision buckets once, on the analysis's
+declared best pair, deliberately unlike the two-half convention `QuizScore`
+and `DecisionStats` use for *answers*.
 
 **Decision-type policy.** The user's `FilterConfig.DecisionType` choice
 governs which decisions the quiz admits; `FilterConfig.Build()` adds a
@@ -1096,11 +1120,13 @@ to look for a distinction that isn't there.
   `CanStart => AppliedFilter.IsApplied && Folder.HasFiles && !MixDirty`,
   where `MixDirty => !MixDraft.Matches(AppliedMix.Current)` — derived per
   render, never stored (§ MixPanel / MixDraft / AppliedMix).
-  **Match count.** On Apply, Home calls `Controller.CountMatchesAsync`
-  (mechanism in § Pre-Start match count) and renders "N decisions match your
-  filters" (the pre-mix pool). Home owns only display and lifecycle: a
-  request id stamped per Apply discards a stale result landing after a newer
-  Apply, and the count clears on any filter edit or new/cleared pick. **The
+  **Match summary.** On Apply, Home calls `Controller.SummarizeMatchesAsync`
+  (mechanism in § Pre-Start match summary) and holds the returned
+  `AnswerTypeDistribution` in `_matchSummary`, rendering "N decisions match
+  your filters" from its `Total` (the pre-mix pool). Home owns only display
+  and lifecycle: a request id stamped per Apply discards a stale result
+  landing after a newer Apply, and the summary clears on any filter edit or
+  new/cleared pick. **The
   count is filter-only, and says so when a mix is committed**: with
   `HasCommittedMix` a caveat renders *inside* the same `role="status"`
   region (count and qualification announced together) — the mix draws the
@@ -1117,6 +1143,32 @@ to look for a distinction that isn't there.
   corpus once (warming the cache so Start is then instant), so `_isCounting`
   folds into the same busy boundary as the transition gate, which also
   serializes the count against a Start.
+  **Answer-type breakdown** (umbrella #35 — a beta tester checking his
+  collection for curation bias). Under the count, in the *same*
+  `role="status"` region and from the *same* `_matchSummary`, Home renders
+  `AnswerTypeDisplay.Buckets` as a lead-in ("By answer type:") plus five
+  inline `label: count` items. Settled shape, and why:
+  - **Compact and always open, not a disclosure.** The page has just been
+    through the (AC)–(AF) information-hierarchy pass, so the breakdown is one
+    extra wrapped line rather than a panel — and *not* click-to-open, which
+    would hide the finding behind a gesture nobody knows to make.
+  - **Every bucket renders, zeros included.** The absent categories are the
+    signal (the report was "I think I over-save takes"), so a bucket at zero
+    is a result, never a dropped row. `AnswerTypeDisplay` enforces this by
+    always returning all five; the page renders what it is given.
+  - **One exception: an empty pool renders no breakdown.** With nothing
+    matched there is no collection to characterize, and five zeros under
+    "0 decisions match" is noise, not honesty. Distinct from a zero bucket
+    inside a real pool — `PageTests` pins both cases.
+  - **Inside the status region**, for the reason the mix caveat is: a screen
+    reader gets the pool and its make-up in one announcement.
+  - **Named for its axis** ("By answer type"), leaving the region free for
+    issue #3's composition preview to sit beside it as its own block on the
+    mix axis. Nothing is built for that — the name is simply not claimed.
+  - `Total` is deliberately not a sixth bucket: it is the count line's
+    number, and repeating it would put one figure on screen under two
+    meanings. `PageTests` pins the buckets summing to the rendered count —
+    the invariant that fails the moment a second computation appears.
   **Start.** Hands `AppliedFilter.Config` + `AppliedMix.Current` to
   `Controller.StartAsync` and checks the returned outcome **before** the
   empty-result `IsFinished` check (a refused start leaves prior state,
@@ -1132,7 +1184,7 @@ to look for a distinction that isn't there.
   gesture and the `Clear` affordance — they encode the same decision, so
   they share one spelling): folder holder + JS picked slot, saved filters,
   committed mix (`AppliedMix.Reset`), filter surface (`ResetFilterSurface`),
-  and every pick-scoped notice and match count. Nothing selected against the
+  and every pick-scoped notice and the match summary. Nothing selected against the
   previous corpus can be assumed to mean the same thing against the next
   one, so Start is always re-gated by a pick, never inherited across one
   (the bug this closed: a re-pick leaving the old filter applied, with Start
@@ -1281,7 +1333,11 @@ to look for a distinction that isn't there.
   **Lifetime stats** section, and then the semantics a user cannot discover
   by clicking around — the match count counts matching *decisions* and
   describes the filters alone (an applied mix draws from that pool, so the
-  quiz can be much smaller); pass positions are auto-skipped and never
+  quiz can be much smaller); the breakdown under it lists **every** answer
+  type every time, so a bucket at zero is a fact about the reader's folder
+  rather than a row that failed to render — the one reading the control
+  cannot give itself, and the reason that paragraph exists; pass positions
+  are auto-skipped and never
   shown; an off-list play counts as a skip, not a wrong answer; a cube
   position scores as two decisions; clicking the dice on the solution
   diagram advances like Continue; the desktop side panel folds away behind
@@ -1306,7 +1362,12 @@ to look for a distinction that isn't there.
   writes **no facet prose of its own**. What stays here is app-level framing
   `FilterHelp` cannot know — where the panel sits in the start flow, that
   filters must be applied before Start, what the match count counts, and how
-  a weighted mix draws from that pool. Lives in the `.Client` (not a
+  a weighted mix draws from that pool. The breakdown paragraph applies the
+  same rule one tier down: it explains the list's exhaustiveness and what a
+  zero means, and deliberately **does not recite the five bucket labels** —
+  those are `AnswerTypeDisplay`'s copy, rendered on Home, and a second
+  spelling here would drift the first time one is reworded (`PageTests`
+  asserts their absence from the section). Lives in the `.Client` (not a
   static host page) so a mid-quiz Help → Back round trip doesn't disturb the
   WASM runtime holding quiz state. Unlike `Stats` it **never redirects**:
   help is reachable from any state, including a cold visit or a bookmark;
@@ -1566,8 +1627,9 @@ speaks to crowding, never to board size.
 
 The primary-path smoke gate AGENTS.md mandates: scenarios driving the
 **published artifact in a real Chromium** via Microsoft.Playwright — the
-pick→done flows, the reload notice, the empty-filter banner, the nb-NO
-comma-decimal guard, 404/titles, and the stats-persistence suite. It exists
+pick→done flows, the reload notice, the empty-filter banner, the pre-Start
+answer-type breakdown, the nb-NO comma-decimal guard, 404/titles, and the
+stats-persistence suite. It exists
 because four production defects in a row — inert titles, blank 404 bodies, the
 phantom auth gate, the silent 0/0 empty-filter bounce — were
 invisible-by-construction to both existing layers: bUnit renders components in
@@ -1598,7 +1660,12 @@ and hands the *directory* to the hidden `#problemFolderFallback`
 through the app's real fallback collection path (top-level filter, buffering,
 holder), no native dialog involved. Staged dirs are cleaned per test. The
 migrated flow scenarios therefore run as no-stats quizzes by construction;
-that's correct — they assert quiz flow, not stats.
+that's correct — they assert quiz flow, not stats. Multi-file folders come in
+two shapes over the one private stager: `PickFixtureCopiesAsync` stages N
+copies of a single fixture (every problem the same kind, so a scenario walking
+a run needs no knowledge of source ordering), while `PickFixturesAsync` stages
+one copy of each named fixture — the heterogeneous folder a scenario about
+what a pool *contains* needs, ordering-independent by construction.
 
 **The FS-Access path** lives in `FsAccessFakeTestBase`, riding the base
 class's second customization seam, `ContextInitScript` (applied via
@@ -1650,7 +1717,10 @@ explicit `Expect` assertions only. Every flow helper ends by awaiting the
 user-visible consequence of the transition it triggered. The two committed
 fixtures are single-decision `.xgp` files (the `.xgp` emission policy yields at
 most one decision per file), so each quiz is exactly one problem long with
-shuffle left off. In-app navigation is asserted with polling URL assertions
+shuffle left off. Their *answer types* are a contract too — the checker fixture
+is a checker play and the cube fixture's best **pair** is No Double / Take — so
+a folder holding both is a pool of exactly two answer types with three empty,
+which is what makes the breakdown suite's zeros real rather than arranged. In-app navigation is asserted with polling URL assertions
 (`Expect(Page).ToHaveURLAsync`), **not** `WaitForURLAsync` — Blazor navigates by
 `pushState` (same-document), and the navigation-event wait can lose the race
 when the push lands between the triggering click and the wait's registration
@@ -1712,7 +1782,8 @@ holders `PickedProblemFolder` / `AppliedFilter` / `AppliedMix` /
 `StatsSaveCapability`, `FolderPickOutcome`, `QuizStatsFile` /
 `QuizFiltersFile`, `IDecisionStatsSink` / `QuizStatsStore` /
 `QuizStatsStatus`, `SavedFiltersStore` / `SavedFiltersStatus`,
-`MixDisplay`, `CubeActionDisplay`, `FolderPickDisplay`, `AppInfo`,
+`MixDisplay`, `CubeActionDisplay`, `AnswerTypeDisplay`, `FolderPickDisplay`,
+`AppInfo`,
 `WasmUploadedProblemSetSource` / `CachedProblemSetSource`, `ProblemReview`,
 and the `ProblemSetSourceFactory` delegate) is `internal`, reachable by the
 test project only through the `InternalsVisibleTo` grant. The only `public` types are the Razor components — the

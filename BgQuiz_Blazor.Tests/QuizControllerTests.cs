@@ -934,47 +934,78 @@ public class QuizControllerTests
     }
 
     // -----------------------------------------------------------------------
-    //  CountMatchesAsync — the pre-Start "N decisions match" affordance
+    //  SummarizeMatchesAsync — the pre-Start "what did my filters select"
+    //  affordance: the match count (Total) and the answer-type breakdown, from
+    //  one fold of one enumeration
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task CountMatchesAsync_NullConfig_Throws()
+    public async Task SummarizeMatchesAsync_NullConfig_Throws()
     {
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => c.CountMatchesAsync(null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => c.SummarizeMatchesAsync(null!));
     }
 
     [Fact]
-    public async Task CountMatchesAsync_CountsWhatTheSourceYields()
+    public async Task SummarizeMatchesAsync_TotalCountsWhatTheSourceYields()
     {
         // The count is a byproduct of enumerating the factory source (which
         // applies the real filters in production; the fake yields its whole
-        // list). Three items in → three matches.
+        // list). Three items in → Total 3, and — the producer's fold contract —
+        // Total is exactly the sum of the buckets, so the number on screen and
+        // its breakdown come from one pass.
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
 
-        Assert.Equal(3, await c.CountMatchesAsync(new FilterConfig()));
+        var summary = await c.SummarizeMatchesAsync(new FilterConfig());
+
+        Assert.Equal(3, summary.Total);
+        Assert.Equal(3, summary.CheckerPlays);
     }
 
     [Fact]
-    public async Task CountMatchesAsync_EmptySource_ReturnsZero()
+    public async Task SummarizeMatchesAsync_BucketsEachDecisionByItsAnswerType()
+    {
+        // Classification is the producer's and is keyed off the inner
+        // DecisionData (BgDecisionData forwards IsCube but not the best-pair
+        // halves — folding the composite would misbucket every cube decision).
+        // One of each kind in, one in each bucket out. Cube best pairs come from
+        // the equities: Double iff min(DoubleTake, 1) > NoDouble; Take iff
+        // DoubleTake < 1.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),                     // checker
+            TestFixtures.CubeDecision(noDoubleEquity: 0.8, doubleTakeEquity: 0.7),     // no double / take
+            TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5),     // too good
+            TestFixtures.CubeDecision(noDoubleEquity: 0.5, doubleTakeEquity: 0.7),     // double / take
+            TestFixtures.CubeDecision(noDoubleEquity: 0.5, doubleTakeEquity: 1.5));    // double / pass
+
+        var summary = await c.SummarizeMatchesAsync(new FilterConfig());
+
+        Assert.Equal(new AnswerTypeDistribution(
+            CheckerPlays: 1, NoDoubleTake: 1, TooGood: 1, DoubleTake: 1, DoublePass: 1),
+            summary);
+        Assert.Equal(5, summary.Total);
+    }
+
+    [Fact]
+    public async Task SummarizeMatchesAsync_EmptySource_ReturnsEmpty()
     {
         var c = Make();
-        Assert.Equal(0, await c.CountMatchesAsync(new FilterConfig()));
+        Assert.Equal(AnswerTypeDistribution.Empty, await c.SummarizeMatchesAsync(new FilterConfig()));
     }
 
     [Fact]
-    public async Task CountMatchesAsync_BuildsControllerOwnedPipelineFromConfig()
+    public async Task SummarizeMatchesAsync_BuildsControllerOwnedPipelineFromConfig()
     {
-        // The count reflects exactly what a Start with this config would admit:
+        // The summary reflects exactly what a Start with this config would admit:
         // it builds the same controller-owned pipeline (FilterConfig.Build) and
         // hands it to the factory. Capture that pipeline and assert the user's
         // PlayerFilter survived the materialization.
         var c = MakeCapturing(out var captured, TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
 
-        await c.CountMatchesAsync(new FilterConfig { Players = ["Alice"] });
+        await c.SummarizeMatchesAsync(new FilterConfig { Players = ["Alice"] });
 
         var pipeline = captured();
         Assert.NotNull(pipeline);
@@ -985,10 +1016,10 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task CountMatchesAsync_DoesNotDisturbLiveQuiz()
+    public async Task SummarizeMatchesAsync_DoesNotDisturbLiveQuiz()
     {
-        // The throwaway-enumerator guarantee: counting mid-quiz touches no live
-        // state — Current, Score, the histories, and IsFinished all survive.
+        // The throwaway-enumerator guarantee: summarizing mid-quiz touches no
+        // live state — Current, Score, the histories, and IsFinished all survive.
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -999,9 +1030,9 @@ public class QuizControllerTests
         var scoreBefore = c.Score;
         var historyBefore = c.History.Count;
 
-        var count = await c.CountMatchesAsync(new FilterConfig());
+        var summary = await c.SummarizeMatchesAsync(new FilterConfig());
 
-        Assert.Equal(2, count);
+        Assert.Equal(2, summary.Total);
         Assert.Equal(currentIdBefore, c.Current!.Id);
         Assert.Equal(scoreBefore, c.Score);
         Assert.Equal(historyBefore, c.History.Count);

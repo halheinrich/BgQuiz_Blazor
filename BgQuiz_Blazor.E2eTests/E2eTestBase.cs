@@ -20,7 +20,12 @@ namespace BgQuiz_Blazor.E2eTests;
 [Collection(E2eCollection.Name)]
 public abstract class E2eTestBase : IAsyncLifetime
 {
-    /// <summary>Committed cube-decision fixture — one problem, best action "No Double".</summary>
+    /// <summary>
+    /// Committed cube-decision fixture — one problem, best action "No Double"
+    /// and best taker response "Take", i.e. a best <i>pair</i> of No Double /
+    /// Take. The taker half matters to the answer-type breakdown suite, which
+    /// reads the bucket a whole cube decision lands in.
+    /// </summary>
     protected const string CubeFixture = "BothAnalysis.xgp";
 
     /// <summary>
@@ -157,16 +162,11 @@ public abstract class E2eTestBase : IAsyncLifetime
     }
 
     /// <summary>
-    /// Pick a committed fixture as a single-problem <i>folder</i> through the hidden
-    /// <c>webkitdirectory</c> input: the fixture is copied into a fresh staged
-    /// temp directory (named after the fixture, so scenarios stay
-    /// distinguishable in failure output) and the directory is handed to the
-    /// input — a genuine directory upload, driving the app's real fallback
-    /// collection path (top-level filter, buffering, holder). Waits for the
-    /// holder-derived folder summary, which also proves the pick round-trip
-    /// completed. These migrated scenarios run as no-stats quizzes by
-    /// construction (the fallback mechanism has no writable handle); the
-    /// FS-Access + stats path is covered by <c>StatsPersistenceTests</c>.
+    /// Pick a committed fixture as a single-problem <i>folder</i> (staged and
+    /// handed to the fallback input by <see cref="StageAndPickAsync"/>). These
+    /// scenarios run as no-stats quizzes by construction (the fallback mechanism
+    /// has no writable handle); the FS-Access + stats path is covered by
+    /// <c>StatsPersistenceTests</c>.
     /// </summary>
     protected Task PickFixtureAsync(string fixtureFileName) =>
         PickFixtureCopiesAsync(fixtureFileName, copies: 1);
@@ -184,22 +184,60 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// source's ordering is not a contract these scenarios should depend on.
     /// </para>
     /// </summary>
-    protected async Task PickFixtureCopiesAsync(string fixtureFileName, int copies)
+    protected Task PickFixtureCopiesAsync(string fixtureFileName, int copies)
     {
         string dirName = Path.GetFileNameWithoutExtension(fixtureFileName);
         string extension = Path.GetExtension(fixtureFileName);
+
+        var staged = new List<(string Source, string DestName)>
+        {
+            (FixturePath(fixtureFileName), fixtureFileName),
+        };
+        for (int copy = 2; copy <= copies; copy++)
+            staged.Add((FixturePath(fixtureFileName), $"{dirName}-{copy}{extension}"));
+
+        return StageAndPickAsync(dirName, staged);
+    }
+
+    /// <summary>
+    /// Pick a folder holding <b>one copy of each</b> named fixture — the mixed
+    /// form of <see cref="PickFixtureCopiesAsync"/>, for scenarios about what a
+    /// folder is <i>made of</i> rather than what walking it does. The
+    /// copies-of-one rule those scenarios follow exists to keep them independent
+    /// of the source's ordering; a scenario reading the answer-type breakdown is
+    /// independent of ordering by construction (a distribution has no order), so
+    /// a genuinely heterogeneous folder is exactly what it needs.
+    /// </summary>
+    protected Task PickFixturesAsync(params string[] fixtureFileNames)
+    {
+        var staged = fixtureFileNames
+            .Select(name => (Source: FixturePath(name), DestName: name))
+            .ToList();
+
+        return StageAndPickAsync("mixed", staged);
+    }
+
+    /// <summary>
+    /// Copy the given fixtures into a fresh staged temp directory (named after
+    /// the scenario, so runs stay distinguishable in failure output) and hand
+    /// that directory to the hidden <c>webkitdirectory</c> input — a genuine
+    /// directory upload, driving the app's real fallback collection path
+    /// (top-level filter, buffering, holder). Waits for the holder-derived folder
+    /// summary, which also proves the pick round-trip completed.
+    /// </summary>
+    private async Task StageAndPickAsync(
+        string dirName, IReadOnlyList<(string Source, string DestName)> files)
+    {
         string stagedDir = Path.Combine(
             Path.GetTempPath(), "bgquiz-e2e", $"{dirName}-{Guid.NewGuid():N}", dirName);
         Directory.CreateDirectory(stagedDir);
         _stagedDirs.Add(Path.GetDirectoryName(stagedDir)!);
 
-        string source = FixturePath(fixtureFileName);
-        File.Copy(source, Path.Combine(stagedDir, fixtureFileName));
-        for (int copy = 2; copy <= copies; copy++)
-            File.Copy(source, Path.Combine(stagedDir, $"{dirName}-{copy}{extension}"));
+        foreach (var (source, destName) in files)
+            File.Copy(source, Path.Combine(stagedDir, destName));
 
         await FallbackFolderInput.SetInputFilesAsync(stagedDir);
-        await Expect(Page.GetByText(copies == 1 ? "1 problem file" : $"{copies} problem files"))
+        await Expect(Page.GetByText(files.Count == 1 ? "1 problem file" : $"{files.Count} problem files"))
             .ToBeVisibleAsync();
     }
 
