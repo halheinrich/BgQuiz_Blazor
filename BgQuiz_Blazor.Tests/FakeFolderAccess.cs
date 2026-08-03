@@ -33,6 +33,17 @@ internal sealed class FakeFolderAccess : IFolderAccess
     /// </summary>
     public Action? OnPickCalled { get; set; }
 
+    /// <summary>
+    /// Invoked from inside <see cref="PickFolderAsync"/> <i>after</i> its
+    /// <c>onPickAccepted</c> hook has been awaited — i.e. from the stretch the
+    /// real implementation spends enumerating and buffering, with the caller's
+    /// busy affordance up and painted. The observation point for "what does the
+    /// user see while the app scans?", and the seam a test throws from to
+    /// simulate a scan that fails after the prompts succeeded. Never invoked for
+    /// a cancelled outcome — the real pick does no work there either.
+    /// </summary>
+    public Action? OnScanning { get; set; }
+
     /// <summary>What <see cref="PromoteToActiveAsync"/> returns (default: an FS-Access handle is active).</summary>
     public bool PromoteResult { get; set; } = true;
 
@@ -66,12 +77,27 @@ internal sealed class FakeFolderAccess : IFolderAccess
 
     public ValueTask<bool> SupportsDirectoryPickerAsync() => ValueTask.FromResult(SupportsDirectoryPicker);
 
-    public Task<FolderPickOutcome> PickFolderAsync()
+    /// <summary>
+    /// Mirrors the real call's shape, which is what the busy affordance depends
+    /// on: prompts first (<see cref="OnPickCalled"/>), then — only when a folder
+    /// was actually granted — the <c>onPickAccepted</c> hook, then the scan
+    /// (<see cref="OnScanning"/>). <see cref="PickException"/> throws at the top,
+    /// standing in for a failure during the prompts; a test wanting a failure
+    /// during the <i>scan</i> throws from <see cref="OnScanning"/>.
+    /// </summary>
+    public async Task<FolderPickOutcome> PickFolderAsync(Func<Task> onPickAccepted)
     {
+        ArgumentNullException.ThrowIfNull(onPickAccepted);
         OnPickCalled?.Invoke();
-        return PickException is { } ex
-            ? Task.FromException<FolderPickOutcome>(ex)
-            : Task.FromResult(NextPickOutcome);
+        if (PickException is { } ex) throw ex;
+
+        if (!NextPickOutcome.Cancelled)
+        {
+            await onPickAccepted();
+            OnScanning?.Invoke();
+        }
+
+        return NextPickOutcome;
     }
 
     public Task TriggerFallbackPickerAsync(ElementReference fallbackInput)

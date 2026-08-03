@@ -1534,13 +1534,13 @@ public class PageTests : BunitContext
 
         // Set a filter through the panel's own controls and commit it with its own
         // Apply button — the real gesture, not a synthesized callback. Players
-        // lives behind the panel's disclosure, so open it first. It is opened once
-        // and read on both sides of the re-pick: the fake's pick completes without
-        // a render at the empty-folder state, so the panel is never re-mounted here
-        // and the reset reaches it as LoadConfig — which stages values without
-        // moving the disclosure. (If that ever changes, the panel re-mounts
-        // collapsed and the post-pick read below fails to find the input — a loud
-        // failure, not a silent pass.)
+        // lives behind the panel's disclosure, so open it first — and again after
+        // the re-pick, because a pick renders at its empty-folder state (the busy
+        // affordance paints there, and before that the picked-slot interop
+        // yielded), which unmounts the panel behind the disclosure gate and
+        // re-mounts it collapsed. That re-mount is the documented production
+        // behavior, not an artifact: what this test pins is that the buffers come
+        // back at defaults however the panel got there.
         await ExpandMoreFiltersAsync(cut);
         cut.Find("input[placeholder='e.g. Hal, Magriel']").Input("Magriel");
         await ClickApplyFilterAsync(cut);
@@ -1556,6 +1556,7 @@ public class PageTests : BunitContext
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         // Panel buffers back to defaults…
+        await ExpandMoreFiltersAsync(cut); // re-mounted collapsed by the pick's render
         Assert.Equal(string.Empty,
             cut.Find("input[placeholder='e.g. Hal, Magriel']").GetAttribute("value"));
         // …applied state dropped, so Start re-gates behind the Apply hint…
@@ -3934,7 +3935,7 @@ public class PageTests : BunitContext
     //  Apply Mix is sequenced behind Apply Filter (issue #45)
     // -----------------------------------------------------------------------
 
-    /// <summary>Whether the mix panel's Apply Mix button reads disabled.</summary>
+    /// <summary>The mix panel's Apply Mix button on a rendered Home page.</summary>
     private static bool MixApplyDisabled(IRenderedComponent<HomePage> cut) =>
         cut.Find("#mixApply").HasAttribute("disabled");
 
@@ -4832,6 +4833,86 @@ public class PageTests : BunitContext
         await click; // completes: navigation to /quiz
         var nav = Services.GetRequiredService<BunitNavigationManager>();
         Assert.EndsWith("/quiz", nav.Uri);
+    }
+
+    [Fact]
+    public async Task Home_PickScanning_DisablesSetupFieldsetAndShowsBusyCursor()
+    {
+        // Issue #48: after the browser's prompts, the app scans and buffers the
+        // folder with nothing on screen to say so. The affordance must be up —
+        // and *rendered*, not merely set — for that whole stretch. OnScanning
+        // observes from inside it, which is the only place the claim is
+        // falsifiable: asserting after the pick would pass even if the state had
+        // never painted.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = OneFileOutcome();
+
+        var cut = Render<HomePage>();
+        Assert.False(cut.Find("fieldset").HasAttribute("disabled"));
+        Assert.Empty(cut.FindAll("div.app-busy"));
+
+        bool? fieldsetDisabledMidScan = null, busyCursorMidScan = null;
+        _folderAccess.OnScanning = () =>
+        {
+            fieldsetDisabledMidScan = cut.Find("fieldset").HasAttribute("disabled");
+            busyCursorMidScan = cut.FindAll("div.app-busy").Count > 0;
+        };
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.True(fieldsetDisabledMidScan);
+        Assert.True(busyCursorMidScan);
+
+        // …and lowered again once the summary is on screen.
+        Assert.False(cut.Find("fieldset").HasAttribute("disabled"));
+        Assert.Empty(cut.FindAll("div.app-busy"));
+        Assert.Contains("1 problem file", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_PickCancelled_NeverRaisesTheBusyAffordance()
+    {
+        // A dismissed picker (or a declined view-files grant) does no work, so
+        // there is nothing to be busy for — and the cancelled notice must land
+        // on a live page, not a disabled one.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = FolderPickOutcome.CancelledOutcome;
+
+        var cut = Render<HomePage>();
+        var scanned = false;
+        _folderAccess.OnScanning = () => scanned = true;
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.False(scanned); // the fake only scans past a non-cancelled outcome
+        Assert.False(cut.Find("fieldset").HasAttribute("disabled"));
+        Assert.Empty(cut.FindAll("div.app-busy"));
+        Assert.Contains("No folder is picked", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_PickFailsMidScan_LowersBusyAndShowsTheError()
+    {
+        // A scan that throws after the prompts succeeded — an over-cap folder is
+        // the real instance — must not strand the page disabled with a progress
+        // cursor and no way back. The busy state is lowered in a finally, so the
+        // error banner lands on a usable page.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = OneFileOutcome();
+        _folderAccess.OnScanning = () => throw new InvalidOperationException("too many files");
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.False(cut.Find("fieldset").HasAttribute("disabled"));
+        Assert.Empty(cut.FindAll("div.app-busy"));
+        Assert.Contains("too many files", cut.Markup);
     }
 
     [Fact]

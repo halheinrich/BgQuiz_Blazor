@@ -29,18 +29,74 @@ public class JsFolderAccessTests : BunitContext
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
+    /// <summary>Script <c>beginPick</c>'s reply — the browser-prompt half of the pick.</summary>
+    private void SetupBeginPick(BunitJSModuleInterop module, string status, string directoryName, bool writable) =>
+        module.Setup<JsFolderAccess.JsPickStart>("beginPick")
+            .SetResult(new JsFolderAccess.JsPickStart(status, directoryName, writable));
+
+    /// <summary>Script <c>enumeratePicked</c>'s reply — the app-work half.</summary>
+    private void SetupEnumerate(BunitJSModuleInterop module, params JsFolderAccess.JsPickedFile[] files) =>
+        module.Setup<JsFolderAccess.JsEnumerateResult>("enumeratePicked")
+            .SetResult(new JsFolderAccess.JsEnumerateResult(files));
+
+    /// <summary>A hook that records nothing — for the cases the hook isn't what's under test.</summary>
+    private static Func<Task> NoHook => () => Task.CompletedTask;
+
     [Fact]
     public async Task PickFolder_CancelledStatus_MapsToCancelledOutcomeNotException()
     {
         var module = JSInterop.SetupModule(ModulePath);
-        module.Setup<JsFolderAccess.JsPickResult>("pickDirectory")
-            .SetResult(new JsFolderAccess.JsPickResult("cancelled", "", false, []));
+        SetupBeginPick(module, "cancelled", "", false);
         var sut = new JsFolderAccess(JSInterop.JSRuntime);
 
-        var outcome = await sut.PickFolderAsync();
+        var outcome = await sut.PickFolderAsync(NoHook);
 
         Assert.True(outcome.Cancelled);
         Assert.Empty(outcome.Files);
+    }
+
+    [Fact]
+    public async Task PickFolder_Cancelled_NeverRunsTheAcceptedHook()
+    {
+        // No folder, no work — so nothing may raise a busy affordance for work
+        // that will not happen. (No enumeratePicked setup exists either: a pick
+        // that enumerated after a cancellation would fail this test loudly.)
+        var module = JSInterop.SetupModule(ModulePath);
+        SetupBeginPick(module, "cancelled", "", false);
+        var sut = new JsFolderAccess(JSInterop.JSRuntime);
+        var hookRan = false;
+
+        await sut.PickFolderAsync(() => { hookRan = true; return Task.CompletedTask; });
+
+        Assert.False(hookRan);
+    }
+
+    [Fact]
+    public async Task PickFolder_RunsTheAcceptedHook_AfterThePromptsAndBeforeTheScan()
+    {
+        // The seam issue #48 turns on: the hook must land after beginPick (the
+        // browser is done asking) and before enumeratePicked (the app's work
+        // that leaves the user waiting). Pinned by call order, because that
+        // ordering — not the hook's existence — is what makes the busy state
+        // both truthful and paintable.
+        var module = JSInterop.SetupModule(ModulePath);
+        SetupBeginPick(module, "ok", "Corpus", true);
+        SetupEnumerate(module);
+        var sut = new JsFolderAccess(JSInterop.JSRuntime);
+
+        var hookRan = false;
+        await sut.PickFolderAsync(() =>
+        {
+            hookRan = true;
+            // Asserted from inside the hook — the only place the "after the
+            // prompts, before the scan" position is observable.
+            Assert.Single(module.Invocations["beginPick"]);
+            Assert.Empty(module.Invocations["enumeratePicked"]);
+            return Task.CompletedTask;
+        });
+
+        Assert.True(hookRan); // an unrun hook would vacuously pass the above
+        Assert.Single(module.Invocations["enumeratePicked"]);
     }
 
     [Fact]
@@ -50,14 +106,13 @@ public class JsFolderAccessTests : BunitContext
         // surface as PermissionDenied while the files still buffer normally —
         // the quiz-without-stats rung, not a failure.
         var module = JSInterop.SetupModule(ModulePath);
-        module.Setup<JsFolderAccess.JsPickResult>("pickDirectory")
-            .SetResult(new JsFolderAccess.JsPickResult(
-                "ok", "Corpus", Writable: false, [new JsFolderAccess.JsPickedFile("match.xg", 3)]));
+        SetupBeginPick(module, "ok", "Corpus", writable: false);
+        SetupEnumerate(module, new JsFolderAccess.JsPickedFile("match.xg", 3));
         module.Setup<IJSStreamReference>("readFileData", inv => true)
             .SetResult(new FakeJsStreamReference([1, 2, 3]));
         var sut = new JsFolderAccess(JSInterop.JSRuntime);
 
-        var outcome = await sut.PickFolderAsync();
+        var outcome = await sut.PickFolderAsync(NoHook);
 
         Assert.False(outcome.Cancelled);
         Assert.Equal(StatsSaveCapability.PermissionDenied, outcome.Capability);
@@ -71,14 +126,13 @@ public class JsFolderAccessTests : BunitContext
     public async Task PickFolder_WritableGranted_MapsEnabled()
     {
         var module = JSInterop.SetupModule(ModulePath);
-        module.Setup<JsFolderAccess.JsPickResult>("pickDirectory")
-            .SetResult(new JsFolderAccess.JsPickResult(
-                "ok", "Corpus", Writable: true, [new JsFolderAccess.JsPickedFile("a.xgp", 1)]));
+        SetupBeginPick(module, "ok", "Corpus", writable: true);
+        SetupEnumerate(module, new JsFolderAccess.JsPickedFile("a.xgp", 1));
         module.Setup<IJSStreamReference>("readFileData", inv => true)
             .SetResult(new FakeJsStreamReference([7]));
         var sut = new JsFolderAccess(JSInterop.JSRuntime);
 
-        var outcome = await sut.PickFolderAsync();
+        var outcome = await sut.PickFolderAsync(NoHook);
 
         Assert.Equal(StatsSaveCapability.Enabled, outcome.Capability);
     }
@@ -93,11 +147,12 @@ public class JsFolderAccessTests : BunitContext
             .Select(i => new JsFolderAccess.JsPickedFile($"f{i}.xg", 1))
             .ToArray();
         var module = JSInterop.SetupModule(ModulePath);
-        module.Setup<JsFolderAccess.JsPickResult>("pickDirectory")
-            .SetResult(new JsFolderAccess.JsPickResult("ok", "Huge", true, tooMany));
+        SetupBeginPick(module, "ok", "Huge", true);
+        SetupEnumerate(module, tooMany);
         var sut = new JsFolderAccess(JSInterop.JSRuntime);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(sut.PickFolderAsync);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => sut.PickFolderAsync(NoHook));
         Assert.Contains($"{PickedFileLimits.MaxFileCount}", ex.Message);
     }
 
@@ -105,13 +160,13 @@ public class JsFolderAccessTests : BunitContext
     public async Task PickFolder_OversizedFile_FailsBeforeAnyByteTransfer()
     {
         var module = JSInterop.SetupModule(ModulePath);
-        module.Setup<JsFolderAccess.JsPickResult>("pickDirectory")
-            .SetResult(new JsFolderAccess.JsPickResult(
-                "ok", "Corpus", true,
-                [new JsFolderAccess.JsPickedFile("huge.xg", PickedFileLimits.MaxFileBytes + 1)]));
+        SetupBeginPick(module, "ok", "Corpus", true);
+        SetupEnumerate(module,
+            new JsFolderAccess.JsPickedFile("huge.xg", PickedFileLimits.MaxFileBytes + 1));
         var sut = new JsFolderAccess(JSInterop.JSRuntime);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(sut.PickFolderAsync);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => sut.PickFolderAsync(NoHook));
         Assert.Contains("huge.xg", ex.Message);
     }
 

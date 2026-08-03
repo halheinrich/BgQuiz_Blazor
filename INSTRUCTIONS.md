@@ -641,6 +641,24 @@ The fallback collection also happens JS-side because the top-level-only
 filter needs `webkitRelativePath`, which Blazor's `InputFile` never exposes —
 one reason the picker is a plain `<input>`, not `InputFile`.
 
+**The FS-Access pick is split in two, on purpose (issue #48).**
+`folderAccess.js` exposes `beginPick()` — picker + permission request, i.e.
+everything that is the *browser asking the user* — and `enumeratePicked()` —
+the directory listing, i.e. the *app working*. `JsFolderAccess.PickFolderAsync`
+issues both behind one method and awaits a caller-supplied
+`Func<Task> onPickAccepted` between them, so the half-picked state (handle in
+the picked slot, `pickedFiles` not yet filled) never escapes that type and no
+third slot exists. The hook is the only point at which a busy affordance can be
+raised *truthfully*: earlier it would claim the app was working while a modal
+waited on the user; later it could not paint, because the enumeration and the
+per-file byte transfer that follow never yield to the renderer on their own.
+It is **not** invoked for a cancelled pick — no folder, no work. `Home` passes
+`EnterBusyAsync` (§ Pages → Home), and the fallback mechanism reaches the same
+meaning by a different route: its work begins at the input's `change` event,
+so the whole of `HandleFallbackPickedAsync` runs under the affordance. On both
+mechanisms the busy state means one thing — *the app is processing a selection
+the user has made*.
+
 **Two-slot model — the mid-quiz-Clear ruling.** The JS module keeps a
 *picked* slot (latest pick: handle + name→handle/File map) and an *active*
 slot (the running quiz's stats handle). The stats context (document + write
@@ -1306,17 +1324,35 @@ carries no ordering dependency on its own storage write.
   `PageTests` pins the reset, the at-the-click timing (sampled from inside
   the fake's picker), and the cancelled-re-pick loss.
   **Busy affordances.** The whole setup surface sits inside one
-  `<fieldset disabled="@(Controller.IsBusy || _isCounting)">` — the native
-  element disables every form control within, including the Apply buttons
-  *inside* the imported `FilterPanel`/`MixPanel`, which expose no disabled
-  parameter — and the page container carries `app-busy` (the
-  `cursor: progress` rule in `app.css`) while either flag is set. Disabling
-  the surface during the count also prevents a Start from racing its parse;
-  the controller's gate yield lets the state paint before the Start churn,
-  and Home needs no `StateChanged` subscription because its own suspended
+  `<fieldset disabled="@IsBusy">` — the native element disables every form
+  control within, including the Apply buttons *inside* the imported
+  `FilterPanel`/`MixPanel`, which expose no disabled parameter — and the page
+  container carries `app-busy` (the `cursor: progress` rule in `app.css`) on
+  the *same* `IsBusy` predicate, so the cursor and the disabled controls
+  cannot disagree. `IsBusy` unions the independent sources:
+  `Controller.IsBusy` (the transition gate), `_busy` (this page's own
+  foreground work — the pick's scan, § below), and `_isCounting`, which keeps
+  its own flag because it also owns a message and a stale-request id.
+  Disabling the surface during the count also prevents a Start from racing its
+  parse; Home needs no `StateChanged` subscription because its own suspended
   handlers trigger the re-renders. Subscribes to `OnFilterConfigChanged` →
   `AppliedFilter.Set(cfg, Folder.PickGeneration)` and `OnFilterDirty` →
   `AppliedFilter.Clear`.
+  **Raising busy is a two-line discipline, single-sourced.**
+  `EnterBusyAsync()` sets `_busy`, calls `StateHasChanged`, and **yields** —
+  the yield is the whole point (see Pitfalls: a busy state raised immediately
+  before uninterrupted work never paints on WASM's single thread).
+  `RunBusyAsync(work)` is the whole-operation form: enter, run, lower in a
+  `finally`. Every site uses one of them — the match count, the fallback
+  pick's collection, and the FS-Access pick, whose raise point sits *inside*
+  `IFolderAccess.PickFolderAsync` (it is handed `EnterBusyAsync` as the
+  `onPickAccepted` hook — § Folder picking) while its lowering belongs to the
+  whole gesture's `finally`. Cancelled picks never raise it: no folder, no
+  work. Pinned in `PageTests` from *inside* the scan (`FakeFolderAccess.
+  OnScanning`) — asserting afterwards would pass even if the state had never
+  painted — and in the e2e suite against the real DOM, with the fake's
+  directory enumeration held open (`HoldScanAsync`/`ReleaseScanAsync`), which
+  is the only layer that can prove a paint at all.
   **Apply Mix is sequenced behind Apply Filter** (umbrella #45). The
   `MixPanel` is handed `CanApply="MixApplyEnabled"` plus the reason sentence;
   `MixApplyEnabled => AppliedFilter.WasAppliedFor(Folder.PickGeneration)` —
@@ -1778,8 +1814,8 @@ The primary-path smoke gate AGENTS.md mandates: scenarios driving the
 **published artifact in a real Chromium** via Microsoft.Playwright — the
 pick→done flows, the reload notice, the empty-filter banner, the pre-Start
 answer-type breakdown, the nb-NO comma-decimal guard, 404/titles, the sidebar
-collapse, the settings page, the Apply Mix gating, and the stats-persistence
-suite. It exists
+collapse, the settings page, the Apply Mix gating and the pick busy affordance, and the
+stats-persistence suite. It exists
 because four production defects in a row — inert titles, blank 404 bodies, the
 phantom auth gate, the silent 0/0 empty-filter bounce — were
 invisible-by-construction to both existing layers: bUnit renders components in
@@ -2236,7 +2272,7 @@ the route map:
   destroys the `PermissionDenied` rung — decline write, file list still
   loads, quiz runs without stats — a deliberate degrade, not an accident.
   The two-prompt flow is retained deliberately; the full rationale lives in
-  the comment above `pickDirectory`. (The underlying concern — the prompt
+  the comment above `beginPick`. (The underlying concern — the prompt
   being missed in a busy UI — is already met by progressive disclosure plus
   the two-step guidance, so a collapse buys nothing.)
 - **Never quote a browser's permission-prompt text — describe the grant.**
@@ -2278,6 +2314,33 @@ the route map:
   `AdvanceAsync` deliberately fires no `StateChanged` — the gate's busy-off
   fire is the completion signal, so re-adding a fire there double-renders
   every transition and breaks the pinned fire counts.
+- **A busy state raised immediately before the work it describes never
+  reaches the screen.** WASM runs Blazor on one thread, and
+  `StateHasChanged` only *queues* a render — the queue drains when the thread
+  is handed back. So `_busy = true; StateHasChanged(); await DoTheWorkAsync();`
+  paints nothing if `DoTheWorkAsync` holds the thread, and the whole
+  affordance silently does nothing while looking correct in code review *and*
+  in a component test (bUnit renders eagerly enough that the assertion passes
+  either way). Always go through `Home.EnterBusyAsync` / `RunBusyAsync`, whose
+  `await Task.Yield()` is the load-bearing line — and make sure the work that
+  follows is genuinely async, or yields, or the paint lands after the busy
+  state is already over. Corollaries: (1) the raise point must be *inside*
+  whatever call actually waits — this is why the FS-Access pick is split at
+  the prompt/scan seam and hands the raise back as `onPickAccepted` rather
+  than being wrapped from outside (§ Folder picking); (2) **only the e2e
+  layer can prove a paint** — pin it there against the real DOM with the
+  fake's enumeration held open, and treat a bUnit busy assertion as pinning
+  the wiring, not the pixel; (3) the same yield discipline shows up in the
+  controller's transition gate (above) — don't "simplify" either of them.
+- **Raising the busy state also renders Home at its reset, no-folder state
+  mid-pick, which unmounts and re-mounts the `FilterPanel`.** The pick's
+  reset runs at the click, so the paint that follows finds `HasFiles` false
+  and the progressive-disclosure gate closed. That re-mount is production
+  behavior (the picked-slot interop already forced a render there), but bUnit
+  used to complete the fake pick without one — so a page test that expands
+  the panel's "more filters" disclosure before a pick must expand it *again*
+  afterwards, and one that pre-arms `WithAppliedFilter` then picks through
+  the UI must re-apply, exactly as a user would.
 - **The stage-2 refusal's re-bind is a real side effect — including the
   WriteFailed sub-case.** Stage 1 (capability peek) refuses with zero side
   effects, but a stage-2 refusal has already run `BeginQuizAsync`, which

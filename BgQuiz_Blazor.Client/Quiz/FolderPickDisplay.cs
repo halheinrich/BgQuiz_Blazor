@@ -91,7 +91,7 @@ internal static class FolderPickDisplay
     /// cannot tell them apart: the user answered no, <i>or</i> the readwrite
     /// request auto-denied because the picker had already consumed the transient
     /// user activation (observed on some Chromium versions — see
-    /// <c>folderAccess.js</c>'s <c>pickDirectory</c>). On that second path no
+    /// <c>folderAccess.js</c>'s <c>beginPick</c>). On that second path no
     /// second prompt is ever shown, so "you declined write access" attributes a
     /// decision the user never made. Same discipline as the cancelled-pick
     /// notice: true under both causes, and non-accusatory.

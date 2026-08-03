@@ -195,7 +195,7 @@ public partial class Home : ComponentBase, IDisposable
     /// guidance for the <i>two</i> browser-anchored permission prompts that
     /// mechanism's pick raises — both easily missed, and each with a very
     /// different cost to declining (see the markup, and <c>folderAccess.js</c>'s
-    /// <c>pickDirectory</c> for why the two prompts cannot be collapsed into
+    /// <c>beginPick</c> for why the two prompts cannot be collapsed into
     /// one). The guidance is inherently FS-Access-only: the fallback mechanism
     /// raises no permission prompt to guide toward, so showing it there would
     /// promise prompts that never arrive.
@@ -285,6 +285,18 @@ public partial class Home : ComponentBase, IDisposable
     /// the count against a Start (no concurrent parse of the same corpus).
     /// </summary>
     private bool _isCounting;
+
+    /// <summary>
+    /// True while this page is running a foreground operation the user must
+    /// wait out: the scan-and-buffer half of a folder pick (issues #48), and a
+    /// mix commit (#44). One flag, not one per site — the affordance is a
+    /// property of the <i>page</i> ("BgQuiz is working, don't touch anything"),
+    /// not of the operation, and the operations cannot overlap because the busy
+    /// state disables every control that could start a second one. Raised only
+    /// through <see cref="EnterBusyAsync"/> / <see cref="RunBusyAsync"/>, which
+    /// own the paint-before-the-work discipline.
+    /// </summary>
+    private bool _busy;
 
     /// <summary>
     /// Monotonic id stamped on each count request so a stale result never
@@ -529,6 +541,68 @@ public partial class Home : ComponentBase, IDisposable
     public void Dispose() => MixDraft.Changed -= StateHasChanged;
 
     /// <summary>
+    /// The page's one busy predicate, driving <i>both</i> halves of the busy
+    /// affordance — the <c>app-busy</c> progress cursor and the whole-surface
+    /// <c>&lt;fieldset disabled&gt;</c> — from a single expression, so the cursor
+    /// and the disabled controls can never disagree about whether the page is
+    /// working. A union of the independent sources: the controller's transition
+    /// gate (Start / Restart), this page's own foreground work
+    /// (<see cref="_busy"/>), and the match count, which keeps its own flag
+    /// because it also owns a message and a stale-request id
+    /// (<see cref="_isCounting"/>) — anything still claiming to be counting must
+    /// still read busy.
+    /// </summary>
+    private bool IsBusy => Controller.IsBusy || _busy || _isCounting;
+
+    /// <summary>
+    /// Raise the busy affordance <i>and let it paint</i>, then return.
+    ///
+    /// <para>
+    /// The yield is the whole point, and the trap this method exists to make
+    /// unrepeatable: WebAssembly runs Blazor on one thread, so a busy state set
+    /// immediately before synchronous — or merely uninterrupted — work never
+    /// reaches the screen. <see cref="ComponentBase.StateHasChanged"/> only
+    /// <i>queues</i> the render; the queue drains when the thread is handed
+    /// back, which <c>await Task.Yield()</c> does. The work that follows must
+    /// therefore be genuinely async (every current caller's is: JS interop or a
+    /// yielding parse), or it will hold the thread and the paint will land after
+    /// the busy state is already over.
+    /// </para>
+    ///
+    /// <para>
+    /// Callers that own a whole operation should prefer
+    /// <see cref="RunBusyAsync"/>, which pairs this with the lowering. This
+    /// bare form exists for the folder pick, whose raise point sits <i>inside</i>
+    /// <see cref="IFolderAccess.PickFolderAsync"/> (at the browser-prompt seam)
+    /// while its lowering belongs to the whole gesture.
+    /// </para>
+    /// </summary>
+    private async Task EnterBusyAsync()
+    {
+        _busy = true;
+        StateHasChanged();
+        await Task.Yield();
+    }
+
+    /// <summary>
+    /// Run <paramref name="work"/> under the busy affordance: raise it, let it
+    /// paint (<see cref="EnterBusyAsync"/>), run, and lower it however the work
+    /// ends. The whole-operation form of the page's one busy idiom.
+    /// </summary>
+    private async Task RunBusyAsync(Func<Task> work)
+    {
+        await EnterBusyAsync();
+        try
+        {
+            await work();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
     /// The one "pick a folder" gesture. Probes the mechanism at pick time:
     /// with File System Access, the whole pick (picker, permission,
     /// enumeration, buffering) completes inside <see cref="IFolderAccess"/>;
@@ -566,10 +640,26 @@ public partial class Home : ComponentBase, IDisposable
             // itself again once this pick leaves a folder held.
             if (await FolderAccess.SupportsDirectoryPickerAsync())
             {
-                await ApplyPickOutcomeAsync(await FolderAccess.PickFolderAsync());
+                // EnterBusyAsync is handed *in*, not called here: the pick's
+                // browser prompts must not run under a busy state (they are the
+                // user's turn, not the app's), and the scan that follows them
+                // never yields to the renderer on its own. So the affordance is
+                // raised at the seam between the two, from inside the pick — and
+                // stays up past the enumeration, the buffering, and the
+                // saved-filters read, until the summary this method's caller
+                // renders is on screen. Lowered in the finally, which covers the
+                // cancelled path (no hook fired — nothing was raised) too.
+                var outcome = await FolderAccess.PickFolderAsync(EnterBusyAsync);
+                await ApplyPickOutcomeAsync(outcome);
             }
             else
             {
+                // Nothing to be busy for yet: this only opens the hidden input's
+                // picker and returns. The fallback's work — and its busy state —
+                // begins when the browser reports a selection, in
+                // HandleFallbackPickedAsync. (Raising it here would have no
+                // reliable end: a dismissed fallback picker's cancel event is
+                // best-effort, so the page could be left disabled forever.)
                 await FolderAccess.TriggerFallbackPickerAsync(_fallbackInput);
             }
         }
@@ -577,6 +667,10 @@ public partial class Home : ComponentBase, IDisposable
         {
             Folder.Clear();
             _pickError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
         }
     }
 
@@ -590,8 +684,16 @@ public partial class Home : ComponentBase, IDisposable
     /// No reset of its own: this is the tail of a gesture
     /// <see cref="PickFolderAsync"/> already ended the setup for.
     /// </para>
+    ///
+    /// <para>
+    /// This <i>is</i> the fallback's busy seam — the whole method runs after the
+    /// user has chosen, so unlike the File System Access path there is no
+    /// prompt-versus-work boundary to find inside the call. Both mechanisms end
+    /// up meaning the same thing by the busy state: the app is processing a
+    /// selection the user has made.
+    /// </para>
     /// </summary>
-    private async Task HandleFallbackPickedAsync(ChangeEventArgs _)
+    private Task HandleFallbackPickedAsync(ChangeEventArgs _) => RunBusyAsync(async () =>
     {
         try
         {
@@ -602,7 +704,7 @@ public partial class Home : ComponentBase, IDisposable
             Folder.Clear();
             _pickError = ex.Message;
         }
-    }
+    });
 
     /// <summary>
     /// The hidden <c>webkitdirectory</c> input's dismissal: the fallback
@@ -819,26 +921,31 @@ public partial class Home : ComponentBase, IDisposable
         var requestId = ++_countRequestId;
         _matchSummary = null;
         _isCounting = true;
-        // Paint the busy state before the (possibly one-time-parse) count
-        // begins — the same deliberate-yield idiom as the controller's gate.
-        StateHasChanged();
-        await Task.Yield();
-        try
+        // Under the page's shared busy affordance, which paints before the
+        // (possibly one-time-parse) count begins. _isCounting stays this site's
+        // own flag: it also drives the "Counting matching decisions…" line and
+        // is subject to the stale-request rule, neither of which the generic
+        // affordance knows about.
+        await RunBusyAsync(async () =>
         {
-            var summary = await Controller.SummarizeMatchesAsync(cfg);
-            if (requestId != _countRequestId) return; // superseded — discard
-            _matchSummary = summary;
-        }
-        catch
-        {
-            // The count is advisory: never let it block Apply or fault the app.
-            // Start still validates the config and surfaces any real error.
-            if (requestId == _countRequestId) _matchSummary = null;
-        }
-        finally
-        {
-            if (requestId == _countRequestId) _isCounting = false;
-        }
+            try
+            {
+                var summary = await Controller.SummarizeMatchesAsync(cfg);
+                if (requestId != _countRequestId) return; // superseded — discard
+                _matchSummary = summary;
+            }
+            catch
+            {
+                // The count is advisory: never let it block Apply or fault the
+                // app. Start still validates the config and surfaces any real
+                // error.
+                if (requestId == _countRequestId) _matchSummary = null;
+            }
+            finally
+            {
+                if (requestId == _countRequestId) _isCounting = false;
+            }
+        });
     }
 
     private void HandleFiltersDirty()

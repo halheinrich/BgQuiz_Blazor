@@ -44,8 +44,16 @@ internal sealed class JsFolderAccess : IFolderAccess, IAsyncDisposable
     // can construct scripted results; nothing outside this type and those tests
     // touches them.
 
-    /// <summary>The pick result as the JS module shapes it (camelCase on the wire).</summary>
-    internal sealed record JsPickResult(string Status, string DirectoryName, bool Writable, JsPickedFile[] Files);
+    /// <summary>
+    /// The first half of the pick as the JS module shapes it (camelCase on the
+    /// wire): what the browser's prompts settled — cancelled or not, the folder
+    /// name, and whether write was granted. Carries no files; the enumeration
+    /// is the second call (see <see cref="PickFolderAsync"/>).
+    /// </summary>
+    internal sealed record JsPickStart(string Status, string DirectoryName, bool Writable);
+
+    /// <summary>The enumeration result: the picked folder's top-level problem files, metadata only.</summary>
+    internal sealed record JsEnumerateResult(JsPickedFile[] Files);
 
     /// <summary>The fallback-collection result — no status (nothing to cancel) and no writable claim.</summary>
     internal sealed record JsFallbackResult(string DirectoryName, JsPickedFile[] Files);
@@ -62,18 +70,32 @@ internal sealed class JsFolderAccess : IFolderAccess, IAsyncDisposable
         return await module.InvokeAsync<bool>("supportsDirectoryPicker");
     }
 
-    public async Task<FolderPickOutcome> PickFolderAsync()
+    /// <summary>
+    /// Two module calls behind one method, so the stateful half-picked slot the
+    /// split creates never escapes this type: <c>beginPick</c> runs the browser's
+    /// prompts, then — with <paramref name="onPickAccepted"/> awaited in
+    /// between, which is what lets a caller paint before the wait —
+    /// <c>enumeratePicked</c> lists the folder and its files are buffered across.
+    /// </summary>
+    public async Task<FolderPickOutcome> PickFolderAsync(Func<Task> onPickAccepted)
     {
+        ArgumentNullException.ThrowIfNull(onPickAccepted);
+
         var module = await ModuleAsync();
-        var result = await module.InvokeAsync<JsPickResult>("pickDirectory");
-        if (result.Status == "cancelled")
+        var start = await module.InvokeAsync<JsPickStart>("beginPick");
+        if (start.Status == "cancelled")
         {
             return FolderPickOutcome.CancelledOutcome;
         }
 
-        var files = await BufferFilesAsync(module, result.Files);
-        var capability = result.Writable ? StatsSaveCapability.Enabled : StatsSaveCapability.PermissionDenied;
-        return new FolderPickOutcome(Cancelled: false, result.DirectoryName, files, capability);
+        // The prompts are done and the app's own work starts now. Everything
+        // below is the "no feedback" stretch the hook exists to cover.
+        await onPickAccepted();
+
+        var enumerated = await module.InvokeAsync<JsEnumerateResult>("enumeratePicked");
+        var files = await BufferFilesAsync(module, enumerated.Files);
+        var capability = start.Writable ? StatsSaveCapability.Enabled : StatsSaveCapability.PermissionDenied;
+        return new FolderPickOutcome(Cancelled: false, start.DirectoryName, files, capability);
     }
 
     public async Task TriggerFallbackPickerAsync(ElementReference fallbackInput)

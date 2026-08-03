@@ -20,11 +20,11 @@
 
 <PageTitle>BgQuiz</PageTitle>
 
-@* app-busy: the progress-cursor idiom (app.css) while the controller runs a
-   transition — set before the churn begins via the controller's gate yield —
-   or while an Apply's match count runs (its first parse after a pick is the
-   same one-time corpus cost). *@
-<div class="container py-3 @((Controller.IsBusy || _isCounting) ? "app-busy" : null)">
+@* app-busy: the progress-cursor idiom (app.css) whenever this page is working
+   — a controller transition, a pick's scan-and-buffer, an Apply's match count,
+   or a mix commit. The predicate is IsBusy for all of them, and the fieldset
+   below reads the same one, so cursor and disabled controls cannot disagree. *@
+<div class="container py-3 @(IsBusy ? "app-busy" : null)">
     <h1>BgQuiz</h1>
 
     @* Reload-reset notice: a full reload rebooted the runtime and discarded a
@@ -44,7 +44,7 @@
        no disabled parameter of their own — so no panel needs busy-awareness
        and no control can slip through unlisted. Bootstrap's reboot zeroes
        fieldset chrome, so layout is unchanged. *@
-    <fieldset disabled="@(Controller.IsBusy || _isCounting)">
+    <fieldset disabled="@IsBusy">
 
     <div class="mb-3" style="max-width:800px">
         <label class="form-label" for="pickProblemFolder">
@@ -82,7 +82,7 @@
             </div>
         }
         @* FS-Access pick guidance: the pick deliberately raises *two*
-           browser-anchored prompts (folderAccess.js pickDirectory records why
+           browser-anchored prompts (folderAccess.js beginPick records why
            collapsing them to one is a closed won't-do), both easily missed, and
            neither says what declining costs — yet the two declines are wildly
            asymmetric. So name both grants and both consequences.

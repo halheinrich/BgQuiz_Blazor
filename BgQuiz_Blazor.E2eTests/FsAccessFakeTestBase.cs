@@ -49,9 +49,15 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
           // the persistence scenario proves), while filtersWrites records every
           // write for assertion. (Stats deliberately isn't: each quiz re-reads
           // the scenario-configured statsJson.)
+          // scanGate: null by default (the enumeration resolves immediately).
+          // A test may set it to a promise before picking, which suspends the
+          // directory enumeration — the app's own post-prompt work — for as
+          // long as it likes. That is the only way to observe the busy
+          // affordance in a real browser: unheld, the fake's one-file scan is
+          // over in milliseconds and nothing could be asserted about it.
           window.__statsFake = {
             permission: 'granted', statsJson: null, filtersJson: null,
-            writes: [], filtersWrites: [],
+            writes: [], filtersWrites: [], scanGate: null,
           };
           const cfg = window.__statsFake;
           const notFound = () => new DOMException('not found', 'NotFoundError');
@@ -100,7 +106,10 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
             kind: 'directory', name: 'FakeCorpus',
             queryPermission: async () => cfg.permission,
             requestPermission: async () => cfg.permission,
-            values: async function* () { yield fixtureEntry; },
+            values: async function* () {
+              if (cfg.scanGate !== null) await cfg.scanGate;
+              yield fixtureEntry;
+            },
             getFileHandle: async (name, opts) => {
               if (name === '{{StatsFileName}}') {
                 if (cfg.statsJson === null && !(opts && opts.create)) throw notFound();
@@ -131,6 +140,18 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
         await PickFolderButton.ClickAsync();
         await Expect(Page.GetByText("1 problem file")).ToBeVisibleAsync();
     }
+
+    /// <summary>
+    /// Hold the fake directory's enumeration open, so the stretch between the
+    /// browser's prompts and the pick summary can be observed. Call before the
+    /// pick gesture; release with <see cref="ReleaseScanAsync"/>.
+    /// </summary>
+    protected Task HoldScanAsync() => Page.EvaluateAsync(
+        "() => { window.__statsFake.scanGate = new Promise(r => { window.__releaseScan = r; }); }");
+
+    /// <summary>Let a held enumeration proceed (see <see cref="HoldScanAsync"/>).</summary>
+    protected Task ReleaseScanAsync() => Page.EvaluateAsync(
+        "() => { window.__statsFake.scanGate = null; window.__releaseScan(); }");
 
     /// <summary>Every stats write-back the fake writable captured, in order.</summary>
     protected Task<string[]> CapturedWritesAsync() =>

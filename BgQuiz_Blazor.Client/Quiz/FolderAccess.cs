@@ -110,10 +110,22 @@ internal interface IFolderAccess
     /// <c>.xg</c> / <c>.xgp</c> file. Call only when
     /// <see cref="SupportsDirectoryPickerAsync"/> is true.
     /// </summary>
+    /// <param name="onPickAccepted">
+    /// Invoked — and awaited — once the browser has finished asking the user
+    /// (picker dismissed with a folder, permission request answered) and
+    /// <i>before</i> the enumeration and buffering begin. It is the seam between
+    /// "the user is deciding" and "the app is working", which is the only place
+    /// a busy affordance can be raised truthfully: raised any earlier it would
+    /// claim the app was working while a modal waited on the user; raised any
+    /// later it could not paint, because the scan that follows never yields to
+    /// the renderer on WebAssembly's single thread. Home passes the hook that
+    /// raises and paints its busy state (see <c>Home.EnterBusyAsync</c>).
+    /// <b>Not</b> invoked for a cancelled pick — there is no work to report.
+    /// </param>
     /// <exception cref="InvalidOperationException">
     /// The folder's matching files exceed <see cref="PickedFileLimits.MaxFileCount"/>.
     /// </exception>
-    Task<FolderPickOutcome> PickFolderAsync();
+    Task<FolderPickOutcome> PickFolderAsync(Func<Task> onPickAccepted);
 
     /// <summary>
     /// Open the hidden <c>webkitdirectory</c> input's native picker — the

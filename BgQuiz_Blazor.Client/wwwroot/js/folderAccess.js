@@ -34,9 +34,23 @@ export function supportsDirectoryPicker() {
     return typeof window.showDirectoryPicker === 'function';
 }
 
-// FS-Access pick: native picker (read mode), then a readwrite permission
-// request on the picked handle. AbortError is the user dismissing the picker —
-// an expected outcome, returned as { status: 'cancelled' }.
+// FS-Access pick, PART ONE of two: native picker (read mode), then a readwrite
+// permission request on the picked handle. AbortError is the user dismissing
+// the picker — an expected outcome, returned as { status: 'cancelled' }.
+//
+// SPLIT FROM THE ENUMERATION DELIBERATELY (issue #48). Everything here is the
+// browser asking the *user* something; everything in enumeratePicked() is the
+// app working. Fused, the app could not tell the two apart, so it could not
+// raise a busy affordance that was true — a progress cursor would have been up
+// while a modal picker waited on the user, and absent during the scan that
+// actually makes them wait. Split, the caller gets control back at exactly the
+// moment the prompts end (JsFolderAccess.PickFolderAsync's onPickAccepted hook)
+// and the affordance means one thing on both mechanisms: the app is processing
+// a selection the user has made.
+//
+// The handle lands in the PICKED slot here, with pickedFiles left empty until
+// enumeratePicked() fills it. That intermediate state is not observable outside
+// the single C# call that spans both — no third slot is introduced for it.
 //
 // Declining the readwrite request is NOT an abort: requestPermission resolves
 // 'denied', the picked handle stays READABLE, and the pick returns
@@ -57,34 +71,45 @@ export function supportsDirectoryPicker() {
 // concern — the prompt being missed in a busy UI — is already addressed by
 // progressive disclosure and the in-page "check your browser" guidance on Home,
 // so there is nothing left for a prompt-collapse to buy.)
-export async function pickDirectory() {
+export async function beginPick() {
     let handle;
     try {
         handle = await window.showDirectoryPicker();
     } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') {
-            return { status: 'cancelled', directoryName: '', writable: false, files: [] };
+            return { status: 'cancelled', directoryName: '', writable: false };
         }
         throw e;
     }
 
     const writable = await handle.requestPermission({ mode: 'readwrite' }) === 'granted';
 
-    // Top-level enumeration only (user-settled): values() yields direct
-    // children; subdirectories are not descended into. Names keep their
-    // extension — the DecisionId-stamping contract.
+    pickedHandle = handle;
+    pickedFiles = new Map();  // filled by enumeratePicked
+    return { status: 'ok', directoryName: handle.name, writable };
+}
+
+// FS-Access pick, PART TWO: the app's own work — top-level enumeration only
+// (user-settled): values() yields direct children; subdirectories are not
+// descended into. Names keep their extension — the DecisionId-stamping
+// contract. Called once, immediately after a non-cancelled beginPick(); the
+// caller's busy affordance is already up and painted by the time this runs.
+export async function enumeratePicked() {
+    if (pickedHandle === null) {
+        throw new Error('No picked folder to enumerate.');
+    }
+
     const files = [];
     const map = new Map();
-    for await (const entry of handle.values()) {
+    for await (const entry of pickedHandle.values()) {
         if (entry.kind !== 'file' || !hasProblemExtension(entry.name)) continue;
         const file = await entry.getFile();
         map.set(entry.name, entry);
         files.push({ name: entry.name, size: file.size });
     }
 
-    pickedHandle = handle;
     pickedFiles = map;
-    return { status: 'ok', directoryName: handle.name, writable, files };
+    return { files };
 }
 
 // Fallback gesture: open the hidden webkitdirectory input's native picker.
