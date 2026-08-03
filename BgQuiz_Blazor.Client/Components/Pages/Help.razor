@@ -112,6 +112,31 @@
         Everything else BgQuiz keeps, it writes into your own problem folder: the
         two files named above, and nothing besides.
     </p>
+    @* How to leave (issue #51). The section that has just accounted for
+       everything BgQuiz keeps is the one place this belongs: the answer to
+       "can I just close it?" is a consequence of that account, not a new fact,
+       and a reader who has been told what is stored where will otherwise
+       assume a quiz in progress is among it.
+
+       No button was added for this, deliberately — closing the tab IS the exit
+       for an app with no account and nothing pending, and a "finish and quit"
+       control would invent an obligation the app does not have.
+
+       The write-access caveat is a POINTER, not a restatement: Lifetime stats
+       below already draws that distinction in full, and a second telling here
+       would be the copy that rots when the first one changes. The two files
+       are likewise named only in Before you start — hence "your lifetime
+       record", the words that section itself uses. *@
+    <p>
+        That is also why it is safe to close the tab whenever you like,
+        mid-quiz included: nothing here is waiting to be saved. Your lifetime
+        record is written to your folder as you answer rather than at the end,
+        so the answers you have already given are already in it — and the
+        things that do not outlive the tab, your folder pick and the quiz in
+        progress, were never meant to. (In browsers that cannot write into your
+        folder, nothing is being recorded to begin with — see
+        <em>Lifetime stats</em> below.)
+    </p>
 
     <h2 class="h4 mt-4">Pick your folder</h2>
     <p>

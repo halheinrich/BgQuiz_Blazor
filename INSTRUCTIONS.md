@@ -1598,6 +1598,21 @@ The asymmetry is pinned three times over: at the service seam
     — one sentence in user terms plus a link into `FilterHelp`'s
     `#fh-what-is-remembered`. See Pitfalls.
 
+  It then **draws the consequence** (issue #51, ruled 2026-08-03): closing
+  the tab is safe at any moment, mid-quiz included. That belongs here and
+  nowhere else — it is what the account above *implies*, and a reader who has
+  been told what is stored where will otherwise assume a quiz in progress is
+  among it. **No button**, deliberately: closing the tab is the exit for an
+  app with no account and nothing pending, and a "finish and quit" control
+  would invent an obligation the app does not have. The write-access caveat
+  is a **pointer** into *Lifetime stats*, never a restatement — where the
+  browser cannot write into the folder there is no record being kept, and the
+  reassurance must not read as a promise that one is. `Done` carries a
+  one-line echo beside its buttons, gated off the `LoadFailed` / `WriteFailed`
+  statuses its own notices report: "nothing needs saving" printed under "your
+  stats could not be saved" reads as a contradiction, and there the notice is
+  the honest word.
+
   Composing rather than consolidating is the constraint: the
   nothing-leaves-your-machine bullet was **moved** out of *Before you start*
   into this section, and *Pick your folder*'s in-browser-parse clause was
@@ -1611,7 +1626,9 @@ The asymmetry is pinned three times over: at the service seam
   written as a bare `#fragment`. See Pitfalls (`<base href="/">`).
 - **`Done.razor`** — final `ScorePanel` (Total) + `ScoreBreakdown`
   (four-way) + total problems shown + **Restart with same filters** /
-  **Back to setup**. "Problems shown" is `PlayDecisions.Submitted +
+  **Back to setup**, and — for the third exit, the one with no button — a
+  muted line saying nothing needs saving (§ `Help`'s data section for the
+  ruling and the gate). "Problems shown" is `PlayDecisions.Submitted +
   DoubleDecisions.Submitted + SkippedCount` — **not** `Total.Submitted`,
   which counts decisions and so double-counts each cube position (one Double
   + one Take). "Back to setup" is **navigation only** — the start-gate

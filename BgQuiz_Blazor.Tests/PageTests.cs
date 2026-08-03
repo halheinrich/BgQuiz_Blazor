@@ -2198,6 +2198,42 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Done_SaysNothingNeedsSaving()
+    {
+        // Issue #51's echo. There is no "finish and quit" button and there should
+        // not be one — closing the tab is the exit for an app with no account and
+        // nothing pending — so the reassurance is words, and words only exist if
+        // something asserts they are there.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+
+        var cut = Render<DonePage>();
+
+        Assert.Contains("you can close the tab whenever you like", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Done_StatsWriteFailed_WithholdsTheNothingNeedsSavingLine()
+    {
+        // The gate, and the reason for it: "nothing needs saving" directly under
+        // "your stats could not be saved" reads as a contradiction, and in that
+        // state the alert is the honest word. The reassurance is true of the app
+        // in general and useless to a user whose write just failed, so it stands
+        // down rather than softening the alert.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+        await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
+
+        var cut = Render<DonePage>();
+
+        Assert.DoesNotContain("you can close the tab whenever you like", cut.Markup);
+    }
+
+    [Fact]
     public void ScorePanel_SubmittedScore_RendersTotalAccuracyAsPercent()
     {
         // Total = 3 correct of 4 submitted → 75%. Pins the percentage the panel

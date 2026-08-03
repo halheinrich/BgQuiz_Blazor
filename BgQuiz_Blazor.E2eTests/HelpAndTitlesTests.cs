@@ -86,6 +86,24 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         // to localStorage, so the user-facing text must not claim otherwise.
         await Expect(body).ToContainTextAsync("belongs to this browser tab alone");
         await Expect(body).ToContainTextAsync("disappears when you close this one");
+
+        // The consequence the section is now asked to draw (issue #51): having
+        // accounted for everything BgQuiz keeps, it says the thing a reader
+        // cannot infer from a list — that closing the tab is safe, mid-quiz
+        // included. Ruled as words rather than a button: a "finish and quit"
+        // control would invent an obligation the app does not have, so this
+        // assertion is the only thing standing between the reassurance and
+        // silently disappearing.
+        await Expect(body).ToContainTextAsync("safe to close the tab whenever you like");
+        await Expect(body).ToContainTextAsync("written to your folder as you answer rather than at the end");
+        await Expect(body).ToContainTextAsync("the things that do not outlive the tab");
+
+        // The scope caveat, which is what keeps the reassurance honest: where the
+        // browser cannot write into the folder there is no record being kept, so
+        // the claim must not read as a promise that one is. Help draws that
+        // distinction in full under Lifetime stats; this is the pointer, and the
+        // pointer is the part that could quietly be dropped as "obvious".
+        await Expect(body).ToContainTextAsync("nothing is being recorded to begin with");
     }
 
     /// <summary>

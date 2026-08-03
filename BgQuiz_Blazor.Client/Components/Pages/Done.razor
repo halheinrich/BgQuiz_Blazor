@@ -82,4 +82,21 @@
             Back to setup
         </button>
     </div>
+
+    @* The third exit, stated because it is the one with no button (issue #51):
+       whoever has just finished a quiz is exactly who wonders whether anything
+       needs saving first. Nothing does — the lifetime record is written as each
+       answer lands, not banked for the end.
+
+       One line, and Help carries the reasons; this is an echo, not a second
+       account. Gated on the two failure statuses the notices at the top of this
+       page report, because "nothing needs saving" printed under "your stats
+       could not be saved" reads as a contradiction — in those states the notice
+       is the honest word and this would soften it. *@
+    @if (StatsStore.Status is not (QuizStatsStatus.LoadFailed or QuizStatsStatus.WriteFailed))
+    {
+        <p class="text-muted small mt-3">
+            Nothing here needs saving — you can close the tab whenever you like.
+        </p>
+    }
 </div>
