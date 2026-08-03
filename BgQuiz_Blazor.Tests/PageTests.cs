@@ -5061,18 +5061,64 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Settings_FoldingTheNavigationPanel_ReachesTheApplierImmediately()
+    public async Task Settings_TurningTheFoldOn_LeavesThePanelTheUserIsOnAlone()
     {
-        // The page cannot fold the panel itself and neither can the service —
-        // the control is an uncontrolled checkbox in the statically rendered
-        // layout. Without this call the setting would appear inert until the
-        // user happened to navigate.
+        // Finding #50, from the control rather than the service: ticking the box
+        // records the choice and nothing else moves. The panel folds on the next
+        // navigation, off the value already in storage — which is why deferring
+        // needed no code at all, only the removal of a call.
+        //
+        // This test previously asserted the opposite literal (the applier called
+        // with true), because the shipped reading of "immediate apply" was
+        // symmetric. The rule it protected — a setting must never look inert —
+        // is now carried by the fine print beside the control, pinned below.
         var cut = Render<SettingsPage>();
 
         await cut.Find("#settingsKeepNavFolded").ChangeAsync(new() { Value = true });
 
+        Assert.True(Settings().KeepNavigationPanelFolded);
+        Assert.DoesNotContain("bgquizNavFold.apply", JSInterop.Invocations.Identifiers);
+    }
+
+    [Fact]
+    public async Task Settings_TurningTheFoldOff_ReachesTheApplierImmediately()
+    {
+        // The direction that cannot wait, and the reason the seam exists at all:
+        // with the panel folded, the navigations that would otherwise apply the
+        // new value are behind the folded panel's own links. The page cannot do
+        // this itself and neither can the service — the control is an
+        // uncontrolled checkbox in the statically rendered layout.
+        JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey).SetResult(
+            """{"keepNavigationPanelFolded":true}""");
+        var cut = Render<SettingsPage>();
+
+        await cut.Find("#settingsKeepNavFolded").ChangeAsync(new() { Value = false });
+
+        Assert.False(Settings().KeepNavigationPanelFolded);
         var apply = Assert.Single(JSInterop.Invocations["bgquizNavFold.apply"]);
-        Assert.Equal(true, apply.Arguments[0]);
+        Assert.Equal(false, apply.Arguments[0]);
+    }
+
+    [Fact]
+    public void Settings_FoldControl_SaysWhenItTakesHold()
+    {
+        // The words are load-bearing here in a way they are not for the other
+        // two settings: a user who ticks the box and sees nothing happen has no
+        // way to tell "deferred" from "broken". So the deferral is stated beside
+        // the control, and pinned — dropping the sentence would leave the page
+        // silently inert-looking, which is the failure #50 reported.
+        var cut = Render<SettingsPage>();
+
+        // Whitespace-collapsed before matching: razor renders the source's own
+        // line breaks into the text, so a literal that happens to straddle one
+        // fails for a reason that has nothing to do with the copy.
+        var text = Regex.Replace(
+            cut.Find("#settingsKeepNavFolded").Closest("fieldset")!
+                .QuerySelector(".form-text")!.TextContent,
+            @"\s+", " ");
+
+        Assert.Contains("this only decides how a page starts out", text);
+        Assert.Contains("takes hold as you move on from here", text);
     }
 
     [Fact]

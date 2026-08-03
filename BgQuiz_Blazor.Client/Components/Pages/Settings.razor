@@ -9,8 +9,14 @@
 
 <div class="container py-3" style="max-width:800px">
     <h1>Settings</h1>
+    @* The lead promises persistence, not visible effect: one setting below
+       deliberately shows itself on the next page rather than on this one (the
+       fold — see its own fine print), so a blanket "takes effect immediately"
+       would be a claim the page then breaks. "Kept as you make it" is the part
+       that is true of all three, and it is also the part a reader is looking
+       for when they wonder where the Save button is. *@
     <p class="lead">
-        Every change here takes effect immediately and is remembered in this
+        Every change here is kept as you make it and remembered in this
         browser — there is nothing to save.
     </p>
 
@@ -66,11 +72,17 @@
                     Keep the navigation panel folded
                 </label>
             </div>
+            @* The deferral is stated, not left to be discovered. Turning this on
+               and seeing nothing happen would otherwise read as the setting
+               failing — a reading the checkbox alone cannot rule out. The words
+               carry the reason too ("how a page starts out"), because that is
+               what makes the delay obviously deliberate rather than slow. *@
             <div class="form-text">
-                The blue panel down the left of a wide screen stays folded away as
-                you move between pages, giving its width back to the board. You can
+                The blue panel down the left of a wide screen starts folded away on
+                every page you open, giving its width back to the board. You can
                 still open it any time with the strip at the left edge; this only
-                decides how it starts out.
+                decides how a page starts out, so it takes hold as you move on
+                from here rather than folding the panel you are using now.
             </div>
         </fieldset>
     }

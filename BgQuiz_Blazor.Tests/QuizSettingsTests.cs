@@ -101,10 +101,13 @@ public class QuizSettingsTests : BunitContext
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task EverySetter_AppliesImmediately_AndPersists()
+    public async Task EverySetter_RecordsTheValue_AndPersistsImmediately()
     {
         // No Apply button, no draft: the property is the new value the moment
-        // the setter returns, and the write has already gone out.
+        // the setter returns, and the write has already gone out. This is the
+        // half that IS uniform across the three — when a change becomes visible
+        // is the fold's own question, pinned in
+        // SettingTheFold_ReachesTheApplier_ToUnfoldOnly.
         var settings = NewSettings();
 
         await settings.SetHomeBoardOnRightAsync(false);
@@ -159,22 +162,36 @@ public class QuizSettingsTests : BunitContext
     }
 
     [Fact]
-    public async Task SettingTheFold_InvokesTheApplierWithTheValue()
+    public async Task SettingTheFold_ReachesTheApplier_ToUnfoldOnly()
     {
-        // C# cannot reach the collapse checkbox (uncontrolled, in a statically
-        // rendered layout), so the setting would appear to do nothing until the
-        // next navigation without this call. The value goes as an argument:
-        // the applier must not have to re-read storage, which would make the
-        // order of the two calls inside the setter load-bearing.
+        // THE asymmetry (finding #50), pinned at the seam that carries it.
+        //
+        // This test used to assert the applier was called in BOTH directions,
+        // and that was the shipped contract: "immediate apply" was read as
+        // symmetric because every other setting here is. The literal stopped
+        // being right when the ruling landed — "keep the navigation panel
+        // folded" describes how pages START, so folding the page the user is
+        // standing in strands them behind a panel that just vanished. The rule
+        // the old assertion protected is intact and still asserted below: a
+        // change the user cannot see any other way must reach the applier. Only
+        // one direction now qualifies.
         var settings = NewSettings();
 
+        // On: recorded and persisted (asserted elsewhere), but nothing is
+        // folded now — navFold.js's enhancedload handler does it on the next
+        // navigation, off the value already in storage. No call at all, rather
+        // than a call with a defused argument: an apply(true) that "means" defer
+        // would be a second, silent contract for the JS side to honour.
         await settings.SetKeepNavigationPanelFoldedAsync(true);
 
-        var invocation = Assert.Single(JSInterop.Invocations["bgquizNavFold.apply"]);
-        Assert.Equal(true, invocation.Arguments[0]);
+        Assert.DoesNotContain("bgquizNavFold.apply", JSInterop.Invocations.Identifiers);
 
+        // Off: cannot wait. With the panel folded, every navigation that would
+        // otherwise apply the new value is behind the folded panel's own links.
         await settings.SetKeepNavigationPanelFoldedAsync(false);
-        Assert.Equal(false, JSInterop.Invocations["bgquizNavFold.apply"].Last().Arguments[0]);
+
+        var invocation = Assert.Single(JSInterop.Invocations["bgquizNavFold.apply"]);
+        Assert.Equal(false, invocation.Arguments[0]);
     }
 
     // -----------------------------------------------------------------------

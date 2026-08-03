@@ -6,7 +6,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <summary>
 /// The Settings page and the two things about it that only a real browser can
 /// show: that the home-board side actually moves the rendered board, and that
-/// the fold setting survives navigation and reload.
+/// the fold setting defers to the next navigation and then survives every
+/// navigation and reload after it.
 ///
 /// <para>
 /// Both are structurally invisible to the other layers. bUnit can pin which
@@ -101,14 +102,25 @@ public sealed class SettingsTests : E2eTestBase
     /// against a full reload, which is what the stored entry carries it through.
     ///
     /// <para>
+    /// It also pins the <b>asymmetry</b> finding #50 settled — on defers to the
+    /// next navigation, off unfolds now. This test previously asserted the fold
+    /// landing on the spot, which was the shipped contract until the ruling: the
+    /// setting describes how pages <i>start</i>, and folding the page the user is
+    /// standing in strands them behind a panel that just vanished. The rule that
+    /// literal protected is unchanged and still asserted below — the choice must
+    /// visibly take hold — it now takes hold one navigation later, and only the
+    /// unfold direction still has to be immediate.
+    /// </para>
+    ///
+    /// <para>
     /// Every navigation here is driven from the page body rather than the nav
-    /// menu, of necessity: once the setting is on, the panel is folded and its
-    /// links are unclickable. That is the feature working, and it is also why the
-    /// setting needs a page of its own to be turned back off from.
+    /// menu, of necessity: once the setting has taken hold the panel is folded
+    /// and its links are unclickable. That is the feature working, and it is also
+    /// why the setting needs a page of its own to be turned back off from.
     /// </para>
     /// </summary>
     [Fact]
-    public async Task KeepFoldedSurvivesNavigationAndReload()
+    public async Task KeepFoldedDefersToTheNextNavigation_ThenSurvivesNavigationAndReload()
     {
         await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
         await BootHomeAsync();
@@ -118,10 +130,15 @@ public sealed class SettingsTests : E2eTestBase
 
         await KeepFoldedCheckbox.CheckAsync();
 
-        // Applied on the spot — no navigation needed to see it take effect.
-        await ExpectFoldedAsync();
+        // Recorded at once — waiting for the write is what makes the assertion
+        // below an observation rather than a race with a handler yet to run.
+        await ExpectStoredFoldAsync(true);
 
-        // Back to Home: an in-app navigation, the case the rail alone loses to.
+        // ...and the panel the user is standing in stays exactly where it is.
+        await ExpectUnfoldedAsync();
+
+        // Back to Home: an in-app navigation, the case the rail alone loses to —
+        // and the navigation the deferred fold takes hold on.
         await Page.GoBackAsync();
         await Expect(PickFolderButton).ToBeVisibleAsync();
         await ExpectFoldedAsync();
@@ -137,17 +154,17 @@ public sealed class SettingsTests : E2eTestBase
         await Expect(PickFolderButton).ToBeVisibleAsync();
         await ExpectFoldedAsync();
 
-        // Turning it back off releases the panel just as immediately — the
-        // setting is not a one-way door. Reached by URL because the nav is
-        // folded away, exactly as a user would have to.
+        // Turning it back off releases the panel on the spot — the deferral is
+        // the on direction's alone, because a folded panel offers the user no
+        // navigation to defer to. Reached by URL because the nav is folded away,
+        // exactly as a user would have to.
         await Page.GotoAsync(BaseUrl + "/settings");
         await Expect(KeepFoldedCheckbox).ToBeCheckedAsync();  // it round-tripped through storage
         await ExpectFoldedAsync();
 
         await KeepFoldedCheckbox.UncheckAsync();
 
-        await Expect(CollapseCheckbox).Not.ToBeCheckedAsync();
-        Assert.True(await PanelWidthAsync() > 0);
+        await ExpectUnfoldedAsync();
     }
 
     /// <summary>
@@ -160,6 +177,43 @@ public sealed class SettingsTests : E2eTestBase
         await Expect(CollapseCheckbox).ToBeCheckedAsync();
         Assert.Equal(0d, await PanelWidthAsync());
     }
+
+    /// <summary>The mirror of <see cref="ExpectFoldedAsync"/>: panel open, both halves.</summary>
+    private async Task ExpectUnfoldedAsync()
+    {
+        await Expect(CollapseCheckbox).Not.ToBeCheckedAsync();
+        Assert.True(await PanelWidthAsync() > 0);
+    }
+
+    /// <summary>
+    /// Wait until the stored settings entry carries the given fold value — the
+    /// evidence that the toggle's handler ran to completion, since the write
+    /// precedes anything else the setter does.
+    ///
+    /// <para>
+    /// Needed only by the deferred direction, and needed there precisely because
+    /// the assertion that follows is a <i>negative</i> one: "the panel did not
+    /// fold" is trivially true of a page whose click has not been processed yet,
+    /// so without this the test would pass on a broken app. The key and field are
+    /// literals per this suite's independent-literal convention — the same reason
+    /// <c>HelpAndTitlesTests</c> spells the key out rather than reading the
+    /// constant the page renders from.
+    /// </para>
+    /// </summary>
+    private Task ExpectStoredFoldAsync(bool folded) =>
+        Page.WaitForFunctionAsync(
+            """
+            expected => {
+                try {
+                    const raw = localStorage.getItem('xg_quizSettings');
+                    return raw !== null
+                        && JSON.parse(raw).keepNavigationPanelFolded === expected;
+                } catch (e) {
+                    return false;
+                }
+            }
+            """,
+            folded);
 
     private Task<double> PanelWidthAsync() =>
         NavigationPanel.EvaluateAsync<double>("el => el.getBoundingClientRect().width");

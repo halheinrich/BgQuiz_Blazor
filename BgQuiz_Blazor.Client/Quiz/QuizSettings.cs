@@ -9,8 +9,10 @@ using Microsoft.JSInterop;
 /// The per-app (Scoped, one-per-tab in WASM) <b>user settings</b> the
 /// <c>Settings</c> page edits: which side the home board renders on, whether
 /// that side is re-rolled per problem, and whether the navigation panel stays
-/// folded. Every setting applies the moment it is changed and is persisted
-/// immediately.
+/// folded. Every setting is recorded and persisted the moment it is changed —
+/// there is no Apply gesture anywhere in this service. When each becomes
+/// <i>visible</i> is a separate question, and the fold answers it differently
+/// from the other two: see <see cref="SetKeepNavigationPanelFoldedAsync"/>.
 ///
 /// <para>
 /// <b>No draft, no commit, no dirty flag — deliberately.</b> Unlike the
@@ -85,12 +87,12 @@ internal sealed class QuizSettings(IJSRuntime js)
     private const bool DefaultKeepNavigationPanelFolded = false;
 
     /// <summary>
-    /// The global the <c>navFold.js</c> applier publishes, invoked when the fold
-    /// setting changes so it takes effect without a navigation. C# cannot reach
-    /// the control itself — it is an uncontrolled checkbox in the statically
-    /// rendered host layout (see <c>MainLayoutTests</c>) — so this seam is the
-    /// only way to apply the value now, and the DOM selector stays in the JS
-    /// module rather than being restated here.
+    /// The global the <c>navFold.js</c> applier publishes — the only way to move
+    /// the fold without a navigation. C# cannot reach the control itself (an
+    /// uncontrolled checkbox in the statically rendered host layout, see
+    /// <c>MainLayoutTests</c>), so this seam exists at all for the one direction
+    /// that must not wait: unfolding. The DOM selector stays in the JS module
+    /// rather than being restated here.
     /// </summary>
     private const string NavFoldApplyFunction = "bgquizNavFold.apply";
 
@@ -169,23 +171,49 @@ internal sealed class QuizSettings(IJSRuntime js)
     }
 
     /// <summary>
-    /// Record the keep-folded choice, persist it, and fold (or unfold) the panel
-    /// now — the setting would otherwise appear to do nothing until the next
-    /// navigation.
+    /// Record the keep-folded choice and persist it — then <b>unfold now, but
+    /// never fold now</b>. The asymmetry is the whole contract, and it is
+    /// deliberate (finding #50).
     ///
     /// <para>
-    /// The applier is handed the value <b>explicitly</b> rather than left to
+    /// <b>Turning it on defers to the next navigation.</b> "Keep the navigation
+    /// panel folded" describes how pages <i>start</i>, not a fold to perform on
+    /// the spot; folding the page the user is standing in strands them — the
+    /// panel they just used to get here vanishes, and the checkbox they are
+    /// looking at is the only thing that could tell them why. Nothing extra is
+    /// needed to defer it: the choice is already in storage, and
+    /// <c>navFold.js</c>'s <c>enhancedload</c> handler applies it on the next
+    /// navigation, which is also where it self-demonstrates. The checkbox is the
+    /// confirmation in the meantime.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Turning it off cannot wait.</b> The user is asking for the panel back,
+    /// and with the panel folded there is no navigation available to them that
+    /// would deliver it — the links are folded away with it. So the unfold goes
+    /// through the applier immediately; without it the setting would be a
+    /// one-way door.
+    /// </para>
+    ///
+    /// <para>
+    /// The applier is handed its argument <b>explicitly</b> rather than left to
     /// re-read localStorage, deliberately: the seam then carries no dependency on
-    /// this method's write having landed first, so the two calls below cannot be
-    /// reordered into a silent bug. (The applier's <i>own</i> storage read stays
-    /// where it belongs — on the navigation path, where no C# is running.)
+    /// this method's write having landed first, so the persist and the unfold
+    /// below cannot be reordered into a silent bug. It is passed the literal
+    /// <c>false</c> rather than <c>value</c> — inside that branch they are the
+    /// same bool, and the literal is the one that says <i>unfold</i> at the call
+    /// site. (The applier's <i>own</i> storage read stays where it belongs — on
+    /// the navigation path, where no C# is running.)
     /// </para>
     /// </summary>
     public async Task SetKeepNavigationPanelFoldedAsync(bool value)
     {
         KeepNavigationPanelFolded = value;
         await PersistAsync();
-        await js.InvokeVoidAsync(NavFoldApplyFunction, value);
+        if (!value)
+        {
+            await js.InvokeVoidAsync(NavFoldApplyFunction, false);
+        }
     }
 
     private async Task PersistAsync() =>

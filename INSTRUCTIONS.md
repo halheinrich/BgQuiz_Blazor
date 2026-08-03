@@ -184,7 +184,7 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
       Done.razor / .razor.cs        — final summary
       Stats.razor / .razor.cs       — read-only mid-quiz stats (live Controller)
       Settings.razor / .razor.cs    — user settings (a view over QuizSettings;
-                                      immediate apply, no Apply button)
+                                      no Apply button; the fold defers one nav)
       Help.razor / .razor.cs        — end-user documentation (never redirects)
       ScorePanel.razor              — compact header strip (Total only)
       ScoreBreakdown.razor          — four-way Play/Double/Take/Total table
@@ -1081,7 +1081,10 @@ to look for a distinction that isn't there.
 The app-scoped service behind `Settings.razor`, owning three settings and the
 one `localStorage` entry (`xg_quizSettings`) they persist in: the home-board
 side, whether that side re-rolls per problem, and whether the navigation panel
-stays folded. **Defaults reproduce the app that shipped before it existed** —
+stays folded. Every change is **recorded and persisted the moment it is made**;
+when it becomes *visible* is a separate question, and the fold answers it
+differently (§ The fold it cannot apply itself, below).
+**Defaults reproduce the app that shipped before it existed** —
 home board right (the producer's own `DiagramRequest.HomeBoardOnRight`
 default), no randomization, panel unfolded — so a user who never opens the page
 sees no change.
@@ -1126,10 +1129,27 @@ solution) cannot disagree. A board that flipped in some views and not others is
 the failure mode, and it is the kind that survives review by looking like three
 correct call sites.
 
-**The fold it cannot apply itself.** The service owns and persists the value;
-restoring the fold is `navFold.js`'s job (§ The host layout). Changing the
-setting invokes the applier with the value **as an argument**, so the setter
-carries no ordering dependency on its own storage write.
+**The fold it cannot apply itself, and the one it deliberately won't.** The
+service owns and persists the value; restoring the fold is `navFold.js`'s job
+(§ The host layout). The applier is invoked with the value **as an argument**,
+so the setter carries no ordering dependency on its own storage write — but it
+is invoked **for the unfold direction only** (finding #50, ruled 2026-08-03):
+
+- **On → deferred.** "Keep the navigation panel folded" describes how pages
+  *start*. Folding the page the user is standing in strands them behind a panel
+  that just vanished, with the checkbox they are looking at as the only clue
+  why. Deferring needs no code — the choice is already in storage and the
+  `enhancedload` handler applies it on the next navigation, where it also
+  self-demonstrates. The checkbox is the confirmation in the meantime, and the
+  control's fine print states the delay so "deferred" cannot read as "broken"
+  (pinned in `PageTests`).
+- **Off → immediate.** The user is asking for the panel back, and with it folded
+  every navigation that would apply the new value is behind its own folded-away
+  links. Without the seam the setting would be a one-way door.
+
+The asymmetry is pinned three times over: at the service seam
+(`QuizSettingsTests`), from the control (`PageTests`), and in a real browser
+(`SettingsTests` — toggle on, panel stays, navigate, folded).
 
 ### Pages
 
@@ -1466,9 +1486,11 @@ carries no ordering dependency on its own storage write.
 - **`Settings.razor`** — the user settings page (issue #30 leg 1), a plain
   view over `QuizSettings` (§ that section for the contracts). Radios for
   the home-board side, checkboxes for randomize-per-problem and
-  keep-nav-folded; every control writes straight through, applying and
-  persisting on the spot. **No Apply button — pinned as a design constraint,
-  not a coincidence:** an Apply is the front end of the draft/commit lifetime
+  keep-nav-folded; every control writes straight through, recording and
+  persisting on the spot (the fold's *visible* effect defers by one navigation
+  — § `QuizSettings`; the page's job in that split is the fine print that says
+  so). **No Apply button — pinned as a design constraint, not a
+  coincidence:** an Apply is the front end of the draft/commit lifetime
   split behind finding (AK)'s wedge. The only page state is whether hydration
   landed, which gates the controls so none can paint a default the stored
   settings are about to overwrite. Reachable from the host `NavMenu` beside
@@ -1787,9 +1809,11 @@ persists the choice, and `wwwroot/js/navFold.js` — a classic script loaded by
 re-applies it on initial load and on every `Blazor.addEventListener`
 `enhancedload`. It lives in the **host** project because it must run on static
 pages with no WASM runtime, reads the storage entry itself in JS, and publishes
-`window.bgquizNavFold.apply(folded)` as the seam `QuizSettings` invokes so the
-setting takes effect without waiting for a navigation. Two couplings it holds
-with no compiler behind them — the storage field name and the
+`window.bgquizNavFold.apply(folded)` as the seam `QuizSettings` invokes to move
+the fold without a navigation. In practice that seam runs **only to unfold**:
+turning the setting on rides the `enhancedload` path like any other page load,
+which is the deferral finding #50 ruled (§ `QuizSettings`). Two couplings the
+script holds with no compiler behind them — the storage field name and the
 `.sidebar-toggle-checkbox` selector — are in Pitfalls.
 
 Re-applying after *every* sync, late ones included, is also what dissolves the

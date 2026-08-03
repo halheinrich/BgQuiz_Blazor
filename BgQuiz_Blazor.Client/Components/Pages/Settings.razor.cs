@@ -4,10 +4,20 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 
 /// <summary>
 /// Settings page: a plain view over the app-scoped <c>QuizSettings</c> service.
-/// Every control writes straight through to the service, which applies and
+/// Every control writes straight through to the service, which records and
 /// persists the change on the spot — there is deliberately no Apply button, no
 /// draft, and no dirty state to reconcile (see the service's own docs for why
 /// that lifetime split is the one thing this page must not grow).
+///
+/// <para>
+/// Recording immediately is not the same as showing immediately, and the fold
+/// setting deliberately parts company with the other two: it takes hold on the
+/// next navigation rather than folding the panel the user is standing in
+/// (finding #50, reasoned in <c>QuizSettings.SetKeepNavigationPanelFoldedAsync</c>).
+/// The page's job in that split is the words — the fold's fine print states the
+/// deferral, so a user who sees nothing happen is not left reading it as a
+/// failure.
+/// </para>
 ///
 /// <para>
 /// The page therefore holds exactly one piece of state: whether hydration has
