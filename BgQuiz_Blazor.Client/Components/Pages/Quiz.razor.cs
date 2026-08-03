@@ -150,13 +150,27 @@ public partial class Quiz : ComponentBase, IDisposable
         comp.DrawnCount < comp.TargetCount || comp.Entries.Any(e => e.Drawn < e.Requested);
 
     /// <summary>
-    /// On load: subscribe to <see cref="QuizController.StateChanged"/> so the
-    /// page re-renders on each transition, then apply the same start/finish
-    /// guards <c>Stats</c> uses — bounce to <c>/</c> with no quiz in progress, to
+    /// On load: make sure the user's settings are hydrated (the board's side
+    /// comes from them, and the <i>first</i> render must already have it — see
+    /// below), subscribe to <see cref="QuizController.StateChanged"/> so the page
+    /// re-renders on each transition, then apply the same start/finish guards
+    /// <c>Stats</c> uses — bounce to <c>/</c> with no quiz in progress, to
     /// <c>/done</c> if the source is already exhausted.
+    ///
+    /// <para>
+    /// The hydration await is all but free and is deliberately not a
+    /// <c>_hydrated</c> render gate: <c>Home</c> — which every quiz passes
+    /// through, and which this page bounces back to when it has not — kicked the
+    /// same idempotent task off long before, so what is awaited here is an
+    /// already-completed task. Blazor renders nothing extra for that, which is
+    /// exactly why the board cannot paint on the default side and flip a frame
+    /// later.
+    /// </para>
     /// </summary>
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        await Settings.EnsureHydratedAsync();
+
         Controller.StateChanged += HandleStateChanged;
         // Re-render on stats-context transitions too (Ready → WriteFailed is
         // the one that can happen mid-quiz), so the stats notice appears the
@@ -198,11 +212,23 @@ public partial class Quiz : ComponentBase, IDisposable
         InvokeAsync(StateHasChanged);
     }
 
-    private static DiagramRequest BuildRenderRequest(BgDataTypes_Lib.BgDecisionData current) =>
+    /// <summary>
+    /// The side this problem's board renders on, for <b>every</b> branch below.
+    /// The rule that composes the user's two side settings lives in one member
+    /// (<see cref="QuizSettings.EffectiveHomeBoardOnRight"/>) and reaches the
+    /// renderer through this one property, so the answering branches and the
+    /// solution branch cannot disagree — a board that flipped in some views but
+    /// not others would read as a bug, and it is the kind that survives review by
+    /// looking like three correct call sites.
+    /// </summary>
+    private bool HomeBoardOnRight =>
+        Settings.EffectiveHomeBoardOnRight(Controller.RandomHomeBoardOnRight);
+
+    private DiagramRequest BuildRenderRequest(BgDataTypes_Lib.BgDecisionData current) =>
         // DiagramMode.Problem hides the analysis panel (the candidate list is the
         // answer the quiz is grading). FromDecisionData is the single canonical
         // data → renderer mapping; using it avoids drift on new fields.
-        DiagramRequest.FromDecisionData(current, DiagramMode.Problem);
+        DiagramRequest.FromDecisionData(current, DiagramMode.Problem, HomeBoardOnRight);
 
     /// <summary>
     /// Build the review-state solution request: the original answered position
@@ -222,11 +248,12 @@ public partial class Quiz : ComponentBase, IDisposable
     /// banner row instead.
     /// </para>
     /// </summary>
-    private static DiagramRequest BuildSolutionRequest(
+    private DiagramRequest BuildSolutionRequest(
         BgDataTypes_Lib.BgDecisionData current, ProblemReview review)
     {
         var builder = DiagramRequest.Builder.From(
-            current.Position, current.Decision, current.Descriptive, DiagramMode.Solution);
+            current.Position, current.Decision, current.Descriptive, DiagramMode.Solution,
+            HomeBoardOnRight);
 
         switch (review)
         {

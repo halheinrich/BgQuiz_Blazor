@@ -462,6 +462,14 @@ public partial class Home : ComponentBase, IDisposable
         // to hand over directly). Unsubscribed in Dispose.
         MixDraft.Changed += StateHasChanged;
 
+        // Hydrate the user's settings here, where every quiz begins. Nothing on
+        // this page renders them, but the Quiz page's board does, on its very
+        // first render — and it gets there only through Start, long after this
+        // read has landed. Kicking off from the entry point rather than from the
+        // consumer is what keeps the board free of a hydration render gate; the
+        // call is idempotent, so Quiz awaiting the same task costs nothing.
+        await Settings.EnsureHydratedAsync();
+
         if (await Marker.WasLiveAsync() && !Controller.HasStarted)
         {
             _showReloadNotice = true;

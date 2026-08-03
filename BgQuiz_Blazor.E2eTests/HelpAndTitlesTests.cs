@@ -74,10 +74,11 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await Expect(body).ToContainTextAsync("never uploaded");
         await Expect(body).ToContainTextAsync("no account to create");
 
-        // The two entries BgQuiz keeps in the browser, named. The literals are
+        // The entries BgQuiz keeps in the browser, named. The literals are
         // deliberately the real key strings — this is the pin that would catch a
         // page rendering an empty <code> or the wrong constant.
         await Expect(body).ToContainTextAsync("xg_quizMix");
+        await Expect(body).ToContainTextAsync("xg_quizSettings");
         await Expect(body).ToContainTextAsync("bgquiz.quizLive");
 
         // ...and the sessionStorage marker described honestly: per-tab, and gone
@@ -113,15 +114,23 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await Expect(body).ToContainTextAsync("stays put while you work through the quiz");
         await Expect(body).ToContainTextAsync("comes back when you move to another page or reload");
 
+        // ...and the way out of that reset, which is the whole reason the fold
+        // setting exists. Named by the words on the control, so a reader can find
+        // it; the behaviour is pinned in SettingsTests.
+        await Expect(body).ToContainTextAsync("Keep the navigation panel folded");
+
         // The note is about the CONTROL, never an inventory of what the panel
-        // contains: issue #30 adds a Settings entry to that nav, and prose naming
-        // the entries rots the day it lands. Scoped to the bullet itself, so this
-        // guards the shape of the note rather than one phrasing of it.
+        // contains — prose naming the nav's entries rots the day one is added.
+        // The literal this originally guarded with ("Settings") stopped being a
+        // usable proxy when #30 landed: the note now legitimately points at the
+        // Settings *page* as where the fold option lives, which is a pointer to
+        // an option and not a listing of the panel's contents. Home and Help have
+        // no such reason to appear, so they are what an inventory would drag in.
         string note = await Page.Locator("li")
             .Filter(new() { HasText = "The side panel folds out of the way" })
             .InnerTextAsync();
         Assert.DoesNotContain("Home", note);
-        Assert.DoesNotContain("Settings", note);
+        Assert.DoesNotContain("Help", note);
     }
 
     /// <summary>

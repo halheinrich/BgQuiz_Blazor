@@ -1,0 +1,77 @@
+@page "/settings"
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+
+@using BgQuiz_Blazor.Client.Quiz
+
+@inject QuizSettings QuizSettings
+
+<PageTitle>BgQuiz — Settings</PageTitle>
+
+<div class="container py-3" style="max-width:800px">
+    <h1>Settings</h1>
+    <p class="lead">
+        Every change here takes effect immediately and is remembered in this
+        browser — there is nothing to save.
+    </p>
+
+    @* Gated on hydration so no control paints a default the stored settings are
+       about to overwrite. On any ordinary visit the task is already complete and
+       this branch is taken on the first render anyway. *@
+    @if (_hydrated)
+    {
+        <fieldset class="mb-4">
+            <legend class="h5">The board</legend>
+
+            <fieldset class="mb-3">
+                <legend class="form-label mb-1">Your home board is on the</legend>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="homeBoardSide"
+                           id="settingsSideRight"
+                           checked="@QuizSettings.HomeBoardOnRight"
+                           @onchange="@(() => SetHomeBoardOnRightAsync(true))" />
+                    <label class="form-check-label" for="settingsSideRight">Right</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="homeBoardSide"
+                           id="settingsSideLeft"
+                           checked="@(!QuizSettings.HomeBoardOnRight)"
+                           @onchange="@(() => SetHomeBoardOnRightAsync(false))" />
+                    <label class="form-check-label" for="settingsSideLeft">Left</label>
+                </div>
+            </fieldset>
+
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="settingsRandomizeSide"
+                       checked="@QuizSettings.RandomizeSidePerProblem"
+                       @onchange="@(e => SetRandomizeSidePerProblemAsync((bool)e.Value!))" />
+                <label class="form-check-label" for="settingsRandomizeSide">
+                    Use a random side for each problem
+                </label>
+            </div>
+            <div class="form-text">
+                In real play the side is not yours to choose, and a position you
+                have seen before is harder to recognise mirrored. Each problem
+                draws its own side, and keeps it while you answer and read the
+                solution. The choice above applies whenever this is off.
+            </div>
+        </fieldset>
+
+        <fieldset>
+            <legend class="h5">The navigation panel</legend>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="settingsKeepNavFolded"
+                       checked="@QuizSettings.KeepNavigationPanelFolded"
+                       @onchange="@(e => SetKeepNavigationPanelFoldedAsync((bool)e.Value!))" />
+                <label class="form-check-label" for="settingsKeepNavFolded">
+                    Keep the navigation panel folded
+                </label>
+            </div>
+            <div class="form-text">
+                The blue panel down the left of a wide screen stays folded away as
+                you move between pages, giving its width back to the board. You can
+                still open it any time with the strip at the left edge; this only
+                decides how it starts out.
+            </div>
+        </fieldset>
+    }
+</div>

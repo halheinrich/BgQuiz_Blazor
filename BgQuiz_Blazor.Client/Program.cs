@@ -80,6 +80,13 @@ builder.Services.AddScoped<MixDraft>();
 // site. The controller's composition telemetry is never touched.
 builder.Services.AddScoped<MixNoticeDismissal>();
 
+// Per-app user settings (localStorage-backed): the home-board side, whether it
+// re-rolls per problem, and whether the navigation panel stays folded. Scoped
+// like the holders, so one hydration serves the whole app and every page reads
+// the same instance. Deliberately no draft/commit lifecycle — a setting applies
+// and persists the moment it changes.
+builder.Services.AddScoped<QuizSettings>();
+
 // Per-app marker (sessionStorage-backed) recording that a quiz is live in this
 // tab, so a full reload — which reboots the runtime and discards quiz state —
 // can be acknowledged on the next boot instead of dumping the user on a blank

@@ -132,6 +132,36 @@ internal sealed class QuizController : IAsyncDisposable
     /// </summary>
     public ProblemReview? Review { get; private set; }
 
+    /// <summary>
+    /// A fresh coin flip taken for each problem the user is actually shown,
+    /// offered to the presentation layer as the per-problem home-board side.
+    ///
+    /// <para>
+    /// <b>Rolled unconditionally</b>, at the one place <see cref="Current"/> is
+    /// assigned — so it reads as per-shown-problem (auto-skipped pass positions
+    /// take no roll, exactly as they take no board) and so the controller needs
+    /// no knowledge of whether the user asked for randomization at all. Whether
+    /// this value is used is settings policy, composed in exactly one place
+    /// outside the controller (<c>QuizSettings.EffectiveHomeBoardOnRight</c>).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Held steady for the whole encounter.</b> Nothing but an advance rolls
+    /// it, so a problem shows the same side while being answered and in its
+    /// solution review, and <see cref="RedoAsync"/> — which clears
+    /// <see cref="Review"/> on the same <see cref="Current"/> — cannot flip the
+    /// board under the user.
+    /// </para>
+    ///
+    /// <para>
+    /// Presentation state, never persisted: "the same position looks different
+    /// next time" is the whole point. The roll is unseeded, per the
+    /// <c>Program.cs</c> shuffle rationale — reproducibility is a test-only
+    /// concern.
+    /// </para>
+    /// </summary>
+    public bool RandomHomeBoardOnRight { get; private set; }
+
     /// <summary>Cumulative running score. Resets on <see cref="StartAsync"/> / <see cref="RestartAsync"/>.</summary>
     public QuizScore Score { get; private set; } = QuizScore.Empty;
 
@@ -795,6 +825,11 @@ internal sealed class QuizController : IAsyncDisposable
         IsFinished = false;
         Current = null;
         Review = null;
+        // No problem is showing, so this carries no meaning until the advance
+        // below rolls one. Cleared to the CLR default rather than to a side:
+        // which side is "default" is the settings service's decision, not this
+        // type's, and a run must not inherit the previous run's last roll.
+        RandomHomeBoardOnRight = false;
 
         await AdvanceAsync();
         return QuizStartOutcome.Started;
@@ -839,6 +874,9 @@ internal sealed class QuizController : IAsyncDisposable
             }
 
             Current = next;
+            // Beside the assignment, and after the pass-skip continue above:
+            // one roll per problem the user actually sees. See the property.
+            RandomHomeBoardOnRight = Random.Shared.Next(2) == 0;
             break;
         }
         // No StateChanged here: every caller runs inside the transition gate,

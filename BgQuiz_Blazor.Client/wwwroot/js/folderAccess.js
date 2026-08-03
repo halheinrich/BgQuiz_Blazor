@@ -1,6 +1,9 @@
 // folderAccess.js — BgQuiz's folder-picking + stats-file module (the app's
-// first authored JS). Loaded as an ES module by JsFolderAccess; nothing else
-// imports it, and no other script in the app is app-authored.
+// first authored JS, and the only one in the .Client). Loaded as an ES module
+// by JsFolderAccess; nothing else imports it. The app's one other authored
+// script is the host project's wwwroot/js/navFold.js — a classic script loaded
+// by App.razor, which has to run outside the WASM runtime entirely; the two
+// share no code and no state.
 //
 // Two-slot state model:
 //   picked slot — populated by a pick gesture (either mechanism); holds the

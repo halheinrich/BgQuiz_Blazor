@@ -25,6 +25,7 @@ using QuizPage = BgQuiz_Blazor.Client.Components.Pages.Quiz;
 using DonePage = BgQuiz_Blazor.Client.Components.Pages.Done;
 using StatsPage = BgQuiz_Blazor.Client.Components.Pages.Stats;
 using HelpPage = BgQuiz_Blazor.Client.Components.Pages.Help;
+using SettingsPage = BgQuiz_Blazor.Client.Components.Pages.Settings;
 using ScorePanelComponent = BgQuiz_Blazor.Client.Components.Pages.ScorePanel;
 using MixPanelComponent = BgQuiz_Blazor.Client.Components.Pages.MixPanel;
 
@@ -42,6 +43,15 @@ public class PageTests : BunitContext
 
     public PageTests()
     {
+        // Loose JSInterop as the fixture default. Every page render now reaches
+        // localStorage on the way in — QuizSettings hydrates from Home, Quiz and
+        // Settings alike — so strict mode would make an unrelated page test fail
+        // on a storage read it has no opinion about. A test that cares what is
+        // stored still says so with its own Setup, which takes precedence; no
+        // test in this fixture asserts on an *unhandled* call. (Many tests below
+        // still set this themselves, from when it was per-test; harmless.)
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
         // Home and Done inject the sessionStorage-backed QuizLiveMarker. It needs
         // only the framework IJSRuntime — which bUnit registers in Services — so
         // one fixture-wide registration serves every page render. The marker's
@@ -74,6 +84,12 @@ public class PageTests : BunitContext
         // or via WithAppliedMix's staged localStorage, never a stored flag.
         Services.AddScoped<AppliedMix>();
         Services.AddScoped<MixDraft>();
+
+        // Home, Quiz and Settings all inject QuizSettings. Scoped, as in
+        // Program.cs, so one hydration serves every render in a test and the
+        // Settings page's writes are visible to a Quiz page rendered after it —
+        // which is the app-scoped behavior the side settings depend on.
+        Services.AddScoped<QuizSettings>();
 
         // Quiz injects MixNoticeDismissal (its composition notice checks it before
         // rendering). Scoped, as in Program.cs, so a test that re-renders the page
@@ -3282,14 +3298,14 @@ public class PageTests : BunitContext
     public void Help_DataSection_NamesItsOwnBrowserStorageFromTheOwningConstants()
     {
         // The wiring half of the copy-pin split (the phrasing is pinned as
-        // independent literals in the e2e suite). Both entries the app keeps in
-        // the browser are rendered from the constant that actually writes them —
-        // MixDraft owns xg_quizMix in both directions, QuizLiveMarker owns its
-        // sessionStorage mark — so a key rename that left the prose behind fails
-        // here rather than shipping a name the reader can't find in devtools.
-        // That is the reason QuizLiveMarker's key was widened from private to
-        // internal at all; asserting it is what keeps the widening earning its
-        // keep.
+        // independent literals in the e2e suite). Every entry the app keeps in
+        // the browser is rendered from the constant that actually writes it —
+        // MixDraft owns xg_quizMix in both directions, QuizSettings owns the
+        // settings entry, QuizLiveMarker owns its sessionStorage mark — so a key
+        // rename that left the prose behind fails here rather than shipping a
+        // name the reader can't find in devtools. That is the reason
+        // QuizLiveMarker's key was widened from private to internal at all;
+        // asserting it is what keeps the widening earning its keep.
         WithController();
 
         var cut = Render<HelpPage>();
@@ -3298,6 +3314,7 @@ public class PageTests : BunitContext
             cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Your data stays yours"));
 
         Assert.Contains(MixDraft.StorageKey, section);
+        Assert.Contains(QuizSettings.StorageKey, section);
         Assert.Contains(QuizLiveMarker.StorageKey, section);
     }
 
@@ -3336,7 +3353,7 @@ public class PageTests : BunitContext
         // question; what this pins is that the pointer exists and aims at the
         // producer's anchor.
         Assert.Contains(links, a => a.GetAttribute("href")!.EndsWith("#fh-what-is-remembered"));
-        Assert.Equal([MixDraft.StorageKey, QuizLiveMarker.StorageKey], codes);
+        Assert.Equal([MixDraft.StorageKey, QuizSettings.StorageKey, QuizLiveMarker.StorageKey], codes);
     }
 
     [Fact]
@@ -4836,5 +4853,177 @@ public class PageTests : BunitContext
         await click;
         var nav = Services.GetRequiredService<BunitNavigationManager>();
         Assert.EndsWith("/quiz", nav.Uri);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Settings.razor, and the board side it drives
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The settings instance the rendered pages resolve — the same app-scoped
+    /// object <c>Program.cs</c> registers, so a test can drive a setting and then
+    /// render a page against it exactly as the Settings page would have.
+    /// </summary>
+    private QuizSettings Settings() => Services.GetRequiredService<QuizSettings>();
+
+    /// <summary>The <c>HomeBoardOnRight</c> the currently rendered board is asking the producer for.</summary>
+    private static bool RenderedBoardSide(IRenderedComponent<QuizPage> cut) =>
+        cut.FindAll(".board-container").Count > 0
+            && cut.FindComponents<BackgammonPlayEntry>().Count > 0
+            ? cut.FindComponent<BackgammonPlayEntry>().Instance.Request!.HomeBoardOnRight
+            : cut.FindComponent<BackgammonDiagram>().Instance.Request!.HomeBoardOnRight;
+
+    [Fact]
+    public void Settings_RendersEveryControl_ReflectingTheStoredValues()
+    {
+        // The page is a view over the service and nothing else: what it shows is
+        // what hydration put there, not a page-local default.
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey).SetResult(
+            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true}""");
+
+        var cut = Render<SettingsPage>();
+
+        Assert.False(cut.Find("#settingsSideRight").HasAttribute("checked"));
+        Assert.True(cut.Find("#settingsSideLeft").HasAttribute("checked"));
+        Assert.True(cut.Find("#settingsRandomizeSide").HasAttribute("checked"));
+        Assert.True(cut.Find("#settingsKeepNavFolded").HasAttribute("checked"));
+    }
+
+    [Fact]
+    public void Settings_HasNoApplyGesture_BecauseEveryChangeIsImmediate()
+    {
+        // Pinned as a design constraint, not a coincidence: an Apply button is
+        // the front end of the draft/commit lifetime split that produced finding
+        // (AK)'s wedge, and this page must never grow one.
+        JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var cut = Render<SettingsPage>();
+
+        Assert.Empty(cut.FindAll("button"));
+    }
+
+    [Fact]
+    public async Task Settings_ChangingAControl_AppliesAndPersistsOnTheSpot()
+    {
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        var cut = Render<SettingsPage>();
+
+        await cut.Find("#settingsSideLeft").ChangeAsync(new() { Value = true });
+        Assert.False(Settings().HomeBoardOnRight);
+
+        await cut.Find("#settingsRandomizeSide").ChangeAsync(new() { Value = true });
+        Assert.True(Settings().RandomizeSidePerProblem);
+
+        await cut.Find("#settingsKeepNavFolded").ChangeAsync(new() { Value = true });
+        Assert.True(Settings().KeepNavigationPanelFolded);
+
+        // …and each landed in the one storage entry, with no further gesture.
+        var stored = JSInterop.Invocations["localStorage.setItem"]
+            .Last(i => (string?)i.Arguments[0] == QuizSettings.StorageKey).Arguments[1] as string;
+        Assert.Equal(
+            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true}""",
+            stored);
+    }
+
+    [Fact]
+    public async Task Settings_FoldingTheNavigationPanel_ReachesTheApplierImmediately()
+    {
+        // The page cannot fold the panel itself and neither can the service —
+        // the control is an uncontrolled checkbox in the statically rendered
+        // layout. Without this call the setting would appear inert until the
+        // user happened to navigate.
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        var cut = Render<SettingsPage>();
+
+        await cut.Find("#settingsKeepNavFolded").ChangeAsync(new() { Value = true });
+
+        var apply = Assert.Single(JSInterop.Invocations["bgquizNavFold.apply"]);
+        Assert.Equal(true, apply.Arguments[0]);
+    }
+
+    [Fact]
+    public async Task Quiz_BoardSide_PlayAnsweringBranch_FollowsTheSetting()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        Assert.True(RenderedBoardSide(Render<QuizPage>()));   // default: home board right
+
+        await Settings().SetHomeBoardOnRightAsync(false);
+        Assert.False(RenderedBoardSide(Render<QuizPage>()));
+    }
+
+    [Fact]
+    public async Task Quiz_BoardSide_CubeAnsweringBranch_FollowsTheSetting()
+    {
+        // The second of the three render branches. A cube problem's board region
+        // is a bare BackgammonDiagram, built by a different method than the play
+        // branch's — which is exactly how a setting ends up honored in some views
+        // and not others.
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        Assert.True(RenderedBoardSide(Render<QuizPage>()));
+
+        await Settings().SetHomeBoardOnRightAsync(false);
+        Assert.False(RenderedBoardSide(Render<QuizPage>()));
+    }
+
+    [Fact]
+    public async Task Quiz_BoardSide_SolutionBranch_FollowsTheSetting()
+    {
+        // The third branch, and the one built through Builder.From rather than
+        // FromDecisionData.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await Settings().SetHomeBoardOnRightAsync(false);
+
+        var cut = Render<QuizPage>();
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+
+        Assert.NotNull(c.Review);
+        Assert.False(cut.FindComponent<BackgammonDiagram>().Instance.Request!.HomeBoardOnRight);
+    }
+
+    [Fact]
+    public async Task Quiz_BoardSide_RandomizeOn_IsTheControllersRollForThisProblem()
+    {
+        // The composition rule, observed end to end: with randomization on the
+        // board takes the controller's per-problem roll and the fixed choice
+        // stops mattering. Asserted against the roll rather than against a
+        // literal side — the roll is unseeded on purpose.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await Settings().SetHomeBoardOnRightAsync(true);
+        await Settings().SetRandomizeSidePerProblemAsync(true);
+
+        Assert.Equal(c.RandomHomeBoardOnRight, RenderedBoardSide(Render<QuizPage>()));
+
+        // The fixed choice is genuinely out of the picture while randomizing.
+        await Settings().SetHomeBoardOnRightAsync(false);
+        Assert.Equal(c.RandomHomeBoardOnRight, RenderedBoardSide(Render<QuizPage>()));
+    }
+
+    [Fact]
+    public async Task Quiz_BoardSide_HoldsStillAcrossSubmitAndRedo()
+    {
+        // The constraint that makes randomization usable: one problem, one side.
+        // Submitting must not flip the board the user is still looking at, and
+        // Redo — which returns to the answering state on the SAME problem — must
+        // not either. Both would read as the board moving under the user.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await Settings().SetRandomizeSidePerProblemAsync(true);
+
+        var cut = Render<QuizPage>();
+        var answering = RenderedBoardSide(cut);
+
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.Equal(answering, RenderedBoardSide(cut));   // the solution review
+
+        await cut.InvokeAsync(() => c.RedoAsync());
+        Assert.Null(c.Review);
+        Assert.Equal(answering, RenderedBoardSide(cut));   // back to answering
     }
 }

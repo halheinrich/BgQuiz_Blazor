@@ -1573,4 +1573,70 @@ public class QuizControllerTests
         Assert.Equal(QuizStartOutcome.MixRequiresStats, outcome);
         Assert.True(c.ActiveMixHasLength);
     }
+
+    // -----------------------------------------------------------------------
+    //  RandomHomeBoardOnRight — the per-problem side roll
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task RandomHomeBoardOnRight_TakesBothSides_AcrossAProblemStream()
+    {
+        // The anti-memorization contract: a fresh roll per problem, so the same
+        // position can come back mirrored. Deliberately not seeded (see the
+        // property, and the Program.cs shuffle rationale) — over 40 advances a
+        // roll stuck on one side would have to survive odds of 2^-39, which is
+        // comfortably beyond a flaky test and squarely a broken one.
+        const int problems = 40;
+        var stream = Enumerable.Range(0, problems)
+            .Select(_ => TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()))
+            .ToArray();
+        var c = Make(stream);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        var seen = new HashSet<bool> { c.RandomHomeBoardOnRight };
+        for (var i = 1; i < problems; i++)
+        {
+            await c.SkipCurrentAsync();
+            seen.Add(c.RandomHomeBoardOnRight);
+        }
+
+        Assert.Equal(2, seen.Count);
+    }
+
+    [Fact]
+    public async Task RandomHomeBoardOnRight_HoldsStillForOneProblem_AcrossSubmitAndRedo()
+    {
+        // One problem, one side — the rule that keeps the board from moving
+        // under the user between answering it and reading its solution, and
+        // again when Redo returns them to the same problem.
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var rolled = c.RandomHomeBoardOnRight;
+
+        c.SubmitPlay(BestPlay());
+        Assert.Equal(rolled, c.RandomHomeBoardOnRight);
+
+        await c.RedoAsync();
+        Assert.Equal(rolled, c.RandomHomeBoardOnRight);
+    }
+
+    [Fact]
+    public async Task RandomHomeBoardOnRight_PassPositions_TakeNoRoll()
+    {
+        // Rolled beside the assignment of Current, after the auto-skip: a
+        // position the user never sees must not consume a side, or the "one
+        // roll per problem shown" reading of the property stops being true.
+        var c = Make(
+            TestFixtures.PassDecision(),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        // The pass was skipped silently and the shown problem is the second one…
+        Assert.Equal(2, c.ProblemNumber);
+        var shown = c.RandomHomeBoardOnRight;
+
+        // …and nothing but an advance can move the roll it took.
+        c.SubmitPlay(BestPlay());
+        Assert.Equal(shown, c.RandomHomeBoardOnRight);
+    }
 }

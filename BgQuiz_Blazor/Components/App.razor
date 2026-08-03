@@ -23,6 +23,14 @@
 <body>
     <Routes />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
+    @* The navigation-fold applier, after blazor.web.js because it registers a
+       Blazor.addEventListener('enhancedload') handler — and here in the host
+       shell rather than anywhere in the .Client, because it must run on every
+       page whether or not the WASM runtime has booted. Same @Assets helper as
+       its sibling above: a stale cached applier after a deploy would fail
+       silently. See wwwroot/js/navFold.js for the contract it holds with
+       QuizSettings and MainLayout. *@
+    <script src="@Assets["js/navFold.js"]"></script>
 </body>
 
 </html>

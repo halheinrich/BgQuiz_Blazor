@@ -52,8 +52,9 @@
        *moved* here rather than copied — the same page asserting it twice is
        exactly the duplication a consolidated section is prone to.
 
-       The two browser entries are rendered from the constants that write them
-       (MixDraft.StorageKey, QuizLiveMarker.StorageKey), never typed as prose
+       The browser entries are rendered from the constants that write them
+       (MixDraft.StorageKey, QuizSettings.StorageKey, QuizLiveMarker.StorageKey),
+       never typed as prose
        literals, so a name a reader checks in devtools cannot drift from the name
        the code stores under — the discipline the file names and pick caps already
        use. The two files BgQuiz writes into the folder are deliberately NOT
@@ -76,7 +77,7 @@
         the app and plays no further part.
     </p>
     <p>
-        BgQuiz does keep two small entries in the browser itself, so your setup is
+        BgQuiz does keep three small entries in the browser itself, so your setup is
         still there when you come back:
     </p>
     <ul>
@@ -87,6 +88,12 @@
             categories, their percentages and order, and the quiz length.
         </li>
         <li>
+            <code>@QuizSettings.StorageKey</code> — your choices from the
+            <em>Settings</em> page, also in this site's local storage. It holds
+            those settings and nothing else, and it too survives reloading and
+            closing the browser.
+        </li>
+        <li>
             <code>@QuizLiveMarker.StorageKey</code> — a single mark noting that a
             quiz was running, which is how BgQuiz can tell you afterwards that a
             reload reset it. It is kept in <em>session</em> storage, which belongs
@@ -95,7 +102,7 @@
         </li>
     </ul>
     <p>
-        You can see both under this site's storage in your browser's developer
+        You can see all three under this site's storage in your browser's developer
         tools, and delete them there whenever you like. The filter panel keeps its
         own settings in your browser as well —
         <a href="@PanelStorageHref">What the panel remembers</a>, in
@@ -444,7 +451,9 @@
             again brings the panel back, and the arrow on the strip always points the way
             the panel will move. The fold stays put while you work through the quiz —
             answering, skipping and continuing all leave it alone — and the panel comes
-            back when you move to another page or reload.
+            back when you move to another page or reload. If you would rather it did
+            not come back, turn on <em>Keep the navigation panel folded</em> on the
+            <em>Settings</em> page.
         </li>
         <li>
             <strong>Reloading the browser starts you over.</strong> Moving between pages

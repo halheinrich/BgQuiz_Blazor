@@ -26,6 +26,27 @@ public class NavMenuTests : BunitContext
         Assert.Equal("Help", help.TextContent.Trim());
     }
 
+    /// <summary>
+    /// The sidebar is also the only entry point to <c>/settings</c> — the pages
+    /// whose behavior the settings change (Home, Quiz) deliberately carry no
+    /// control of their own, so a dropped NavLink would leave the page reachable
+    /// by URL alone, exactly as for Help.
+    /// </summary>
+    [Fact]
+    public void NavMenu_LinksToSettings_AlongsideHelp()
+    {
+        var cut = Render<NavMenu>();
+
+        var links = cut.FindAll("nav a.nav-link");
+        var hrefs = links.Select(a => a.GetAttribute("href")).ToList();
+
+        Assert.Contains("settings", hrefs);
+        Assert.Contains("help", hrefs);
+
+        var settings = links.Single(a => a.GetAttribute("href") == "settings");
+        Assert.Equal("Settings", settings.TextContent.Trim());
+    }
+
     [Fact]
     public void NavMenu_BrandReadsBgQuiz()
     {

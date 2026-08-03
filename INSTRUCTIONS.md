@@ -102,7 +102,8 @@ BgQuiz_Blazor/                      — thin ASP.NET Core WASM host (server)
     launchSettings.json
   Components/
     _Imports.razor
-    App.razor                       — host shell (<head>, blazor.web.js, <Routes/>)
+    App.razor                       — host shell (<head>, blazor.web.js +
+                                      navFold.js, <Routes/>)
     Routes.razor                    — <Router> over the .Client _Imports assembly
     Layout/
       MainLayout.razor / .razor.css
@@ -111,6 +112,11 @@ BgQuiz_Blazor/                      — thin ASP.NET Core WASM host (server)
       Error.razor
       NotFound.razor
   wwwroot/                          — static assets (favicon, app.css, Bootstrap)
+    js/navFold.js                   — the app's SECOND authored JS, and the only
+                                      one here: re-applies the stored nav-fold
+                                      setting on load and on every enhancedload.
+                                      Host-side because it must run on static
+                                      pages, before/without the WASM runtime
     robots.txt                      — Disallow: / for every crawler (the URL
                                       is hand-distributed to invited beta
                                       testers; indexing only harvests it).
@@ -131,6 +137,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
                                       mechanisms + stats read/write; two-slot
                                       (picked/active) directory-handle state
   Quiz/
+    QuizSettings.cs                 — user settings + xg_quizSettings owner
+                                      (side / randomize-side / keep-nav-folded)
     QuizController.cs                 — + ProblemSetSourceFactory, QuizStartOutcome
     ProblemReview.cs
     FolderAccess.cs                 — StatsSaveCapability, FolderPickOutcome,
@@ -175,6 +183,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
       Quiz.razor / .razor.cs        — active problem (play or cube)
       Done.razor / .razor.cs        — final summary
       Stats.razor / .razor.cs       — read-only mid-quiz stats (live Controller)
+      Settings.razor / .razor.cs    — user settings (a view over QuizSettings;
+                                      immediate apply, no Apply button)
       Help.razor / .razor.cs        — end-user documentation (never redirects)
       ScorePanel.razor              — compact header strip (Total only)
       ScoreBreakdown.razor          — four-way Play/Double/Take/Total table
@@ -1025,6 +1035,61 @@ surface, to match `MixDraft.StorageKey`: the two render side by side in that
 section, and a documented pair reading `Key` / `StorageKey` invites a reader
 to look for a distinction that isn't there.
 
+### `QuizSettings` — the user settings service (issue #30 leg 1)
+
+The app-scoped service behind `Settings.razor`, owning three settings and the
+one `localStorage` entry (`xg_quizSettings`) they persist in: the home-board
+side, whether that side re-rolls per problem, and whether the navigation panel
+stays folded. **Defaults reproduce the app that shipped before it existed** —
+home board right (the producer's own `DiagramRequest.HomeBoardOnRight`
+default), no randomization, panel unfolded — so a user who never opens the page
+sees no change.
+
+**No draft, no commit, no dirty flag, no `Changed` event.** Nothing here is
+composed into a quiz at a Start gesture, so there is no half-edited state to
+guard and no gate to derive — the reasoning `ShuffleOption` already records,
+and the lifetime split that produced finding (AK)'s wedge is precisely what
+this service must never grow. The page binds straight to the properties and is
+the only component rendering them, so the state-container notify plumbing
+`MixDraft.Changed` exists for buys nothing; add it only if a real simultaneous
+consumer appears.
+
+**Hydration.** `EnsureHydratedAsync` is idempotent (the `MixDraft` pattern) but
+needs no stale-read generation guard — settings have no per-setup lifecycle, so
+there is no `Discard` for an in-flight read to land behind. **`Home` kicks it
+off**, since every quiz begins there; `Quiz` awaits the same cached task, which
+by then is already completed and therefore provokes no extra render pass. That
+ordering — not a render gate — is what keeps the board from painting on the
+default side and flipping a frame later. `Settings` gates its own controls on
+hydration, for the one visit that could see it pending: a cold deep link.
+
+**The wire format is a two-language contract.** The payload is hand-written
+with fixed property names (the `QuizMixJsonConverter` posture) and pinned
+**byte-for-byte** by `QuizSettingsTests` — because `navFold.js` reads
+`keepNavigationPanelFolded` out of it with no compiler checking either end.
+Reads are **tolerant**, unlike the mix's fail-loud converter: a format two
+readers share and later legs will extend must survive a missing field (that
+setting's default), an unknown field (ignored), a non-boolean value (that
+field's default), and anything that isn't a JSON object (every default). See
+Pitfalls.
+
+**The side, and the roll.** `QuizController.RandomHomeBoardOnRight` is a coin
+flip taken **unconditionally**, beside the assignment of `Current` and after
+the pass-skip — one roll per problem the user actually sees, held steady across
+submit, review and Redo, reset per run, never persisted. The controller
+therefore knows nothing about settings. The composition rule lives in exactly
+one member, `QuizSettings.EffectiveHomeBoardOnRight(randomSide)`, reaching the
+renderer through a single `Quiz.HomeBoardOnRight` property that both request
+builders read — so the three render branches (play answering, cube answering,
+solution) cannot disagree. A board that flipped in some views and not others is
+the failure mode, and it is the kind that survives review by looking like three
+correct call sites.
+
+**The fold it cannot apply itself.** The service owns and persists the value;
+restoring the fold is `navFold.js`'s job (§ The host layout). Changing the
+setting invokes the applier with the value **as an argument**, so the setter
+carries no ordering dependency on its own storage write.
+
 ### Pages
 
 - **`Home.razor`** — the setup page; wiring notes below, contracts in their
@@ -1314,6 +1379,19 @@ to look for a distinction that isn't there.
   the per-tab scoped controller, this gives "resume where you left off" for
   free. Direct nav with no quiz in progress bounces to `/`; with it already
   finished, to `/done` — the same guards `Quiz` applies to itself.
+- **`Settings.razor`** — the user settings page (issue #30 leg 1), a plain
+  view over `QuizSettings` (§ that section for the contracts). Radios for
+  the home-board side, checkboxes for randomize-per-problem and
+  keep-nav-folded; every control writes straight through, applying and
+  persisting on the spot. **No Apply button — pinned as a design constraint,
+  not a coincidence:** an Apply is the front end of the draft/commit lifetime
+  split behind finding (AK)'s wedge. The only page state is whether hydration
+  landed, which gates the controls so none can paint a default the stored
+  settings are about to overwrite. Reachable from the host `NavMenu` beside
+  Help (`NavMenuTests` pins the link, as it does Help's); nothing else links
+  to it, and the pages the settings affect deliberately carry no control of
+  their own — the mid-quiz-tweaking question booked on #30 is still open, and
+  a round trip works because the service is app-scoped.
 - **`Help.razor`** — end-user documentation. Structure (`PageTests` pins the
   full `h2` skeleton in order, so an edit cannot quietly drop or reorder a
   section): a **Before you start** prerequisites lead — a folder of the
@@ -1389,6 +1467,10 @@ to look for a distinction that isn't there.
 
   - `MixDraft.StorageKey` (`xg_quizMix`) — localStorage, the applied
     weighted mix.
+  - `QuizSettings.StorageKey` (`xg_quizSettings`) — localStorage, the
+    Settings page's choices as one JSON object. Listed beside the mix (the
+    other localStorage entry) so the sessionStorage one stays the trailing
+    exception the paragraph after it explains.
   - `QuizLiveMarker.StorageKey` (`bgquiz.quizLive`) — **sessionStorage**,
     described as what it is: current-tab-only, invisible to other tabs, gone
     when the tab closes. That is not an implementation detail to gloss —
@@ -1612,9 +1694,28 @@ persistence. `Help` states both halves, positive first, and
 flip; the worked-run scenario gates each step on the problem indicator
 advancing, so a click that failed to land cannot masquerade as survival.
 
-Making the choice outlive navigation would take JS — an `enhancedload` listener
-over a storage entry — which is an open question, not a settled one; nothing
-here does it today.
+**Outliving navigation: settled, and it took the JS (issue #30 leg 1).** The
+rail's own click is still route-scoped exactly as described above — that is the
+default and the tests above pin it. What changed is that the *user* can now ask
+for more: the **"Keep the navigation panel folded" setting** (§ `QuizSettings`)
+persists the choice, and `wwwroot/js/navFold.js` — a classic script loaded by
+`App.razor` right after `blazor.web.js`, and the app's second authored JS —
+re-applies it on initial load and on every `Blazor.addEventListener`
+`enhancedload`. It lives in the **host** project because it must run on static
+pages with no WASM runtime, reads the storage entry itself in JS, and publishes
+`window.bgquizNavFold.apply(folded)` as the seam `QuizSettings` invokes so the
+setting takes effect without waiting for a navigation. Two couplings it holds
+with no compiler behind them — the storage field name and the
+`.sidebar-toggle-checkbox` selector — are in Pitfalls.
+
+Re-applying after *every* sync, late ones included, is also what dissolves the
+live-latency artifact in umbrella issue #46: on the deployed host the DOM
+synchronization has been measured landing ~500ms after the navigation, silently
+unfolding a rail folded on arrival. With the setting on, the listener corrects
+it; with the setting off, the behaviour is unchanged. The e2e half of #46 is
+handled separately — `SidebarCollapseTests` now folds *before* the navigation
+and waits for the reset, using that reset as the settle signal rather than a
+sleep or network-idle (see the suite's `WaitForTheEnhancedNavSettleAsync`).
 
 **What collapsing buys is room, not reliably a bigger board.** `.board-page` is
 height-capped, so the reclaimed 250px becomes board only while the board is
@@ -1628,8 +1729,8 @@ speaks to crowding, never to board size.
 The primary-path smoke gate AGENTS.md mandates: scenarios driving the
 **published artifact in a real Chromium** via Microsoft.Playwright — the
 pick→done flows, the reload notice, the empty-filter banner, the pre-Start
-answer-type breakdown, the nb-NO comma-decimal guard, 404/titles, and the
-stats-persistence suite. It exists
+answer-type breakdown, the nb-NO comma-decimal guard, 404/titles, the sidebar
+collapse, the settings page, and the stats-persistence suite. It exists
 because four production defects in a row — inert titles, blank 404 bodies, the
 phantom auth gate, the silent 0/0 empty-filter bounce — were
 invisible-by-construction to both existing layers: bUnit renders components in
@@ -1699,6 +1800,18 @@ override → Done. Don't move it back to the fallback rung: the mix panel is
 offered only for an `Enabled` pick and every pick resets the committed mix,
 so no mix can be committed there any more.
 
+**Settings.** `SettingsTests` pins the two halves neither bUnit nor the
+in-process host tests can reach. The **home-board side** is asserted on the
+rendered geometry — whether point 1's hit rect sits right of the **bar**, not
+of the diagram's midline (the SVG carries the analysis panel down one side, so
+its centre is nowhere near the board's) — with the setting changed mid-quiz and
+the running quiz walked back into. The **fold setting** is followed through an
+in-app navigation, the app's own `NavigationManager` path (Start Quiz), and a
+full reload, then turned back off. Every navigation there is driven from the
+page body of necessity: once the setting is on, the nav's links are folded away
+and unclickable, which is the feature working and also why the setting needs a
+page of its own to be switched off from.
+
 **Beta-onboarding surfaces.** `BetaOnboardingTests` covers the two things
 only a real request against the publish output can see: `robots.txt` (a
 **host** static file, not a Blazor route — bUnit is structurally blind to
@@ -1759,8 +1872,8 @@ The fast unit suite stays browser-free: run it via
 the WASM closure to take several minutes (IL trimming, cold); incremental
 republishes take seconds.
 
-**All 21 failing at once with a ~5-minute wait and a 25 ms duration is a
-publish failure, not 21 defects.** The fixture publishes before any test
+**Every test failing at once with a ~5-minute wait and a 25 ms duration is a
+publish failure, not a suite's worth of defects.** The fixture publishes before any test
 runs, so a broken publish fails every test identically through
 `PublishedAppFixture.InitializeAsync`; read the exception text, which
 carries the whole `dotnet publish` log. One cause seen locally is
@@ -1777,7 +1890,8 @@ This is an application, not a library — no exported types or HTTP
 endpoints, and the `.Client` assembly enforces that at the type level: every
 plain-C# client type (`QuizController` + `QuizStartOutcome`, the scoped
 holders `PickedProblemFolder` / `AppliedFilter` / `AppliedMix` /
-`ShuffleOption` / `QuizLiveMarker` / `MixNoticeDismissal`, `PickedFile`,
+`ShuffleOption` / `QuizSettings` / `QuizLiveMarker` / `MixNoticeDismissal`,
+`PickedFile`,
 `IFolderAccess` / `JsFolderAccess` (+ its wire DTOs),
 `StatsSaveCapability`, `FolderPickOutcome`, `QuizStatsFile` /
 `QuizFiltersFile`, `IDecisionStatsSink` / `QuizStatsStore` /
@@ -1794,6 +1908,7 @@ the route map:
 - `/quiz` → `Quiz` — active problem (redirects to `/` if no quiz, `/done` if finished)
 - `/stats` → `Stats` — read-only mid-quiz stats (redirects to `/` if no quiz, `/done` if finished)
 - `/done` → `Done` — final summary (redirects to `/` if no quiz)
+- `/settings` → `Settings` — user settings (never redirects; linked from the nav menu)
 - `/help` → `Help` — end-user documentation (never redirects; linked from the nav menu)
 - Default error page → `Error.razor`
 - `/not-found` → `NotFound.razor` — the 404 page, and a **mapped route in
@@ -1918,6 +2033,30 @@ the route map:
   banner — correctly stays a component field and resets on navigate-back.)
   The one thing that *does* survive a reload is the `QuizLiveMarker`
   (`sessionStorage`), deliberately — see the next bullet.
+- **`navFold.js` holds two contracts no compiler checks — and the layout it
+  fixes can't be made interactive.** The nav-fold applier is JS by
+  *necessity*, not preference: `MainLayout` renders statically and cannot be
+  made interactive (a `RenderFragment` `@Body` can't cross a rendermode
+  boundary), its collapse control is therefore an uncontrolled checkbox, and
+  enhanced navigation's DOM synchronization clears it — so no C# in the WASM
+  assembly can restore the user's choice, on any page, ever. What the script
+  is coupled to:
+  1. **The storage payload.** It reads `keepNavigationPanelFolded` out of
+     `xg_quizSettings` as a JS literal. `QuizSettings` owns both names, and
+     `QuizSettingsTests` pins the serialized bytes — that test, not the C#
+     constant, is the single source of truth for the JS side. Rename a field
+     without editing the script and the setting silently stops working; the
+     pinned-bytes test is what makes it fail in CI instead.
+  2. **The DOM selector.** `.sidebar-toggle-checkbox` is duplicated from
+     `MainLayout`, whose ordering contract `MainLayoutTests` pins. C# never
+     restates the selector — it goes through the `window.bgquizNavFold.apply`
+     seam — so the JS module is the one place it appears outside the markup.
+  Two smaller rules ride along: the script tag must stay **after**
+  `blazor.web.js` (that is where `Blazor.addEventListener` exists) and must
+  keep going through `@Assets[...]` like its sibling, or a deploy leaves
+  browsers running a cached applier against a changed payload. The script also
+  never throws on the navigation path — every unreadable storage state means
+  "not folded".
 - **The `QuizLiveMarker` is `sessionStorage`, not `localStorage` — don't
   "upgrade" it.** The marker records "a quiz is live in *this tab*" so a
   reload can be acknowledged on the next boot. `sessionStorage` is per-tab:
@@ -2296,8 +2435,13 @@ the route map:
   `/no-such.json`.
 - **There are two `wwwroot`s — a served static file belongs to the host's.**
   `BgQuiz_Blazor/wwwroot` is what the host serves (`app.css`, `favicon.png`,
-  `lib/`, `robots.txt`); `BgQuiz_Blazor.Client/wwwroot` holds `js/` and reaches
-  the browser only as the client's static *web assets*, under its own path. A
+  `lib/`, `robots.txt`, `js/navFold.js`); `BgQuiz_Blazor.Client/wwwroot` holds
+  `js/folderAccess.js` and reaches the browser only as the client's static *web
+  assets*, under its own path. **Both now have a `js/`, and the split is by
+  who runs the script**: `folderAccess.js` is an ES module the WASM client
+  imports through `IJSRuntime`, so it belongs to the client; `navFold.js` is a
+  classic script the host shell tags and must run on static pages before any
+  runtime boots, so it belongs to the host. A
   file that must answer at a fixed URL (`/robots.txt`, and anything else a
   crawler, a browser, or a platform probe asks for by name) goes in the host's,
   and the mistake is silent in every layer but one: it still builds, still
