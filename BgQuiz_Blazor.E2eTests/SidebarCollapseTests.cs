@@ -120,6 +120,13 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// land would otherwise read as "the fold survived answering" while nothing
     /// had been answered at all.
     /// </para>
+    ///
+    /// <para>
+    /// The run begins by folding, navigating, and waiting for the fold to be
+    /// undone — see <see cref="WaitForTheEnhancedNavSettleAsync"/>. That is not
+    /// part of the scenario; it is how the scenario refuses to race the
+    /// navigation's own late DOM synchronization before it starts (issue #46).
+    /// </para>
     /// </summary>
     [Fact]
     public async Task FoldSurvivesAWorkedRun_AndGivesWayOnlyToTheNavigationThatEndsIt()
@@ -128,7 +135,12 @@ public sealed class SidebarCollapseTests : E2eTestBase
         await BootHomeAsync();
         await PickFixtureCopiesAsync(CubeFixture, copies: 3);
         await ApplyFilterAsync();
+
+        // Fold BEFORE starting, purely so the navigation's DOM synchronization
+        // has something to visibly undo — see WaitForTheEnhancedNavSettleAsync.
+        await CollapseRail.ClickAsync();
         await StartQuizAsync();
+        await WaitForTheEnhancedNavSettleAsync();
 
         await CollapseRail.ClickAsync();
         Assert.Equal(0d, await PanelWidthAsync());
@@ -161,6 +173,37 @@ public sealed class SidebarCollapseTests : E2eTestBase
         Assert.True(await PanelWidthAsync() > 0,
             "the navigation that ends the run brings the panel back");
     }
+
+    /// <summary>
+    /// Wait for the navigation just performed to have finished resetting the
+    /// rail — the caller having folded it <i>before</i> navigating, so that
+    /// reset is observable.
+    ///
+    /// <para>
+    /// <b>Why this is needed (umbrella issue #46).</b> Enhanced navigation's DOM
+    /// synchronization is what clears the checkbox, and it does not land with the
+    /// navigation: on the deployed host it has been measured arriving ~500ms
+    /// later, while on localhost it beats any human or any Playwright click. A
+    /// scenario that folds the rail immediately after navigating therefore races
+    /// a reset that is still in flight, and fails on a slow host while passing
+    /// everywhere else — pinning the host's latency instead of the app's rule.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why it waits on this and not on a timer or the network.</b> Suite
+    /// policy is to wait on an observable consequence, never a sleep and never
+    /// network-idle (see <c>ExpectUrlAsync</c> and <c>EmptyFilterBannerTests</c>).
+    /// The consequence available here is the reset itself: fold the rail before
+    /// the navigation and the sync's arrival is exactly the moment the checkbox
+    /// goes back to unchecked. That is app behaviour this suite already pins as a
+    /// rule in <see cref="CollapseLastsUntilTheNextNavigationOrReload"/>, so no
+    /// test seam, injected observer, or knowledge of Blazor's internals is
+    /// needed — and a settle that never arrives fails loudly on the assertion's
+    /// own timeout rather than passing for the wrong reason.
+    /// </para>
+    /// </summary>
+    private Task WaitForTheEnhancedNavSettleAsync() =>
+        Expect(CollapseRail).Not.ToBeCheckedAsync();
 
     private Task<double> PanelWidthAsync() =>
         NavigationPanel.EvaluateAsync<double>("el => el.getBoundingClientRect().width");
