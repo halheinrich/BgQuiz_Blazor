@@ -772,10 +772,25 @@ project rather than widening them to public.
 
 The per-app (`Scoped`, one-per-tab in WASM) holder for the `FilterConfig` the
 user has **deliberately applied** on `Home` — the sibling of `PickedProblemFolder`
-for the filter half of the start gate. `Home.razor` writes it: `Set(config)`
-when the panel raises `OnFilterConfigChanged` (Apply / Clear filters), `Clear()` when
+for the filter half of the start gate. `Home.razor` writes it:
+`Set(config, Folder.PickGeneration)` when the panel raises
+`OnFilterConfigChanged` (Apply / Clear filters), `Clear()` when
 it raises `OnFilterDirty` (any control edit). `IsApplied` (= `Config is not
 null`) and `Config` are read only by `Home` (`CanStart`, `StartQuizAsync`).
+
+**Two facts, two lifetimes.** Beside the config, `Set` records *which pick* the
+Apply was made for, answered by `WasAppliedFor(pickGeneration)` — "has this
+corpus been filtered at least once?". The config is **edit-coupled** (`Clear`
+drops it, Start re-gates); the stamp deliberately is **not**, because a
+half-typed edit does not un-answer that question. Home gates on each separately:
+Start on the config, *Apply Mix* on the stamp (§ Pages → Home, issue #45). The
+generation — not a flag — is what makes the stamp expire: `PickGeneration` is
+monotonic and bumped by both `PickedProblemFolder.Set` and `.Clear`, so ending a
+setup invalidates the answer by construction, with no reset to call and none to
+forget (the staleness idiom `StoreParsed` already uses). The generation is
+**passed in** rather than read from an injected folder holder, keeping this a
+value holder with no dependency on its sibling; `Home`, which owns the page's
+sequencing story, states the relationship at the one call site.
 
 Holding the applied state here rather than in a transient component field is
 what lets the gate survive in-app navigation: on navigate-back `Home`
@@ -841,7 +856,15 @@ explicit apply of `QuizMix.Empty` through the shared `GoBlankAsync`, the
 sanctioned way this panel writes Empty over a stored mix; the last-row case
 keeps holder, draft, and localStorage agreeing at the blank the user chose,
 so the pre-beta zero-rows wedge cannot recur). `OnMixApplied` is the
-panel's **only** event and is `[EditorRequired]`. Mere edits raise nothing:
+panel's **only** event and is `[EditorRequired]`. The host also holds one
+**gate** on it: `CanApply` (default `true`) plus an optional
+`ApplyDisabledReason`, mirroring `SavedFiltersPanel.CanPersist` /
+`PersistDisabledReason` down to the muted hint line and the disabled
+button's `title`. It sequences **Apply Mix only** — Reset and the last-row
+blank path stay live, or a dirty draft could wedge Start (§ Pages → Home,
+issue #45). The panel is *told*, never asks: it holds no notion of filters,
+and `ApplyAsync` early-returns on the gate as well as the draft's validity,
+so a dispatch ignoring `disabled` still cannot commit. Mere edits raise nothing:
 they mutate the draft, whose `Changed` notification re-renders Home
 (state-container pattern), and the gate re-derives. Persistence is
 **committed-only** over one key, **`xg_quizMix`**, owned by `MixDraft` in
@@ -1292,7 +1315,32 @@ carries no ordering dependency on its own storage write.
   the controller's gate yield lets the state paint before the Start churn,
   and Home needs no `StateChanged` subscription because its own suspended
   handlers trigger the re-renders. Subscribes to `OnFilterConfigChanged` →
-  `AppliedFilter.Set` and `OnFilterDirty` → `AppliedFilter.Clear`.
+  `AppliedFilter.Set(cfg, Folder.PickGeneration)` and `OnFilterDirty` →
+  `AppliedFilter.Clear`.
+  **Apply Mix is sequenced behind Apply Filter** (umbrella #45). The
+  `MixPanel` is handed `CanApply="MixApplyEnabled"` plus the reason sentence;
+  `MixApplyEnabled => AppliedFilter.WasAppliedFor(Folder.PickGeneration)` —
+  "a filter has been applied for the currently picked folder". Settled
+  semantics, and each half is load-bearing:
+  - **UX sequencing only, never a data-flow rule.** The mix composes over the
+    filtered pool at *Start*, not at Apply Mix, so mix-before-filter was
+    always legal and harmless. What it wasn't is legible — nothing on the
+    page said which draws from which. So the gate states the dependency
+    direction, and the hint says *why* ("the mix draws its problems from the
+    filtered pool"), because the bare rule is what read as arbitrary.
+  - **A dirty filter draft does not revoke it.** Only the *config* is
+    edit-coupled; the pick stamp survives `AppliedFilter.Clear`
+    (§ `AppliedFilter`). Yanking Apply Mix away mid-composition because of an
+    unrelated filter edit is precisely the coupling the issue warned against.
+  - **A new pick does revoke it**, by construction — the generation bumps.
+  - **Nothing about the mix's own lifetimes changed.** `MixDraft` and
+    `AppliedMix` are untouched: the gate reads the *filter* and the *pick*
+    only, per render. That is what keeps this clear of the (AK) wedge, whose
+    cause was a stored judgement outliving its inputs.
+  - **Reset stays ungated in every state**, and so does the last-row removal
+    that shares its path. A hydrated stored mix arrives dirty *before* any
+    filter is applied and gates Start; if both ways out were sequenced behind
+    the filter the page could wedge. Only the forward commit is sequenced.
   **Failure and outcome banners.** Pick failures (unexpected `JSException`,
   caps exceeded — `_pickError`) and start-time exceptions
   (`FilterConfig.Build()` validation, source construction — `_startError`)
@@ -1730,7 +1778,8 @@ The primary-path smoke gate AGENTS.md mandates: scenarios driving the
 **published artifact in a real Chromium** via Microsoft.Playwright — the
 pick→done flows, the reload notice, the empty-filter banner, the pre-Start
 answer-type breakdown, the nb-NO comma-decimal guard, 404/titles, the sidebar
-collapse, the settings page, and the stats-persistence suite. It exists
+collapse, the settings page, the Apply Mix gating, and the stats-persistence
+suite. It exists
 because four production defects in a row — inert titles, blank 404 bodies, the
 phantom auth gate, the silent 0/0 empty-filter bounce — were
 invisible-by-construction to both existing layers: bUnit renders components in

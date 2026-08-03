@@ -127,9 +127,15 @@
             <div class="text-danger small mb-2" role="status">@error</div>
         }
 
+        @* Reset is deliberately ungated by CanApply: it is the way *out* of a
+           dirty draft (a hydrated stored mix gates Start before any filter is
+           applied), so gating both would wedge the page. Apply's own two
+           conditions — at least one row, and a draft that validates — are
+           unchanged; the host gate is a third, independent one. *@
         <div class="d-flex gap-2">
             <button class="btn btn-primary btn-sm" id="mixApply"
-                    disabled="@(Draft.Rows.Count == 0 || Draft.ValidationError is not null)"
+                    disabled="@(!CanApply || Draft.Rows.Count == 0 || Draft.ValidationError is not null)"
+                    title="@ApplyDisabledTitle"
                     @onclick="ApplyAsync">
                 Apply Mix
             </button>
@@ -137,6 +143,11 @@
                 Reset
             </button>
         </div>
+
+        @if (!CanApply && ApplyDisabledReason is not null)
+        {
+            <div class="form-text" id="mixApplyDisabledReason">@ApplyDisabledReason</div>
+        }
 
     </div>
 </div>

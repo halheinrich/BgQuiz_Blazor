@@ -146,10 +146,17 @@ public class PageTests : BunitContext
     /// of the gate is already satisfied — simulating navigate-back with a config
     /// the user applied earlier this session; otherwise it starts un-applied.
     /// </summary>
-    private void WithAppliedFilter(FilterConfig? applied = null)
+    /// <param name="pickGeneration">
+    /// The pick the config is stamped as applied for — what Home's Apply Mix
+    /// gate compares against the live <see cref="PickedProblemFolder.PickGeneration"/>.
+    /// The default matches the generation <see cref="WithPickedFolder"/> leaves
+    /// behind (one <c>Set</c> ⇒ 1), so the common "already set up" fixture is
+    /// coherent; a test probing the gate passes a mismatching value deliberately.
+    /// </param>
+    private void WithAppliedFilter(FilterConfig? applied = null, int pickGeneration = 1)
     {
         var holder = new AppliedFilter();
-        if (applied is not null) holder.Set(applied);
+        if (applied is not null) holder.Set(applied, pickGeneration);
         Services.AddSingleton(holder);
     }
 
@@ -3838,6 +3845,13 @@ public class PageTests : BunitContext
     /// while leaving the draft blank, fabricating a committed-but-divergent
     /// state no user can reach (every real commit flows draft → build →
     /// holder, so committed and shown agree at the moment of commit).
+    /// <para>
+    /// <b>Precondition:</b> a filter must have been applied for the <i>current</i>
+    /// pick — Apply Mix is gated on it (§ <c>Home.MixApplyEnabled</c>), and a
+    /// click on a disabled button is a silent no-op. A fixture that pre-arms
+    /// <see cref="WithAppliedFilter"/> and then picks through the UI must
+    /// re-apply after the pick, exactly as a user would.
+    /// </para>
     /// </summary>
     private static async Task ApplyMixThroughPanelAsync(IRenderedComponent<HomePage> cut)
     {
@@ -3914,6 +3928,141 @@ public class PageTests : BunitContext
         await cut.Find("#mixApply").ClickAsync(new());
         Assert.False(StartButton(cut).HasAttribute("disabled"));
         Assert.DoesNotContain("Apply or reset the mix", cut.Markup);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Apply Mix is sequenced behind Apply Filter (issue #45)
+    // -----------------------------------------------------------------------
+
+    /// <summary>Whether the mix panel's Apply Mix button reads disabled.</summary>
+    private static bool MixApplyDisabled(IRenderedComponent<HomePage> cut) =>
+        cut.Find("#mixApply").HasAttribute("disabled");
+
+    /// <summary>
+    /// Arrange an Enabled pick made <i>through the UI</i> — the only route that
+    /// bumps <see cref="PickedProblemFolder.PickGeneration"/> the way a real
+    /// pick does, which is what the Apply Mix gate reads. A pre-armed
+    /// <see cref="WithPickedFolder"/> fixture cannot exercise the gate's
+    /// expiry, because nothing ever expires.
+    /// </summary>
+    private async Task<IRenderedComponent<HomePage>> RenderWithUiPickAsync()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithAppliedMix();
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        return cut;
+    }
+
+    [Fact]
+    public async Task Home_FreshPick_ApplyMixGatedUntilAFilterIsApplied()
+    {
+        // Issue #45, the headline: the mix draws from the filtered pool, so
+        // composing one before any filter has been applied is premature. The
+        // gate is UX sequencing — the pipeline never required the order — so it
+        // must also *say* why, not merely refuse.
+        var cut = await RenderWithUiPickAsync();
+
+        // The hint is up from the moment the panel appears — before any row
+        // exists — so the ordering is learned before the composing starts.
+        Assert.Contains("the mix draws its problems from the", cut.Markup);
+
+        // A complete, valid one-row mix: from here the host gate is the only
+        // thing still disabling Apply (the panel's own two conditions — at
+        // least one row, and a draft that validates — are both satisfied).
+        await cut.Find("#mixAddRow").ClickAsync(new());
+        Assert.Null(Services.GetRequiredService<MixDraft>().ValidationError);
+        Assert.True(MixApplyDisabled(cut));
+
+        await ApplyFiltersAsync(cut);
+
+        Assert.False(MixApplyDisabled(cut));
+        Assert.DoesNotContain("the mix draws its problems from the", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_GatedApplyMix_LeavesResetEnabled_SoNoDraftCanWedge()
+    {
+        // The wedge-proofing the issue demanded. A dirty draft gates Start; if
+        // the *only* two ways to un-dirty it were both sequenced behind the
+        // filter, a user could reach a state with no visible way out. Reset is
+        // deliberately ungated in every state, so there always is one.
+        var cut = await RenderWithUiPickAsync();
+        await cut.Find("#mixAddRow").ClickAsync(new()); // draft now diverges
+
+        Assert.True(MixApplyDisabled(cut));
+        Assert.False(cut.Find("#mixReset").HasAttribute("disabled"));
+
+        await cut.Find("#mixReset").ClickAsync(new());
+
+        // Back to agreement with the committed passthrough mix — no Apply Mix
+        // needed, so the gate could never have trapped anyone.
+        Assert.DoesNotContain("Apply or reset the mix", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_ApplyMix_NotRevokedByASubsequentlyDirtyFilter()
+    {
+        // The settled semantics: the gate asks "has this corpus been filtered?",
+        // which a half-typed filter edit does not un-answer. The *config* is
+        // edit-coupled (Start re-gates, below); the pick stamp is not. Getting
+        // this wrong would yank Apply Mix away mid-composition for an unrelated
+        // edit — the (AK)-flavoured failure the issue warned about.
+        var cut = await RenderWithUiPickAsync();
+        await cut.Find("#mixAddRow").ClickAsync(new()); // a valid, committable draft
+        await ApplyFiltersAsync(cut);
+        Assert.False(MixApplyDisabled(cut));
+
+        await cut.InvokeAsync(() =>
+            cut.FindComponent<FilterPanel>().Instance.OnFilterDirty.InvokeAsync());
+
+        Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied); // Start re-gated…
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.False(MixApplyDisabled(cut));                                  // …Apply Mix not
+    }
+
+    [Fact]
+    public async Task Home_NewPick_ReGatesApplyMix()
+    {
+        // The other half of the rule: a new corpus has not been filtered, so the
+        // gate closes again. No reset code does this — the folder's generation
+        // bumps and the stamp simply stops matching.
+        var cut = await RenderWithUiPickAsync();
+        await cut.Find("#mixAddRow").ClickAsync(new());
+        await ApplyFiltersAsync(cut);
+        Assert.False(MixApplyDisabled(cut));
+
+        _folderAccess.NextPickOutcome =
+            OneFileOutcome("Second", "second.xg", StatsSaveCapability.Enabled);
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        // The pick also discards the draft, so re-add a row: what is being
+        // pinned is that a *committable* draft still cannot be applied, not
+        // that an empty one can't.
+        await cut.Find("#mixAddRow").ClickAsync(new());
+        Assert.True(MixApplyDisabled(cut));
+        Assert.Contains("the mix draws its problems from the", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_GatedApplyMix_IgnoresAProgrammaticClick()
+    {
+        // The disabled attribute is the affordance, not the contract: the
+        // panel's handler early-returns too, so a dispatch that ignores
+        // `disabled` still cannot commit past the gate.
+        var cut = await RenderWithUiPickAsync();
+        var holder = Services.GetRequiredService<AppliedMix>();
+        await cut.Find("#mixAddRow").ClickAsync(new());
+
+        await cut.InvokeAsync(() => cut.FindComponent<MixPanelComponent>().Instance
+            .OnMixApplied.InvokeAsync(QuizMix.Empty)); // the host callback still works…
+        await cut.Find("#mixApply").ClickAsync(new());  // …but the gated gesture does not
+
+        Assert.True(holder.Current.IsPassthrough); // no non-blank mix ever committed
     }
 
     [Fact]
@@ -4267,9 +4416,14 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
 
-        // Enabled pick → panel shows; commit a mix through the real UI.
+        // Enabled pick → panel shows; commit a mix through the real UI. The
+        // filter Apply is not optional here: a pick expires the applied-filter
+        // stamp, and Apply Mix is gated on a filter having been applied for the
+        // current pick (§ MixApplyEnabled), so the pre-armed holder above no
+        // longer satisfies it.
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
         await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await ApplyFiltersAsync(cut);
         await ApplyMixThroughPanelAsync(cut);
         Assert.False(holder.Current.IsPassthrough); // committed
 

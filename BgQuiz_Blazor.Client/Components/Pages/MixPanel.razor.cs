@@ -73,6 +73,42 @@ public partial class MixPanel : ComponentBase
     [Parameter, EditorRequired] public EventCallback<QuizMix> OnMixApplied { get; set; }
 
     /// <summary>
+    /// Gates the <b>Apply Mix</b> gesture only — the host's sequencing switch,
+    /// mirroring <c>SavedFiltersPanel.CanPersist</c>. <c>Home</c> binds it to
+    /// "a filter has been applied for the currently picked folder": the mix
+    /// draws from the filtered pool, so composing one before any filter exists
+    /// is premature (issue #45). The panel is <i>told</i>, never asks — it holds
+    /// no notion of filters, and none of the mix's own state
+    /// (<see cref="MixDraft"/>, <c>AppliedMix</c>) takes part in the gate, which
+    /// is what keeps this from re-creating the (AK) lifetime split.
+    ///
+    /// <para>
+    /// <b>Reset and the blank path stay enabled regardless.</b> Returning to the
+    /// passthrough mix — explicit Reset, or removing the last row — is how a
+    /// user escapes a dirty draft that is gating Start, and a hydrated stored
+    /// mix arrives dirty <i>before</i> any filter is applied. Gating that too
+    /// would wedge the page. Only the forward commit is sequenced.
+    /// </para>
+    ///
+    /// <para>
+    /// Defaults to <see langword="true"/>, like its precedent, so a host that
+    /// doesn't sequence its panels simply omits it. <see cref="ApplyAsync"/>
+    /// early-returns as well, so the contract holds even for programmatic event
+    /// dispatch that ignores the <c>disabled</c> attribute.
+    /// </para>
+    /// </summary>
+    [Parameter] public bool CanApply { get; set; } = true;
+
+    /// <summary>
+    /// Optional host-supplied explanation shown while <see cref="CanApply"/> is
+    /// <see langword="false"/> — as the disabled button's <c>title</c> and as a
+    /// muted hint line beneath it. Ignored while Apply is enabled. The sentence
+    /// belongs to the host because the <i>rule</i> does: this panel knows
+    /// nothing of what it is being sequenced behind.
+    /// </summary>
+    [Parameter] public string? ApplyDisabledReason { get; set; }
+
+    /// <summary>
     /// Trigger the draft's once-per-setup hydration. Awaiting it here (rather
     /// than in the draft's constructor) keeps the JS read tied to the panel
     /// actually being offered — under a no-stats pick no panel mounts, the
@@ -120,9 +156,16 @@ public partial class MixPanel : ComponentBase
         return Draft.Rows.Count == 0 ? GoBlankAsync() : Task.CompletedTask;
     }
 
+    /// <summary>The disabled button's tooltip — the host's reason, or nothing while Apply is enabled.</summary>
+    private string? ApplyDisabledTitle => CanApply ? null : ApplyDisabledReason;
+
     private Task ApplyAsync()
     {
-        if (Draft.Build() is not { } mix) return Task.CompletedTask; // backstop; Apply is disabled while invalid
+        // Both backstops behind a disabled button, for the same reason: a
+        // programmatic dispatch ignores `disabled`, and neither the host's
+        // sequencing gate nor the draft's validity may be bypassed that way.
+        if (!CanApply) return Task.CompletedTask;
+        if (Draft.Build() is not { } mix) return Task.CompletedTask;
         return CommitAsync(mix);
     }
 

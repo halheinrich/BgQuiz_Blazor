@@ -393,9 +393,16 @@
        the enclosing HasFiles gate already unmounts this panel on every pick. The
        key stays because it — not the gate — is what guarantees the remount, and
        nothing here should depend on the gate's timing. *@
+    @* Apply Mix is gated on a filter having been applied for this pick
+       (MixApplyEnabled) — UX sequencing only: the mix composes over the
+       filtered pool at Start, so the pipeline never required the order, but
+       nothing on the page said which draws from which. Nothing about the mix's
+       own state takes part in the gate, and the panel is told, never asks. *@
     @if (Folder.Capability == StatsSaveCapability.Enabled)
     {
         <MixPanel @key="Folder.PickGeneration"
+                  CanApply="MixApplyEnabled"
+                  ApplyDisabledReason="@MixApplyDisabledReason"
                   OnMixApplied="HandleMixApplied" />
     }
 

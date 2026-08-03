@@ -418,6 +418,52 @@ public partial class Home : ComponentBase, IDisposable
     private bool CanStart => AppliedFilter.IsApplied && Folder.HasFiles && !MixDirty;
 
     /// <summary>
+    /// The mix panel's <i>Apply Mix</i> gate: whether a filter has been applied
+    /// for the folder currently picked
+    /// (<see cref="AppliedFilter.WasAppliedFor"/> against the live
+    /// <see cref="PickedProblemFolder.PickGeneration"/>). Ratified UX
+    /// sequencing, not a data-flow requirement — the mix composes over the
+    /// filtered pool at <i>Start</i>, so applying one first is legal and
+    /// harmless in the pipeline; what it isn't is legible, because the panel
+    /// gives no hint that the mix draws from the filter's pool. Gating the
+    /// gesture is what states the dependency direction.
+    ///
+    /// <para>
+    /// <b>Derived, and deliberately not coupled to the mix's lifetimes.</b>
+    /// Nothing about <see cref="MixDraft"/> or <see cref="AppliedMix"/> changes
+    /// for this: the gate is a property of the <i>filter</i> and the <i>pick</i>
+    /// alone, read live per render. The (AK) wedge came from a stored judgement
+    /// whose inputs lived in a different lifetime; here there is no stored
+    /// judgement, and the two facts share the app scope.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Editing the filter does not revoke it</b> (the stamp survives
+    /// <see cref="AppliedFilter.Clear"/>): the corpus has been filtered, and
+    /// re-gating a mix the user is midway through composing would punish an
+    /// unrelated edit. <b>A new pick does</b>, by construction — the generation
+    /// bumps. And <i>Reset</i> stays ungated in every state, so a hydrated draft
+    /// that gates Start always has its visible way out even before a filter is
+    /// applied.
+    /// </para>
+    /// </summary>
+    private bool MixApplyEnabled => AppliedFilter.WasAppliedFor(Folder.PickGeneration);
+
+    /// <summary>
+    /// The muted hint the mix panel shows while <see cref="MixApplyEnabled"/>
+    /// is false — the host-owned sentence, mirroring
+    /// <see cref="SavedFiltersDisabledReason"/>'s contract with
+    /// <c>SavedFiltersPanel</c>. It states the <i>reason</i> for the ordering
+    /// (the mix draws from the filtered pool), not merely the rule, because the
+    /// rule alone is what the user found arbitrary.
+    /// </summary>
+    private string? MixApplyDisabledReason =>
+        MixApplyEnabled
+            ? null
+            : "Apply the filters above first — the mix draws its problems from the "
+              + "filtered pool, so the filters come first.";
+
+    /// <summary>
     /// Whether a non-passthrough mix is committed — the single fact two
     /// unrelated statements on this page derive from (the match count's caveat
     /// and the shuffle checkbox's disabled state, via
@@ -757,8 +803,10 @@ public partial class Home : ComponentBase, IDisposable
     private async Task HandleFilterConfigApplied(FilterConfig cfg)
     {
         // The user clicked Apply: record the deliberate applied state on the
-        // scoped holder so it survives navigate-back (not a transient field).
-        AppliedFilter.Set(cfg);
+        // scoped holder so it survives navigate-back (not a transient field),
+        // stamped with the pick it was applied against — the fact the mix gate
+        // reads (see MixApplyEnabled).
+        AppliedFilter.Set(cfg, Folder.PickGeneration);
         _startError = null;
         _noMatchNotice = null;
 
