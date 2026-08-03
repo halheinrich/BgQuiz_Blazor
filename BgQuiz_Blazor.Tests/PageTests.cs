@@ -43,13 +43,13 @@ public class PageTests : BunitContext
 
     public PageTests()
     {
-        // Loose JSInterop as the fixture default. Every page render now reaches
-        // localStorage on the way in — QuizSettings hydrates from Home, Quiz and
-        // Settings alike — so strict mode would make an unrelated page test fail
-        // on a storage read it has no opinion about. A test that cares what is
-        // stored still says so with its own Setup, which takes precedence; no
-        // test in this fixture asserts on an *unhandled* call. (Many tests below
-        // still set this themselves, from when it was per-test; harmless.)
+        // Loose JSInterop, for the whole fixture and stated in exactly this one
+        // place. Every page render reaches localStorage on the way in —
+        // QuizSettings hydrates from Home, Quiz and Settings alike — so strict
+        // mode would make an unrelated page test fail on a storage read it has
+        // no opinion about. A test that cares what is stored still says so with
+        // its own Setup, which takes precedence; no test in this fixture asserts
+        // on an *unhandled* call.
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         // Home and Done inject the sessionStorage-backed QuizLiveMarker. It needs
@@ -237,7 +237,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome();
 
         var cut = Render<HomePage>();
@@ -271,7 +270,6 @@ public class PageTests : BunitContext
         WithPickedFolder("resume"); // holder already populated, as after navigate-back
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
 
@@ -298,7 +296,6 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         var fp = cut.FindComponent<FilterPanel>();
@@ -327,7 +324,6 @@ public class PageTests : BunitContext
         WithPickedFolder(); // satisfy the folder gate so Start is clickable
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         var fp = cut.FindComponent<FilterPanel>();
@@ -356,7 +352,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome("Corpus", "match.xg");
 
         var cut = Render<HomePage>();
@@ -379,7 +374,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome();
 
         var cut = Render<HomePage>();
@@ -412,7 +406,6 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         var fp = cut.FindComponent<FilterPanel>();
@@ -433,7 +426,6 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         var fp = cut.FindComponent<FilterPanel>();
@@ -460,7 +452,6 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         WithAppliedMix(NeverSeenMix()); // committed, non-passthrough
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         await ApplyFiltersAsync(cut);
@@ -484,7 +475,6 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         WithAppliedMix(); // blank
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         await ApplyFiltersAsync(cut);
@@ -511,7 +501,6 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         await ApplyFiltersAsync(cut);
@@ -545,7 +534,6 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         await ApplyFiltersAsync(cut);
@@ -574,7 +562,6 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         await ApplyFiltersAsync(cut);
@@ -598,7 +585,6 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         var fp = cut.FindComponent<FilterPanel>();
@@ -640,7 +626,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
 
         var cut = Render<HomePage>();
@@ -667,7 +652,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome =
             OneFileOutcome(capability: StatsSaveCapability.BrowserUnsupported);
 
@@ -686,7 +670,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome =
             OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
 
@@ -720,7 +703,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = FolderPickOutcome.CancelledOutcome;
 
         var cut = Render<HomePage>();
@@ -742,7 +724,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = FolderPickOutcome.CancelledOutcome;
 
         var cut = Render<HomePage>();
@@ -772,7 +753,6 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         var mix = WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome("First", "first.xg");
 
         var cut = Render<HomePage>();
@@ -815,7 +795,6 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         var mix = WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.FiltersJson = SavedFiltersJson();
         _folderAccess.NextPickOutcome = OneFileOutcome("Held", "held.xg");
 
@@ -860,7 +839,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.SupportsDirectoryPicker = false;
         _folderAccess.NextCollectOutcome = new FolderPickOutcome(
             Cancelled: false, "FallbackDir",
@@ -889,7 +867,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter(new FilterConfig()); // filter half satisfied
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = new FolderPickOutcome(
             Cancelled: false, "Empty", [], StatsSaveCapability.Enabled);
 
@@ -913,7 +890,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.PickException = new InvalidOperationException("boom from the browser");
 
         var cut = Render<HomePage>();
@@ -935,7 +911,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.SupportsDirectoryPicker = false;
 
         var cut = Render<HomePage>();
@@ -960,7 +935,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
 
@@ -998,7 +972,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome();
 
         var cut = Render<HomePage>();
@@ -1023,7 +996,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = FolderPickOutcome.CancelledOutcome;
 
         var cut = Render<HomePage>();
@@ -1049,7 +1021,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.SupportsDirectoryPicker = false;
 
         var cut = Render<HomePage>();
@@ -1076,7 +1047,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.SupportsDirectoryPicker = false;
 
         var cut = Render<HomePage>();
@@ -1097,7 +1067,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome();
 
         var cut = Render<HomePage>();
@@ -1123,7 +1092,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
 
@@ -1141,7 +1109,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextCollectOutcome = new FolderPickOutcome(
             Cancelled: false, "FallbackDir",
             [new PickedFile("fb.xgp", [9, 9])], StatsSaveCapability.BrowserUnsupported);
@@ -1187,7 +1154,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
         _folderAccess.FiltersJson = SavedFiltersJson();
 
@@ -1221,7 +1187,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
         _folderAccess.FiltersJson = SavedFiltersJson();
 
@@ -1250,7 +1215,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
         _folderAccess.FiltersJson = null; // fresh folder
 
@@ -1273,7 +1237,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
         _folderAccess.FiltersJson = null;
 
@@ -1299,7 +1262,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
         _folderAccess.FiltersJson = "{ not valid json";
 
@@ -1321,7 +1283,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
         _folderAccess.FiltersJson = SavedFiltersJson();
 
@@ -1343,7 +1304,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextCollectOutcome = new FolderPickOutcome(
             Cancelled: false, "FallbackDir",
             [new PickedFile("fb.xgp", [9, 9])], StatsSaveCapability.BrowserUnsupported);
@@ -1368,7 +1328,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
         _folderAccess.FiltersJson = null; // fresh folder → Ready, zero saved filters
 
@@ -1388,7 +1347,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
         _folderAccess.FiltersJson = SavedFiltersJson(); // one saved filter
 
@@ -1408,7 +1366,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
         _folderAccess.FiltersJson = null; // fresh folder, zero saved filters
 
@@ -1432,7 +1389,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
         _folderAccess.FiltersReadException = new JSException("read withheld"); // → LoadFailed
 
@@ -1458,7 +1414,6 @@ public class PageTests : BunitContext
         WithPickedFolder("resume");
         WithAppliedFilter(new FilterConfig()); // applied earlier, as after navigate-back
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
 
@@ -1480,7 +1435,6 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithAppliedFilter(new FilterConfig()); // start from an applied, enabled state
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
 
@@ -1513,7 +1467,6 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome();
 
         var cut = Render<HomePage>();
@@ -1567,7 +1520,6 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome("First", "first.xg");
 
         var cut = Render<HomePage>();
@@ -1620,7 +1572,6 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<HomePage>();
@@ -1652,7 +1603,6 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<HomePage>();
@@ -1678,7 +1628,6 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<HomePage>();
@@ -1704,7 +1653,6 @@ public class PageTests : BunitContext
         WithPickedFolder(); // progressive disclosure: the checkbox shows only post-pick
         WithAppliedFilter();
         var shuffle = WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         var checkbox = cut.Find("#shuffleOrder");
@@ -1729,7 +1677,6 @@ public class PageTests : BunitContext
         // (empty PickedProblemFolder comes from the fixture default)
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         JSInterop.Setup<string?>("sessionStorage.getItem", QuizLiveKey).SetResult("1");
 
         var cut = Render<HomePage>();
@@ -1748,7 +1695,6 @@ public class PageTests : BunitContext
         // (empty PickedProblemFolder comes from the fixture default)
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         JSInterop.Setup<string?>("sessionStorage.getItem", QuizLiveKey).SetResult(null);
 
         var cut = Render<HomePage>();
@@ -1769,7 +1715,6 @@ public class PageTests : BunitContext
         // (empty PickedProblemFolder comes from the fixture default)
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         JSInterop.Setup<string?>("sessionStorage.getItem", QuizLiveKey).SetResult("1");
 
         var cut = Render<HomePage>();
@@ -1788,7 +1733,6 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         var fp = cut.FindComponent<FilterPanel>();
@@ -1811,7 +1755,6 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         var fp = cut.FindComponent<FilterPanel>();
@@ -1838,7 +1781,6 @@ public class PageTests : BunitContext
         WithPickedFolder("clear-me");
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
 
@@ -1908,7 +1850,6 @@ public class PageTests : BunitContext
         var controller = WithShufflableController(shuffle, items);
         WithPickedFolder();
         WithAppliedFilter();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         var fp = cut.FindComponent<FilterPanel>();
@@ -1934,7 +1875,6 @@ public class PageTests : BunitContext
         var controller = WithShufflableController(shuffle, items);
         WithPickedFolder();
         WithAppliedFilter();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         var fp = cut.FindComponent<FilterPanel>();
@@ -1970,7 +1910,6 @@ public class PageTests : BunitContext
         // (empty PickedProblemFolder comes from the fixture default)
         WithAppliedFilter();
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
 
@@ -2117,7 +2056,6 @@ public class PageTests : BunitContext
             new SubmittedPlay(seen.Id, BestPlay(), 0, 0.0, IsCorrect: true),
             TimeProvider.System);
         await c.StartAsync(new FilterConfig(), NeverSeenMix());
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<QuizPage>();
 
@@ -2229,7 +2167,6 @@ public class PageTests : BunitContext
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts → IsFinished
         await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<DonePage>();
 
@@ -2245,7 +2182,6 @@ public class PageTests : BunitContext
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
         await WithStatsStoreInStatusAsync(QuizStatsStatus.LoadFailed);
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<DonePage>();
 
@@ -3011,7 +2947,6 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts → IsFinished
-        JSInterop.Mode = JSRuntimeMode.Loose; // Done clears the live-quiz marker on init
 
         var cut = Render<DonePage>();
 
@@ -3037,7 +2972,6 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts → IsFinished
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         Render<DonePage>();
 
@@ -3056,7 +2990,6 @@ public class PageTests : BunitContext
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
         Assert.True(c.IsFinished);
-        JSInterop.Mode = JSRuntimeMode.Loose; // Done clears the live-quiz marker on init
 
         var cut = Render<DonePage>();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
@@ -3088,7 +3021,6 @@ public class PageTests : BunitContext
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
         Assert.True(c.IsFinished);
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<DonePage>();
         var restart = cut.FindAll("button").First(b => b.TextContent.Trim().StartsWith("Restart"));
@@ -3104,7 +3036,6 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
-        JSInterop.Mode = JSRuntimeMode.Loose; // Done clears the live-quiz marker on init
 
         var cut = Render<DonePage>();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
@@ -3131,7 +3062,6 @@ public class PageTests : BunitContext
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
         Assert.True(c.IsFinished);
-        JSInterop.Mode = JSRuntimeMode.Loose; // Done clears the live-quiz marker on init
 
         var cut = Render<DonePage>();
 
@@ -3948,7 +3878,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         await ApplyMixThroughPanelAsync(cut);
@@ -3974,7 +3903,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         Assert.False(StartButton(cut).HasAttribute("disabled")); // blank draft, blank holder: clean
@@ -4001,7 +3929,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         await ApplyMixThroughPanelAsync(cut); // committed: NeverSeen at 100%
@@ -4030,7 +3957,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         await cut.Find("#mixAddRow").ClickAsync(new()); // NeverSeen
@@ -4062,7 +3988,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
 
@@ -4094,7 +4019,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix(); // blank holder — hydration must not commit into it
-        JSInterop.Mode = JSRuntimeMode.Loose;
         JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
             .SetResult(NeverSeenMix().ToJson());
 
@@ -4125,7 +4049,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
             .SetResult(NeverSeenMix().ToJson());
 
@@ -4151,7 +4074,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
             .SetResult(QuizMix.Empty.ToJson());
 
@@ -4176,7 +4098,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix(NeverSeenMix()); // committed earlier this session
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
 
@@ -4204,7 +4125,7 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose; // getItem → null: nothing was ever applied
+        // No stored mix, so hydration finds nothing: nothing was ever applied.
 
         var cut = Render<HomePage>();
 
@@ -4246,7 +4167,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         await cut.Find("#mixAddRow").ClickAsync(new());
@@ -4283,7 +4203,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix(NeverSeenMix());
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         await StartButton(cut).ClickAsync(new());
@@ -4312,7 +4231,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.BrowserUnsupported);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
@@ -4345,7 +4263,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<HomePage>();
@@ -4394,7 +4311,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix();
-        JSInterop.Mode = JSRuntimeMode.Loose;
         JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
             .SetResult(NeverSeenMix().ToJson()); // persisted from a prior session
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
@@ -4449,7 +4365,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix(NeverSeenMix());
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
         await StartButton(cut).ClickAsync(new());
@@ -4470,7 +4385,6 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         var shuffle = WithShuffleOption(enabled: true);
         WithAppliedMix(NeverSeenMix());
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
 
@@ -4503,7 +4417,6 @@ public class PageTests : BunitContext
         sink.CanBindStats = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<QuizPage>();
 
@@ -4528,7 +4441,6 @@ public class PageTests : BunitContext
         sink.CanBindStats = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), SplitMix(quizLength: 2));
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<QuizPage>();
 
@@ -4555,7 +4467,6 @@ public class PageTests : BunitContext
         sink.CanBindStats = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), SplitMix()); // no length
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<QuizPage>();
 
@@ -4578,7 +4489,6 @@ public class PageTests : BunitContext
         sink.CanBindStats = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<QuizPage>();
         Assert.Contains("Your quiz has 1 problem", cut.Markup);
@@ -4603,7 +4513,6 @@ public class PageTests : BunitContext
         sink.CanBindStats = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix()); // capless
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<QuizPage>();
         Assert.NotNull(cut.Find("div.alert-info[role=status]"));
@@ -4627,7 +4536,6 @@ public class PageTests : BunitContext
         sink.CanBindStats = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<QuizPage>();
         await SubmitPlayThroughPageAsync(cut, BestPlay());
@@ -4649,7 +4557,6 @@ public class PageTests : BunitContext
         sink.CanBindStats = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<QuizPage>();
         Assert.Contains("Your quiz has", cut.Markup);
@@ -4669,7 +4576,6 @@ public class PageTests : BunitContext
         sink.CanBindStats = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 1));
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<QuizPage>();
 
@@ -4695,7 +4601,6 @@ public class PageTests : BunitContext
 
         sink.CanBindStats = false; // e.g. the pick was cleared between quizzes
         WithPickedFolder(); // Done reads capability for the refusal reason
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<DonePage>();
         await cut.FindAll("button").First(b => b.TextContent.Contains("Restart with same filters"))
@@ -4751,7 +4656,6 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<HomePage>();
 
@@ -4789,7 +4693,6 @@ public class PageTests : BunitContext
         source.ReleaseNext();
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty);
         controller.SubmitPlay(BestPlay());
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<QuizPage>();
         Assert.Empty(cut.FindAll("div.app-busy"));
@@ -4832,7 +4735,6 @@ public class PageTests : BunitContext
         source.ReleaseNext();
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty);
         WithPickedFolder();
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<DonePage>();
         var restartBtn = cut.FindAll("button")
@@ -4878,7 +4780,6 @@ public class PageTests : BunitContext
     {
         // The page is a view over the service and nothing else: what it shows is
         // what hydration put there, not a page-local default.
-        JSInterop.Mode = JSRuntimeMode.Loose;
         JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey).SetResult(
             """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true}""");
 
@@ -4896,7 +4797,6 @@ public class PageTests : BunitContext
         // Pinned as a design constraint, not a coincidence: an Apply button is
         // the front end of the draft/commit lifetime split that produced finding
         // (AK)'s wedge, and this page must never grow one.
-        JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<SettingsPage>();
 
@@ -4906,7 +4806,6 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Settings_ChangingAControl_AppliesAndPersistsOnTheSpot()
     {
-        JSInterop.Mode = JSRuntimeMode.Loose;
         var cut = Render<SettingsPage>();
 
         await cut.Find("#settingsSideLeft").ChangeAsync(new() { Value = true });
@@ -4933,7 +4832,6 @@ public class PageTests : BunitContext
         // the control is an uncontrolled checkbox in the statically rendered
         // layout. Without this call the setting would appear inert until the
         // user happened to navigate.
-        JSInterop.Mode = JSRuntimeMode.Loose;
         var cut = Render<SettingsPage>();
 
         await cut.Find("#settingsKeepNavFolded").ChangeAsync(new() { Value = true });
