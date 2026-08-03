@@ -4,6 +4,8 @@
 @using BgQuiz_Blazor.Client.Quiz
 
 @inject QuizSettings QuizSettings
+@inject QuizController Controller
+@inject NavigationManager Nav
 
 <PageTitle>BgQuiz — Settings</PageTitle>
 
@@ -85,5 +87,22 @@
                 from here rather than folding the panel you are using now.
             </div>
         </fieldset>
+    }
+
+    @* The way back to a running quiz. Copied from Help — same predicate, same
+       markup, same words — rather than designed: the two pages are in the same
+       position (reachable from any state, so never redirecting the way Stats
+       does) and a user who has met one affordance should meet the same one
+       here. Outside the hydration gate on purpose: returning to the quiz has
+       nothing to do with which settings have loaded.
+
+       It lives on the page and not in the nav panel because the panel renders
+       statically and cannot know a quiz is live — the same constraint that put
+       the fold applier in JS. *@
+    @if (Controller.HasStarted && !Controller.IsFinished)
+    {
+        <button class="btn btn-primary mt-3" @onclick="BackToQuiz">
+            Back to quiz
+        </button>
     }
 </div>

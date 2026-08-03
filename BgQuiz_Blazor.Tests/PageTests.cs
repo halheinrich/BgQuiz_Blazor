@@ -5015,6 +5015,7 @@ public class PageTests : BunitContext
     {
         // The page is a view over the service and nothing else: what it shows is
         // what hydration put there, not a page-local default.
+        WithController();
         JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey).SetResult(
             """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true}""");
 
@@ -5032,6 +5033,12 @@ public class PageTests : BunitContext
         // Pinned as a design constraint, not a coincidence: an Apply button is
         // the front end of the draft/commit lifetime split that produced finding
         // (AK)'s wedge, and this page must never grow one.
+        //
+        // Stated as "no buttons at all", which stays exact: the one button the
+        // page can render is Back to quiz, and with no quiz started it is absent
+        // by its own predicate. So an Apply added later still fails here,
+        // whatever it is called.
+        WithController();
 
         var cut = Render<SettingsPage>();
 
@@ -5041,6 +5048,7 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Settings_ChangingAControl_AppliesAndPersistsOnTheSpot()
     {
+        WithController();
         var cut = Render<SettingsPage>();
 
         await cut.Find("#settingsSideLeft").ChangeAsync(new() { Value = true });
@@ -5072,6 +5080,7 @@ public class PageTests : BunitContext
         // with true), because the shipped reading of "immediate apply" was
         // symmetric. The rule it protected — a setting must never look inert —
         // is now carried by the fine print beside the control, pinned below.
+        WithController();
         var cut = Render<SettingsPage>();
 
         await cut.Find("#settingsKeepNavFolded").ChangeAsync(new() { Value = true });
@@ -5088,6 +5097,7 @@ public class PageTests : BunitContext
         // new value are behind the folded panel's own links. The page cannot do
         // this itself and neither can the service — the control is an
         // uncontrolled checkbox in the statically rendered layout.
+        WithController();
         JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey).SetResult(
             """{"keepNavigationPanelFolded":true}""");
         var cut = Render<SettingsPage>();
@@ -5107,6 +5117,7 @@ public class PageTests : BunitContext
         // way to tell "deferred" from "broken". So the deferral is stated beside
         // the control, and pinned — dropping the sentence would leave the page
         // silently inert-looking, which is the failure #50 reported.
+        WithController();
         var cut = Render<SettingsPage>();
 
         // Whitespace-collapsed before matching: razor renders the source's own
@@ -5119,6 +5130,59 @@ public class PageTests : BunitContext
 
         Assert.Contains("this only decides how a page starts out", text);
         Assert.Contains("takes hold as you move on from here", text);
+    }
+
+    [Fact]
+    public async Task Settings_MidQuiz_OffersBackToQuiz_AndItNavigates()
+    {
+        // The way back the dogfood pass found missing (issue #30): the round trip
+        // always worked — both the controller and the settings are app-scoped —
+        // but nothing on the page pointed at it, so a user who changed the board
+        // side mid-quiz was left with the browser's Back button and a guess.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        Assert.True(c.HasStarted && !c.IsFinished);
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        var cut = Render<SettingsPage>();
+        var back = cut.FindAll("button").First(b => b.TextContent.Trim() == "Back to quiz");
+        await back.ClickAsync(new());
+
+        Assert.EndsWith("/quiz", nav.Uri);
+    }
+
+    [Fact]
+    public void Settings_NoQuizInProgress_RendersWithoutRedirecting_AndOffersNoBackButton()
+    {
+        // Settings sits where Help sits, not where Stats sits: reachable from any
+        // state — a cold deep link is the very visit the hydration gate exists
+        // for — so it must never bounce, and with no quiz there is nowhere to go
+        // back to.
+        WithController();
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+        var baseUri = nav.Uri;
+
+        var cut = Render<SettingsPage>();
+
+        Assert.Equal(baseUri, nav.Uri); // no redirect fired
+        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Back to quiz");
+    }
+
+    [Fact]
+    public async Task Settings_QuizFinished_OffersNoBackButton()
+    {
+        // The other half of the predicate, and the half a HasStarted-only test
+        // would miss: a finished quiz has no answering state to return to, which
+        // is exactly why Stats redirects to /done on it.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync(); // exhausts → finished
+        Assert.True(c.IsFinished);
+
+        var cut = Render<SettingsPage>();
+
+        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Back to quiz");
     }
 
     [Fact]

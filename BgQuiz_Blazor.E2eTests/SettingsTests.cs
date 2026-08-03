@@ -40,6 +40,10 @@ public sealed class SettingsTests : E2eTestBase
 
     private ILocator HomeBoardRightRadio => Page.GetByRole(AriaRole.Radio, new() { Name = "Right" });
 
+    /// <summary>The page's way back into a running quiz — absent when none is.</summary>
+    private ILocator BackToQuizButton =>
+        Page.GetByRole(AriaRole.Button, new() { Name = "Back to quiz" });
+
     private async Task GoToSettingsAsync()
     {
         await Page.GetByRole(AriaRole.Link, new() { Name = "Settings" }).ClickAsync();
@@ -69,9 +73,20 @@ public sealed class SettingsTests : E2eTestBase
     /// carry it across the bar — see <see cref="PointOneIsRightOfTheBarAsync"/>.
     /// The setting is changed mid-quiz and the quiz walked back into, which is
     /// also how a user will judge the choice: by looking at a real position.
+    ///
+    /// <para>
+    /// The return leg goes through the page's own <b>Back to quiz</b> button
+    /// (issue #30), which is what a user actually has. It used to go through
+    /// <c>GoBack</c> — browser history — and that passed while the page offered
+    /// no way back at all, which is precisely the gap the dogfood pass reported:
+    /// the round trip worked and nothing pointed at it. Driving the affordance
+    /// pins all three claims at once — that the button is there mid-quiz, that
+    /// the run survives the trip (both services are app-scoped), and that the new
+    /// side is on the board when the user lands back on it.
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task HomeBoardSideMovesTheRenderedBoard_AndTheQuizSurvivesTheRoundTrip()
+    public async Task HomeBoardSideMovesTheRenderedBoard_AndBackToQuizResumesTheRun()
     {
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
@@ -84,14 +99,29 @@ public sealed class SettingsTests : E2eTestBase
         await GoToSettingsAsync();
         await HomeBoardLeftRadio.CheckAsync();
 
-        // Back to the quiz that was left running — the settings service is
-        // app-scoped, so the round trip costs no quiz state.
-        await Page.GoBackAsync();
+        // Back to the quiz that was left running, by the page's own affordance.
+        await BackToQuizButton.ClickAsync();
         await ExpectUrlAsync("/quiz");
         await Expect(Page.GetByText("Problem 1")).ToBeVisibleAsync();
 
         Assert.False(await PointOneIsRightOfTheBarAsync(),
             "with the home board on the left, point 1 must render left of the bar");
+    }
+
+    /// <summary>
+    /// The other half of the affordance's predicate, in the browser: with no quiz
+    /// running the button is simply absent. Cheap to pin here and worth it — the
+    /// bUnit tests assert the same thing against a controller a test built, while
+    /// this asserts it on the page a first-time visitor actually lands on.
+    /// </summary>
+    [Fact]
+    public async Task SettingsOffersNoWayBackWhenNoQuizIsRunning()
+    {
+        await BootHomeAsync();
+
+        await GoToSettingsAsync();
+
+        await Expect(BackToQuizButton).ToHaveCountAsync(0);
     }
 
     /// <summary>

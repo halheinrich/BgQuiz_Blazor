@@ -184,7 +184,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
       Done.razor / .razor.cs        — final summary
       Stats.razor / .razor.cs       — read-only mid-quiz stats (live Controller)
       Settings.razor / .razor.cs    — user settings (a view over QuizSettings;
-                                      no Apply button; the fold defers one nav)
+                                      no Apply button; the fold defers one nav;
+                                      offers Back to quiz while a quiz is live)
       Help.razor / .razor.cs        — end-user documentation (never redirects)
       ScorePanel.razor              — compact header strip (Total only)
       ScoreBreakdown.razor          — four-way Play/Double/Take/Total table
@@ -1496,8 +1497,16 @@ The asymmetry is pinned three times over: at the service seam
   settings are about to overwrite. Reachable from the host `NavMenu` beside
   Help (`NavMenuTests` pins the link, as it does Help's); nothing else links
   to it, and the pages the settings affect deliberately carry no control of
-  their own — the mid-quiz-tweaking question booked on #30 is still open, and
-  a round trip works because the service is app-scoped.
+  their own — the mid-quiz-tweaking question booked on #30 is still open.
+  What did land is the **way back**: a "Back to quiz" button gated on
+  `HasStarted && !IsFinished`, copied from `Help` (same predicate, same
+  markup, same words) rather than designed, because the two pages sit in the
+  same position — reachable from any state, so neither redirects the way
+  `Stats` does. The round trip itself always worked (controller and settings
+  are both app-scoped); nothing pointed at it, which is what the v1.4.0
+  dogfood pass reported. It sits on the page and not in the nav panel because
+  that panel renders statically and cannot know a quiz is live — the same
+  constraint that put the fold applier in JS.
 - **`Help.razor`** — end-user documentation. Structure (`PageTests` pins the
   full `h2` skeleton in order, so an edit cannot quietly drop or reorder a
   section): a **Before you start** prerequisites lead — a folder of the
