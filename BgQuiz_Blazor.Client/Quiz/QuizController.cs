@@ -13,7 +13,7 @@ using XgFilter_Lib.Filtering;
 /// <see cref="StartAsync"/> / <see cref="SubmitPlay"/> /
 /// <see cref="SubmitCubeAction"/> / <see cref="RedoAsync"/> /
 /// <see cref="ContinueAsync"/> / <see cref="SkipCurrentAsync"/> /
-/// <see cref="RestartAsync"/>.
+/// <see cref="EndQuizAsync"/> / <see cref="RestartAsync"/>.
 ///
 /// <para>
 /// <b>Three-state per-problem flow.</b> Each problem moves through
@@ -27,7 +27,9 @@ using XgFilter_Lib.Filtering;
 /// <c>DiagramMode.Solution</c>) before moving on. <see cref="RedoAsync"/> is the
 /// one path that moves <i>backward</i> — from review back to answering on the
 /// same problem — reversing the just-submitted answer instead of advancing past
-/// it.
+/// it. <see cref="EndQuizAsync"/> is the one path that leaves the flow
+/// altogether: it abandons whatever problem is showing and finishes the run
+/// where it stands, at the user's request.
 /// </para>
 ///
 /// <para>
@@ -71,17 +73,19 @@ using XgFilter_Lib.Filtering;
 /// Lifetime stats: the controller drives the injected
 /// <see cref="IDecisionStatsSink"/> at exactly two points — the context bind
 /// in <see cref="ResetAndAdvanceAsync"/> (every Start/Restart) and the
-/// per-answer fold in <see cref="ContinueAsync"/> (on leaving review). The
+/// per-answer fold on the forward exits from review
+/// (<see cref="ContinueAsync"/> and <see cref="EndQuizAsync"/>, through one
+/// shared <see cref="RecordReviewedSubmissionAsync"/>). The
 /// sink never throws for stats trouble, so quiz flow is independent of
 /// whether stats are recording.
 /// </para>
 ///
 /// <para>
-/// <b>Transition gate.</b> The four <i>async</i> transitions —
+/// <b>Transition gate.</b> The five <i>async</i> transitions —
 /// <see cref="StartAsync"/> / <see cref="RestartAsync"/> /
-/// <see cref="ContinueAsync"/> / <see cref="SkipCurrentAsync"/> — share one
-/// busy gate: a second gesture arriving while a transition is in flight
-/// <b>no-ops</b> (it does not queue). The controller owns exactly one live
+/// <see cref="ContinueAsync"/> / <see cref="SkipCurrentAsync"/> /
+/// <see cref="EndQuizAsync"/> — share one busy gate: a second gesture arriving
+/// while a transition is in flight <b>no-ops</b> (it does not queue). The controller owns exactly one live
 /// enumerator, and an overlapping <c>MoveNextAsync</c> — or a dispose during
 /// one — throws on a thread-pool continuation where no page can catch it,
 /// terminating the WASM runtime; the per-method state guards
@@ -185,8 +189,8 @@ internal sealed class QuizController : IAsyncDisposable
     public bool HasStarted => _source is not null;
 
     /// <summary>
-    /// True while an async transition (Start / Restart / Continue / Skip) is
-    /// in flight. While set, every transition entry point no-ops — see the
+    /// True while an async transition (Start / Restart / Continue / Skip /
+    /// End quiz) is in flight. While set, every transition entry point no-ops — see the
     /// class-level transition-gate doc. Pages drive their busy affordances
     /// (progress cursor, disabled controls) from this; <see cref="StateChanged"/>
     /// fires on both flips, and the gate yields once after setting it so the
@@ -585,9 +589,10 @@ internal sealed class QuizController : IAsyncDisposable
     /// <summary>
     /// Leave the <i>review</i> state and advance to the next problem, clearing
     /// <see cref="Review"/>. No-op outside the review state (when
-    /// <see cref="Review"/> is null). This is the only <i>forward</i> path out
-    /// of review — see <see cref="RedoAsync"/> for the backward one; exhausting
-    /// the source here flips <see cref="IsFinished"/>.
+    /// <see cref="Review"/> is null). This is the <i>advancing</i> exit from
+    /// review — <see cref="RedoAsync"/> is the backward one and
+    /// <see cref="EndQuizAsync"/> the terminal one; exhausting the source here
+    /// flips <see cref="IsFinished"/>.
     ///
     /// <para>
     /// <b>Lifetime-stats fold point.</b> The just-reviewed submission folds
@@ -601,7 +606,9 @@ internal sealed class QuizController : IAsyncDisposable
     /// submissions carry no history entry and never fold (producer contract:
     /// skips and off-list plays aren't lifetime submissions); the fold happens
     /// before <see cref="AdvanceAsync"/>, so the final problem's answer folds
-    /// before <see cref="IsFinished"/> flips.
+    /// before <see cref="IsFinished"/> flips. The fold itself lives in
+    /// <see cref="RecordReviewedSubmissionAsync"/>, shared with the other
+    /// forward exit, <see cref="EndQuizAsync"/>.
     /// </para>
     /// </summary>
     public async Task ContinueAsync()
@@ -610,19 +617,76 @@ internal sealed class QuizController : IAsyncDisposable
         if (!await TryBeginTransitionAsync()) return;
         try
         {
-            switch (Review)
-            {
-                case ProblemReview.Play { OffList: false }:
-                    await _statsSink.RecordAsync(_history[^1]);
-                    break;
-                case ProblemReview.Cube:
-                    await _statsSink.RecordAsync(_cubeHistory[^1]);
-                    break;
-                    // ProblemReview.Play { OffList: true }: no history entry — never folds.
-            }
+            await RecordReviewedSubmissionAsync();
 
             Review = null;
             await AdvanceAsync();
+        }
+        finally
+        {
+            EndTransition();
+        }
+    }
+
+    /// <summary>
+    /// End the run here, at the user's request, and finish with the score of
+    /// what they answered — the quiz-side exit a run that has served its purpose
+    /// needs (issue #57). A real transition, not a navigation: only the
+    /// controller can retire the enumerator and flip <see cref="IsFinished"/>,
+    /// and doing it anywhere else would leave a live quiz behind a Done page.
+    /// No-op before start and after finish, and gated like every other async
+    /// transition (an overlapping gesture no-ops rather than queueing).
+    ///
+    /// <para>
+    /// <b>The current problem is abandoned, not answered.</b> From the
+    /// <i>answering</i> state whatever the user had entered is discarded and the
+    /// problem records nothing — the same non-scoring outcome an explicit
+    /// <see cref="SkipCurrentAsync"/> records, reusing
+    /// <see cref="SkippedCount"/> rather than inventing a category for it, so
+    /// Done's "problems shown" still counts a problem the user actually saw.
+    /// There is no partial-answer path and no new scoring path: a play half
+    /// assembled on the board was never a submission, and <c>BackgammonPlayEntry</c>
+    /// exposes nothing that would let one be salvaged — the same producer gap the
+    /// Quiz page's Undo enablement records.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>A reviewed answer stands, and folds.</b> Ending from the <i>review</i>
+    /// state is a forward exit, not an abandonment: the answer was submitted,
+    /// scored into <see cref="Score"/>, and read — so it stays in the partial
+    /// score and folds into the <see cref="IDecisionStatsSink"/> exactly as
+    /// <see cref="ContinueAsync"/> would fold it, through the one shared
+    /// <see cref="RecordReviewedSubmissionAsync"/>. That is what keeps the
+    /// standing invariant true: <i>every answer visible on Done has reached the
+    /// lifetime record</i>, which until this method existed held only because
+    /// Continue was the sole route there — and which Done's "nothing here needs
+    /// saving" line states to the user. No double-fold hazard rides along: the
+    /// fold happens once, and <see cref="Review"/> is cleared under the same
+    /// gate that makes <see cref="RedoAsync"/> unreachable afterwards.
+    /// </para>
+    /// </summary>
+    public async Task EndQuizAsync()
+    {
+        if (!HasStarted || IsFinished) return;
+        if (!await TryBeginTransitionAsync()) return;
+        try
+        {
+            if (Review is not null)
+            {
+                await RecordReviewedSubmissionAsync();
+            }
+            else if (Current is not null)
+            {
+                SkippedCount++;
+            }
+
+            Review = null;
+            Current = null;
+            IsFinished = true;
+            // The run is over, so the one live enumerator is released here
+            // rather than waiting for the next Start's reset — safe precisely
+            // because the gate guarantees no MoveNextAsync is in flight.
+            await DisposeEnumeratorAsync();
         }
         finally
         {
@@ -730,6 +794,29 @@ internal sealed class QuizController : IAsyncDisposable
     {
         IsBusy = false;
         StateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Fold the submission the current <see cref="Review"/> describes into the
+    /// lifetime-stats sink — the one encoding of "which history entry this
+    /// review finalizes", shared by the two forward exits from review
+    /// (<see cref="ContinueAsync"/> and <see cref="EndQuizAsync"/>). An off-list
+    /// play added no history entry and never folds (producer contract: skips and
+    /// off-list plays aren't lifetime submissions); outside review there is
+    /// nothing to fold and this is a no-op.
+    /// </summary>
+    private async Task RecordReviewedSubmissionAsync()
+    {
+        switch (Review)
+        {
+            case ProblemReview.Play { OffList: false }:
+                await _statsSink.RecordAsync(_history[^1]);
+                break;
+            case ProblemReview.Cube:
+                await _statsSink.RecordAsync(_cubeHistory[^1]);
+                break;
+                // ProblemReview.Play { OffList: true }: no history entry — never folds.
+        }
     }
 
     /// <summary>

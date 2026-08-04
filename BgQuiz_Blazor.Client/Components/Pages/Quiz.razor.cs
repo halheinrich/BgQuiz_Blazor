@@ -92,6 +92,16 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
+/// <b>Ending the run early.</b> Both action rows trail with an <b>End quiz</b>
+/// button (issue #57) — see <see cref="EndQuizAsync"/> for why it sits at the far
+/// end of the row and carries no confirmation. It is the only control here that
+/// finishes a run the source has not exhausted; everything about what that leaves
+/// behind (the abandoned problem counted as a skip, a reviewed answer kept and
+/// folded) belongs to <see cref="QuizController.EndQuizAsync"/>, which this page
+/// merely calls.
+/// </para>
+///
+/// <para>
 /// <b>Action row by kind.</b> In the answering state, checker decisions offer
 /// Submit / Skip / Undo last / Undo all — the two Undo buttons live for the
 /// whole of the entry, disabled only while the controller is busy (see
@@ -99,9 +109,9 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// them dead for exactly the window they exist to serve); cube decisions place the
 /// <see cref="BackgammonCubeActions"/> radios inline (the answer input, since the
 /// board region is board-only) ahead of Submit / Skip — a cube answer has no
-/// partial-move state, so Undo does not apply. Both trail with Show stats in the
-/// row's <c>ms-auto</c> slot. In the review state both kinds offer Continue /
-/// Redo, trailed the same way by Show stats.
+/// partial-move state, so Undo does not apply. Both trail with Show stats and
+/// End quiz in the row's <c>ms-auto</c> cluster. In the review state both kinds
+/// offer Continue / Redo, trailed the same way.
 /// </para>
 ///
 /// <para>
@@ -392,6 +402,25 @@ public partial class Quiz : ComponentBase, IDisposable
     private async Task SkipAsync()
     {
         await Controller.SkipCurrentAsync();
+    }
+
+    /// <summary>
+    /// End the run here and go to the summary (issue #57). One click, acting
+    /// immediately: the confirmation the issue first sketched was ruled out, so
+    /// the only thing standing between a stray click and a finished quiz is
+    /// where the button sits — the far end of the action row, past Show stats.
+    ///
+    /// <para>
+    /// No navigation of its own. <see cref="QuizController.EndQuizAsync"/> flips
+    /// <see cref="QuizController.IsFinished"/>, and this page already redirects
+    /// to <c>/done</c> on that in <see cref="HandleStateChanged"/> — the same
+    /// route a run that reaches its last problem takes, which is what makes an
+    /// early end land as an ordinary finish rather than a second kind of ending.
+    /// </para>
+    /// </summary>
+    private async Task EndQuizAsync()
+    {
+        await Controller.EndQuizAsync();
     }
 
     /// <summary>

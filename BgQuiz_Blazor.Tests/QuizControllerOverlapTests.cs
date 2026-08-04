@@ -8,7 +8,7 @@ namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
 /// The transition-gate overlap suite: a second gesture arriving while a
-/// Start / Restart / Continue / Skip transition is in flight must
+/// Start / Restart / Continue / Skip / End-quiz transition is in flight must
 /// <b>no-op</b> — not queue, not throw, and above all not touch the one live
 /// enumerator (an overlapped <c>MoveNextAsync</c> faults on a thread-pool
 /// continuation no page can catch, terminating the WASM runtime; that crash
@@ -236,6 +236,59 @@ public class QuizControllerOverlapTests
         await pending;
         Assert.Equal(1, sink.TotalFolds);
         Assert.Single(c.History);
+    }
+
+    [Fact]
+    public async Task EndQuizAsync_DuringPendingAdvance_NoOps()
+    {
+        // End quiz retires the live enumerator, which is precisely what must
+        // never happen underneath an in-flight MoveNextAsync — a dispose during
+        // one faults on a thread-pool continuation no page can catch. Its state
+        // guards stale-pass mid-advance (HasStarted is true and IsFinished is
+        // still false), so the busy gate is the guard that actually holds.
+        var c = MakeGated(out var source, out _, out _, Decision(), Decision());
+        source.ReleaseNext();
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+
+        var pending = c.ContinueAsync(); // suspends at the gated advance
+
+        await c.EndQuizAsync();          // must no-op
+
+        Assert.False(c.IsFinished);
+
+        source.ReleaseNext();
+        await pending;
+        Assert.False(c.IsFinished);      // the advance completed normally
+        Assert.NotNull(c.Current);
+        Assert.Equal(0, c.SkippedCount); // and no abandon was recorded
+    }
+
+    [Fact]
+    public async Task EndQuizAsync_DuringPendingFold_NoOps()
+    {
+        // The other overlap window: a Continue suspended inside the stats fold
+        // still has Review set, so an End quiz there would fold the same
+        // submission a second time — the document has no Minus, and the gate is
+        // what keeps the fold count at one.
+        var c = MakeGated(out var source, out var sink, out _, Decision(), Decision());
+        source.ReleaseNext();
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+
+        var foldGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sink.RecordGate = foldGate.Task;
+
+        var pending = c.ContinueAsync(); // suspended inside RecordAsync; Review still set
+
+        await c.EndQuizAsync();          // must no-op
+
+        Assert.False(c.IsFinished);
+
+        foldGate.SetResult();
+        source.ReleaseNext();
+        await pending;
+        Assert.Equal(1, sink.TotalFolds);
     }
 
     // -----------------------------------------------------------------------

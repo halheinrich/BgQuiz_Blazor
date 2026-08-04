@@ -194,6 +194,7 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
   SidebarCollapseTests.cs           — fold, chevron state, how long it lasts
   SettingsTests.cs                  — board side by geometry; the fold setting
   MidQuizNavigationTests.cs         — Home's way back into a running quiz
+  EndQuizEarlyTests.cs              — ending a run before the source runs out
   BetaOnboardingTests.cs            — robots.txt over HTTP; the feedback mailto
   NotFoundTests.cs                  — unknown URL → 404 status + styled body
 ```
@@ -225,7 +226,8 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
                             (Solution mode, user's answer marked, dice click
                             bound to Continue) + verdict + Continue / Redo
                           Redo → RedoAsync(), back to answering, same problem
-                          IsFinished (on Continue / Skip) → Nav→/done
+                          "End quiz" (both states) → EndQuizAsync() → Nav→/done
+                          IsFinished (on Continue / Skip / End quiz) → Nav→/done
 
 /stats   Stats.razor   → read-only, live ScorePanel + ScoreBreakdown against the
                           same in-progress Controller + Back to quiz (Nav→/quiz)
@@ -252,8 +254,9 @@ transitions via `StateChanged`: each gated async transition (below) fires it
 exactly twice — busy-on, then busy-off with the end state in place — and the
 synchronous mutators (Submit, Redo) fire it once.
 
-**The transition gate.** The four async transitions — `StartAsync` /
-`RestartAsync` / `ContinueAsync` / `SkipCurrentAsync` — share one busy gate:
+**The transition gate.** The five async transitions — `StartAsync` /
+`RestartAsync` / `ContinueAsync` / `SkipCurrentAsync` / `EndQuizAsync` — share
+one busy gate:
 a second gesture arriving while a transition is in flight **no-ops** (it does
 not queue). The controller owns exactly one live enumerator, and an
 overlapped `MoveNextAsync` — or a dispose during one — throws on a thread-pool
@@ -300,6 +303,24 @@ the fake sink's `RecordGate`.
   records. No-op outside review.
 - **`SkipCurrentAsync`** — bypasses review and advances immediately, but only
   from answering (no-op while a `Review` is showing).
+- **`EndQuizAsync`** — the user's own exit from the run (issue #57), and the one
+  path that leaves the three-state flow rather than moving through it: it
+  finishes where it stands, with problems still unread. `IsFinished` flips,
+  `Current` and `Review` clear, and the live enumerator is released early (safe
+  because the gate guarantees no `MoveNextAsync` is in flight). No-op before
+  start and after finish. **Two settled semantics, no new scoring path:** from
+  *answering* the problem showing is **abandoned** — any in-progress input is
+  discarded, it records no answer, and it takes the same non-scoring outcome an
+  explicit Skip records (`SkippedCount++`), so Done's "problems shown" still
+  counts a problem the user saw; from *review* the answer **stands and folds**,
+  because it was submitted, scored, and read. Ending from review is a forward
+  exit, so it goes through the same `RecordReviewedSubmissionAsync` Continue uses
+  — which is what preserves the standing invariant that **every answer visible on
+  Done has reached the lifetime record** (until this method existed that held only
+  because Continue was the sole route there, and Done states it to the user; see
+  Pitfalls). The run is a **completed quiz**, ruled: `/done` is unchanged, with no
+  ended-early wording and no controller flag for one — the partial score is simply
+  the score of the problems answered.
 
 `ProblemReview` lives in `BgQuiz_Blazor.Client` (not BgGame_Lib): it is
 per-app UI state, and adding it to the submodule would cross the boundary. Its
@@ -362,7 +383,9 @@ an auto-skip shows as a rare gap — is documented on `ProblemNumber`.
 is the `IDecisionStatsSink` (production: `QuizStatsStore`), driven at exactly
 two points: `ResetAndAdvanceAsync` calls `BeginQuizAsync()` — the one shared
 path under Start *and* Restart, so the stats context binds there and nowhere
-else — and `ContinueAsync` calls `RecordAsync`. The sink never throws for
+else — and the **forward exits from review** fold via `RecordAsync`, through the
+one shared `RecordReviewedSubmissionAsync` (`ContinueAsync` and `EndQuizAsync`;
+there is one encoding of which history entry a review finalizes, not two). The sink never throws for
 stats trouble, so quiz flow is independent of whether stats are recording.
 
 **Filter ownership.** `StartAsync` takes a `FilterConfig` (the wire DTO
@@ -1250,7 +1273,13 @@ The asymmetry is pinned three times over: at the service seam
   latched play, since the component does not notify on undo). **Both Undo
   buttons are disabled only while `Controller.IsBusy`** — deliberately *not*
   on `_playEntry` being assigned (see the `@ref`-timing pitfall). Both rows
-  trail with a "Show stats" button in the `ms-auto` slot. **Review** (`Review`
+  trail with a "Show stats" button opening an `ms-auto` cluster that **"End
+  quiz"** closes (issue #57 — § `QuizController` for what that transition does).
+  It is one-click and immediate, ruled: the confirmation the issue first sketched
+  was dropped, so its placement at the far end of the row — as far from Submit /
+  Continue as the row allows — *is* the mitigation, and `PageTests` pins it
+  there. Adding it to **both** rows is also what leaves their relative heights
+  (and so the board's flex remainder) unchanged. **Review** (`Review`
   set): a read-only `BackgammonDiagram` in `DiagramMode.Solution` plus
   Continue / Redo / Show stats, built with `DiagramRequest.Builder.From(...)`
   and then the user's marks overridden from `Review` — `UserPlayIndex` for a
@@ -1266,9 +1295,9 @@ The asymmetry is pinned three times over: at the service seam
   answering; the legend (`* played · † your answer`) and outcome-coloured
   verdict at review. Its fixed height, and the board sizing that rides on it,
   are in Pitfalls. **Busy affordances:** every transition-driving button
-  (Submit, Skip, Undo, Continue, Redo) disables on `Controller.IsBusy` and the
-  container carries `app-busy` — the honest mirror of the gate, which would
-  no-op the clicks anyway; "Show stats" stays enabled (navigation only).
+  (Submit, Skip, Undo, Continue, Redo, End quiz) disables on `Controller.IsBusy`
+  and the container carries `app-busy` — the honest mirror of the gate, which
+  would no-op the clicks anyway; "Show stats" stays enabled (navigation only).
   Subscribes to `Controller.StateChanged` **and** `QuizStatsStore.
   StatusChanged` in `OnInitialized`, unsubscribes from both in `Dispose`;
   redirects to `/done` when `IsFinished` flips.
@@ -1642,8 +1671,9 @@ The primary-path smoke gate AGENTS.md mandates: scenarios driving the
 **published artifact in a real Chromium** via Microsoft.Playwright — the
 pick→done flows, the reload notice, the empty-filter banner, the pre-Start
 answer-type breakdown, the nb-NO comma-decimal guard, 404/titles, the sidebar
-collapse, the settings page, the Apply Mix gating and the pick busy
-affordance, and the stats-persistence suite. It covers the one layer the other
+collapse, the settings page, the mid-quiz round trip through Home and the early
+end of a run, the Apply Mix gating and the pick busy affordance, and the
+stats-persistence suite. It covers the one layer the other
 two structurally cannot: bUnit renders components in isolation and the
 `WebApplicationFactory` wire tests run the host pipeline in-process with no
 browser, so only the published artifact booting a real WASM runtime in a real
@@ -1997,13 +2027,19 @@ public (see Pitfalls). The externally visible surface is the route map:
   extension-bearing entry names precisely for this (pinned on both sides).
   Start-time exceptions (this, plus `FilterConfig.Build()` validation) surface
   on `Controller.StartAsync` and `Home.razor` banners them.
-- **Lifetime stats fold on Continue, never at Submit.** `RedoAsync` pops the
-  last submission *while `Review` is set*, and `DecisionStatsDocument` has no
-  `Minus` — folding at Submit would let a redone answer fold twice with no way
-  back. An answer is final only when the user moves forward past it, and the
-  deliberate flip side is that an answer abandoned in review (tab close,
-  Start/Restart without Continue) never folds — don't "fix" that into a
-  double-fold hazard. Skips, off-list plays, and auto-skipped pass positions
+- **Lifetime stats fold on the forward exits from review, never at Submit.**
+  `RedoAsync` pops the last submission *while `Review` is set*, and
+  `DecisionStatsDocument` has no `Minus` — folding at Submit would let a redone
+  answer fold twice with no way back. An answer is final only when the user moves
+  forward past it, and the deliberate flip side is that an answer abandoned in
+  review (tab close, Start/Restart without Continue) never folds — don't "fix"
+  that into a double-fold hazard. There are **two** forward exits, not one:
+  `ContinueAsync` and `EndQuizAsync` (issue #57), sharing one
+  `RecordReviewedSubmissionAsync`. Ending the run folds for a reason worth
+  keeping — **every answer visible on Done has reached the lifetime record**, an
+  invariant that held for free while Continue was the only route to Done, and
+  which Done's own "nothing here needs saving" line states to the user. A third
+  fold site needs that same argument; a *silent* one would break the line. Skips, off-list plays, and auto-skipped pass positions
   never reach the sink at all (producer contract).
 - **Never silently clear or rewrite the stored `QuizMix`.** The persisted mix
   (`xg_quizMix`) outlives any session that can't honor it: a refused weighted

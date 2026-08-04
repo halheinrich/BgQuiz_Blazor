@@ -883,6 +883,219 @@ public class QuizControllerTests
     }
 
     // -----------------------------------------------------------------------
+    //  EndQuizAsync — the user's own exit from a run (issue #57)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task EndQuizAsync_WhileAnswering_FinishesWithNothingShowing()
+    {
+        // The transition itself: the run ends where it stands, with problems
+        // still unread in the source. IsFinished is what the page redirects on,
+        // so this is the whole user-visible mechanism.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        Assert.NotNull(c.Current);
+
+        await c.EndQuizAsync();
+
+        Assert.True(c.IsFinished);
+        Assert.Null(c.Current);
+        Assert.Null(c.Review);
+        Assert.True(c.HasStarted); // the finished run is still THE run — Done reads its score
+    }
+
+    [Fact]
+    public async Task EndQuizAsync_WhileAnswering_KeepsAnsweredWorkAndCountsTheAbandonedProblemAsSkipped()
+    {
+        // The scoring half of the ruling. What was answered stands — that is the
+        // partial score Done shows — and the problem showing when the user quit
+        // is abandoned: it records no answer and takes the same non-scoring
+        // outcome an explicit Skip records, so Done's "problems shown" still
+        // counts a problem the user actually saw.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();          // problem 1 answered and finalized
+
+        await c.EndQuizAsync();           // quitting on problem 2, unanswered
+
+        Assert.Single(c.History);
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
+        Assert.Equal(1, c.Score.PlayDecisions.Correct);
+        Assert.Equal(1, c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task EndQuizAsync_FromReview_KeepsTheAnswerAndCountsNoSkip()
+    {
+        // Ending while reading a solution is a forward exit, not an
+        // abandonment: the answer was submitted and scored, so it stays in the
+        // score and nothing is counted as skipped on top of it.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        Assert.NotNull(c.Review);
+
+        await c.EndQuizAsync();
+
+        Assert.True(c.IsFinished);
+        Assert.Null(c.Review);
+        Assert.Single(c.History);
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
+        Assert.Equal(0, c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task EndQuizAsync_FromReview_FoldsTheReviewedAnswerExactlyOnce()
+    {
+        // The invariant this method must not break: every answer visible on Done
+        // has reached the lifetime record. Until End quiz existed that held only
+        // because Continue was the sole route to Done — and Done tells the user
+        // in as many words that nothing needs saving. So the reviewed answer
+        // folds here exactly as Continue would fold it, through the one shared
+        // fold path, and exactly once.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitPlay(AltPlay());
+        Assert.Equal(0, sink.TotalFolds); // submit alone still folds nothing
+        var submitted = c.History[^1];
+
+        await c.EndQuizAsync();
+
+        Assert.Same(submitted, Assert.Single(sink.Plays));
+        Assert.Empty(sink.Cubes);
+    }
+
+    [Fact]
+    public async Task EndQuizAsync_FromReview_OfAnOffListPlay_FoldsNothing()
+    {
+        // The off-list carve-out rides along unchanged: that submission added no
+        // history entry, so there is nothing to fold — and the skip it already
+        // recorded must not be double-counted by the abandon branch.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(UnknownPlay());
+        Assert.Equal(1, c.SkippedCount);
+
+        await c.EndQuizAsync();
+
+        Assert.Equal(0, sink.TotalFolds);
+        Assert.Equal(1, c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task EndQuizAsync_WhileAnswering_FoldsNothing()
+    {
+        // The abandoned problem was never answered, so it cannot reach the
+        // lifetime record — the same rule skips and pass positions follow.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        await c.EndQuizAsync();
+
+        Assert.Equal(0, sink.TotalFolds);
+    }
+
+    [Fact]
+    public async Task EndQuizAsync_BeforeStart_NoOp()
+    {
+        var c = Make();
+
+        await c.EndQuizAsync();
+
+        Assert.False(c.HasStarted);
+        Assert.False(c.IsFinished);
+        Assert.Equal(0, c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task EndQuizAsync_AfterFinish_NoOp()
+    {
+        // A run that ended on its own has no current problem to abandon; a
+        // second ending must not invent a skip for one.
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync(); // exhaust
+        Assert.True(c.IsFinished);
+
+        await c.EndQuizAsync();
+
+        Assert.Equal(0, c.SkippedCount);
+        Assert.Single(c.History);
+    }
+
+    [Fact]
+    public async Task EndQuizAsync_TwiceInARow_CountsOneSkip()
+    {
+        // The same guard from the other side: the first call finished the run,
+        // so the second finds nothing showing and does nothing.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        await c.EndQuizAsync();
+        await c.EndQuizAsync();
+
+        Assert.Equal(1, c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task EndQuizAsync_ThenRestart_ReplaysTheWholeSource()
+    {
+        // Ending releases the live enumerator early (the run is over and the
+        // gate guarantees no MoveNextAsync is in flight). Restart must be
+        // unaffected: it builds a fresh enumeration from the stored config, so
+        // the ended-early run leaves no mark on the one that follows.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.EndQuizAsync();
+
+        await c.RestartAsync();
+
+        Assert.False(c.IsFinished);
+        Assert.NotNull(c.Current);
+        Assert.Equal(0, c.SkippedCount);
+        Assert.Equal(QuizScore.Empty, c.Score);
+    }
+
+    [Fact]
+    public async Task EndQuizAsync_FiresStateChangedTwice_BusyThenDone()
+    {
+        // Gated like every other async transition, so pages observing IsBusy
+        // see exactly [busy, not-busy] — and the second fire carries the
+        // finished state the Quiz page redirects on.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var snapshots = new List<(bool Busy, bool Finished)>();
+        c.StateChanged += () => snapshots.Add((c.IsBusy, c.IsFinished));
+
+        await c.EndQuizAsync();
+
+        Assert.Equal([(true, false), (false, true)], snapshots);
+    }
+
+    // -----------------------------------------------------------------------
     //  RestartAsync
     // -----------------------------------------------------------------------
 

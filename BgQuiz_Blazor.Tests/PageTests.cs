@@ -2265,6 +2265,71 @@ public class PageTests : BunitContext
         Assert.Contains("Skip", cut.Markup);
     }
 
+    /// <summary>The Quiz page's End-quiz control (issue #57), by its visible label.</summary>
+    private static AngleSharp.Dom.IElement EndQuizButton(IRenderedComponent<QuizPage> cut) =>
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "End quiz");
+
+    [Fact]
+    public async Task Quiz_AnsweringState_EndQuizFinishesTheRunAndLandsOnDone()
+    {
+        // The wiring the controller test cannot see: the button exists in the
+        // answering row, its click reaches EndQuizAsync, and the page's existing
+        // IsFinished redirect carries the user to Done — an early end arriving
+        // there by exactly the same route a completed run does.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        var cut = Render<QuizPage>();
+        await EndQuizButton(cut).ClickAsync(new());
+
+        Assert.True(c.IsFinished);
+        Assert.EndsWith("/done", nav.Uri);
+    }
+
+    [Fact]
+    public async Task Quiz_ReviewState_AlsoOffersEndQuiz()
+    {
+        // Both action rows carry it. That is not cosmetic symmetry: reading a
+        // solution is one of the two moments a user decides they have had
+        // enough, and adding the button to both rows is also what keeps their
+        // relative heights — and so the board's flex remainder — unchanged.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        Assert.NotNull(c.Review);
+
+        var cut = Render<QuizPage>();
+
+        Assert.Contains(cut.FindAll("button"), b => b.TextContent.Trim() == "Continue");
+        Assert.NotNull(EndQuizButton(cut));
+    }
+
+    [Fact]
+    public async Task Quiz_EndQuiz_SitsAfterShowStatsInTheTrailingCluster()
+    {
+        // Placement is the entire mitigation for a control that acts on one
+        // click with no confirmation: it sits at the far end of the row, past
+        // Show stats, as far as the row allows from the button a user clicks
+        // over and over. Pinned so a later tidy-up cannot quietly move it next
+        // to Submit.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        var cut = Render<QuizPage>();
+        var labels = cut.FindAll("div.d-flex.flex-wrap.gap-2 button")
+            .Select(b => b.TextContent.Trim()).ToList();
+
+        Assert.Equal("End quiz", labels[^1]);   // the far end of the row...
+        Assert.Equal("Submit", labels[0]);      // ...and the answer control is at the near end
+    }
+
     /// <summary>
     /// The problem-position indicator's visible text, whitespace-normalized
     /// (the markup spreads "Problem <strong>N</strong> of <strong>M</strong>"
@@ -3096,7 +3161,10 @@ public class PageTests : BunitContext
     public async Task Quiz_AnsweringState_ShowStatsButton_OccupiesTrailingMsAutoSlot()
     {
         // Show stats now sits where Restart used to — the row's trailing
-        // ms-auto slot — rather than the standalone block above the branch.
+        // ms-auto slot — rather than the standalone block above the branch. It
+        // *opens* that trailing cluster rather than closing the row: End quiz
+        // trails it (issue #57), and the ms-auto is what pushes the pair away
+        // from the answer controls.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
@@ -3104,7 +3172,7 @@ public class PageTests : BunitContext
         var rowButtons = cut.FindAll("div.d-flex.flex-wrap.gap-2 button").ToList();
         var showStats = Assert.Single(rowButtons, b => b.TextContent.Trim() == "Show stats");
         Assert.True(showStats.ClassList.Contains("ms-auto"));
-        Assert.Same(showStats, rowButtons[^1]); // last button in the row
+        Assert.Same(showStats, rowButtons[^2]); // first button of the trailing cluster
     }
 
     [Fact]
@@ -3119,7 +3187,7 @@ public class PageTests : BunitContext
         var rowButtons = cut.FindAll("div.d-flex.flex-wrap.gap-2 button").ToList();
         var showStats = Assert.Single(rowButtons, b => b.TextContent.Trim() == "Show stats");
         Assert.True(showStats.ClassList.Contains("ms-auto"));
-        Assert.Same(showStats, rowButtons[^1]);
+        Assert.Same(showStats, rowButtons[^2]);
     }
 
     [Fact]
@@ -5261,6 +5329,10 @@ public class PageTests : BunitContext
                 .First(b => b.TextContent.Trim() == "Redo").HasAttribute("disabled"));
             Assert.False(cut.FindAll("button")
                 .First(b => b.TextContent.Trim() == "Show stats").HasAttribute("disabled"));
+
+            // End quiz is a transition too — the gate would no-op it anyway, so
+            // it disables with its neighbours rather than looking live.
+            Assert.True(EndQuizButton(cut).HasAttribute("disabled"));
         });
 
         foldGate.SetResult();

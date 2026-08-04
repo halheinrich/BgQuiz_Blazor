@@ -183,7 +183,23 @@
 
             @* Transition-driving buttons disable while the controller is busy
                (the gate would no-op them anyway — this is the honest mirror);
-               Show stats stays enabled: it only navigates. *@
+               Show stats stays enabled: it only navigates.
+
+               "End quiz" (issue #57) rides the trailing ms-auto cluster in both
+               rows, after Show stats — the far end of the row, as far from the
+               buttons a user clicks over and over (Submit, Continue) as the row
+               allows. That distance is the whole mitigation: the control is
+               one-click and acts immediately, ruled so deliberately, so there is
+               no confirmation step to catch a misclick. It is styled like its
+               neighbours rather than as a danger action, because ending a run
+               early is a normal way to finish one, not a destructive act — Done
+               receives it as the completed quiz it is.
+
+               It IS a transition (it retires the enumerator and finishes the
+               run), so unlike Show stats it disables on IsBusy. Adding one
+               button to *both* action rows leaves the two rows' relative heights
+               exactly as they were, which is what the board's flex remainder
+               depends on — see the status strip's fixed-height contract. *@
             @if (review is not null)
             {
                 <div class="d-flex flex-wrap gap-2">
@@ -197,6 +213,10 @@
                     </button>
                     <button class="btn btn-outline-secondary ms-auto" @onclick="ShowStats">
                         Show stats
+                    </button>
+                    <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
+                            @onclick="EndQuizAsync">
+                        End quiz
                     </button>
                 </div>
             }
@@ -256,6 +276,10 @@
                     }
                     <button class="btn btn-outline-secondary ms-auto" @onclick="ShowStats">
                         Show stats
+                    </button>
+                    <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
+                            @onclick="EndQuizAsync">
+                        End quiz
                     </button>
                 </div>
             }
