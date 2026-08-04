@@ -193,6 +193,7 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
   AnswerTypeBreakdownTests.cs       — the pre-Start breakdown: labels and zeros
   SidebarCollapseTests.cs           — fold, chevron state, how long it lasts
   SettingsTests.cs                  — board side by geometry; the fold setting
+  MidQuizNavigationTests.cs         — Home's way back into a running quiz
   BetaOnboardingTests.cs            — robots.txt over HTTP; the feedback mailto
   NotFoundTests.cs                  — unknown URL → 404 status + styled body
 ```
@@ -1221,6 +1222,17 @@ The asymmetry is pinned three times over: at the service seam
   that finds the `QuizLiveMarker` set with no live controller. The page
   **footer** carries `AppInfo.Version` (in a `#appVersion` span) and the beta
   feedback `mailto:` from the same `AppInfo` (§ that section).
+  **Back to quiz** (issue #58). The same conditional button `Help` and
+  `Settings` carry — same `HasStarted && !IsFinished` predicate, same markup,
+  same words — closing the last page reachable mid-quiz that had no way back. It
+  sits **outside** the busy `fieldset` (it navigates and drives no transition, so
+  it follows the Show-stats convention of staying live while the page works) and
+  outside the progressive-disclosure gate, so a mid-quiz Clear cannot take the
+  way back with it. Nothing else is added: a mid-quiz Home visit is already safe
+  by design — files are read at Start only, and Clear touches only the picked
+  slot — so there is no guard and no warning. `PageTests` pins the predicate's
+  two halves and the fieldset-independence; `MidQuizNavigationTests` drives the
+  round trip in a browser.
 - **`Quiz.razor`** — mirrors the controller's three-state flow, branching on
   `Controller.Review`. **Answering** (`Review` null): routes the board region
   by `Current.Decision.IsCube` over

@@ -122,6 +122,16 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// reads it live at Start to decide whether to wrap the picked set in a
 /// <c>ShuffledProblemSetSource</c>.
 /// </para>
+///
+/// <para>
+/// Below the setup surface — outside the busy <c>fieldset</c>, since it only
+/// navigates — sits the same conditional <b>"Back to quiz"</b> button
+/// <see cref="Help"/> and <see cref="Settings"/> carry, on the same
+/// <c>HasStarted &amp;&amp; !IsFinished</c> predicate (issue #58). Home is the
+/// third page a user can reach mid-quiz and the last one that had no way back.
+/// The visit itself was always safe — see <see cref="BackToQuiz"/> — so the
+/// affordance is the whole change.
+/// </para>
 /// </summary>
 public partial class Home : ComponentBase, IDisposable
 {
@@ -1191,5 +1201,25 @@ public partial class Home : ComponentBase, IDisposable
             // failure, etc. Surface to the user rather than faulting the app.
             _startError = ex.Message;
         }
+    }
+
+    /// <summary>
+    /// Return to the problem a live quiz is sitting on (issue #58) — the same
+    /// one-line handler behind the identical affordance on <see cref="Help"/>
+    /// and <see cref="Settings"/>, rendered under the same
+    /// <c>HasStarted &amp;&amp; !IsFinished</c> predicate.
+    ///
+    /// <para>
+    /// Navigation only: the quiz state it returns to is app-scoped and was never
+    /// at risk from the visit — the picked files are read at Start, so nothing on
+    /// this page's setup surface reaches a running quiz (<c>EndCurrentSetupAsync</c>
+    /// touches only the JS <i>picked</i> slot, pinned). There is deliberately no
+    /// guard, no confirmation and no warning around the round trip; what was
+    /// missing was only the way back.
+    /// </para>
+    /// </summary>
+    private void BackToQuiz()
+    {
+        Nav.NavigateTo("/quiz");
     }
 }

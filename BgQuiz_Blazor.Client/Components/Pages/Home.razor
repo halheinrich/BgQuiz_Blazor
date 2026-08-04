@@ -487,6 +487,30 @@
 
     </fieldset>
 
+    @* The way back to a running quiz (issue #58). Home is the third page
+       reachable mid-quiz with no way back — Help and Settings already carry
+       this affordance, and this is the same predicate, the same markup, and the
+       same words, copied rather than designed for the reason Settings copied it
+       from Help: a user who has met the affordance once should meet the same one
+       here.
+
+       Mid-quiz visits to Home are already safe by design — the picked files are
+       read at Start only, and the setup surface's own gestures (Clear, re-pick)
+       are pinned not to disturb a running quiz — so this adds a way back and
+       nothing else. No guard, no warning.
+
+       OUTSIDE the busy fieldset, deliberately: this navigates and drives no
+       transition, so it follows the Show-stats / Back-to-setup convention of
+       staying live while the page works. Inside, the fieldset's disabled would
+       take the way back away exactly while a long parse makes a user most likely
+       to want it. *@
+    @if (Controller.HasStarted && !Controller.IsFinished)
+    {
+        <button class="btn btn-primary mt-3" @onclick="BackToQuiz">
+            Back to quiz
+        </button>
+    }
+
     @* Version + beta feedback, one footer line. The link sits here because the
        version is what makes a report actionable and this is where the version
        already is — a tester reads the build they are on and mails about it in

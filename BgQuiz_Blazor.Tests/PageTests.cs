@@ -1109,6 +1109,70 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_MidQuiz_OffersBackToQuiz_AndItNavigates()
+    {
+        // Issue #58: Home was the third page reachable mid-quiz — after Help and
+        // Settings, which already carry this — and the last one with no way back.
+        // Same predicate, same markup, same words as its two siblings.
+        //
+        // Rendered with NO folder picked on purpose: a mid-quiz Home usually
+        // still holds the pick, but the affordance must not sit behind the
+        // progressive-disclosure gate, which is where every other control on
+        // this page lives. A user who Cleared the pick mid-quiz is exactly the
+        // one who needs the way back.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        Assert.True(c.HasStarted && !c.IsFinished);
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        var cut = Render<HomePage>();
+        var back = cut.FindAll("button").First(b => b.TextContent.Trim() == "Back to quiz");
+
+        // Outside the busy fieldset: it navigates and drives no transition, so
+        // it follows the Show-stats / Back-to-setup convention of staying live
+        // while the page works. Inside, the native disabled would take the way
+        // back away exactly while a long parse makes it most wanted.
+        Assert.Null(back.Closest("fieldset"));
+
+        await back.ClickAsync(new());
+        Assert.EndsWith("/quiz", nav.Uri);
+    }
+
+    [Fact]
+    public void Home_NoQuizInProgress_OffersNoBackButton()
+    {
+        // The ordinary cold visit: there is no quiz to go back to, so the
+        // affordance is simply absent — Home never redirects either way.
+        WithController();
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+
+        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Back to quiz");
+    }
+
+    [Fact]
+    public async Task Home_QuizFinished_OffersNoBackButton()
+    {
+        // The other half of the predicate, and the half a HasStarted-only test
+        // would miss: a finished quiz has no answering state to return to.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync(); // exhausts → finished
+        Assert.True(c.IsFinished);
+
+        var cut = Render<HomePage>();
+
+        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Back to quiz");
+    }
+
+    [Fact]
     public async Task Home_FallbackInputChange_CollectsFilesIntoHolder()
     {
         // The fallback landing: the hidden input's change event collects the
