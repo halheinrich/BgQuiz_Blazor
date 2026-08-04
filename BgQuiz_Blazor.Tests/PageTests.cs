@@ -1264,6 +1264,36 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_ClearFilters_ClearsAStaleSaveRefusal()
+    {
+        // The save refusal is mooted by a commit, not only by an edit: the
+        // applied-state report fires on every buffer-affecting gesture, so the
+        // handler clears the notice for commits too. "Clear filters" is the
+        // gesture that reaches this state — it commits without requiring a
+        // parseable pattern, where Apply is disabled by exactly the condition
+        // that produced the refusal, so a user holding an invalid pattern can
+        // commit their way out but not Apply their way out.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.FiltersJson = null;
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        await ExpandMoreFiltersAsync(cut);
+        cut.Find("#positionPattern").Input("[6,2"); // unparseable → save refused
+        cut.Find("#saveFilterName").Input("Bad");
+        await ClickSavedFilterButtonByTextAsync(cut, "Save");
+        Assert.Contains("position pattern is invalid", cut.Markup);
+
+        await cut.Find("#clearFilters").ClickAsync(new());
+
+        Assert.DoesNotContain("position pattern is invalid", cut.Markup);
+    }
+
+    [Fact]
     public async Task Home_CorruptFiltersFile_ShowsNoticeHidesPanel_FileUntouched()
     {
         // A corrupt bgquiz-filters.json degrades to LoadFailed: the panel is
