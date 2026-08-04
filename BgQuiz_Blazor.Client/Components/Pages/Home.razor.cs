@@ -770,15 +770,19 @@ public partial class Home : ComponentBase, IDisposable
     /// files the filter had never been weighed against.
     ///
     /// <para>
-    /// Two writes, and the first is <b>not</b> redundant.
-    /// <see cref="FilterPanel.LoadConfig"/> raises the panel's dirty signal (→
-    /// <see cref="HandleFiltersDirty"/> → <see cref="AppliedFilter.Clear"/>,
-    /// which also drops any shown/in-flight match count), so where a panel is
-    /// mounted the explicit <see cref="AppliedFilter.Clear"/> merely runs first.
-    /// It carries the invariant in the case where <i>no panel is mounted</i>: the
-    /// panel sits behind the progressive-disclosure gate, so a gesture made from
-    /// the no-folder state has none to call, and relying on that callback would
-    /// leave a filter applied from an earlier setup still satisfying the gate.
+    /// Two writes, and the first is <b>not</b> redundant — it is the only one
+    /// that clears the applied state. <see cref="FilterPanel.LoadConfig"/> is a
+    /// staging gesture like any other, so it raises the panel's applied-state
+    /// report; but that report is about the <i>panel</i>, and it says nothing
+    /// useful here. It cannot be relied on (a gesture made from the no-folder
+    /// state has no mounted panel to raise it, and a filter applied in an
+    /// earlier setup would keep satisfying the gate), and where a panel
+    /// <i>is</i> mounted it can actively disagree: staging the defaults into a
+    /// panel that had committed the defaults is a genuinely clean state, which
+    /// the panel reports as such. <see cref="HandleAppliedStateChanged"/>
+    /// therefore ignores every report made with no folder held, which is exactly
+    /// the state this method runs in — leaving the
+    /// <see cref="AppliedFilter.Clear"/> below the last word on both paths.
     /// </para>
     ///
     /// <para>
@@ -839,8 +843,9 @@ public partial class Home : ComponentBase, IDisposable
     /// earlier ruling that <c>Clear</c> should leave it alone as "edit-coupled,
     /// not pick-coupled". Under one shared reset the applied filter is coupled to
     /// neither gesture in particular but to the <i>setup</i>: ending one ends it.
-    /// (It stays edit-coupled as well — <see cref="HandleFiltersDirty"/> clears it
-    /// on any edit. The two rules are independent, not duplicates.) On the
+    /// (It stays edit-coupled as well — <see cref="HandleAppliedStateChanged"/>
+    /// clears it while the panel reports uncommitted edits. The two rules are
+    /// independent, not duplicates.) On the
     /// <c>Clear</c> path this is invisible in the UI, since the panel and Start
     /// are both behind the disclosure gate a cleared folder closes; the value is
     /// that there is now one reset to reason about instead of two that differed
@@ -902,22 +907,124 @@ public partial class Home : ComponentBase, IDisposable
         _countRequestId++;
     }
 
+    /// <summary>
+    /// The panel's <i>Apply</i> (and <i>Clear filters</i>) commit — the gesture
+    /// that moves the committed config.
+    ///
+    /// <para>
+    /// It records the applied state itself rather than leaving that to the
+    /// applied-state report that follows it (<see cref="HandleAppliedStateChanged"/>,
+    /// which re-affirms the same config a moment later). Two independent rules,
+    /// not one written twice: <i>a commit applies the filter</i>, and <i>a panel
+    /// whose buffers equal what it committed is still applied</i>. The first
+    /// must not depend on the second having fired.
+    /// </para>
+    /// </summary>
     private async Task HandleFilterConfigApplied(FilterConfig cfg)
     {
-        // The user clicked Apply: record the deliberate applied state on the
-        // scoped holder so it survives navigate-back (not a transient field),
-        // stamped with the pick it was applied against — the fact the mix gate
-        // reads (see MixApplyEnabled).
+        // Record the deliberate applied state on the scoped holder so it
+        // survives navigate-back (not a transient field), stamped with the pick
+        // it was applied against — the fact the mix gate reads (see
+        // MixApplyEnabled).
         AppliedFilter.Set(cfg, Folder.PickGeneration);
         _startError = null;
         _noMatchNotice = null;
+        await ShowMatchSummaryAsync(cfg);
+    }
 
-        // Show what this config matches — how many decisions, and what kinds of
-        // answer they call for. The first pass after a pick parses the corpus
-        // once and warms the shared cache, so the Start that follows is instant
-        // — the count is not a separate cost. Summarizing lives in the
-        // controller; Home only stamps a request id (so a stale result can't
-        // land) and drives the busy affordance.
+    /// <summary>
+    /// The panel's applied-state report, raised after <em>every</em> gesture
+    /// that touches its edit buffers (a control edit, a
+    /// <see cref="FilterPanel.LoadConfig"/> staging, Apply, Clear filters). The
+    /// payload is the committed <see cref="FilterConfig"/> the buffers now
+    /// equal, or <c>null</c> when they equal none — so it is the whole answer to
+    /// "is the panel's selection still the one the user applied?", which is the
+    /// filter half of the start gate.
+    ///
+    /// <para>
+    /// <b>Handled statelessly, as the producer's contract requires.</b> The
+    /// event is per-gesture, not transition-only: it re-states the current
+    /// answer every time rather than firing only on a change, because the
+    /// panel's committed config dies with the panel while this page's applied
+    /// state survives navigation. So this assigns from the payload and never
+    /// diffs it against a remembered previous one.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>A clean report re-applies — the point of the whole wiring.</b> An edit
+    /// undone back to the applied values is clean again, and the panel says so;
+    /// Start re-enables without a re-Apply. It has to: the panel's own Apply is
+    /// disabled in exactly that state (there is nothing new to commit), so a
+    /// consumer that only ever <i>cleared</i> on an edit would wedge the user
+    /// behind two disabled buttons.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>No folder held ⇒ nothing to apply against.</b> The panel lives behind
+    /// the progressive-disclosure gate, so every <i>user</i> gesture reaches
+    /// here with a folder in hand. The one report that doesn't is
+    /// <see cref="ResetFilterSurface"/>'s staging, which runs after the folder
+    /// is already gone — and staging defaults into a panel that committed the
+    /// defaults reports <i>clean</i>, which would otherwise re-apply the filter
+    /// the reset had just cleared (and count matches against a corpus being torn
+    /// down). Refusing here is what keeps that reset's explicit
+    /// <see cref="AppliedFilter.Clear"/> the last word.
+    /// </para>
+    /// </summary>
+    private async Task HandleAppliedStateChanged(FilterConfig? config)
+    {
+        if (!Folder.HasFiles) return;
+
+        // Any gesture on the panel moots a stale save-as refusal — fixing the
+        // offending position pattern is itself one, and so is committing.
+        _filterSaveError = null;
+
+        if (config is null)
+        {
+            // Uncommitted edits pending: a half-edited set re-gates Start, so it
+            // must clear the applied state, not just a local flag. Any shown or
+            // in-flight match summary described the config now abandoned; the
+            // bumped id discards a late-landing result.
+            AppliedFilter.Clear();
+            _matchSummary = null;
+            _countRequestId++;
+            return;
+        }
+
+        // Idempotence: the report is per-gesture, and a commit raises it right
+        // after HandleFilterConfigApplied has already applied the same config
+        // and counted it — so re-running the summary here would count the same
+        // pool twice (two parses, two busy flashes). Skip the side effect when
+        // this config is already the applied one *and* its count is current;
+        // re-affirming the holder itself is free and keeps this the one handler
+        // that always mirrors the payload.
+        var summaryIsCurrent = config.Equals(AppliedFilter.Config)
+                               && (_matchSummary is not null || _isCounting);
+
+        // The live generation, deliberately: the report re-affirms the config
+        // for the pick it is being made against, which is the same pick the
+        // Apply was made for.
+        AppliedFilter.Set(config, Folder.PickGeneration);
+        if (summaryIsCurrent) return;
+
+        // Clean again after an edit — restore the count the edit dropped.
+        // Without this the user has no way back to it: Apply is disabled
+        // precisely because there is nothing new to apply.
+        await ShowMatchSummaryAsync(config);
+    }
+
+    /// <summary>
+    /// Show what <paramref name="cfg"/> matches — how many decisions, and what
+    /// kinds of answer they call for. The first pass after a pick parses the
+    /// corpus once and warms the shared cache, so the Start that follows is
+    /// instant — the count is not a separate cost. Summarizing lives in the
+    /// controller; Home only stamps a request id (so a stale result can't land)
+    /// and drives the busy affordance. Shared by the two paths that can leave
+    /// the panel clean — a commit and a re-affirm — so the count is defined
+    /// once.
+    /// </summary>
+    private async Task ShowMatchSummaryAsync(FilterConfig cfg)
+    {
         var requestId = ++_countRequestId;
         _matchSummary = null;
         _isCounting = true;
@@ -948,28 +1055,16 @@ public partial class Home : ComponentBase, IDisposable
         });
     }
 
-    private void HandleFiltersDirty()
-    {
-        // Any filter edit re-gates Start: a half-edited, un-applied set must
-        // clear the applied state, not just a local flag.
-        AppliedFilter.Clear();
-        // Editing also moots a stale save-as refusal — fixing the offending
-        // position pattern is itself an edit, so the notice clears with it.
-        _filterSaveError = null;
-        // …and invalidates any shown or in-flight match summary (it described
-        // the now-abandoned config); the bumped id discards a late-landing
-        // result.
-        _matchSummary = null;
-        _countRequestId++;
-    }
-
     /// <summary>
     /// Load a saved filter into the panel: resolve the config from the store's
     /// collection and stage it via <see cref="FilterPanel.LoadConfig"/>. That
-    /// staging raises the panel's dirty signal (→ <see cref="HandleFiltersDirty"/>
-    /// → <see cref="AppliedFilter.Clear"/>), so Start re-gates until the user
-    /// Applies — a load is a bulk edit, not a commit. Read-only over the
-    /// in-memory collection; nothing is persisted.
+    /// staging raises the panel's applied-state report (→
+    /// <see cref="HandleAppliedStateChanged"/>), normally <c>null</c> — a load is
+    /// a bulk edit, not a commit — so Start re-gates until the user Applies.
+    /// Loading the filter that is <i>already</i> applied stages exactly the
+    /// committed config, which reports clean and leaves Start armed: nothing
+    /// changed, so nothing re-gates. Read-only over the in-memory collection;
+    /// nothing is persisted.
     /// </summary>
     private void HandleLoadSavedFilter(string name)
     {

@@ -579,12 +579,13 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_FiltersDirty_ClearsMatchCount()
+    public async Task Home_PanelReportsUncommittedEdits_ClearsMatchCount()
     {
         // Editing any filter control invalidates the shown count — it described
-        // the now-abandoned config — so the notice disappears until re-Apply.
-        // The breakdown is part of that same summary and goes with it: a stale
-        // make-up of an abandoned pool is exactly as wrong as a stale number.
+        // the now-abandoned config — so the notice disappears until the panel
+        // reports clean again (a re-Apply, or the edit undone). The breakdown is
+        // part of that same summary and goes with it: a stale make-up of an
+        // abandoned pool is exactly as wrong as a stale number.
         WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -600,7 +601,7 @@ public class PageTests : BunitContext
         Assert.Contains("decisions match your filters", cut.Markup);
         Assert.Contains("By answer type", cut.Markup);
 
-        await cut.InvokeAsync(() => fp.Instance.OnFilterDirty.InvokeAsync());
+        await ReportUncommittedEditsAsync(cut);
 
         Assert.DoesNotContain("decisions match your filters", cut.Markup);
         Assert.DoesNotContain("By answer type", cut.Markup);
@@ -1156,8 +1157,9 @@ public class PageTests : BunitContext
     public async Task Home_LoadSavedFilter_StagesConfigIntoPanel_AndRegatesStart()
     {
         // The load chain the arc turns on: clicking a saved filter's Load stages
-        // its config into the FilterPanel as a bulk edit (→ OnFilterDirty), which
-        // clears AppliedFilter and re-gates Start until the user re-Applies.
+        // its config into the FilterPanel as a bulk edit. The staged config is not
+        // the committed one, so the panel's applied-state report carries null,
+        // which clears AppliedFilter and re-gates Start until the user re-Applies.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
@@ -1180,7 +1182,8 @@ public class PageTests : BunitContext
         // The config staged into the panel — its players input now shows the value.
         Assert.Equal("Magriel",
             cut.Find("input[placeholder='e.g. Hal, Magriel']").GetAttribute("value"));
-        // …and the load's dirty signal cleared the applied filter, re-gating Start.
+        // …and the load's null applied-state report cleared the applied filter,
+        // re-gating Start.
         startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.True(startBtn.HasAttribute("disabled"));
     }
@@ -1432,12 +1435,13 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_FiltersDirty_ClearsAppliedState_DisablesStart()
+    public async Task Home_PanelReportsUncommittedEdits_ClearsAppliedState_DisablesStart()
     {
         // Gate semantics guard: "applied" means the user deliberately applied, not
-        // merely that a config exists. Editing any filter control fires the
-        // panel's dirty signal, which must clear the applied holder so a
-        // half-edited set re-disables Start — even with a file still picked.
+        // merely that a config exists. Editing any filter control makes the panel
+        // report that its buffers equal no committed config, which must clear the
+        // applied holder so a half-edited set re-disables Start — even with a file
+        // still picked.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder();
         WithAppliedFilter(new FilterConfig()); // start from an applied, enabled state
@@ -1449,12 +1453,136 @@ public class PageTests : BunitContext
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.False(startBtn.HasAttribute("disabled"));
 
-        // User edits a filter → dirty → applied state cleared → disabled again.
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() => fp.Instance.OnFilterDirty.InvokeAsync());
+        // User edits a filter → nothing committed matches → applied state
+        // cleared → disabled again.
+        await ReportUncommittedEditsAsync(cut);
 
         startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.True(startBtn.HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_PanelReportsCommittedConfig_ReAppliesIt_EnablesStart()
+    {
+        // The other direction of the same wire, and the reason the migration
+        // exists: a *clean* report re-applies. The panel raises this whenever its
+        // buffers equal what it committed — including an edit undone back to the
+        // applied values — and Home must arm Start from it, because the panel's
+        // own Apply is disabled in exactly that state (nothing new to commit).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ReportUncommittedEditsAsync(cut); // nothing applied: Start gated
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+
+        var applied = new FilterConfig { Players = ["Magriel"] };
+        await ReportCommittedConfigAsync(cut, applied);
+
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+        // Re-set from the payload, not merely un-cleared: the config the quiz
+        // would be built from is the one the panel reported.
+        Assert.Equal(applied, Services.GetRequiredService<AppliedFilter>().Config);
+    }
+
+    [Fact]
+    public void Home_BindsThePanelsAppliedStateCallback()
+    {
+        // The migration's own proof, and it has to be render-level: a binding
+        // left on the panel's *previous* parameter name compiles clean and
+        // throws only when the panel is first rendered with it. Asserting
+        // HasDelegate goes one better than "it rendered" — it pins that Home
+        // supplies the handler rather than letting the attribute splat.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var panel = Render<HomePage>().FindComponent<FilterPanel>().Instance;
+
+        Assert.True(panel.OnAppliedStateChanged.HasDelegate);
+        Assert.True(panel.OnFilterConfigChanged.HasDelegate);
+    }
+
+    [Fact]
+    public async Task Home_UndoingAnEdit_ReArmsStartAndRestoresTheMatchCount()
+    {
+        // The scenario the migration exists for, driven through the panel's own
+        // controls: apply → edit → Start re-gates → undo the edit → the panel is
+        // clean again and says so, so Start re-arms with *no* re-Apply. It has to
+        // be without one — the panel's Apply is disabled whenever the buffers
+        // equal the last-committed config, so the old "re-click Apply to
+        // recover" gesture no longer exists and an edit-then-undo would strand
+        // the user behind two dead buttons.
+        //
+        // The match count is the other half of the same trap. The edit dropped it
+        // (it described the abandoned config) and Apply can't bring it back, so
+        // the re-affirm must recompute it, not merely leave it gone.
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = OneFileOutcome();
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        // Commit a distinctive config through the panel's own Apply button, so
+        // what comes back on the undo is identifiably the committed one. Players
+        // sits behind the panel's disclosure.
+        await ExpandMoreFiltersAsync(cut);
+        cut.Find("input[placeholder='e.g. Hal, Magriel']").Input("Magriel");
+        await ClickApplyFilterAsync(cut);
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains("decisions match your filters", cut.Markup);
+
+        // Edit away from it: the buffers now equal no committed config.
+        await cut.Find("input[placeholder='e.g. Hal, Magriel']")
+                 .InputAsync(new ChangeEventArgs { Value = "Magriel, Robertie" });
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.DoesNotContain("decisions match your filters", cut.Markup);
+
+        // Undo the edit — nothing else.
+        await cut.Find("input[placeholder='e.g. Hal, Magriel']")
+                 .InputAsync(new ChangeEventArgs { Value = "Magriel" });
+
+        // The report is fire-and-forget on the panel's side and the recount runs
+        // through the busy affordance's yield, so wait for it rather than
+        // sampling the markup the dispatch happened to return on.
+        cut.WaitForAssertion(() =>
+        {
+            Assert.False(StartButton(cut).HasAttribute("disabled"));
+            Assert.Contains("decisions match your filters", cut.Markup);
+        });
+        Assert.Equal(["Magriel"],
+            Services.GetRequiredService<AppliedFilter>().Config!.Players);
+    }
+
+    [Fact]
+    public async Task Home_Apply_CountsTheMatchesOnce()
+    {
+        // Idempotence at the seam where the two callbacks overlap: a commit
+        // raises OnFilterConfigChanged *and* then the applied-state report
+        // carrying the config it just committed. Both paths can summarize, so
+        // without the already-current guard one Apply would parse the corpus
+        // twice and flash the busy affordance twice. EnumerateCallCount is the
+        // observable — SummarizeMatchesAsync enumerates the source once per call.
+        var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
+        Services.AddSingleton(
+            new QuizController((_, _) => fake, new FakeDecisionStatsSink(), TimeProvider.System));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = OneFileOutcome();
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await ClickApplyFilterAsync(cut);
+
+        Assert.Contains("decision matches your filters", cut.Markup);
+        Assert.Equal(1, fake.EnumerateCallCount);
     }
 
     [Fact]
@@ -1565,6 +1693,39 @@ public class PageTests : BunitContext
         Assert.Contains("Apply the filters above to enable Start", cut.Markup);
         // …and the count that described the old corpus is gone.
         Assert.DoesNotContain("decisions match your filters", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_RePickAfterApplyingTheDefaults_StillResetsTheAppliedFilter()
+    {
+        // The same rule as above, on the path where the panel's applied-state
+        // report actively contradicts it. The reset stages defaults into the
+        // still-mounted panel, and a panel that committed the defaults reports
+        // that staging as *clean* — true about the panel, and exactly wrong
+        // here: the folder is already gone. Mirroring it would re-apply the
+        // filter the reset had just cleared, and the pick would land with Start
+        // armed against a corpus the filter was never weighed against.
+        //
+        // The case above escapes this by accident (its applied config carries a
+        // player, so the staged defaults differ from it). Applying the panel as
+        // it comes — the commonest gesture there is — does not.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = OneFileOutcome("First", "first.xg");
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await ClickApplyFilterAsync(cut); // commits the defaults, unedited
+        Assert.True(Services.GetRequiredService<AppliedFilter>().IsApplied);
+
+        _folderAccess.NextPickOutcome = OneFileOutcome("Second", "second.xg");
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied);
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains("Apply the filters above to enable Start", cut.Markup);
+        Assert.DoesNotContain("decision matches your filters", cut.Markup);
     }
 
     [Fact]
@@ -3864,6 +4025,29 @@ public class PageTests : BunitContext
                                  .Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
 
     /// <summary>
+    /// Raise the panel's applied-state report with <c>null</c> — "the edit
+    /// buffers equal no committed config", what it says after any edit that
+    /// moves the selection off what was applied. The synthesized form of a
+    /// control edit, for tests about the <i>gate</i> rather than about a
+    /// particular control (contrast <see cref="ClickApplyFilterAsync"/>, and the
+    /// real-control edits in
+    /// <see cref="Home_UndoingAnEdit_ReArmsStartAndRestoresTheMatchCount"/>).
+    /// </summary>
+    private static Task ReportUncommittedEditsAsync(IRenderedComponent<HomePage> cut) =>
+        cut.InvokeAsync(() => cut.FindComponent<FilterPanel>()
+                                 .Instance.OnAppliedStateChanged.InvokeAsync(null));
+
+    /// <summary>
+    /// Raise the panel's applied-state report with <paramref name="config"/> —
+    /// "the edit buffers equal this committed config", what it says after an
+    /// Apply, and again whenever a later gesture leaves the buffers back at it.
+    /// </summary>
+    private static Task ReportCommittedConfigAsync(
+        IRenderedComponent<HomePage> cut, FilterConfig config) =>
+        cut.InvokeAsync(() => cut.FindComponent<FilterPanel>()
+                                 .Instance.OnAppliedStateChanged.InvokeAsync(config));
+
+    /// <summary>
     /// Apply through the <see cref="FilterPanel"/>'s own <i>Apply Filter</i>
     /// button — the real gesture, so the config that reaches
     /// <see cref="AppliedFilter"/> is the one the panel built from its controls.
@@ -3906,9 +4090,9 @@ public class PageTests : BunitContext
     /// any test driving one of those controls has to expand first. Error-range
     /// edits, Apply, and Clear filters need no expansion.
     /// <para>
-    /// Toggling is navigation, not an edit: the panel raises no
-    /// <c>OnFilterDirty</c> for it, so calling this never disturbs a test's
-    /// applied/dirty expectations.
+    /// Toggling is navigation, not an edit: the panel raises no applied-state
+    /// report for it, so calling this never disturbs a test's applied/dirty
+    /// expectations.
     /// </para>
     /// </summary>
     private static Task ExpandMoreFiltersAsync(IRenderedComponent<HomePage> cut) =>
@@ -4054,8 +4238,7 @@ public class PageTests : BunitContext
         await ApplyFiltersAsync(cut);
         Assert.False(MixApplyDisabled(cut));
 
-        await cut.InvokeAsync(() =>
-            cut.FindComponent<FilterPanel>().Instance.OnFilterDirty.InvokeAsync());
+        await ReportUncommittedEditsAsync(cut);
 
         Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied); // Start re-gated…
         Assert.True(StartButton(cut).HasAttribute("disabled"));

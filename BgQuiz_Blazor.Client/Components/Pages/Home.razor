@@ -297,7 +297,7 @@
 
     <FilterPanel @ref="_filterPanel"
                  OnFilterConfigChanged="HandleFilterConfigApplied"
-                 OnFilterDirty="HandleFiltersDirty" />
+                 OnAppliedStateChanged="HandleAppliedStateChanged" />
 
     @* Match summary on Apply: how many decisions the applied filters selected —
        the pre-mix pool the quiz (and any weighted mix) draws from — and what

@@ -793,9 +793,11 @@ The per-app (`Scoped`, one-per-tab in WASM) holder for the `FilterConfig` the
 user has **deliberately applied** on `Home` — the sibling of `PickedProblemFolder`
 for the filter half of the start gate. `Home.razor` writes it:
 `Set(config, Folder.PickGeneration)` when the panel raises
-`OnFilterConfigChanged` (Apply / Clear filters), `Clear()` when
-it raises `OnFilterDirty` (any control edit). `IsApplied` (= `Config is not
-null`) and `Config` are read only by `Home` (`CanStart`, `StartQuizAsync`).
+`OnFilterConfigChanged` (Apply / Clear filters), and again — or `Clear()` —
+from the panel's `OnAppliedStateChanged` report, which after *every*
+buffer-affecting gesture carries either the committed config the buffers now
+equal or `null` when they equal none. `IsApplied` (= `Config is not null`)
+and `Config` are read only by `Home` (`CanStart`, `StartQuizAsync`).
 
 **Two facts, two lifetimes.** Beside the config, `Set` records *which pick* the
 Apply was made for, answered by `WasAppliedFor(pickGeneration)` — "has this
@@ -817,8 +819,13 @@ re-derives `CanStart` from the persisted holders instead of resetting to
 "not applied" and forcing a needless re-click of Apply.
 
 **Gate semantics — applied, not merely present.** `IsApplied` means the user
-took the Apply action, so a half-edited set must clear it (`OnFilterDirty →
-Clear`). The interaction with `FilterPanel`'s localStorage restore is safe by
+took the Apply action, so a half-edited set must clear it (a `null`
+applied-state report → `Clear`) — and an edit *undone* back to the applied
+values makes the panel report the committed config again, which re-`Set`s it.
+That direction is not a nicety: the panel disables its own Apply whenever the
+buffers equal what it committed, so without the re-`Set` an edit-then-undo
+would leave Start and Apply both dead (issue #49). The interaction with
+`FilterPanel`'s localStorage restore is safe by
 construction: restore writes the panel's own fields directly and raises
 **neither** callback, so it can't spuriously mark applied or clear an existing
 applied state — the holder is the sole authority on "applied".
@@ -1328,11 +1335,16 @@ The asymmetry is pinned three times over: at the service seam
   fresh-load behavior, now routine. `AppliedFilter` is reset here too: under
   one shared reset it is coupled to the *setup* (superseding the earlier
   "edit-coupled, not pick-coupled" ruling), and it stays edit-coupled as
-  well via `HandleFiltersDirty` — two independent rules, not duplicates. The
-  explicit `AppliedFilter.Clear()` is **not** redundant with `LoadConfig`'s
-  dirty signal: a gesture made from the no-folder state has no panel to
-  call, and a filter applied in an earlier setup would keep satisfying the
-  gate. `LoadConfig(new FilterConfig())` stages without persisting, so the
+  well via `HandleAppliedStateChanged` — two independent rules, not
+  duplicates. The explicit `AppliedFilter.Clear()` is the **only** thing
+  that clears it here, and cannot be replaced by the report `LoadConfig`
+  raises: a gesture made from the no-folder state has no panel to raise one
+  (and a filter applied in an earlier setup would keep satisfying the gate),
+  while a panel that *is* mounted and had committed the defaults reports the
+  staged defaults as **clean** — which, mirrored, would re-apply the filter
+  the reset just cleared. `HandleAppliedStateChanged` therefore ignores every
+  report made with no folder held, which is exactly this method's state.
+  `LoadConfig(new FilterConfig())` stages without persisting, so the
   user's last-applied filter survives in the panel's `localStorage` — the
   same hands-off treatment `AppliedMix.Reset` gives the stored mix. The
   reset is deliberately **not** `@key`-based like `MixPanel`: re-mounting
@@ -1357,8 +1369,12 @@ The asymmetry is pinned three times over: at the service seam
   Disabling the surface during the count also prevents a Start from racing its
   parse; Home needs no `StateChanged` subscription because its own suspended
   handlers trigger the re-renders. Subscribes to `OnFilterConfigChanged` →
-  `AppliedFilter.Set(cfg, Folder.PickGeneration)` and `OnFilterDirty` →
-  `AppliedFilter.Clear`.
+  `AppliedFilter.Set(cfg, Folder.PickGeneration)` and `OnAppliedStateChanged`
+  → `Set` / `Clear` from the payload (§ `AppliedFilter`). The count is
+  single-sourced in `ShowMatchSummaryAsync`, called from both — and the
+  applied-state handler skips it when the payload is already the applied
+  config *and* the count is current, because a commit raises both callbacks
+  and would otherwise parse the corpus twice.
   **Raising busy is a two-line discipline, single-sourced.**
   `EnterBusyAsync()` sets `_busy`, calls `StateHasChanged`, and **yields** —
   the yield is the whole point (see Pitfalls: a busy state raised immediately
@@ -2132,8 +2148,8 @@ the route map:
   selector for any of them silently finds nothing. Both suites go through
   their own one-line helper (`ExpandMoreFiltersAsync`) that clicks the
   panel's real `#moreFiltersToggle` button, never a JS or field poke;
-  toggling raises no `OnFilterDirty`, so it never disturbs an applied/dirty
-  expectation. Error-range edits, Apply, and Clear filters need no
+  toggling is navigation, not an edit — it raises no applied-state report —
+  so it never disturbs an applied/dirty expectation. Error-range edits, Apply, and Clear filters need no
   expansion. Two related traps: address the panel in an ordering assertion
   by an *always-rendered* element (`#moreFiltersToggle`), not by
   `#positionPattern`; and Playwright's accessible-name match is a substring,
@@ -2222,13 +2238,16 @@ the route map:
   `RZ2012` (→ error under `-warnaserror`), not a silent splat — unlike the play
   side's `OnPlayCompleted`. Keep the `@bind-Value` present: the radios are
   strictly controlled, so without the binding they are inert.
-- **Razor silently drops bindings to non-existent component parameters.**
-  `<FilterPanel OnFiltersChanged="..."/>` against a panel that exposes
-  `OnFilterConfigChanged` does not fail at build or render time — the
-  binding is simply never invoked. Symptom is a callback that "obviously"
-  fires never firing. When wiring an event from an RCL-imported component,
-  verify the parameter name against the source. A bUnit regression test
-  guards the FilterPanel wiring.
+- **A binding to a parameter the component doesn't have is a *render*-time
+  failure, not a build one.** `<FilterPanel OnFilterDirty="..."/>` against a
+  panel that has since renamed it compiles clean and throws
+  `InvalidOperationException` the first time the panel renders. So when
+  adapting to a renamed producer callback, `dotnet build` green proves
+  nothing — the proof is a render-level test. (The reverse case, a binding
+  *omitted*, is caught at build: both `FilterPanel` callbacks are
+  `[EditorRequired]`, so a missing one surfaces `RZ2012` → error under
+  `-warnaserror`.) `PageTests` renders Home and asserts both callbacks'
+  `HasDelegate`, which also rules out the attribute being silently splatted.
 - **Client plain-C# types are `internal`; only Razor components are
   `public`** (the list is in Public API). Don't widen one to `public`: the
   tests already see it through the `InternalsVisibleTo` grant, and a page

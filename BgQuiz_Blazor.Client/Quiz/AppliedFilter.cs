@@ -20,11 +20,13 @@ using XgFilter_Lib.Filtering;
 /// <para>
 /// <b>Gate semantics — applied, not merely present.</b> <see cref="IsApplied"/>
 /// means the user took the deliberate Apply action, not just that some config
-/// exists. Editing any filter control (the panel's dirty signal) must
-/// <see cref="Clear"/> this holder, so a half-edited, un-applied filter set
-/// disables Start. Restoring the panel's values from localStorage is silent (it
-/// raises neither the applied nor the dirty callback), so it never spuriously
-/// marks applied or clears an existing applied state.
+/// exists. While the panel reports uncommitted edits (its applied-state report
+/// carrying <c>null</c>) this holder must be <see cref="Clear"/>ed, so a
+/// half-edited, un-applied filter set disables Start — and when an edit is
+/// undone the panel reports the committed config again, which re-<see cref="Set"/>s
+/// it. Restoring the panel's values from localStorage is silent (it raises
+/// neither callback), so it never spuriously marks applied or clears an existing
+/// applied state.
 /// </para>
 ///
 /// <para>
