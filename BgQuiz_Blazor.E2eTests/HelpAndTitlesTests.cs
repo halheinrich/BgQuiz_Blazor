@@ -87,6 +87,19 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await Expect(body).ToContainTextAsync("belongs to this browser tab alone");
         await Expect(body).ToContainTextAsync("disappears when you close this one");
 
+        // Naming what is stored is only half of "your data stays yours" — the
+        // other half is that the reader can act on it (issue #54). This used to
+        // be one sentence routing the whole answer through "your browser's
+        // developer tools"; it now leads with the setting every reader already
+        // has. Three literals, each a claim that could quietly be dropped: the
+        // agency, the route being complete (all three go at once), and the
+        // answer to the question clearing site data actually raises — whether it
+        // takes the reader's own positions with it.
+        await Expect(body).ToContainTextAsync("they are yours to delete");
+        await Expect(body).ToContainTextAsync("site has stored");
+        await Expect(body).ToContainTextAsync("removes all three at once");
+        await Expect(body).ToContainTextAsync("files in your problem folder are untouched");
+
         // The consequence the section is now asked to draw (issue #51): having
         // accounted for everything BgQuiz keeps, it says the thing a reader
         // cannot infer from a list — that closing the tab is safe, mid-quiz

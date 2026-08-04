@@ -1387,6 +1387,19 @@ The asymmetry is pinned three times over: at the service seam
   cannot write into the folder there is no record being kept, and the
   reassurance must not read as a promise that one is.
 
+  Naming the three is only half of it: the section also says **what a reader can
+  do about them** (issue #54). The route it names is the one a general reader
+  already has — the browser's own setting for clearing what a site has stored,
+  named by *what it does* and never by a menu path, since every browser words and
+  places it differently (the claim class `FolderPickDisplay` rules out quoting
+  for permission prompts). Devtools survive as a signposted trailing parenthesis:
+  they are the only way to inspect the three entries individually — which is what
+  makes the key names above findable — but they may never be the sentence's
+  premise again, which is what the original wording made them. The paragraph also
+  answers the question clearing site data actually raises for its reader (it does
+  not reach the problem folder); that is the ownership point as a consequence,
+  not a restatement of the writes-into-your-folder paragraph below.
+
   It then **draws the consequence** (issue #51, ruled 2026-08-03): closing the
   tab is safe at any moment, mid-quiz included. That belongs here and nowhere
   else — it is what the account above *implies*, and a reader told what is
