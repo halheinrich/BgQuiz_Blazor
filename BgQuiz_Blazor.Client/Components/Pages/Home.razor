@@ -161,6 +161,31 @@
                 </button>
             </div>
         }
+        @* Truncated pick (issue #59): the folder held more files of some kind
+           than that kind's cap admits, so the first N were taken and the rest
+           left unread. An outcome, not a failure — the quiz runs on what was
+           read, and everything downstream (match count, mix, stats) derives
+           from that partial pool — so polite role="status" like its neighbours,
+           not the error banner.
+
+           One line per truncated kind, and only for kinds actually truncated:
+           the caps are per format and independent, so a folder can be far past
+           one and nowhere near the other. Both figures come from the pick
+           itself — the cap via PickTruncation.MaxFileCount, which reads the
+           very constant the pick enforced, so the sentence cannot claim a
+           limit the app does not apply. *@
+        @if (Folder.Truncations.Count > 0)
+        {
+            <div class="alert alert-warning mt-2" role="status">
+                @foreach (var truncation in Folder.Truncations)
+                {
+                    <div>
+                        Using the first @truncation.MaxFileCount @truncation.Extension files;
+                        @truncation.OmittedCount more @(truncation.OmittedCount == 1 ? "was" : "were") not read.
+                    </div>
+                }
+            </div>
+        }
         @* Pick-time stats status: which rung of the degrade ladder this folder
            landed on. Outcomes the user should understand, not errors — polite
            role="status" like the other outcome notices. Rendered only while a

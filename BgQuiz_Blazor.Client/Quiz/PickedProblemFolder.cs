@@ -21,8 +21,9 @@ internal sealed record PickedFile(string FileName, byte[] Bytes);
 
 /// <summary>
 /// Per-app holder for the user's picked problem-set folder: its top-level
-/// <c>.xg</c> / <c>.xgp</c> files (buffered) plus the pick-time
-/// <see cref="StatsSaveCapability"/> verdict.
+/// <c>.xg</c> / <c>.xgp</c> files (buffered) plus the two pick-time verdicts
+/// about them — the <see cref="StatsSaveCapability"/> and any
+/// <see cref="Truncations"/> the count caps imposed.
 ///
 /// <para>
 /// Lifetime: <b>Scoped</b> — in the WebAssembly client that resolves to one
@@ -67,6 +68,17 @@ internal sealed class PickedProblemFolder
     /// picked (no notice renders then, so the value is never shown).
     /// </summary>
     public StatsSaveCapability Capability { get; private set; } = StatsSaveCapability.BrowserUnsupported;
+
+    /// <summary>
+    /// The problem-file kinds this pick's count caps cut short, empty when the
+    /// folder fit (issue #59). Held here for the same reason as
+    /// <see cref="Capability"/>: it is a fact about the folder being <i>held</i>,
+    /// not about the gesture that fetched it, so Home's notice must survive
+    /// navigate-back — which a component field would not. The no-folder outcomes
+    /// (cancelled, empty) keep their per-visit flags on the page precisely because
+    /// they describe a gesture that left nothing behind to describe.
+    /// </summary>
+    public IReadOnlyList<PickTruncation> Truncations { get; private set; } = [];
 
     /// <summary>True once a folder with at least one problem file has been picked.</summary>
     public bool HasFiles => Files.Count > 0;
@@ -130,14 +142,31 @@ internal sealed class PickedProblemFolder
     /// <paramref name="folderName"/>. Invalidates the parse cache
     /// (<see cref="ParsedDecisions"/>) and bumps <see cref="PickGeneration"/>.
     /// </summary>
-    /// <exception cref="ArgumentNullException"><paramref name="folderName"/> or <paramref name="files"/> is null.</exception>
-    public void Set(string folderName, IReadOnlyList<PickedFile> files, StatsSaveCapability capability)
+    /// <param name="folderName">The picked folder's leaf name.</param>
+    /// <param name="files">The folder's top-level problem files, buffered.</param>
+    /// <param name="capability">Whether lifetime stats can be saved into this folder.</param>
+    /// <param name="truncations">
+    /// What the pick's count caps left unread, empty when the folder fit — see
+    /// <see cref="Truncations"/>. Taken here rather than defaulted so a caller
+    /// that has the fact cannot drop it on the floor.
+    /// </param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="folderName"/>, <paramref name="files"/> or
+    /// <paramref name="truncations"/> is null.
+    /// </exception>
+    public void Set(
+        string folderName,
+        IReadOnlyList<PickedFile> files,
+        StatsSaveCapability capability,
+        IReadOnlyList<PickTruncation> truncations)
     {
         ArgumentNullException.ThrowIfNull(folderName);
         ArgumentNullException.ThrowIfNull(files);
+        ArgumentNullException.ThrowIfNull(truncations);
         FolderName = folderName;
         Files = files;
         Capability = capability;
+        Truncations = truncations;
         ParsedDecisions = null;
         PickGeneration++;
     }
@@ -152,6 +181,7 @@ internal sealed class PickedProblemFolder
         Files = [];
         FolderName = null;
         Capability = StatsSaveCapability.BrowserUnsupported;
+        Truncations = [];
         ParsedDecisions = null;
         PickGeneration++;
     }

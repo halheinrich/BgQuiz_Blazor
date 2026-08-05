@@ -107,12 +107,14 @@ public class PageTests : BunitContext
     /// <summary>
     /// A one-file <see cref="FolderPickOutcome"/> for scripting
     /// <see cref="FakeFolderAccess.NextPickOutcome"/> — the standard "the user
-    /// picked a folder" payload for pick-flow tests.
+    /// picked a folder" payload for pick-flow tests. Nothing truncated unless a
+    /// test says so: one file is nowhere near any cap.
     /// </summary>
     private static FolderPickOutcome OneFileOutcome(
         string folderName = "Corpus", string fileName = "match.xg",
-        StatsSaveCapability capability = StatsSaveCapability.Enabled) =>
-        new(Cancelled: false, folderName, [new PickedFile(fileName, [1, 2, 3])], capability);
+        StatsSaveCapability capability = StatsSaveCapability.Enabled,
+        params PickTruncation[] truncations) =>
+        new(Cancelled: false, folderName, [new PickedFile(fileName, [1, 2, 3])], capability, truncations);
 
     private QuizController WithController(params BgDecisionData[] items)
     {
@@ -130,12 +132,18 @@ public class PageTests : BunitContext
     /// file. The default capability is the no-stats fallback so ordinary flow
     /// tests don't also render the stats-enabled notice.
     /// </summary>
+    /// <param name="truncations">
+    /// What the pick's count caps left unread — none by default. The injection
+    /// point for the truncation-notice tests, which is also the state a
+    /// navigated-back page re-derives from.
+    /// </param>
     private PickedProblemFolder WithPickedFolder(
         string folderName = "Corpus", string fileName = "sample.xg",
-        StatsSaveCapability capability = StatsSaveCapability.BrowserUnsupported)
+        StatsSaveCapability capability = StatsSaveCapability.BrowserUnsupported,
+        params PickTruncation[] truncations)
     {
         var folder = new PickedProblemFolder();
-        folder.Set(folderName, [new PickedFile(fileName, [1, 2, 3])], capability);
+        folder.Set(folderName, [new PickedFile(fileName, [1, 2, 3])], capability, truncations);
         Services.AddSingleton(folder);
         return folder;
     }
@@ -850,7 +858,8 @@ public class PageTests : BunitContext
         _folderAccess.SupportsDirectoryPicker = false;
         _folderAccess.NextCollectOutcome = new FolderPickOutcome(
             Cancelled: false, "FallbackDir",
-            [new PickedFile("fb.xgp", [9, 9])], StatsSaveCapability.BrowserUnsupported);
+            [new PickedFile("fb.xgp", [9, 9])], StatsSaveCapability.BrowserUnsupported,
+            Truncations: []);
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -876,7 +885,7 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig()); // filter half satisfied
         WithShuffleOption();
         _folderAccess.NextPickOutcome = new FolderPickOutcome(
-            Cancelled: false, "Empty", [], StatsSaveCapability.Enabled);
+            Cancelled: false, "Empty", [], StatsSaveCapability.Enabled, Truncations: []);
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -893,8 +902,9 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_FolderPick_Throws_ShowsPickErrorBanner()
     {
-        // Unexpected browser failure (or a folder past the caps): the failure
-        // idiom — assertive alert — and a cleared holder.
+        // Unexpected browser failure (or a file past the byte cap): the failure
+        // idiom — assertive alert — and a cleared holder. A folder past the
+        // *count* caps is not this: it truncates and reports (issue #59).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
@@ -908,6 +918,146 @@ public class PageTests : BunitContext
         Assert.Contains("role=\"alert\"", cut.Markup);
         var folder = Services.GetRequiredService<PickedProblemFolder>();
         Assert.False(folder.HasFiles);
+    }
+
+    /// <summary>
+    /// Home's truncated-pick notice — scoped the way
+    /// <see cref="MatchSummaryRegion"/> is, by role and a weak content marker,
+    /// because the region carries no id and shares its alert styling with the
+    /// stats-capability notice below it.
+    /// </summary>
+    private static AngleSharp.Dom.IElement TruncationNotice(IRenderedComponent<HomePage> cut) =>
+        cut.FindAll("div[role=status]").First(d => d.TextContent.Contains("not read"));
+
+    /// <summary>
+    /// The truncation notice's lines as a reader sees them — whitespace
+    /// collapsed, because the razor source's own line breaks ride into the
+    /// rendered text.
+    /// </summary>
+    private static List<string> TruncationLines(IRenderedComponent<HomePage> cut) =>
+        [.. TruncationNotice(cut).QuerySelectorAll("div").Select(d => Normalize(d.TextContent))];
+
+    [Fact]
+    public void Home_TruncatedPick_XgpOnly_ReportsThatKindFromTheConstants()
+    {
+        // Issue #59, the motivating case: a position library past the .xgp cap.
+        // Blame-free and factual — what was used, and how many were not read —
+        // with both figures from the constants the pick enforced, never literals.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithPickedFolder(truncations: [new PickTruncation(PickedFileLimits.XgpExtension, 340)]);
+
+        var cut = Render<HomePage>();
+
+        Assert.Equal(
+            $"Using the first {PickedFileLimits.MaxXgpFileCount} .xgp files; 340 more were not read.",
+            Assert.Single(TruncationLines(cut)));
+        // An outcome, not a failure: the quiz runs on what was read.
+        Assert.DoesNotContain("alert-danger", cut.Markup);
+        Assert.Contains("role=\"status\"", cut.Markup);
+    }
+
+    [Fact]
+    public void Home_TruncatedPick_XgOnly_ReportsThatKindAndAgreesWithOneLeftBehind()
+    {
+        // The other kind, and the singular: "1 more was not read" — a folder one
+        // file past the cap is an ordinary case, not a rounding error.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithPickedFolder(truncations: [new PickTruncation(PickedFileLimits.XgExtension, 1)]);
+
+        var cut = Render<HomePage>();
+
+        Assert.Equal(
+            $"Using the first {PickedFileLimits.MaxXgFileCount} .xg files; 1 more was not read.",
+            Assert.Single(TruncationLines(cut)));
+    }
+
+    [Fact]
+    public void Home_TruncatedPick_BothKinds_ReportsBothLines()
+    {
+        // The caps are independent, so a big mixed folder can be past both — and
+        // then both lines show, in the caps table's order.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithPickedFolder(truncations:
+        [
+            new PickTruncation(PickedFileLimits.XgExtension, 12),
+            new PickTruncation(PickedFileLimits.XgpExtension, 340),
+        ]);
+
+        var cut = Render<HomePage>();
+
+        Assert.Equal(
+            [
+                $"Using the first {PickedFileLimits.MaxXgFileCount} .xg files; 12 more were not read.",
+                $"Using the first {PickedFileLimits.MaxXgpFileCount} .xgp files; 340 more were not read.",
+            ],
+            TruncationLines(cut));
+    }
+
+    [Fact]
+    public void Home_PickThatFit_ShowsNoTruncationNotice()
+    {
+        // The common case says nothing at all: a notice that fired on every pick
+        // would train the reader to ignore the one that matters.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithPickedFolder();
+
+        var cut = Render<HomePage>();
+
+        Assert.DoesNotContain("were not read", cut.Markup);
+        Assert.DoesNotContain("was not read", cut.Markup);
+        Assert.DoesNotContain("Using the first", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_FolderPick_CarriesTheTruncationReportOntoTheHolder()
+    {
+        // The report travels pick → holder, not pick → page field: the notice is
+        // about the folder being *held*, so it has to survive navigate-back the
+        // way the capability notice does. Pinning the holder is what pins that.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = OneFileOutcome(
+            capability: StatsSaveCapability.Enabled,
+            truncations: [new PickTruncation(PickedFileLimits.XgpExtension, 5)]);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        var only = Assert.Single(folder.Truncations);
+        Assert.Equal(PickedFileLimits.XgpExtension, only.Extension);
+        Assert.Equal(5, only.OmittedCount);
+        Assert.Contains("5 more were not read", Normalize(cut.Markup));
+    }
+
+    [Fact]
+    public async Task Home_ClearAfterTruncatedPick_DropsTheNotice()
+    {
+        // Clear ends the setup, and the truncation is part of it: the report
+        // describes a folder no longer held, so it must go with the folder.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = OneFileOutcome(
+            truncations: [new PickTruncation(PickedFileLimits.XgpExtension, 5)]);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        Assert.Contains("Using the first", Normalize(cut.Markup));
+
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear").ClickAsync(new());
+
+        Assert.DoesNotContain("Using the first", Normalize(cut.Markup));
+        Assert.Empty(Services.GetRequiredService<PickedProblemFolder>().Truncations);
     }
 
     [Fact]
@@ -1183,7 +1333,8 @@ public class PageTests : BunitContext
         WithShuffleOption();
         _folderAccess.NextCollectOutcome = new FolderPickOutcome(
             Cancelled: false, "FallbackDir",
-            [new PickedFile("fb.xgp", [9, 9])], StatsSaveCapability.BrowserUnsupported);
+            [new PickedFile("fb.xgp", [9, 9])], StatsSaveCapability.BrowserUnsupported,
+            Truncations: []);
 
         var cut = Render<HomePage>();
         await cut.Find("#problemFolderFallback").ChangeAsync(new ChangeEventArgs());
@@ -1410,7 +1561,8 @@ public class PageTests : BunitContext
         WithShuffleOption();
         _folderAccess.NextCollectOutcome = new FolderPickOutcome(
             Cancelled: false, "FallbackDir",
-            [new PickedFile("fb.xgp", [9, 9])], StatsSaveCapability.BrowserUnsupported);
+            [new PickedFile("fb.xgp", [9, 9])], StatsSaveCapability.BrowserUnsupported,
+            Truncations: []);
         _folderAccess.FiltersJson = SavedFiltersJson();
 
         var cut = Render<HomePage>();
@@ -2414,7 +2566,7 @@ public class PageTests : BunitContext
     {
         var access = new FakeFolderAccess();
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xgp", [1])], StatsSaveCapability.Enabled);
+        folder.Set("Corpus", [new PickedFile("a.xgp", [1])], StatsSaveCapability.Enabled, []);
         var store = new QuizStatsStore(access, TimeProvider.System, folder);
 
         switch (status)
@@ -3850,18 +4002,25 @@ public class PageTests : BunitContext
     [Fact]
     public void Help_StatesFileCaps_SourcedFromTheConstantsThePickEnforces()
     {
-        // SSOT: the folder pick enforces PickedFileLimits (in JsFolderAccess) and
-        // Help documents the same constants, with the megabyte figure *derived*
-        // from the byte cap rather than restated. Asserting against the constants
-        // (not the literals "50" / "500") is what makes this fail if page prose
-        // and enforced rule ever drift — which is the whole reason the caps were
-        // hoisted off the enforcing type.
+        // SSOT: the folder pick enforces PickedFileLimits (handed down to
+        // folderAccess.js) and Help documents the same constants, with the
+        // megabyte figure *derived* from the byte cap rather than restated.
+        // Asserting against the constants (not the literals "50" / "500" /
+        // "2000") is what makes this fail if page prose and enforced rule ever
+        // drift — which is the whole reason the caps were hoisted off the
+        // enforcing type. Per format since #59: a page that stated one number
+        // for both would be wrong about one of them.
         WithController();
 
         var cut = Render<HelpPage>();
 
-        Assert.Contains($"{PickedFileLimits.MaxFileCount} problem files", cut.Markup);
-        Assert.Contains($"{PickedFileLimits.MaxFileMegabytes} MB", cut.Markup);
+        // Asserted against the rendered *text*, not the markup: the extensions
+        // sit in <code> elements, so the sentence a reader sees is not a
+        // substring of the markup at all.
+        var text = Normalize(cut.Find("div.container").TextContent);
+        Assert.Contains($"{PickedFileLimits.MaxXgFileCount} .xg files", text);
+        Assert.Contains($"{PickedFileLimits.MaxXgpFileCount} .xgp files", text);
+        Assert.Contains($"{PickedFileLimits.MaxFileMegabytes} MB", text);
     }
 
     [Fact]

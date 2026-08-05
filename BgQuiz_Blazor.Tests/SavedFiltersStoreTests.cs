@@ -17,7 +17,7 @@ public class SavedFiltersStoreTests
         StatsSaveCapability capability = StatsSaveCapability.Enabled)
     {
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xgp", [1, 2, 3])], capability);
+        folder.Set("Corpus", [new PickedFile("a.xgp", [1, 2, 3])], capability, []);
         return folder;
     }
 

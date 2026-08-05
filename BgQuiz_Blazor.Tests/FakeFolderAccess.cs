@@ -19,7 +19,8 @@ internal sealed class FakeFolderAccess : IFolderAccess
 
     /// <summary>Outcome the next <see cref="CollectFallbackAsync"/> returns (default: empty non-cancelled).</summary>
     public FolderPickOutcome NextCollectOutcome { get; set; } =
-        new(Cancelled: false, DirectoryName: "", Files: [], StatsSaveCapability.BrowserUnsupported);
+        new(Cancelled: false, DirectoryName: "", Files: [], StatsSaveCapability.BrowserUnsupported,
+            Truncations: []);
 
     /// <summary>When set, <see cref="PickFolderAsync"/> / <see cref="CollectFallbackAsync"/> throw it instead.</summary>
     public Exception? PickException { get; set; }

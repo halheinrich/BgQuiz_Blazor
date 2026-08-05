@@ -23,11 +23,54 @@ let pickedHandle = null;      // FileSystemDirectoryHandle | null (fallback pick
 let pickedFiles = new Map();  // name -> FileSystemFileHandle | File
 let activeHandle = null;      // FileSystemDirectoryHandle | null — the running quiz's stats folder
 
-const PROBLEM_EXTENSIONS = ['.xg', '.xgp'];
-
-function hasProblemExtension(name) {
+// Which names are problem files, and how many of each kind a pick may take, both
+// arrive from C# as the `limits` argument on every enumeration: the object
+// PickedFileLimits.MaxFileCounts serializes to, e.g. { '.xg': 500, '.xgp': 2000 }.
+// The module deliberately keeps NO copy of either fact — a second list here is a
+// second thing to update when the caps or the formats change.
+function problemExtensionOf(name, limits) {
     const lower = name.toLowerCase();
-    return PROBLEM_EXTENSIONS.some(ext => lower.endsWith(ext));
+    // The extensions are disjoint suffixes ('.xgp' does not end with '.xg'), so
+    // the first match is the only match.
+    return Object.keys(limits).find(ext => lower.endsWith(ext)) ?? null;
+}
+
+// Per-extension admission against the caps table (issue #59). admit() takes the
+// first limits[ext] files of each kind in enumeration order and tallies the rest;
+// left() reports only the kinds actually truncated, in the table's own order so a
+// two-line notice is deterministic.
+//
+// TRUNCATE, DON'T FAIL — and enforce it HERE. An over-limit folder used to lose
+// the whole pick to a throw on the C# side (JsFolderAccess counted the
+// enumerated metadata), including the 2000 files that were perfectly readable.
+// The caps are a cost ceiling, not an admissions test, so the pick now takes
+// what it can and says what it left; downstream (match count, mix, stats)
+// derives from the partial pool with no special-casing at all. The count check
+// moved into this module because it is now PER EXTENSION, and this is the only
+// place a file's extension is known before anything is transferred.
+//
+// Each kind is capped INDEPENDENTLY, because file count is only a cost proxy
+// within one format: an .xgp is one position, an .xg averages ~120 decisions. So
+// a mixed folder can admit its full quota of both.
+function createCountLimiter(limits) {
+    const taken = new Map();
+    const skipped = new Map();
+    return {
+        admit(extension) {
+            const soFar = taken.get(extension) ?? 0;
+            if (soFar < limits[extension]) {
+                taken.set(extension, soFar + 1);
+                return true;
+            }
+            skipped.set(extension, (skipped.get(extension) ?? 0) + 1);
+            return false;
+        },
+        left() {
+            return Object.keys(limits)
+                .filter(ext => skipped.has(ext))
+                .map(ext => ({ extension: ext, omittedCount: skipped.get(ext) }));
+        },
+    };
 }
 
 export function supportsDirectoryPicker() {
@@ -94,22 +137,31 @@ export async function beginPick() {
 // descended into. Names keep their extension — the DecisionId-stamping
 // contract. Called once, immediately after a non-cancelled beginPick(); the
 // caller's busy affordance is already up and painted by the time this runs.
-export async function enumeratePicked() {
+//
+// `limits` is PickedFileLimits.MaxFileCounts (see problemExtensionOf). The
+// admission check runs BEFORE getFile(), so a folder holding ten thousand files
+// pays one stat per file it actually takes, not per file it walks past.
+export async function enumeratePicked(limits) {
     if (pickedHandle === null) {
         throw new Error('No picked folder to enumerate.');
     }
 
+    const limiter = createCountLimiter(limits);
     const files = [];
     const map = new Map();
     for await (const entry of pickedHandle.values()) {
-        if (entry.kind !== 'file' || !hasProblemExtension(entry.name)) continue;
+        if (entry.kind !== 'file') continue;
+        const extension = problemExtensionOf(entry.name, limits);
+        if (extension === null || !limiter.admit(extension)) continue;
         const file = await entry.getFile();
         map.set(entry.name, entry);
         files.push({ name: entry.name, size: file.size });
     }
 
+    // Only the admitted files land in the picked slot: readFileData serves the
+    // buffering pass, and what was left behind is not readable by this pick.
     pickedFiles = map;
-    return { files };
+    return { files, omitted: limiter.left() };
 }
 
 // Fallback gesture: open the hidden webkitdirectory input's native picker.
@@ -123,11 +175,16 @@ export function clickElement(element) {
 // only top-level problem files — webkitRelativePath is "folder/file.ext" for
 // direct children (exactly one separator). Blazor's InputFile can't see
 // webkitRelativePath, which is why this module reads the FileList itself.
-export function collectFallbackFiles(inputElement) {
+export function collectFallbackFiles(inputElement, limits) {
     const all = Array.from(inputElement.files ?? []);
-    const topLevel = all.filter(f =>
-        hasProblemExtension(f.name) &&
-        (f.webkitRelativePath.match(/\//g) ?? []).length === 1);
+    const limiter = createCountLimiter(limits);
+    const topLevel = [];
+    for (const f of all) {
+        if ((f.webkitRelativePath.match(/\//g) ?? []).length !== 1) continue;
+        const extension = problemExtensionOf(f.name, limits);
+        if (extension === null || !limiter.admit(extension)) continue;
+        topLevel.push(f);
+    }
 
     const directoryName = all.length > 0 ? all[0].webkitRelativePath.split('/')[0] : '';
 
@@ -136,7 +193,11 @@ export function collectFallbackFiles(inputElement) {
     // Allow the same folder to be re-picked later: a change event only fires
     // when the selection differs, so reset the input now that it's collected.
     inputElement.value = '';
-    return { directoryName, files: topLevel.map(f => ({ name: f.name, size: f.size })) };
+    return {
+        directoryName,
+        files: topLevel.map(f => ({ name: f.name, size: f.size })),
+        omitted: limiter.left(),
+    };
 }
 
 // Byte read from the picked slot. Returns the raw ArrayBuffer — the .NET side

@@ -139,8 +139,10 @@ public partial class Home : ComponentBase, IDisposable
 
     /// <summary>
     /// Sibling of <see cref="_startError"/> for pick failures — an unexpected
-    /// browser error or a folder past the <see cref="PickedFileLimits"/> caps.
-    /// A per-visit failure banner (assertive), like the start error.
+    /// browser error, or a file past the <see cref="PickedFileLimits.MaxFileBytes"/>
+    /// cap. A per-visit failure banner (assertive), like the start error.
+    /// A folder past the <i>count</i> caps is not a failure: it truncates and
+    /// reports (<see cref="PickedProblemFolder.Truncations"/>).
     /// </summary>
     private string? _pickError;
 
@@ -762,7 +764,11 @@ public partial class Home : ComponentBase, IDisposable
             return;
         }
 
-        Folder.Set(outcome.DirectoryName, outcome.Files, outcome.Capability);
+        // The truncation report rides onto the holder with the files it describes,
+        // so the notice that renders it lives exactly as long as the partial pick
+        // it is about — including across navigate-back, which a page field would
+        // not survive.
+        Folder.Set(outcome.DirectoryName, outcome.Files, outcome.Capability, outcome.Truncations);
 
         // Load this folder's saved-filters document now — a setup-time, picked-
         // slot read. The store guards on capability/handle and degrades on any

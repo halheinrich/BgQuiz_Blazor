@@ -171,9 +171,15 @@
     <p>
         On the home page, choose the local folder holding your <code>.xg</code> match
         files and <code>.xgp</code> position files. Only files directly in that folder
-        are used — subfolders are ignored. A folder can hold up to
-        @PickedFileLimits.MaxFileCount problem files, each up to
-        @(PickedFileLimits.MaxFileMegabytes) MB.
+        are used — subfolders are ignored. One pick reads up to
+        @PickedFileLimits.MaxXgFileCount <code>.xg</code> files and
+        @PickedFileLimits.MaxXgpFileCount <code>.xgp</code> files, each up to
+        @(PickedFileLimits.MaxFileMegabytes) MB. The two limits are separate because
+        a match file holds a whole match's worth of decisions while a position file
+        holds one, so the same number of them is nowhere near the same amount of
+        work. If a folder holds more of either than that, BgQuiz quizzes you on the
+        ones it read and tells you on the home page how many it left — nothing fails,
+        and the quiz simply does not include them.
     </p>
 
     <h2 class="h4 mt-4">Choose filters</h2>

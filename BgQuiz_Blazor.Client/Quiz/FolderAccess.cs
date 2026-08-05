@@ -31,12 +31,43 @@ internal enum StatsSaveCapability
 }
 
 /// <summary>
+/// One problem-file kind the pick had to truncate: more files of
+/// <paramref name="Extension"/> were in the folder than
+/// <see cref="PickedFileLimits"/> admits, so the first
+/// <see cref="MaxFileCount"/> of them were taken and
+/// <paramref name="OmittedCount"/> were left unread (issue #59).
+///
+/// <para>
+/// Reported per kind, and <b>only for kinds actually truncated</b> — each
+/// extension is capped independently, so a folder can hit one cap while the
+/// other is nowhere near it. A pick that fit reports none of these.
+/// </para>
+/// </summary>
+/// <param name="Extension">
+/// The truncated kind, as a lower-case dot-bearing extension — always a key of
+/// <see cref="PickedFileLimits.MaxFileCounts"/>, which is the table the pick was
+/// enforced against.
+/// </param>
+/// <param name="OmittedCount">How many files of that kind were left unread; always positive.</param>
+internal sealed record PickTruncation(string Extension, int OmittedCount)
+{
+    /// <summary>
+    /// The cap that was applied — <b>derived</b> from
+    /// <see cref="PickedFileLimits.MaxFileCountFor"/> rather than carried across
+    /// the interop boundary, so the figure a notice states is by construction the
+    /// figure the pick enforced.
+    /// </summary>
+    public int MaxFileCount => PickedFileLimits.MaxFileCountFor(Extension);
+}
+
+/// <summary>
 /// The result of one folder-pick gesture, whichever mechanism served it.
 /// <see cref="Cancelled"/> <c>true</c> means the pick ended with no folder — an
 /// expected outcome, not an error, carrying no other data. Otherwise
 /// <see cref="Files"/> holds the folder's top-level <c>.xg</c> / <c>.xgp</c>
 /// files fully buffered (extension-bearing names — the DecisionId-stamping
-/// contract), and <see cref="Capability"/> says whether stats can be saved.
+/// contract), <see cref="Capability"/> says whether stats can be saved, and
+/// <see cref="Truncations"/> reports any kind the caps cut short.
 ///
 /// <para>
 /// <b>Cancelled has two causes, and does not say which.</b> The user dismissed
@@ -53,15 +84,23 @@ internal enum StatsSaveCapability
 /// <param name="DirectoryName">The picked folder's leaf name (empty when cancelled).</param>
 /// <param name="Files">Top-level problem files, buffered (empty when cancelled).</param>
 /// <param name="Capability">Whether stats can be saved into this folder.</param>
+/// <param name="Truncations">
+/// The problem-file kinds a count cap cut short, one entry per truncated kind and
+/// empty when the folder fit — the pick's own account of what it did not read.
+/// Deliberately <b>not</b> optional: a caller that renders the pick has to be
+/// handed the fact that it is partial, and every construction site is a place
+/// where "nothing was left behind" is a claim worth stating out loud.
+/// </param>
 internal sealed record FolderPickOutcome(
     bool Cancelled,
     string DirectoryName,
     IReadOnlyList<PickedFile> Files,
-    StatsSaveCapability Capability)
+    StatsSaveCapability Capability,
+    IReadOnlyList<PickTruncation> Truncations)
 {
-    /// <summary>The single cancelled outcome — no folder, no files, no capability claim.</summary>
+    /// <summary>The single cancelled outcome — no folder, no files, no capability claim, nothing left behind.</summary>
     public static FolderPickOutcome CancelledOutcome { get; } =
-        new(Cancelled: true, DirectoryName: "", Files: [], StatsSaveCapability.BrowserUnsupported);
+        new(Cancelled: true, DirectoryName: "", Files: [], StatsSaveCapability.BrowserUnsupported, Truncations: []);
 }
 
 /// <summary>
@@ -123,7 +162,9 @@ internal interface IFolderAccess
     /// <b>Not</b> invoked for a cancelled pick — there is no work to report.
     /// </param>
     /// <exception cref="InvalidOperationException">
-    /// The folder's matching files exceed <see cref="PickedFileLimits.MaxFileCount"/>.
+    /// A matching file is larger than <see cref="PickedFileLimits.MaxFileBytes"/>.
+    /// A folder past the <i>count</i> caps does not throw — it truncates per kind
+    /// and reports it (<see cref="FolderPickOutcome.Truncations"/>).
     /// </exception>
     Task<FolderPickOutcome> PickFolderAsync(Func<Task> onPickAccepted);
 
@@ -142,10 +183,13 @@ internal interface IFolderAccess
     /// outcome's capability is always
     /// <see cref="StatsSaveCapability.BrowserUnsupported"/>: this mechanism
     /// yields no writable handle. An empty FileList is a non-cancelled outcome
-    /// with zero files.
+    /// with zero files. The count caps apply here exactly as on the other
+    /// mechanism — same module, same table, same per-kind truncation report.
     /// </summary>
     /// <exception cref="InvalidOperationException">
-    /// The folder's matching files exceed <see cref="PickedFileLimits.MaxFileCount"/>.
+    /// A matching file is larger than <see cref="PickedFileLimits.MaxFileBytes"/>
+    /// (the count caps truncate rather than throw — see
+    /// <see cref="PickFolderAsync"/>).
     /// </exception>
     Task<FolderPickOutcome> CollectFallbackAsync(ElementReference fallbackInput);
 

@@ -16,16 +16,21 @@ using Microsoft.JSInterop;
 /// </para>
 ///
 /// <para>
-/// Caps are enforced here, against the pick's metadata, <i>before</i> any
-/// bytes move: a folder with more matching files than
-/// <see cref="PickedFileLimits.MaxFileCount"/> or a file larger than
-/// <see cref="PickedFileLimits.MaxFileBytes"/> fails the whole pick with an
+/// Caps are enforced against the pick's metadata, <i>before</i> any bytes move,
+/// and the two caps end differently. A file larger than
+/// <see cref="PickedFileLimits.MaxFileBytes"/> fails the whole pick here with an
 /// <see cref="InvalidOperationException"/> Home surfaces as its pick-error
 /// banner — mirroring the old <c>InputFile</c> path, where
 /// <c>GetMultipleFiles</c> / <c>OpenReadStream</c> threw the same way. The
-/// per-file byte transfer additionally passes the byte cap to
-/// <see cref="IJSStreamReference.OpenReadStreamAsync"/> as a belt-and-braces
-/// bound on what actually crosses the boundary.
+/// per-extension <i>count</i> caps
+/// (<see cref="PickedFileLimits.MaxFileCounts"/>) instead <b>truncate</b>: they
+/// are applied JS-side, where the extension is known before any transfer, and
+/// what they left behind rides back as
+/// <see cref="FolderPickOutcome.Truncations"/> for Home to report (issue #59).
+/// This type's part in that is to hand the caps table down and map the reply —
+/// it holds no cap logic of its own. The per-file byte transfer additionally
+/// passes the byte cap to <see cref="IJSStreamReference.OpenReadStreamAsync"/>
+/// as a belt-and-braces bound on what actually crosses the boundary.
 /// </para>
 /// </summary>
 internal sealed class JsFolderAccess : IFolderAccess, IAsyncDisposable
@@ -52,14 +57,26 @@ internal sealed class JsFolderAccess : IFolderAccess, IAsyncDisposable
     /// </summary>
     internal sealed record JsPickStart(string Status, string DirectoryName, bool Writable);
 
-    /// <summary>The enumeration result: the picked folder's top-level problem files, metadata only.</summary>
-    internal sealed record JsEnumerateResult(JsPickedFile[] Files);
+    /// <summary>
+    /// The enumeration result: the picked folder's top-level problem files,
+    /// metadata only, already truncated to the caps table this call passed in —
+    /// plus <see cref="JsOmittedFiles"/> for whatever that truncation dropped.
+    /// </summary>
+    internal sealed record JsEnumerateResult(JsPickedFile[] Files, JsOmittedFiles[] Omitted);
 
     /// <summary>The fallback-collection result — no status (nothing to cancel) and no writable claim.</summary>
-    internal sealed record JsFallbackResult(string DirectoryName, JsPickedFile[] Files);
+    internal sealed record JsFallbackResult(string DirectoryName, JsPickedFile[] Files, JsOmittedFiles[] Omitted);
 
     /// <summary>One enumerated file's metadata, before its bytes are pulled.</summary>
     internal sealed record JsPickedFile(string Name, long Size);
+
+    /// <summary>
+    /// One kind's left-behind count as the module reports it. The <i>cap</i> is
+    /// not on the wire: it came from this side in the first place, so
+    /// <see cref="PickTruncation"/> derives it back rather than trusting a
+    /// round-tripped copy.
+    /// </summary>
+    internal sealed record JsOmittedFiles(string Extension, int OmittedCount);
 
     private Task<IJSObjectReference> ModuleAsync() =>
         _module ??= _js.InvokeAsync<IJSObjectReference>("import", ModulePath).AsTask();
@@ -92,10 +109,12 @@ internal sealed class JsFolderAccess : IFolderAccess, IAsyncDisposable
         // below is the "no feedback" stretch the hook exists to cover.
         await onPickAccepted();
 
-        var enumerated = await module.InvokeAsync<JsEnumerateResult>("enumeratePicked");
+        var enumerated = await module.InvokeAsync<JsEnumerateResult>(
+            "enumeratePicked", PickedFileLimits.MaxFileCounts);
         var files = await BufferFilesAsync(module, enumerated.Files);
         var capability = start.Writable ? StatsSaveCapability.Enabled : StatsSaveCapability.PermissionDenied;
-        return new FolderPickOutcome(Cancelled: false, start.DirectoryName, files, capability);
+        return new FolderPickOutcome(
+            Cancelled: false, start.DirectoryName, files, capability, ToTruncations(enumerated.Omitted));
     }
 
     public async Task TriggerFallbackPickerAsync(ElementReference fallbackInput)
@@ -107,11 +126,23 @@ internal sealed class JsFolderAccess : IFolderAccess, IAsyncDisposable
     public async Task<FolderPickOutcome> CollectFallbackAsync(ElementReference fallbackInput)
     {
         var module = await ModuleAsync();
-        var result = await module.InvokeAsync<JsFallbackResult>("collectFallbackFiles", fallbackInput);
+        var result = await module.InvokeAsync<JsFallbackResult>(
+            "collectFallbackFiles", fallbackInput, PickedFileLimits.MaxFileCounts);
         var files = await BufferFilesAsync(module, result.Files);
         return new FolderPickOutcome(
-            Cancelled: false, result.DirectoryName, files, StatsSaveCapability.BrowserUnsupported);
+            Cancelled: false, result.DirectoryName, files, StatsSaveCapability.BrowserUnsupported,
+            ToTruncations(result.Omitted));
     }
+
+    /// <summary>
+    /// Map the module's per-kind left-behind report into
+    /// <see cref="PickTruncation"/>s — the module's one shape for both
+    /// mechanisms, so this mapping is written once. Order is the module's, which
+    /// is <see cref="PickedFileLimits.MaxFileCounts"/>'s, so a two-kind notice
+    /// reads the same way every time.
+    /// </summary>
+    private static IReadOnlyList<PickTruncation> ToTruncations(JsOmittedFiles[] omitted) =>
+        [.. omitted.Select(o => new PickTruncation(o.Extension, o.OmittedCount))];
 
     public async ValueTask<bool> PromoteToActiveAsync()
     {
@@ -153,19 +184,13 @@ internal sealed class JsFolderAccess : IFolderAccess, IAsyncDisposable
 
     /// <summary>
     /// Pull every enumerated file's bytes across the boundary into
-    /// <see cref="PickedFile"/>s, cap-checking the metadata first so an
-    /// over-limit folder fails fast before any transfer starts.
+    /// <see cref="PickedFile"/>s, size-checking the metadata first so an
+    /// oversized file fails fast before any transfer starts. The count caps have
+    /// already been applied JS-side — what arrives here is what the pick took.
     /// </summary>
     private static async Task<IReadOnlyList<PickedFile>> BufferFilesAsync(
         IJSObjectReference module, JsPickedFile[] metadata)
     {
-        if (metadata.Length > PickedFileLimits.MaxFileCount)
-        {
-            throw new InvalidOperationException(
-                $"The folder has {metadata.Length} .xg / .xgp files; " +
-                $"at most {PickedFileLimits.MaxFileCount} are supported in one pick.");
-        }
-
         foreach (var file in metadata)
         {
             if (file.Size > PickedFileLimits.MaxFileBytes)

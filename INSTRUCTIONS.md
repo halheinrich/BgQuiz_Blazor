@@ -114,7 +114,7 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     FolderAccess.cs                 — the interop facade contract + its enums
     JsFolderAccess.cs               — the one type touching IJSObjectReference
     PickedProblemFolder.cs          — picked-folder holder + parse-cache seam
-    PickedFileLimits.cs             — pick caps (bytes / count / derived MB)
+    PickedFileLimits.cs             — pick caps (bytes / per-format counts / derived MB)
     FolderPickDisplay.cs            — folder-pick wording SSOT
     QuizStatsFile.cs                — stats filename + JsonSerializerOptions SSOT
     QuizStatsStore.cs               — IDecisionStatsSink + document lifecycle
@@ -532,9 +532,11 @@ browser offers — probed **at pick time**, per gesture:
   by construction ⇒ `BrowserUnsupported` — quiz runs without stats.
 
 Either way the folder's **top-level** `.xg` / `.xgp` files (subfolders
-ignored; case-insensitive extension filter) are buffered into `PickedFile`s
-and the pick lands in `PickedProblemFolder`. The degrade ladder is total: no
-capability rung ever blocks the quiz — no-stats mode is fully functional.
+ignored; case-insensitive extension filter), up to each kind's own count cap,
+are buffered into `PickedFile`s and the pick lands in `PickedProblemFolder`
+together with whatever the caps left unread (§ `PickedFileLimits`). The degrade
+ladder is total: no capability rung ever blocks the quiz — no-stats mode is
+fully functional.
 
 **`IFolderAccess` / `JsFolderAccess` / `folderAccess.js`.** The app's one
 gateway to the browser's folder facilities. `folderAccess.js` (an ES module
@@ -542,7 +544,7 @@ under the client's `wwwroot/js/`) owns the browser-side state;
 `JsFolderAccess` is the single C# type holding an `IJSObjectReference` (lazy,
 cached import); everything above it depends on the `IFolderAccess` interface.
 Directory handles **never cross the interop boundary**: C# sees names, sizes,
-bytes, and booleans. Error signaling is by kind: expected outcomes are result
+bytes, booleans, and the caps table it is handed. Error signaling is by kind: expected outcomes are result
 values (a cancelled picker ⇒ `FolderPickOutcome.Cancelled`, a denied write ⇒
 the capability enum, a missing stats file ⇒ `null` read); only unexpected
 browser failures throw (`JSException`), which callers catch and degrade on.
@@ -550,9 +552,11 @@ browser failures throw (`JSException`), which callers catch and degrade on.
 dismissed, *or* the load-bearing view-files permission was declined; the
 browser reports both as `AbortError`. Callers must read it as "no folder was
 picked", never as "the user changed their mind". Byte transfer is
-`IJSStreamReference` per file; `JsFolderAccess` enforces the
-`PickedFileLimits` caps against the enumerated *metadata* before any bytes
-move, and re-asserts the byte cap as `OpenReadStreamAsync(maxAllowedSize:)`.
+`IJSStreamReference` per file; the `PickedFileLimits` caps are enforced against
+the enumerated *metadata* before any bytes move — the byte cap by
+`JsFolderAccess` (which re-asserts it as `OpenReadStreamAsync(maxAllowedSize:)`),
+the per-extension count caps by the module itself, where the extension is known
+before any transfer (§ `PickedFileLimits`).
 The fallback collection also happens JS-side because the top-level-only filter
 needs `webkitRelativePath`, which Blazor's `InputFile` never exposes — one
 reason the picker is a plain `<input>`, not `InputFile`.
@@ -616,7 +620,9 @@ controller's sink and the pages' status notices observe one instance; deps:
 **Status surfacing** splits by context. Pick-time (Home, capability-based,
 all polite `role="status"`): stats-will-be-saved (`Enabled`, naming
 `QuizStatsFile.FileName`) / browser-can't-save / declined-write, plus the
-empty-folder outcome and the `role="alert"` pick-failure banner. Quiz-context
+empty-folder outcome, the truncated-pick notice (one line per kind the count
+caps cut short — § `PickedFileLimits`), and the `role="alert"` pick-failure
+banner. Quiz-context
 (Quiz **and** Done — a failure on the final Continue lands on Done without
 ever showing Quiz's notice): `LoadFailed` polite, `WriteFailed` assertive;
 both scope to the active context and reset at the next Start's re-bind.
@@ -653,15 +659,19 @@ optimistically, so a silent no-op would read as a lost save.
 ### `PickedProblemFolder` — the picked-folder holder
 
 The Scoped holder (see Pitfalls: resets on full reload) for the picked folder:
-`Files` (buffered `PickedFile`s), `FolderName`, and the pick-time
-`StatsSaveCapability`. `Home.razor` writes it (`Set` / `Clear`); the
-`ProblemSetSourceFactory` reads it to build a
+`Files` (buffered `PickedFile`s), `FolderName`, and the two pick-time verdicts
+about them — `StatsSaveCapability` and `Truncations`. `Home.razor` writes it
+(`Set` / `Clear`); the `ProblemSetSourceFactory` reads it to build a
 `CachedProblemSetSource`; `QuizStatsStore` reads `Capability` at its
 Start-time bind. Files are buffered byte arrays (read out of the browser once
 at pick time) so the source can re-enumerate on Restart. Carrying the
 capability here (not in a component field) keeps Home's stats status notice
 alive across navigate-back — the same holder-vs-field rationale as the start
-gate. The holder also carries the **parse-once cache seam** —
+gate, and the reason `Truncations` sits beside it: both describe the folder
+being *held*, unlike the cancelled / empty-folder flags, which describe a
+gesture that left nothing to describe and so stay per-visit page fields. `Set`
+takes the truncation report rather than defaulting it, so a caller holding the
+fact cannot drop it. The holder also carries the **parse-once cache seam** —
 `ParsedDecisions` / `PickGeneration` / `StoreParsed` — so that invalidation
 is intrinsic to `Set`/`Clear`; see the `CachedProblemSetSource` section for
 the contract.
@@ -677,19 +687,42 @@ re-picking the folder resumes it.
 
 ### `PickedFileLimits` — the pick caps, single-sourced
 
-`internal static class PickedFileLimits` (Quiz/) holds the two caps the
-folder pick applies — `MaxFileBytes` (50 MB per file) and `MaxFileCount`
-(500 per pick) — plus `MaxFileMegabytes`, **derived** from `MaxFileBytes`.
+`internal static class PickedFileLimits` (Quiz/) holds the caps the folder
+pick applies — `MaxFileBytes` (50 MB per file) and the **per-extension** file
+counts `MaxXgFileCount` (500) / `MaxXgpFileCount` (2000), tabled as
+`MaxFileCounts` — plus `MaxFileMegabytes`, **derived** from `MaxFileBytes`.
 
-The caps have two consumers: `JsFolderAccess` *enforces* them (against the
-enumerated metadata before any bytes cross the boundary; the byte cap is also
-re-asserted as the `IJSStreamReference.OpenReadStreamAsync` max on the actual
-transfer), `Help` *documents* them. Leaving them as private constants on the
-enforcing type would have forced the help page to restate "50 MB" / "500" as
-prose, so raising a cap would silently make the documentation wrong; deriving
-the megabyte figure is what makes the SSOT actually hold. `PageTests` pins
-Help's rendered prose against the constants (and the stats filename against
-`QuizStatsFile.FileName`), so page and rule cannot drift. The constants stay
+**The counts are per format because count is only a cost proxy within one
+format** (issue #59): an `.xgp` is one position, an `.xg` averages ~120
+decisions, so a flat cap would authorize ~4× the worst-case parse load for the
+heavy format — or keep hard-blocking real position libraries, which is what
+500 did. Each extension truncates at its own cap independently, so one folder
+can admit its full quota of both.
+
+**The two caps end differently, and that is the design.** An oversized *file*
+throws (`JsFolderAccess`, before any bytes move) and lands on Home's pick-error
+banner. A folder past a *count* cap **truncates and reports**: the pick takes
+the first N of that kind, and the left-behind count rides back as
+`FolderPickOutcome.Truncations` → `PickedProblemFolder.Truncations` → Home's
+polite per-kind notice. Failing the whole pick threw away the 2000 files that
+were perfectly readable; the caps are a cost ceiling, not an admissions test.
+Everything downstream — match count, mix, stats — derives from the partial pool
+with no special-casing at all.
+
+`MaxFileCounts` has **four** consumers, which is why the table (not just the
+numbers) is the unit: `folderAccess.js` *enforces* it — the whole table is
+passed down on every `enumeratePicked` / `collectFallbackFiles` call and the
+module derives **both** *which names are problem files* and *how many of each
+to take* from it, keeping no copy of either; `PickTruncation.MaxFileCount`
+*derives* the reported cap back from the extension rather than round-tripping
+it, so a notice cannot state a limit the app does not apply; `Home` *renders*
+that notice; `Help` *documents* the caps. Leaving them as private constants on
+the enforcing type would have forced the help page to restate "50 MB" / "500"
+as prose, so raising a cap would silently make the documentation wrong;
+deriving the megabyte figure is what makes the SSOT actually hold. `PageTests`
+pins Help's rendered prose against the constants (and the stats filename
+against `QuizStatsFile.FileName`); `JsFolderAccessTests` pins that the table
+crosses the wire, the same discipline as the filename pins. The constants stay
 `internal`; the `.Client` csproj grants `InternalsVisibleTo` to the test
 project rather than widening them to public.
 
