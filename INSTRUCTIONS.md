@@ -62,12 +62,37 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
 - **XgFilter_Lib** — `DecisionFilterSet`, `FilterConfig`,
   `DecisionTypeFilter` / `DecisionTypeOption` (materialized from the user's
   decision-type choice; the controller adds no filter of its own).
-- **XgFilter_Razor** — `FilterPanel.razor`, hosted on `/` so quiz-start
-  filters share the same UI used by `ExtractFromXgToCsv`. Also
+- **XgFilter_Razor** — `FilterSurface.razor`, the one composite hosted on `/`:
+  it owns `FilterPanel` + `SavedFiltersPanel` (both
+  `XgFilter_Razor.Components.Internal` — banned from host use, host tests
+  included) and the whole filter interaction lifecycle — load→stage,
+  save/save-as/delete mediation, the applied-state mediation onto the shared
+  `AppliedFilter` holder, the saved-filters degrade/refusal notices with
+  producer-owned copy, and the source-change rule over the host-minted
+  `FilterSourceToken`. Also the non-visual model this app binds:
+  `AppliedFilter` (the start-gate holder, registered Scoped here),
+  `FilterSourceToken` (minted `FromGeneration(PickGeneration)`),
+  `IFilterDocumentStorage` + `FilterStorageException` (the storage seam this
+  app adapts over the folder library), and `SavedFiltersDocument`
+  (`FileName` = `xg-filters.json` / `LegacyFileName` = `bgquiz-filters.json` —
+  the saved-filters document identity and two-name migration rule, rendered
+  wherever this app names the file). Also
   `FilterHelp.razor`, the producer's own facet documentation **and** its
   account of what the panel persists (`#fh-what-is-remembered`), embedded by
   `/help` — that prose has one owner, and it is not this app (see Pitfalls:
   never describe a facet, never restate what the panel stores).
+- **BgFolderAccess_Razor** — the File System Access machinery this app
+  originally grew app-side, rehomed (umbrella #79): `IFolderAccess` /
+  `JsFolderAccess` (both pick mechanisms, name-parameterized picked/active
+  slot file I/O, the two-slot isolation model), `FolderWriteCapability`,
+  `FolderPickOutcome` / `PickedFile` / `PickTruncation`, and `FolderPickLimits`
+  — the host-supplied caps configuration `Program.cs` builds from
+  `PickedFileLimits`' values (the numbers stay host policy; the lib ships
+  none). Its `folderAccess.js` ships as the lib's static web asset
+  (`_content/BgFolderAccess_Razor/js/folderAccess.js`); this app authors no
+  folder JS of its own any more. The FS-Access lore (two-prompt shape,
+  cause-ambiguous cancels/denials, the busy-affordance seam) lives in that
+  repo's Pitfalls now.
 - **ConvertXgToJson_Lib** — picked up transitively via the filter pipeline
   (parses the user's browser-picked `.xg` / `.xgp` bytes in-browser, via
   `FilteredDecisionIterator.IterateXgStreamDiagrams`).
@@ -105,22 +130,20 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
                                       stores, ProblemSetSourceFactory
   _Imports.razor
   AppInfo.cs                        — app-level identity SSOT (§ AppInfo)
-  wwwroot/
-    js/folderAccess.js              — the ONE authored client JS module
   Quiz/
     QuizSettings.cs                 — user settings + xg_quizSettings owner
     QuizController.cs               — + ProblemSetSourceFactory, QuizStartOutcome
     ProblemReview.cs
-    FolderAccess.cs                 — the interop facade contract + its enums
-    JsFolderAccess.cs               — the one type touching IJSObjectReference
     PickedProblemFolder.cs          — picked-folder holder + parse-cache seam
-    PickedFileLimits.cs             — pick caps (bytes / per-format counts / derived MB)
+                                      (over BgFolderAccess_Razor's PickedFile)
+    PickedFileLimits.cs             — pick-cap values (bytes / per-format counts /
+                                      derived MB) — host policy feeding the
+                                      registered FolderPickLimits
+    PickedFolderFilterStorage.cs    — IFilterDocumentStorage over the picked
+                                      slot (the two-producer adapter glue)
     FolderPickDisplay.cs            — folder-pick wording SSOT
     QuizStatsFile.cs                — stats filename + JsonSerializerOptions SSOT
     QuizStatsStore.cs               — IDecisionStatsSink + document lifecycle
-    QuizFiltersFile.cs              — saved-filters filename SSOT (no options)
-    SavedFiltersStore.cs            — saved named filters over the picked slot
-    AppliedFilter.cs                — applied-filter holder (start-gate half)
     AppliedMix.cs                   — committed-mix holder (pure commitment)
     MixDraft.cs                     — mix edit state + derived gate + xg_quizMix
     MixDisplay.cs                   — mix wording SSOT
@@ -160,11 +183,8 @@ BgQuiz_Blazor.Tests/
   AppliedMixTests.cs
   QuizSettingsTests.cs              — the settings seam + the pinned wire bytes
   QuizStatsStoreTests.cs            — bind / fold / write-back / degrade
-  SavedFiltersStoreTests.cs         — load / persist / degrade (zero-writes)
-  JsFolderAccessTests.cs            — interop result mapping via SetupModule
   WasmUploadedProblemSetSourceTests.cs
   PickedProblemFolderTests.cs
-  AppliedFilterTests.cs
   PageTests.cs
   NavMenuTests.cs                   — the sidebar Help and Settings links
   MainLayoutTests.cs
@@ -205,7 +225,8 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
 
 ```
 /        Home.razor    → "Choose folder…" pick; then (disclosed once files are
-                          picked) SavedFilters + FilterPanel + "N match" count +
+                          picked) FilterSurface (saved filters + filter panel,
+                          producer-composited) + "N match" count +
                           MixPanel (Enabled picks only) + "Shuffle order"
                           checkbox + Start Quiz button
                           on Start: Controller.StartAsync(filters, mix) — binds
@@ -389,7 +410,7 @@ there is one encoding of which history entry a review finalizes, not two). The s
 stats trouble, so quiz flow is independent of whether stats are recording.
 
 **Filter ownership.** `StartAsync` takes a `FilterConfig` (the wire DTO
-emitted by `FilterPanel.OnFilterConfigChanged`), not a runtime
+emitted through `FilterSurface.OnFilterConfigChanged`), not a runtime
 `DecisionFilterSet`, and calls `FilterConfig.Build()` to produce its own
 pipeline, which it owns end-to-end — no shared mutable state ever exists
 between page and controller. The `ProblemSetSourceFactory` delegate still
@@ -518,7 +539,7 @@ browser offers — probed **at pick time**, per gesture:
   **two prompts, deliberately** (see Pitfalls), with asymmetric declines. The
   *first* is load-bearing: decline it and the pick aborts holding nothing (⇒
   `Cancelled`, indistinguishable from a dismissed picker). The *second* is the
-  graceful rung: granted ⇒ `StatsSaveCapability.Enabled`; not granted ⇒
+  graceful rung: granted ⇒ `FolderWriteCapability.Enabled`; not granted ⇒
   `PermissionDenied` — the handle stays readable, so the file list loads and
   the quiz runs read-only. `PermissionDenied` likewise carries **two** causes
   it can't tell apart: the user answered no, *or* the request **auto-denied**
@@ -538,64 +559,52 @@ together with whatever the caps left unread (§ `PickedFileLimits`). The degrade
 ladder is total: no capability rung ever blocks the quiz — no-stats mode is
 fully functional.
 
-**`IFolderAccess` / `JsFolderAccess` / `folderAccess.js`.** The app's one
-gateway to the browser's folder facilities. `folderAccess.js` (an ES module
-under the client's `wwwroot/js/`) owns the browser-side state;
-`JsFolderAccess` is the single C# type holding an `IJSObjectReference` (lazy,
-cached import); everything above it depends on the `IFolderAccess` interface.
-Directory handles **never cross the interop boundary**: C# sees names, sizes,
-bytes, booleans, and the caps table it is handed. Error signaling is by kind: expected outcomes are result
-values (a cancelled picker ⇒ `FolderPickOutcome.Cancelled`, a denied write ⇒
-the capability enum, a missing stats file ⇒ `null` read); only unexpected
-browser failures throw (`JSException`), which callers catch and degrade on.
-`Cancelled` carries **two** causes and does not say which — the picker was
-dismissed, *or* the load-bearing view-files permission was declined; the
-browser reports both as `AbortError`. Callers must read it as "no folder was
-picked", never as "the user changed their mind". Byte transfer is
-`IJSStreamReference` per file; the `PickedFileLimits` caps are enforced against
-the enumerated *metadata* before any bytes move — the byte cap by
-`JsFolderAccess` (which re-asserts it as `OpenReadStreamAsync(maxAllowedSize:)`),
-the per-extension count caps by the module itself, where the extension is known
-before any transfer (§ `PickedFileLimits`).
-The fallback collection also happens JS-side because the top-level-only filter
-needs `webkitRelativePath`, which Blazor's `InputFile` never exposes — one
-reason the picker is a plain `<input>`, not `InputFile`.
+**`IFolderAccess` / `JsFolderAccess` / `folderAccess.js` — BgFolderAccess_Razor's
+now.** The whole gateway (both pick mechanisms, the two-slot state model,
+name-parameterized picked/active file I/O, the caps enforcement, the error
+contract — expected outcomes as values, unexpected browser failures as
+`JSException`, `Cancelled` deliberately cause-ambiguous) was rehomed to the
+BgFolderAccess_Razor submodule (umbrella #79) and is documented there; its JS
+module ships as that library's static web asset, so this app authors no folder
+JS. What stays *here* is the host's side of the seam: `Program.cs` registers
+the lib's `JsFolderAccess` (Scoped) plus one `FolderPickLimits` built from
+`PickedFileLimits`' values, `Home` drives the pick gestures and renders the
+outcomes, and the file-name constants stay host policy — the stats store passes
+`QuizStatsFile.FileName` into the name-parameterized active-slot calls, and the
+saved-filters names come from XgFilter_Razor's `SavedFiltersDocument` through
+the composite.
 
-**The FS-Access pick is split in two, on purpose (issue #48).**
-`folderAccess.js` exposes `beginPick()` — picker + permission request, i.e.
-everything that is the *browser asking the user* — and `enumeratePicked()` —
-the directory listing, i.e. the *app working*. `JsFolderAccess.PickFolderAsync`
-issues both behind one method and awaits a caller-supplied
-`Func<Task> onPickAccepted` between them, so the half-picked state never
-escapes that type and no third slot exists. The hook is the only point at
-which a busy affordance can be raised *truthfully*: earlier it would claim the
-app was working while a modal waited on the user; later it could not paint,
-because the enumeration and byte transfer that follow never yield to the
-renderer on their own. It is **not** invoked for a cancelled pick — no folder,
-no work. `Home` passes `EnterBusyAsync`; the fallback reaches the same meaning
-by a different route, its work beginning at the input's `change` event so the
-whole of `HandleFallbackPickedAsync` runs under the affordance. On both
+**The FS-Access pick is split in two, on purpose (issue #48; the seam is the
+library's contract now).** `PickFolderAsync` awaits a caller-supplied
+`Func<Task> onPickAccepted` between the browser's prompts and the
+enumeration/buffering — the only point at which a busy affordance can be
+raised *truthfully* (earlier lies over a modal; later never paints — the
+lib's Pitfalls carry the full rationale). It is **not** invoked for a
+cancelled pick. `Home` passes `EnterBusyAsync`; the fallback reaches the same
+meaning by a different route, its work beginning at the input's `change` event
+so the whole of `HandleFallbackPickedAsync` runs under the affordance. On both
 mechanisms the busy state means one thing — *the app is processing a selection
 the user has made*.
 
-**Two-slot model — the mid-quiz-Clear ruling.** The JS module keeps a *picked*
-slot (latest pick: handle + name→handle/File map) and an *active* slot (the
-running quiz's stats handle). The stats context **binds at Start/Restart,
-never at pick**: the controller's `ResetAndAdvanceAsync` drives
-`QuizStatsStore.BeginQuizAsync()`, which promotes picked → active
-(`promoteToActive`) and loads the stats file through the active handle. Home's
-Clear resets **only the picked slot** (`clearPicked`), so a mid-quiz Clear or
-re-pick never affects the running quiz's recording — that changes only when
-the next Start re-binds. The picked slot also serves the **saved-filters**
-read/write pair (`readPickedFile`/`writePickedFile`): a setup-time concern on
-the folder being configured, deliberately on the picked slot so it never
-requires a promote and never touches a running quiz's active handle.
+**Two-slot model — the mid-quiz-Clear ruling (enforced lib-side, relied on
+here).** The stats context **binds at Start/Restart, never at pick**: the
+controller's `ResetAndAdvanceAsync` drives `QuizStatsStore.BeginQuizAsync()`,
+which promotes picked → active (`PromoteToActiveAsync`) and loads the stats
+file through the active slot. Home's Clear resets **only the picked slot**
+(`ClearPickedAsync`), so a mid-quiz Clear or re-pick never affects the running
+quiz's recording — that changes only when the next Start re-binds. The picked
+slot also serves the **saved-filters** document (through
+`PickedFolderFilterStorage` over `ReadPickedFileAsync`/`WritePickedFileAsync`):
+a setup-time concern on the folder being configured, deliberately on the
+picked slot so it never requires a promote and never touches a running quiz's
+active handle.
 
 **`QuizStatsFile`** — the persistence SSOT: `FileName`
 (`bgquiz-stats.json`) and the one fixed `JsonSerializerOptions`
 (`WriteIndented = true` — whitespace is the only options-controlled aspect;
 the bundled converter pins names and ordering). The filename is passed *into*
-JS per call and rendered by `Help` from the constant — neither restates it.
+the lib's name-parameterized active-slot calls per call and rendered by `Help`
+from the constant — neither restates it.
 
 **`QuizStatsStore`** (scoped; aliased as `IDecisionStatsSink` so the
 controller's sink and the pages' status notices observe one instance; deps:
@@ -627,40 +636,35 @@ banner. Quiz-context
 ever showing Quiz's notice): `LoadFailed` polite, `WriteFailed` assertive;
 both scope to the active context and reset at the next Start's re-bind.
 
-**Saved named filters.** A per-directory `bgquiz-filters.json` beside the
-corpus lets the user save and reload `FilterPanel` configurations.
-`QuizFiltersFile` is the filename SSOT — and, unlike `QuizStatsFile`, carries
-**no** `JsonSerializerOptions`: `NamedFilterCollection` (XgFilter_Lib) owns
-its wire format, so the app round-trips via the document's own
-`ToJson`/`TryFromJson`. `SavedFiltersStore` (scoped; deps `IFolderAccess`,
-`PickedProblemFolder`; read only by Home) owns the collection:
-`LoadForPickAsync` reads the picked slot at pick time (`generation`-guarded
-like the parse cache), `SaveAsync`/`DeleteAsync` apply the collection's
-withers and persist, `Reset` clears on Clear. Same **degrade-never-block**
-posture as `QuizStatsStore`, one status enum `SavedFiltersStatus` — `Ready` /
-`LoadFailed` (unreadable *or* unparseable — see Pitfalls: zero writes, file
-preserved) / `WriteFailed` (in-memory kept, writes stop) / `Disabled` (no FS
-pick). The `SavedFiltersPanel` (XgFilter_Razor) is persistence-agnostic — it
-raises load/save/delete *requests* and Home mediates them; the store owns
-every document mutation. Home's capability mapping: `Enabled` → full panel,
-**even with zero saved filters** (you can save into it); `PermissionDenied` →
-load-only (`CanPersist=false` + a reason naming both barred gestures) **and
-only when at least one filter is saved** — read-only over an empty collection
-can neither load nor save, so the section is hidden; `BrowserUnsupported` → no
-panel (the fallback can't see the file). Two predicates gate this,
-deliberately: `SavedFiltersApplicable` (the rule above) gates the *panel
-offering*; `SavedFiltersContextApplicable` (folder held + FS-Access pick)
-gates the `LoadFailed` / `WriteFailed` *degrade notices* — they must never
-collapse into one (see Pitfalls). Save-as of an unparseable position pattern
-is refused by `FilterPanel.TryGetEditedConfig` (exactly Apply's gate) and Home
-surfaces the refusal as a notice — the panel already cleared its typed name
-optimistically, so a silent no-op would read as a lost save.
+**Saved named filters — composite-owned now.** A per-directory saved-filters
+document beside the corpus lets the user save and reload filter
+configurations. The whole lifecycle moved into XgFilter_Razor with the
+`FilterSurface` adoption (umbrella #63/#78/#38): the composite owns its
+`SavedFiltersStore` over the host's `IFilterDocumentStorage` adapter, the
+status taxonomy, the panel-offering rules (Ready hides a read-only *empty*
+section — the clutter ruling, producer-owned now; WriteFailed keeps the panel
+beside its notice; LoadFailed replaces it), the degrade-notice copy, and the
+save-as/row-save refusal on an unparseable position pattern. The document
+identity is `SavedFiltersDocument`: canonical `FileName` (`xg-filters.json`),
+legacy `LegacyFileName` (`bgquiz-filters.json`) — read canonical first, fall
+back to legacy only when canonical is *absent* (never when corrupt), write
+canonical only, never delete the legacy file. This app's remaining half is
+capability policy and glue: `PickedFolderFilterStorage` (Scoped) adapts the
+seam onto the lib's picked-slot I/O wrapping `JSException` in
+`FilterStorageException`; `Home` supplies it only while the pick's capability
+exposes a readable handle (`Enabled` / `PermissionDenied` — `null` under
+`BrowserUnsupported` ⇒ no saved-filters section), rules
+`CanPersist = (Capability == Enabled)`, and words `PersistDisabledReason` from
+`FolderPickDisplay.WriteAccessNotGranted`. `NamedFilterCollection`
+(XgFilter_Lib) still owns the wire format end to end — no
+`JsonSerializerOptions` anywhere host-side.
 
 ### `PickedProblemFolder` — the picked-folder holder
 
 The Scoped holder (see Pitfalls: resets on full reload) for the picked folder:
-`Files` (buffered `PickedFile`s), `FolderName`, and the two pick-time verdicts
-about them — `StatsSaveCapability` and `Truncations`. `Home.razor` writes it
+`Files` (buffered `PickedFile`s — BgFolderAccess_Razor's record), `FolderName`,
+and the two pick-time verdicts
+about them — `FolderWriteCapability` and `Truncations`. `Home.razor` writes it
 (`Set` / `Clear`); the `ProblemSetSourceFactory` reads it to build a
 `CachedProblemSetSource`; `QuizStatsStore` reads `Capability` at its
 Start-time bind. Files are buffered byte arrays (read out of the browser once
@@ -685,12 +689,15 @@ the contract.
 The pick is **in-memory only** — the stats *file* is not lost with it;
 re-picking the folder resumes it.
 
-### `PickedFileLimits` — the pick caps, single-sourced
+### `PickedFileLimits` — the pick-cap values, single-sourced (enforcement is the lib's)
 
-`internal static class PickedFileLimits` (Quiz/) holds the caps the folder
-pick applies — `MaxFileBytes` (50 MB per file) and the **per-extension** file
-counts `MaxXgFileCount` (500) / `MaxXgpFileCount` (2000), tabled as
+`internal static class PickedFileLimits` (Quiz/) holds the cap **values** the
+folder pick applies — `MaxFileBytes` (50 MB per file) and the **per-extension**
+file counts `MaxXgFileCount` (500) / `MaxXgpFileCount` (2000), tabled as
 `MaxFileCounts` — plus `MaxFileMegabytes`, **derived** from `MaxFileBytes`.
+Host **policy**, not machinery: `Program.cs` builds BgFolderAccess_Razor's one
+registered `FolderPickLimits` from this table, and the lib enforces it (the
+lib ships no numbers — each host's values encode its own cost model).
 
 **The counts are per format because count is only a cost proxy within one
 format** (issue #59): an `.xgp` is one position, an `.xg` averages ~120
@@ -700,76 +707,93 @@ heavy format — or keep hard-blocking real position libraries, which is what
 can admit its full quota of both.
 
 **The two caps end differently, and that is the design.** An oversized *file*
-throws (`JsFolderAccess`, before any bytes move) and lands on Home's pick-error
+throws (lib-side, before any bytes move) and lands on Home's pick-error
 banner. A folder past a *count* cap **truncates and reports**: the pick takes
 the first N of that kind, and the left-behind count rides back as
 `FolderPickOutcome.Truncations` → `PickedProblemFolder.Truncations` → Home's
 polite per-kind notice. Failing the whole pick threw away the 2000 files that
 were perfectly readable; the caps are a cost ceiling, not an admissions test.
 Everything downstream — match count, mix, stats — derives from the partial pool
-with no special-casing at all.
+with no special-casing at all. Each `PickTruncation.MaxFileCount` is derived
+lib-side from the enforced `FolderPickLimits` instance (never round-tripped
+across interop), so the figure Home's notice states is by construction the
+figure the pick applied.
 
-`MaxFileCounts` has **four** consumers, which is why the table (not just the
-numbers) is the unit: `folderAccess.js` *enforces* it — the whole table is
-passed down on every `enumeratePicked` / `collectFallbackFiles` call and the
-module derives **both** *which names are problem files* and *how many of each
-to take* from it, keeping no copy of either; `PickTruncation.MaxFileCount`
-*derives* the reported cap back from the extension rather than round-tripping
-it, so a notice cannot state a limit the app does not apply; `Home` *renders*
-that notice; `Help` *documents* the caps. Leaving them as private constants on
-the enforcing type would have forced the help page to restate "50 MB" / "500"
-as prose, so raising a cap would silently make the documentation wrong;
-deriving the megabyte figure is what makes the SSOT actually hold. `PageTests`
-pins Help's rendered prose against the constants (and the stats filename
-against `QuizStatsFile.FileName`); `JsFolderAccessTests` pins that the table
-crosses the wire, the same discipline as the filename pins. The constants stay
+`MaxFileCounts` still has several consumers, which is why the table (not just
+the numbers) is the unit: the registered `FolderPickLimits` *carries* it into
+the lib's enforcement (the JS module derives **both** *which names are problem
+files* and *how many of each to take* from the table it is handed, keeping no
+copy); `Home` *renders* the truncation notice; `Help` *documents* the caps.
+Leaving them as private constants on an enforcing type would have forced the
+help page to restate "50 MB" / "500" as prose, so raising a cap would silently
+make the documentation wrong; deriving the megabyte figure is what makes the
+SSOT actually hold. `PageTests` pins Help's rendered prose against the
+constants (and the stats filename against `QuizStatsFile.FileName`); the
+table-crosses-the-wire pin lives producer-side now. The constants stay
 `internal`; the `.Client` csproj grants `InternalsVisibleTo` to the test
 project rather than widening them to public.
 
-### `AppliedFilter` — the filter half of the start gate
+### `AppliedFilter` — the filter half of the start gate (XgFilter_Razor's holder now)
 
 The Scoped holder (see Pitfalls: resets on full reload) for the `FilterConfig`
 the user has **deliberately applied** on `Home` — the sibling of
-`PickedProblemFolder` for the filter half of the start gate. `Home.razor` writes it:
-`Set(config, Folder.PickGeneration)` when the panel raises
-`OnFilterConfigChanged` (Apply / Clear filters), and again — or `Clear()` —
-from the panel's `OnAppliedStateChanged` report, which after *every*
-buffer-affecting gesture carries either the committed config the buffers now
-equal or `null` when they equal none. `IsApplied` (= `Config is not null`)
-and `Config` are read only by `Home` (`CanStart`, `StartQuizAsync`).
+`PickedProblemFolder` for the filter half of the start gate. The type is
+**XgFilter_Razor's** since the `FilterSurface` adoption (it was hoisted from
+this app's original), registered Scoped here and bound to the composite's
+`[EditorRequired] AppliedFilter` parameter. **The composite mediates it**: a
+commit (Apply / Clear filters) `Set`s it stamped with the bound `Source`
+token, an uncommitted-edits report `Clear`s it, a clean re-affirm re-`Set`s it
+— Home writes it in exactly one place (the setup-end clear below) and
+otherwise only reads: `IsApplied` / `Config` for `CanStart` and
+`StartCoreAsync`, `WasAppliedFor` for the mix gate.
 
-**Two facts, two lifetimes.** Beside the config, `Set` records *which pick* the
-Apply was made for, answered by `WasAppliedFor(pickGeneration)` — "has this
-corpus been filtered at least once?". The config is **edit-coupled** (a
-half-edited set clears it, Start re-gates) **and setup-coupled**
-(`Home.EndCurrentSetupAsync` clears it on every pick and every Clear) — two
-independent rules, not duplicates. The stamp is neither: a half-typed edit does
-not un-answer its question, and the generation — not a flag — is what expires
-it, since `PickGeneration` is monotonic and bumped by both
+**Two facts, two lifetimes.** Beside the config, `Set` records *which source*
+the Apply was made for, answered by
+`WasAppliedFor(FilterSourceToken.FromGeneration(Folder.PickGeneration))` —
+"has this corpus been filtered at least once?". The config is **edit-coupled**
+(a half-edited set clears it via the composite's mediation, Start re-gates)
+**and setup-coupled** (`Home.EndCurrentSetupAsync` clears it on every pick and
+every Clear) — two independent rules, not duplicates. The stamp is neither: a
+half-typed edit does not un-answer its question, and the token — not a flag —
+is what expires it, since `PickGeneration` is monotonic and bumped by both
 `PickedProblemFolder.Set` and `.Clear`, so ending a setup invalidates the
 answer by construction, with no reset to call and none to forget (the
-staleness idiom `StoreParsed` already uses). Home gates on each separately:
-Start on the config, *Apply Mix* on the stamp (§ Pages → Home, issue #45). The
-generation is **passed in** rather than read from an injected folder holder,
-keeping this a value holder with no dependency on its sibling; `Home`, which
-owns the page's sequencing story, states the relationship at the one call site.
+staleness idiom `StoreParsed` already uses). Home mints the token live at both
+sites — the composite's `Source` binding and the mix gate — so the stamp the
+composite records and the token the gate compares cannot encode the pick
+differently.
 
-Holding the applied state here rather than in a transient component field is
-what lets the gate survive in-app navigation: on navigate-back `Home`
+**The setup-end clear is host-side, and the reason is structural (ruled, this
+migration).** The composite owns a source-change rule that would do this — but
+the rule runs on a *mounted* component receiving a changed parameter, and in
+this host the composite lives behind Home's `HasFiles` gate: every token
+change passes through an unmount (`Folder.Clear()` renders the gate closed
+before any parameter could be observed), and the eventual re-mount's
+first-parameters-set is, by the producer's ruled pin, initialization only — no
+holder clear, precisely so navigate-back over an *unchanged* source leaves an
+applied gate armed. So the composite's rule is **dormant in BgQuiz** (kept
+bound as defence in depth); what each pick actually gets from the producer is
+the remount: a fresh panel with Apply re-armed and the new folder's
+saved-filters document read. The one thing neither remount nor rule covers —
+clearing the holder's config, whose staleness `CanStart` reads — is the single
+line of filter choreography `EndCurrentSetupAsync` keeps.
+
+Holding the applied state in a Scoped holder rather than a transient component
+field is what lets the gate survive in-app navigation: on navigate-back `Home`
 re-derives `CanStart` from the persisted holders instead of resetting to
 "not applied" and forcing a needless re-click of Apply.
 
 **Gate semantics — applied, not merely present.** `IsApplied` means the user
-took the Apply action, so a half-edited set must clear it (a `null`
-applied-state report → `Clear`) — and an edit *undone* back to the applied
-values makes the panel report the committed config again, which re-`Set`s it.
-That direction is not a nicety: the panel disables its own Apply whenever the
-buffers equal what it committed, so without the re-`Set` an edit-then-undo
-would leave Start and Apply both dead (issue #49). The interaction with
-`FilterPanel`'s localStorage restore is safe by
-construction: restore writes the panel's own fields directly and raises
-**neither** callback, so it can't spuriously mark applied or clear an existing
-applied state — the holder is the sole authority on "applied".
+took the Apply action, so a half-edited set must clear it (the composite
+mirrors the panel's `null` report onto the holder) — and an edit *undone* back
+to the applied values makes the panel report the committed config again, which
+re-`Set`s it. That direction is not a nicety: the panel disables its own Apply
+whenever the buffers equal what it committed, so without the re-`Set` an
+edit-then-undo would leave Start and Apply both dead (issue #49). The
+interaction with the panel's localStorage restore is safe by construction:
+restore writes the panel's own fields directly and raises **neither**
+callback, so it can't spuriously mark applied or clear an existing applied
+state — the holder is the sole authority on "applied".
 
 ### `MixPanel` / `MixDraft` / `AppliedMix` — the stats-weighted mix
 
@@ -855,7 +879,7 @@ holds, the divergent draft is on screen with Apply or Reset as the visible way
 out.
 
 **Offered only when the pick can provide stats.** Home renders `MixPanel`
-only for `StatsSaveCapability.Enabled`. The mix composes from lifetime
+only for `FolderWriteCapability.Enabled`. The mix composes from lifetime
 stats, so under any other rung it has no valid role: the panel is hidden,
 and **every pick (and Clear) ends both mix halves** — `AppliedMix.Reset()`
 plus `MixDraft.Discard()` in `EndCurrentSetupAsync` (the invariant is "no
@@ -1078,7 +1102,7 @@ The asymmetry is pinned three times over: at the service seam
 - **`Home.razor`** — the setup page; wiring notes below, contracts in their
   owning sections.
   **Pick.** A **"Choose folder…"** button (`#pickProblemFolder`) above the
-  `FilterPanel`, plus a hidden, always-rendered
+  filter surface, plus a hidden, always-rendered
   `<input type="file" webkitdirectory>` fallback the same button opens where
   File System Access is absent (a plain `<input>`, not `InputFile` — the JS
   module reads the FileList itself for `webkitRelativePath`; always in the
@@ -1121,10 +1145,21 @@ The asymmetry is pinned three times over: at the service seam
   seconds apart on WASM's single thread. It promises no *number* of prompts
   and **quotes no browser's prompt text** (see Pitfalls).
   **Progressive disclosure.** Everything downstream of the pick — the
-  saved-filters panel (rendered *above* the `FilterPanel`, so load-then-refine
-  reads top-down), the `FilterPanel`, the match-count line, the `MixPanel`,
+  `FilterSurface` (one producer composite: saved filters rendered above the
+  filter panel so load-then-refine reads top-down, plus every saved-filters
+  notice), the match-count line, the `MixPanel`,
   the shuffle checkbox, and Start — renders only once `Folder.HasFiles`, which
-  also makes the filter half of the gate true by construction. The `MixPanel`
+  also makes the filter half of the gate true by construction — and which
+  makes the composite's mount lifecycle part of the choreography (see the
+  setup-end paragraph below and § `AppliedFilter`). Home binds the composite:
+  the shared `AppliedFilter` holder, `Source =
+  FilterSourceToken.FromGeneration(Folder.PickGeneration)` (always minted here
+  — inside this gate a folder is always held), `Storage` = the Scoped
+  `PickedFolderFilterStorage` while the capability exposes a readable handle
+  (`null` under `BrowserUnsupported` ⇒ no saved-filters section),
+  `CanPersist = (Capability == Enabled)` with `PersistDisabledReason` from
+  `FolderPickDisplay.WriteAccessNotGranted`, and the two re-raised
+  panel-shaped events. The `MixPanel`
   carries a *second* gate (Enabled picks only) and a `@key` on
   `Folder.PickGeneration` (see Pitfalls: load-bearing); its one callback lands
   in `AppliedMix` (Apply → `Apply`), while edits flow through the injected
@@ -1182,10 +1217,15 @@ The asymmetry is pinned three times over: at the service seam
   **A pick ends the current setup — at the click.** `EndCurrentSetupAsync`
   is the single reset behind *both* gestures that end a setup (the pick
   gesture and the `Clear` affordance — they encode the same decision, so they
-  share one spelling): folder holder + JS picked slot, saved filters,
-  committed mix (`AppliedMix.Reset`), applied filter (`AppliedFilter.Clear`),
-  filter surface (`ResetFilterSurface`), and every pick-scoped notice and the
-  match summary. Nothing selected against the previous corpus can be assumed
+  share one spelling): folder holder + JS picked slot, committed mix
+  (`AppliedMix.Reset`) and mix draft, the applied filter
+  (`AppliedFilter.Clear` — the one line of filter choreography left host-side,
+  see § `AppliedFilter` for the unmount-gap ruling), and every pick-scoped
+  notice and the match summary. The saved-filters context needs no line: it
+  lives in the composite, which the closing `HasFiles` gate unmounts — store,
+  notices, and typed state die with it, and a successful pick's fresh mount
+  re-reads the new folder's document through the seam. Nothing selected
+  against the previous corpus can be assumed
   to mean the same thing against the next one, so **a pick re-gates Start** —
   never inherited across one. It runs at the **start of the gesture**, before
   the mechanism fork, so the screen is back at its initial no-folder state
@@ -1193,20 +1233,10 @@ The asymmetry is pinned three times over: at the service seam
   picked-slot interop lets that paint land first. Settled consequences: a
   **cancelled pick loses the folder that was held** (the gesture ended the
   setup whatever the picker then returned), and a successful pick re-mounts
-  the `FilterPanel`, whose `localStorage` restore re-stages the persisted
-  config as dirty on **every** pick — accepted, and routine. The explicit
-  `AppliedFilter.Clear()` cannot be replaced by the report `LoadConfig`
-  raises: a gesture made from the no-folder state has no panel to raise one
-  (and a filter applied in an earlier setup would keep satisfying the gate),
-  while a panel that *is* mounted and had committed the defaults reports the
-  staged defaults as **clean** — which, mirrored, would re-apply the filter
-  the reset just cleared. So **`HandleAppliedStateChanged` ignores every
-  report made with no folder held**, which is exactly this method's state.
-  `LoadConfig(new FilterConfig())` stages without persisting, so the user's
-  last-applied filter survives in the panel's `localStorage` — the same
-  hands-off treatment `AppliedMix.Reset` gives the stored mix. The reset is
-  deliberately **not** `@key`-based like `MixPanel`: re-mounting would
-  re-stage the *persisted* config, the opposite of defaults. Two things are
+  the composite, whose panel's `localStorage` restore re-stages the persisted
+  config as dirty on **every** pick — accepted, and routine (staged without a
+  commit, so it is shown but never claimed as applied; the same hands-off
+  treatment `AppliedMix.Reset` gives the stored mix). Two things are
   deliberately *not* reset: `ShuffleOption` (presentation-only preference) and
   the lifetime-stats slot, whose whole point is to *resume* when its folder is
   picked again. `PageTests` pins the reset, the at-the-click timing (sampled
@@ -1214,7 +1244,7 @@ The asymmetry is pinned three times over: at the service seam
   **Busy affordances.** The whole setup surface sits inside one
   `<fieldset disabled="@IsBusy">` — the native element disables every form
   control within, including the Apply buttons *inside* the imported
-  `FilterPanel`/`MixPanel`, which expose no disabled parameter — and the page
+  `FilterSurface`/`MixPanel`, which expose no disabled parameter — and the page
   container carries `app-busy` (`cursor: progress`, `app.css`) on the *same*
   predicate, so cursor and disabled controls cannot disagree. `IsBusy` unions
   `Controller.IsBusy` (the transition gate), `_busy` (this page's own
@@ -1231,16 +1261,19 @@ The asymmetry is pinned three times over: at the service seam
   raise it. Why the yield is load-bearing, and why the pins sit where they do,
   is in Pitfalls.
   **Callback wiring.** No `StateChanged` subscription — the page's own
-  suspended handlers trigger the re-renders. Subscribes to
-  `OnFilterConfigChanged` → `AppliedFilter.Set(cfg, Folder.PickGeneration)`
-  and `OnAppliedStateChanged` → `Set` / `Clear` from the payload
-  (§ `AppliedFilter`). The count is single-sourced in `ShowMatchSummaryAsync`,
-  called from both — and the applied-state handler skips it when the payload
-  is already the applied config *and* the count is current, because a commit
+  suspended handlers trigger the re-renders. The composite mediates the
+  holder *before* re-raising, so Home's handlers own only host side effects:
+  `OnFilterConfigChanged` clears the start/no-match notices and counts;
+  `OnAppliedStateChanged` manages only the match summary (the holder is
+  already correct by the time it fires — § `AppliedFilter`). The count is
+  single-sourced in `ShowMatchSummaryAsync`,
+  called from both — and the applied-state handler skips it when a summary is
+  shown or in flight, because a commit
   raises both callbacks and would otherwise parse the corpus twice.
   **Apply Mix is sequenced behind Apply Filter** (umbrella #45). The
   `MixPanel` is handed `CanApply="MixApplyEnabled"` plus the reason sentence;
-  `MixApplyEnabled => AppliedFilter.WasAppliedFor(Folder.PickGeneration)` —
+  `MixApplyEnabled =>
+  AppliedFilter.WasAppliedFor(FilterSourceToken.FromGeneration(Folder.PickGeneration))` —
   "a filter has been applied for the currently picked folder". Settled
   semantics, each half load-bearing:
   - **UX sequencing only, never a data-flow rule.** The mix composes over the
@@ -1393,7 +1426,12 @@ The asymmetry is pinned three times over: at the service seam
 
   **Every documented constant renders from its SSOT, never as a literal** —
   file caps from `PickedFileLimits`, filenames from `QuizStatsFile` /
-  `QuizFiltersFile`, the browser rule from `FolderPickDisplay` (rendered
+  `SavedFiltersDocument` (both saved-filters names: the canonical one in
+  *Before you start* and the saved-filters section, and the legacy name in the
+  fallback sentence the umbrella ruled in — a silently-read file would cut
+  against the storage-transparency posture, and the fallback is a standing
+  producer rule, so the sentence doesn't rot),
+  the browser rule from `FolderPickDisplay` (rendered
   *verbatim*, so this and Home's line beside the pick button cannot say
   different things), feedback + version from `AppInfo`. The *Choose filters*
   section extends that discipline one tier up: it embeds `XgFilter_Razor`'s
@@ -1442,7 +1480,7 @@ The asymmetry is pinned three times over: at the service seam
 
   Three things are **pointed at, never restated**: the two files written into
   the user's folder (*Before you start* already names them from
-  `QuizStatsFile.FileName` / `QuizFiltersFile.FileName`); `FilterPanel`'s own
+  `QuizStatsFile.FileName` / `SavedFiltersDocument.FileName`); the panel's own
   localStorage entries (one sentence in user terms plus a link into
   `FilterHelp`'s `#fh-what-is-remembered` — see Pitfalls); and the
   write-access caveat, a pointer into *Lifetime stats* — where the browser
@@ -1748,7 +1786,10 @@ the native directory picker or its permission prompts, so the base injects a
 fake `window.showDirectoryPicker` — a scripted directory handle over the real
 fixture's bytes, `getFileHandle`, `createWritable` capturing writes, scripted
 permissions. The faking stops at the browser-API boundary: the app ships **no
-test seams**, and everything from `folderAccess.js` inward runs for real — if
+test seams**, and everything from `folderAccess.js` inward — BgFolderAccess_Razor's
+module now, served from its `_content` path — runs for real; this suite is
+that hoisted module's **only real-wire proof** (the lib's own tests script the
+interop, never the browser). If
 the module's use of the FS-Access surface drifts from what the fake mirrors,
 the scenarios fail loudly. Per-scenario variation (corrupt stats file, denied
 permission) is a page-level init script overriding the fake's config object; a
@@ -1853,7 +1894,7 @@ regression until the publish itself succeeds.
 This is an application, not a library — no exported types or HTTP endpoints,
 and the `.Client` assembly enforces that at the type level: **every plain-C#
 client type is `internal`** (the controller and its outcome enum, all the
-scoped holders and services, the interop facade and its wire DTOs and enums,
+scoped holders and services, the storage adapter,
 the file/wording SSOTs, the sources, `ProblemReview`, and the
 `ProblemSetSourceFactory` delegate — see the Directory tree for the roster),
 reachable by the test project only through the `InternalsVisibleTo` grant. The
@@ -1881,14 +1922,18 @@ public (see Pitfalls). The externally visible surface is the route map:
   reads as green, the defect class the gate was built to kill. (2) Its
   `Fixtures/` are committed copies; the umbrella's `TestData/FixtureFiles/`
   stays append-only and untouched.
-- **`ApplyFiltersAsync` arms the gate; it does not carry the panel's
-  values.** The bUnit helper invokes `OnFilterConfigChanged` with a *fresh*
-  `FilterConfig`, so a test that sets a facet through the panel's controls
-  and then applies with it asserts against an empty config — the selection
-  is silently discarded and the failure points at the facet rather than at
-  the helper (the same shape as `SubmitPlay` bypassing the page handler). Use
-  `ClickApplyFilterAsync`, which clicks the panel's real *Apply Filter*
-  button, whenever the assertion is about *what* was applied.
+- **Wire tests drive `FilterSurface`'s rendered DOM — no
+  `FindComponent<FilterPanel>()`, ever, host tests included** (the producer's
+  no-carve-out ruling; the panels live in `XgFilter_Razor.Components.Internal`).
+  `PageTests`' helpers encode the sanctioned gestures: `ApplyFiltersAsync`
+  clicks the panel's real *Apply Filter* button (committing whatever the
+  buffers hold — defaults on a fresh mount under loose JS interop),
+  `EditFilterControlAsync` / `UndoFilterEditAsync` drive the always-visible
+  error-range Min input for dirty/clean reports. Two consequences the old
+  synthetic helpers hid: Apply's own gate refuses an unchanged selection, so
+  a second apply within one panel mount needs a real edit first; and a commit
+  raises *both* events, exactly as production does. Locating the
+  `FilterSurface` component itself is fine — it is consumer surface.
 - **Never inventory the navigation panel in prose.** `Help`'s collapse note
   describes the *control* and its behaviour — where the rail is, which way the
   chevron points, how long the choice lasts — and names nothing the panel
@@ -2019,14 +2064,17 @@ public (see Pitfalls). The externally visible surface is the route map:
   `OnPlayCompleted`. Keep it present: the radios are strictly controlled, so
   without the binding they are inert.
 - **A binding to a parameter the component doesn't have is a *render*-time
-  failure, not a build one.** `<FilterPanel OnFilterDirty="..."/>` against a
-  panel that has since renamed it compiles clean and throws
-  `InvalidOperationException` the first time the panel renders, so when
+  failure, not a build one.** `<FilterSurface OnFilterDirty="..."/>` against a
+  composite that has since renamed it compiles clean and throws
+  `InvalidOperationException` the first time it renders, so when
   adapting to a renamed producer callback `dotnet build` green proves nothing
   — the proof is a render-level test. (The reverse case, a binding *omitted*,
-  is caught at build: both `FilterPanel` callbacks are `[EditorRequired]`, so
+  is caught at build: the composite's holder and both callbacks are
+  `[EditorRequired]`, so
   a missing one surfaces `RZ2012` → error under `-warnaserror`.) `PageTests`
-  renders Home and asserts both callbacks' `HasDelegate`, which also rules out
+  renders Home and asserts both callbacks' `HasDelegate` on the located
+  `FilterSurface` — the *composite* is consumer surface, unlike the
+  `.Internal` panels — which also rules out
   the attribute being silently splatted.
 - **Client plain-C# types are `internal`; only Razor components are `public`**
   (the list is in Public API). Don't widen one: the tests already see it
@@ -2056,8 +2104,9 @@ public (see Pitfalls). The externally visible surface is the route map:
   discriminates `.xg` vs `.xgp` from the file-name extension to stamp the
   `DecisionId`, so an extensionless `PickedFile.FileName` is a usage error the
   iterator throws `ArgumentException` on — lazily, mid-enumeration, not at
-  construction. Both of `folderAccess.js`'s pick paths preserve the browser's
-  extension-bearing entry names precisely for this (pinned on both sides).
+  construction. Both of the lib module's pick paths preserve the browser's
+  extension-bearing entry names precisely for this (a stated
+  BgFolderAccess_Razor contract, pinned producer-side).
   Start-time exceptions (this, plus `FilterConfig.Build()` validation) surface
   on `Controller.StartAsync` and `Home.razor` banners them.
 - **Lifetime stats fold on the forward exits from review, never at Submit.**
@@ -2174,12 +2223,17 @@ public (see Pitfalls). The externally visible surface is the route map:
   pinning the wiring, not the pixel; (3) the same yield discipline shows up in
   the controller's transition gate — don't "simplify" either of them.
 - **Raising the busy state also renders Home at its reset, no-folder state
-  mid-pick, which unmounts and re-mounts the `FilterPanel`.** The pick's reset
+  mid-pick, which unmounts and re-mounts the whole `FilterSurface`.** The
+  pick's reset
   runs at the click, so the paint that follows finds `HasFiles` false and the
-  progressive-disclosure gate closed. That re-mount is production behavior, so
-  a page test that expands the panel's "more filters" disclosure before a pick
-  must expand it *again* afterwards, and one that pre-arms `WithAppliedFilter`
-  then picks through the UI must re-apply, exactly as a user would.
+  progressive-disclosure gate closed. That re-mount is production behavior —
+  and load-bearing since the composite adoption: the fresh mount is what
+  re-arms Apply and re-reads the saved-filters document, and the unmount is
+  why the composite's source-change rule never runs here (§ `AppliedFilter`).
+  So a page test that expands the panel's "more filters" disclosure before a
+  pick must expand it *again* afterwards, and one that pre-arms
+  `WithAppliedFilter` then picks through the UI must re-apply, exactly as a
+  user would.
 - **The stage-2 refusal's re-bind is a real side effect — including the
   WriteFailed sub-case.** Stage 1 (capability peek) refuses with zero side
   effects, but a stage-2 refusal has already run `BeginQuizAsync`, which
@@ -2212,18 +2266,21 @@ public (see Pitfalls). The externally visible surface is the route map:
   *null* is always a bug.
 - **Never write over a file that failed to read or parse — stats or saved
   filters.** A load `JsonException` (corrupt, foreign, or newer-schema file)
-  flips `QuizStatsStore` to `LoadFailed`; a non-null read that
-  `NamedFilterCollection.TryFromJson` rejects, *or* a read that throws
-  (`JSException` — an FS error, or read genuinely withheld under
-  `PermissionDenied`), flips `SavedFiltersStore` the same way. Terminal for
+  flips `QuizStatsStore` to `LoadFailed`; the saved-filters equivalent is the
+  producer store's `LoadFailed` (a rejected parse, or a read wrapped into
+  `FilterStorageException` by the adapter — an FS error, or read genuinely
+  withheld under `PermissionDenied`). Terminal for
   that quiz / that pick: no records, and — the actual guarantee — **zero
   writes**, so the user's existing data survives whatever went wrong (stats
-  resets at the next Start's re-bind). The filters half is also what keeps
+  resets at the next Start's re-bind; the filters store additionally never
+  falls back to the legacy file when the *canonical* one is present but
+  corrupt — falling back would resurrect stale data over newer-but-broken
+  data). The filters half is also what keeps
   load-only under `PermissionDenied` from being load-bearing: if the
-  read-grant assumption is ever false in some browser, the store degrades to
-  the notice instead of the panel, never worse. `QuizStatsStoreTests`,
-  `SavedFiltersStoreTests`, and the e2e corrupt-file scenario pin the
-  zero-writes half; keep them.
+  read-grant assumption is ever false in some browser, the composite degrades
+  to its notice instead of the panel, never worse. `QuizStatsStoreTests`, the
+  producer's `SavedFiltersStoreTests`, and the e2e corrupt-file scenario pin
+  the zero-writes half; keep them.
 - **The stats context binds at Start/Restart (two-slot promote) — mid-quiz
   Clear/re-pick must never affect the running quiz's recording** (the model is
   in Architecture § Folder picking). Wiring Clear or a new pick to touch the
@@ -2231,23 +2288,25 @@ public (see Pitfalls). The externally visible surface is the route map:
   exists to prevent: a user tidying up Home mid-quiz silently killing (or
   retargeting!) the quiz's recording.
 - **Saved filters read/write the *picked* slot, not the active one.** The
-  same isolation invariant as stats, from the other side: `SavedFiltersStore`
-  goes through `readPickedFile`/`writePickedFile`, never the active-slot
-  `readStatsFile`/`writeStatsFile`, so a mid-quiz re-pick reloads the
+  same isolation invariant as stats, from the other side:
+  `PickedFolderFilterStorage` adapts the composite's storage seam onto
+  `ReadPickedFileAsync`/`WritePickedFileAsync`, never the active-slot pair,
+  so a mid-quiz re-pick reloads the
   saved-filters context off the *new* picked folder while the running quiz
   keeps recording through its *active* handle. Don't "unify" the two file ops
-  onto one slot — the filters ops must not require a `promoteToActive` (they
+  onto one slot — the filters ops must not require a promote (they
   run before any quiz binds), and the two slots can legitimately be different
   folders when a quiz is live over an earlier pick.
-- **Don't gate the saved-filters degrade notices on the panel's empty rule.**
-  Home carries two predicates on purpose: `SavedFiltersApplicable` (panel
-  offering — hides a read-only section with nothing to load) and
-  `SavedFiltersContextApplicable` (degrade reporting). Collapsing them back into
-  one looks like tidy de-duplication and is a correctness bug: `LoadFailed`
-  always leaves the collection empty, so the panel's "hide when read-only and
-  empty" rule would suppress the "couldn't be read, left untouched"
-  data-protection notice **every time it fires** — exactly when the user most
-  needs it. Emptiness is irrelevant to whether a failure gets reported.
+- **The saved-filters visibility and degrade rules are producer-owned now —
+  don't re-encode them host-side.** The panel-offering rule (a read-only
+  *empty* section is clutter and hides; `LoadFailed` replaces the panel with
+  the data-protection notice, never suppressed by emptiness; `WriteFailed`
+  keeps the truthful panel beside its notice) and all the degrade copy live in
+  `FilterSurface`. What Home rules is only its capability half: `Storage`
+  null-vs-adapter, `CanPersist`, and the FS-Access `PersistDisabledReason`
+  wording. Re-adding a host predicate over the composite's output (the old
+  `SavedFiltersApplicable` split) would be a second encoding of a producer
+  rule — the facet-prose drift hazard in gate form.
 - **The parse cache must stay unfiltered, holder-homed, and
   generation-guarded.** `PickedProblemFolder.ParsedDecisions` is the parse of
   the *whole* pick with no filters — caching a filtered parse would silently
@@ -2262,12 +2321,13 @@ public (see Pitfalls). The externally visible surface is the route map:
   hints (the contract lives on `IDecisionFilter`/`IMatchFilter` in
   XgFilter_Lib); a filter whose votes cut rows its `Matches` would admit
   breaks that contract and this cache.
-- **Browser directory handles live in JS module state only.**
+- **Browser directory handles live in JS module state only** (a
+  BgFolderAccess_Razor contract this app must not work around).
   `FileSystemDirectoryHandle` / `File` objects cannot round-trip the interop
-  boundary; `folderAccess.js` owns them and C# sees names/bytes/booleans
+  boundary; the lib's module owns them and C# sees names/bytes/booleans
   through `IFolderAccess`. Don't try to hold a handle (or an
-  `IJSObjectReference` to one) in a C# holder — `JsFolderAccess` is the one
-  type that touches interop, and pages depend on the interface.
+  `IJSObjectReference` to one) in a C# holder — the lib's `JsFolderAccess` is
+  the one type that touches that interop, and pages depend on the interface.
 - **The WASM dependency closure must stay native-free.** Everything the
   `.Client` references ships into the browser-wasm runtime, which has no
   native interop. Reference the `BackgammonDiagram_Lib` **core** (native-free
@@ -2370,12 +2430,13 @@ public (see Pitfalls). The externally visible surface is the route map:
   `/no-such.json`.
 - **There are two `wwwroot`s — a served static file belongs to the host's.**
   `BgQuiz_Blazor/wwwroot` is what the host serves (`app.css`, `favicon.png`,
-  `lib/`, `robots.txt`, `js/navFold.js`); `BgQuiz_Blazor.Client/wwwroot` holds
-  `js/folderAccess.js` and reaches the browser only as the client's static *web
-  assets*, under its own path. **Both have a `js/`, and the split is by who
-  runs the script**: `folderAccess.js` is an ES module the WASM client imports
-  through `IJSRuntime`; `navFold.js` is a classic script the host shell tags
-  and must run on static pages before any runtime boots. A file that must
+  `lib/`, `robots.txt`, `js/navFold.js`); `BgQuiz_Blazor.Client/wwwroot`
+  reaches the browser only as the client's static *web assets*, under its own
+  path — since the BgFolderAccess_Razor adoption it holds no authored JS (the
+  folder module ships as that library's `_content` asset; `navFold.js` is the
+  app's one remaining authored script, a classic script the host shell tags
+  because it must run on static pages before any runtime boots). A file that
+  must
   answer at a fixed URL (`/robots.txt`, and anything else a crawler, browser,
   or platform probe asks for by name) goes in the host's, and the mistake is
   silent in every layer but one: it still builds, still publishes, and 404s at
