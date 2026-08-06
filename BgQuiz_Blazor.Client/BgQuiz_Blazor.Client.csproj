@@ -6,7 +6,7 @@
          at runtime from AssemblyInformationalVersionAttribute). The release
          number itself always comes from here and nothing may displace it; a
          build-metadata suffix (below) may follow it. -->
-    <Version>1.4.0</Version>
+    <Version>1.5.0</Version>
     <!-- Suppress the SDK's own "+<gitsha>" suffix, which appends the *full*
          40-char sha. StampShortGitShaOnInformationalVersion (below) puts back a
          readable short form instead; leaving the SDK's version on as well would
