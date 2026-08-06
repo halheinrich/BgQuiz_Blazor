@@ -1,5 +1,6 @@
 using BgDataTypes_Lib;
 using BgGame_Lib;
+using BgFolderAccess_Razor;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Filtering;
@@ -175,7 +176,7 @@ public class WasmUploadedProblemSetSourceTests
         if (files.Count == 0) return;
 
         var picked = new PickedProblemFolder();
-        picked.Set("corpus", files, StatsSaveCapability.BrowserUnsupported, []);
+        picked.Set("corpus", files, FolderWriteCapability.BrowserUnsupported, []);
 
         BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory =
             (filters, _) => new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance, TimeProvider.System);
@@ -202,7 +203,7 @@ public class WasmUploadedProblemSetSourceTests
         if (files.Count == 0) return;
 
         var picked = new PickedProblemFolder();
-        picked.Set("corpus", files, StatsSaveCapability.BrowserUnsupported, []);
+        picked.Set("corpus", files, FolderWriteCapability.BrowserUnsupported, []);
         var shuffle = new ShuffleOption();
 
         BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory = (filters, mix) =>
@@ -234,7 +235,7 @@ public class WasmUploadedProblemSetSourceTests
         if (files.Count == 0) return;
 
         var picked = new PickedProblemFolder();
-        picked.Set("corpus", files, StatsSaveCapability.BrowserUnsupported, []);
+        picked.Set("corpus", files, FolderWriteCapability.BrowserUnsupported, []);
         var shuffle = new ShuffleOption();
         shuffle.Set(true);
 

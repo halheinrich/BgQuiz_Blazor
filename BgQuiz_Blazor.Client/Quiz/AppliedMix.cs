@@ -1,6 +1,8 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using BgFolderAccess_Razor;
 using BgGame_Lib;
+using XgFilter_Razor;
 
 /// <summary>
 /// The per-app (Scoped, one-per-tab in WASM) holder for the
@@ -65,7 +67,7 @@ internal sealed class AppliedMix
     /// <see cref="MixDraft.Discard"/>, so no committed mix silently survives
     /// the end of the setup it was built for: under a no-stats pick the mix
     /// must play no part in Start, and under an
-    /// <see cref="StatsSaveCapability.Enabled"/> pick the re-mounted panel's
+    /// <see cref="FolderWriteCapability.Enabled"/> pick the re-mounted panel's
     /// hydration re-offers the persisted mix — gated by the derived rule
     /// against this now-passthrough holder. Does not touch localStorage — the
     /// stored mix survives for that hydration to re-offer.

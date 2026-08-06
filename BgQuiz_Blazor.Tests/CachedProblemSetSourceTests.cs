@@ -1,6 +1,7 @@
 using System.Collections;
 using BgDataTypes_Lib;
 using BgGame_Lib;
+using BgFolderAccess_Razor;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Enums;
@@ -41,7 +42,7 @@ public class CachedProblemSetSourceTests
     private static PickedProblemFolder FolderOver(IReadOnlyList<PickedFile> files)
     {
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", files, StatsSaveCapability.BrowserUnsupported, []);
+        folder.Set("Corpus", files, FolderWriteCapability.BrowserUnsupported, []);
         return folder;
     }
 
@@ -145,7 +146,7 @@ public class CachedProblemSetSourceTests
         // Re-pick (same folder or not — every Set supersedes): the cache is
         // gone and the next Start's source parses the new files.
         var secondFiles = new CountingFileList([new PickedFile("b.xgp", [4, 5, 6])]);
-        folder.Set("Corpus", secondFiles, StatsSaveCapability.BrowserUnsupported, []);
+        folder.Set("Corpus", secondFiles, FolderWriteCapability.BrowserUnsupported, []);
         Assert.Null(folder.ParsedDecisions);
 
         await CollectAllAsync(MakeSource(folder));
@@ -167,7 +168,7 @@ public class CachedProblemSetSourceTests
         var folder = FolderOver(filesA);
         var staleSource = MakeSource(folder);
 
-        folder.Set("Other", [new PickedFile("b.xgp", [4, 5, 6])], StatsSaveCapability.BrowserUnsupported, []);
+        folder.Set("Other", [new PickedFile("b.xgp", [4, 5, 6])], FolderWriteCapability.BrowserUnsupported, []);
 
         await CollectAllAsync(staleSource);
         await CollectAllAsync(staleSource);

@@ -1,19 +1,26 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using BgFolderAccess_Razor;
+
 /// <summary>
-/// The caps the folder pick enforces on its <see cref="PickedFile"/>s, and the
-/// derived figures the help page states as prose.
+/// The caps BgQuiz asks the folder pick to enforce on its
+/// <see cref="PickedFile"/>s, and the derived figures the help page states as
+/// prose. Host <b>policy</b>, not machinery: enforcement lives in
+/// BgFolderAccess_Razor (its <see cref="FolderPickLimits"/> carries these
+/// values into the pick — <c>Program.cs</c> builds the one registered instance
+/// from this table — and its JS module derives both of its jobs from the table
+/// it is handed, holding no copy of its own), while the numbers encode this
+/// app's cost model and stay here.
 ///
 /// <para>
-/// These are one rule with several consumers — <c>folderAccess.js</c>
-/// <i>enforces</i> them against the pick's metadata before any bytes cross the
-/// interop boundary (the count caps are handed to it as
-/// <see cref="MaxFileCounts"/>, so the module holds no copy of its own),
+/// One rule, several consumers — the pick <i>enforces</i> it,
 /// <c>Home.razor</c> reports what a truncation left behind, and
-/// <c>Help.razor</c> <i>documents</i> them — so they live here rather than as
-/// private constants on the enforcing type. The megabyte figure is
-/// <b>derived</b> from <see cref="MaxFileBytes"/>, never restated: raising the
-/// byte cap moves the documented figure with it.
+/// <c>Help.razor</c> <i>documents</i> it — so the values live here rather
+/// than as literals per site. The megabyte figure is <b>derived</b> from
+/// <see cref="MaxFileBytes"/>, never restated: raising the byte cap moves the
+/// documented figure with it. (The lib derives the same figure for its own
+/// error message via <see cref="FolderPickLimits.MaxFileMegabytes"/> — from
+/// the same registered value, so the two renderings cannot disagree.)
 /// </para>
 /// </summary>
 internal static class PickedFileLimits
@@ -25,11 +32,11 @@ internal static class PickedFileLimits
     internal const string XgpExtension = ".xgp";
 
     /// <summary>
-    /// Per-file size cap in bytes (50 MB) — mirrors the XG extractor's web-mode limit.
-    /// Enforced at pick time by <see cref="JsFolderAccess"/>: checked against the
-    /// enumerated metadata up front, and re-asserted as the
-    /// <c>IJSStreamReference.OpenReadStreamAsync</c> <c>maxAllowedSize</c> on the
-    /// actual transfer.
+    /// Per-file size cap in bytes (50 MB) — mirrors the XG extractor's web-mode
+    /// limit. Enforced at pick time by BgFolderAccess_Razor's
+    /// <see cref="JsFolderAccess"/> (checked against the enumerated metadata up
+    /// front, re-asserted on the actual transfer), which receives it through the
+    /// registered <see cref="FolderPickLimits"/>.
     /// </summary>
     internal const long MaxFileBytes = 50L * 1024 * 1024;
 
@@ -51,16 +58,21 @@ internal static class PickedFileLimits
 
     /// <summary>
     /// The per-extension file-count caps: the pick's problem-file kinds and what
-    /// each one admits, in the order any per-type report reads them.
+    /// each one admits, in the order any per-type report reads them. File count
+    /// is only a cost proxy <i>within</i> one format, so each extension
+    /// truncates at its own cap independently and a mixed folder can admit its
+    /// full quota of both.
     ///
     /// <para>
-    /// <b>The whole table crosses the interop boundary</b> — <c>folderAccess.js</c>
-    /// is handed it on every enumeration and derives <i>both</i> jobs from it: which
-    /// names count as problem files, and how many of each to take. File count is
-    /// only a cost proxy <i>within</i> one format, so each extension truncates at
-    /// its own cap independently and a mixed folder can admit its full quota of
-    /// both. Keeping the table here rather than in the module is what stops the
-    /// two languages from disagreeing about either job.
+    /// This table is the values half of the registered
+    /// <see cref="FolderPickLimits"/> (built from it once, in
+    /// <c>Program.cs</c>), through which the lib hands the whole table to its
+    /// JS module on every enumeration — the module derives <i>both</i> jobs
+    /// from it (which names count as problem files, and how many of each to
+    /// take) and keeps no copy. A reported truncation's
+    /// <see cref="PickTruncation.MaxFileCount"/> is derived lib-side from that
+    /// same enforced instance, so the figure a notice states is by construction
+    /// the figure the pick applied.
     /// </para>
     /// </summary>
     internal static IReadOnlyDictionary<string, int> MaxFileCounts { get; } =
@@ -69,18 +81,6 @@ internal static class PickedFileLimits
             [XgExtension] = MaxXgFileCount,
             [XgpExtension] = MaxXgpFileCount,
         }.AsReadOnly();
-
-    /// <summary>
-    /// The cap applied to <paramref name="extension"/> — the lookup behind
-    /// <see cref="PickTruncation.MaxFileCount"/>, so a reported truncation states
-    /// the same figure the pick enforced.
-    /// </summary>
-    /// <exception cref="KeyNotFoundException">
-    /// <paramref name="extension"/> is not a problem-file extension. Unreachable
-    /// from a truncation report: the caps table is what taught the JS module which
-    /// extensions exist, so it can only report back a key from this table.
-    /// </exception>
-    internal static int MaxFileCountFor(string extension) => MaxFileCounts[extension];
 
     /// <summary>
     /// <see cref="MaxFileBytes"/> expressed in whole mebibytes — the human-facing

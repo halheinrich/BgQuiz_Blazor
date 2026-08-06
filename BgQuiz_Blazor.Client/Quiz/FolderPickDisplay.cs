@@ -1,5 +1,7 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using BgFolderAccess_Razor;
+
 /// <summary>
 /// The one home for user-facing folder-pick wording shared across more than one
 /// surface — the folder-pick sibling of <see cref="MixDisplay"/>. Keeping such a
@@ -52,7 +54,7 @@ internal static class FolderPickDisplay
     /// <para>
     /// The middle clause is hedged on purpose. A desktop non-Chromium browser is
     /// not broken — the fallback picker works and the quiz runs, it just cannot
-    /// write, which is the <see cref="StatsSaveCapability.BrowserUnsupported"/>
+    /// write, which is the <see cref="FolderWriteCapability.BrowserUnsupported"/>
     /// rung. Only the phone case is genuinely "may not work at all", and it says
     /// <i>may</i>: this asserts no behavior of a browser we cannot observe from
     /// here, the same discipline as the never-quote-a-prompt rule above.
@@ -67,7 +69,7 @@ internal static class FolderPickDisplay
     /// What the absence of write access to the picked folder actually costs, in
     /// one clause that reads correctly mid-sentence on either surface that
     /// renders it: Home's pre-pick permission guidance (forward-looking —
-    /// "without it, …") and Home's <see cref="StatsSaveCapability.PermissionDenied"/>
+    /// "without it, …") and Home's <see cref="FolderWriteCapability.PermissionDenied"/>
     /// outcome notice (after the fact — "the quiz runs, but …").
     ///
     /// <para>
@@ -87,7 +89,7 @@ internal static class FolderPickDisplay
     ///
     /// <para>
     /// <b>It deliberately does not say the user declined.</b>
-    /// <see cref="StatsSaveCapability.PermissionDenied"/> has two causes and
+    /// <see cref="FolderWriteCapability.PermissionDenied"/> has two causes and
     /// cannot tell them apart: the user answered no, <i>or</i> the readwrite
     /// request auto-denied because the picker had already consumed the transient
     /// user activation (observed on some Chromium versions — see

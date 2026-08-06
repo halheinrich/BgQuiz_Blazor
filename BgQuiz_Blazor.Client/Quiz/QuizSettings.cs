@@ -4,6 +4,7 @@ using System.Buffers;
 using System.Text;
 using System.Text.Json;
 using Microsoft.JSInterop;
+using XgFilter_Razor;
 
 /// <summary>
 /// The per-app (Scoped, one-per-tab in WASM) <b>user settings</b> the

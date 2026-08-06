@@ -2,6 +2,7 @@ namespace BgQuiz_Blazor.Client.Quiz;
 
 using System.Runtime.CompilerServices;
 using BgDataTypes_Lib;
+using BgFolderAccess_Razor;
 using BgGame_Lib;
 using Microsoft.Extensions.Logging;
 using XgFilter_Lib;

@@ -1,5 +1,7 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using XgFilter_Razor;
+
 /// <summary>
 /// Per-app holder for the "Shuffle order" toggle on <c>Home</c>'s quiz-start
 /// gate — the presentation-only complement to <see cref="AppliedFilter"/>

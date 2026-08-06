@@ -2,6 +2,7 @@
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
 
 @using BgQuiz_Blazor.Client.Quiz
+@using XgFilter_Razor
 @using XgFilter_Razor.Components
 
 @inject QuizController Controller
@@ -39,7 +40,7 @@
         <li>
             <strong>Two small files, written into that folder.</strong> BgQuiz
             saves <code>@QuizStatsFile.FileName</code> (your lifetime record) and
-            <code>@QuizFiltersFile.FileName</code> (filters you save by name)
+            <code>@SavedFiltersDocument.FileName</code> (filters you save by name)
             beside your problem files. It writes nothing else, and never changes
             the files it quizzes you on.
         </li>
@@ -286,13 +287,26 @@
         as an edit, not as a decision — Start stays disabled until you press
         Apply, so you are free to adjust it first.
     </p>
+    @* Both file names are rendered from SavedFiltersDocument's constants — the
+       producer's SSOT for the document identity and its two-name migration rule
+       (read canonical first, fall back to the legacy name only when the
+       canonical file is absent, write only canonical, never delete the legacy
+       file). The legacy sentence states the still-read fallback out loud: an
+       existing tester will see that file beside the newly-documented canonical
+       one, and a silently-read file would cut against this section's
+       storage-transparency posture. The rule is standing, so the sentence
+       doesn't rot. *@
     <p>
-        Saved filters live in a file named <code>@QuizFiltersFile.FileName</code>
+        Saved filters live in a file named <code>@SavedFiltersDocument.FileName</code>
         inside your problem folder, so they belong to that folder and travel with
-        it. They need the same write access lifetime stats need: without it you
-        can still load filters saved earlier, but not save, change, or delete
-        them. If the file can't be read, BgQuiz leaves it exactly as it found it
-        and switches saving off rather than risk overwriting it.
+        it. If a folder has filters saved under the earlier name
+        <code>@SavedFiltersDocument.LegacyFileName</code>, BgQuiz still reads
+        them from there; the next save writes <code>@SavedFiltersDocument.FileName</code>,
+        and the older file is left untouched. They need the same write access
+        lifetime stats need: without it you can still load filters saved
+        earlier, but not save, change, or delete them. If the file can't be
+        read, BgQuiz leaves it exactly as it found it and switches saving off
+        rather than risk overwriting it.
     </p>
 
     <h2 class="h4 mt-4">Weight the quiz by your lifetime stats</h2>

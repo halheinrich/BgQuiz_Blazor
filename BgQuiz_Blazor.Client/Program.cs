@@ -4,10 +4,12 @@
 // browser-wasm runtime: the quiz state machine (QuizController), the active
 // problem-set source, board rendering, and in-browser .xg/.xgp parsing.
 
+using BgFolderAccess_Razor;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Microsoft.Extensions.Logging;
+using XgFilter_Razor;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
@@ -23,10 +25,15 @@ builder.Services.AddSingleton(TimeProvider.System);
 // full reload — see QuizController's lifetime docs. Pages observe via StateChanged.
 builder.Services.AddScoped<QuizController>();
 
-// The one gateway to the browser's folder facilities (folderAccess.js): both
-// pick mechanisms, buffered file reads, and the stats file's read/write. Pages
-// and the stats store depend on the interface; directory handles stay in JS
-// module state and never cross the interop boundary.
+// The one gateway to the browser's folder facilities — BgFolderAccess_Razor's
+// JS-backed implementation (its folderAccess.js ships as the lib's static web
+// asset): both pick mechanisms, buffered file reads, and named-file I/O on the
+// picked/active slots. Pages and the stats store depend on the interface;
+// directory handles stay in JS module state and never cross the interop
+// boundary. The caps the pick enforces are host policy: the one FolderPickLimits
+// instance is built from PickedFileLimits' table here — the lib ships no numbers.
+builder.Services.AddSingleton(new FolderPickLimits(
+    PickedFileLimits.MaxFileCounts, PickedFileLimits.MaxFileBytes));
 builder.Services.AddScoped<IFolderAccess, JsFolderAccess>();
 
 // Per-app holder for the user's picked problem folder (files + pick-time
@@ -42,17 +49,22 @@ builder.Services.AddScoped<PickedProblemFolder>();
 builder.Services.AddScoped<QuizStatsStore>();
 builder.Services.AddScoped<IDecisionStatsSink>(sp => sp.GetRequiredService<QuizStatsStore>());
 
-// Per-app holder for the filter half of Home's start gate: the config the user
-// deliberately applied. Scoped so the gate survives in-app navigation (Home is
-// re-instantiated on navigate-back); read only by Home.
+// Per-app holder for the filter half of Home's start gate — XgFilter_Razor's
+// AppliedFilter, mediated by the FilterSurface Home hosts (a commit Sets it
+// stamped with the pick's source token; uncommitted-edit reports Clear it).
+// Scoped so the gate survives in-app navigation (Home is re-instantiated on
+// navigate-back, and the composite dies with the page while this holder must
+// not); read only by Home.
 builder.Services.AddScoped<AppliedFilter>();
 
-// Per-app holder for the picked folder's saved named-filter collection
-// (bgquiz-filters.json, beside the corpus and the stats file). Home loads it at
-// pick time and drives its save/delete edits; the store reads/writes the JS
-// module's picked slot, so it never touches a running quiz's active-slot stats.
-// Degrade-never-block like QuizStatsStore. Read only by Home.
-builder.Services.AddScoped<SavedFiltersStore>();
+// The saved-filters storage seam: XgFilter_Razor's IFilterDocumentStorage over
+// BgFolderAccess_Razor's picked-slot file I/O — the one-line adapter glue the
+// two producers deliberately leave to the host. Home hands it to FilterSurface
+// while the pick's capability exposes a readable handle; the composite owns the
+// document lifecycle (read at mount/source change, save/delete edits, degrade
+// states) over it. Scoped: the composite rebuilds its store when the bound
+// adapter *reference* changes, so the instance must be stable per app.
+builder.Services.AddScoped<PickedFolderFilterStorage>();
 
 // Per-app holder for the "Shuffle order" toggle — a presentation-only choice,
 // deliberately separate from AppliedFilter/FilterConfig. Scoped for the same

@@ -37,18 +37,33 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     /// <summary>The on-disk stats filename the app must use — the consumer-side pin.</summary>
     protected const string StatsFileName = "bgquiz-stats.json";
 
-    /// <summary>The on-disk saved-filters filename the app must use — the consumer-side pin.</summary>
-    protected const string FiltersFileName = "bgquiz-filters.json";
+    /// <summary>
+    /// The canonical on-disk saved-filters filename the app must read first and
+    /// write — the consumer-side pin of the producer's document identity.
+    /// </summary>
+    protected const string CanonicalFiltersFileName = "xg-filters.json";
+
+    /// <summary>
+    /// The legacy saved-filters filename the app must still <i>read</i> (only
+    /// when the canonical file is absent) and never write or delete — the
+    /// consumer-side pin of the tester-migration contract.
+    /// </summary>
+    protected const string LegacyFiltersFileName = "bgquiz-filters.json";
 
     protected override string? ContextInitScript => $$"""
         (() => {
           // Scenario config + captured writes. Defaults: write granted, no
           // existing stats or saved-filters file. Page-level init scripts
-          // override per scenario. The saved-filters slot is stateful — a write
-          // updates filtersJson so a later re-pick reads it back (the round-trip
+          // override per scenario. The canonical saved-filters slot
+          // (filtersJson → '{{CanonicalFiltersFileName}}') is stateful — a
+          // write updates it so a later re-pick reads it back (the round-trip
           // the persistence scenario proves), while filtersWrites records every
-          // write for assertion. (Stats deliberately isn't: each quiz re-reads
-          // the scenario-configured statsJson.)
+          // write for assertion. The legacy slot (legacyFiltersJson →
+          // '{{LegacyFiltersFileName}}') is read-only by construction: its
+          // handle exposes no createWritable, so an app write to the legacy
+          // name — a contract violation — fails the gesture loudly instead of
+          // passing as a captured write. (Stats deliberately isn't stateful:
+          // each quiz re-reads the scenario-configured statsJson.)
           // scanGate: null by default (the enumeration resolves immediately).
           // A test may set it to a promise before picking, which suspends the
           // directory enumeration — the app's own post-prompt work — for as
@@ -56,7 +71,8 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
           // affordance in a real browser: unheld, the fake's one-file scan is
           // over in milliseconds and nothing could be asserted about it.
           window.__statsFake = {
-            permission: 'granted', statsJson: null, filtersJson: null,
+            permission: 'granted', statsJson: null,
+            filtersJson: null, legacyFiltersJson: null,
             writes: [], filtersWrites: [], scanGate: null,
           };
           const cfg = window.__statsFake;
@@ -85,13 +101,14 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
             },
           };
 
-          // Saved-filters handle: reads filtersJson (setup-time, picked slot),
-          // and a write updates filtersJson (round-trip) as well as recording it.
+          // Canonical saved-filters handle: reads filtersJson (setup-time,
+          // picked slot), and a write updates filtersJson (round-trip) as well
+          // as recording it.
           const filtersHandle = {
-            kind: 'file', name: '{{FiltersFileName}}',
+            kind: 'file', name: '{{CanonicalFiltersFileName}}',
             getFile: async () => {
               if (cfg.filtersJson === null) throw notFound();
-              return new File([cfg.filtersJson], '{{FiltersFileName}}');
+              return new File([cfg.filtersJson], '{{CanonicalFiltersFileName}}');
             },
             createWritable: async () => {
               let buf = '';
@@ -99,6 +116,17 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
                 write: async d => { buf += d; },
                 close: async () => { cfg.filtersJson = buf; cfg.filtersWrites.push(buf); },
               };
+            },
+          };
+
+          // Legacy saved-filters handle: readable only. The app's contract is
+          // read-when-canonical-absent, write-canonical-only — so no
+          // createWritable here, and a write attempt fails loudly.
+          const legacyFiltersHandle = {
+            kind: 'file', name: '{{LegacyFiltersFileName}}',
+            getFile: async () => {
+              if (cfg.legacyFiltersJson === null) throw notFound();
+              return new File([cfg.legacyFiltersJson], '{{LegacyFiltersFileName}}');
             },
           };
 
@@ -115,9 +143,13 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
                 if (cfg.statsJson === null && !(opts && opts.create)) throw notFound();
                 return statsHandle;
               }
-              if (name === '{{FiltersFileName}}') {
+              if (name === '{{CanonicalFiltersFileName}}') {
                 if (cfg.filtersJson === null && !(opts && opts.create)) throw notFound();
                 return filtersHandle;
+              }
+              if (name === '{{LegacyFiltersFileName}}') {
+                if (cfg.legacyFiltersJson === null && !(opts && opts.create)) throw notFound();
+                return legacyFiltersHandle;
               }
               throw notFound();
             },

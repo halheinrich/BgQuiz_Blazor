@@ -1,13 +1,28 @@
-using BgQuiz_Blazor.Client.Quiz;
+using BgFolderAccess_Razor;
 using Microsoft.AspNetCore.Components;
+using XgFilter_Razor;
 
 namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
-/// Scriptable in-memory <see cref="IFolderAccess"/> for store and page tests:
-/// every browser-side behavior (pick outcome, promote verdict, stats-file
-/// content, write failure) is a settable property, and every side-effectful
-/// call is recorded so tests can assert exactly what the app drove.
+/// Scriptable in-memory <see cref="IFolderAccess"/> (BgFolderAccess_Razor's)
+/// for store and page tests: every browser-side behavior (pick outcome,
+/// promote verdict, named-file content, write failure) is a settable property,
+/// and every side-effectful call is recorded so tests can assert exactly what
+/// the app drove.
+///
+/// <para>
+/// The named-file members model the lib's two slots the way the app uses them:
+/// the <b>active</b> slot serves only the stats document
+/// (<see cref="StatsJson"/> / <see cref="Writes"/> — the fake also records the
+/// names, so a test can pin the filename SSOT), and the <b>picked</b> slot
+/// serves the saved-filters document under the producer's two names —
+/// <see cref="FiltersJson"/> is the canonical
+/// <see cref="SavedFiltersDocument.FileName"/> content and
+/// <see cref="LegacyFiltersJson"/> the
+/// <see cref="SavedFiltersDocument.LegacyFileName"/> content, so a host test
+/// can stage the read-fallback exactly. Any other picked name reads as absent.
+/// </para>
 /// </summary>
 internal sealed class FakeFolderAccess : IFolderAccess
 {
@@ -19,7 +34,7 @@ internal sealed class FakeFolderAccess : IFolderAccess
 
     /// <summary>Outcome the next <see cref="CollectFallbackAsync"/> returns (default: empty non-cancelled).</summary>
     public FolderPickOutcome NextCollectOutcome { get; set; } =
-        new(Cancelled: false, DirectoryName: "", Files: [], StatsSaveCapability.BrowserUnsupported,
+        new(Cancelled: false, DirectoryName: "", Files: [], FolderWriteCapability.BrowserUnsupported,
             Truncations: []);
 
     /// <summary>When set, <see cref="PickFolderAsync"/> / <see cref="CollectFallbackAsync"/> throw it instead.</summary>
@@ -48,29 +63,46 @@ internal sealed class FakeFolderAccess : IFolderAccess
     /// <summary>What <see cref="PromoteToActiveAsync"/> returns (default: an FS-Access handle is active).</summary>
     public bool PromoteResult { get; set; } = true;
 
-    /// <summary>Stats-file content <see cref="ReadStatsJsonAsync"/> returns; null = no file yet.</summary>
+    /// <summary>Stats-file content <see cref="ReadActiveFileAsync"/> returns; null = no file yet.</summary>
     public string? StatsJson { get; set; }
 
-    /// <summary>When set, <see cref="ReadStatsJsonAsync"/> throws it instead.</summary>
+    /// <summary>When set, <see cref="ReadActiveFileAsync"/> throws it instead.</summary>
     public Exception? ReadException { get; set; }
 
-    /// <summary>When set, <see cref="WriteStatsJsonAsync"/> throws it (after recording nothing).</summary>
+    /// <summary>When set, <see cref="WriteActiveFileAsync"/> throws it (after recording nothing).</summary>
     public Exception? WriteException { get; set; }
 
-    /// <summary>Every stats payload successfully written, in order.</summary>
+    /// <summary>Every active-slot payload successfully written, in order.</summary>
     public List<string> Writes { get; } = [];
 
-    /// <summary>Saved-filters file content <see cref="ReadFiltersJsonAsync"/> returns; null = no file yet.</summary>
+    /// <summary>The file name of every active-slot read/write, in call order — the filename-SSOT pin.</summary>
+    public List<string> ActiveFileNames { get; } = [];
+
+    /// <summary>
+    /// Canonical saved-filters content (<see cref="SavedFiltersDocument.FileName"/>)
+    /// the picked slot serves; null = no such file.
+    /// </summary>
     public string? FiltersJson { get; set; }
 
-    /// <summary>When set, <see cref="ReadFiltersJsonAsync"/> throws it instead (the read-failed / denied path).</summary>
+    /// <summary>
+    /// Legacy saved-filters content (<see cref="SavedFiltersDocument.LegacyFileName"/>)
+    /// the picked slot serves; null = no such file. Read by the producer's store
+    /// only when the canonical file is absent — staging this with
+    /// <see cref="FiltersJson"/> null is how a test exercises the fallback.
+    /// </summary>
+    public string? LegacyFiltersJson { get; set; }
+
+    /// <summary>When set, <see cref="ReadPickedFileAsync"/> throws it instead (the read-failed / denied path).</summary>
     public Exception? FiltersReadException { get; set; }
 
-    /// <summary>When set, <see cref="WriteFiltersJsonAsync"/> throws it (after recording nothing).</summary>
+    /// <summary>When set, <see cref="WritePickedFileAsync"/> throws it (after recording nothing).</summary>
     public Exception? FiltersWriteException { get; set; }
 
-    /// <summary>Every saved-filters payload successfully written, in order.</summary>
+    /// <summary>Every picked-slot payload successfully written, in order.</summary>
     public List<string> FiltersWrites { get; } = [];
+
+    /// <summary>The file name of every picked-slot write, in call order — pins that saves target the canonical name.</summary>
+    public List<string> PickedWriteNames { get; } = [];
 
     public int PromoteCallCount { get; private set; }
     public int TriggerFallbackCallCount { get; private set; }
@@ -116,23 +148,38 @@ internal sealed class FakeFolderAccess : IFolderAccess
         return ValueTask.FromResult(PromoteResult);
     }
 
-    public Task<string?> ReadStatsJsonAsync() =>
-        ReadException is { } ex ? Task.FromException<string?>(ex) : Task.FromResult(StatsJson);
-
-    public Task WriteStatsJsonAsync(string json)
+    public Task<string?> ReadPickedFileAsync(string fileName)
     {
-        if (WriteException is { } ex) return Task.FromException(ex);
-        Writes.Add(json);
+        if (FiltersReadException is { } ex) return Task.FromException<string?>(ex);
+        return Task.FromResult(fileName switch
+        {
+            SavedFiltersDocument.FileName => FiltersJson,
+            SavedFiltersDocument.LegacyFileName => LegacyFiltersJson,
+            _ => null,
+        });
+    }
+
+    public Task WritePickedFileAsync(string fileName, string json)
+    {
+        if (FiltersWriteException is { } ex) return Task.FromException(ex);
+        PickedWriteNames.Add(fileName);
+        FiltersWrites.Add(json);
+        // Round-trip: a canonical write is readable back, as the real slot's is.
+        if (fileName == SavedFiltersDocument.FileName) FiltersJson = json;
         return Task.CompletedTask;
     }
 
-    public Task<string?> ReadFiltersJsonAsync() =>
-        FiltersReadException is { } ex ? Task.FromException<string?>(ex) : Task.FromResult(FiltersJson);
-
-    public Task WriteFiltersJsonAsync(string json)
+    public Task<string?> ReadActiveFileAsync(string fileName)
     {
-        if (FiltersWriteException is { } ex) return Task.FromException(ex);
-        FiltersWrites.Add(json);
+        ActiveFileNames.Add(fileName);
+        return ReadException is { } ex ? Task.FromException<string?>(ex) : Task.FromResult(StatsJson);
+    }
+
+    public Task WriteActiveFileAsync(string fileName, string json)
+    {
+        if (WriteException is { } ex) return Task.FromException(ex);
+        ActiveFileNames.Add(fileName);
+        Writes.Add(json);
         return Task.CompletedTask;
     }
 

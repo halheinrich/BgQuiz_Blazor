@@ -91,6 +91,7 @@
          deliberately NOT referenced; the quiz renders SVG only. -->
     <ProjectReference Include="..\..\BackgammonDiagram_Lib\BackgammonDiagram_Lib\BackgammonDiagram_Lib.csproj" />
     <ProjectReference Include="..\..\BgDataTypes_Lib\BgDataTypes_Lib\BgDataTypes_Lib.csproj" />
+    <ProjectReference Include="..\..\BgFolderAccess_Razor\BgFolderAccess_Razor\BgFolderAccess_Razor.csproj" />
     <ProjectReference Include="..\..\BgDiag_Razor\BgDiag_Razor\BgDiag_Razor.csproj" />
     <ProjectReference Include="..\..\BgGame_Lib\BgGame_Lib\BgGame_Lib.csproj" />
     <ProjectReference Include="..\..\BgMoveGen\BgMoveGen\BgMoveGen.csproj" />

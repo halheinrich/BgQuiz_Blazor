@@ -1,6 +1,7 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
 using System.Text.Json;
+using BgFolderAccess_Razor;
 using BgGame_Lib;
 using Microsoft.JSInterop;
 
@@ -135,7 +136,7 @@ internal sealed class QuizStatsStore : IDecisionStatsSink
     public QuizStatsStatus Status { get; private set; } = QuizStatsStatus.Disabled;
 
     /// <inheritdoc/>
-    public bool CanBindStats => _folder.Capability == StatsSaveCapability.Enabled;
+    public bool CanBindStats => _folder.Capability == FolderWriteCapability.Enabled;
 
     /// <inheritdoc/>
     public DecisionStatsDocument? CurrentDocument =>
@@ -156,7 +157,7 @@ internal sealed class QuizStatsStore : IDecisionStatsSink
         // Capability is the pick-time verdict; the promote is the handle-level
         // half of the same check (false when the picked slot holds no
         // FS-Access handle — fallback pick, cleared, or never picked).
-        if (_folder.Capability != StatsSaveCapability.Enabled)
+        if (_folder.Capability != FolderWriteCapability.Enabled)
         {
             SetStatus(QuizStatsStatus.Disabled);
             return;
@@ -170,7 +171,7 @@ internal sealed class QuizStatsStore : IDecisionStatsSink
                 return;
             }
 
-            var json = await _folderAccess.ReadStatsJsonAsync();
+            var json = await _folderAccess.ReadActiveFileAsync(QuizStatsFile.FileName);
             _doc = json is null
                 ? DecisionStatsDocument.Empty                          // fresh corpus — first quiz here
                 : JsonSerializer.Deserialize<DecisionStatsDocument>(json)
@@ -212,7 +213,8 @@ internal sealed class QuizStatsStore : IDecisionStatsSink
         _doc = fold(_doc);
         try
         {
-            await _folderAccess.WriteStatsJsonAsync(
+            await _folderAccess.WriteActiveFileAsync(
+                QuizStatsFile.FileName,
                 JsonSerializer.Serialize(_doc, QuizStatsFile.SerializerOptions));
         }
         catch (JSException)

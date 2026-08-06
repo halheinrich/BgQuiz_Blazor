@@ -1,8 +1,9 @@
+using BgFolderAccess_Razor;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
 using XgFilter_Lib.Filtering;
-using XgFilter_Razor.Components;
+using XgFilter_Razor;
 
 namespace BgQuiz_Blazor.Client.Components.Pages;
 
@@ -20,7 +21,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// filter-half of the start gate true by construction (no panel to apply). The
 /// weighted mix carries a <i>further</i> gate: it renders only when the pick can
 /// provide the lifetime stats it composes from
-/// (<see cref="StatsSaveCapability.Enabled"/>). Under a no-stats pick the mix
+/// (<see cref="FolderWriteCapability.Enabled"/>). Under a no-stats pick the mix
 /// plays no part in Start — the panel is hidden and every pick resets any
 /// committed mix to passthrough (see <see cref="EndCurrentSetupAsync"/>), so
 /// Start runs plain with no mix gate, warning, or refusal.
@@ -42,7 +43,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <see cref="PickedProblemFolder"/>; the bytes are parsed entirely in the
 /// browser and never leave it. Buffering up front is what lets the source
 /// re-enumerate on Restart. The pick-time
-/// <see cref="StatsSaveCapability"/> verdict rides on the holder and drives
+/// <see cref="FolderWriteCapability"/> verdict rides on the holder and drives
 /// this page's stats status notice; the stats lifecycle itself is not this
 /// page's concern — the controller binds the stats context at Start.
 /// </para>
@@ -76,9 +77,8 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <b>A pick ends the current setup — at the click.</b> Choosing a folder
 /// returns the whole setup surface to its pre-setup state
 /// (<see cref="EndCurrentSetupAsync"/>, shared with the <c>Clear</c> affordance,
-/// which encodes the same decision): folder and picked slot, saved filters,
-/// committed mix and mix draft, filter surface, and every pick-scoped notice
-/// and match count.
+/// which encodes the same decision): folder and picked slot, committed mix and
+/// mix draft, the applied filter, and every pick-scoped notice and match count.
 /// Nothing the user selected against the previous corpus can be assumed to mean
 /// the same thing against the next one, so Start is always re-gated by a pick,
 /// never inherited across one. Two things deliberately survive:
@@ -95,11 +95,25 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// lands on the initial screen plus <see cref="_cancelledPickNotice"/>, and the
 /// folder that was held is gone. Deliberate — the previous folder is
 /// <i>not</i> snapshotted and restored, because "choose a folder" ends the
-/// current setup whatever the picker then returns. One consequence to expect: a
-/// successful pick re-mounts the <see cref="FilterPanel"/> the reset unmounted,
-/// so its <c>localStorage</c> restore re-stages the persisted config as dirty on
-/// <i>every</i> pick — the already-accepted fresh-load behavior, now routine
-/// rather than exceptional (see <see cref="ResetFilterSurface"/>).
+/// current setup whatever the picker then returns.
+/// </para>
+///
+/// <para>
+/// <b>The filter half of that reset rides on the composite's lifecycle.</b>
+/// The <c>FilterSurface</c> this page hosts lives behind the same
+/// <c>HasFiles</c> gate as the rest of the setup surface, so ending a setup
+/// <i>unmounts</i> it and a successful pick mounts a fresh instance — whose
+/// first parameters-set initializes against the new pick's token and re-reads
+/// that folder's saved-filters document, and whose fresh panel has committed
+/// nothing, so Apply is re-armed with no host reset call. (Its
+/// <c>localStorage</c> restore re-stages the persisted config as dirty on
+/// every pick — the accepted fresh-load behavior.) The composite's own
+/// source-change rule is therefore <i>dormant</i> in this host: it runs only
+/// when the bound token changes on a mounted instance, and this page's
+/// gestures always change the token across an unmount. The one thing neither
+/// remount nor rule covers — clearing the holder's applied config, whose
+/// staleness the Start gate reads — is the single line of filter choreography
+/// <see cref="EndCurrentSetupAsync"/> keeps host-side.
 /// </para>
 ///
 /// <para>
@@ -321,84 +335,34 @@ public partial class Home : ComponentBase, IDisposable
     private int _countRequestId;
 
     /// <summary>
-    /// The hosted <see cref="FilterPanel"/>, captured by <c>@ref</c> so Home can
-    /// drive the two imperative host-mediated saved-filter operations on it:
-    /// <see cref="FilterPanel.LoadConfig"/> (stage a loaded config into the edit
-    /// buffers) and <see cref="FilterPanel.TryGetEditedConfig"/> (snapshot the
-    /// live buffers for save-as). Null only before the first render.
+    /// The <c>Storage</c> the hosted <c>FilterSurface</c> gets: the picked-slot
+    /// adapter while the pick's capability exposes a readable directory handle
+    /// (<see cref="FolderWriteCapability.Enabled"/> — save and load — or
+    /// <see cref="FolderWriteCapability.PermissionDenied"/>, whose pick gesture
+    /// grants read even though the readwrite request was declined), and
+    /// <see langword="null"/> otherwise: a fallback pick
+    /// (<see cref="FolderWriteCapability.BrowserUnsupported"/>) has no handle to
+    /// read a document from, which the composite renders as no saved-filters
+    /// section at all. Everything downstream of this fact — panel visibility,
+    /// the empty-and-read-only clutter rule, the LoadFailed / WriteFailed
+    /// degrade notices and their copy — is the composite's now; this page
+    /// supplies only the capability rulings the seam was designed to carry.
+    /// The instance is app-scoped so the bound reference is stable: the
+    /// composite rebuilds its store when the reference changes.
     /// </summary>
-    private FilterPanel? _filterPanel;
+    private IFilterDocumentStorage? FilterStorage =>
+        Folder.Capability is FolderWriteCapability.Enabled or FolderWriteCapability.PermissionDenied
+            ? FilterDocumentStorage
+            : null;
 
     /// <summary>
-    /// Set when a save-as was refused because the current filter's position
-    /// pattern is unparseable — the one state
-    /// <see cref="FilterPanel.TryGetEditedConfig"/> refuses (exactly Apply's
-    /// gate). The panel clears its typed name optimistically on raise, so the
-    /// host must say why nothing was saved rather than no-op silently. A
-    /// per-visit outcome flag; cleared on any filter edit, a new pick, and the
-    /// next save attempt.
-    /// </summary>
-    private string? _filterSaveError;
-
-    /// <summary>
-    /// Whether the saved-filters affordance applies to the current pick: a
-    /// folder is held and it was picked via a File System Access mechanism (the
-    /// only ones exposing a readable directory handle). Gates the panel and all
-    /// three saved-filters notices; a fallback pick
-    /// (<see cref="StatsSaveCapability.BrowserUnsupported"/>) has none of them.
-    ///
-    /// <para>
-    /// One asymmetry between the two applicable rungs: under
-    /// <see cref="StatsSaveCapability.Enabled"/> the section shows even with zero
-    /// saved filters (you can save into it), but under
-    /// <see cref="StatsSaveCapability.PermissionDenied"/> — where saving is
-    /// disabled — an empty collection has nothing to load and nothing to save,
-    /// so the section is pure clutter and is hidden. Read-only therefore requires
-    /// at least one saved filter to render.
-    /// </para>
-    /// </summary>
-    private bool SavedFiltersApplicable =>
-        Folder.HasFiles
-        && (Folder.Capability == StatsSaveCapability.Enabled
-            || (Folder.Capability == StatsSaveCapability.PermissionDenied
-                && SavedFilters.Filters.Count > 0));
-
-    /// <summary>
-    /// Whether the current pick has a saved-filters <i>context</i> whose degrade
-    /// state is worth reporting — a folder held, picked via a File System Access
-    /// mechanism (the only ones exposing a readable directory handle). Gates the
-    /// <see cref="SavedFiltersStatus.LoadFailed"/> / <see cref="SavedFiltersStatus.WriteFailed"/>
-    /// notices, which — unlike the panel — must <b>not</b> be suppressed by an
-    /// empty collection. A LoadFailed notice exists precisely to say the file
-    /// couldn't be read and has been left untouched, and LoadFailed always leaves
-    /// the in-memory collection empty, so folding the panel's empty-hiding rule
-    /// (<see cref="SavedFiltersApplicable"/>) in here would swallow that
-    /// data-protection notice every time it fires. WriteFailed is only reachable
-    /// under <see cref="StatsSaveCapability.Enabled"/> (persistence is disabled
-    /// under PermissionDenied, so no write is attempted), so it is unaffected by
-    /// the split either way — routing it here keeps the two degrade notices
-    /// symmetric.
-    /// </summary>
-    private bool SavedFiltersContextApplicable =>
-        Folder.HasFiles
-        && Folder.Capability is StatsSaveCapability.Enabled or StatsSaveCapability.PermissionDenied;
-
-    /// <summary>
-    /// Whether the saved-filters panel may persist (Save / Delete enabled).
-    /// Requires the writable grant (<see cref="StatsSaveCapability.Enabled"/>)
-    /// and a healthy context: <see cref="StatsSaveCapability.PermissionDenied"/>
-    /// is load-only, and a prior write failure stops further writes.
-    /// </summary>
-    private bool SavedFiltersCanPersist =>
-        Folder.Capability == StatsSaveCapability.Enabled
-        && SavedFilters.Status == SavedFiltersStatus.Ready;
-
-    /// <summary>
-    /// The muted reason the panel shows while persistence is disabled but the
-    /// panel is still offered — the steady-state load-only case under
-    /// <see cref="StatsSaveCapability.PermissionDenied"/>. A write failure is a
-    /// louder, separate alert (rendered by Home), so it is deliberately not
-    /// folded in here; <see langword="null"/> leaves the panel's hint absent.
+    /// The host wording half of the composite's persist gate, bound to
+    /// <c>FilterSurface.PersistDisabledReason</c> beside
+    /// <c>CanPersist = (Capability == Enabled)</c> — the steady-state load-only
+    /// case under <see cref="FolderWriteCapability.PermissionDenied"/>. The
+    /// composite forwards it only while the host's half disables persisting (a
+    /// write failure is explained by its own louder, producer-owned notice), so
+    /// this stays exactly the FS-Access sentence only this host can know.
     ///
     /// <para>
     /// The premise is <see cref="FolderPickDisplay.WriteAccessNotGranted"/>, not
@@ -410,7 +374,7 @@ public partial class Home : ComponentBase, IDisposable
     /// </para>
     /// </summary>
     private string? SavedFiltersDisabledReason =>
-        Folder.Capability == StatsSaveCapability.PermissionDenied
+        Folder.Capability == FolderWriteCapability.PermissionDenied
             ? $"{FolderPickDisplay.WriteAccessNotGranted} — saved filters can be "
               + "loaded but not changed or deleted."
             : null;
@@ -444,8 +408,11 @@ public partial class Home : ComponentBase, IDisposable
     /// <summary>
     /// The mix panel's <i>Apply Mix</i> gate: whether a filter has been applied
     /// for the folder currently picked
-    /// (<see cref="AppliedFilter.WasAppliedFor"/> against the live
-    /// <see cref="PickedProblemFolder.PickGeneration"/>). Ratified UX
+    /// (<see cref="AppliedFilter.WasAppliedFor"/> against a token minted live
+    /// from <see cref="PickedProblemFolder.PickGeneration"/> — the same minting
+    /// the hosted <c>FilterSurface</c>'s <c>Source</c> binding uses, so the
+    /// stamp the composite records and the token this gate compares can never
+    /// encode the pick differently). Ratified UX
     /// sequencing, not a data-flow requirement — the mix composes over the
     /// filtered pool at <i>Start</i>, so applying one first is legal and
     /// harmless in the pipeline; what it isn't is legible, because the panel
@@ -463,21 +430,24 @@ public partial class Home : ComponentBase, IDisposable
     ///
     /// <para>
     /// <b>Editing the filter does not revoke it</b> (the stamp survives
-    /// <see cref="AppliedFilter.Clear"/>): the corpus has been filtered, and
+    /// <see cref="AppliedFilter.Clear"/> by the holder's two-lifetime contract):
+    /// the corpus has been filtered, and
     /// re-gating a mix the user is midway through composing would punish an
     /// unrelated edit. <b>A new pick does</b>, by construction — the generation
-    /// bumps. And <i>Reset</i> stays ungated in every state, so a hydrated draft
+    /// bumps, so the stamp expires by token inequality. And <i>Reset</i> stays
+    /// ungated in every state, so a hydrated draft
     /// that gates Start always has its visible way out even before a filter is
     /// applied.
     /// </para>
     /// </summary>
-    private bool MixApplyEnabled => AppliedFilter.WasAppliedFor(Folder.PickGeneration);
+    private bool MixApplyEnabled =>
+        AppliedFilter.WasAppliedFor(FilterSourceToken.FromGeneration(Folder.PickGeneration));
 
     /// <summary>
     /// The muted hint the mix panel shows while <see cref="MixApplyEnabled"/>
     /// is false — the host-owned sentence, mirroring
-    /// <see cref="SavedFiltersDisabledReason"/>'s contract with
-    /// <c>SavedFiltersPanel</c>. It states the <i>reason</i> for the ordering
+    /// <see cref="SavedFiltersDisabledReason"/>'s contract with the composite's
+    /// saved-filters half. It states the <i>reason</i> for the ordering
     /// (the mix draws from the filtered pool), not merely the rule, because the
     /// rule alone is what the user found arbitrary.
     /// </summary>
@@ -657,12 +627,14 @@ public partial class Home : ComponentBase, IDisposable
                 // user's turn, not the app's), and the scan that follows them
                 // never yields to the renderer on its own. So the affordance is
                 // raised at the seam between the two, from inside the pick — and
-                // stays up past the enumeration, the buffering, and the
-                // saved-filters read, until the summary this method's caller
-                // renders is on screen. Lowered in the finally, which covers the
-                // cancelled path (no hook fired — nothing was raised) too.
+                // stays up past the enumeration and the buffering, until the
+                // summary this method's caller renders is on screen. (The
+                // saved-filters read moved out of this stretch: the composite
+                // runs it on its own mount, after this render.) Lowered in the
+                // finally, which covers the cancelled path (no hook fired —
+                // nothing was raised) too.
                 var outcome = await FolderAccess.PickFolderAsync(EnterBusyAsync);
-                await ApplyPickOutcomeAsync(outcome);
+                ApplyPickOutcome(outcome);
             }
             else
             {
@@ -689,7 +661,7 @@ public partial class Home : ComponentBase, IDisposable
     /// <summary>
     /// The fallback pick landing: the hidden input's FileList is collected and
     /// filtered by the JS module (top-level <c>.xg</c> / <c>.xgp</c> only).
-    /// Capability is always <see cref="StatsSaveCapability.BrowserUnsupported"/>
+    /// Capability is always <see cref="FolderWriteCapability.BrowserUnsupported"/>
     /// on this mechanism — no writable handle exists.
     ///
     /// <para>
@@ -709,7 +681,7 @@ public partial class Home : ComponentBase, IDisposable
     {
         try
         {
-            await ApplyPickOutcomeAsync(await FolderAccess.CollectFallbackAsync(_fallbackInput));
+            ApplyPickOutcome(await FolderAccess.CollectFallbackAsync(_fallbackInput));
         }
         catch (Exception ex)
         {
@@ -737,8 +709,11 @@ public partial class Home : ComponentBase, IDisposable
     /// outcome notice; otherwise the holder takes the pick, and the rendered
     /// summary + stats status notice derive from it (no transient field to keep
     /// in sync — that desynced on navigate-back, when Home re-instantiated).
+    /// Synchronous since the composite took over the saved-filters read: the
+    /// landing only records facts on the holder, and the follow-on render does
+    /// the rest.
     /// </summary>
-    private async Task ApplyPickOutcomeAsync(FolderPickOutcome outcome)
+    private void ApplyPickOutcome(FolderPickOutcome outcome)
     {
         if (outcome.Cancelled)
         {
@@ -754,12 +729,11 @@ public partial class Home : ComponentBase, IDisposable
 
         if (outcome.Files.Count == 0)
         {
-            // Both are already clear — EndCurrentSetupAsync ran at the click and
-            // nothing since could have set them. Re-stated so this shared landing
-            // carries its own postcondition ("an empty pick holds no folder")
-            // rather than inheriting it from whoever called it.
+            // Already clear — EndCurrentSetupAsync ran at the click and nothing
+            // since could have set it. Re-stated so this shared landing carries
+            // its own postcondition ("an empty pick holds no folder") rather
+            // than inheriting it from whoever called it.
             Folder.Clear();
-            SavedFilters.Reset();
             _emptyFolderNotice = true;
             return;
         }
@@ -768,72 +742,14 @@ public partial class Home : ComponentBase, IDisposable
         // so the notice that renders it lives exactly as long as the partial pick
         // it is about — including across navigate-back, which a page field would
         // not survive.
+        //
+        // The render this triggers also mounts a fresh FilterSurface behind the
+        // HasFiles gate, and the composite loads this folder's saved-filters
+        // document itself — a setup-time, degrade-tolerant read through the
+        // picked-slot storage adapter (null under a fallback pick, so no
+        // context). Nothing to await here: saved-filters trouble can never
+        // block a pick.
         Folder.Set(outcome.DirectoryName, outcome.Files, outcome.Capability, outcome.Truncations);
-
-        // Load this folder's saved-filters document now — a setup-time, picked-
-        // slot read. The store guards on capability/handle and degrades on any
-        // read failure into its own status, so this never throws or blocks the
-        // pick (a fallback pick short-circuits to the no-context state).
-        await SavedFilters.LoadForPickAsync();
-    }
-
-    /// <summary>
-    /// Return the filter half of the setup surface to its pre-setup state — the
-    /// <see cref="AppliedMix.Reset"/> sibling, called from the same place for the
-    /// same reason: ending a setup must leave nothing the user selected against
-    /// the <i>previous</i> corpus silently in force. Without this a re-pick left
-    /// the old filter applied — Start enabled immediately, against a folder whose
-    /// files the filter had never been weighed against.
-    ///
-    /// <para>
-    /// Two writes, and the first is <b>not</b> redundant — it is the only one
-    /// that clears the applied state. <see cref="FilterPanel.LoadConfig"/> is a
-    /// staging gesture like any other, so it raises the panel's applied-state
-    /// report; but that report is about the <i>panel</i>, and it says nothing
-    /// useful here. It cannot be relied on (a gesture made from the no-folder
-    /// state has no mounted panel to raise it, and a filter applied in an
-    /// earlier setup would keep satisfying the gate), and where a panel
-    /// <i>is</i> mounted it can actively disagree: staging the defaults into a
-    /// panel that had committed the defaults is a genuinely clean state, which
-    /// the panel reports as such. <see cref="HandleAppliedStateChanged"/>
-    /// therefore ignores every report made with no folder held, which is exactly
-    /// the state this method runs in — leaving the
-    /// <see cref="AppliedFilter.Clear"/> below the last word on both paths.
-    /// </para>
-    ///
-    /// <para>
-    /// A <see cref="FilterConfig"/> straight from its parameterless constructor
-    /// is exactly what the panel's own <i>Reset</i> button hydrates from, so
-    /// "defaults" needs no second definition here.
-    /// <see cref="FilterPanel.LoadConfig"/> is staging-only — it persists
-    /// nothing — so the user's last-applied filter survives in the panel's
-    /// <c>localStorage</c> and still restores on the next boot, mirroring
-    /// <see cref="AppliedMix.Reset"/>'s deliberate hands-off treatment of the
-    /// stored mix. The reset is about this session's setup not outliving its
-    /// corpus, never about defeating the panel's persistence.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Not <c>@key</c>-based, unlike <c>MixPanel</c>.</b> Re-mounting the
-    /// filter panel would re-run its first-render <c>localStorage</c> restore and
-    /// stage the <i>persisted</i> config — the opposite of defaults. (MixPanel is
-    /// keyed for precisely that effect: its re-mount re-hydrates the discarded
-    /// draft, re-offering the persisted mix gated by the derived rule.)
-    /// That distinction now decides less than it reads: since the reset moved to
-    /// the click, <b>every</b> pick unmounts the panel (the gate closes with the
-    /// folder) and the successful ones re-mount it, so the persisted config is
-    /// re-staged on every pick, exactly as on a fresh load. The
-    /// <see cref="AppliedFilter.Clear"/> above is what holds either way — Start
-    /// re-gates behind its Apply hint, so a re-staged config is shown but never
-    /// claimed as applied. What the un-keyed panel still buys is the
-    /// <i>cancelled</i> pick and the <c>Clear</c>, which end with no panel at all
-    /// and no restore to re-stage anything.
-    /// </para>
-    /// </summary>
-    private void ResetFilterSurface()
-    {
-        AppliedFilter.Clear();
-        _filterPanel?.LoadConfig(new FilterConfig());
     }
 
     /// <summary>
@@ -845,13 +761,33 @@ public partial class Home : ComponentBase, IDisposable
     ///
     /// <para>
     /// <b>Everything pick-scoped goes.</b> The folder holder and the JS module's
-    /// picked slot, this folder's saved filters, both halves of the mix state
-    /// (the committed <see cref="AppliedMix"/> and the <see cref="MixDraft"/>,
-    /// see the inline comment), the filter surface
-    /// (<see cref="ResetFilterSurface"/>), and every pick-scoped notice
-    /// and match count (<see cref="ClearPickNotices"/>). Two things deliberately
-    /// survive, and the class summary says why: <see cref="ShuffleOption"/> and
-    /// the lifetime-stats slot.
+    /// picked slot, both halves of the mix state (the committed
+    /// <see cref="AppliedMix"/> and the <see cref="MixDraft"/>, see the inline
+    /// comment), the applied filter (see below), and every pick-scoped notice
+    /// and match count (<see cref="ClearPickNotices"/>). The saved-filters
+    /// context needs no line here: it lives in the hosted <c>FilterSurface</c>,
+    /// which the <c>HasFiles</c> gate unmounts when <see cref="PickedProblemFolder.Clear"/>
+    /// renders — its store, notices, and any typed state die with it, and a
+    /// successful pick's fresh mount re-reads the new folder's document. Two
+    /// things deliberately survive, and the class summary says why:
+    /// <see cref="ShuffleOption"/> and the lifetime-stats slot.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The <see cref="AppliedFilter.Clear"/> is the one line of filter
+    /// choreography left host-side, and it closes a gap only the host can
+    /// see.</b> The composite owns the source-change rule — but a rule runs on a
+    /// <i>mounted</i> component receiving a changed parameter, and this page's
+    /// token changes always happen across an unmount: <see cref="PickedProblemFolder.Clear"/>
+    /// closes the <c>HasFiles</c> gate before the composite could ever observe
+    /// the new token, and the eventual re-mount's first parameters-set is —
+    /// by the producer's ruled pin — initialization only, no holder clear
+    /// (that restraint is what keeps navigate-back from disarming an applied
+    /// gate). So without this line a config applied against the previous corpus
+    /// would keep <see cref="AppliedFilter.IsApplied"/> true and Start armed
+    /// against files it was never weighed against — the exact hazard the old
+    /// host-side reset existed to close. The stamp half needs no help: the mix
+    /// gate compares tokens, and the generation bump expires it by construction.
     /// </para>
     ///
     /// <para>
@@ -859,13 +795,11 @@ public partial class Home : ComponentBase, IDisposable
     /// earlier ruling that <c>Clear</c> should leave it alone as "edit-coupled,
     /// not pick-coupled". Under one shared reset the applied filter is coupled to
     /// neither gesture in particular but to the <i>setup</i>: ending one ends it.
-    /// (It stays edit-coupled as well — <see cref="HandleAppliedStateChanged"/>
-    /// clears it while the panel reports uncommitted edits. The two rules are
-    /// independent, not duplicates.) On the
-    /// <c>Clear</c> path this is invisible in the UI, since the panel and Start
-    /// are both behind the disclosure gate a cleared folder closes; the value is
-    /// that there is now one reset to reason about instead of two that differed
-    /// by a line.
+    /// (It stays edit-coupled as well — the composite clears it while the panel
+    /// reports uncommitted edits. The two rules are independent, not
+    /// duplicates.) On the <c>Clear</c> path this is invisible in the UI, since
+    /// the panel and Start are both behind the disclosure gate a cleared folder
+    /// closes; the value is that there is one reset to reason about.
     /// </para>
     ///
     /// <para>
@@ -889,7 +823,6 @@ public partial class Home : ComponentBase, IDisposable
     private async Task EndCurrentSetupAsync()
     {
         Folder.Clear();
-        SavedFilters.Reset();
         // Both halves of the mix state end with the setup: the committed mix
         // (a pick means a new corpus and possibly a new stats slot) and the
         // draft's uncommitted edits (made against the outgoing slot — stale
@@ -901,7 +834,11 @@ public partial class Home : ComponentBase, IDisposable
         // Start, with no capability fork in the gate.
         AppliedMix.Reset();
         MixDraft.Discard();
-        ResetFilterSurface();
+        // The unmount-gap line — see the method summary. The user's last-applied
+        // filter is untouched in the panel's own localStorage (a later mount
+        // re-stages it, shown but never claimed as applied), so this clears the
+        // session's claim, not the panel's persistence.
+        AppliedFilter.Clear();
         ClearPickNotices();
 
         StateHasChanged();
@@ -916,7 +853,6 @@ public partial class Home : ComponentBase, IDisposable
         _startError = null;
         _noMatchNotice = null;
         _mixRefused = false; // a new pick can change stats capability
-        _filterSaveError = null; // a new pick re-derives the saved-filters context
         // A new/cleared pick changes the corpus, so any match summary is stale;
         // the bumped id also discards a count still in flight from before.
         _matchSummary = null;
@@ -924,104 +860,77 @@ public partial class Home : ComponentBase, IDisposable
     }
 
     /// <summary>
-    /// The panel's <i>Apply</i> (and <i>Clear filters</i>) commit — the gesture
-    /// that moves the committed config.
-    ///
-    /// <para>
-    /// It records the applied state itself rather than leaving that to the
-    /// applied-state report that follows it (<see cref="HandleAppliedStateChanged"/>,
-    /// which re-affirms the same config a moment later). Two independent rules,
-    /// not one written twice: <i>a commit applies the filter</i>, and <i>a panel
-    /// whose buffers equal what it committed is still applied</i>. The first
-    /// must not depend on the second having fired.
-    /// </para>
+    /// The composite's re-raise of the panel's <i>Apply</i> (and <i>Clear
+    /// filters</i>) commit — the gesture that moves the committed config. By the
+    /// time this fires, <c>FilterSurface</c> has already recorded the applied
+    /// state on the shared <see cref="AppliedFilter"/> holder, stamped with the
+    /// pick's source token (the producer rule: <i>a commit applies the
+    /// filter</i>, honored before the host hears about it) — so this handler
+    /// owns only the host side effects the composite can't know: the outcome
+    /// notices a new commit moots, and the match summary.
     /// </summary>
     private async Task HandleFilterConfigApplied(FilterConfig cfg)
     {
-        // Record the deliberate applied state on the scoped holder so it
-        // survives navigate-back (not a transient field), stamped with the pick
-        // it was applied against — the fact the mix gate reads (see
-        // MixApplyEnabled).
-        AppliedFilter.Set(cfg, Folder.PickGeneration);
         _startError = null;
         _noMatchNotice = null;
         await ShowMatchSummaryAsync(cfg);
     }
 
     /// <summary>
-    /// The panel's applied-state report, raised after <em>every</em> gesture
-    /// that touches its edit buffers (a control edit, a
-    /// <see cref="FilterPanel.LoadConfig"/> staging, Apply, Clear filters). The
-    /// payload is the committed <see cref="FilterConfig"/> the buffers now
-    /// equal, or <c>null</c> when they equal none — so it is the whole answer to
-    /// "is the panel's selection still the one the user applied?", which is the
-    /// filter half of the start gate.
+    /// The composite's re-raise of the panel's applied-state report, raised
+    /// after <em>every</em> gesture that touches its edit buffers (a control
+    /// edit, a saved-filter load's staging, Apply, Clear filters). The payload
+    /// is the committed <see cref="FilterConfig"/> the buffers now equal, or
+    /// <c>null</c> when they equal none — so it is the whole answer to "is the
+    /// panel's selection still the one the user applied?", which is the filter
+    /// half of the start gate.
     ///
     /// <para>
-    /// <b>Handled statelessly, as the producer's contract requires.</b> The
-    /// event is per-gesture, not transition-only: it re-states the current
-    /// answer every time rather than firing only on a change, because the
-    /// panel's committed config dies with the panel while this page's applied
-    /// state survives navigation. So this assigns from the payload and never
-    /// diffs it against a remembered previous one.
+    /// <b>The holder is no longer this handler's business.</b>
+    /// <c>FilterSurface</c> mirrors the payload onto <see cref="AppliedFilter"/>
+    /// (Set on a clean report, Clear on <c>null</c>) before re-raising, so by
+    /// the time this runs the gate is already correct — a clean report has
+    /// re-applied (an edit undone back to the applied values re-enables Start
+    /// without a re-Apply, which it must: the panel's own Apply is disabled in
+    /// exactly that state) and an uncommitted-edits report has re-gated. What
+    /// remains host-side is the match summary, handled statelessly per the
+    /// producer's per-gesture contract: react to the payload, never diff it
+    /// against a remembered previous one.
     /// </para>
     ///
     /// <para>
-    /// <b>A clean report re-applies — the point of the whole wiring.</b> An edit
-    /// undone back to the applied values is clean again, and the panel says so;
-    /// Start re-enables without a re-Apply. It has to: the panel's own Apply is
-    /// disabled in exactly that state (there is nothing new to commit), so a
-    /// consumer that only ever <i>cleared</i> on an edit would wedge the user
-    /// behind two disabled buttons.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>No folder held ⇒ nothing to apply against.</b> The panel lives behind
-    /// the progressive-disclosure gate, so every <i>user</i> gesture reaches
-    /// here with a folder in hand. The one report that doesn't is
-    /// <see cref="ResetFilterSurface"/>'s staging, which runs after the folder
-    /// is already gone — and staging defaults into a panel that committed the
-    /// defaults reports <i>clean</i>, which would otherwise re-apply the filter
-    /// the reset had just cleared (and count matches against a corpus being torn
-    /// down). Refusing here is what keeps that reset's explicit
-    /// <see cref="AppliedFilter.Clear"/> the last word.
+    /// The <see cref="PickedProblemFolder.HasFiles"/> guard is defence in
+    /// depth, not a live path: the composite lives behind the
+    /// progressive-disclosure gate, so every report originates with a folder
+    /// held. Should a report ever straggle past a teardown (the state
+    /// <see cref="EndCurrentSetupAsync"/> leaves), counting matches against a
+    /// corpus being torn down is the wrong side effect, and the setup-end's
+    /// explicit <see cref="AppliedFilter.Clear"/> must stay the last word.
     /// </para>
     /// </summary>
     private async Task HandleAppliedStateChanged(FilterConfig? config)
     {
         if (!Folder.HasFiles) return;
 
-        // Any gesture on the panel moots a stale save-as refusal — fixing the
-        // offending position pattern is itself one, and so is committing.
-        _filterSaveError = null;
-
         if (config is null)
         {
-            // Uncommitted edits pending: a half-edited set re-gates Start, so it
-            // must clear the applied state, not just a local flag. Any shown or
-            // in-flight match summary described the config now abandoned; the
-            // bumped id discards a late-landing result.
-            AppliedFilter.Clear();
+            // Uncommitted edits pending: the composite already cleared the
+            // holder (Start is re-gated). Any shown or in-flight match summary
+            // described the config now abandoned; the bumped id discards a
+            // late-landing result.
             _matchSummary = null;
             _countRequestId++;
             return;
         }
 
         // Idempotence: the report is per-gesture, and a commit raises it right
-        // after HandleFilterConfigApplied has already applied the same config
-        // and counted it — so re-running the summary here would count the same
-        // pool twice (two parses, two busy flashes). Skip the side effect when
-        // this config is already the applied one *and* its count is current;
-        // re-affirming the holder itself is free and keeps this the one handler
-        // that always mirrors the payload.
-        var summaryIsCurrent = config.Equals(AppliedFilter.Config)
-                               && (_matchSummary is not null || _isCounting);
-
-        // The live generation, deliberately: the report re-affirms the config
-        // for the pick it is being made against, which is the same pick the
-        // Apply was made for.
-        AppliedFilter.Set(config, Folder.PickGeneration);
-        if (summaryIsCurrent) return;
+        // after HandleFilterConfigApplied has already counted the same config —
+        // so re-running the summary here would count the same pool twice (two
+        // parses, two busy flashes). The payload always equals the holder's
+        // config here (the composite assigned it from this very report), so
+        // currency is what the summary state answers: a summary is shown, or a
+        // count for it is in flight.
+        if (_matchSummary is not null || _isCounting) return;
 
         // Clean again after an edit — restore the count the edit dropped.
         // Without this the user has no way back to it: Apply is disabled
@@ -1069,55 +978,6 @@ public partial class Home : ComponentBase, IDisposable
                 if (requestId == _countRequestId) _isCounting = false;
             }
         });
-    }
-
-    /// <summary>
-    /// Load a saved filter into the panel: resolve the config from the store's
-    /// collection and stage it via <see cref="FilterPanel.LoadConfig"/>. That
-    /// staging raises the panel's applied-state report (→
-    /// <see cref="HandleAppliedStateChanged"/>), normally <c>null</c> — a load is
-    /// a bulk edit, not a commit — so Start re-gates until the user Applies.
-    /// Loading the filter that is <i>already</i> applied stages exactly the
-    /// committed config, which reports clean and leaves Start armed: nothing
-    /// changed, so nothing re-gates. Read-only over the in-memory collection;
-    /// nothing is persisted.
-    /// </summary>
-    private void HandleLoadSavedFilter(string name)
-    {
-        _filterSaveError = null;
-        if (SavedFilters.Filters.TryGetConfig(name, out var config))
-        {
-            _filterPanel?.LoadConfig(config);
-        }
-    }
-
-    /// <summary>
-    /// Save-as: snapshot the panel's live edit buffers and hand them to the
-    /// store under <paramref name="name"/> (pre-normalized by the panel). The
-    /// snapshot uses Apply's exact gate — it refuses only an unparseable
-    /// position pattern — so a refusal surfaces the save-error notice rather
-    /// than silently dropping the save the panel already optimistically cleared.
-    /// </summary>
-    private async Task HandleSaveSavedFilterAsync(string name)
-    {
-        if (_filterPanel is not null && _filterPanel.TryGetEditedConfig(out var config))
-        {
-            _filterSaveError = null;
-            await SavedFilters.SaveAsync(name, config);
-        }
-        else
-        {
-            _filterSaveError =
-                "The current filter's position pattern is invalid, so it can't be "
-                + "saved — fix it in the filters below, then Save.";
-        }
-    }
-
-    /// <summary>Delete a saved filter (the panel confirmed) and persist the removal.</summary>
-    private async Task HandleDeleteSavedFilterAsync(string name)
-    {
-        _filterSaveError = null;
-        await SavedFilters.DeleteAsync(name);
     }
 
     private void HandleShuffleToggled(ChangeEventArgs e)

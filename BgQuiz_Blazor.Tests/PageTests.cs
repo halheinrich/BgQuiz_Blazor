@@ -7,6 +7,7 @@ using BgDataTypes_Lib;
 using BgDiag_Razor.Components;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client;
+using BgFolderAccess_Razor;
 using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
 using Bunit.TestDoubles;
@@ -15,6 +16,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.JSInterop;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
+using XgFilter_Razor;
 using XgFilter_Razor.Components;
 
 // `BgQuiz_Blazor.Client.Quiz` is a namespace; `BgQuiz_Blazor.Client.Components.Pages.Quiz`
@@ -68,11 +70,13 @@ public class PageTests : BunitContext
         Services.AddScoped<PickedProblemFolder>();
         Services.AddScoped<QuizStatsStore>();
 
-        // Home also injects SavedFiltersStore (deps: IFolderAccess +
-        // PickedProblemFolder, both above). Default construction is fine — the
-        // store is Disabled until a pick loads it, so ordinary flow tests that
-        // don't drive a saved-filters gesture render no panel.
-        Services.AddScoped<SavedFiltersStore>();
+        // Home also injects the saved-filters storage adapter (over
+        // IFolderAccess above) and hands it to its FilterSurface while the
+        // pick's capability exposes a readable handle. The composite owns the
+        // document lifecycle over it, so tests stage saved-filters content on
+        // the fake's picked-slot properties (FiltersJson / LegacyFiltersJson)
+        // and drive everything else through the rendered DOM.
+        Services.AddScoped<PickedFolderFilterStorage>();
 
         // Home injects both halves of the mix state: AppliedMix (the committed
         // holder — fixture default is blank; WithAppliedMix re-registers when a
@@ -112,7 +116,7 @@ public class PageTests : BunitContext
     /// </summary>
     private static FolderPickOutcome OneFileOutcome(
         string folderName = "Corpus", string fileName = "match.xg",
-        StatsSaveCapability capability = StatsSaveCapability.Enabled,
+        FolderWriteCapability capability = FolderWriteCapability.Enabled,
         params PickTruncation[] truncations) =>
         new(Cancelled: false, folderName, [new PickedFile(fileName, [1, 2, 3])], capability, truncations);
 
@@ -139,7 +143,7 @@ public class PageTests : BunitContext
     /// </param>
     private PickedProblemFolder WithPickedFolder(
         string folderName = "Corpus", string fileName = "sample.xg",
-        StatsSaveCapability capability = StatsSaveCapability.BrowserUnsupported,
+        FolderWriteCapability capability = FolderWriteCapability.BrowserUnsupported,
         params PickTruncation[] truncations)
     {
         var folder = new PickedProblemFolder();
@@ -149,22 +153,25 @@ public class PageTests : BunitContext
     }
 
     /// <summary>
-    /// Register an <see cref="AppliedFilter"/> for the rendered <c>Home</c> page
-    /// (Home injects it). With <paramref name="applied"/> non-null the filter half
-    /// of the gate is already satisfied — simulating navigate-back with a config
-    /// the user applied earlier this session; otherwise it starts un-applied.
+    /// Register an <see cref="AppliedFilter"/> (XgFilter_Razor's holder) for the
+    /// rendered <c>Home</c> page. With <paramref name="applied"/> non-null the
+    /// filter half of the gate is already satisfied — simulating navigate-back
+    /// with a config the user applied earlier this session; otherwise it starts
+    /// un-applied.
     /// </summary>
     /// <param name="pickGeneration">
-    /// The pick the config is stamped as applied for — what Home's Apply Mix
-    /// gate compares against the live <see cref="PickedProblemFolder.PickGeneration"/>.
-    /// The default matches the generation <see cref="WithPickedFolder"/> leaves
-    /// behind (one <c>Set</c> ⇒ 1), so the common "already set up" fixture is
-    /// coherent; a test probing the gate passes a mismatching value deliberately.
+    /// The pick the config is stamped as applied for — minted into the same
+    /// <see cref="FilterSourceToken.FromGeneration"/> token Home's bindings use,
+    /// so the Apply Mix gate's comparison against the live
+    /// <see cref="PickedProblemFolder.PickGeneration"/> reads it. The default
+    /// matches the generation <see cref="WithPickedFolder"/> leaves behind (one
+    /// <c>Set</c> ⇒ 1), so the common "already set up" fixture is coherent; a
+    /// test probing the gate passes a mismatching value deliberately.
     /// </param>
     private void WithAppliedFilter(FilterConfig? applied = null, int pickGeneration = 1)
     {
         var holder = new AppliedFilter();
-        if (applied is not null) holder.Set(applied, pickGeneration);
+        if (applied is not null) holder.Set(applied, FilterSourceToken.FromGeneration(pickGeneration));
         Services.AddSingleton(holder);
     }
 
@@ -258,7 +265,7 @@ public class PageTests : BunitContext
 
         // Pre-pick: the pick button is present; everything downstream is hidden.
         Assert.NotNull(cut.Find("#pickProblemFolder"));
-        Assert.Empty(cut.FindComponents<FilterPanel>());
+        Assert.Empty(cut.FindComponents<FilterSurface>());
         Assert.Empty(cut.FindComponents<MixPanelComponent>());
         Assert.Empty(cut.FindAll("#shuffleOrder"));
         Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Start Quiz");
@@ -266,7 +273,7 @@ public class PageTests : BunitContext
         // Pick a folder with files → the setup surface appears.
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        Assert.Single(cut.FindComponents<FilterPanel>());
+        Assert.Single(cut.FindComponents<FilterSurface>());
         Assert.Single(cut.FindComponents<MixPanelComponent>());
         Assert.NotEmpty(cut.FindAll("#shuffleOrder"));
         Assert.Contains(cut.FindAll("button"), b => b.TextContent.Trim() == "Start Quiz");
@@ -293,9 +300,7 @@ public class PageTests : BunitContext
         Assert.Contains("1 problem file", cut.Markup);
 
         // With both gates met (file already held + filters applied) Start enables.
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        await ApplyFiltersAsync(cut);
 
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.False(startBtn.HasAttribute("disabled"));
@@ -313,10 +318,7 @@ public class PageTests : BunitContext
         WithShuffleOption();
 
         var cut = Render<HomePage>();
-        var fp = cut.FindComponent<FilterPanel>();
-
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        await ApplyFiltersAsync(cut);
 
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.False(startBtn.HasAttribute("disabled"));
@@ -341,10 +343,13 @@ public class PageTests : BunitContext
         WithShuffleOption();
 
         var cut = Render<HomePage>();
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(
-                new FilterConfig { Players = ["Alice"] }));
+
+        // Type the player through the panel's own control (behind the
+        // disclosure) and commit with its Apply — the real gesture, so the
+        // config that reaches the pipeline is the one the panel built.
+        await ExpandMoreFiltersAsync(cut);
+        cut.Find("input[placeholder='e.g. Hal, Magriel']").Input("Alice");
+        await ApplyFiltersAsync(cut);
 
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         await startBtn.ClickAsync(new());
@@ -400,9 +405,7 @@ public class PageTests : BunitContext
         Assert.True(startBtn.HasAttribute("disabled"));
 
         // Apply filters → both gates satisfied → enabled.
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        await ApplyFiltersAsync(cut);
 
         startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.False(startBtn.HasAttribute("disabled"));
@@ -423,9 +426,7 @@ public class PageTests : BunitContext
         WithAppliedMix();
 
         var cut = Render<HomePage>();
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        await ApplyFiltersAsync(cut);
 
         Assert.Contains("<strong>2</strong>", cut.Markup);
         Assert.Contains("decisions match your filters", cut.Markup);
@@ -443,9 +444,7 @@ public class PageTests : BunitContext
         WithAppliedMix();
 
         var cut = Render<HomePage>();
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        await ApplyFiltersAsync(cut);
 
         Assert.Contains("<strong>1</strong>", cut.Markup);
         Assert.Contains("decision matches your filters", cut.Markup);
@@ -463,7 +462,7 @@ public class PageTests : BunitContext
         WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
         WithAppliedFilter();
         WithShuffleOption();
         WithAppliedMix(NeverSeenMix()); // committed, non-passthrough
@@ -486,7 +485,7 @@ public class PageTests : BunitContext
         WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
         WithAppliedFilter();
         WithShuffleOption();
         WithAppliedMix(); // blank
@@ -603,13 +602,11 @@ public class PageTests : BunitContext
         WithAppliedMix();
 
         var cut = Render<HomePage>();
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        await ApplyFiltersAsync(cut);
         Assert.Contains("decisions match your filters", cut.Markup);
         Assert.Contains("By answer type", cut.Markup);
 
-        await ReportUncommittedEditsAsync(cut);
+        await EditFilterControlAsync(cut);
 
         Assert.DoesNotContain("decisions match your filters", cut.Markup);
         Assert.DoesNotContain("By answer type", cut.Markup);
@@ -642,7 +639,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -669,7 +666,7 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         _folderAccess.NextPickOutcome =
-            OneFileOutcome(capability: StatsSaveCapability.BrowserUnsupported);
+            OneFileOutcome(capability: FolderWriteCapability.BrowserUnsupported);
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -687,7 +684,7 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         _folderAccess.NextPickOutcome =
-            OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
+            OneFileOutcome(capability: FolderWriteCapability.PermissionDenied);
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -828,8 +825,10 @@ public class PageTests : BunitContext
         var folder = Services.GetRequiredService<PickedProblemFolder>();
         Assert.False(folder.HasFiles);
         Assert.DoesNotContain("Held", cut.Markup);
+        // The saved-filters context died with the composite the cleared folder
+        // unmounted — no row, no panel, nothing to observe but its absence.
         Assert.DoesNotContain("Race", cut.Markup);
-        Assert.Equal(0, Services.GetRequiredService<SavedFiltersStore>().Filters.Count);
+        Assert.Empty(cut.FindAll("#saveFilterName"));
         Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied);
         Assert.True(mix.Current.IsPassthrough);
         // Both mix halves ended with the setup: the discarded draft is blank,
@@ -858,7 +857,7 @@ public class PageTests : BunitContext
         _folderAccess.SupportsDirectoryPicker = false;
         _folderAccess.NextCollectOutcome = new FolderPickOutcome(
             Cancelled: false, "FallbackDir",
-            [new PickedFile("fb.xgp", [9, 9])], StatsSaveCapability.BrowserUnsupported,
+            [new PickedFile("fb.xgp", [9, 9])], FolderWriteCapability.BrowserUnsupported,
             Truncations: []);
 
         var cut = Render<HomePage>();
@@ -885,7 +884,7 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig()); // filter half satisfied
         WithShuffleOption();
         _folderAccess.NextPickOutcome = new FolderPickOutcome(
-            Cancelled: false, "Empty", [], StatsSaveCapability.Enabled, Truncations: []);
+            Cancelled: false, "Empty", [], FolderWriteCapability.Enabled, Truncations: []);
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -946,7 +945,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        WithPickedFolder(truncations: [new PickTruncation(PickedFileLimits.XgpExtension, 340)]);
+        WithPickedFolder(truncations: [new PickTruncation(PickedFileLimits.XgpExtension, 340, PickedFileLimits.MaxXgpFileCount)]);
 
         var cut = Render<HomePage>();
 
@@ -966,7 +965,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        WithPickedFolder(truncations: [new PickTruncation(PickedFileLimits.XgExtension, 1)]);
+        WithPickedFolder(truncations: [new PickTruncation(PickedFileLimits.XgExtension, 1, PickedFileLimits.MaxXgFileCount)]);
 
         var cut = Render<HomePage>();
 
@@ -985,8 +984,8 @@ public class PageTests : BunitContext
         WithShuffleOption();
         WithPickedFolder(truncations:
         [
-            new PickTruncation(PickedFileLimits.XgExtension, 12),
-            new PickTruncation(PickedFileLimits.XgpExtension, 340),
+            new PickTruncation(PickedFileLimits.XgExtension, 12, PickedFileLimits.MaxXgFileCount),
+            new PickTruncation(PickedFileLimits.XgpExtension, 340, PickedFileLimits.MaxXgpFileCount),
         ]);
 
         var cut = Render<HomePage>();
@@ -1026,8 +1025,8 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         _folderAccess.NextPickOutcome = OneFileOutcome(
-            capability: StatsSaveCapability.Enabled,
-            truncations: [new PickTruncation(PickedFileLimits.XgpExtension, 5)]);
+            capability: FolderWriteCapability.Enabled,
+            truncations: [new PickTruncation(PickedFileLimits.XgpExtension, 5, PickedFileLimits.MaxXgpFileCount)]);
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -1048,7 +1047,7 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         _folderAccess.NextPickOutcome = OneFileOutcome(
-            truncations: [new PickTruncation(PickedFileLimits.XgpExtension, 5)]);
+            truncations: [new PickTruncation(PickedFileLimits.XgpExtension, 5, PickedFileLimits.MaxXgpFileCount)]);
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -1333,7 +1332,7 @@ public class PageTests : BunitContext
         WithShuffleOption();
         _folderAccess.NextCollectOutcome = new FolderPickOutcome(
             Cancelled: false, "FallbackDir",
-            [new PickedFile("fb.xgp", [9, 9])], StatsSaveCapability.BrowserUnsupported,
+            [new PickedFile("fb.xgp", [9, 9])], FolderWriteCapability.BrowserUnsupported,
             Truncations: []);
 
         var cut = Render<HomePage>();
@@ -1342,7 +1341,7 @@ public class PageTests : BunitContext
         var folder = Services.GetRequiredService<PickedProblemFolder>();
         Assert.True(folder.HasFiles);
         Assert.Equal("fb.xgp", Assert.Single(folder.Files).FileName);
-        Assert.Equal(StatsSaveCapability.BrowserUnsupported, folder.Capability);
+        Assert.Equal(FolderWriteCapability.BrowserUnsupported, folder.Capability);
         Assert.Contains("can't save quiz stats", cut.Markup);
     }
 
@@ -1378,7 +1377,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
         _folderAccess.FiltersJson = SavedFiltersJson();
 
         var cut = Render<HomePage>();
@@ -1412,7 +1411,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
         _folderAccess.FiltersJson = SavedFiltersJson();
 
         var cut = Render<HomePage>();
@@ -1440,7 +1439,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
         _folderAccess.FiltersJson = null; // fresh folder
 
         var cut = Render<HomePage>();
@@ -1462,7 +1461,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
         _folderAccess.FiltersJson = null;
 
         var cut = Render<HomePage>();
@@ -1491,7 +1490,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
         _folderAccess.FiltersJson = null;
 
         var cut = Render<HomePage>();
@@ -1511,22 +1510,60 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_CorruptFiltersFile_ShowsNoticeHidesPanel_FileUntouched()
     {
-        // A corrupt bgquiz-filters.json degrades to LoadFailed: the panel is
+        // A corrupt xg-filters.json degrades to LoadFailed: the panel is
         // replaced by the notice (naming the file), and the file is never
         // overwritten — the zero-writes preservation guarantee.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
         _folderAccess.FiltersJson = "{ not valid json";
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        Assert.Contains(QuizFiltersFile.FileName, cut.Markup);
+        Assert.Contains(SavedFiltersDocument.FileName, cut.Markup);
         Assert.Contains("couldn't be read", cut.Markup);
         Assert.Empty(cut.FindAll("#saveFilterName")); // panel not rendered
         Assert.Empty(_folderAccess.FiltersWrites);
+    }
+
+    [Fact]
+    public async Task Home_LegacyFiltersFile_LoadsViaFallback_AndFirstSaveWritesCanonical()
+    {
+        // The ratified tester-migration behavior, host-side: a folder whose
+        // filters were saved under the legacy name (and which has no canonical
+        // file) keeps loading — the producer's store reads the canonical name
+        // first and falls back to the legacy one only when it is absent. The
+        // first save then writes the canonical name; the legacy file is never
+        // deleted (the fake's legacy slot is untouched by writes, mirroring the
+        // real module's name-parameterized I/O).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
+        _folderAccess.FiltersJson = null;                    // no canonical file yet
+        _folderAccess.LegacyFiltersJson = SavedFiltersJson(); // the tester's existing file
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        // The legacy document loaded: its filter is offered.
+        Assert.NotNull(FindSavedFilterRowButton(cut, "Race", "Load"));
+
+        cut.Find("#saveFilterName").Input("MyFilter");
+        // The save-as button by its id — a row Save also labels itself "Save",
+        // so text alone is ambiguous once a filter is listed.
+        await cut.Find("#saveFilterButton").ClickAsync(new());
+
+        // One write, to the canonical name, carrying both filters; the legacy
+        // content is left exactly as it was.
+        Assert.Equal([SavedFiltersDocument.FileName], _folderAccess.PickedWriteNames);
+        Assert.True(NamedFilterCollection.TryFromJson(
+            Assert.Single(_folderAccess.FiltersWrites), out var written));
+        Assert.True(written.Contains("Race"));
+        Assert.True(written.Contains("MyFilter"));
+        Assert.Equal(SavedFiltersJson(), _folderAccess.LegacyFiltersJson);
     }
 
     [Fact]
@@ -1538,7 +1575,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.PermissionDenied);
         _folderAccess.FiltersJson = SavedFiltersJson();
 
         var cut = Render<HomePage>();
@@ -1546,8 +1583,12 @@ public class PageTests : BunitContext
 
         // The reason spells out that Delete is disabled too, not just Save — the
         // panel offers both persistence gestures and PermissionDenied bars both.
+        // Two Save buttons render now (the row's overwrite-Save and save-as),
+        // and the one capability ruling must disable them both.
         Assert.Contains("saved filters can be loaded but not changed or deleted", cut.Markup);
-        Assert.True(cut.FindAll("button").Single(b => b.TextContent.Trim() == "Save").HasAttribute("disabled"));
+        var saveButtons = cut.FindAll("button").Where(b => b.TextContent.Trim() == "Save").ToList();
+        Assert.NotEmpty(saveButtons);
+        Assert.All(saveButtons, b => Assert.True(b.HasAttribute("disabled")));
         Assert.False(FindSavedFilterRowButton(cut, "Race", "Load").HasAttribute("disabled"));
     }
 
@@ -1561,7 +1602,7 @@ public class PageTests : BunitContext
         WithShuffleOption();
         _folderAccess.NextCollectOutcome = new FolderPickOutcome(
             Cancelled: false, "FallbackDir",
-            [new PickedFile("fb.xgp", [9, 9])], StatsSaveCapability.BrowserUnsupported,
+            [new PickedFile("fb.xgp", [9, 9])], FolderWriteCapability.BrowserUnsupported,
             Truncations: []);
         _folderAccess.FiltersJson = SavedFiltersJson();
 
@@ -1578,13 +1619,14 @@ public class PageTests : BunitContext
     {
         // Task Y: under a read-only (PermissionDenied) pick saving is disabled,
         // so a saved-filters section with nothing to load is pure clutter — hide
-        // it. A fresh folder (no bgquiz-filters.json) reads as Ready over an empty
+        // it. A fresh folder (no saved-filters file under either name) reads
+        // as Ready over an empty
         // collection, so Count is 0 and the whole section is suppressed (panel and
         // its load-only reason both).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.PermissionDenied);
         _folderAccess.FiltersJson = null; // fresh folder → Ready, zero saved filters
 
         var cut = Render<HomePage>();
@@ -1603,7 +1645,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.PermissionDenied);
         _folderAccess.FiltersJson = SavedFiltersJson(); // one saved filter
 
         var cut = Render<HomePage>();
@@ -1622,7 +1664,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
         _folderAccess.FiltersJson = null; // fresh folder, zero saved filters
 
         var cut = Render<HomePage>();
@@ -1645,14 +1687,14 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.PermissionDenied);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.PermissionDenied);
         _folderAccess.FiltersReadException = new JSException("read withheld"); // → LoadFailed
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         Assert.Empty(cut.FindAll("#saveFilterName")); // panel hidden (empty, can't save)
-        Assert.Contains(QuizFiltersFile.FileName, cut.Markup);
+        Assert.Contains(SavedFiltersDocument.FileName, cut.Markup);
         Assert.Contains("couldn't be read", cut.Markup); // the data-protection notice survives
     }
 
@@ -1701,55 +1743,66 @@ public class PageTests : BunitContext
 
         // User edits a filter → nothing committed matches → applied state
         // cleared → disabled again.
-        await ReportUncommittedEditsAsync(cut);
+        await EditFilterControlAsync(cut);
 
         startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.True(startBtn.HasAttribute("disabled"));
     }
 
     [Fact]
-    public async Task Home_PanelReportsCommittedConfig_ReAppliesIt_EnablesStart()
+    public async Task Home_CleanReportAfterUndoneEdit_ReAppliesTheCommittedConfig()
     {
-        // The other direction of the same wire, and the reason the migration
-        // exists: a *clean* report re-applies. The panel raises this whenever its
-        // buffers equal what it committed — including an edit undone back to the
-        // applied values — and Home must arm Start from it, because the panel's
-        // own Apply is disabled in exactly that state (nothing new to commit).
+        // The other direction of the same wire, and the reason the wiring
+        // exists: a *clean* report re-applies. The panel raises it whenever its
+        // buffers equal what it committed — including an edit undone back to
+        // the applied values — and the composite must re-arm Start from it,
+        // because the panel's own Apply is disabled in exactly that state
+        // (nothing new to commit). Driven entirely through the always-visible
+        // error-range control: commit a Min of 0.75, edit it away, undo it
+        // back. (Home_UndoingAnEdit_ReArmsStartAndRestoresTheMatchCount pins
+        // the same arc through a disclosure control plus the match count.)
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
 
         var cut = Render<HomePage>();
-        await ReportUncommittedEditsAsync(cut); // nothing applied: Start gated
+        await EditFilterControlAsync(cut); // Min = 0.75, uncommitted: Start gated
         Assert.True(StartButton(cut).HasAttribute("disabled"));
 
-        var applied = new FilterConfig { Players = ["Magriel"] };
-        await ReportCommittedConfigAsync(cut, applied);
+        await ApplyFiltersAsync(cut); // commit it — Start arms
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+
+        await UndoFilterEditAsync(cut); // Min blank ≠ committed 0.75: re-gated
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+
+        await EditFilterControlAsync(cut); // back to the committed values
 
         Assert.False(StartButton(cut).HasAttribute("disabled"));
         // Re-set from the payload, not merely un-cleared: the config the quiz
-        // would be built from is the one the panel reported.
-        Assert.Equal(applied, Services.GetRequiredService<AppliedFilter>().Config);
+        // would be built from is the one the panel reported clean.
+        Assert.Equal(0.75, Services.GetRequiredService<AppliedFilter>().Config!.ErrorMin);
     }
 
     [Fact]
-    public void Home_BindsThePanelsAppliedStateCallback()
+    public void Home_BindsTheFilterSurfaceCallbacks()
     {
         // The migration's own proof, and it has to be render-level: a binding
-        // left on the panel's *previous* parameter name compiles clean and
-        // throws only when the panel is first rendered with it. Asserting
-        // HasDelegate goes one better than "it rendered" — it pins that Home
-        // supplies the handler rather than letting the attribute splat.
+        // left on the composite's *previous* parameter name compiles clean and
+        // throws only when it is first rendered with it. Asserting HasDelegate
+        // goes one better than "it rendered" — it pins that Home supplies the
+        // handlers rather than letting the attribute splat. FilterSurface is
+        // consumer surface (unlike the .Internal panels), so locating the
+        // component itself is inside the ruled boundary.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
 
-        var panel = Render<HomePage>().FindComponent<FilterPanel>().Instance;
+        var surface = Render<HomePage>().FindComponent<FilterSurface>().Instance;
 
-        Assert.True(panel.OnAppliedStateChanged.HasDelegate);
-        Assert.True(panel.OnFilterConfigChanged.HasDelegate);
+        Assert.True(surface.OnAppliedStateChanged.HasDelegate);
+        Assert.True(surface.OnFilterConfigChanged.HasDelegate);
     }
 
     [Fact]
@@ -1781,7 +1834,7 @@ public class PageTests : BunitContext
         // sits behind the panel's disclosure.
         await ExpandMoreFiltersAsync(cut);
         cut.Find("input[placeholder='e.g. Hal, Magriel']").Input("Magriel");
-        await ClickApplyFilterAsync(cut);
+        await ApplyFiltersAsync(cut);
         Assert.False(StartButton(cut).HasAttribute("disabled"));
         Assert.Contains("decisions match your filters", cut.Markup);
 
@@ -1825,7 +1878,7 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
-        await ClickApplyFilterAsync(cut);
+        await ApplyFiltersAsync(cut);
 
         Assert.Contains("decision matches your filters", cut.Markup);
         Assert.Equal(1, fake.EnumerateCallCount);
@@ -1856,7 +1909,7 @@ public class PageTests : BunitContext
         // invokes OnFilterConfigChanged with a *fresh* FilterConfig, which arms the
         // gate but discards whatever the panel's controls hold — it could never
         // carry a depth selection, and this case is about exactly that payload.
-        await ClickApplyFilterAsync(cut);
+        await ApplyFiltersAsync(cut);
 
         Assert.False(StartButton(cut).HasAttribute("disabled"));
 
@@ -1871,7 +1924,7 @@ public class PageTests : BunitContext
         Assert.True(StartButton(cut).HasAttribute("disabled"));
         Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied);
 
-        await ClickApplyFilterAsync(cut);
+        await ApplyFiltersAsync(cut);
 
         var applied = Services.GetRequiredService<AppliedFilter>().Config;
         Assert.NotNull(applied);
@@ -1917,7 +1970,7 @@ public class PageTests : BunitContext
         // back at defaults however the panel got there.
         await ExpandMoreFiltersAsync(cut);
         cut.Find("input[placeholder='e.g. Hal, Magriel']").Input("Magriel");
-        await ClickApplyFilterAsync(cut);
+        await ApplyFiltersAsync(cut);
 
         Assert.Equal("Magriel",
             cut.Find("input[placeholder='e.g. Hal, Magriel']").GetAttribute("value"));
@@ -1962,7 +2015,7 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
-        await ClickApplyFilterAsync(cut); // commits the defaults, unedited
+        await ApplyFiltersAsync(cut); // commits the defaults, unedited
         Assert.True(Services.GetRequiredService<AppliedFilter>().IsApplied);
 
         _folderAccess.NextPickOutcome = OneFileOutcome("Second", "second.xg");
@@ -1990,9 +2043,7 @@ public class PageTests : BunitContext
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<HomePage>();
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        await ApplyFiltersAsync(cut);
 
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         await startBtn.ClickAsync(new());
@@ -2021,9 +2072,7 @@ public class PageTests : BunitContext
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<HomePage>();
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        await ApplyFiltersAsync(cut);
 
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         await startBtn.ClickAsync(new());
@@ -2046,9 +2095,7 @@ public class PageTests : BunitContext
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<HomePage>();
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        await ApplyFiltersAsync(cut);
 
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         await startBtn.ClickAsync(new());
@@ -2150,9 +2197,7 @@ public class PageTests : BunitContext
         WithShuffleOption();
 
         var cut = Render<HomePage>();
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        await ApplyFiltersAsync(cut);
 
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         await startBtn.ClickAsync(new());
@@ -2172,9 +2217,7 @@ public class PageTests : BunitContext
         WithShuffleOption();
 
         var cut = Render<HomePage>();
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        await ApplyFiltersAsync(cut);
 
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         await startBtn.ClickAsync(new());
@@ -2267,9 +2310,7 @@ public class PageTests : BunitContext
         WithAppliedFilter();
 
         var cut = Render<HomePage>();
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        await ApplyFiltersAsync(cut);
 
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         await startBtn.ClickAsync(new());
@@ -2292,9 +2333,7 @@ public class PageTests : BunitContext
         WithAppliedFilter();
 
         var cut = Render<HomePage>();
-        var fp = cut.FindComponent<FilterPanel>();
-        await cut.InvokeAsync(() =>
-            fp.Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
+        await ApplyFiltersAsync(cut);
 
         var checkbox = cut.Find("#shuffleOrder");
         checkbox.Change(true);
@@ -2566,7 +2605,7 @@ public class PageTests : BunitContext
     {
         var access = new FakeFolderAccess();
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xgp", [1])], StatsSaveCapability.Enabled, []);
+        folder.Set("Corpus", [new PickedFile("a.xgp", [1])], FolderWriteCapability.Enabled, []);
         var store = new QuizStatsStore(access, TimeProvider.System, folder);
 
         switch (status)
@@ -3740,7 +3779,7 @@ public class PageTests : BunitContext
         var cut = Render<HelpPage>();
 
         Assert.Contains(QuizStatsFile.FileName, cut.Markup);
-        Assert.Contains(QuizFiltersFile.FileName, cut.Markup);
+        Assert.Contains(SavedFiltersDocument.FileName, cut.Markup);
     }
 
     [Fact]
@@ -3810,7 +3849,7 @@ public class PageTests : BunitContext
     {
         // The other half of "compose, don't consolidate": the files BgQuiz writes
         // into the user's folder are already named from QuizStatsFile /
-        // QuizFiltersFile in Before you start, so the data section points back at
+        // SavedFiltersDocument in Before you start, so the data section points back at
         // them rather than restating them. Pinned because the natural instinct
         // when writing a section called "where everything is stored" is to list
         // all of it in one place — which would put the two filenames on the page
@@ -3823,7 +3862,7 @@ public class PageTests : BunitContext
             cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Your data stays yours"));
 
         Assert.DoesNotContain(QuizStatsFile.FileName, section);
-        Assert.DoesNotContain(QuizFiltersFile.FileName, section);
+        Assert.DoesNotContain(SavedFiltersDocument.FileName, section);
     }
 
     [Fact]
@@ -3843,7 +3882,12 @@ public class PageTests : BunitContext
         var mix = headings.Single(
             h => h.TextContent.Trim() == "Weight the quiz by your lifetime stats");
 
-        Assert.Contains(QuizFiltersFile.FileName, SectionText(savedFilters));
+        Assert.Contains(SavedFiltersDocument.FileName, SectionText(savedFilters));
+        // The legacy name is user-visible behavior too (umbrella ruling): an
+        // existing folder's file under the earlier name is still read, and the
+        // sentence saying so renders from the producer's constant — so a
+        // rename or a dropped fallback fails here rather than shipping silent.
+        Assert.Contains(SavedFiltersDocument.LegacyFileName, SectionText(savedFilters));
         Assert.Contains("lifetime stats", SectionText(mix), StringComparison.OrdinalIgnoreCase);
     }
 
@@ -4326,59 +4370,48 @@ public class PageTests : BunitContext
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
 
     /// <summary>
-    /// Satisfies the filter half of the start gate through the hosted
-    /// <see cref="FilterPanel"/>'s own Apply callback. Every pick resets the
-    /// applied state (see
-    /// <see cref="Home_RePick_ResetsAppliedFilterAndPanelBuffersToDefaults"/>), so
-    /// a test that picks and then wants Start armed has to apply <i>after</i> its
-    /// last pick — pre-arming the holder is not enough.
+    /// Commit the panel's current selection through its own <i>Apply Filter</i>
+    /// button — the real gesture, since the panels are producer-internal now
+    /// and wire tests drive <c>FilterSurface</c>'s rendered DOM (the ruled
+    /// no-carve-out ban on <c>FindComponent</c> over the panels). On a fresh
+    /// mount under this fixture's loose JS interop the buffers are the
+    /// defaults, so this commits the empty config the retired synthetic helper
+    /// used to emit; a test that stages control edits first commits those.
+    /// Every pick re-mounts the panel with nothing committed, so a test that
+    /// picks and then wants Start armed applies <i>after</i> its last pick.
     /// <para>
-    /// It emits a <b>fresh, empty</b> <see cref="FilterConfig"/>, not whatever the
-    /// panel's controls currently hold: it satisfies the gate and says nothing
-    /// about the payload. A test that sets a facet and then asserts what reached
-    /// <see cref="AppliedFilter"/> must go through
-    /// <see cref="ClickApplyFilterAsync"/> instead — this helper would silently
-    /// discard the selection and the assertion would fail for the wrong reason.
+    /// The panel's own gate refuses a commit while the selection equals the
+    /// last-committed config, so a second call within one panel mount must be
+    /// preceded by a real control edit — the click dispatches, and the panel
+    /// deliberately no-ops it.
     /// </para>
     /// </summary>
     private static Task ApplyFiltersAsync(IRenderedComponent<HomePage> cut) =>
-        cut.InvokeAsync(() => cut.FindComponent<FilterPanel>()
-                                 .Instance.OnFilterConfigChanged.InvokeAsync(new FilterConfig()));
-
-    /// <summary>
-    /// Raise the panel's applied-state report with <c>null</c> — "the edit
-    /// buffers equal no committed config", what it says after any edit that
-    /// moves the selection off what was applied. The synthesized form of a
-    /// control edit, for tests about the <i>gate</i> rather than about a
-    /// particular control (contrast <see cref="ClickApplyFilterAsync"/>, and the
-    /// real-control edits in
-    /// <see cref="Home_UndoingAnEdit_ReArmsStartAndRestoresTheMatchCount"/>).
-    /// </summary>
-    private static Task ReportUncommittedEditsAsync(IRenderedComponent<HomePage> cut) =>
-        cut.InvokeAsync(() => cut.FindComponent<FilterPanel>()
-                                 .Instance.OnAppliedStateChanged.InvokeAsync(null));
-
-    /// <summary>
-    /// Raise the panel's applied-state report with <paramref name="config"/> —
-    /// "the edit buffers equal this committed config", what it says after an
-    /// Apply, and again whenever a later gesture leaves the buffers back at it.
-    /// </summary>
-    private static Task ReportCommittedConfigAsync(
-        IRenderedComponent<HomePage> cut, FilterConfig config) =>
-        cut.InvokeAsync(() => cut.FindComponent<FilterPanel>()
-                                 .Instance.OnAppliedStateChanged.InvokeAsync(config));
-
-    /// <summary>
-    /// Apply through the <see cref="FilterPanel"/>'s own <i>Apply Filter</i>
-    /// button — the real gesture, so the config that reaches
-    /// <see cref="AppliedFilter"/> is the one the panel built from its controls.
-    /// The route to use whenever a test cares <i>what</i> was applied rather than
-    /// merely that the gate opened (contrast <see cref="ApplyFiltersAsync"/>).
-    /// </summary>
-    private static Task ClickApplyFilterAsync(IRenderedComponent<HomePage> cut) =>
         cut.FindAll("button")
            .First(b => b.TextContent.Trim() == "Apply Filter")
            .ClickAsync(new());
+
+    /// <summary>
+    /// Make a real edit on the always-visible error-range Min input (to
+    /// <c>0.75</c>, a value no fixture commits), moving the buffers off any
+    /// committed config — the panel reports "uncommitted edits" (<c>null</c>)
+    /// through the composite, which clears the applied holder and re-gates
+    /// Start. The DOM-gesture successor of the retired synthetic
+    /// applied-state raise. Undo with <see cref="UndoFilterEditAsync"/>.
+    /// </summary>
+    private static Task EditFilterControlAsync(IRenderedComponent<HomePage> cut) =>
+        cut.Find("input[placeholder='Min']")
+           .InputAsync(new ChangeEventArgs { Value = "0.75" });
+
+    /// <summary>
+    /// Undo <see cref="EditFilterControlAsync"/>'s edit (Min back to blank).
+    /// With the buffers back at the committed values the panel reports clean —
+    /// re-applying the committed config through the composite — or, when
+    /// nothing is committed this mount, reports <c>null</c> again.
+    /// </summary>
+    private static Task UndoFilterEditAsync(IRenderedComponent<HomePage> cut) =>
+        cut.Find("input[placeholder='Min']")
+           .InputAsync(new ChangeEventArgs { Value = "" });
 
     /// <summary>
     /// Commit a minimal one-row mix (NeverSeen, 100%) through the real panel —
@@ -4430,7 +4463,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanBindStats = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
-        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
@@ -4455,7 +4488,7 @@ public class PageTests : BunitContext
         // re-enables. No dirty event exists — Home re-renders off the draft's
         // Changed notification and re-derives the comparison.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: StatsSaveCapability.Enabled); // mix panel is Enabled-gated (Task X)
+        WithPickedFolder(capability: FolderWriteCapability.Enabled); // mix panel is Enabled-gated (Task X)
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
@@ -4493,7 +4526,7 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         WithAppliedMix();
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -4559,7 +4592,7 @@ public class PageTests : BunitContext
         await ApplyFiltersAsync(cut);
         Assert.False(MixApplyDisabled(cut));
 
-        await ReportUncommittedEditsAsync(cut);
+        await EditFilterControlAsync(cut);
 
         Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied); // Start re-gated…
         Assert.True(StartButton(cut).HasAttribute("disabled"));
@@ -4578,7 +4611,7 @@ public class PageTests : BunitContext
         Assert.False(MixApplyDisabled(cut));
 
         _folderAccess.NextPickOutcome =
-            OneFileOutcome("Second", "second.xg", StatsSaveCapability.Enabled);
+            OneFileOutcome("Second", "second.xg", FolderWriteCapability.Enabled);
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         // The pick also discards the draft, so re-add a row: what is being
@@ -4615,7 +4648,7 @@ public class PageTests : BunitContext
         // there is no stored flag left dangling to clear. (Under the stored
         // flag this state stayed wedged-dirty until a re-Apply.)
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
@@ -4643,7 +4676,7 @@ public class PageTests : BunitContext
         // rows reordered are a different mix and Start must gate until the
         // user commits (or reorders back).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
@@ -4674,7 +4707,7 @@ public class PageTests : BunitContext
         // were still Empty, but the auto-commit is what keeps localStorage and
         // a previously committed mix consistent with the blank the user chose.)
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: StatsSaveCapability.Enabled); // mix panel is Enabled-gated (Task X)
+        WithPickedFolder(capability: FolderWriteCapability.Enabled); // mix panel is Enabled-gated (Task X)
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
@@ -4705,7 +4738,7 @@ public class PageTests : BunitContext
         // the gate IS the comparison. Driven through the real hydration wire
         // (localStorage → MixDraft → panel), not a synthetic event.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix(); // blank holder — hydration must not commit into it
@@ -4735,7 +4768,7 @@ public class PageTests : BunitContext
         // mix, so the rows clear, holder and draft agree at Empty, and Start
         // un-gates without ever running the restored mix.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix();
@@ -4760,7 +4793,7 @@ public class PageTests : BunitContext
         // Start is free. This is the "user with no persisted mix sees no gate"
         // invariant, falling out of the one rule rather than a special case.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
@@ -4784,7 +4817,7 @@ public class PageTests : BunitContext
         // is the whole judgment. The fresh-load test above is the
         // fails-without contrast (blank holder, same blob → gated).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix(NeverSeenMix()); // committed earlier this session
@@ -4811,7 +4844,7 @@ public class PageTests : BunitContext
         // nowhere — is unrepresentable under derivation: a blank draft builds
         // Empty and cannot disagree with a passthrough holder.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: StatsSaveCapability.Enabled); // mix panel is Enabled-gated
+        WithPickedFolder(capability: FolderWriteCapability.Enabled); // mix panel is Enabled-gated
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix();
@@ -4853,7 +4886,7 @@ public class PageTests : BunitContext
         // escape (the blank commit), exactly as it was for the old wedge state
         // this replaces — gated always comes with a visible way out.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix();
@@ -4889,7 +4922,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanBindStats = true;    // capability peek passes (stage 1)
         sink.CurrentDocument = null; // ...but the bind yields no document (stage 2: unreadable file)
-        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix(NeverSeenMix());
@@ -4921,7 +4954,7 @@ public class PageTests : BunitContext
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.BrowserUnsupported);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.BrowserUnsupported);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<HomePage>();
@@ -4962,7 +4995,7 @@ public class PageTests : BunitContext
         // stamp, and Apply Mix is gated on a filter having been applied for the
         // current pick (§ MixApplyEnabled), so the pre-armed holder above no
         // longer satisfies it.
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
         await cut.Find("#pickProblemFolder").ClickAsync(new());
         await ApplyFiltersAsync(cut);
         await ApplyMixThroughPanelAsync(cut);
@@ -4971,7 +5004,7 @@ public class PageTests : BunitContext
         // Re-pick a no-stats folder → the pick resets the committed mix and
         // discards the draft; the panel hides, so nothing re-hydrates and the
         // blank draft agrees with the reset holder — no gate, no divergence.
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.BrowserUnsupported);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.BrowserUnsupported);
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         Assert.True(holder.Current.IsPassthrough); // mix cleared by the pick
@@ -5008,7 +5041,7 @@ public class PageTests : BunitContext
         var holder = WithAppliedMix();
         JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
             .SetResult(NeverSeenMix().ToJson()); // persisted from a prior session
-        _folderAccess.NextPickOutcome = OneFileOutcome(capability: StatsSaveCapability.Enabled);
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
 
         var cut = Render<HomePage>();
 
@@ -5056,7 +5089,7 @@ public class PageTests : BunitContext
         sink.CanBindStats = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty.Plus(
             new SubmittedPlay(d.Id, BestPlay(), 0, 0.0, IsCorrect: true), TimeProvider.System);
-        WithPickedFolder(capability: StatsSaveCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix(NeverSeenMix());
@@ -5076,7 +5109,7 @@ public class PageTests : BunitContext
         // committed mix owns order, but ShuffleOption keeps the user's value,
         // so clearing the mix (apply blank) restores the prior preference.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: StatsSaveCapability.Enabled); // mix panel is Enabled-gated (Task X)
+        WithPickedFolder(capability: FolderWriteCapability.Enabled); // mix panel is Enabled-gated (Task X)
         WithAppliedFilter(new FilterConfig());
         var shuffle = WithShuffleOption(enabled: true);
         WithAppliedMix(NeverSeenMix());

@@ -1,3 +1,4 @@
+using BgFolderAccess_Razor;
 using BgQuiz_Blazor.Client.Quiz;
 
 namespace BgQuiz_Blazor.Tests;
@@ -22,7 +23,7 @@ public class PickedProblemFolderTests
     public void Summary_SingleFile_NamesFolderAndCountsSingular()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("MyMatches", [File()], StatsSaveCapability.Enabled, []);
+        folder.Set("MyMatches", [File()], FolderWriteCapability.Enabled, []);
 
         Assert.Equal("'MyMatches' — 1 problem file", folder.Summary);
     }
@@ -31,7 +32,7 @@ public class PickedProblemFolderTests
     public void Summary_MultipleFiles_NamesFolderAndCountsPlural()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("MyMatches", [File("a.xg"), File("b.xgp")], StatsSaveCapability.Enabled, []);
+        folder.Set("MyMatches", [File("a.xg"), File("b.xgp")], FolderWriteCapability.Enabled, []);
 
         Assert.Equal("'MyMatches' — 2 problem files", folder.Summary);
     }
@@ -40,7 +41,7 @@ public class PickedProblemFolderTests
     public void Summary_AfterClear_IsNullAgain()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("MyMatches", [File()], StatsSaveCapability.Enabled, []);
+        folder.Set("MyMatches", [File()], FolderWriteCapability.Enabled, []);
         folder.Clear();
 
         Assert.Null(folder.Summary);
@@ -52,9 +53,9 @@ public class PickedProblemFolderTests
         // The capability is the pick-time verdict Home's status notice re-derives
         // after navigate-back — the holder must retain it verbatim.
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [File()], StatsSaveCapability.PermissionDenied, []);
+        folder.Set("Corpus", [File()], FolderWriteCapability.PermissionDenied, []);
 
-        Assert.Equal(StatsSaveCapability.PermissionDenied, folder.Capability);
+        Assert.Equal(FolderWriteCapability.PermissionDenied, folder.Capability);
         Assert.Equal("Corpus", folder.FolderName);
         Assert.True(folder.HasFiles);
     }
@@ -63,14 +64,14 @@ public class PickedProblemFolderTests
     public void Clear_ResetsEverything()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [File()], StatsSaveCapability.Enabled, []);
+        folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []);
 
         folder.Clear();
 
         Assert.False(folder.HasFiles);
         Assert.Empty(folder.Files);
         Assert.Null(folder.FolderName);
-        Assert.Equal(StatsSaveCapability.BrowserUnsupported, folder.Capability);
+        Assert.Equal(FolderWriteCapability.BrowserUnsupported, folder.Capability);
     }
 
     [Fact]
@@ -78,9 +79,9 @@ public class PickedProblemFolderTests
     {
         var folder = new PickedProblemFolder();
         Assert.Throws<ArgumentNullException>(
-            () => folder.Set(null!, [File()], StatsSaveCapability.Enabled, []));
+            () => folder.Set(null!, [File()], FolderWriteCapability.Enabled, []));
         Assert.Throws<ArgumentNullException>(
-            () => folder.Set("Corpus", null!, StatsSaveCapability.Enabled, []));
+            () => folder.Set("Corpus", null!, FolderWriteCapability.Enabled, []));
     }
 
     // -----------------------------------------------------------------------
@@ -91,7 +92,7 @@ public class PickedProblemFolderTests
     public void StoreParsed_CurrentGeneration_CachesDecisions()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [File()], StatsSaveCapability.Enabled, []);
+        folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []);
         var parsed = new List<BgDataTypes_Lib.BgDecisionData>();
 
         folder.StoreParsed(folder.PickGeneration, parsed);
@@ -106,10 +107,10 @@ public class PickedProblemFolderTests
         // later pick — the pick gesture is async, so a re-pick can complete
         // inside a Start's own await points.
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [File()], StatsSaveCapability.Enabled, []);
+        folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []);
         var staleGeneration = folder.PickGeneration;
 
-        folder.Set("Other", [File("b.xgp")], StatsSaveCapability.Enabled, []); // supersedes
+        folder.Set("Other", [File("b.xgp")], FolderWriteCapability.Enabled, []); // supersedes
         folder.StoreParsed(staleGeneration, []);
 
         Assert.Null(folder.ParsedDecisions);
@@ -119,11 +120,11 @@ public class PickedProblemFolderTests
     public void Set_InvalidatesParseCacheAndBumpsGeneration()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [File()], StatsSaveCapability.Enabled, []);
+        folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []);
         folder.StoreParsed(folder.PickGeneration, []);
         var generation = folder.PickGeneration;
 
-        folder.Set("Corpus", [File()], StatsSaveCapability.Enabled, []); // re-pick, even of the same folder
+        folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []); // re-pick, even of the same folder
 
         Assert.Null(folder.ParsedDecisions);
         Assert.NotEqual(generation, folder.PickGeneration);
@@ -133,7 +134,7 @@ public class PickedProblemFolderTests
     public void Clear_InvalidatesParseCacheAndBumpsGeneration()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [File()], StatsSaveCapability.Enabled, []);
+        folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []);
         folder.StoreParsed(folder.PickGeneration, []);
         var generation = folder.PickGeneration;
 

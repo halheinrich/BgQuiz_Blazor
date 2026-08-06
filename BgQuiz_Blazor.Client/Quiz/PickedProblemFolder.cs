@@ -1,29 +1,18 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
 using BgDataTypes_Lib;
-
-/// <summary>
-/// One picked XG-format file, fully buffered into memory. The bytes are read
-/// out of the browser once, at pick time, and never leave it — this is the
-/// in-memory payload the quiz parses locally.
-/// </summary>
-/// <param name="FileName">
-/// The original file name <i>including</i> its extension (<c>.xg</c> /
-/// <c>.xgp</c>). The extension is required: the producer's <c>DecisionId</c>
-/// stamping discriminates the format from it. See <c>XgFileStream.FileName</c>.
-/// </param>
-/// <param name="Bytes">
-/// The complete file contents. A fresh <c>MemoryStream(Bytes)</c> is minted for
-/// each enumeration so the source stays re-iterable (the stream iterator reads a
-/// stream exactly once, forward).
-/// </param>
-internal sealed record PickedFile(string FileName, byte[] Bytes);
+using BgFolderAccess_Razor;
 
 /// <summary>
 /// Per-app holder for the user's picked problem-set folder: its top-level
 /// <c>.xg</c> / <c>.xgp</c> files (buffered) plus the two pick-time verdicts
-/// about them — the <see cref="StatsSaveCapability"/> and any
-/// <see cref="Truncations"/> the count caps imposed.
+/// about them — the <see cref="FolderWriteCapability"/> and any
+/// <see cref="Truncations"/> the count caps imposed. The
+/// <see cref="PickedFile"/>s are BgFolderAccess_Razor's: extension-bearing
+/// names (the producer's <c>DecisionId</c> stamping discriminates the format
+/// from them — see <c>XgFileStream.FileName</c>) over fully-buffered bytes,
+/// from which a fresh <c>MemoryStream</c> is minted per enumeration so the
+/// source stays re-iterable.
 ///
 /// <para>
 /// Lifetime: <b>Scoped</b> — in the WebAssembly client that resolves to one
@@ -64,10 +53,10 @@ internal sealed class PickedProblemFolder
     /// <summary>
     /// The pick-time stats-saving verdict for this folder. Meaningful only
     /// while <see cref="HasFiles"/>; defaults to
-    /// <see cref="StatsSaveCapability.BrowserUnsupported"/> when nothing is
+    /// <see cref="FolderWriteCapability.BrowserUnsupported"/> when nothing is
     /// picked (no notice renders then, so the value is never shown).
     /// </summary>
-    public StatsSaveCapability Capability { get; private set; } = StatsSaveCapability.BrowserUnsupported;
+    public FolderWriteCapability Capability { get; private set; } = FolderWriteCapability.BrowserUnsupported;
 
     /// <summary>
     /// The problem-file kinds this pick's count caps cut short, empty when the
@@ -157,7 +146,7 @@ internal sealed class PickedProblemFolder
     public void Set(
         string folderName,
         IReadOnlyList<PickedFile> files,
-        StatsSaveCapability capability,
+        FolderWriteCapability capability,
         IReadOnlyList<PickTruncation> truncations)
     {
         ArgumentNullException.ThrowIfNull(folderName);
@@ -180,7 +169,7 @@ internal sealed class PickedProblemFolder
     {
         Files = [];
         FolderName = null;
-        Capability = StatsSaveCapability.BrowserUnsupported;
+        Capability = FolderWriteCapability.BrowserUnsupported;
         Truncations = [];
         ParsedDecisions = null;
         PickGeneration++;

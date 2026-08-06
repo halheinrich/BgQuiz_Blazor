@@ -1,6 +1,7 @@
 using System.Text.Json;
 using BgDataTypes_Lib;
 using BgGame_Lib;
+using BgFolderAccess_Razor;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.JSInterop;
 
@@ -26,7 +27,7 @@ public class QuizStatsStoreTests
     private static PickedProblemFolder EnabledFolder()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xgp", [1, 2, 3])], StatsSaveCapability.Enabled, []);
+        folder.Set("Corpus", [new PickedFile("a.xgp", [1, 2, 3])], FolderWriteCapability.Enabled, []);
         return folder;
     }
 
@@ -60,7 +61,7 @@ public class QuizStatsStoreTests
         // touch the JS slots — the bind short-circuits to Disabled.
         var fake = new FakeFolderAccess();
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xg", [1])], StatsSaveCapability.BrowserUnsupported, []);
+        folder.Set("Corpus", [new PickedFile("a.xg", [1])], FolderWriteCapability.BrowserUnsupported, []);
         var store = MakeStore(fake, folder);
 
         await store.BeginQuizAsync();
@@ -74,7 +75,7 @@ public class QuizStatsStoreTests
     {
         var fake = new FakeFolderAccess();
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xg", [1])], StatsSaveCapability.PermissionDenied, []);
+        folder.Set("Corpus", [new PickedFile("a.xg", [1])], FolderWriteCapability.PermissionDenied, []);
         var store = MakeStore(fake, folder);
 
         await store.BeginQuizAsync();

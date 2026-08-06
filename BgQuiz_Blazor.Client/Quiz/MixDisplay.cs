@@ -1,6 +1,7 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
 using System.Globalization;
+using BgFolderAccess_Razor;
 using BgGame_Lib;
 
 /// <summary>
@@ -78,11 +79,11 @@ internal static class MixDisplay
     /// case). One rule, rendered identically by Home's Start and Done's
     /// Restart.
     /// </summary>
-    public static string RefusalReason(StatsSaveCapability capability, QuizStatsStatus status) =>
+    public static string RefusalReason(FolderWriteCapability capability, QuizStatsStatus status) =>
         capability switch
         {
-            StatsSaveCapability.BrowserUnsupported => "this folder pick can't save stats in your browser",
-            StatsSaveCapability.PermissionDenied => "write access to the folder was declined",
+            FolderWriteCapability.BrowserUnsupported => "this folder pick can't save stats in your browser",
+            FolderWriteCapability.PermissionDenied => "write access to the folder was declined",
             _ => status == QuizStatsStatus.LoadFailed
                 ? $"the existing {QuizStatsFile.FileName} couldn't be read"
                 : "no stats context could be bound",
