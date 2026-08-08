@@ -17,8 +17,8 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// <b>Commit model mirrors <c>FilterPanel</c>.</b>
-/// <see cref="OnMixApplied"/> fires on Apply, on Reset, and when the last row
-/// is removed (both Reset and the last-row removal are an explicit apply of
+/// <see cref="OnMixApplied"/> fires on Apply, on <i>Clear mix</i>, and when the
+/// last row is removed (both the clear and the last-row removal are an explicit apply of
 /// <see cref="QuizMix.Empty"/>, distinct from the never-silently-rewrite rule
 /// because the user asked for the blank state) — never per keystroke. Commits
 /// persist through <see cref="MixDraft.PersistAsync"/> (committed-only
@@ -32,7 +32,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <b>Hydration is the draft's, triggered here.</b> Init awaits the
 /// idempotent <see cref="MixDraft.EnsureHydratedAsync"/>: the first mount of
 /// a setup loads the stored mix into the draft (re-offering it, gated by the
-/// derived rule, until the user Applies or Resets); a re-mount after in-app
+/// derived rule, until the user Applies or clears); a re-mount after in-app
 /// navigation finds the draft already hydrated and shows it as-is — edits
 /// included.
 /// </para>
@@ -64,7 +64,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 public partial class MixPanel : ComponentBase
 {
     /// <summary>
-    /// Raised on <b>Apply</b>, on <b>Reset</b>, and when the <b>last row is
+    /// Raised on <b>Apply</b>, on <b>Clear mix</b>, and when the <b>last row is
     /// removed</b> (which returns the builder to the blank passthrough state) —
     /// never per keystroke — carrying the committed <see cref="QuizMix"/>.
     /// Required: the panel exists to produce this, so a missing binding is an
@@ -83,8 +83,8 @@ public partial class MixPanel : ComponentBase
     /// is what keeps this from re-creating the (AK) lifetime split.
     ///
     /// <para>
-    /// <b>Reset and the blank path stay enabled regardless.</b> Returning to the
-    /// passthrough mix — explicit Reset, or removing the last row — is how a
+    /// <b>Clear mix and the blank path stay enabled regardless.</b> Returning to
+    /// the passthrough mix — an explicit clear, or removing the last row — is how a
     /// user escapes a dirty draft that is gating Start, and a hydrated stored
     /// mix arrives dirty <i>before</i> any filter is applied. Gating that too
     /// would wedge the page. Only the forward commit is sequenced.
@@ -150,9 +150,9 @@ public partial class MixPanel : ComponentBase
         // Removing the last row returns the draft to its blank (passthrough)
         // state. Apply is disabled at zero rows (committing Empty is the blank
         // path's job, not Apply's), so leaving this a mere edit would gate
-        // Start with no in-panel commit but Reset — the pre-beta wedge. Auto-
-        // commit the blank mix through the same channel Reset uses, so the
-        // holder, the gate, and localStorage all land where Reset would put them.
+        // Start with no in-panel commit but Clear mix — the pre-beta wedge.
+        // Auto-commit the blank mix through the same channel Clear mix uses, so
+        // the holder, the gate, and localStorage all land where it would put them.
         return Draft.Rows.Count == 0 ? GoBlankAsync() : Task.CompletedTask;
     }
 
@@ -169,12 +169,19 @@ public partial class MixPanel : ComponentBase
         return CommitAsync(mix);
     }
 
-    private Task ResetAsync() => GoBlankAsync();
+    /// <summary>
+    /// The <i>Clear mix</i> gesture. Named for what it does — blank the builder
+    /// and commit the blank mix — rather than for undoing edits, which is what
+    /// the former <c>Reset</c> label and method promised and never delivered
+    /// (issue <c>halheinrich/backgammon#87</c>). Behavior is unchanged; only the
+    /// name is honest now.
+    /// </summary>
+    private Task ClearAsync() => GoBlankAsync();
 
     /// <summary>
     /// Normalize to the blank draft and commit <see cref="QuizMix.Empty"/> —
-    /// the shared path for the explicit Reset gesture and for removing the
-    /// last row, which lands in the same state. Both persist Empty
+    /// the shared path for the explicit <i>Clear mix</i> gesture and for
+    /// removing the last row, which lands in the same state. Both persist Empty
     /// (localStorage stays consistent) and raise <see cref="OnMixApplied"/>,
     /// the sanctioned way this panel writes Empty over a stored mix.
     /// <see cref="MixDraft.Clear"/> also resets the toggle and length to their

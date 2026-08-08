@@ -846,9 +846,9 @@ internal sealed class QuizController : IAsyncDisposable
     /// composes against the stats document, and composing without one is
     /// banned (the producer's provider contract throws on null by design) —
     /// so no stats means the start is refused, never silently unweighted.
-    /// Stage 1 is the side-effect-free capability peek
-    /// (<see cref="IDecisionStatsSink.CanBindStats"/>): a fallback pick, a
-    /// declined permission, or no pick at all refuses before anything —
+    /// Stage 1 is the side-effect-free shared predicate
+    /// (<see cref="IDecisionStatsSink.CanWeightMix"/>): a folder that can't
+    /// save stats, or has no stats record yet, refuses before anything —
     /// including the stats bind — happens. Stage 2 runs after the bind:
     /// a context that bound without a document (unreadable stats file)
     /// refuses before any quiz state is touched, so the prior quiz — its
@@ -873,7 +873,7 @@ internal sealed class QuizController : IAsyncDisposable
         // as passthrough while the stored mix stays what the user configured.
         var effectiveMix = ignoreMix ? QuizMix.Empty : mix;
 
-        if (!effectiveMix.IsPassthrough && !_statsSink.CanBindStats)
+        if (!effectiveMix.IsPassthrough && !_statsSink.CanWeightMix)
             return QuizStartOutcome.MixRequiresStats;
 
         // Bind the lifetime-stats context for the quiz now starting. This is
@@ -1028,10 +1028,22 @@ internal enum QuizStartOutcome
     /// <summary>
     /// The start was refused: the mix has entries but no lifetime-stats
     /// document is available (unsupported browser, declined permission,
-    /// nothing picked, or an unreadable stats file). No quiz state changed —
+    /// nothing picked, no stats record in the picked folder yet, or an
+    /// unreadable stats file). No quiz state changed —
     /// the prior quiz, if any, is untouched. The caller renders an actionable
     /// notice whose escape is the explicit per-run <c>ignoreMix</c> override;
     /// the stored mix itself is never rewritten.
+    ///
+    /// <para>
+    /// <b>A backstop, not a routine outcome</b>, since issue
+    /// <c>halheinrich/backgammon#87</c>: the host offers no way to build a mix
+    /// where <see cref="IDecisionStatsSink.CanWeightMix"/> is false, so a
+    /// non-passthrough mix can barely coexist with absent stats. What is left
+    /// is the genuinely reachable case this member is kept for — a bind that
+    /// fails <i>after</i> the pick looked capable (the file changed, or turned
+    /// out unparseable) — plus any future caller that reaches the controller
+    /// without the host's gating.
+    /// </para>
     /// </summary>
     MixRequiresStats,
 

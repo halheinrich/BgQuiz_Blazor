@@ -14,11 +14,12 @@ internal sealed class FakeDecisionStatsSink : IDecisionStatsSink
     public int BeginQuizCallCount { get; private set; }
 
     /// <summary>
-    /// Scriptable capability peek. Defaults to false — the no-stats posture a
-    /// fresh app has — so blank-mix tests never depend on stats state; tests
-    /// exercising a weighted start opt in explicitly.
+    /// Scriptable shared predicate — "can a weighted mix mean anything for the
+    /// picked folder". Defaults to false — the no-stats posture a fresh app has
+    /// — so blank-mix tests never depend on stats state; tests exercising a
+    /// weighted start opt in explicitly.
     /// </summary>
-    public bool CanBindStats { get; set; }
+    public bool CanWeightMix { get; set; }
 
     /// <summary>
     /// Scriptable live document. Defaults to null (no bound context); a

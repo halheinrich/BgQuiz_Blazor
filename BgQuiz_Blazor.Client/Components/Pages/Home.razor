@@ -370,13 +370,24 @@
         </div>
     }
 
-    @* Weighted mix — offered only when the pick can provide the lifetime stats
-       it composes from (Task X). Under a no-stats pick the mix plays no part in
-       Start, so hiding the panel makes that true by construction: there is no
-       way to build a mix, every pick resets the committed mix and discards the
-       draft (see EndCurrentSetupAsync), and with no panel mounted nothing
-       re-hydrates — the blank draft matches the passthrough holder, so the
-       derived gate never fires. Keyed on the pick generation so every pick
+    @* Weighted mix — offered only where a mix can mean something: the one
+       predicate, StatsStore.CanWeightMix (issue #87). It asks both halves at
+       once — this folder can save stats AND already holds a record with
+       something in it — because weighting composes FROM that record, so an
+       empty one expresses no weighting anybody asked for. Missing, empty and
+       unreadable are one answer, not three rungs.
+
+       Nothing is disabled and no reason is given: the panel simply isn't here,
+       which is the same non-mount path a no-stats pick always took, now driven
+       by the full predicate rather than by capability alone. The emergent
+       behavior is accepted, not worked around — a brand-new folder offers no
+       mix until its own first quiz has written some stats.
+
+       Under a false predicate the mix plays no part in Start, by construction:
+       there is no way to build a mix, every pick resets the committed mix and
+       discards the draft (see EndCurrentSetupAsync), and with no panel mounted
+       nothing re-hydrates — the blank draft matches the passthrough holder, so
+       the derived gate never fires. Keyed on the pick generation so every pick
        re-mounts it: the fresh mount triggers the discarded draft's re-hydration,
        which re-offers the persisted mix — gated by the derived draft-vs-committed
        rule against the just-reset holder — enforcing "no committed mix silently
@@ -391,7 +402,7 @@
        filtered pool at Start, so the pipeline never required the order, but
        nothing on the page said which draws from which. Nothing about the mix's
        own state takes part in the gate, and the panel is told, never asks. *@
-    @if (Folder.Capability == FolderWriteCapability.Enabled)
+    @if (StatsStore.CanWeightMix)
     {
         <MixPanel @key="Folder.PickGeneration"
                   CanApply="MixApplyEnabled"
@@ -434,7 +445,7 @@
     }
     else if (MixDirty)
     {
-        <small class="text-muted ms-2">Apply or reset the mix above to enable Start.</small>
+        <small class="text-muted ms-2">Apply or clear the mix above to enable Start.</small>
     }
 
     @if (!string.IsNullOrEmpty(_startError))
@@ -461,7 +472,7 @@
                 Start without mix
             </button>
             <span class="small text-muted ms-2">
-                runs this one quiz unweighted — or Reset the mix above to
+                runs this one quiz unweighted — or Clear mix above to
                 remove it; your saved mix is kept either way.
             </span>
         </div>

@@ -16,16 +16,51 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         : base(app, playwright) { }
 
     [Fact]
-    public async Task WeightedStart_NeverSeenMix_ComposesAndRunsToDone()
+    public async Task NoStatsHistory_OffersNoMix_AndTheQuizStillRuns()
     {
-        // No existing stats file: the fixture's decision is never-seen, so a
-        // 100% never-seen mix composes exactly it and the quiz runs to Done —
-        // the weighted pipeline (mix UI → holder → controller → composing
-        // decorator over the real stats bind) exercised end to end.
+        // The gating smoke for issue halheinrich/backgammon#87. A folder with no
+        // stats history can't mean a weighted mix, so the section is not offered
+        // at all — no panel, no disabled controls, no explanation — and the quiz
+        // runs perfectly well without it. This is the state EVERY first-time
+        // user of a new folder is in, so it is the path that must not break.
         await BootHomeAsync();
         await PickFakeFolderAsync();
+
+        // Positive precondition first: the setup surface really did disclose, so
+        // the absences below are the mix's specifically and not a pick that
+        // silently failed.
+        await Expect(Page.Locator("#shuffleOrder")).ToBeVisibleAsync();
+        await Expect(Page.GetByText("Weighted mix")).ToHaveCountAsync(0);
+        await Expect(Page.Locator("#mixApply")).ToHaveCountAsync(0);
+        await Expect(Page.Locator("#mixClear")).ToHaveCountAsync(0);
+
         await ApplyFilterAsync();
+        await StartQuizAsync();
+        await AnswerCubeNoDoubleAsync();
+        await ContinueToDoneAsync();
+        await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
+
+        // Unweighted, and recording — that write is what gives this folder the
+        // stats history a mix would later compose from.
+        Assert.Single(await CapturedWritesAsync());
+    }
+
+    [Fact]
+    public async Task WeightedStart_OverASeededHistory_ComposesAndRunsToDone()
+    {
+        // The weighted pipeline (mix UI → holder → controller → composing
+        // decorator over the real stats bind) end to end, now necessarily over a
+        // folder that HAS a history — under #87 there is no other kind of folder
+        // a mix can be built on. The seeding quiz leaves the one fixture
+        // decision seen, so the category has to be one that still reaches it:
+        // "Everything else" draws exactly what the rows above it didn't claim,
+        // which here is everything.
+        await BootHomeAsync();
+        await SeedStatsHistoryAsync();
+        await ApplyFilterAsync();
+
         await AddDefaultMixRowAsync();
+        await Page.GetByLabel("Category").SelectOptionAsync("EverythingElse");
         await ApplyMixAsync();
 
         await StartQuizAsync();
@@ -33,8 +68,8 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         await ContinueToDoneAsync();
         await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
 
-        // The weighted run still records: one fold, one write-back.
-        Assert.Single(await CapturedWritesAsync());
+        // Two write-backs now: the seeding quiz's fold and this weighted run's.
+        Assert.Equal(2, (await CapturedWritesAsync()).Length);
     }
 
     [Fact]
@@ -49,12 +84,12 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         // back, still gating Start, with Apply as the visible way out. Gated,
         // never wedged.
         await BootHomeAsync();
-        await PickFakeFolderAsync();
+        await SeedStatsHistoryAsync(); // #87: no stats history, no mix panel to edit
         await ApplyFilterAsync();
         await AddDefaultMixRowAsync(); // an uncommitted edit — Start gates
 
         await Expect(StartButton).ToBeDisabledAsync();
-        await Expect(Page.GetByText("Apply or reset the mix above to enable Start"))
+        await Expect(Page.GetByText("Apply or clear the mix above to enable Start"))
             .ToBeVisibleAsync();
 
         await Page.GetByRole(AriaRole.Link, new() { Name = "Help" }).ClickAsync();
@@ -66,7 +101,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         // survived (Scoped holder), so the hint is the mix's specifically.
         await Expect(Page.Locator(".mix-row")).ToHaveCountAsync(1);
         await Expect(StartButton).ToBeDisabledAsync();
-        await Expect(Page.GetByText("Apply or reset the mix above to enable Start"))
+        await Expect(Page.GetByText("Apply or clear the mix above to enable Start"))
             .ToBeVisibleAsync();
         await Expect(Page.Locator("#mixApply")).ToBeEnabledAsync(); // the way out
 
@@ -106,16 +141,17 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
 }
 
 /// <summary>
-/// The weighted-start refusal ruling at its post-X reachable path. Task X
-/// offers the mix <i>only</i> for an Enabled (File System Access) pick — a
-/// stats-less pick hides the panel entirely — so a committed mix can meet
-/// absent stats in exactly one way: an Enabled pick whose existing
-/// <c>bgquiz-stats.json</c> is unreadable. The capability peek passes (write was
-/// granted), but the bind reads no document, so Start is refused with the
-/// actionable notice and the one-click override runs the quiz unweighted —
-/// never a silent unweighted substitution. Rides the FS-Access fake with a
-/// corrupt stats file injected per scenario (the old fallback-pick refusal is
-/// no longer reachable through the UI).
+/// The weighted-start refusal ruling at the one path issue
+/// <c>halheinrich/backgammon#87</c> leaves reachable. The mix is offered only
+/// where the shared predicate holds — write capability <i>and</i> a readable
+/// stats record — so a committed mix can no longer meet absent stats by the
+/// folder simply having none, and it cannot meet an already-corrupt file either
+/// (the pick-time probe would have hidden the panel, leaving nothing to commit).
+/// What remains, and what the refusal is kept as a backstop for, is a stats file
+/// that stops being readable <i>between</i> the pick and the Start: the pick
+/// looked capable and the bind then wasn't. Start is refused with the actionable
+/// notice and the one-click override runs the quiz unweighted — never a silent
+/// unweighted substitution.
 /// </summary>
 public sealed class MixRefusalTests : FsAccessFakeTestBase
 {
@@ -123,21 +159,24 @@ public sealed class MixRefusalTests : FsAccessFakeTestBase
         : base(app, playwright) { }
 
     [Fact]
-    public async Task EnabledPickUnreadableStats_WithCommittedMix_Refuses_OverrideRunsUnweighted()
+    public async Task StatsBecomeUnreadableAfterTheMixIsCommitted_Refuses_OverrideRunsUnweighted()
     {
-        // An existing stats file the converter must reject: the capability peek
-        // still passes (write granted), but the bind reads no document, so a
-        // committed mix is refused at the stage-2 check.
-        await Page.AddInitScriptAsync("window.__statsFake.statsJson = 'not json at all';");
-
+        // Seed a real history so the mix is offered and can be committed at all.
         await BootHomeAsync();
-        await PickFakeFolderAsync();
+        await SeedStatsHistoryAsync();
         await ApplyFilterAsync();
         await AddDefaultMixRowAsync();
+        await Page.GetByLabel("Category").SelectOptionAsync("EverythingElse");
         await ApplyMixAsync();
 
-        // The pick CAN provide stats (Enabled), so there is no early advisory —
-        // the unreadable file is discovered only at Start.
+        // Now the file turns unreadable underneath the committed mix — the user
+        // edited it, or another tool rewrote it, between setup and Start. The
+        // pick-time probe is long past and cannot know.
+        await Page.EvaluateAsync("() => { window.__statsFake.statsJson = 'not json at all'; }");
+
+        // Nothing warns in advance — there is nothing to warn from — so the
+        // refusal is discovered at Start, which is exactly what the backstop is
+        // for.
         await Expect(StartButton).ToBeEnabledAsync();
         await StartButton.ClickAsync();
         await Expect(Page.GetByText("weighted mix can't be applied")).ToBeVisibleAsync();

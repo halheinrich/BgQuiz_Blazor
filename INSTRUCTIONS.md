@@ -378,10 +378,13 @@ recomposes against the lifetime record as it stands, this session's folds
 included** (deliberate, producer-documented). Composing without stats is
 banned (ratified: no stats → feature unavailable, never silently unweighted),
 so the start is **refused** in two stages: stage 1, the side-effect-free
-`IDecisionStatsSink.CanBindStats` capability peek — before even the stats
-bind; stage 2, after `BeginQuizAsync` (ordered **before** the source build,
-because the wrap decision needs the bound context), when the bind yielded no
-document. Either refusal returns `MixRequiresStats` having touched **no quiz
+`IDecisionStatsSink.CanWeightMix` shared predicate (§ `QuizStatsStore`) —
+before even the stats bind; stage 2, after `BeginQuizAsync` (ordered **before**
+the source build, because the wrap decision needs the bound context), when the
+bind yielded no document. Since #87 the refusal is a **backstop, not a routine
+outcome**: the host offers no way to build a mix where `CanWeightMix` is false,
+so what is left reachable is a bind that fails *after* the pick looked
+capable — a stats file that changed or turned unparseable in between. Either refusal returns `MixRequiresStats` having touched **no quiz
 state** (see Pitfalls). `RestartAsync(bool ignoreMix = false)` re-attempts the
 stored mix every time, so the mix re-applies whenever stats allow; the
 override is strictly per-run and the stored mix is never rewritten.
@@ -626,6 +629,48 @@ controller's sink and the pages' status notices observe one instance; deps:
 - The clock is the DI `TimeProvider` (registered `TimeProvider.System` in
   `Program.cs`), handed to the document's `Plus` — ambient time is never read.
 
+**Two states, two lifetimes, no traffic between them** (issue #87). Beside the
+*active context* above sits the **pick-time probe** behind `CanWeightMix`:
+
+- **`CanWeightMix`** (on `IDecisionStatsSink`, replacing the old
+  `CanBindStats`) — *the* predicate for "can a weighted mix mean anything
+  here": `Capability == Enabled` **and** the probe found a stats document with
+  `Count > 0` **and** the probe's generation stamp still matches
+  `PickedProblemFolder.PickGeneration`. That stamp is why the answer **expires
+  by construction** rather than by anyone remembering to reset it — every
+  `Set`/`Clear` bumps the generation, and a probe about the previous folder
+  simply stops matching. It starts at `-1`, not `0`, so "never probed" cannot
+  read as "probed and found nothing".
+- **`RefreshPickedStatsAsync()`** — the probe: a **picked**-slot read
+  (`ReadPickedFileAsync(QuizStatsFile.FileName)`), deserialize, `Count > 0`.
+  Degrade-tolerant *because that is the ruling*, not as a defensive extra:
+  missing, empty, corrupt, foreign-schema, and browser-read-failure all leave
+  it false, with no status, no notice, and nothing thrown. It **promotes
+  nothing** and never assigns the active document or `Status`, so a probe
+  during a running quiz cannot disturb what that quiz records. Under a
+  non-`Enabled` capability the interop is skipped through the same private
+  half the predicate uses, so the two can't drift.
+- **Two reading points, both `Home`'s**: each successful pick's landing
+  (`ApplyPickOutcomeAsync`, after `Set` so it probes the generation it is
+  about) and `OnInitializedAsync`. The second is what makes "no mix until its
+  first quiz creates stats" resolve on the way back from that quiz — returning
+  to Home re-instantiates the page and re-probes — instead of waiting for a
+  re-pick the user has no reason to make.
+
+The probe lives *here* rather than in a service of its own because this class
+already owns both ingredients — how a stats document is read out of a folder
+and what counts as unreadable, and the pick's write capability — so anywhere
+else would duplicate the recipe and leave a second, capability-only answer to
+the same question.
+
+**Naming trigger (recorded deliberately).** `CanWeightMix` puts a *mix* policy
+on a stats abstraction. The fact-level alternative (`PickedFolderHasStats`)
+would scatter the "a mix needs stats" rule across both consumers instead, which
+is worse at two call sites — but the trade flips with a third. **The first
+consumer of "does this folder have stats" that is not about the mix** — a stats
+viewer, or #43's saved-mix gating — **is when this splits into the fact plus
+the policy over it.**
+
 **Status surfacing** splits by context. Pick-time (Home, capability-based,
 all polite `role="status"`): stats-will-be-saved (`Enabled`, naming
 `QuizStatsFile.FileName`) / browser-can't-save / declined-write, plus the
@@ -841,8 +886,8 @@ Home's `Choose folder…`, the page's other required-but-unstarted step;
 `MixPanelTests` pins state and appearance together, because the defect was the
 gap between them.
 
-**Commit model mirrors FilterPanel** — `OnMixApplied` on Apply, Reset, and
-**removing the last row** (the latter two are an explicit apply of
+**Commit model mirrors FilterPanel** — `OnMixApplied` on Apply, **Clear
+mix**, and **removing the last row** (the latter two are an explicit apply of
 `QuizMix.Empty` through the shared `GoBlankAsync`, the sanctioned way this
 panel writes Empty over a stored mix; the last-row case keeps holder, draft,
 and localStorage agreeing at the blank the user chose, so the pre-beta
@@ -851,7 +896,7 @@ and is `[EditorRequired]`. The host also holds one **gate** on it: `CanApply`
 (default `true`) plus an optional `ApplyDisabledReason`, mirroring
 `SavedFiltersPanel.CanPersist` / `PersistDisabledReason` down to the muted
 hint line and the disabled button's `title`. It sequences **Apply Mix only** —
-Reset and the last-row blank path stay live, or a dirty draft could wedge
+*Clear mix* and the last-row blank path stay live, or a dirty draft could wedge
 Start (§ Pages → Home, issue #45). The panel is *told*, never asks: it holds
 no notion of filters, and `ApplyAsync` early-returns on the gate as well as
 the draft's validity, so a dispatch ignoring `disabled` still cannot commit.
@@ -875,23 +920,47 @@ definition; a fresh load's hydrated mix arrives **gated until re-Applied**
 with zero reconcile code (holder `Empty`, draft non-blank); an edit **back to
 the exact committed content derives clean with no Apply**; and a **reorder
 alone is dirty** (order is semantic). Gated is never wedged: whenever the gate
-holds, the divergent draft is on screen with Apply or Reset as the visible way
-out.
+holds, the divergent draft is on screen with Apply or *Clear mix* as the
+visible way out.
 
-**Offered only when the pick can provide stats.** Home renders `MixPanel`
-only for `FolderWriteCapability.Enabled`. The mix composes from lifetime
-stats, so under any other rung it has no valid role: the panel is hidden,
-and **every pick (and Clear) ends both mix halves** — `AppliedMix.Reset()`
+**Offered only where a mix can mean something — one predicate, every consumer**
+(issue #87). Home renders `MixPanel` only while
+**`QuizStatsStore.CanWeightMix`**, and the controller's stage-1 refusal reads
+the same member through `IDecisionStatsSink`. It was two readings of one
+question before — Home mounted on `Capability == Enabled` while the controller
+peeked at capability separately — and they disagreed about the case that
+matters: a folder that *can* save stats but has none yet. Ruled: **a weighted
+mix does not apply to an empty stats document, and an empty document is
+treated exactly as no document**; missing, empty, and unreadable are one
+answer, not three rungs. The predicate is therefore write capability **and** a
+stats document with at least one decision in it.
+
+Deliberately **not** routed through it: `FilterSurface`'s
+`CanPersist`, which stays `Capability == Enabled`. Saved filters have nothing
+to do with a stats record, and gating them on one would break saving on every
+folder without quiz history.
+
+**No disabled state, no reason string.** Where the predicate is false the panel
+simply is not mounted — the same non-mount path a stats-less pick always took,
+now driven by the whole predicate. The accepted emergent behavior: a brand-new
+folder offers no mix **until its own first quiz creates stats**, which resolves
+on the return to Home (see the probe's two reading points below), not at some
+later re-pick.
+
+**Every pick (and Clear) still ends both mix halves** — `AppliedMix.Reset()`
 plus `MixDraft.Discard()` in `EndCurrentSetupAsync` (the invariant is "no
 pick → passthrough"; a new pick means a new stats slot, so uncommitted draft
-edits are stale noise and die with the setup). `Discard` blanks the draft
-**and forgets hydration** (with a generation guard so a read still in flight
-lands nothing); since only a mounted panel triggers re-hydration, an Enabled
-pick's re-mounted panel re-offers the persisted mix — gated by the derived
-rule against the just-reset holder — while a stats-less pick re-hydrates
-nothing and the blank draft matches the reset holder: the mix plays no part in
-its Start, with **no capability fork in the gate**. Together those keep a
-stats-less pick unable to coexist with a committed non-blank mix — which is
+edits are stale noise and die with the setup). That reset is **unconditional**,
+which is the whole of #87's "a non-passthrough mix must not survive into a
+folder that can't honor it": a mix that survives no pick cannot survive that
+one either, so there is no predicate branch here to get wrong. `Discard` blanks
+the draft **and forgets hydration** (with a generation guard so a read still in
+flight lands nothing); since only a mounted panel triggers re-hydration, a
+mix-capable pick's re-mounted panel re-offers the persisted mix — gated by the
+derived rule against the just-reset holder — while a pick that can't mean a mix
+re-hydrates nothing and the blank draft matches the reset holder: the mix plays
+no part in its Start, with **no capability fork in the gate**. Together those
+keep such a pick unable to coexist with a committed non-blank mix — which is
 what retired the old won't-apply advisory. The panel is **`@key`-ed on
 `PickedProblemFolder.PickGeneration`** so every pick re-mounts it and the
 fresh mount re-hydrates the discarded draft (see Pitfalls: load-bearing).
@@ -933,9 +1002,11 @@ unreachable; don't re-add it, it has no trigger left). (1) *Gate late*: a
 refused weighted Start/Restart renders an actionable `role="alert"` with the
 reason and the one-click per-run override ("Start without mix" / "Restart
 without mix"); the stored mix is kept either way, and the notice says so. The
-reachable refusal is **stage 2** — an `Enabled` pick whose stats file is
-unreadable — since stage 1 (no capability) can no longer meet a committed mix
-through the UI. (2) *Composed-to-zero*: Home's empty-result branch keys on
+reachable refusal is **stage 2 over a file that changed after the pick** — the
+pick-time probe found a readable record (or the panel would not have been
+offered), and the Start-time bind then didn't. Stage 1 can no longer meet a
+committed mix through the UI at all, since #87 gates the panel on the same
+predicate stage 1 reads. (2) *Composed-to-zero*: Home's empty-result branch keys on
 `LastComposition is { DrawnCount: 0 }` for mix-aware wording, parallel to
 filtered-to-zero. (3) *Composition-first mix notices on Quiz*: every mix
 notice leads with the effective quiz — `MixDisplay.CompositionSummary` over
@@ -1158,9 +1229,11 @@ The asymmetry is pinned three times over: at the service seam
   `PickedFolderFilterStorage` while the capability exposes a readable handle
   (`null` under `BrowserUnsupported` ⇒ no saved-filters section),
   `CanPersist = (Capability == Enabled)` with `PersistDisabledReason` from
-  `FolderPickDisplay.WriteAccessNotGranted`, and the two re-raised
+  `FolderPickDisplay.WriteAccessNotGranted` — **capability-only, deliberately
+  not the mix predicate** (see Pitfalls) — and the two re-raised
   panel-shaped events. The `MixPanel`
-  carries a *second* gate (Enabled picks only) and a `@key` on
+  carries a *second* gate, `StatsStore.CanWeightMix` (§ `QuizStatsStore`; can
+  save stats **and** has some), and a `@key` on
   `Folder.PickGeneration` (see Pitfalls: load-bearing); its one callback lands
   in `AppliedMix` (Apply → `Apply`), while edits flow through the injected
   `MixDraft`, whose `Changed` event Home subscribes to (unsubscribed in
@@ -1211,9 +1284,11 @@ The asymmetry is pinned three times over: at the service seam
   quiz state, so `IsFinished` is stale): `MixRequiresStats` renders the
   actionable refusal alert (`_mixRefused`, reason via
   `MixDisplay.RefusalReason`, the "Start without mix" per-run override, a
-  pointer to the panel's Reset), and the mix-aware composed-to-zero wording
-  rides the no-match branch. Under a no-stats pick none of that can fire: the
-  mix panel is hidden and the pick reset `AppliedMix` to passthrough.
+  pointer to the panel's *Clear mix*), and the mix-aware composed-to-zero
+  wording rides the no-match branch. Since #87 that refusal is near-unreachable
+  from the UI — where the mix predicate is false the panel is hidden and the
+  pick reset `AppliedMix` to passthrough, so what can still reach it is a stats
+  file that stopped being readable between the pick and the Start.
   **A pick ends the current setup — at the click.** `EndCurrentSetupAsync`
   is the single reset behind *both* gestures that end a setup (the pick
   gesture and the `Clear` affordance — they encode the same decision, so they
@@ -1288,7 +1363,7 @@ The asymmetry is pinned three times over: at the service seam
   - **Nothing about the mix's own lifetimes changed.** The gate reads the
     *filter* and the *pick* only, per render — which is what keeps it clear of
     the (AK) wedge, whose cause was a stored judgement outliving its inputs.
-  - **Reset stays ungated in every state**, and so does the last-row removal
+  - **Clear mix stays ungated in every state**, and so does the last-row removal
     that shares its path: a hydrated stored mix arrives dirty *before* any
     filter is applied and gates Start, so sequencing both ways out behind the
     filter could wedge the page. Only the forward commit is sequenced.
@@ -1801,13 +1876,22 @@ indented; corrupt file ⇒ polite notice + **zero writes**; denied ⇒ denied
 notice + zero writes; and the fallback pick's "can't save stats" notice. The
 stats filename and wire property names are deliberately hardcoded there — the
 consumer-side pin of those contracts (the e2e project references no app
-assembly by design). `MixWeightingTests` drives the weighted path to Done, its
-composed-to-zero scenario **feeding the app's own captured write back** as the
-pre-existing stats file rather than hand-crafting the wire format.
-`MixRefusalTests` pins the refusal at its one reachable path: an `Enabled`
-pick whose stats file is corrupt — stage 2 → "Start without mix" → Done. Don't
-move it back to the fallback rung: the mix panel is offered only for an
-`Enabled` pick and every pick resets the committed mix.
+assembly by design). `MixWeightingTests` drives the weighted path to Done and pins #87's gating
+smoke — a folder with **no stats history** offers no mix and the quiz runs
+anyway, the state every first-time user of a folder is in. Every mix scenario
+now needs a seeded history first, which `SeedStatsHistoryAsync` supplies the
+only honest way: **run a quiz and feed the app's own captured write back** as
+the folder's pre-existing file, so no scenario hand-crafts the stats wire
+format. It ends by re-picking, which re-probes the seeded record *and* expires
+the seeding quiz's applied-filter stamp — the state the Apply-Mix gate
+scenarios assume. Its wait is on the Apply-Mix gate hint, the one thing true
+only after the re-pick lands (panel mounted **and** no filter applied);
+waiting on the folder summary would race, since the outgoing pick's reads
+identically. `MixRefusalTests` pins the refusal at its one remaining reachable
+path: a stats file that turns unreadable **after** the mix is committed —
+stage 2 → "Start without mix" → Done. Don't move it back to a corrupt-from-the-
+start file: the pick-time probe would hide the panel, leaving no mix to
+refuse.
 
 **Settings.** `SettingsTests` pins the two halves neither bUnit nor the
 in-process host tests can reach. The **home-board side** is asserted on the
@@ -2129,8 +2213,8 @@ public (see Pitfalls). The externally visible surface is the route map:
   and the pick/Clear ending of both mix halves (`AppliedMix.Reset` +
   `MixDraft.Discard`) all leave it untouched — corrupt just yields a blank
   *builder*, and the resets touch only the in-memory services. The one
-  sanctioned overwrite is the panel's own commit gestures (Apply, Reset, the
-  last-row removal) through `MixDraft.PersistAsync`.
+  sanctioned overwrite is the panel's own commit gestures (Apply, *Clear mix*,
+  the last-row removal) through `MixDraft.PersistAsync`.
 - **The mix hydration fills the draft; it must never commit.** The stored mix
   loads into `MixDraft` (once per setup) and stops there: on a fresh load the
   holder stays `Empty`, so the derived gate holds Start until the user
@@ -2153,8 +2237,23 @@ public (see Pitfalls). The externally visible surface is the route map:
   unrepresentable — a blank draft *builds* `Empty` and so cannot disagree with
   a passthrough holder. If a new "is the mix settled?" consumer appears, call
   `Matches` — never snapshot it.
+- **`CanWeightMix` is the mix's gate and nothing else's — never widen a sweep
+  onto `CanPersist`.** `FilterSurface`'s persist gate stays
+  `Capability == Enabled`: saved filters have nothing to do with a stats
+  record, and routing them through the mix predicate would silently break
+  saving on every folder without quiz history. The two look alike at the call
+  site and answer different questions.
+- **The mix probe has *two* reading points, and the second one is the
+  feature.** `RefreshPickedStatsAsync` runs on each pick's landing *and* in
+  `Home.OnInitializedAsync`. Drop the second and the ruling's own sentence
+  stops being true: a brand-new folder's first quiz would create the stats
+  record but the mix would stay hidden until the user re-picked the folder,
+  which nothing on screen would tell them to do. The probe is also stamped
+  with `PickGeneration` — don't "simplify" that away, it is what makes a
+  verdict about the previous folder expire instead of answering for this one.
 - **`MixPanel`'s `@key` on `PickGeneration` is load-bearing — don't drop it.**
-  An Enabled→Enabled re-pick leaves both the capability gate and `HasFiles`
+  A mix-capable → mix-capable re-pick leaves both the mix predicate and
+  `HasFiles`
   true, so without the key the panel never re-mounts and nothing triggers the
   discarded draft's re-hydration — it would sit blank with the persisted mix
   never re-offered. The key forces the re-mount, whose init re-hydrates and

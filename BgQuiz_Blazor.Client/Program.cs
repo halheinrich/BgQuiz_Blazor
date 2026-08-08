@@ -38,13 +38,18 @@ builder.Services.AddScoped<IFolderAccess, JsFolderAccess>();
 
 // Per-app holder for the user's picked problem folder (files + pick-time
 // stats-saving capability); Home writes it, the source factory below reads it
-// at quiz-start, the stats store reads the capability at its Start-time bind.
+// at quiz-start, and the stats store reads the capability at its Start-time
+// bind and again — with the pick generation — for the mix predicate's probe.
 builder.Services.AddScoped<PickedProblemFolder>();
 
 // Lifetime-stats document lifecycle: binds the picked folder's stats context at
 // every quiz Start/Restart (the promote), folds each finalized submission, and
-// writes bgquiz-stats.json back after every fold. Registered once and aliased
-// as IDecisionStatsSink so the controller's sink and the pages' status notices
+// writes bgquiz-stats.json back after every fold. It also owns the pick-time
+// probe behind CanWeightMix — the one predicate for "can a weighted mix mean
+// anything for this folder", which Home's panel gate and the controller's
+// stage-1 refusal both read (issue #87); that probe touches the picked slot
+// only and never the active context above. Registered once and aliased as
+// IDecisionStatsSink so the controller's sink and the pages' status notices
 // observe the same instance.
 builder.Services.AddScoped<QuizStatsStore>();
 builder.Services.AddScoped<IDecisionStatsSink>(sp => sp.GetRequiredService<QuizStatsStore>());

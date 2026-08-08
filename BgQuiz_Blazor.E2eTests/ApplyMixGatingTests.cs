@@ -20,7 +20,10 @@ public sealed class ApplyMixGatingTests : FsAccessFakeTestBase
     public async Task ApplyMix_IsGatedUntilApplyFilter_AndSurvivesALaterFilterEdit()
     {
         await BootHomeAsync();
-        await PickFakeFolderAsync();
+        // #87: the mix panel is offered only for a folder with a stats history,
+        // and this helper leaves exactly the state the gate is about — folder
+        // held, stats readable, no filter applied for the current pick.
+        await SeedStatsHistoryAsync();
 
         // A complete, valid one-row mix: from here the only thing that can
         // disable Apply Mix is the host's filter gate. The hint must say *why*,
@@ -43,22 +46,25 @@ public sealed class ApplyMixGatingTests : FsAccessFakeTestBase
     }
 
     [Fact]
-    public async Task GatedApplyMix_LeavesResetLive_SoADirtyDraftCanAlwaysBeCleared()
+    public async Task GatedApplyMix_LeavesClearMixLive_SoADirtyDraftCanAlwaysBeCleared()
     {
         // Wedge-proofing: a dirty draft gates Start, so if both ways out were
         // sequenced behind the filter a user could reach a state with no
-        // visible way forward. Reset is ungated in every state.
+        // visible way forward. Clear mix is ungated in every state.
         await BootHomeAsync();
-        await PickFakeFolderAsync();
+        // #87: the mix panel is offered only for a folder with a stats history,
+        // and this helper leaves exactly the state the gate is about — folder
+        // held, stats readable, no filter applied for the current pick.
+        await SeedStatsHistoryAsync();
         await AddDefaultMixRowAsync();
 
         await Expect(MixApply).ToBeDisabledAsync();
         await Expect(StartButton).ToBeDisabledAsync();
-        await Expect(Page.Locator("#mixReset")).ToBeEnabledAsync();
+        await Expect(Page.Locator("#mixClear")).ToBeEnabledAsync();
 
-        await Page.Locator("#mixReset").ClickAsync();
+        await Page.Locator("#mixClear").ClickAsync();
 
-        await Expect(Page.GetByText("Apply or reset the mix above to enable Start"))
+        await Expect(Page.GetByText("Apply or clear the mix above to enable Start"))
             .ToHaveCountAsync(0);
     }
 }

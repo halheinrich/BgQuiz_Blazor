@@ -352,4 +352,150 @@ public class QuizStatsStoreTests
         var record = Assert.Single(last.Decisions);
         Assert.Equal(new XgpDecisionId("new.xgp"), record.Key);
     }
+
+    // -----------------------------------------------------------------------
+    //  CanWeightMix — the shared "can a mix mean anything here" predicate (#87)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// A stats document holding one decision, in the real wire format the app
+    /// writes — never a hand-built blob, so a format change reaches this fixture.
+    /// </summary>
+    private static string StatsDocumentJson() =>
+        JsonSerializer.Serialize(
+            DecisionStatsDocument.Empty.Plus(PlaySubmission(), new FixedTimeProvider()),
+            QuizStatsFile.SerializerOptions);
+
+    [Fact]
+    public void CanWeightMix_BeforeAnyProbe_IsFalse()
+    {
+        // The probe's generation stamp starts at -1 precisely so an un-probed
+        // store cannot accidentally agree with the generation a freshly-Set
+        // holder sits on. Without that, "never asked" would read as "asked and
+        // found nothing" — the same answer today, and the wrong one the moment
+        // the stamp's initial value or the holder's counter changes.
+        var store = MakeStore(new FakeFolderAccess { PickedStatsJson = StatsDocumentJson() });
+
+        Assert.False(store.CanWeightMix);
+    }
+
+    [Fact]
+    public async Task CanWeightMix_EnabledPickWithStatsContent_IsTrue()
+    {
+        var fake = new FakeFolderAccess { PickedStatsJson = StatsDocumentJson() };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.True(store.CanWeightMix);
+    }
+
+    [Theory]
+    [InlineData(null)]                                            // no file at all
+    [InlineData("""{"schemaVersion":1,"decisions":[]}""")]         // present, but empty
+    [InlineData("not json at all")]                                // unreadable
+    [InlineData("""{"schemaVersion":99,"decisions":[]}""")]        // foreign / newer schema
+    public async Task CanWeightMix_MissingEmptyOrUnreadable_AllReadFalse(string? pickedStatsJson)
+    {
+        // #87's ruling in one place: an empty stats document is treated exactly
+        // as no stats document — and so is one that cannot be read. Three
+        // situations, one answer, no rungs to tell apart.
+        var fake = new FakeFolderAccess { PickedStatsJson = pickedStatsJson };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.False(store.CanWeightMix);
+    }
+
+    [Theory]
+    [InlineData(FolderWriteCapability.BrowserUnsupported)]
+    [InlineData(FolderWriteCapability.PermissionDenied)]
+    public async Task CanWeightMix_WithoutWriteCapability_IsFalse_AndSkipsTheRead(
+        FolderWriteCapability capability)
+    {
+        // The other half of the predicate. The read is skipped rather than
+        // performed-and-ignored: on these rungs there is no handle to read a
+        // document through, and the answer is settled before any interop.
+        var fake = new FakeFolderAccess { PickedStatsJson = StatsDocumentJson() };
+        var folder = new PickedProblemFolder();
+        folder.Set("Corpus", [new PickedFile("a.xg", [1])], capability, []);
+        var store = MakeStore(fake, folder);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.False(store.CanWeightMix);
+    }
+
+    [Fact]
+    public async Task CanWeightMix_ExpiresWhenTheFolderChanges_WithNoResetCall()
+    {
+        // The derived-stamp guarantee: nothing clears the probe, and nothing
+        // has to. A new pick bumps the holder's generation and the probe stops
+        // matching, so a verdict about the *previous* folder can never be read
+        // as one about this one.
+        var folder = EnabledFolder();
+        var store = MakeStore(new FakeFolderAccess { PickedStatsJson = StatsDocumentJson() }, folder);
+        await store.RefreshPickedStatsAsync();
+        Assert.True(store.CanWeightMix);
+
+        folder.Set("Other", [new PickedFile("b.xg", [1])], FolderWriteCapability.Enabled, []);
+
+        Assert.False(store.CanWeightMix);
+    }
+
+    [Fact]
+    public async Task RefreshPickedStats_ReadsThePickedSlot_AndNeverPromotes()
+    {
+        // The probe is a setup-time read on the folder being configured. It
+        // must not promote — promotion belongs to the Start-time bind, and a
+        // probe running earlier must not move it — and must not touch the
+        // active context a running quiz records through.
+        var fake = new FakeFolderAccess { PickedStatsJson = StatsDocumentJson() };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.Equal(0, fake.PromoteCallCount);
+        Assert.Empty(fake.ActiveFileNames);   // the active slot was never read or written
+        Assert.Empty(fake.Writes);
+        Assert.Equal(QuizStatsStatus.Disabled, store.Status); // no status side effect
+    }
+
+    [Fact]
+    public async Task RefreshPickedStats_DoesNotDisturbABoundQuizContext()
+    {
+        // The two states share a class and nothing else: probing mid-quiz must
+        // leave the live document and status exactly where the bind left them.
+        var fake = new FakeFolderAccess();
+        var store = MakeStore(fake);
+        await store.BeginQuizAsync();
+        await store.RecordAsync(PlaySubmission());
+        var boundDoc = store.CurrentDocument;
+
+        fake.PickedStatsJson = StatsDocumentJson();
+        await store.RefreshPickedStatsAsync();
+
+        Assert.Same(boundDoc, store.CurrentDocument);
+        Assert.Equal(QuizStatsStatus.Ready, store.Status);
+    }
+
+    [Fact]
+    public async Task BeginQuiz_FreshFolderWithNoStats_StillBindsAndRecords()
+    {
+        // The redefinition's load-bearing non-regression: the bind gates on
+        // capability, never on CanWeightMix. A brand-new folder has nothing to
+        // weight by and must still seed, record, and write — that first quiz is
+        // what creates the record a mix later composes from.
+        var fake = new FakeFolderAccess(); // no stats file anywhere
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+        Assert.False(store.CanWeightMix);          // no mix offered…
+        Assert.Equal(QuizStatsStatus.Ready, store.Status); // …but stats are live
+
+        await store.RecordAsync(PlaySubmission());
+
+        Assert.Single(fake.Writes);
+    }
 }

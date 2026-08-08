@@ -1,6 +1,5 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
-using BgFolderAccess_Razor;
 using BgGame_Lib;
 using XgFilter_Razor;
 
@@ -65,12 +64,20 @@ internal sealed class AppliedMix
     /// fresh setup. Called from <c>Home.EndCurrentSetupAsync</c> — i.e. at the
     /// start of every pick gesture, and on Clear — beside
     /// <see cref="MixDraft.Discard"/>, so no committed mix silently survives
-    /// the end of the setup it was built for: under a no-stats pick the mix
-    /// must play no part in Start, and under an
-    /// <see cref="FolderWriteCapability.Enabled"/> pick the re-mounted panel's
-    /// hydration re-offers the persisted mix — gated by the derived rule
-    /// against this now-passthrough holder. Does not touch localStorage — the
-    /// stored mix survives for that hydration to re-offer.
+    /// the end of the setup it was built for: where the next pick can't mean a
+    /// mix (<see cref="QuizStatsStore.CanWeightMix"/>) the mix must play no
+    /// part in Start, and where it can, the re-mounted panel's hydration
+    /// re-offers the persisted mix — gated by the derived rule against this
+    /// now-passthrough holder. Does not touch localStorage — the stored mix
+    /// survives for that hydration to re-offer.
+    ///
+    /// <para>
+    /// Unconditional on purpose, and that is the whole of issue
+    /// <c>halheinrich/backgammon#87</c>'s "a non-passthrough mix must not
+    /// survive into a folder that can't honor it": a mix that survives no pick
+    /// cannot survive that one either. No predicate is consulted here, so
+    /// there is no branch to get wrong.
+    /// </para>
     /// </summary>
     public void Reset() => Current = QuizMix.Empty;
 }

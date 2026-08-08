@@ -10,7 +10,7 @@ namespace BgQuiz_Blazor.Tests;
 /// <summary>
 /// Tests for <see cref="MixPanel"/> — the stats-weighted mix builder, a view
 /// over the app-scoped <see cref="MixDraft"/>. Pins the commit model (Apply /
-/// Reset / last-row removal commit and persist; mere edits never do — there
+/// Clear mix / last-row removal commit and persist; mere edits never do — there
 /// is no dirty event to raise, the gate derives from the draft elsewhere),
 /// the draft hydration surfacing through the panel (hydrate-don't-commit; the
 /// re-offer after a <see cref="MixDraft.Discard"/>), the single-key
@@ -136,7 +136,7 @@ public class MixPanelTests : BunitContext
 
         // Hydration fills the draft for editing but commits nothing — on a
         // fresh load the holder stays passthrough, so the derived gate holds
-        // Start until the user Applies or Resets what the panel now shows.
+        // Start until the user Applies or clears what the panel now shows.
         Assert.Empty(_applied);
         Assert.True(_draft.Matches(mix)); // shows exactly what was stored…
         Assert.False(_draft.Matches(QuizMix.Empty)); // …which diverges from a fresh holder
@@ -145,7 +145,7 @@ public class MixPanelTests : BunitContext
     [Fact]
     public void Hydrate_PersistedPassthroughMix_ShowsBlank_NoCommit()
     {
-        // A persisted passthrough (e.g. after a prior Reset) round-trips to
+        // A persisted passthrough (e.g. after a prior Clear mix) round-trips to
         // zero rows — the same blank, clean state the nothing-stored case
         // reaches the other way.
         JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
@@ -179,7 +179,7 @@ public class MixPanelTests : BunitContext
     }
 
     // -----------------------------------------------------------------------
-    //  Apply / Reset / persistence
+    //  Apply / Clear mix / persistence
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -224,13 +224,21 @@ public class MixPanelTests : BunitContext
     }
 
     [Fact]
-    public async Task Reset_CommitsBlankMix_AndPersistsIt()
+    public async Task ClearMix_CommitsBlankMix_AndPersistsIt()
     {
+        // Issue #87's rename, behavior end included: the gesture is now called
+        // what it does. The label and the id are pinned here together because
+        // they are the two handles the rest of the app addresses it by — the
+        // page's hint text names the label, and every test locator names the id
+        // — and the old spellings must be gone, not merely joined.
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow");
         await ClickAsync(cut, "#mixApply");
 
-        await ClickAsync(cut, "#mixReset");
+        Assert.Equal("Clear mix", cut.Find("#mixClear").TextContent.Trim());
+        Assert.Empty(cut.FindAll("#mixReset"));
+
+        await ClickAsync(cut, "#mixClear");
 
         Assert.Empty(cut.FindAll(".mix-row"));
         Assert.Equal(2, _applied.Count);
@@ -246,9 +254,9 @@ public class MixPanelTests : BunitContext
     {
         // The pre-beta wedge's root: a mix edited back to zero rows left an
         // uncommitted divergence while Apply is disabled (zero rows), gating
-        // Start with only the non-obvious Reset as an escape. Removing the
+        // Start with only the non-obvious Clear mix as an escape. Removing the
         // last row must instead auto-commit the blank mix through the Apply
-        // channel — the same effect as Reset — so committed and shown agree
+        // channel — the same effect as Clear mix — so committed and shown agree
         // and Start un-gates.
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow"); // one row, uncommitted
@@ -262,7 +270,7 @@ public class MixPanelTests : BunitContext
         var applied = Assert.Single(_applied);
         Assert.True(applied.IsPassthrough);
 
-        // localStorage matches Reset: the blank mix is persisted, so a later
+        // localStorage matches Clear mix: the blank mix is persisted, so a later
         // reload restores the blank builder rather than the removed mix.
         var stored = JSInterop.Invocations["localStorage.setItem"]
             .Last(i => (string?)i.Arguments[0] == MixDraft.StorageKey)
@@ -573,20 +581,21 @@ public class MixPanelTests : BunitContext
     }
 
     [Fact]
-    public void BlankBuilder_ApplyDisabled_ResetIsTheBlankPath()
+    public void BlankBuilder_ApplyDisabled_ClearMixIsTheBlankPath()
     {
         var cut = RenderPanel();
 
         // Apply is gated to require at least one row, so a blank builder cannot
-        // commit QuizMix.Empty through Apply — that duplicated Reset, which stays
-        // the one sanctioned way to clear a stored mix (Reset_CommitsBlankMix).
+        // commit QuizMix.Empty through Apply — that duplicated Clear mix, which
+        // stays the one sanctioned way to clear a stored mix
+        // (ClearMix_CommitsBlankMix_AndPersistsIt).
         Assert.Empty(cut.FindAll(".mix-row"));
         Assert.True(cut.Find("#mixApply").HasAttribute("disabled"));
         Assert.Empty(_applied);
     }
 
     // -----------------------------------------------------------------------
-    //  Edits never commit (the commit channel is Apply/Reset/last-row only)
+    //  Edits never commit (the commit channel is Apply/Clear mix/last-row only)
     // -----------------------------------------------------------------------
 
     [Fact]

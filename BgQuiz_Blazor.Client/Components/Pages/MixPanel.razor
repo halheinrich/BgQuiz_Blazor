@@ -6,9 +6,9 @@
    The stats-weighted mix builder: a VIEW over the app-scoped MixDraft — an
    ordered list of (category, percent) rows plus the Random-order toggle and an
    optional quiz length, all owned by the draft so edits survive in-app
-   navigation. Raises OnMixApplied on Apply, on Reset, and when the last row is
-   removed (Reset and last-row removal both being an explicit apply of the
-   blank mix); mere edits raise nothing — the draft notifies its subscribers
+   navigation. Raises OnMixApplied on Apply, on Clear mix, and when the last row
+   is removed (Clear mix and last-row removal both being an explicit apply of
+   the blank mix); mere edits raise nothing — the draft notifies its subscribers
    and the start gate derives from draft-vs-committed content equality. Init
    triggers the draft's once-per-setup localStorage hydration; it never
    commits. Row order is semantic — earlier rows win contested overlap
@@ -127,11 +127,17 @@
             <div class="text-danger small mb-2" role="status">@error</div>
         }
 
-        @* Reset is deliberately ungated by CanApply: it is the way *out* of a
-           dirty draft (a hydrated stored mix gates Start before any filter is
+        @* Clear mix is deliberately ungated by CanApply: it is the way *out* of
+           a dirty draft (a hydrated stored mix gates Start before any filter is
            applied), so gating both would wedge the page. Apply's own two
            conditions — at least one row, and a draft that validates — are
-           unchanged; the host gate is a third, independent one. *@
+           unchanged; the host gate is a third, independent one.
+
+           Named for what it does, not for what it undoes (issue #87): the
+           gesture blanks the builder AND commits the blank mix, so "Reset"
+           promised a return to some earlier state and delivered a commitment
+           instead. The sibling precedent is the filter panel's "Clear
+           filters" — same shape of gesture, same honesty. *@
         <div class="d-flex gap-2">
             <button class="btn btn-primary btn-sm" id="mixApply"
                     disabled="@(!CanApply || Draft.Rows.Count == 0 || Draft.ValidationError is not null)"
@@ -139,8 +145,8 @@
                     @onclick="ApplyAsync">
                 Apply Mix
             </button>
-            <button class="btn btn-outline-secondary btn-sm" id="mixReset" @onclick="ResetAsync">
-                Reset
+            <button class="btn btn-outline-secondary btn-sm" id="mixClear" @onclick="ClearAsync">
+                Clear mix
             </button>
         </div>
 

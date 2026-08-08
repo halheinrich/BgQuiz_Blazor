@@ -303,7 +303,7 @@ public abstract class E2eTestBase : IAsyncLifetime
     protected async Task ApplyMixAsync()
     {
         await Page.Locator("#mixApply").ClickAsync();
-        await Expect(Page.GetByText("Apply or reset the mix above to enable Start")).ToHaveCountAsync(0);
+        await Expect(Page.GetByText("Apply or clear the mix above to enable Start")).ToHaveCountAsync(0);
     }
 
     /// <summary>

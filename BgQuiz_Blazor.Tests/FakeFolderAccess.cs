@@ -1,4 +1,5 @@
 using BgFolderAccess_Razor;
+using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
 using XgFilter_Razor;
 
@@ -21,7 +22,10 @@ namespace BgQuiz_Blazor.Tests;
 /// <see cref="SavedFiltersDocument.FileName"/> content and
 /// <see cref="LegacyFiltersJson"/> the
 /// <see cref="SavedFiltersDocument.LegacyFileName"/> content, so a host test
-/// can stage the read-fallback exactly. Any other picked name reads as absent.
+/// can stage the read-fallback exactly — plus the <b>setup-time stats</b>
+/// document under <see cref="QuizStatsFile.FileName"/>
+/// (<see cref="PickedStatsJson"/>), which is what the mix predicate's pick-time
+/// probe reads. Any other picked name reads as absent.
 /// </para>
 /// </summary>
 internal sealed class FakeFolderAccess : IFolderAccess
@@ -92,6 +96,19 @@ internal sealed class FakeFolderAccess : IFolderAccess
     /// </summary>
     public string? LegacyFiltersJson { get; set; }
 
+    /// <summary>
+    /// Stats-document content the <b>picked</b> slot serves under
+    /// <see cref="QuizStatsFile.FileName"/>; null = no such file. This is what
+    /// the mix predicate's pick-time probe
+    /// (<c>QuizStatsStore.RefreshPickedStatsAsync</c>) reads, and it is
+    /// deliberately a separate slot from <see cref="StatsJson"/>: that one is
+    /// the <i>active</i> slot a running quiz records through, and a test must
+    /// be able to give the two different content — that divergence is exactly
+    /// the reachable refusal case (the pick looked capable, the bind then
+    /// didn't).
+    /// </summary>
+    public string? PickedStatsJson { get; set; }
+
     /// <summary>When set, <see cref="ReadPickedFileAsync"/> throws it instead (the read-failed / denied path).</summary>
     public Exception? FiltersReadException { get; set; }
 
@@ -148,13 +165,25 @@ internal sealed class FakeFolderAccess : IFolderAccess
         return ValueTask.FromResult(PromoteResult);
     }
 
+    /// <summary>
+    /// Serves the picked slot's three documents. <see cref="FiltersReadException"/>
+    /// is scoped to the <i>saved-filters</i> names, matching what it is named
+    /// for: a test staging a saved-filters read failure is saying nothing about
+    /// the stats document, and letting it fail that read too would silently
+    /// hide the mix panel in every such scenario.
+    /// </summary>
     public Task<string?> ReadPickedFileAsync(string fileName)
     {
-        if (FiltersReadException is { } ex) return Task.FromException<string?>(ex);
+        if (FiltersReadException is { } ex
+            && fileName is SavedFiltersDocument.FileName or SavedFiltersDocument.LegacyFileName)
+        {
+            return Task.FromException<string?>(ex);
+        }
         return Task.FromResult(fileName switch
         {
             SavedFiltersDocument.FileName => FiltersJson,
             SavedFiltersDocument.LegacyFileName => LegacyFiltersJson,
+            QuizStatsFile.FileName => PickedStatsJson,
             _ => null,
         });
     }

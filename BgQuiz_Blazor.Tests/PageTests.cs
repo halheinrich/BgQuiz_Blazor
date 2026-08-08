@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using BackgammonDiagram_Lib;
 using BackgammonDiagram_Lib.Rendering;
@@ -141,16 +142,52 @@ public class PageTests : BunitContext
     /// point for the truncation-notice tests, which is also the state a
     /// navigated-back page re-derives from.
     /// </param>
+    /// <param name="withStatsHistory">
+    /// Whether the folder already holds a stats document with something in it —
+    /// the second half of the mix predicate (issue
+    /// <c>halheinrich/backgammon#87</c>), staged on the fake's picked slot where
+    /// the probe reads it. Off by default and opted into explicitly at each call
+    /// site rather than implied by <see cref="FolderWriteCapability.Enabled"/>:
+    /// "this folder can save stats" and "this folder has some" are the two
+    /// independent facts the predicate combines, and a fixture that quietly
+    /// bundled them would hide exactly the distinction under test.
+    /// </param>
     private PickedProblemFolder WithPickedFolder(
         string folderName = "Corpus", string fileName = "sample.xg",
         FolderWriteCapability capability = FolderWriteCapability.BrowserUnsupported,
+        bool withStatsHistory = false,
         params PickTruncation[] truncations)
     {
         var folder = new PickedProblemFolder();
         folder.Set(folderName, [new PickedFile(fileName, [1, 2, 3])], capability, truncations);
+        if (withStatsHistory) _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
         Services.AddSingleton(folder);
         return folder;
     }
+
+    /// <summary>
+    /// A real lifetime-stats document, serialized exactly as the app writes one
+    /// (<see cref="QuizStatsFile.SerializerOptions"/> over the producer's
+    /// bundled converter) — never a hand-written blob, so a wire-format change
+    /// reaches these fixtures instead of passing them by. One folded submission,
+    /// which is all the predicate asks about: <c>Count &gt; 0</c>.
+    /// </summary>
+    private static string StatsDocumentJson(Play play)
+    {
+        var decision = TestFixtures.TwoChoiceDecision(play, AltPlay());
+        var doc = DecisionStatsDocument.Empty.Plus(
+            new SubmittedPlay(decision.Id, play, 0, 0.0, IsCorrect: true), TimeProvider.System);
+        return JsonSerializer.Serialize(doc, QuizStatsFile.SerializerOptions);
+    }
+
+    /// <summary>
+    /// The empty-but-present stats document, in the same real wire format —
+    /// #87's headline case: a file the user has, holding no decisions. The
+    /// ruling is that this reads exactly as no file at all, so no test may
+    /// treat it as a third state.
+    /// </summary>
+    private static string EmptyStatsDocumentJson() =>
+        JsonSerializer.Serialize(DecisionStatsDocument.Empty, QuizStatsFile.SerializerOptions);
 
     /// <summary>
     /// Register an <see cref="AppliedFilter"/> (XgFilter_Razor's holder) for the
@@ -231,7 +268,7 @@ public class PageTests : BunitContext
     /// <summary>
     /// Like <see cref="WithController"/> but over a scriptable stats sink, so
     /// weighted-start page tests can script stats availability
-    /// (<c>CanBindStats</c> / <c>CurrentDocument</c>) before driving the UI.
+    /// (<c>CanWeightMix</c> / <c>CurrentDocument</c>) before driving the UI.
     /// </summary>
     private QuizController WithWeighableController(
         out FakeDecisionStatsSink sink, params BgDecisionData[] items)
@@ -260,6 +297,10 @@ public class PageTests : BunitContext
         WithAppliedFilter();
         WithShuffleOption();
         _folderAccess.NextPickOutcome = OneFileOutcome();
+        // A folder with a stats record, so the mix panel is part of "the whole
+        // setup surface" this test is about; the disclosure gate and the mix
+        // predicate are independent, and only the former is under test here.
+        _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
 
         var cut = Render<HomePage>();
 
@@ -767,6 +808,7 @@ public class PageTests : BunitContext
         WithShuffleOption();
         var mix = WithAppliedMix();
         _folderAccess.NextPickOutcome = OneFileOutcome("First", "first.xg");
+        _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay()); // so a mix can be built at all
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -809,6 +851,7 @@ public class PageTests : BunitContext
         WithShuffleOption();
         var mix = WithAppliedMix();
         _folderAccess.FiltersJson = SavedFiltersJson();
+        _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay()); // so a mix can be built at all
         _folderAccess.NextPickOutcome = OneFileOutcome("Held", "held.xg");
 
         var cut = Render<HomePage>();
@@ -2570,7 +2613,7 @@ public class PageTests : BunitContext
         var seen = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
         var unseen = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
         var c = WithWeighableController(out var sink, seen, unseen);
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty.Plus(
             new SubmittedPlay(seen.Id, BestPlay(), 0, 0.0, IsCorrect: true),
             TimeProvider.System);
@@ -4461,9 +4504,9 @@ public class PageTests : BunitContext
         // (LastComposition non-null is the composed-layer signature).
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
-        WithPickedFolder(capability: FolderWriteCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
@@ -4488,7 +4531,7 @@ public class PageTests : BunitContext
         // re-enables. No dirty event exists — Home re-renders off the draft's
         // Changed notification and re-derives the comparison.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: FolderWriteCapability.Enabled); // mix panel is Enabled-gated (Task X)
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true); // the mix predicate: can-save-stats AND has-stats
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
@@ -4498,11 +4541,11 @@ public class PageTests : BunitContext
 
         await cut.Find("#mixAddRow").ClickAsync(new());
         Assert.True(StartButton(cut).HasAttribute("disabled"));
-        Assert.Contains("Apply or reset the mix", cut.Markup);
+        Assert.Contains("Apply or clear the mix", cut.Markup);
 
         await cut.Find("#mixApply").ClickAsync(new());
         Assert.False(StartButton(cut).HasAttribute("disabled"));
-        Assert.DoesNotContain("Apply or reset the mix", cut.Markup);
+        Assert.DoesNotContain("Apply or clear the mix", cut.Markup);
     }
 
     // -----------------------------------------------------------------------
@@ -4527,6 +4570,9 @@ public class PageTests : BunitContext
         WithShuffleOption();
         WithAppliedMix();
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
+        // Both halves of the mix predicate, since these scenarios are about the
+        // Apply-Mix gate and need the panel on screen to exercise it.
+        _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -4570,13 +4616,13 @@ public class PageTests : BunitContext
         await cut.Find("#mixAddRow").ClickAsync(new()); // draft now diverges
 
         Assert.True(MixApplyDisabled(cut));
-        Assert.False(cut.Find("#mixReset").HasAttribute("disabled"));
+        Assert.False(cut.Find("#mixClear").HasAttribute("disabled"));
 
-        await cut.Find("#mixReset").ClickAsync(new());
+        await cut.Find("#mixClear").ClickAsync(new());
 
         // Back to agreement with the committed passthrough mix — no Apply Mix
         // needed, so the gate could never have trapped anyone.
-        Assert.DoesNotContain("Apply or reset the mix", cut.Markup);
+        Assert.DoesNotContain("Apply or clear the mix", cut.Markup);
     }
 
     [Fact]
@@ -4648,7 +4694,7 @@ public class PageTests : BunitContext
         // there is no stored flag left dangling to clear. (Under the stored
         // flag this state stayed wedged-dirty until a re-Apply.)
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: FolderWriteCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
@@ -4660,12 +4706,12 @@ public class PageTests : BunitContext
         // Divergence gates…
         cut.FindAll(".mix-row")[0].QuerySelector(".mix-percent")!.Input("90");
         Assert.True(StartButton(cut).HasAttribute("disabled"));
-        Assert.Contains("Apply or reset the mix", cut.Markup);
+        Assert.Contains("Apply or clear the mix", cut.Markup);
 
         // …and identical content un-gates, however it came about.
         cut.FindAll(".mix-row")[0].QuerySelector(".mix-percent")!.Input("100");
         Assert.False(StartButton(cut).HasAttribute("disabled"));
-        Assert.DoesNotContain("Apply or reset the mix", cut.Markup);
+        Assert.DoesNotContain("Apply or clear the mix", cut.Markup);
     }
 
     [Fact]
@@ -4676,7 +4722,7 @@ public class PageTests : BunitContext
         // rows reordered are a different mix and Start must gate until the
         // user commits (or reorders back).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: FolderWriteCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
@@ -4689,7 +4735,7 @@ public class PageTests : BunitContext
 
         await cut.FindAll(".mix-row")[1].QuerySelector("button[title='Move up']")!.ClickAsync(new());
         Assert.True(StartButton(cut).HasAttribute("disabled"));
-        Assert.Contains("Apply or reset the mix", cut.Markup);
+        Assert.Contains("Apply or clear the mix", cut.Markup);
 
         await cut.FindAll(".mix-row")[0].QuerySelector("button[title='Move down']")!.ClickAsync(new());
         Assert.False(StartButton(cut).HasAttribute("disabled"));
@@ -4707,7 +4753,7 @@ public class PageTests : BunitContext
         // were still Empty, but the auto-commit is what keeps localStorage and
         // a previously committed mix consistent with the blank the user chose.)
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: FolderWriteCapability.Enabled); // mix panel is Enabled-gated (Task X)
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true); // the mix predicate: can-save-stats AND has-stats
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
@@ -4717,14 +4763,14 @@ public class PageTests : BunitContext
         // Build a one-row mix in the real panel → dirty → Start gated.
         await cut.Find("#mixAddRow").ClickAsync(new());
         Assert.True(StartButton(cut).HasAttribute("disabled"));
-        Assert.Contains("Apply or reset the mix", cut.Markup);
+        Assert.Contains("Apply or clear the mix", cut.Markup);
 
         // Remove that row → back to zero rows → auto-commit blank → Start un-gates.
         await cut.FindAll(".mix-row")[0].QuerySelector("button[title='Remove']")!.ClickAsync(new());
 
         Assert.Empty(cut.FindAll(".mix-row"));
         Assert.False(StartButton(cut).HasAttribute("disabled"));
-        Assert.DoesNotContain("Apply or reset the mix", cut.Markup);
+        Assert.DoesNotContain("Apply or clear the mix", cut.Markup);
     }
 
     [Fact]
@@ -4738,7 +4784,7 @@ public class PageTests : BunitContext
         // the gate IS the comparison. Driven through the real hydration wire
         // (localStorage → MixDraft → panel), not a synthetic event.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: FolderWriteCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix(); // blank holder — hydration must not commit into it
@@ -4752,7 +4798,7 @@ public class PageTests : BunitContext
         // …but nothing was committed, so shown ≠ applied and Start is gated.
         Assert.True(holder.Current.IsPassthrough);
         Assert.True(StartButton(cut).HasAttribute("disabled"));
-        Assert.Contains("Apply or reset the mix", cut.Markup);
+        Assert.Contains("Apply or clear the mix", cut.Markup);
 
         // Applying the restored mix through the panel commits it and un-gates.
         await cut.Find("#mixApply").ClickAsync(new());
@@ -4768,7 +4814,7 @@ public class PageTests : BunitContext
         // mix, so the rows clear, holder and draft agree at Empty, and Start
         // un-gates without ever running the restored mix.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: FolderWriteCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix();
@@ -4778,7 +4824,7 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         Assert.True(StartButton(cut).HasAttribute("disabled"));
 
-        await cut.Find("#mixReset").ClickAsync(new());
+        await cut.Find("#mixClear").ClickAsync(new());
 
         Assert.Empty(cut.FindAll(".mix-row"));
         Assert.True(holder.Current.IsPassthrough);
@@ -4793,7 +4839,7 @@ public class PageTests : BunitContext
         // Start is free. This is the "user with no persisted mix sees no gate"
         // invariant, falling out of the one rule rather than a special case.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: FolderWriteCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix();
@@ -4817,7 +4863,7 @@ public class PageTests : BunitContext
         // is the whole judgment. The fresh-load test above is the
         // fails-without contrast (blank holder, same blob → gated).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: FolderWriteCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix(NeverSeenMix()); // committed earlier this session
@@ -4844,7 +4890,7 @@ public class PageTests : BunitContext
         // nowhere — is unrepresentable under derivation: a blank draft builds
         // Empty and cannot disagree with a passthrough holder.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: FolderWriteCapability.Enabled); // mix panel is Enabled-gated
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true); // the mix predicate: can-save-stats AND has-stats
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix();
@@ -4855,7 +4901,7 @@ public class PageTests : BunitContext
         // Add a category and stop there — an uncommitted edit, so Start gates.
         await cut.Find("#mixAddRow").ClickAsync(new());
         Assert.True(StartButton(cut).HasAttribute("disabled"));
-        Assert.Contains("Apply or reset the mix", cut.Markup);
+        Assert.Contains("Apply or clear the mix", cut.Markup);
 
         // Navigate away and back: Home and its MixPanel unmount, but the draft
         // — like the holders — is Scoped (Singleton here) and survives, as on a
@@ -4868,7 +4914,7 @@ public class PageTests : BunitContext
         var row = Assert.Single(back.FindAll(".mix-row"));
         Assert.Equal("NeverSeen", row.QuerySelector("option[selected]")!.GetAttribute("value"));
         Assert.True(StartButton(back).HasAttribute("disabled"));
-        Assert.Contains("Apply or reset the mix", back.Markup);
+        Assert.Contains("Apply or clear the mix", back.Markup);
         Assert.False(back.Find("#mixApply").HasAttribute("disabled"));
 
         await back.Find("#mixApply").ClickAsync(new());
@@ -4886,7 +4932,7 @@ public class PageTests : BunitContext
         // escape (the blank commit), exactly as it was for the old wedge state
         // this replaces — gated always comes with a visible way out.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: FolderWriteCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix();
@@ -4898,7 +4944,7 @@ public class PageTests : BunitContext
         Assert.True(StartButton(cut).HasAttribute("disabled"));
         Assert.True(cut.Find("#mixApply").HasAttribute("disabled")); // invalid — no commit via Apply
 
-        await cut.Find("#mixReset").ClickAsync(new());
+        await cut.Find("#mixClear").ClickAsync(new());
 
         Assert.True(holder.Current.IsPassthrough);
         Assert.Empty(cut.FindAll(".mix-row"));
@@ -4920,9 +4966,9 @@ public class PageTests : BunitContext
         // controller layer.)
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        sink.CanBindStats = true;    // capability peek passes (stage 1)
+        sink.CanWeightMix = true;    // capability peek passes (stage 1)
         sink.CurrentDocument = null; // ...but the bind yields no document (stage 2: unreadable file)
-        WithPickedFolder(capability: FolderWriteCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         var holder = WithAppliedMix(NeverSeenMix());
@@ -4964,7 +5010,7 @@ public class PageTests : BunitContext
         Assert.Empty(cut.FindComponents<MixPanelComponent>()); // no mix panel
         var startBtn = StartButton(cut);
         Assert.False(startBtn.HasAttribute("disabled")); // enabled, not mix-gated
-        Assert.DoesNotContain("Apply or reset the mix", cut.Markup);
+        Assert.DoesNotContain("Apply or clear the mix", cut.Markup);
 
         await startBtn.ClickAsync(new());
 
@@ -4990,12 +5036,13 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
 
-        // Enabled pick → panel shows; commit a mix through the real UI. The
-        // filter Apply is not optional here: a pick expires the applied-filter
-        // stamp, and Apply Mix is gated on a filter having been applied for the
-        // current pick (§ MixApplyEnabled), so the pre-armed holder above no
-        // longer satisfies it.
+        // A mix-capable pick (can save stats, has some) → panel shows; commit a
+        // mix through the real UI. The filter Apply is not optional here: a pick
+        // expires the applied-filter stamp, and Apply Mix is gated on a filter
+        // having been applied for the current pick (§ MixApplyEnabled), so the
+        // pre-armed holder above no longer satisfies it.
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
+        _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
         await cut.Find("#pickProblemFolder").ClickAsync(new());
         await ApplyFiltersAsync(cut);
         await ApplyMixThroughPanelAsync(cut);
@@ -5042,6 +5089,10 @@ public class PageTests : BunitContext
         JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
             .SetResult(NeverSeenMix().ToJson()); // persisted from a prior session
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
+        // Every pick in this lifecycle lands on a folder that satisfies the mix
+        // predicate — the transitions under test are pick/re-pick/Clear, not the
+        // predicate, and the fake serves the same stats document to each.
+        _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
 
         var cut = Render<HomePage>();
 
@@ -5052,7 +5103,7 @@ public class PageTests : BunitContext
         await ApplyFiltersAsync(cut);
         Assert.NotEmpty(cut.FindAll(".mix-row"));
         Assert.True(StartButton(cut).HasAttribute("disabled"));
-        Assert.Contains("Apply or reset the mix", cut.Markup);
+        Assert.Contains("Apply or clear the mix", cut.Markup);
 
         // Apply: committed, un-gated.
         await cut.Find("#mixApply").ClickAsync(new());
@@ -5066,7 +5117,7 @@ public class PageTests : BunitContext
         Assert.NotEmpty(cut.FindAll(".mix-row"));  // panel re-shows the persisted mix
         Assert.True(holder.Current.IsPassthrough);  // committed mix reset by the pick
         Assert.True(StartButton(cut).HasAttribute("disabled")); // Start re-gated
-        Assert.Contains("Apply or reset the mix", cut.Markup);  // by the mix half specifically
+        Assert.Contains("Apply or clear the mix", cut.Markup);  // by the mix half specifically
 
         // Clear: the mix surface (and Start) vanish entirely, and — because
         // both mix halves are pick-coupled — holder and draft agree at
@@ -5086,10 +5137,10 @@ public class PageTests : BunitContext
         // filters. One decision, already seen — a 100% never-seen mix draws 0.
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = WithWeighableController(out var sink, d);
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty.Plus(
             new SubmittedPlay(d.Id, BestPlay(), 0, 0.0, IsCorrect: true), TimeProvider.System);
-        WithPickedFolder(capability: FolderWriteCapability.Enabled);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
         WithAppliedMix(NeverSeenMix());
@@ -5109,7 +5160,7 @@ public class PageTests : BunitContext
         // committed mix owns order, but ShuffleOption keeps the user's value,
         // so clearing the mix (apply blank) restores the prior preference.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder(capability: FolderWriteCapability.Enabled); // mix panel is Enabled-gated (Task X)
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true); // the mix predicate: can-save-stats AND has-stats
         WithAppliedFilter(new FilterConfig());
         var shuffle = WithShuffleOption(enabled: true);
         WithAppliedMix(NeverSeenMix());
@@ -5128,6 +5179,162 @@ public class PageTests : BunitContext
     }
 
     // -----------------------------------------------------------------------
+    //  A weighted mix requires stats: the shared predicate at the page (#87)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Pick a folder through the real gesture with <paramref name="pickedStats"/>
+    /// as whatever its <c>bgquiz-stats.json</c> holds — the arrangement all three
+    /// degrade arms share, differing only in that one string. Write capability is
+    /// <see cref="FolderWriteCapability.Enabled"/> throughout, so the predicate's
+    /// <i>other</i> half is satisfied and the stats document is the only variable.
+    /// </summary>
+    private async Task<IRenderedComponent<HomePage>> RenderWithPickedStatsAsync(string? pickedStats)
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithAppliedMix();
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
+        _folderAccess.PickedStatsJson = pickedStats;
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        return cut;
+    }
+
+    [Fact]
+    public async Task Home_PickWithEmptyStatsDocument_OffersNoMix_AndCommitsNone()
+    {
+        // #87's headline, and the fix-prover: the folder CAN save stats and has
+        // a stats file — it is simply empty. Before the predicate this mounted
+        // the panel on capability alone, and a mix built there composed against
+        // a record with nothing in it. Now the panel is not offered at all, and
+        // there is correspondingly nothing committed for Start to honor.
+        var cut = await RenderWithPickedStatsAsync(EmptyStatsDocumentJson());
+
+        Assert.True(Services.GetRequiredService<PickedProblemFolder>().HasFiles); // the pick landed…
+        Assert.NotEmpty(cut.FindAll("#shuffleOrder"));                            // …surface disclosed…
+        Assert.Empty(cut.FindComponents<MixPanelComponent>());                    // …but no mix
+        Assert.True(Services.GetRequiredService<AppliedMix>().Current.IsPassthrough);
+    }
+
+    [Fact]
+    public async Task Home_PickWithNoStatsDocument_OffersNoMix()
+    {
+        // The brand-new folder — the case the ruling accepts as emergent: no
+        // file yet, so nothing to weight by, so no panel until its first quiz
+        // creates one.
+        var cut = await RenderWithPickedStatsAsync(null);
+
+        Assert.Empty(cut.FindComponents<MixPanelComponent>());
+        Assert.True(Services.GetRequiredService<AppliedMix>().Current.IsPassthrough);
+    }
+
+    [Fact]
+    public async Task Home_PickWithUnreadableStatsDocument_OffersNoMix_WithoutFailingThePick()
+    {
+        // The third arm, degrading identically — and quietly. An unreadable
+        // stats file is not a pick failure: the folder is held, the surface
+        // discloses, the quiz is fully runnable, and the only consequence is
+        // that the mix isn't offered. No banner, no notice, nothing thrown.
+        var cut = await RenderWithPickedStatsAsync("not json at all");
+
+        Assert.Empty(cut.FindComponents<MixPanelComponent>());
+        Assert.True(Services.GetRequiredService<PickedProblemFolder>().HasFiles);
+        Assert.DoesNotContain("Could not read the folder", cut.Markup);
+
+        // Fully runnable: apply the filters and Start is live, unweighted.
+        await ApplyFiltersAsync(cut);
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_PickWithStatsContent_OffersMix_AndStartComposesWithIt()
+    {
+        // The positive contrast to the three arms above, through the same real
+        // pick gesture: with a stats record present the panel is offered, a mix
+        // commits, and Start composes with it (LastComposition is the
+        // composed-layer signature). Same arrangement, one different string.
+        var c = WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        sink.CanWeightMix = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithAppliedMix();
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
+        _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await ApplyFiltersAsync(cut);           // the pick expires the filter stamp
+        Assert.Single(cut.FindComponents<MixPanelComponent>());
+
+        await ApplyMixThroughPanelAsync(cut);
+        await StartButton(cut).ClickAsync(new());
+
+        Assert.True(c.HasStarted);
+        Assert.NotNull(c.LastComposition);
+    }
+
+    [Fact]
+    public async Task Home_CommittedMix_ThenPickWithoutStatsHistory_ClearsTheMix()
+    {
+        // Ruling 3, at the case the predicate newly creates: the outgoing folder
+        // had a stats record and a committed mix; the incoming one can save
+        // stats but has none. A non-passthrough mix must not survive into a
+        // folder that cannot honor it — and doesn't, because the pick's
+        // unconditional reset takes it before the new folder is even known.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        var holder = WithAppliedMix();
+        _folderAccess.NextPickOutcome = OneFileOutcome("WithStats", "a.xg", FolderWriteCapability.Enabled);
+        _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await ApplyFiltersAsync(cut);
+        await ApplyMixThroughPanelAsync(cut);
+        Assert.False(holder.Current.IsPassthrough); // committed against the old folder
+
+        // Re-pick: same write capability, no stats record.
+        _folderAccess.NextPickOutcome = OneFileOutcome("Fresh", "b.xg", FolderWriteCapability.Enabled);
+        _folderAccess.PickedStatsJson = null;
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.True(holder.Current.IsPassthrough);             // cleared outright
+        Assert.Empty(cut.FindComponents<MixPanelComponent>()); // and not re-offered
+        // Draft and holder agree at blank, so nothing gates Start on the mix.
+        Assert.True(Services.GetRequiredService<MixDraft>().Matches(holder.Current));
+        Assert.DoesNotContain("Apply or clear the mix", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_FirstQuizCreatesStats_MixOfferedOnTheNextVisit()
+    {
+        // The accepted emergent behavior, and the reason the predicate has a
+        // second reading point. A fresh folder offers no mix; once a quiz has
+        // written a record, returning to Home re-initializes the page, the probe
+        // re-runs, and the mix is offered from then on — no re-pick required,
+        // which is what makes "until its first quiz creates stats" true as
+        // written rather than "until you pick the folder again".
+        var cut = await RenderWithPickedStatsAsync(null);
+        Assert.Empty(cut.FindComponents<MixPanelComponent>());
+
+        // The quiz writes its record into the folder the probe reads from.
+        _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
+
+        // Navigate away and back — Home is re-instantiated exactly as it is on
+        // the return from Done's "Back to setup".
+        await DisposeComponentsAsync();
+        var back = Render<HomePage>();
+
+        Assert.Single(back.FindComponents<MixPanelComponent>());
+    }
+
+    // -----------------------------------------------------------------------
     //  Stats-weighted mix: Quiz shortfall notice, Done refused Restart
     // -----------------------------------------------------------------------
 
@@ -5142,7 +5349,7 @@ public class PageTests : BunitContext
         // category.
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
 
@@ -5166,7 +5373,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp")),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp")),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("c.xgp")));
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), SplitMix(quizLength: 2));
 
@@ -5192,7 +5399,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp")),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp")),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("c.xgp")));
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), SplitMix()); // no length
 
@@ -5214,7 +5421,7 @@ public class PageTests : BunitContext
         // checker play.
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
 
@@ -5238,7 +5445,7 @@ public class PageTests : BunitContext
         // The cube half of the same rule, on the polite capless variant: a cube
         // answer is a submitted answer too, so it retires the notice identically.
         var c = WithWeighableController(out var sink, TestFixtures.CubeDecision());
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix()); // capless
 
@@ -5261,7 +5468,7 @@ public class PageTests : BunitContext
         // render against the same composition must stay quiet.
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
 
@@ -5282,7 +5489,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp")),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp")));
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
 
@@ -5301,7 +5508,7 @@ public class PageTests : BunitContext
         // the ask exactly, so no mix notice of any kind renders.
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 1));
 
@@ -5320,14 +5527,14 @@ public class PageTests : BunitContext
         // override must restart unweighted.
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix());
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts the one-problem source → finished
         Assert.True(c.IsFinished);
 
-        sink.CanBindStats = false; // e.g. the pick was cleared between quizzes
+        sink.CanWeightMix = false; // e.g. the pick was cleared between quizzes
         WithPickedFolder(); // Done reads capability for the refusal reason
 
         var cut = Render<DonePage>();

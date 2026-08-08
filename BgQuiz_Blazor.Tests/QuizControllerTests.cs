@@ -1448,7 +1448,7 @@ public class QuizControllerTests
     /// <summary>
     /// Constructs a controller over a scriptable sink and a mix-capturing
     /// factory: <paramref name="sink"/> scripts stats availability
-    /// (<c>CanBindStats</c> / <c>CurrentDocument</c>); <paramref name="mixes"/>
+    /// (<c>CanWeightMix</c> / <c>CurrentDocument</c>); <paramref name="mixes"/>
     /// records the <i>effective</i> mix each factory invocation received, so
     /// tests can pin what the controller actually composes with.
     /// </summary>
@@ -1504,7 +1504,7 @@ public class QuizControllerTests
     {
         var c = MakeWeighable(out var sink, out var mixes,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        sink.CanBindStats = false; // fallback pick / denied / nothing picked
+        sink.CanWeightMix = false; // fallback pick / denied / nothing picked
         var fires = 0;
         c.StateChanged += () => fires++;
 
@@ -1525,7 +1525,7 @@ public class QuizControllerTests
     {
         var c = MakeWeighable(out var sink, out var mixes,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = null; // the bind ran but yielded no document (unreadable file)
 
         var outcome = await c.StartAsync(new FilterConfig(), NeverSeenMix());
@@ -1572,7 +1572,7 @@ public class QuizControllerTests
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
         var c = MakeWeighable(out var sink, out var mixes, d1, d2);
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DocWithSeen(d1.Id); // d1 seen before; d2 never seen
 
         var mix = NeverSeenMix();
@@ -1597,7 +1597,7 @@ public class QuizControllerTests
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
         var c = MakeWeighable(out var sink, out var mixes, d1, d2);
-        sink.CanBindStats = false; // stats unavailable — the refusal scenario
+        sink.CanWeightMix = false; // stats unavailable — the refusal scenario
 
         var outcome = await c.StartAsync(new FilterConfig(), NeverSeenMix(), ignoreMix: true);
 
@@ -1620,7 +1620,7 @@ public class QuizControllerTests
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
         var c = MakeWeighable(out var sink, out _, d1, d2);
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty; // nothing seen yet
 
         await c.StartAsync(new FilterConfig(), NeverSeenMix());
@@ -1643,7 +1643,7 @@ public class QuizControllerTests
     {
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = MakeWeighable(out var sink, out _, d);
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
 
         await c.StartAsync(new FilterConfig(), NeverSeenMix());
@@ -1653,7 +1653,7 @@ public class QuizControllerTests
 
         // Stats fall away between quizzes (e.g. the folder pick was cleared);
         // the Done page's Restart is refused and its summary must survive.
-        sink.CanBindStats = false;
+        sink.CanWeightMix = false;
         var outcome = await c.RestartAsync();
 
         Assert.Equal(QuizStartOutcome.MixRequiresStats, outcome);
@@ -1734,7 +1734,7 @@ public class QuizControllerTests
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
         var c = MakeWeighable(out var sink, out _, d1, d2);
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DocWithSeen(d1.Id);
 
         await c.StartAsync(new FilterConfig(), NeverSeenMix());
@@ -1752,7 +1752,7 @@ public class QuizControllerTests
     {
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = MakeWeighable(out var sink, out _, d);
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
 
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
@@ -1775,12 +1775,12 @@ public class QuizControllerTests
         // length-bound quiz keeps its notice framing behind a refused start.
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = MakeWeighable(out var sink, out _, d);
-        sink.CanBindStats = true;
+        sink.CanWeightMix = true;
         sink.CurrentDocument = DecisionStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 1));
         Assert.True(c.ActiveMixHasLength);
 
-        sink.CanBindStats = false;
+        sink.CanWeightMix = false;
         var outcome = await c.StartAsync(new FilterConfig(), NeverSeenMix());
 
         Assert.Equal(QuizStartOutcome.MixRequiresStats, outcome);

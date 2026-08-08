@@ -19,12 +19,29 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// Pre-pick there is nothing to filter, weight, or start, so hiding them keeps
 /// the required first step — picking a folder — unmistakable, and makes the
 /// filter-half of the start gate true by construction (no panel to apply). The
-/// weighted mix carries a <i>further</i> gate: it renders only when the pick can
-/// provide the lifetime stats it composes from
-/// (<see cref="FolderWriteCapability.Enabled"/>). Under a no-stats pick the mix
-/// plays no part in Start — the panel is hidden and every pick resets any
-/// committed mix to passthrough (see <see cref="EndCurrentSetupAsync"/>), so
-/// Start runs plain with no mix gate, warning, or refusal.
+/// weighted mix carries a <i>further</i> gate, and it is the one shared
+/// predicate rather than a second reading of the pick: it renders only while
+/// <see cref="QuizStatsStore.CanWeightMix"/> — this folder can save stats
+/// <i>and</i> already holds a record with something in it (issue #87). Where
+/// that is false the mix plays no part in Start — the panel is hidden and every
+/// pick resets any committed mix to passthrough (see
+/// <see cref="EndCurrentSetupAsync"/>), so Start runs plain with no mix gate,
+/// warning, or refusal. Nothing is shown disabled and no reason is offered: the
+/// non-mount <i>is</i> the answer, and the accepted consequence is that a
+/// brand-new folder offers no mix until its own first quiz creates the stats a
+/// mix would weight by.
+/// </para>
+///
+/// <para>
+/// That predicate reads a probe of the picked folder's stats document, and this
+/// page owns both of its reading points
+/// (<see cref="QuizStatsStore.RefreshPickedStatsAsync"/>): every successful
+/// pick's landing (<see cref="ApplyPickOutcomeAsync"/>), and this page's own
+/// initialization — which is what lets the answer change after the quiz that
+/// created the record, since returning here re-instantiates the page. The
+/// saved-filters persist gate is deliberately <b>not</b> routed through it and
+/// stays capability-only: saved filters have nothing to do with a stats record,
+/// and a folder with none must still be able to save them.
 /// </para>
 ///
 /// <para>
@@ -517,6 +534,16 @@ public partial class Home : ComponentBase, IDisposable
         }
 
         _fsAccessAvailable = await FolderAccess.SupportsDirectoryPickerAsync();
+
+        // The mix predicate's other reading point (issue #87). A pick refreshes
+        // it, but two things can move it with no pick in sight, and both land
+        // here: a folder already held when this page is re-instantiated
+        // (navigate-back), and — the one that matters — a quiz run since the
+        // last probe, which may have written the very first stats record this
+        // folder has. That is what makes "no mix until its first quiz creates
+        // stats" resolve on the way back from that quiz rather than waiting for
+        // a re-pick the user has no reason to make.
+        await StatsStore.RefreshPickedStatsAsync();
     }
 
     /// <summary>Detach from the app-scoped draft — the page dies before the Scoped service does.</summary>
@@ -634,7 +661,7 @@ public partial class Home : ComponentBase, IDisposable
                 // finally, which covers the cancelled path (no hook fired —
                 // nothing was raised) too.
                 var outcome = await FolderAccess.PickFolderAsync(EnterBusyAsync);
-                ApplyPickOutcome(outcome);
+                await ApplyPickOutcomeAsync(outcome);
             }
             else
             {
@@ -681,7 +708,7 @@ public partial class Home : ComponentBase, IDisposable
     {
         try
         {
-            ApplyPickOutcome(await FolderAccess.CollectFallbackAsync(_fallbackInput));
+            await ApplyPickOutcomeAsync(await FolderAccess.CollectFallbackAsync(_fallbackInput));
         }
         catch (Exception ex)
         {
@@ -709,11 +736,23 @@ public partial class Home : ComponentBase, IDisposable
     /// outcome notice; otherwise the holder takes the pick, and the rendered
     /// summary + stats status notice derive from it (no transient field to keep
     /// in sync — that desynced on navigate-back, when Home re-instantiated).
-    /// Synchronous since the composite took over the saved-filters read: the
-    /// landing only records facts on the holder, and the follow-on render does
-    /// the rest.
+    ///
+    /// <para>
+    /// Async again — one await, and only on the path that keeps a folder: the
+    /// mix predicate's pick-time probe
+    /// (<see cref="QuizStatsStore.RefreshPickedStatsAsync"/>, issue #87). It
+    /// runs <i>after</i> <see cref="PickedProblemFolder.Set"/> so it probes the
+    /// generation it is about, and before this method returns so no render can
+    /// fall between the two: the panel's mount decision is made once, against a
+    /// resolved probe, rather than made twice with the section popping in. (The
+    /// probe's generation stamp makes the ordering safe rather than merely
+    /// tidy — a probe stamped with a superseded pick expires instead of
+    /// answering for the wrong folder.) The two no-folder outcomes need no
+    /// probe: they return with the holder clear, and a cleared holder fails the
+    /// predicate's capability half outright.
+    /// </para>
     /// </summary>
-    private void ApplyPickOutcome(FolderPickOutcome outcome)
+    private async Task ApplyPickOutcomeAsync(FolderPickOutcome outcome)
     {
         if (outcome.Cancelled)
         {
@@ -747,9 +786,14 @@ public partial class Home : ComponentBase, IDisposable
         // HasFiles gate, and the composite loads this folder's saved-filters
         // document itself — a setup-time, degrade-tolerant read through the
         // picked-slot storage adapter (null under a fallback pick, so no
-        // context). Nothing to await here: saved-filters trouble can never
+        // context). Nothing to await for that: saved-filters trouble can never
         // block a pick.
         Folder.Set(outcome.DirectoryName, outcome.Files, outcome.Capability, outcome.Truncations);
+
+        // Now that the holder describes this pick, ask whether a mix can mean
+        // anything for it. Degrade-tolerant end to end (see the store), so this
+        // await can neither fail the pick nor surface a notice of its own.
+        await StatsStore.RefreshPickedStatsAsync();
     }
 
     /// <summary>
@@ -826,12 +870,16 @@ public partial class Home : ComponentBase, IDisposable
         // Both halves of the mix state end with the setup: the committed mix
         // (a pick means a new corpus and possibly a new stats slot) and the
         // draft's uncommitted edits (made against the outgoing slot — stale
-        // noise against the next). Discard also forgets hydration, so an
-        // Enabled pick's re-mounted panel re-offers the persisted mix — gated
-        // by the derived rule against the now-passthrough holder — while a
-        // no-stats pick mounts no panel, re-hydrates nothing, and leaves the
-        // blank draft matching the reset holder: the mix plays no part in its
-        // Start, with no capability fork in the gate.
+        // noise against the next). The reset is UNCONDITIONAL, which is what
+        // settles issue #87's third ruling with no code: a mix committed
+        // against the outgoing folder cannot survive into one whose predicate
+        // is false, because it does not survive into any folder at all.
+        // Discard also forgets hydration, so a mix-capable pick's re-mounted
+        // panel re-offers the persisted mix — gated by the derived rule against
+        // the now-passthrough holder — while a pick that can't mean a mix
+        // mounts no panel, re-hydrates nothing, and leaves the blank draft
+        // matching the reset holder: the mix plays no part in its Start, with
+        // no capability fork in the gate.
         AppliedMix.Reset();
         MixDraft.Discard();
         // The unmount-gap line — see the method summary. The user's last-applied

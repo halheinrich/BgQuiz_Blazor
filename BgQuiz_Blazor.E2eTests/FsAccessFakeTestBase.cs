@@ -174,6 +174,51 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     }
 
     /// <summary>
+    /// Leave the fake folder holding a real lifetime-stats record, so the
+    /// weighted mix is offered at all — the precondition every mix scenario
+    /// needs since issue <c>halheinrich/backgammon#87</c>, where a folder with
+    /// no stats history offers no mix panel.
+    ///
+    /// <para>
+    /// The record is produced by <b>running a quiz</b> and feeding the app's own
+    /// captured write back as the folder's pre-existing file — the suite's
+    /// standing trick, so no scenario ever hand-crafts the stats wire format or
+    /// the decision-id encoding. It is also the honest shape of the behavior: a
+    /// folder acquires a stats history exactly by being quizzed from.
+    /// </para>
+    ///
+    /// <para>
+    /// It ends by <b>re-picking</b>, which leaves the setup in the state these
+    /// scenarios assume: a folder held, its stats now readable (the pick
+    /// re-probes), and no filter applied for the current pick — the pick
+    /// generation bumped, expiring the stamp the seeding quiz's Apply left. The
+    /// wait is on the Apply-Mix gate hint, which is the one thing true only
+    /// after the re-pick lands: it needs the panel mounted (so the probe found
+    /// the seeded record) <i>and</i> no applied filter (so the new pick is the
+    /// one in effect). Waiting on the folder summary instead would race — the
+    /// outgoing pick's summary reads identically.
+    /// </para>
+    /// </summary>
+    protected async Task SeedStatsHistoryAsync()
+    {
+        await PickFakeFolderAsync();
+        await ApplyFilterAsync();
+        await StartQuizAsync();
+        await AnswerCubeNoDoubleAsync();
+        await ContinueToDoneAsync();
+
+        await Page.EvaluateAsync(
+            "() => { window.__statsFake.statsJson = window.__statsFake.writes[0]; }");
+
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Back to setup" }).ClickAsync();
+        await ExpectUrlAsync("/");
+
+        await PickFolderButton.ClickAsync();
+        await Expect(Page.GetByText("the mix draws its problems from the filtered pool"))
+            .ToBeVisibleAsync();
+    }
+
+    /// <summary>
     /// Hold the fake directory's enumeration open, so the stretch between the
     /// browser's prompts and the pick summary can be observed. Call before the
     /// pick gesture; release with <see cref="ReleaseScanAsync"/>.
