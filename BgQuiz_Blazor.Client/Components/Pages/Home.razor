@@ -10,6 +10,7 @@
 @inject IFolderAccess FolderAccess
 @inject PickedProblemFolder Folder
 @inject AppliedFilter AppliedFilter
+@inject FilterRestoreNotice FilterRestoreNotice
 @inject AppliedMix AppliedMix
 @inject MixDraft MixDraft
 @inject ShuffleOption ShuffleOption
@@ -269,9 +270,16 @@
        the applied-state mediation onto the AppliedFilter holder, the notice
        copy), so this host binds facts and side effects only.
 
-       Source is the pick's identity, minted from the generation counter; this
-       region renders only while a folder is held, so a token always exists
-       here. Storage is the picked-slot adapter — supplied only while the pick's
+       Source is the pick's identity, minted once in CurrentFilterSource and
+       read here and by every gate, so what a commit is keyed to and what a
+       gate compares can never disagree; this region renders only while a
+       folder is held, so a token always exists here.
+
+       RestoreNotice is the app-scoped instance registered in Program.cs, bound
+       and nothing more: its movers are producer-internal, so the composite
+       decides entirely on its own when a boot's restored selection is
+       announced and when the announcement dies. Storage is the picked-slot
+       adapter — supplied only while the pick's
        capability exposes a readable directory handle, so a fallback pick
        (BrowserUnsupported) gets no saved-filters section at all, and
        PermissionDenied stays load-only through CanPersist with the host's
@@ -285,7 +293,8 @@
        panel's committed config died with the old instance) and this folder's
        saved-filters document read through the seam. *@
     <FilterSurface AppliedFilter="AppliedFilter"
-                   Source="FilterSourceToken.FromGeneration(Folder.PickGeneration)"
+                   RestoreNotice="FilterRestoreNotice"
+                   Source="CurrentFilterSource"
                    Storage="FilterStorage"
                    CanPersist="Folder.Capability == FolderWriteCapability.Enabled"
                    PersistDisabledReason="@SavedFiltersDisabledReason"
@@ -435,7 +444,7 @@
         Start Quiz
     </button>
 
-    @if (!AppliedFilter.IsApplied)
+    @if (FilterInEffect is null)
     {
         <small class="text-muted ms-2">Apply the filters above to enable Start.</small>
     }

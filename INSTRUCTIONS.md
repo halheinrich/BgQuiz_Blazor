@@ -67,11 +67,14 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `XgFilter_Razor.Components.Internal` — banned from host use, host tests
   included) and the whole filter interaction lifecycle — load→stage,
   save/save-as/delete mediation, the applied-state mediation onto the shared
-  `AppliedFilter` holder, the saved-filters degrade/refusal notices with
-  producer-owned copy, and the source-change rule over the host-minted
-  `FilterSourceToken`. Also the non-visual model this app binds:
-  `AppliedFilter` (the start-gate holder, registered Scoped here),
-  `FilterSourceToken` (minted `FromGeneration(PickGeneration)`),
+  `AppliedFilter` holder, the restored-selection notice, the saved-filters
+  degrade/refusal notices with producer-owned copy, and the source-change rule
+  over the host-minted `FilterSourceToken`. Also the non-visual model this app
+  binds: `AppliedFilter` (the start-gate holder, registered Scoped here),
+  `FilterRestoreNotice` (the restored-selection notice's state — registered
+  Scoped and bound, nothing else: every member that moves it is
+  producer-internal), `FilterSourceToken` (minted once, in
+  `Home.CurrentFilterSource`, `FromGeneration(PickGeneration)`),
   `IFilterDocumentStorage` + `FilterStorageException` (the storage seam this
   app adapts over the folder library), and `SavedFiltersDocument`
   (`FileName` = `xg-filters.json` / `LegacyFileName` = `bgquiz-filters.json` —
@@ -786,27 +789,34 @@ the user has **deliberately applied** on `Home` — the sibling of
 **XgFilter_Razor's** since the `FilterSurface` adoption (it was hoisted from
 this app's original), registered Scoped here and bound to the composite's
 `[EditorRequired] AppliedFilter` parameter. **The composite mediates it**: a
-commit (Apply / Clear filters) `Set`s it stamped with the bound `Source`
-token, an uncommitted-edits report `Clear`s it, a clean re-affirm re-`Set`s it
-— Home writes it in exactly one place (the setup-end clear below) and
-otherwise only reads: `IsApplied` / `Config` for `CanStart` and
-`StartCoreAsync`, `WasAppliedFor` for the mix gate.
+commit (Apply / Clear filters) `Set`s it keyed to the bound `Source` token, an
+uncommitted-edits report `Clear`s it, a clean re-affirm re-`Set`s it — Home
+writes it in exactly one place (the setup-end clear below) and otherwise only
+reads, always through `ConfigFor`.
 
-**Two facts, two lifetimes.** Beside the config, `Set` records *which source*
-the Apply was made for, answered by
-`WasAppliedFor(FilterSourceToken.FromGeneration(Folder.PickGeneration))` —
-"has this corpus been filtered at least once?". The config is **edit-coupled**
-(a half-edited set clears it via the composite's mediation, Start re-gates)
-**and setup-coupled** (`Home.EndCurrentSetupAsync` clears it on every pick and
-every Clear) — two independent rules, not duplicates. The stamp is neither: a
-half-typed edit does not un-answer its question, and the token — not a flag —
-is what expires it, since `PickGeneration` is monotonic and bumped by both
-`PickedProblemFolder.Set` and `.Clear`, so ending a setup invalidates the
-answer by construction, with no reset to call and none to forget (the
-staleness idiom `StoreParsed` already uses). Home mints the token live at both
-sites — the composite's `Source` binding and the mix gate — so the stamp the
-composite records and the token the gate compares cannot encode the pick
-differently.
+**One fact, keyed to its source.** The holder is a single nullable
+(config, source) pair. There is no bare `Config` / `IsApplied` and no
+`WasAppliedFor` stamp: the only question it answers is the source-relative
+*"what is applied for this source?"*, so a config applied against a superseded
+pick is not applied at all, and reading applied-ness absolutely — the old
+conflation — is unrepresentable. Nothing anywhere answers "has this corpus ever
+been filtered"; that fact is deleted from the model with nothing replacing it
+(`SPEC-filtering.md` §3, Fork A).
+
+**One derivation, four readers.** Home mints the token once, in
+`CurrentFilterSource` (`FromGeneration(Folder.PickGeneration)`), and derives
+`FilterInEffect => AppliedFilter.ConfigFor(CurrentFilterSource)` from it. The
+composite's `Source` binding reads the first; `CanStart`, its Apply-hint,
+`MixApplyEnabled`, and `StartCoreAsync` all read the second. So what a commit
+is keyed to and what every gate compares cannot encode the pick differently —
+structurally, not by a documented promise that two inline mints agree.
+
+The applied config is **edit-coupled** (a half-edited set clears it via the
+composite's mediation) **and setup-coupled** (`PickGeneration` is monotonic and
+bumped by both `PickedProblemFolder.Set` and `.Clear`, so ending a setup
+expires it by key inequality — the staleness idiom `StoreParsed` already uses).
+`EndCurrentSetupAsync`'s `Clear()` is a third, now-redundant safeguard; see
+below.
 
 **The setup-end clear is host-side, and the reason is structural (ruled, this
 migration).** The composite owns a source-change rule that would do this — but
@@ -819,17 +829,21 @@ holder clear, precisely so navigate-back over an *unchanged* source leaves an
 applied gate armed. So the composite's rule is **dormant in BgQuiz** (kept
 bound as defence in depth); what each pick actually gets from the producer is
 the remount: a fresh panel with Apply re-armed and the new folder's
-saved-filters document read. The one thing neither remount nor rule covers —
-clearing the holder's config, whose staleness `CanStart` reads — is the single
-line of filter choreography `EndCurrentSetupAsync` keeps.
+saved-filters document read. `EndCurrentSetupAsync` keeps the single line of
+filter choreography that covered that gap — but **source-keying demoted it from
+gate-closing to residue-dropping**: `Folder.Clear()` on the line above bumps
+the generation, so `FilterInEffect` is already null for every later read
+whether or not the `Clear()` runs. What it still buys is that no config outlives
+the setup that applied it even unreachably, which is the end-of-setup call the
+holder documents as `Clear`'s purpose.
 
 Holding the applied state in a Scoped holder rather than a transient component
 field is what lets the gate survive in-app navigation: on navigate-back `Home`
 re-derives `CanStart` from the persisted holders instead of resetting to
 "not applied" and forcing a needless re-click of Apply.
 
-**Gate semantics — applied, not merely present.** `IsApplied` means the user
-took the Apply action, so a half-edited set must clear it (the composite
+**Gate semantics — applied, not merely present.** A non-null `ConfigFor` means
+the user took the Apply action, so a half-edited set must clear it (the composite
 mirrors the panel's `null` report onto the holder) — and an edit *undone* back
 to the applied values makes the panel report the committed config again, which
 re-`Set`s it. That direction is not a nicety: the panel disables its own Apply
@@ -839,6 +853,33 @@ interaction with the panel's localStorage restore is safe by construction:
 restore writes the panel's own fields directly and raises **neither**
 callback, so it can't spuriously mark applied or clear an existing applied
 state — the holder is the sole authority on "applied".
+
+### `FilterRestoreNotice` — the reload is legible (`SPEC-filtering.md` §4)
+
+A reload ends the setup: the panel restores the persisted selection, nothing is
+applied, and Apply re-arms. That is correct and **indistinguishable from a
+bug** — the user's filter on screen with Apply mysteriously live — so the screen
+has to say what happened. `FilterRestoreNotice` (XgFilter_Razor's, rendered by
+the panel as `#filterRestoredNotice`) is the state that copy hangs on.
+
+**This host's entire contract is two lines**: register it Scoped in
+`Program.cs` beside `AppliedFilter`, and bind it to `FilterSurface`. Every
+member that moves it (`Arm` / `Dismiss` / `IsVisible`) is producer-internal, so
+BgQuiz cannot read or steer it and the notice behaves identically in both
+hosts by construction. Do not add host copy about it — the sentence is the
+producer's.
+
+**Scoped is the mechanism, not a convention.** A full reload reboots the WASM
+app and constructs a fresh instance; *that construction* is what distinguishes
+a boot from a navigate-back remount, which also restores a selection and also
+finds nothing applied. Register it Transient and every navigation re-announces
+a restore that already happened, which §4 forbids ("navigating away and back
+changes nothing"). The pin is
+`Home_RestoredFilterSelection_ShowsTheNotice_UntilAnEditSupersedesIt`, whose
+last leg fails on a Transient registration while its binding half still passes.
+It stages the stored selection *by exclusion* — answering every
+`localStorage.getItem` for a key BgQuiz does not own — because the panel's key
+is a producer internal no host may name.
 
 ### `MixPanel` / `MixDraft` / `AppliedMix` — the stats-weighted mix
 
@@ -1223,9 +1264,9 @@ The asymmetry is pinned three times over: at the service seam
   also makes the filter half of the gate true by construction — and which
   makes the composite's mount lifecycle part of the choreography (see the
   setup-end paragraph below and § `AppliedFilter`). Home binds the composite:
-  the shared `AppliedFilter` holder, `Source =
-  FilterSourceToken.FromGeneration(Folder.PickGeneration)` (always minted here
-  — inside this gate a folder is always held), `Storage` = the Scoped
+  the shared `AppliedFilter` holder, the app-scoped `FilterRestoreNotice`
+  (bound and nothing more — § `AppliedFilter`), `Source = CurrentFilterSource`
+  (the one mint — inside this gate a folder is always held), `Storage` = the Scoped
   `PickedFolderFilterStorage` while the capability exposes a readable handle
   (`null` under `BrowserUnsupported` ⇒ no saved-filters section),
   `CanPersist = (Capability == Enabled)` with `PersistDisabledReason` from
@@ -1240,7 +1281,7 @@ The asymmetry is pinned three times over: at the service seam
   `Dispose`) so the derived gate re-renders. The shuffle checkbox binds to
   `ShuffleOption` (§ that section). Start is gated on **three** conditions,
   all read from per-app scoped services so the gate survives navigation:
-  `CanStart => AppliedFilter.IsApplied && Folder.HasFiles && !MixDirty`, where
+  `CanStart => FilterInEffect is not null && Folder.HasFiles && !MixDirty`, where
   `MixDirty => !MixDraft.Matches(AppliedMix.Current)` — derived per render,
   never stored (§ MixPanel / MixDraft / AppliedMix).
   **Match summary and answer-type breakdown** (umbrella #35). On Apply, Home
@@ -1278,7 +1319,7 @@ The asymmetry is pinned three times over: at the service seam
   which also serializes the count against a Start. Help documents the count in
   its own prose — a shared constant is earned only when two surfaces render
   the same sentence, which these don't.
-  **Start.** Hands `AppliedFilter.Config` + `AppliedMix.Current` to
+  **Start.** Hands `FilterInEffect` + `AppliedMix.Current` to
   `Controller.StartAsync` and checks the returned outcome **before** the
   empty-result `IsFinished` check (see Pitfalls: a refused start touches no
   quiz state, so `IsFinished` is stale): `MixRequiresStats` renders the
@@ -1347,19 +1388,22 @@ The asymmetry is pinned three times over: at the service seam
   raises both callbacks and would otherwise parse the corpus twice.
   **Apply Mix is sequenced behind Apply Filter** (umbrella #45). The
   `MixPanel` is handed `CanApply="MixApplyEnabled"` plus the reason sentence;
-  `MixApplyEnabled =>
-  AppliedFilter.WasAppliedFor(FilterSourceToken.FromGeneration(Folder.PickGeneration))` —
-  "a filter has been applied for the currently picked folder". Settled
-  semantics, each half load-bearing:
+  `MixApplyEnabled => FilterInEffect is not null` — "a filter is in effect for
+  the picked folder *right now*". Settled semantics, each half load-bearing:
   - **UX sequencing only, never a data-flow rule.** The mix composes over the
     filtered pool at *Start*, not at Apply Mix, so mix-before-filter was
     always legal; what it wasn't is legible. The gate states the dependency
     direction and the hint says *why* ("the mix draws its problems from the
     filtered pool"), because the bare rule read as arbitrary.
-  - **A dirty filter draft does not revoke it** — only the *config* is
-    edit-coupled; the pick stamp survives `AppliedFilter.Clear`
-    (§ `AppliedFilter`). **A new pick does revoke it**, by construction: the
-    generation bumps.
+  - **A dirty filter revokes it** — the same fact Start reads, so a filter
+    edit darkens Apply Mix until re-apply (`SPEC-filtering.md` §5 Fork A,
+    ruled strict). This **supersedes** the earlier ruling that the gate asked
+    "has this corpus been filtered?" and survived edits: that question is no
+    longer answerable anywhere in the model, because the stamp carrying it is
+    deleted with nothing replacing it (§3). Accepted cost: mid-composition
+    friction, one re-Apply to recover — and nothing can *run* wrong in that
+    window either way, since Start is dead while the filter is dirty. **A new
+    pick also revokes it**, by construction: the generation bumps.
   - **Nothing about the mix's own lifetimes changed.** The gate reads the
     *filter* and the *pick* only, per render — which is what keeps it clear of
     the (AK) wedge, whose cause was a stored judgement outliving its inputs.
@@ -1883,9 +1927,10 @@ now needs a seeded history first, which `SeedStatsHistoryAsync` supplies the
 only honest way: **run a quiz and feed the app's own captured write back** as
 the folder's pre-existing file, so no scenario hand-crafts the stats wire
 format. It ends by re-picking, which re-probes the seeded record *and* expires
-the seeding quiz's applied-filter stamp — the state the Apply-Mix gate
-scenarios assume. Its wait is on the Apply-Mix gate hint, the one thing true
-only after the re-pick lands (panel mounted **and** no filter applied);
+the seeding quiz's applied filter (the generation bumps past its key) — the
+state the Apply-Mix gate scenarios assume. Its wait is on the Apply-Mix gate
+hint, the one thing true only after the re-pick lands (panel mounted **and**
+no filter in effect);
 waiting on the folder summary would race, since the outgoing pick's reads
 identically. `MixRefusalTests` pins the refusal at its one remaining reachable
 path: a stats file that turns unreadable **after** the mix is committed —
@@ -2223,7 +2268,8 @@ public (see Pitfalls). The externally visible surface is the route map:
   committed with no user gesture — the adopt bug finding W removed, and what
   once let a stats-less pick inherit a mix. It also can't be *skipped* the way
   `FilterPanel`'s restore could be: the filter's default already blocks Start
-  (`IsApplied` false), whereas the mix's passthrough default does not. Only a
+  (a restore stages a selection, it never applies one, so `FilterInEffect`
+  stays null), whereas the mix's passthrough default does not. Only a
   *successful* parse **projects** — `TryFromJson`'s `Empty` fallback is a
   usable mix, but projecting it would overwrite the blank draft's defaults.
 - **Don't reintroduce a stored mix-dirty judgment.** The mix gate is derived

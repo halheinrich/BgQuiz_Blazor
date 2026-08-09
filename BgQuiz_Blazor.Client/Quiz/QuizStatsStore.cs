@@ -170,8 +170,10 @@ internal sealed class QuizStatsStore : IDecisionStatsSink
     /// construction</b> rather than by anyone remembering to reset it: every
     /// <see cref="PickedProblemFolder.Set"/> and
     /// <see cref="PickedProblemFolder.Clear"/> bumps the generation, and a
-    /// probe stamped with an older one simply stops matching. The same derived-
-    /// stamp idiom as the Apply-Mix gate's <c>AppliedFilter.WasAppliedFor</c>.
+    /// probe stamped with an older one simply stops matching. The same
+    /// expires-by-key idiom the applied filter uses, where the generation is
+    /// the source token an applied config is keyed to
+    /// (<c>AppliedFilter.ConfigFor</c>).
     ///
     /// <para>
     /// Starts at <c>-1</c>, not <c>0</c>: a never-probed store must not match

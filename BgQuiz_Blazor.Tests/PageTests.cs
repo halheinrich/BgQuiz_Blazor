@@ -71,6 +71,16 @@ public class PageTests : BunitContext
         Services.AddScoped<PickedProblemFolder>();
         Services.AddScoped<QuizStatsStore>();
 
+        // Home injects the restored-filter notice's state and binds it to its
+        // FilterSurface. Scoped, as in Program.cs — and in a bUnit fixture one
+        // scope is one test, so a test's whole run is one "app boot": the first
+        // panel mount that restores a stored selection arms the notice, and a
+        // re-render or navigate-back within the same test re-arms rather than
+        // announcing a second one. Registered fixture-wide because every Home
+        // render needs it; the notice only ever shows where a test stages a
+        // stored selection for the panel to restore.
+        Services.AddScoped<FilterRestoreNotice>();
+
         // Home also injects the saved-filters storage adapter (over
         // IFolderAccess above) and hands it to its FilterSurface while the
         // pick's capability exposes a readable handle. The composite owns the
@@ -211,6 +221,20 @@ public class PageTests : BunitContext
         if (applied is not null) holder.Set(applied, FilterSourceToken.FromGeneration(pickGeneration));
         Services.AddSingleton(holder);
     }
+
+    /// <summary>
+    /// The filter in effect for the folder held <i>right now</i>, or
+    /// <see langword="null"/> when none is — the test-side mirror of Home's
+    /// <c>FilterInEffect</c>, asking the holder the one question its surface
+    /// answers. There is deliberately no way to ask "is anything applied at
+    /// all": a config keyed to a superseded pick is not applied as far as any
+    /// gate is concerned, and a test that could read it absolutely would be
+    /// asserting something the page cannot see.
+    /// </summary>
+    private FilterConfig? FilterInEffect() =>
+        Services.GetRequiredService<AppliedFilter>().ConfigFor(
+            FilterSourceToken.FromGeneration(
+                Services.GetRequiredService<PickedProblemFolder>().PickGeneration));
 
     /// <summary>
     /// Register a <see cref="ShuffleOption"/> for the rendered <c>Home</c> page
@@ -816,9 +840,8 @@ public class PageTests : BunitContext
         await ApplyMixThroughPanelAsync(cut);
 
         var folder = Services.GetRequiredService<PickedProblemFolder>();
-        var filter = Services.GetRequiredService<AppliedFilter>();
         Assert.True(folder.HasFiles);          // fully armed…
-        Assert.True(filter.IsApplied);
+        Assert.NotNull(FilterInEffect());
         Assert.False(mix.Current.IsPassthrough);
 
         // …then a second pick gesture, sampled at the picker.
@@ -826,7 +849,7 @@ public class PageTests : BunitContext
         _folderAccess.OnPickCalled = () =>
         {
             heldAtPicker = folder.HasFiles;
-            appliedAtPicker = filter.IsApplied;
+            appliedAtPicker = FilterInEffect() is not null;
             mixedAtPicker = !mix.Current.IsPassthrough;
         };
         _folderAccess.NextPickOutcome = OneFileOutcome("Second", "second.xg");
@@ -872,7 +895,7 @@ public class PageTests : BunitContext
         // unmounted — no row, no panel, nothing to observe but its absence.
         Assert.DoesNotContain("Race", cut.Markup);
         Assert.Empty(cut.FindAll("#saveFilterName"));
-        Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied);
+        Assert.Null(FilterInEffect());
         Assert.True(mix.Current.IsPassthrough);
         // Both mix halves ended with the setup: the discarded draft is blank,
         // so it agrees with the reset holder — no derived gate survives.
@@ -1824,7 +1847,7 @@ public class PageTests : BunitContext
         Assert.False(StartButton(cut).HasAttribute("disabled"));
         // Re-set from the payload, not merely un-cleared: the config the quiz
         // would be built from is the one the panel reported clean.
-        Assert.Equal(0.75, Services.GetRequiredService<AppliedFilter>().Config!.ErrorMin);
+        Assert.Equal(0.75, FilterInEffect()!.ErrorMin);
     }
 
     [Fact]
@@ -1846,6 +1869,80 @@ public class PageTests : BunitContext
 
         Assert.True(surface.OnAppliedStateChanged.HasDelegate);
         Assert.True(surface.OnFilterConfigChanged.HasDelegate);
+    }
+
+    /// <summary>
+    /// A stored filter selection for the composite's first-render restore to
+    /// find, answered <i>by exclusion</i>: the panel's <c>localStorage</c> key
+    /// is a producer internal this host may not name (the producer keeps those
+    /// constants <c>internal</c> precisely so no consumer depends on them), so
+    /// this matches every <c>localStorage.getItem</c> for a key BgQuiz does not
+    /// own. Everything left over on a Home render belongs to the composite, and
+    /// the panel's other restore — its disclosure flag — reads this tolerantly
+    /// (anything but <c>"true"</c> keeps the collapsed default).
+    /// </summary>
+    private void WithStoredFilterSelection(FilterConfig stored)
+    {
+        string[] hostKeys = [MixDraft.StorageKey, QuizSettings.StorageKey];
+        JSInterop.Setup<string?>(
+            "localStorage.getItem",
+            invocation => invocation.Arguments is [string key] && !hostKeys.Contains(key))
+            .SetResult(stored.ToJson());
+    }
+
+    [Fact]
+    public async Task Home_RestoredFilterSelection_ShowsTheNotice_UntilAnEditSupersedesIt()
+    {
+        // This host's half of the spec's §4 legibility rule. The notice's
+        // mechanics — when it arms, when it dies, that a remount re-arms it —
+        // are the producer's to pin and are pinned there; what only this repo
+        // can prove is that its own wiring is live: FilterRestoreNotice is
+        // registered (at app scope, beside AppliedFilter) and bound to the
+        // hosted FilterSurface, so the producer's decision actually reaches
+        // this page. A missing registration throws at render and an unbound
+        // parameter leaves the composite arming an instance nobody shows —
+        // neither of which any other test here would catch.
+        //
+        // One bUnit fixture is one scope, so this test is one app boot: the
+        // stored selection below is a previous session's, restored by the
+        // panel's first render after the pick mounts it.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithStoredFilterSelection(new FilterConfig { ErrorMin = 0.5 });
+        _folderAccess.NextPickOutcome = OneFileOutcome();
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        // The restore is interop-driven and lands after the pick's render, so
+        // wait for it rather than sampling whatever paint the click returned on.
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("#filterRestoredNotice")));
+
+        // The selection becomes the user's own — the notice's statement stops
+        // holding, so it goes.
+        await EditFilterControlAsync(cut);
+
+        Assert.Empty(cut.FindAll("#filterRestoredNotice"));
+
+        // And it stays gone across a navigate-back, which is the half that pins
+        // the *lifetime* rather than the binding: a second Home instance mounts
+        // a second panel that restores the same stored selection all over
+        // again, and the only reason it does not announce it a second time is
+        // that Home resolved the app-scoped instance the first edit spent.
+        // Registered Transient this assertion fails while everything above
+        // still passes — which is exactly the mistake worth a pin, since §4
+        // says navigation changes nothing.
+        var back = Render<HomePage>();
+
+        // Wait on the restore itself before asserting the absence: the stored
+        // 0.5 landing in the fresh panel's buffers (over the 0.75 the edit above
+        // typed into the panel that just died) is the positive signal that the
+        // arming path ran and declined. Asserting "no notice" without it would
+        // pass on the paint before the interop even returned.
+        back.WaitForAssertion(() =>
+            Assert.Equal("0.5", back.Find("input[placeholder='Min']").GetAttribute("value")));
+        Assert.Empty(back.FindAll("#filterRestoredNotice"));
     }
 
     [Fact]
@@ -1899,8 +1996,7 @@ public class PageTests : BunitContext
             Assert.False(StartButton(cut).HasAttribute("disabled"));
             Assert.Contains("decisions match your filters", cut.Markup);
         });
-        Assert.Equal(["Magriel"],
-            Services.GetRequiredService<AppliedFilter>().Config!.Players);
+        Assert.Equal(["Magriel"], FilterInEffect()!.Players);
     }
 
     [Fact]
@@ -1965,11 +2061,11 @@ public class PageTests : BunitContext
 
         // The edit is a dirty signal like any other: Start re-gates until Apply.
         Assert.True(StartButton(cut).HasAttribute("disabled"));
-        Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied);
+        Assert.Null(FilterInEffect());
 
         await ApplyFiltersAsync(cut);
 
-        var applied = Services.GetRequiredService<AppliedFilter>().Config;
+        var applied = FilterInEffect();
         Assert.NotNull(applied);
         Assert.True(applied!.IncludeRollouts);
         // Untouched toggles stay off, and an untoggled mode's level list stays
@@ -2017,7 +2113,7 @@ public class PageTests : BunitContext
 
         Assert.Equal("Magriel",
             cut.Find("input[placeholder='e.g. Hal, Magriel']").GetAttribute("value"));
-        Assert.True(Services.GetRequiredService<AppliedFilter>().IsApplied);
+        Assert.NotNull(FilterInEffect());
         Assert.False(StartButton(cut).HasAttribute("disabled"));
         Assert.Contains("decisions match your filters", cut.Markup);
 
@@ -2030,7 +2126,7 @@ public class PageTests : BunitContext
         Assert.Equal(string.Empty,
             cut.Find("input[placeholder='e.g. Hal, Magriel']").GetAttribute("value"));
         // …applied state dropped, so Start re-gates behind the Apply hint…
-        Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied);
+        Assert.Null(FilterInEffect());
         Assert.True(StartButton(cut).HasAttribute("disabled"));
         Assert.Contains("Apply the filters above to enable Start", cut.Markup);
         // …and the count that described the old corpus is gone.
@@ -2059,12 +2155,12 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
         await ApplyFiltersAsync(cut); // commits the defaults, unedited
-        Assert.True(Services.GetRequiredService<AppliedFilter>().IsApplied);
+        Assert.NotNull(FilterInEffect());
 
         _folderAccess.NextPickOutcome = OneFileOutcome("Second", "second.xg");
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied);
+        Assert.Null(FilterInEffect());
         Assert.True(StartButton(cut).HasAttribute("disabled"));
         Assert.Contains("Apply the filters above to enable Start", cut.Markup);
         Assert.DoesNotContain("decision matches your filters", cut.Markup);
@@ -4626,13 +4722,16 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ApplyMix_NotRevokedByASubsequentlyDirtyFilter()
+    public async Task Home_ApplyMix_RevokedByADirtyFilter_AndRestoredByReApplying()
     {
-        // The settled semantics: the gate asks "has this corpus been filtered?",
-        // which a half-typed filter edit does not un-answer. The *config* is
-        // edit-coupled (Start re-gates, below); the pick stamp is not. Getting
-        // this wrong would yank Apply Mix away mid-composition for an unrelated
-        // edit — the (AK)-flavoured failure the issue warned about.
+        // The spec's Fork A, ruled strict: mix activation reads the filter in
+        // effect *now* — the same fact Start reads — so a filter edit takes
+        // Apply Mix away and re-applying gives it back. This inverts the
+        // superseded ruling that the gate asked "has this corpus been
+        // filtered?", a question no longer answerable anywhere in the model
+        // (§3): the stamp that carried it is deleted with nothing replacing it.
+        // The accepted cost is exactly what the second half of this test pins —
+        // mid-composition friction, recoverable by one re-Apply.
         var cut = await RenderWithUiPickAsync();
         await cut.Find("#mixAddRow").ClickAsync(new()); // a valid, committable draft
         await ApplyFiltersAsync(cut);
@@ -4640,17 +4739,26 @@ public class PageTests : BunitContext
 
         await EditFilterControlAsync(cut);
 
-        Assert.False(Services.GetRequiredService<AppliedFilter>().IsApplied); // Start re-gated…
+        // One fact, read by both gates — no state in which they disagree.
+        Assert.Null(FilterInEffect());
         Assert.True(StartButton(cut).HasAttribute("disabled"));
-        Assert.False(MixApplyDisabled(cut));                                  // …Apply Mix not
+        Assert.True(MixApplyDisabled(cut));
+        // And the gate says why it closed, as it does on a fresh pick.
+        Assert.Contains("the mix draws its problems from the", cut.Markup);
+
+        await ApplyFiltersAsync(cut);
+
+        Assert.NotNull(FilterInEffect());
+        Assert.False(MixApplyDisabled(cut));
+        Assert.DoesNotContain("the mix draws its problems from the", cut.Markup);
     }
 
     [Fact]
     public async Task Home_NewPick_ReGatesApplyMix()
     {
-        // The other half of the rule: a new corpus has not been filtered, so the
-        // gate closes again. No reset code does this — the folder's generation
-        // bumps and the stamp simply stops matching.
+        // The other half of the rule: a new corpus has nothing in effect for it,
+        // so the gate closes again. No reset code does this — the folder's
+        // generation bumps and the applied config's key simply stops matching.
         var cut = await RenderWithUiPickAsync();
         await cut.Find("#mixAddRow").ClickAsync(new());
         await ApplyFiltersAsync(cut);

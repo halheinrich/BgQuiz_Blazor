@@ -17,7 +17,7 @@ public sealed class ApplyMixGatingTests : FsAccessFakeTestBase
     private ILocator MixApply => Page.Locator("#mixApply");
 
     [Fact]
-    public async Task ApplyMix_IsGatedUntilApplyFilter_AndSurvivesALaterFilterEdit()
+    public async Task ApplyMix_IsGatedUntilApplyFilter_AndIsRevokedByALaterFilterEdit()
     {
         await BootHomeAsync();
         // #87: the mix panel is offered only for a folder with a stats history,
@@ -36,13 +36,31 @@ public sealed class ApplyMixGatingTests : FsAccessFakeTestBase
         await ApplyFilterAsync();
         await Expect(MixApply).ToBeEnabledAsync();
 
-        // A later filter edit re-gates Start but must NOT revoke the mix gate:
-        // the corpus has been filtered, and yanking Apply Mix away
-        // mid-composition for an unrelated edit is the coupling the issue's
-        // caution ruled out.
+        // A later filter edit revokes both gates together — the spec's Fork A,
+        // ruled strict: activation reads the filter in effect *now*, the same
+        // fact Start reads, so there is no browser state in which the two
+        // disagree. (This inverts the earlier ruling that the gate asked
+        // "has this corpus been filtered?" and survived edits; that question no
+        // longer exists in the model.) Re-applying is the one-gesture recovery,
+        // and pinning it here is what keeps the accepted mid-composition
+        // friction from being an actual dead end in a real browser.
         await Page.GetByPlaceholder("Min").First.FillAsync("0.05");
         await Expect(StartButton).ToBeDisabledAsync();
+        await Expect(MixApply).ToBeDisabledAsync();
+        await Expect(Page.GetByText("the mix draws its problems from the filtered pool"))
+            .ToBeVisibleAsync();
+
+        await ApplyFilterAsync();
         await Expect(MixApply).ToBeEnabledAsync();
+        await Expect(Page.GetByText("the mix draws its problems from the filtered pool"))
+            .ToHaveCountAsync(0);
+
+        // Start is still dark here, and for the *mix's* reason — the row added
+        // above was never committed. Commit it and the page finally arms: the
+        // whole friction Fork A accepts is one re-Apply away from recovery, and
+        // nothing about it strands the run.
+        await ApplyMixAsync();
+        await Expect(StartButton).ToBeEnabledAsync();
     }
 
     [Fact]

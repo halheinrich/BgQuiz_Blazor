@@ -56,11 +56,20 @@ builder.Services.AddScoped<IDecisionStatsSink>(sp => sp.GetRequiredService<QuizS
 
 // Per-app holder for the filter half of Home's start gate — XgFilter_Razor's
 // AppliedFilter, mediated by the FilterSurface Home hosts (a commit Sets it
-// stamped with the pick's source token; uncommitted-edit reports Clear it).
+// keyed to the pick's source token; uncommitted-edit reports Clear it).
 // Scoped so the gate survives in-app navigation (Home is re-instantiated on
 // navigate-back, and the composite dies with the page while this holder must
-// not); read only by Home.
+// not); read only by Home, and only ever source-relatively.
 builder.Services.AddScoped<AppliedFilter>();
+
+// The restored-filter notice's state, beside the holder above and for the same
+// reason: a full reload constructs a fresh instance, and that construction is
+// precisely what tells a boot's localStorage restore (say so — the spec's §4
+// legibility rule) apart from a navigate-back remount over the same setup
+// (say nothing). Scoped, therefore, not per-page. Deliberately opaque to this
+// host: every member that moves it is producer-internal, so Home's whole
+// contract is to register the instance here and bind it to FilterSurface.
+builder.Services.AddScoped<FilterRestoreNotice>();
 
 // The saved-filters storage seam: XgFilter_Razor's IFilterDocumentStorage over
 // BgFolderAccess_Razor's picked-slot file I/O — the one-line adapter glue the

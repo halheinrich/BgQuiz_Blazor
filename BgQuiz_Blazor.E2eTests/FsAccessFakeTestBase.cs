@@ -190,12 +190,13 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     /// <para>
     /// It ends by <b>re-picking</b>, which leaves the setup in the state these
     /// scenarios assume: a folder held, its stats now readable (the pick
-    /// re-probes), and no filter applied for the current pick — the pick
-    /// generation bumped, expiring the stamp the seeding quiz's Apply left. The
+    /// re-probes), and no filter in effect for the current pick — the pick
+    /// generation bumped past the key the seeding quiz's Apply left its config
+    /// under. The
     /// wait is on the Apply-Mix gate hint, which is the one thing true only
     /// after the re-pick lands: it needs the panel mounted (so the probe found
-    /// the seeded record) <i>and</i> no applied filter (so the new pick is the
-    /// one in effect). Waiting on the folder summary instead would race — the
+    /// the seeded record) <i>and</i> nothing in effect (so the new pick is the
+    /// one being set up). Waiting on the folder summary instead would race — the
     /// outgoing pick's summary reads identically.
     /// </para>
     /// </summary>

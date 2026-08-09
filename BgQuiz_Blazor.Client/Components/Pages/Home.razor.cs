@@ -66,7 +66,8 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// Start is gated on three conditions: the filters Applied at least once, a
+/// Start is gated on three conditions: a filter in effect for the pick on
+/// screen (<see cref="FilterInEffect"/> — applied, and not since edited), a
 /// folder picked with at least one problem file, and the mix draft agreeing
 /// with the committed mix (<see cref="MixDraft.Matches"/> — derived per
 /// render, never stored; see <see cref="MixDirty"/>). Everything the gate
@@ -416,20 +417,41 @@ public partial class Home : ComponentBase, IDisposable
     private bool MixDirty => !MixDraft.Matches(AppliedMix.Current);
 
     /// <summary>
-    /// Three gates: filters applied, a folder with problem files picked, and
-    /// the mix draft in agreement with the committed mix (see
-    /// <see cref="MixDirty"/>).
+    /// This page's identity for the corpus a filter can be applied against —
+    /// the pick, named by its generation counter. <b>Minted here and nowhere
+    /// else</b>: the hosted <c>FilterSurface</c>'s <c>Source</c> binding (what
+    /// a commit is keyed to) and every gate that asks
+    /// <see cref="AppliedFilter.ConfigFor"/> (what a read is compared against)
+    /// both read this one property, so the two sides of the key cannot encode
+    /// the pick differently. Two inline mints used to state that agreement in
+    /// prose; one property makes it structural.
     /// </summary>
-    private bool CanStart => AppliedFilter.IsApplied && Folder.HasFiles && !MixDirty;
+    private FilterSourceToken CurrentFilterSource =>
+        FilterSourceToken.FromGeneration(Folder.PickGeneration);
 
     /// <summary>
-    /// The mix panel's <i>Apply Mix</i> gate: whether a filter has been applied
-    /// for the folder currently picked
-    /// (<see cref="AppliedFilter.WasAppliedFor"/> against a token minted live
-    /// from <see cref="PickedProblemFolder.PickGeneration"/> — the same minting
-    /// the hosted <c>FilterSurface</c>'s <c>Source</c> binding uses, so the
-    /// stamp the composite records and the token this gate compares can never
-    /// encode the pick differently). Ratified UX
+    /// The filter in effect for the pick on screen right now, or
+    /// <see langword="null"/> when none is — the single fact this page's whole
+    /// filter story reads: Start's filter gate (<see cref="CanStart"/>), its
+    /// hint, the mix's activation gate (<see cref="MixApplyEnabled"/>), and the
+    /// config <see cref="StartCoreAsync"/> actually runs. Source-relative by
+    /// construction, so a config applied against an earlier pick expires
+    /// without anyone clearing anything: the generation bumps and the key stops
+    /// matching. Nothing here can answer "has this folder ever been filtered" —
+    /// that fact no longer exists in the model (the spec's §3).
+    /// </summary>
+    private FilterConfig? FilterInEffect => AppliedFilter.ConfigFor(CurrentFilterSource);
+
+    /// <summary>
+    /// Three gates: a filter in effect for this pick, a folder with problem
+    /// files picked, and the mix draft in agreement with the committed mix (see
+    /// <see cref="MixDirty"/>).
+    /// </summary>
+    private bool CanStart => FilterInEffect is not null && Folder.HasFiles && !MixDirty;
+
+    /// <summary>
+    /// The mix panel's <i>Apply Mix</i> gate: whether a filter is in effect for
+    /// this pick <i>now</i> (<see cref="FilterInEffect"/>). Ratified UX
     /// sequencing, not a data-flow requirement — the mix composes over the
     /// filtered pool at <i>Start</i>, so applying one first is legal and
     /// harmless in the pipeline; what it isn't is legible, because the panel
@@ -437,28 +459,31 @@ public partial class Home : ComponentBase, IDisposable
     /// gesture is what states the dependency direction.
     ///
     /// <para>
+    /// <b>The same fact Start reads — the spec's Fork A, ruled strict.</b>
+    /// Activation requires the filter in effect at this moment, so
+    /// <b>editing the filter disables Apply Mix until it is re-applied</b>,
+    /// exactly as it disables Start. Accepted cost: mid-composition friction.
+    /// What it buys is that no fact of the form "this folder was filtered at
+    /// some point" survives anywhere in the model (§3) — the stamp that used to
+    /// carry it, and the ruling that edits could not revoke it, are deleted with
+    /// nothing put in their place. Nothing can <i>run</i> wrong in the window
+    /// either way, since Start is dead while the filter is dirty.
+    /// </para>
+    ///
+    /// <para>
     /// <b>Derived, and deliberately not coupled to the mix's lifetimes.</b>
     /// Nothing about <see cref="MixDraft"/> or <see cref="AppliedMix"/> changes
     /// for this: the gate is a property of the <i>filter</i> and the <i>pick</i>
     /// alone, read live per render. The (AK) wedge came from a stored judgement
     /// whose inputs lived in a different lifetime; here there is no stored
-    /// judgement, and the two facts share the app scope.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Editing the filter does not revoke it</b> (the stamp survives
-    /// <see cref="AppliedFilter.Clear"/> by the holder's two-lifetime contract):
-    /// the corpus has been filtered, and
-    /// re-gating a mix the user is midway through composing would punish an
-    /// unrelated edit. <b>A new pick does</b>, by construction — the generation
-    /// bumps, so the stamp expires by token inequality. And <i>Reset</i> stays
-    /// ungated in every state, so a hydrated draft
-    /// that gates Start always has its visible way out even before a filter is
-    /// applied.
+    /// judgement, and the two facts share the app scope. A new pick revokes the
+    /// gate by construction — the generation bumps and
+    /// <see cref="FilterInEffect"/> stops matching. And <i>Clear mix</i> stays
+    /// ungated in every state, so a hydrated draft that gates Start always has
+    /// its visible way out even with no filter in effect.
     /// </para>
     /// </summary>
-    private bool MixApplyEnabled =>
-        AppliedFilter.WasAppliedFor(FilterSourceToken.FromGeneration(Folder.PickGeneration));
+    private bool MixApplyEnabled => FilterInEffect is not null;
 
     /// <summary>
     /// The muted hint the mix panel shows while <see cref="MixApplyEnabled"/>
@@ -819,19 +844,23 @@ public partial class Home : ComponentBase, IDisposable
     ///
     /// <para>
     /// <b>The <see cref="AppliedFilter.Clear"/> is the one line of filter
-    /// choreography left host-side, and it closes a gap only the host can
-    /// see.</b> The composite owns the source-change rule — but a rule runs on a
-    /// <i>mounted</i> component receiving a changed parameter, and this page's
-    /// token changes always happen across an unmount: <see cref="PickedProblemFolder.Clear"/>
-    /// closes the <c>HasFiles</c> gate before the composite could ever observe
-    /// the new token, and the eventual re-mount's first parameters-set is —
-    /// by the producer's ruled pin — initialization only, no holder clear
-    /// (that restraint is what keeps navigate-back from disarming an applied
-    /// gate). So without this line a config applied against the previous corpus
-    /// would keep <see cref="AppliedFilter.IsApplied"/> true and Start armed
-    /// against files it was never weighed against — the exact hazard the old
-    /// host-side reset existed to close. The stamp half needs no help: the mix
-    /// gate compares tokens, and the generation bump expires it by construction.
+    /// choreography left host-side, and it is now residue-dropping rather than
+    /// gate-closing.</b> It used to be load-bearing: the applied config was
+    /// readable absolutely, so a config applied against the outgoing corpus
+    /// would have stayed in force across the gap the composite cannot cover
+    /// (its source-change rule runs on a <i>mounted</i> component receiving a
+    /// changed parameter, and this page's token changes all happen across an
+    /// unmount — <see cref="PickedProblemFolder.Clear"/> closes the
+    /// <c>HasFiles</c> gate before the composite could observe the new token,
+    /// and the eventual re-mount's first parameters-set is, by the producer's
+    /// ruled pin, initialization only). Source-keying closed that hazard
+    /// structurally: <see cref="PickedProblemFolder.Clear"/> bumps the
+    /// generation on the line above, so <see cref="FilterInEffect"/> is already
+    /// null for every subsequent read whether or not this line runs. What the
+    /// line still does is drop the pair itself, so no config outlives the setup
+    /// that applied it even unreachably — which is exactly the end-of-setup
+    /// call <see cref="AppliedFilter.Clear"/> documents as its purpose, made
+    /// here because this is where this host's setups end.
     /// </para>
     ///
     /// <para>
@@ -882,10 +911,12 @@ public partial class Home : ComponentBase, IDisposable
         // no capability fork in the gate.
         AppliedMix.Reset();
         MixDraft.Discard();
-        // The unmount-gap line — see the method summary. The user's last-applied
-        // filter is untouched in the panel's own localStorage (a later mount
-        // re-stages it, shown but never claimed as applied), so this clears the
-        // session's claim, not the panel's persistence.
+        // Drop the applied pair outright — see the method summary for why this
+        // is residue-dropping now rather than the gate close it once was. The
+        // user's last-applied filter is untouched in the panel's own
+        // localStorage (a later mount re-stages it, shown but never claimed as
+        // applied), so this clears the session's claim, not the panel's
+        // persistence.
         AppliedFilter.Clear();
         ClearPickNotices();
 
@@ -911,7 +942,7 @@ public partial class Home : ComponentBase, IDisposable
     /// The composite's re-raise of the panel's <i>Apply</i> (and <i>Clear
     /// filters</i>) commit — the gesture that moves the committed config. By the
     /// time this fires, <c>FilterSurface</c> has already recorded the applied
-    /// state on the shared <see cref="AppliedFilter"/> holder, stamped with the
+    /// state on the shared <see cref="AppliedFilter"/> holder, keyed to the
     /// pick's source token (the producer rule: <i>a commit applies the
     /// filter</i>, honored before the host hears about it) — so this handler
     /// owns only the host side effects the composite can't know: the outcome
@@ -1060,7 +1091,7 @@ public partial class Home : ComponentBase, IDisposable
 
     private async Task StartCoreAsync(bool ignoreMix)
     {
-        if (AppliedFilter.Config is not { } cfg) return;
+        if (FilterInEffect is not { } cfg) return;
         _startError = null;
         _noMatchNotice = null;
         _mixRefused = false;
