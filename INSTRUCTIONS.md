@@ -147,8 +147,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     FolderPickDisplay.cs            — folder-pick wording SSOT
     QuizStatsFile.cs                — stats filename + JsonSerializerOptions SSOT
     QuizStatsStore.cs               — IDecisionStatsSink + document lifecycle
-    AppliedMix.cs                   — committed-mix holder (pure commitment)
-    MixDraft.cs                     — mix edit state + derived gate + xg_quizMix
+    MixConsent.cs                   — the "Mix applies" bit (consent, not choice)
+    MixDraft.cs                     — mix edit state + write-through xg_quizMix
     MixDisplay.cs                   — mix wording SSOT
     CubeActionDisplay.cs            — cube-verdict wording SSOT
     AnswerTypeDisplay.cs            — answer-type wording SSOT (always five)
@@ -182,8 +182,7 @@ BgQuiz_Blazor.Tests/
   CubeActionDisplayTests.cs
   AnswerTypeDisplayTests.cs         — bucket→field mapping, order, always-five
   MixPanelTests.cs                  — builder / validation / rebalance pins
-  MixDraftTests.cs                  — derived-gate matrix + hydration + persist
-  AppliedMixTests.cs
+  MixDraftTests.cs                  — build/write-through matrix + hydration
   QuizSettingsTests.cs              — the settings seam + the pinned wire bytes
   QuizStatsStoreTests.cs            — bind / fold / write-back / degrade
   WasmUploadedProblemSetSourceTests.cs
@@ -204,12 +203,12 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
   E2eTestBase.cs                    — per-test context + shared flow helpers
   FsAccessFakeTestBase.cs           — the fake showDirectoryPicker seam
   QuizFlowTests.cs                  — cube + checker primary paths, pick → Done
-  EmptyFilterBannerTests.cs         — empty-result banner; no 0/0 bounce
+  EmptyFilterBannerTests.cs         — known-zero pool darkens Start + recovery
   ReloadNoticeTests.cs              — reload-reset notice, Start and Restart
   StatsPersistenceTests.cs          — FS-Access stats path via the fake
   SavedFiltersPersistenceTests.cs   — saved-filters FS path via the fake
   MixWeightingTests.cs              — weighted start to Done (+ MixRefusalTests)
-  ApplyMixGatingTests.cs            — Apply Mix sequenced behind Apply Filter
+  ApplyMixGatingTests.cs            — mix activation sequenced behind Apply Filter
   PickBusyAffordanceTests.cs        — the pick's busy paint, scan held open
   CommaDecimalLocaleTests.cs        — nb-NO comma-decimal guard
   HelpAndTitlesTests.cs             — /help renders; document.title contract
@@ -370,8 +369,9 @@ fake source the same way.
 
 **Mix ownership mirrors filter ownership, and a weighted start can be
 refused.** `StartAsync(FilterConfig, QuizMix, bool ignoreMix = false)` takes
-the committed mix beside the filter config — user config in at Start, stored
-for Restart, no caller-set mutation — and returns a `QuizStartOutcome`. For a
+the caller's effective mix beside the filter config — user config in at
+Start, stored for Restart, no caller-set mutation — and returns a
+`QuizStartOutcome`. For a
 non-blank *effective* mix (the stored mix, unless the per-run `ignoreMix`
 override), `ResetAndAdvanceAsync` wires the producer's `MixedProblemSetSource`
 around the factory source, holding the typed reference so `LastComposition`
@@ -807,7 +807,7 @@ been filtered"; that fact is deleted from the model with nothing replacing it
 `CurrentFilterSource` (`FromGeneration(Folder.PickGeneration)`), and derives
 `FilterInEffect => AppliedFilter.ConfigFor(CurrentFilterSource)` from it. The
 composite's `Source` binding reads the first; `CanStart`, its Apply-hint,
-`MixApplyEnabled`, and `StartCoreAsync` all read the second. So what a commit
+`MixActivationEnabled`, and `StartCoreAsync` all read the second. So what a commit
 is keyed to and what every gate compares cannot encode the pick differently —
 structurally, not by a documented promise that two inline mints agree.
 
@@ -881,12 +881,24 @@ It stages the stored selection *by exclusion* — answering every
 `localStorage.getItem` for a key BgQuiz does not own — because the panel's key
 is a producer internal no host may name.
 
-### `MixPanel` / `MixDraft` / `AppliedMix` — the stats-weighted mix
+### `MixPanel` / `MixDraft` / `MixConsent` — the stats-weighted mix
+
+**The model** (`SPEC-filtering.md` §5, ratified 2026-08-09, rebuilt here per
+umbrella #83): **there is no committed copy of the mix.** The sole activation
+control is the **"Mix applies" checkbox** (`#mixApplies`), whose one boolean
+lives in the app-scoped `MixConsent`; checked means *the mix on screen is in
+effect*, and what a consented Start runs is the draft's own `Build()` — screen
+and effect cannot diverge, so the whole draft-vs-committed machinery
+(`AppliedMix`, the Apply Mix button and `OnMixApplied` event, `MixDirty`, the
+withdraw-on-edit choreography) is deleted, not relocated. The checkbox is
+**consent**, the rows are **choice** (§4's law): the rows persist — across
+navigation, picks, and reloads — while the bit is revoked at every setup end
+and dies on reload with the scope.
 
 **`MixPanel`** (Components/Pages) is the FilterPanel of quiz composition — a
-**view over the app-scoped `MixDraft`** (all edit state lives in the Scoped
-service; the component holds none, so mix edits survive in-app navigation —
-ratified product behavior): an
+**view over the app-scoped `MixDraft` and `MixConsent`** (all state lives in
+the Scoped services; the component holds none, so mix edits and the activation
+bit survive in-app navigation — ratified product behavior): an
 ordered list of (category, percent) rows — category picker over the seven
 `QuizCategoryKind`s, a parameter input where the kind takes one (defaults
 seeded on selection: 3 times / 30 days / 0.05 equity / 25%), percent 1–100
@@ -895,13 +907,15 @@ optional quiz length (disabled with a hint at zero rows;
 length-without-entries is invalid by producer rule, and "cap without
 weighting" is one Everything-else row at 100 plus a length). Row order is
 **semantic** (earlier rows win contested overlap — producer contract), so
-rows carry explicit ↑/↓ reorder buttons and both commit and restore preserve
-order exactly. The wrong-rate row *displays* percent and *stores* the
+rows carry explicit ↑/↓ reorder buttons and both persistence and restore
+preserve order exactly. The wrong-rate row *displays* percent and *stores* the
 producer's fraction — thresholds are fractions; rendering is a display
-concern. Validation disables Apply with an inline reason; category
+concern. Validation reports the first problem inline (`ValidationError` — the
+in-place account of what the fix-or-uncheck hint means by "fix it"); category
 construction goes through the producer's validating factories with a
-try/catch backstop. A blank builder is always valid and commits
-`QuizMix.Empty` — the inert passthrough default.
+try/catch backstop. **The blank builder builds `QuizMix.Empty` — never null**
+(ruled, load-bearing): null is reserved for genuinely invalid states, so
+checked-over-blank reads as in-effect passthrough and Clear can persist blank.
 
 **The row count owns the percents** (findings AH/AI). Add *and* Remove alike
 re-derive every row's percent as an even split totalling exactly 100 (floor
@@ -920,49 +934,61 @@ never rebalances.
 
 **Add category is styled `btn-outline-primary`, not the panel's secondary grey
 — don't "unify" it**: the button is never disabled (adding a row is always
-valid), but at zero rows its three neighbours *are*, and in secondary grey it
-read as a fourth switched-off control — the one misreading that must never
-happen, since it is the only way out of the zero-row state. The class matches
+valid), but at zero rows its neighbours (Random order, Quiz length, and the
+gated checkbox pre-filter) *are*, and in secondary grey it read as another
+switched-off control — the one misreading that must never happen, since it is
+the only way out of the zero-row state. The class matches
 Home's `Choose folder…`, the page's other required-but-unstarted step;
 `MixPanelTests` pins state and appearance together, because the defect was the
 gap between them.
 
-**Commit model mirrors FilterPanel** — `OnMixApplied` on Apply, **Clear
-mix**, and **removing the last row** (the latter two are an explicit apply of
-`QuizMix.Empty` through the shared `GoBlankAsync`, the sanctioned way this
-panel writes Empty over a stored mix; the last-row case keeps holder, draft,
-and localStorage agreeing at the blank the user chose, so the pre-beta
-zero-rows wedge cannot recur). `OnMixApplied` is the panel's **only** event
-and is `[EditorRequired]`. The host also holds one **gate** on it: `CanApply`
-(default `true`) plus an optional `ApplyDisabledReason`, mirroring
-`SavedFiltersPanel.CanPersist` / `PersistDisabledReason` down to the muted
-hint line and the disabled button's `title`. It sequences **Apply Mix only** —
-*Clear mix* and the last-row blank path stay live, or a dirty draft could wedge
-Start (§ Pages → Home, issue #45). The panel is *told*, never asks: it holds
-no notion of filters, and `ApplyAsync` early-returns on the gate as well as
-the draft's validity, so a dispatch ignoring `disabled` still cannot commit.
-Mere edits raise nothing — they mutate the draft, whose `Changed`
-notification re-renders Home (state-container pattern), and the gate
-re-derives. Persistence is **committed-only** over one key, **`xg_quizMix`**,
-owned by `MixDraft` in both directions: `PersistAsync` (`ToJson`) on every
-commit, and a **once-per-setup hydration** (`EnsureHydratedAsync`, a
-cached-task idempotent read via `TryFromJson` — absent/corrupt yields a blank
-draft, never an error, and only a *successful* parse projects) triggered by
-the panel's init. Nothing else touches a serializer or the key.
+**The checkbox's disable is asymmetric — only *checking* is gated.** The
+check gesture requires the host's `CanActivate` (Fork A: a filter in effect
+*now*), told through a parameter beside `ActivateDisabledReason` — both
+`[EditorRequired]` (with the Apply event gone the component has no other
+required binding, and a bare mount must not compile silently into an ungated
+activation control; `CanActivate` still defaults `true` for a host that
+doesn't sequence). The reason renders as the muted hint line and the disabled
+box's `title`, mirroring `SavedFiltersPanel.CanPersist`'s contract. While the
+box is **checked** it stays operable regardless — unchecking is consent
+withdrawn and is never taken away — and `HandleAppliesChanged` drops a *check*
+arriving past the gate, so a dispatch ignoring `disabled` still cannot
+activate. **The app flips the bit in neither direction**: not on Clear, not on
+invalid, not on a filter edit (auto-uncheck is a rejected alternative the spec
+records; a control the app flips stops being consent). The one app-initiated
+move is `MixConsent.Revoke()` at setup end. Zero rows do **not** disable the
+box (ruled: checked-but-inert — vacuous consent is passthrough).
 
-**Dirtiness is derived, never stored** (see Pitfalls: don't reintroduce a
-stored judgment). The start gate's mix half is one expression: **the draft
-builds and the built mix content-equals `AppliedMix.Current`**
-(`MixDraft.Matches`, over `QuizMix` value equality — ordered entries +
-`QuizLength` + `RandomOrder`). The non-obvious consequences, all falling out
-of that one rule: a blank draft builds `Empty` and matches a fresh holder (no
-blank-vs-passthrough special case); an unbuildable draft is dirty by
-definition; a fresh load's hydrated mix arrives **gated until re-Applied**
-with zero reconcile code (holder `Empty`, draft non-blank); an edit **back to
-the exact committed content derives clean with no Apply**; and a **reorder
-alone is dirty** (order is semantic). Gated is never wedged: whenever the gate
-holds, the divergent draft is on screen with Apply or *Clear mix* as the
-visible way out.
+**Persistence follows the screen — last-valid write-through** over the one
+key, **`xg_quizMix`**, owned by `MixDraft` in both directions, format
+unchanged (one lib-owned `QuizMix` blob via `ToJson`/`TryFromJson`, so mixes
+stored by earlier builds load with no migration). Every mutator, after
+mutating and raising `Changed`, persists the built mix **when the draft
+validates** — the blank draft included, so *Clear mix* and the last-row
+removal persist `Empty` as ordinary edits (no auto-commit path, no event); an
+invalid mutation skips the write, so **storage always holds the last
+well-formed screen state** and a reload mid-half-edit restores that, not the
+torn edit (ruled). Writes are best-effort (a storage fault must not break
+typing — the same degrade posture as the read). Hydration stays
+**once-per-setup** (`EnsureHydratedAsync`, a cached-task idempotent read —
+absent/corrupt yields a blank draft, never an error, and only a *successful*
+parse projects), triggered by the panel's init, filling the draft only: it
+never writes storage and never touches the consent bit, so a restored mix is
+**visible but inert until the user checks the box in *this* setup** (§5
+rule 3). Nothing else touches a serializer or the key.
+
+**The effective mix is derived, never stored** (see Pitfalls). Home's one
+derivation, read by everything downstream:
+`EffectiveMix => MixConsent.Applies ? MixDraft.Build() : QuizMix.Empty`.
+Unchecked ⇒ passthrough — an un-activated draft, however divergent from
+whatever ran last, **never gates Start** (issue #83 resolved by construction:
+no disagreement exists to gate on). Checked ⇒ the on-screen build:
+`QuizMix.Empty` for the blank draft (checked-but-inert), and **null exactly
+when the draft fails to validate — the one mix state that gates Start**, with
+the exact hint "Mix applies but isn't valid — fix it or uncheck.", the box
+left checked (it records intent), and the panel's `ValidationError` saying
+what to fix. Gated is never wedged: unchecking is always live, and *Clear
+mix* clears the rows in every state.
 
 **Offered only where a mix can mean something — one predicate, every consumer**
 (issue #87). Home renders `MixPanel` only while
@@ -988,46 +1014,44 @@ folder offers no mix **until its own first quiz creates stats**, which resolves
 on the return to Home (see the probe's two reading points below), not at some
 later re-pick.
 
-**Every pick (and Clear) still ends both mix halves** — `AppliedMix.Reset()`
-plus `MixDraft.Discard()` in `EndCurrentSetupAsync` (the invariant is "no
-pick → passthrough"; a new pick means a new stats slot, so uncommitted draft
-edits are stale noise and die with the setup). That reset is **unconditional**,
-which is the whole of #87's "a non-passthrough mix must not survive into a
-folder that can't honor it": a mix that survives no pick cannot survive that
-one either, so there is no predicate branch here to get wrong. `Discard` blanks
-the draft **and forgets hydration** (with a generation guard so a read still in
-flight lands nothing); since only a mounted panel triggers re-hydration, a
-mix-capable pick's re-mounted panel re-offers the persisted mix — gated by the
-derived rule against the just-reset holder — while a pick that can't mean a mix
-re-hydrates nothing and the blank draft matches the reset holder: the mix plays
-no part in its Start, with **no capability fork in the gate**. Together those
-keep such a pick unable to coexist with a committed non-blank mix — which is
-what retired the old won't-apply advisory. The panel is **`@key`-ed on
+**Every pick (and Clear) ends the mix's consent, never its choice** —
+`MixConsent.Revoke()` plus `MixDraft.Discard()` in `EndCurrentSetupAsync`.
+The revoke is **unconditional**, which is the whole of #87's "a
+non-passthrough mix must not survive into a folder that can't honor it": a
+consent that survives no pick cannot survive that one either, so there is no
+predicate branch here to get wrong. `Discard` blanks the draft **and forgets
+hydration** (with a generation guard so a read still in flight lands nothing)
+— **deliberately without touching localStorage**, the Clear/Discard asymmetry
+that is §4's choice-vs-consent line drawn through the draft: a mix-capable
+pick's re-mounted panel re-hydrates the stored last-valid mix, visible but
+inert until re-checked, while a pick that can't mean a mix mounts no panel,
+re-hydrates nothing, and the revoked consent keeps the mix out of its Start
+with **no capability fork in the gate**. Together those keep such a pick
+unable to coexist with a mix in effect — which is what retired the old
+won't-apply advisory. The panel is **`@key`-ed on
 `PickedProblemFolder.PickGeneration`** so every pick re-mounts it and the
 fresh mount re-hydrates the discarded draft (see Pitfalls: load-bearing).
 
-**`MixDraft`** (Quiz/) is the app-scoped edit state behind the panel: rows
-(kind / parameter text / percent text, read-only outside — every write goes
-through a mutator so `Changed` fires), the Random-order toggle, the length
-buffer, the picker's canonical kind order, validation (`ValidationError`),
-`Build()` (zero rows ⇒ `Empty`; unbuildable ⇒ null), `Matches(committed)`,
-the hydration lifecycle (`EnsureHydratedAsync` / `Clear` / `Discard` —
-`Clear` is the blank *inside* a setup and stays hydrated; `Discard` ends
-the setup), and `PersistAsync`. Subscribers (Home) detach on dispose.
+**`MixDraft`** (Quiz/) is the app-scoped edit state behind the panel — and,
+when consented, the mix that runs: rows (kind / parameter text / percent
+text, read-only outside — every write goes through an async mutator so
+`Changed` fires and the write-through runs), the Random-order toggle, the
+length buffer, the picker's canonical kind order, validation
+(`ValidationError`), `Build()` (**zero rows ⇒ `Empty`, never null**;
+unbuildable ⇒ null), and the hydration lifecycle (`EnsureHydratedAsync` /
+`ClearAsync` / `Discard` — `ClearAsync` is the blank *inside* a setup, stays
+hydrated, and persists blank; `Discard` ends the setup and persists nothing).
+Subscribers (Home) detach on dispose.
 
-**`AppliedMix`** (Quiz/) is the committed-mix holder beside `AppliedFilter`,
-pure commitment: `Current` (default `QuizMix.Empty`) + `Apply` + `Reset()` —
-no flag. Blank is the valid default, so there is no "never applied blocks
-Start" state — only draft≠committed gates (`CanStart` requires `!MixDirty`,
-Home's derived property), preventing Start from running a mix that differs
-from what the panel shows. The two start-gate halves block by **different
-mechanisms**, because their defaults differ: the filter blocks via
-not-yet-applied (it has no valid default), the mix via divergence (passthrough
-*is* its valid default, so "never applied" can't be the gate). `Current` is
-pick-coupled (reset on every pick and on Clear). Both mix services are Scoped
-(see Pitfalls); unlike their siblings the underlying choice also survives a
-reload (localStorage), and the next boot's hydration re-offers it — gated
-until re-Applied.
+**`MixConsent`** (Quiz/) is the "Mix applies" bit beside the draft: `Applies`
++ `Set(bool)` (idempotent, `Changed` on real moves) + `Revoke()` (the
+end-of-setup reset — the only app-initiated move). The two start-gate halves
+block by **different mechanisms**, because their defaults differ: the filter
+blocks via not-yet-applied (it has no valid default), the mix only via
+checked-and-invalid (passthrough *is* its valid default, and an un-activated
+mix is simply not in effect). Both mix services are Scoped (see Pitfalls);
+the rows also survive a reload (localStorage write-through), and the next
+boot's hydration re-offers them — inert until re-checked.
 
 **`MixDisplay`** (Quiz/) is the wording SSOT: kind labels (the panel's
 picker), full category labels (the Quiz page's mix notices), the
@@ -1042,11 +1066,13 @@ advisory — was retired when the panel became stats-gated, which made its state
 unreachable; don't re-add it, it has no trigger left). (1) *Gate late*: a
 refused weighted Start/Restart renders an actionable `role="alert"` with the
 reason and the one-click per-run override ("Start without mix" / "Restart
-without mix"); the stored mix is kept either way, and the notice says so. The
+without mix"); the mix rows and the checkbox are kept either way, and the
+notice says so — its keep-your-mix escape is *uncheck*, not *Clear mix*,
+because Clear now genuinely deletes the rows (screen-follows-storage). The
 reachable refusal is **stage 2 over a file that changed after the pick** — the
 pick-time probe found a readable record (or the panel would not have been
 offered), and the Start-time bind then didn't. Stage 1 can no longer meet a
-committed mix through the UI at all, since #87 gates the panel on the same
+mix in effect through the UI at all, since #87 gates the panel on the same
 predicate stage 1 reads. (2) *Composed-to-zero*: Home's empty-result branch keys on
 `LastComposition is { DrawnCount: 0 }` for mix-aware wording, parallel to
 filtered-to-zero. (3) *Composition-first mix notices on Quiz*: every mix
@@ -1275,15 +1301,27 @@ The asymmetry is pinned three times over: at the service seam
   panel-shaped events. The `MixPanel`
   carries a *second* gate, `StatsStore.CanWeightMix` (§ `QuizStatsStore`; can
   save stats **and** has some), and a `@key` on
-  `Folder.PickGeneration` (see Pitfalls: load-bearing); its one callback lands
-  in `AppliedMix` (Apply → `Apply`), while edits flow through the injected
-  `MixDraft`, whose `Changed` event Home subscribes to (unsubscribed in
-  `Dispose`) so the derived gate re-renders. The shuffle checkbox binds to
-  `ShuffleOption` (§ that section). Start is gated on **three** conditions,
-  all read from per-app scoped services so the gate survives navigation:
-  `CanStart => FilterInEffect is not null && Folder.HasFiles && !MixDirty`, where
-  `MixDirty => !MixDraft.Matches(AppliedMix.Current)` — derived per render,
-  never stored (§ MixPanel / MixDraft / AppliedMix).
+  `Folder.PickGeneration` (see Pitfalls: load-bearing); it raises no events —
+  gestures flow through the injected `MixDraft` and `MixConsent`, whose
+  `Changed` events Home subscribes to (unsubscribed in `Dispose`; the consent
+  handler also retires a standing weighted-start refusal) so the derived
+  gates re-render. The shuffle checkbox binds to
+  `ShuffleOption` (§ that section). Start is gated on **four** conditions,
+  each with its own sibling hint, read from per-app scoped services (plus the
+  advisory summary) so the gate survives navigation:
+  `CanStart => FilterInEffect is not null && Folder.HasFiles
+  && _matchSummary is not { Total: 0 } && EffectiveMix is not null`, where
+  `EffectiveMix => MixConsent.Applies ? MixDraft.Build() : QuizMix.Empty` —
+  derived per render, never stored (§ MixPanel / MixDraft / MixConsent).
+  **The pool gate is known-zero only** (found dogfooding, ruled): a resolved
+  count of 0 darkens Start with "The filters match no problems — adjust and
+  re-apply them to enable Start."; a null or still-computing summary gates
+  nothing (no async dependency in the gate), and the no-match outcome notice
+  stays the backstop for a Start racing the count. The mix surface — panel,
+  checkbox, row editing — is deliberately **not** pool-gated; composed-to-zero
+  stays the backstop for a non-empty pool whose mix reaches nothing. The mix
+  hint is the ruled "Mix applies but isn't valid — fix it or uncheck."
+  (checked + invalid — the only mix state that gates).
   **Match summary and answer-type breakdown** (umbrella #35). On Apply, Home
   calls `Controller.SummarizeMatchesAsync` (§ Pre-Start match summary) and
   holds the returned `AnswerTypeDistribution` in `_matchSummary`. Home owns
@@ -1292,13 +1330,14 @@ The asymmetry is pinned three times over: at the service seam
   edit or new/cleared pick. One `role="status"` region carries all of it — the
   count from `Total`, the mix caveat, and the breakdown — so a screen reader
   gets the pool and its make-up in one announcement. Settled rules:
-  - **The count is filter-only, and says so when a mix is committed.** With
-    `HasCommittedMix` a caveat renders in the same region: the mix draws the
-    quiz from these matches rather than presenting all of them, so the quiz
-    **can** be much smaller. Hedged, not "will be" — a capless *Everything
-    else* mix can legitimately draw the whole pool. A **pre-Start composition
-    preview is deliberately not built**. `HasCommittedMix` is the single
-    predicate behind both this caveat and (via `MixOwnsOrder`, a named
+  - **The count is filter-only, and says so when a mix is in effect.** With
+    `MixInEffect` (`EffectiveMix is { IsPassthrough: false }` — live per
+    keystroke, since effect follows the screen) a caveat renders in the same
+    region: the quiz is drawn from these matches rather than presenting all
+    of them, so it **can** be much smaller. Hedged, not "will be" — a capless
+    *Everything else* mix can legitimately draw the whole pool. A **pre-Start
+    composition preview is deliberately not built**. `MixInEffect` is the
+    single predicate behind both this caveat and (via `MixOwnsOrder`, a named
     consequence so the shuffle markup says *why*) the shuffle checkbox's
     disabled state.
   - **The breakdown is compact and always open, and every bucket renders,
@@ -1319,22 +1358,25 @@ The asymmetry is pinned three times over: at the service seam
   which also serializes the count against a Start. Help documents the count in
   its own prose — a shared constant is earned only when two surfaces render
   the same sentence, which these don't.
-  **Start.** Hands `FilterInEffect` + `AppliedMix.Current` to
+  **Start.** Hands `FilterInEffect` + `EffectiveMix` (the on-screen draft's
+  build when consented, the passthrough otherwise; the null backstop guards
+  programmatic dispatch) to
   `Controller.StartAsync` and checks the returned outcome **before** the
   empty-result `IsFinished` check (see Pitfalls: a refused start touches no
   quiz state, so `IsFinished` is stale): `MixRequiresStats` renders the
   actionable refusal alert (`_mixRefused`, reason via
   `MixDisplay.RefusalReason`, the "Start without mix" per-run override, a
-  pointer to the panel's *Clear mix*), and the mix-aware composed-to-zero
+  pointer to unchecking *Mix applies*), and the mix-aware composed-to-zero
   wording rides the no-match branch. Since #87 that refusal is near-unreachable
   from the UI — where the mix predicate is false the panel is hidden and the
-  pick reset `AppliedMix` to passthrough, so what can still reach it is a stats
+  pick revoked the consent, so what can still reach it is a stats
   file that stopped being readable between the pick and the Start.
   **A pick ends the current setup — at the click.** `EndCurrentSetupAsync`
   is the single reset behind *both* gestures that end a setup (the pick
   gesture and the `Clear` affordance — they encode the same decision, so they
-  share one spelling): folder holder + JS picked slot, committed mix
-  (`AppliedMix.Reset`) and mix draft, the applied filter
+  share one spelling): folder holder + JS picked slot, the mix consent
+  (`MixConsent.Revoke`) and mix draft (`Discard` — the stored rows survive),
+  the applied filter
   (`AppliedFilter.Clear` — the one line of filter choreography left host-side,
   see § `AppliedFilter` for the unmount-gap ruling), and every pick-scoped
   notice and the match summary. The saved-filters context needs no line: it
@@ -1352,7 +1394,7 @@ The asymmetry is pinned three times over: at the service seam
   the composite, whose panel's `localStorage` restore re-stages the persisted
   config as dirty on **every** pick — accepted, and routine (staged without a
   commit, so it is shown but never claimed as applied; the same hands-off
-  treatment `AppliedMix.Reset` gives the stored mix). Two things are
+  treatment `MixDraft.Discard` gives the stored mix). Two things are
   deliberately *not* reset: `ShuffleOption` (presentation-only preference) and
   the lifetime-stats slot, whose whole point is to *resume* when its folder is
   picked again. `PageTests` pins the reset, the at-the-click timing (sampled
@@ -1386,31 +1428,30 @@ The asymmetry is pinned three times over: at the service seam
   called from both — and the applied-state handler skips it when a summary is
   shown or in flight, because a commit
   raises both callbacks and would otherwise parse the corpus twice.
-  **Apply Mix is sequenced behind Apply Filter** (umbrella #45). The
-  `MixPanel` is handed `CanApply="MixApplyEnabled"` plus the reason sentence;
-  `MixApplyEnabled => FilterInEffect is not null` — "a filter is in effect for
-  the picked folder *right now*". Settled semantics, each half load-bearing:
+  **Mix activation is sequenced behind Apply Filter** (umbrella #45, Fork A).
+  The `MixPanel` is handed `CanActivate="MixActivationEnabled"` plus the
+  reason sentence; `MixActivationEnabled => FilterInEffect is not null` — "a
+  filter is in effect for the picked folder *right now*". Settled semantics,
+  each half load-bearing:
   - **UX sequencing only, never a data-flow rule.** The mix composes over the
-    filtered pool at *Start*, not at Apply Mix, so mix-before-filter was
+    filtered pool at *Start*, not at activation, so mix-before-filter was
     always legal; what it wasn't is legible. The gate states the dependency
     direction and the hint says *why* ("the mix draws its problems from the
     filtered pool"), because the bare rule read as arbitrary.
-  - **A dirty filter revokes it** — the same fact Start reads, so a filter
-    edit darkens Apply Mix until re-apply (`SPEC-filtering.md` §5 Fork A,
-    ruled strict). This **supersedes** the earlier ruling that the gate asked
-    "has this corpus been filtered?" and survived edits: that question is no
-    longer answerable anywhere in the model, because the stamp carrying it is
-    deleted with nothing replacing it (§3). Accepted cost: mid-composition
-    friction, one re-Apply to recover — and nothing can *run* wrong in that
-    window either way, since Start is dead while the filter is dirty. **A new
-    pick also revokes it**, by construction: the generation bumps.
-  - **Nothing about the mix's own lifetimes changed.** The gate reads the
+  - **A dirty filter revokes the check gesture** — the same fact Start reads
+    (`SPEC-filtering.md` §5 Fork A, ruled strict); re-applying restores it,
+    and a new pick revokes it by construction (the generation bumps). No
+    "has this corpus been filtered?" fact exists anywhere in the model (§3).
+    Accepted cost: mid-composition friction, one re-Apply to recover — and
+    nothing can *run* wrong in the window, since Start is dead while the
+    filter is dirty. **The gate darkens checking only**: a checked box stays
+    operable (unchecking is never sequenced away) and the bit is untouched.
+  - **Nothing about the mix's own lifetimes takes part.** The gate reads the
     *filter* and the *pick* only, per render — which is what keeps it clear of
     the (AK) wedge, whose cause was a stored judgement outliving its inputs.
-  - **Clear mix stays ungated in every state**, and so does the last-row removal
-    that shares its path: a hydrated stored mix arrives dirty *before* any
-    filter is applied and gates Start, so sequencing both ways out behind the
-    filter could wedge the page. Only the forward commit is sequenced.
+  - **Clear mix stays ungated in every state**: it is a way out (deliberate
+    row removal), never a way into anything, so sequencing it would only
+    manufacture dead ends.
   **Failure and outcome banners.** Pick failures (unexpected `JSException`,
   caps exceeded — `_pickError`) and start-time exceptions
   (`FilterConfig.Build()` validation, source construction — `_startError`)
@@ -1585,8 +1626,8 @@ The asymmetry is pinned three times over: at the service seam
   has nothing to receive them) and names **everything BgQuiz stores**, each
   from its owning constant:
 
-  - `MixDraft.StorageKey` (`xg_quizMix`) — localStorage, the applied
-    weighted mix.
+  - `MixDraft.StorageKey` (`xg_quizMix`) — localStorage, the weighted mix as
+    last well-formed on screen (the write-through's blob).
   - `QuizSettings.StorageKey` (`xg_quizSettings`) — localStorage, the
     Settings page's choices as one JSON object. Listed beside the mix (the
     other localStorage entry) so the sessionStorage one stays the trailing
@@ -1859,10 +1900,11 @@ speaks to crowding, never to board size.
 
 The primary-path smoke gate AGENTS.md mandates: scenarios driving the
 **published artifact in a real Chromium** via Microsoft.Playwright — the
-pick→done flows, the reload notice, the empty-filter banner, the pre-Start
+pick→done flows, the reload notice, the known-zero-pool Start gate, the
+pre-Start
 answer-type breakdown, the nb-NO comma-decimal guard, 404/titles, the sidebar
 collapse, the settings page, the mid-quiz round trip through Home and the early
-end of a run, the Apply Mix gating and the pick busy affordance, and the
+end of a run, the mix-activation gating and the pick busy affordance, and the
 stats-persistence suite. It covers the one layer the other
 two structurally cannot: bUnit renders components in isolation and the
 `WebApplicationFactory` wire tests run the host pipeline in-process with no
@@ -2252,37 +2294,40 @@ public (see Pitfalls). The externally visible surface is the route map:
   which Done's own "nothing here needs saving" line states to the user. A third
   fold site needs that same argument; a *silent* one would break the line. Skips, off-list plays, and auto-skipped pass positions
   never reach the sink at all (producer contract).
-- **Never silently clear or rewrite the stored `QuizMix`.** The persisted mix
-  (`xg_quizMix`) outlives any session that can't honor it: a refused weighted
-  start, the per-run "Start/Restart without mix" override, a corrupt restore,
-  and the pick/Clear ending of both mix halves (`AppliedMix.Reset` +
-  `MixDraft.Discard`) all leave it untouched — corrupt just yields a blank
-  *builder*, and the resets touch only the in-memory services. The one
-  sanctioned overwrite is the panel's own commit gestures (Apply, *Clear mix*,
-  the last-row removal) through `MixDraft.PersistAsync`.
-- **The mix hydration fills the draft; it must never commit.** The stored mix
-  loads into `MixDraft` (once per setup) and stops there: on a fresh load the
-  holder stays `Empty`, so the derived gate holds Start until the user
-  re-Applies or Resets what the panel shows. Make it commit (write the
-  restored mix into `AppliedMix`) and a persisted mix silently becomes
-  committed with no user gesture — the adopt bug finding W removed, and what
-  once let a stats-less pick inherit a mix. It also can't be *skipped* the way
-  `FilterPanel`'s restore could be: the filter's default already blocks Start
-  (a restore stages a selection, it never applies one, so `FilterInEffect`
-  stays null), whereas the mix's passthrough default does not. Only a
-  *successful* parse **projects** — `TryFromJson`'s `Empty` fallback is a
-  usable mix, but projecting it would overwrite the blank draft's defaults.
-- **Don't reintroduce a stored mix-dirty judgment.** The mix gate is derived
-  per render (`MixDraft.Matches(AppliedMix.Current)`) precisely because the
-  stored flag failed three times: any cached boolean about "does the edit state
-  agree with the commitment" can outlive one of its two inputs, and each
-  mismatch was a user-visible wedge (remove-last-row, finding AK's
-  navigate-away, navigate-back-over-committed). The cure each time was another
-  reconcile arm; the architecture cure was making the judgment a comparison of
-  two same-lifetime Scoped services, where every wedge state is
-  unrepresentable — a blank draft *builds* `Empty` and so cannot disagree with
-  a passthrough holder. If a new "is the mix settled?" consumer appears, call
-  `Matches` — never snapshot it.
+- **Never clear or rewrite the stored `QuizMix` outside the write-through.**
+  The persisted mix (`xg_quizMix`) outlives any session that can't honor it: a
+  refused weighted start, the per-run "Start/Restart without mix" override, a
+  corrupt restore, and the pick/Clear ending of the setup (`MixConsent.Revoke`
+  + `MixDraft.Discard`) all leave it untouched — corrupt just yields a blank
+  *builder*, and the setup-end resets touch only the in-memory services
+  (**`Discard` must never persist the blank it leaves**, or every pick would
+  delete the user's mix — the Clear/Discard asymmetry is §4's
+  choice-vs-consent line). The one sanctioned writer is the draft's own
+  last-valid write-through: every mutation that validates (blank included —
+  *Clear mix* and the last-row removal persist `Empty` as ordinary edits), and
+  never a mutation that doesn't (storage holds the last well-formed screen
+  state; a torn half-edit is not what a reload should restore — ruled).
+- **The mix hydration fills the draft; it must never activate or write.** The
+  stored mix loads into `MixDraft` (once per setup) and stops there: the
+  consent bit stays wherever the user left it (unchecked on any fresh setup),
+  so a restored mix is visible but inert until checked in *this* setup (§5
+  rule 3). Make hydration check the box — or write storage back — and a
+  persisted mix silently acquires effect (the adopt bug finding W removed) or
+  the blob churns with no gesture behind it. Only a *successful* parse
+  **projects** — `TryFromJson`'s `Empty` fallback is a usable mix, but
+  projecting it would overwrite the blank draft's defaults.
+- **Don't reintroduce a committed copy of the mix — or any stored judgment
+  about it.** What runs is `EffectiveMix`, derived per render from the consent
+  bit and the draft's build; there is deliberately no second copy for the
+  screen to diverge from, which is what makes the display-honesty wedge family
+  (remove-last-row, finding AK's navigate-away, navigate-back-over-committed,
+  and every draft-vs-committed reconcile arm) unrepresentable rather than
+  carefully handled. The same goes for the consent bit itself: **the app never
+  flips it while a setup stands** (no auto-uncheck on invalid or on Clear —
+  rejected alternatives the spec's §5 records; a control the app flips stops
+  being consent). Its one app-initiated move is `Revoke()` at setup end. If a
+  new "is a mix in effect?" consumer appears, derive from `EffectiveMix` —
+  never snapshot it.
 - **`CanWeightMix` is the mix's gate and nothing else's — never widen a sweep
   onto `CanPersist`.** `FilterSurface`'s persist gate stays
   `Capability == Enabled`: saved filters have nothing to do with a stats
@@ -2303,7 +2348,7 @@ public (see Pitfalls). The externally visible surface is the route map:
   true, so without the key the panel never re-mounts and nothing triggers the
   discarded draft's re-hydration — it would sit blank with the persisted mix
   never re-offered. The key forces the re-mount, whose init re-hydrates and
-  re-offers, gated by the derived rule against the just-reset holder.
+  re-offers the stored rows — inert, the consent having died with the setup.
 - **Don't collapse the FS-Access pick to a single prompt.**
   `showDirectoryPicker({ mode: 'readwrite' })` looks like a free UX win and
   reads as an equivalent contract. It is not: **tried and reverted
