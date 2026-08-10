@@ -5,20 +5,24 @@ using Bunit;
 namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
-/// Tests for <see cref="MixDraft"/> — the app-scoped mix edit state and the
-/// <b>derived</b> start-gate rule that replaced the stored dirty flag. Pins
-/// the derivation matrix (<see cref="MixDraft.Matches"/>: blank-vs-passthrough
-/// clean with no special case, any divergence — content, order, toggle,
-/// length, or unbuildability — dirty, and agreement clean <i>however</i> it
-/// was reached), the once-per-setup hydration lifecycle
+/// Tests for <see cref="MixDraft"/> — the app-scoped mix edit state under the
+/// checkbox-activation model (<c>SPEC-filtering.md</c> §5): there is no
+/// committed mix and no commit gesture, so what these pin is the
+/// <b>last-valid write-through</b> (every mutation that validates persists the
+/// built <see cref="QuizMix"/> — blank included; an invalid mutation skips the
+/// write, so storage always holds the last well-formed screen state), the
+/// ruled <b>blank ⇒ <see cref="QuizMix.Empty"/>, never null</b> line of
+/// <see cref="MixDraft.Build"/> that checked-but-inert and Clear-persists-blank
+/// both load-bear on, and the once-per-setup hydration lifecycle
 /// (<see cref="MixDraft.EnsureHydratedAsync"/> idempotent;
-/// <see cref="MixDraft.Discard"/> forgets it, <see cref="MixDraft.Clear"/>
-/// does not; a read still in flight when the setup ends lands nothing), and
-/// the committed-only persistence round-trip. The builder policies the draft
-/// inherited from the panel (rebalance, next-unused-kind, validation wording)
-/// stay pinned where they are user-visible, in <see cref="MixPanelTests"/>.
-/// Extends <see cref="BunitContext"/> only for the JSInterop double behind
-/// the draft's localStorage reads/writes.
+/// <see cref="MixDraft.Discard"/> forgets it and — deliberately — persists
+/// nothing, so the stored mix survives a setup end;
+/// <see cref="MixDraft.ClearAsync"/> keeps hydration and persists blank). The
+/// builder policies the draft inherited from the panel (rebalance,
+/// next-unused-kind, validation wording) stay pinned where they are
+/// user-visible, in <see cref="MixPanelTests"/>. Extends
+/// <see cref="BunitContext"/> only for the JSInterop double behind the draft's
+/// localStorage reads/writes.
 /// </summary>
 public class MixDraftTests : BunitContext
 {
@@ -29,130 +33,153 @@ public class MixDraftTests : BunitContext
 
     private MixDraft NewDraft() => new(JSInterop.JSRuntime);
 
-    /// <summary>A one-row never-seen mix, deterministic order — the smallest committable draft content.</summary>
+    /// <summary>A one-row never-seen mix, deterministic content — what one Add builds (NeverSeen seeds at 100%).</summary>
     private static QuizMix NeverSeenMix() =>
         new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null, randomOrder: true);
 
-    /// <summary>Stage a draft holding exactly <see cref="NeverSeenMix"/> (one Add — NeverSeen seeds at 100%).</summary>
-    private static MixDraft DraftWithNeverSeenRow(MixDraft draft)
-    {
-        draft.AddRow();
-        return draft;
-    }
+    /// <summary>Every persisted blob so far, oldest first, parsed back through the lib.</summary>
+    private QuizMix[] PersistedMixes() =>
+        [.. JSInterop.Invocations
+            .Where(i => i.Identifier == "localStorage.setItem"
+                     && (string?)i.Arguments[0] == MixDraft.StorageKey)
+            .Select(i => QuizMix.FromJson((string)i.Arguments[1]!))];
 
     // -----------------------------------------------------------------------
-    //  The derived gate rule (Matches)
+    //  Build — the effect derivation's substrate
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void FreshBlankDraft_MatchesPassthrough()
+    public void BlankDraft_Builds_Empty_NeverNull()
     {
-        // The fresh-load default on both sides: a blank draft builds Empty and
-        // a fresh holder is Empty, so a user who never touches the mix is
-        // never gated — no special case, just the equality.
+        // RULED, and load-bearing twice: checked + blank must read as the
+        // in-effect passthrough (Home's EffectiveMix must see Empty, not the
+        // gated null), and Clear-persists-blank needs the write-through to see
+        // blank as a persistable mix. Null is reserved for genuinely invalid
+        // states.
         var draft = NewDraft();
 
+        Assert.NotNull(draft.Build());
         Assert.Equal(QuizMix.Empty, draft.Build());
-        Assert.True(draft.Matches(QuizMix.Empty));
+        Assert.True(draft.Build()!.IsPassthrough);
     }
 
     [Fact]
-    public void EditedDraft_DoesNotMatchPassthrough()
+    public async Task InvalidDraft_Builds_Null()
     {
-        var draft = DraftWithNeverSeenRow(NewDraft());
-
-        Assert.False(draft.Matches(QuizMix.Empty));
-    }
-
-    [Fact]
-    public void DraftAgreeingWithCommitted_Matches_ByContentNotReference()
-    {
-        // The leg-1 primitive doing the work: the committed mix is a different
-        // instance than anything the draft will build, so only content
-        // equality can ever report agreement.
-        var draft = DraftWithNeverSeenRow(NewDraft());
-
-        Assert.True(draft.Matches(NeverSeenMix()));
-    }
-
-    [Fact]
-    public void IdenticalReEdit_DerivesCleanAgain()
-    {
-        // The deferred displayed==committed variant, free under derivation: an
-        // edit away from the committed content gates, and the edit BACK to the
-        // exact committed content un-gates — no Apply, no reconcile, nothing
-        // stored to clear (the stored flag stayed dirty here until re-Apply).
+        // The other half of the null contract: a validation error — here a
+        // blanked percent — is exactly what null means.
         var draft = NewDraft();
-        draft.AddRow(); // NeverSeen, 100
-        var committed = NeverSeenMix();
-        Assert.True(draft.Matches(committed));
-
-        draft.SetPercentText(0, "90");
-        Assert.False(draft.Matches(committed)); // diverged (and unbuildable at 90)
-
-        draft.SetPercentText(0, "100");
-        Assert.True(draft.Matches(committed)); // agreement restored by the edit itself
-    }
-
-    [Fact]
-    public void Reorder_DerivesDirty_AndReorderBackClean()
-    {
-        // Order is semantic — the producer draws contested overlap toward the
-        // earlier row — so the same rows reordered are a DIFFERENT mix and must
-        // gate, even though no text changed.
-        var draft = NewDraft();
-        draft.AddRow(); // NeverSeen, 50 after the second Add
-        draft.AddRow(); // GotWrong
-        var committed = draft.Build();
-        Assert.NotNull(committed);
-        Assert.True(draft.Matches(committed!));
-
-        draft.MoveRow(1, -1);
-        Assert.False(draft.Matches(committed!));
-
-        draft.MoveRow(0, +1);
-        Assert.True(draft.Matches(committed!));
-    }
-
-    [Fact]
-    public void RandomOrderAndLength_ParticipateInTheRule()
-    {
-        // The full member surface gates, not just the rows: toggling Random
-        // order or editing the length is a real divergence from the committed
-        // mix (both flow into the built QuizMix and its equality).
-        var draft = DraftWithNeverSeenRow(NewDraft());
-        var committed = NeverSeenMix();
-        Assert.True(draft.Matches(committed));
-
-        draft.SetRandomOrder(false);
-        Assert.False(draft.Matches(committed));
-        draft.SetRandomOrder(true);
-        Assert.True(draft.Matches(committed));
-
-        draft.SetLengthText("10");
-        Assert.False(draft.Matches(committed));
-        draft.SetLengthText(string.Empty);
-        Assert.True(draft.Matches(committed));
-    }
-
-    [Fact]
-    public void UnbuildableDraft_IsDirtyByDefinition()
-    {
-        // An unbuildable draft can never agree with any commitment — including
-        // the passthrough default — so it gates without needing a judgment
-        // about "what it would have meant".
-        var draft = DraftWithNeverSeenRow(NewDraft());
-        draft.SetPercentText(0, string.Empty);
+        await draft.AddRowAsync();
+        await draft.SetPercentTextAsync(0, string.Empty);
 
         Assert.Null(draft.Build());
-        Assert.False(draft.Matches(QuizMix.Empty));
-        Assert.False(draft.Matches(NeverSeenMix()));
+        Assert.NotNull(draft.ValidationError);
     }
 
     [Fact]
-    public void Matches_Null_Throws()
+    public async Task Build_FlushesRowsInOrder_WithToggleAndLength()
     {
-        Assert.Throws<ArgumentNullException>(() => NewDraft().Matches(null!));
+        var draft = NewDraft();
+        await draft.AddRowAsync(); // NeverSeen, 50 after the second Add
+        await draft.AddRowAsync(); // GotWrong
+        await draft.SetRandomOrderAsync(false);
+        await draft.SetLengthTextAsync("10");
+
+        var built = draft.Build();
+
+        Assert.NotNull(built);
+        Assert.Equal(
+            new QuizMix(
+                [new QuizMixEntry(QuizCategory.NeverSeen, 50), new QuizMixEntry(QuizCategory.GotWrong, 50)],
+                quizLength: 10, randomOrder: false),
+            built);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Last-valid write-through persistence
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ValidMutation_PersistsTheBuiltMix()
+    {
+        // Persistence follows the screen: no commit gesture exists, so the
+        // mutation itself is what writes. The blob is the built mix in the
+        // unchanged lib wire format (same key, no migration).
+        var draft = NewDraft();
+
+        await draft.AddRowAsync();
+
+        Assert.Equal(NeverSeenMix(), PersistedMixes().Last());
+    }
+
+    [Fact]
+    public async Task InvalidMutation_SkipsTheWrite_StorageKeepsLastValidState()
+    {
+        // RULED (design point A): a mutation that leaves the draft invalid
+        // writes nothing, so a reload restores the last well-formed screen
+        // state — never a torn half-edit.
+        var draft = NewDraft();
+        await draft.AddRowAsync();
+        var writesAfterAdd = PersistedMixes().Length;
+
+        await draft.SetPercentTextAsync(0, string.Empty); // invalid: no percent
+
+        Assert.Equal(writesAfterAdd, PersistedMixes().Length);
+        Assert.Equal(NeverSeenMix(), PersistedMixes().Last()); // the Add's blob still stands
+
+        // The edit that restores validity writes through again.
+        await draft.SetPercentTextAsync(0, "100");
+        Assert.Equal(writesAfterAdd + 1, PersistedMixes().Length);
+        Assert.Equal(NeverSeenMix(), PersistedMixes().Last());
+    }
+
+    [Fact]
+    public async Task Clear_PersistsTheBlankMix()
+    {
+        // Clear's one honest job: deliberately removing the rows, storage
+        // following the screen. The blank draft builds Empty (see the Build
+        // pin above), so the write-through persists the blank mix rather than
+        // skipping.
+        var draft = NewDraft();
+        await draft.AddRowAsync();
+
+        await draft.ClearAsync();
+
+        Assert.Empty(draft.Rows);
+        Assert.True(PersistedMixes().Last().IsPassthrough);
+    }
+
+    [Fact]
+    public async Task RemovingTheLastRow_PersistsTheBlankMix()
+    {
+        // The last-row removal is an edit like any other now — no panel
+        // auto-commit path. It lands blank, blank builds Empty, Empty writes
+        // through.
+        var draft = NewDraft();
+        await draft.AddRowAsync();
+
+        await draft.RemoveRowAsync(0);
+
+        Assert.Empty(draft.Rows);
+        Assert.True(PersistedMixes().Last().IsPassthrough);
+    }
+
+    [Fact]
+    public async Task Discard_PersistsNothing_TheStoredMixSurvivesTheSetupEnd()
+    {
+        // The Clear/Discard asymmetry is §4's choice-vs-consent line: ending a
+        // setup blanks the DRAFT but must leave the STORED mix for the next
+        // setup's hydration to re-offer. A Discard that wrote blank through
+        // would delete the user's mix on every pick.
+        var draft = NewDraft();
+        await draft.AddRowAsync();
+        var writesBeforeDiscard = PersistedMixes().Length;
+
+        draft.Discard();
+
+        Assert.Empty(draft.Rows);
+        Assert.Equal(writesBeforeDiscard, PersistedMixes().Length);
+        Assert.Equal(NeverSeenMix(), PersistedMixes().Last());
     }
 
     // -----------------------------------------------------------------------
@@ -179,7 +206,7 @@ public class MixDraftTests : BunitContext
         Assert.Equal("25", draft.LengthText);
         Assert.False(draft.RandomOrder);
         // Round-trip identity: what hydration shows is exactly what was stored.
-        Assert.True(draft.Matches(stored));
+        Assert.Equal(stored, draft.Build());
 
         // Idempotent per setup: a re-mounting panel triggers no second read and
         // cannot overwrite edits the surviving draft holds.
@@ -200,7 +227,22 @@ public class MixDraftTests : BunitContext
 
         Assert.Empty(draft.Rows);
         Assert.True(draft.RandomOrder);
-        Assert.True(draft.Matches(QuizMix.Empty)); // blank hydration never gates
+        Assert.Equal(QuizMix.Empty, draft.Build()); // blank hydration is inert
+    }
+
+    [Fact]
+    public async Task Hydration_FillsTheDraftOnly_NeverWritesStorage()
+    {
+        // Hydration is a read: restoring the stored mix must not echo it back
+        // as a write (screen-follows-storage is about EDITS; a boot that wrote
+        // storage would churn the blob for no gesture at all).
+        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
+            .SetResult(NeverSeenMix().ToJson());
+        var draft = NewDraft();
+
+        await draft.EnsureHydratedAsync();
+
+        Assert.Empty(PersistedMixes());
     }
 
     [Fact]
@@ -210,8 +252,8 @@ public class MixDraftTests : BunitContext
             .SetResult(NeverSeenMix().ToJson());
         var draft = NewDraft();
         await draft.EnsureHydratedAsync();
-        draft.SetRandomOrder(false);
-        draft.SetLengthText("7");
+        await draft.SetRandomOrderAsync(false);
+        await draft.SetLengthTextAsync("7");
 
         draft.Discard();
 
@@ -219,7 +261,7 @@ public class MixDraftTests : BunitContext
         Assert.Empty(draft.Rows);
         Assert.True(draft.RandomOrder);
         Assert.Equal(string.Empty, draft.LengthText);
-        Assert.True(draft.Matches(QuizMix.Empty));
+        Assert.Equal(QuizMix.Empty, draft.Build());
 
         // …and hydration is forgotten, so the next setup's panel mount re-reads
         // the stored mix and re-offers it afresh.
@@ -231,17 +273,17 @@ public class MixDraftTests : BunitContext
     [Fact]
     public async Task Clear_BlanksTheDraft_ButStaysHydrated()
     {
-        // Clear is the blank the user asked for INSIDE a setup (Reset /
-        // last-row removal): the draft goes blank but the setup keeps its
-        // hydration — no re-read re-offers the stored mix behind the user's
-        // back after they explicitly blanked the builder.
+        // Clear is the blank the user asked for INSIDE a setup: the draft goes
+        // blank (and the blank persists — see the write-through pin) but the
+        // setup keeps its hydration — no re-read re-offers the stored mix
+        // behind the user's back after they explicitly blanked the builder.
         JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
             .SetResult(NeverSeenMix().ToJson());
         var draft = NewDraft();
         await draft.EnsureHydratedAsync();
         Assert.Single(draft.Rows);
 
-        draft.Clear();
+        await draft.ClearAsync();
 
         Assert.Empty(draft.Rows);
         await draft.EnsureHydratedAsync();
@@ -264,33 +306,12 @@ public class MixDraftTests : BunitContext
         await inFlight;
 
         Assert.Empty(draft.Rows);
-        Assert.True(draft.Matches(QuizMix.Empty));
+        Assert.Equal(QuizMix.Empty, draft.Build());
     }
 
     // -----------------------------------------------------------------------
-    //  Persistence (committed-only) and change notification
+    //  Change notification
     // -----------------------------------------------------------------------
-
-    [Fact]
-    public async Task Persist_WritesTheOneBlob_RoundTrippable()
-    {
-        var draft = NewDraft();
-        var mix = NeverSeenMix();
-
-        await draft.PersistAsync(mix);
-
-        var stored = JSInterop.Invocations["localStorage.setItem"]
-            .Last(i => (string?)i.Arguments[0] == MixDraft.StorageKey)
-            .Arguments[1] as string;
-        Assert.NotNull(stored);
-        Assert.Equal(mix, QuizMix.FromJson(stored!));
-    }
-
-    [Fact]
-    public async Task Persist_Null_Throws()
-    {
-        await Assert.ThrowsAsync<ArgumentNullException>(() => NewDraft().PersistAsync(null!));
-    }
 
     [Fact]
     public async Task EveryMutation_RaisesChanged()
@@ -302,16 +323,16 @@ public class MixDraftTests : BunitContext
         var raised = 0;
         draft.Changed += () => raised++;
 
-        draft.AddRow();
-        draft.SetKind(0, QuizCategoryKind.WrongRateOver);
-        draft.SetParamText(0, "40");
-        draft.SetPercentText(0, "100");
-        draft.SetRandomOrder(false);
-        draft.SetLengthText("5");
-        draft.AddRow();
-        draft.MoveRow(1, -1);
-        draft.RemoveRow(0);
-        draft.Clear();
+        await draft.AddRowAsync();
+        await draft.SetKindAsync(0, QuizCategoryKind.WrongRateOver);
+        await draft.SetParamTextAsync(0, "40");
+        await draft.SetPercentTextAsync(0, "100");
+        await draft.SetRandomOrderAsync(false);
+        await draft.SetLengthTextAsync("5");
+        await draft.AddRowAsync();
+        await draft.MoveRowAsync(1, -1);
+        await draft.RemoveRowAsync(0);
+        await draft.ClearAsync();
         draft.Discard();
         Assert.Equal(11, raised);
 

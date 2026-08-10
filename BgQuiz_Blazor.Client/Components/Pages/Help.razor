@@ -83,10 +83,10 @@
     </p>
     <ul>
         <li>
-            <code>@MixDraft.StorageKey</code> — the weighted mix you last applied,
-            in this site's local storage. It survives reloading the page and
-            closing the browser, and it holds the mix settings only: the
-            categories, their percentages and order, and the quiz length.
+            <code>@MixDraft.StorageKey</code> — your weighted mix as last shown
+            on screen, in this site's local storage. It survives reloading the
+            page and closing the browser, and it holds the mix settings only:
+            the categories, their percentages and order, and the quiz length.
         </li>
         <li>
             <code>@QuizSettings.StorageKey</code> — your choices from the
@@ -332,10 +332,10 @@
             divide up that many problems instead.
         </li>
         <li>
-            <strong>An applied mix owns the order.</strong> Its own
+            <strong>A mix that applies owns the order.</strong> Its own
             <em>Random order</em> setting then decides how problems are
             presented, and the page's Shuffle order checkbox is disabled — your
-            choice there is kept, and comes back when you clear the mix.
+            choice there is kept, and comes back when you turn the mix off.
         </li>
         <li>
             <strong>No lifetime stats, no mix.</strong> The mix is what your
@@ -349,10 +349,15 @@
             and keeps the mix you built either way.
         </li>
         <li>
-            <strong>Apply it like a filter.</strong> While the mix shown differs
-            from the mix applied, Start stays disabled until you press
-            <em>Apply Mix</em> or <em>Clear mix</em>. Your edits keep — visiting
-            another page and coming back doesn't lose them.
+            <strong>Turn it on with <em>Mix applies</em>.</strong> The mix you
+            compose does nothing until you check that box (after applying the
+            filters — the mix draws from the filtered pool), and what runs is
+            always exactly the mix shown on screen. Unchecking turns it off
+            without losing anything. Your rows keep — across pages, folder
+            changes, and reloads — but the checkbox itself resets when you
+            change folders or reload, so check it again to weight the next
+            quiz. If the mix on screen is broken while the box is checked,
+            Start waits until you fix it or uncheck.
         </li>
     </ul>
 

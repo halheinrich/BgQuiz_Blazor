@@ -86,16 +86,18 @@ builder.Services.AddScoped<PickedFolderFilterStorage>();
 builder.Services.AddScoped<ShuffleOption>();
 
 // The stats-weighted mix, as two sibling per-app services with one lifetime:
-// the committed mix (AppliedMix — the mix sibling of AppliedFilter; blank is
-// the valid default) and the mix draft (MixDraft — the panel's edit state,
-// hoisted out of the component so mix edits survive in-app navigation).
-// Start's mix gate is derived per render from the pair (the draft builds and
-// content-equals the commitment), never stored; giving both the same Scoped
-// lifetime is what makes that judgment safe. The draft also owns the one
-// localStorage key: committed-only persistence on Apply, and a once-per-setup
-// hydration that re-offers the stored mix — gated by the derived rule — on
-// boot and after every pick.
-builder.Services.AddScoped<AppliedMix>();
+// the consent bit (MixConsent — the "Mix applies" checkbox state; checked
+// means the on-screen mix is in effect, SPEC-filtering.md §5) and the mix
+// draft (MixDraft — the panel's edit state, hoisted out of the component so
+// mix edits survive in-app navigation). There is NO committed copy: what
+// runs, when consented, is the draft itself (MixDraft.Build), so screen and
+// effect cannot diverge. The draft owns the one localStorage key with
+// last-valid write-through persistence — every mutation that validates
+// writes, blank included — plus a once-per-setup hydration that re-offers
+// the stored mix, inert until the user checks the box. Consent is reset at
+// setup end and dies on reload with the scope: §4's "choices outlive the
+// setup; consent does not", by construction.
+builder.Services.AddScoped<MixConsent>();
 builder.Services.AddScoped<MixDraft>();
 
 // Per-app dismissal state for the Quiz page's mix composition notice: the notice

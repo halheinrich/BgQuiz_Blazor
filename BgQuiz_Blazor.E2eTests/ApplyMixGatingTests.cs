@@ -4,20 +4,21 @@ using static Microsoft.Playwright.Assertions;
 namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
-/// <b>Apply Mix is sequenced behind Apply Filter</b> (umbrella #45), in a real
-/// browser. The suite's other flows always happened to apply the filter first,
-/// so they pass with or without the gate — this scenario is the one that fails
-/// without it.
+/// <b>Mix activation is sequenced behind Apply Filter</b> (umbrella #45, the
+/// spec's Fork A ruled strict), in a real browser — now on the "Mix applies"
+/// checkbox, the sole activation control (#83). The suite's other flows always
+/// happen to apply the filter first, so they pass with or without the gate —
+/// these scenarios are the ones that fail without it.
 /// </summary>
 public sealed class ApplyMixGatingTests : FsAccessFakeTestBase
 {
     public ApplyMixGatingTests(PublishedAppFixture app, PlaywrightFixture playwright)
         : base(app, playwright) { }
 
-    private ILocator MixApply => Page.Locator("#mixApply");
+    private ILocator MixApplies => Page.Locator("#mixApplies");
 
     [Fact]
-    public async Task ApplyMix_IsGatedUntilApplyFilter_AndIsRevokedByALaterFilterEdit()
+    public async Task MixActivation_IsGatedUntilApplyFilter_AndRevokedByALaterFilterEdit()
     {
         await BootHomeAsync();
         // #87: the mix panel is offered only for a folder with a stats history,
@@ -26,63 +27,71 @@ public sealed class ApplyMixGatingTests : FsAccessFakeTestBase
         await SeedStatsHistoryAsync();
 
         // A complete, valid one-row mix: from here the only thing that can
-        // disable Apply Mix is the host's filter gate. The hint must say *why*,
-        // not merely refuse — the bare rule is what read as arbitrary.
+        // disable the checkbox is the host's filter gate. The hint must say
+        // *why*, not merely refuse — the bare rule is what read as arbitrary.
         await AddDefaultMixRowAsync();
-        await Expect(MixApply).ToBeDisabledAsync();
+        await Expect(MixApplies).ToBeDisabledAsync();
         await Expect(Page.GetByText("the mix draws its problems from the filtered pool"))
             .ToBeVisibleAsync();
 
         await ApplyFilterAsync();
-        await Expect(MixApply).ToBeEnabledAsync();
+        await Expect(MixApplies).ToBeEnabledAsync();
 
-        // A later filter edit revokes both gates together — the spec's Fork A,
-        // ruled strict: activation reads the filter in effect *now*, the same
-        // fact Start reads, so there is no browser state in which the two
-        // disagree. (This inverts the earlier ruling that the gate asked
-        // "has this corpus been filtered?" and survived edits; that question no
-        // longer exists in the model.) Re-applying is the one-gesture recovery,
-        // and pinning it here is what keeps the accepted mid-composition
-        // friction from being an actual dead end in a real browser.
+        // A later filter edit revokes the (unchecked) check gesture and Start
+        // together — Fork A strict: activation reads the filter in effect
+        // *now*, the same fact Start reads, so there is no browser state in
+        // which the two disagree.
         await Page.GetByPlaceholder("Min").First.FillAsync("0.05");
         await Expect(StartButton).ToBeDisabledAsync();
-        await Expect(MixApply).ToBeDisabledAsync();
+        await Expect(MixApplies).ToBeDisabledAsync();
         await Expect(Page.GetByText("the mix draws its problems from the filtered pool"))
             .ToBeVisibleAsync();
 
-        await ApplyFilterAsync();
-        await Expect(MixApply).ToBeEnabledAsync();
+        // Undo the edit: the panel reports clean, the applied filter is back
+        // in effect, and the gate reopens — one gesture, no wedge. (The
+        // re-apply recovery path is pinned at the bUnit layer, where the
+        // corpus is fake and the pool cannot empty underneath the assertion.)
+        await Page.GetByPlaceholder("Min").First.FillAsync("");
+        await Expect(MixApplies).ToBeEnabledAsync();
         await Expect(Page.GetByText("the mix draws its problems from the filtered pool"))
             .ToHaveCountAsync(0);
 
-        // Start is still dark here, and for the *mix's* reason — the row added
-        // above was never committed. Commit it and the page finally arms: the
-        // whole friction Fork A accepts is one re-Apply away from recovery, and
-        // nothing about it strands the run.
-        await ApplyMixAsync();
+        // Checking is the activation, and Start stays live throughout — an
+        // un-activated mix never gated it, and the now-active valid mix
+        // doesn't either.
+        await ActivateMixAsync();
         await Expect(StartButton).ToBeEnabledAsync();
     }
 
     [Fact]
-    public async Task GatedApplyMix_LeavesClearMixLive_SoADirtyDraftCanAlwaysBeCleared()
+    public async Task GatedActivation_LeavesClearMixLive_AndTheCheckedBoxOperable()
     {
-        // Wedge-proofing: a dirty draft gates Start, so if both ways out were
-        // sequenced behind the filter a user could reach a state with no
-        // visible way forward. Clear mix is ungated in every state.
+        // Two ways out that must never be sequenced away: Clear mix (rows) is
+        // ungated in every state, and a box checked while the filter was in
+        // effect stays operable through a later filter edit — unchecking is
+        // consent withdrawn, and only the user moves the bit.
         await BootHomeAsync();
-        // #87: the mix panel is offered only for a folder with a stats history,
-        // and this helper leaves exactly the state the gate is about — folder
-        // held, stats readable, no filter applied for the current pick.
         await SeedStatsHistoryAsync();
         await AddDefaultMixRowAsync();
 
-        await Expect(MixApply).ToBeDisabledAsync();
-        await Expect(StartButton).ToBeDisabledAsync();
+        // Gated (no filter in effect) — Clear stays live.
+        await Expect(MixApplies).ToBeDisabledAsync();
         await Expect(Page.Locator("#mixClear")).ToBeEnabledAsync();
 
-        await Page.Locator("#mixClear").ClickAsync();
+        // Activate properly (the row from above is still on screen), then
+        // dirty the filter: the CHECKED box remains operable (the disable is
+        // asymmetric — it gates checking only).
+        await ApplyFilterAsync();
+        await ActivateMixAsync();
+        await Page.GetByPlaceholder("Min").First.FillAsync("0.05");
+        await Expect(StartButton).ToBeDisabledAsync(); // the filter's own gate
+        await Expect(MixApplies).ToBeEnabledAsync();   // but uncheck is still live
 
-        await Expect(Page.GetByText("Apply or clear the mix above to enable Start"))
-            .ToHaveCountAsync(0);
+        await MixApplies.UncheckAsync();
+        await Expect(MixApplies).Not.ToBeCheckedAsync();
+
+        // And Clear mix still works here too — rows removed, box untouched.
+        await Page.Locator("#mixClear").ClickAsync();
+        await Expect(Page.Locator(".mix-row")).ToHaveCountAsync(0);
     }
 }

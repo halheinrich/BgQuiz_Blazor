@@ -10,50 +10,46 @@ using Microsoft.JSInterop;
 /// parameter text / percent text), the Random-order toggle, and the optional
 /// quiz length. <c>MixPanel</c> is a view over this service: it renders
 /// <see cref="Rows"/> and routes every gesture through the mutators here, so
-/// the draft survives in-app navigation exactly like its committed sibling
-/// <see cref="AppliedMix"/> — mix edits are deliberately <i>not</i> lost by
-/// visiting another page (ratified product behavior, superseding finding AK's
-/// letter: the wedge AK fixed cannot recur, because the draft and any gate
-/// derived from it now live in the same scope).
+/// mix edits are deliberately <i>not</i> lost by visiting another page
+/// (ratified product behavior; the draft and everything derived from it share
+/// one app scope).
 ///
 /// <para>
-/// <b>Dirtiness is derived, never stored.</b> This type keeps no flag; the
-/// start gate's mix half is <see cref="Matches"/>: the draft builds
-/// (<see cref="Build"/>) <i>and</i> the built mix content-equals the committed
-/// one (<see cref="QuizMix"/> value equality — ordered entries,
-/// <see cref="QuizMix.QuizLength"/>, <see cref="QuizMix.RandomOrder"/>). An
-/// unbuildable draft is dirty by definition; a blank draft builds
-/// <see cref="QuizMix.Empty"/>, so "blank vs. passthrough" is the same rule
-/// with no special case; a draft edited back into exact agreement with the
-/// committed mix derives clean with no bookkeeping to reconcile. This
-/// dissolves the stored-flag choreography (<c>AppliedMix.IsDirty</c> /
-/// <c>MarkDirty</c> / <c>ClearDirty</c>, <c>OnMixDirty</c>,
-/// <c>OnMixHydrated</c> and <c>Home</c>'s hydration reconcile), whose
-/// mismatched lifetimes produced three wedge variants.
+/// <b>There is no committed copy of the mix</b> (<c>SPEC-filtering.md</c> §5,
+/// Fork B). What runs, when the app-scoped <see cref="MixConsent"/> bit is
+/// checked, is this draft itself — <see cref="Build"/>'s result — so screen
+/// and effect cannot diverge and no draft-vs-committed comparison exists to
+/// gate anything. An un-consented draft, however divergent from whatever ran
+/// last, never gates Start; a consented draft that fails to build is the one
+/// mix state that does (<c>Home.EffectiveMix</c> reads null), with the box
+/// left checked because it records intent.
 /// </para>
 ///
 /// <para>
-/// <b>Persistence stays committed-only</b>, and this service owns the one
-/// localStorage key (<see cref="StorageKey"/>) in both directions:
-/// <see cref="PersistAsync"/> writes the mix the panel commits (Apply, Reset,
-/// last-row removal), and <see cref="EnsureHydratedAsync"/> — idempotent per
-/// setup — loads the stored mix into the draft on the panel's first mount.
-/// The draft itself is never persisted: an uncommitted edit dies with the app
-/// scope, exactly as before. On a fresh load the committed holder stays
-/// <see cref="QuizMix.Empty"/> while the hydrated draft shows the stored mix,
-/// so the "re-offer the persisted mix, gated until re-Applied" behavior
-/// emerges from the derived rule with zero reconcile code.
+/// <b>Persistence follows the screen — last-valid write-through.</b> This
+/// service owns the one localStorage key (<see cref="StorageKey"/>) in both
+/// directions. Every mutator, after mutating, persists the built
+/// <see cref="QuizMix"/> <i>when the draft validates</i> (the blank draft
+/// included — it builds <see cref="QuizMix.Empty"/>, so Clear persists
+/// blank); a mutation that leaves the draft invalid skips the write, so
+/// storage always holds the last well-formed screen state. Ruled consequence:
+/// a reload mid-half-edit restores that last valid mix, not the torn edit.
+/// The wire format is unchanged — one lib-owned <see cref="QuizMix"/> JSON
+/// blob — so mixes stored by earlier builds load with no migration. Writes
+/// are best-effort: a storage fault must never break editing (the same
+/// degrade posture as hydration's tolerant read).
 /// </para>
 ///
 /// <para>
-/// <b>A pick (or Clear) discards the draft.</b>
+/// <b>A pick (or Clear) discards the draft — not the storage.</b>
 /// <c>Home.EndCurrentSetupAsync</c> calls <see cref="Discard"/> beside
-/// <see cref="AppliedMix.Reset"/>: ending a setup drops its uncommitted mix
-/// edits — a new pick means a new stats slot, so a stale draft is noise — and
-/// forgets hydration, so the next panel mount (Enabled picks only) re-offers
-/// the <i>stored</i> mix afresh. Under a no-stats pick no panel mounts,
-/// nothing re-hydrates, and the blank draft matches the reset holder — the
-/// mix plays no part in Start, with no capability fork in the gate.
+/// <c>MixConsent.Revoke</c>: ending a setup blanks the builder and forgets
+/// hydration, so the next panel mount (stats-capable picks only) re-hydrates
+/// the <i>stored</i> last-valid mix afresh — the rows outlive the setup
+/// (§4: they are choice), visible but inert until the user re-checks the
+/// box (consent died with the setup). Under a no-stats pick no panel mounts,
+/// nothing re-hydrates, and the unchecked consent keeps the mix out of Start
+/// with no capability fork in the gate.
 /// </para>
 ///
 /// <para>
@@ -64,13 +60,15 @@ using Microsoft.JSInterop;
 /// </summary>
 internal sealed class MixDraft(IJSRuntime js)
 {
-    // Single localStorage key holding the whole committed mix as one
+    // Single localStorage key holding the last well-formed mix as one
     // serialized QuizMix blob. The lib owns the JSON shape (ToJson /
     // TryFromJson); camelCase after the xg_ prefix per the existing key family.
+    // Deliberately the same key and format the committed-mix era wrote, so
+    // stored mixes carry across the model change with no migration.
     internal const string StorageKey = "xg_quizMix";
 
     /// <summary>
-    /// Raised after every draft mutation — edits, hydration, <see cref="Clear"/>,
+    /// Raised after every draft mutation — edits, hydration, <see cref="ClearAsync"/>,
     /// <see cref="Discard"/> — so subscribers (Home) can re-derive state that
     /// depends on the draft. Subscribers must unsubscribe on dispose.
     /// </summary>
@@ -78,10 +76,12 @@ internal sealed class MixDraft(IJSRuntime js)
 
     /// <summary>
     /// One editable mix row. Free-text buffers (not parsed values) because
-    /// in-progress typing needs a string distinct from the committed value —
+    /// in-progress typing needs a string distinct from any parsed value —
     /// hydrated from a stored mix, flushed into a <see cref="QuizMixEntry"/>
     /// by <see cref="Build"/>, never persisted on their own (the
-    /// <c>FilterPanel</c> buffer pattern). <see cref="Kind"/> has no default:
+    /// <c>FilterPanel</c> buffer pattern; what persists is the built
+    /// <see cref="QuizMix"/>, and only while the draft validates).
+    /// <see cref="Kind"/> has no default:
     /// the enum starts at 1, and each construction site (Add, hydration)
     /// chooses the kind deliberately. Read-only outside this service: every
     /// write goes through a <see cref="MixDraft"/> mutator so
@@ -144,13 +144,14 @@ internal sealed class MixDraft(IJSRuntime js)
     /// Load the stored mix into the draft — once per setup. The first caller
     /// (the panel's init) runs the localStorage read; later calls (re-mounts
     /// after in-app navigation) return the cached task, leaving the surviving
-    /// draft — including uncommitted edits — untouched. A missing key, the
-    /// literal null token, or corrupt JSON leaves the draft blank, never an
-    /// error; only a <i>successful</i> parse projects (TryFromJson's Empty
-    /// fallback is a usable mix, but projecting it would overwrite the blank
-    /// draft's own defaults with Empty's). Hydration fills the draft only —
-    /// committing is Apply's job, so on a fresh load the stored mix arrives
-    /// gated by the derived rule until the user re-Applies or Resets.
+    /// draft — edits included — untouched. A missing key, the literal null
+    /// token, or corrupt JSON leaves the draft blank, never an error; only a
+    /// <i>successful</i> parse projects (TryFromJson's Empty fallback is a
+    /// usable mix, but projecting it would overwrite the blank draft's own
+    /// defaults with Empty's). Hydration fills the draft only — it never
+    /// writes storage and never touches <c>MixConsent</c>, so a restored mix
+    /// arrives visible but inert until the user checks "Mix applies" (§5
+    /// rule 3: activation is explicit, in <i>this</i> setup).
     /// </summary>
     public Task EnsureHydratedAsync() => _hydration ??= HydrateAsync();
 
@@ -164,38 +165,71 @@ internal sealed class MixDraft(IJSRuntime js)
         Changed?.Invoke();
     }
 
-    /// <summary>Persist <paramref name="mix"/> as the stored mix — called by the panel's commit gestures (Apply / Reset / last-row removal), never for mere edits.</summary>
-    public async Task PersistAsync(QuizMix mix)
+    /// <summary>
+    /// The last-valid write-through behind every mutator: persist the built
+    /// mix when the draft validates, keep the previous well-formed state when
+    /// it doesn't (ruled — storage always holds the last well-formed screen
+    /// state, so a torn half-edit is never what a reload restores). The blank
+    /// draft builds <see cref="QuizMix.Empty"/> and therefore <i>does</i>
+    /// write through: clearing the rows clears the stored mix too. Best-effort
+    /// by design — a storage fault must not break editing, so a JS failure is
+    /// swallowed here exactly as a corrupt read is swallowed in hydration;
+    /// the cost is silence, the same degrade the read path already accepts.
+    /// </summary>
+    private async Task WriteThroughAsync()
     {
-        ArgumentNullException.ThrowIfNull(mix);
-        await js.InvokeVoidAsync("localStorage.setItem", StorageKey, mix.ToJson());
+        if (Build() is not { } mix) return;
+        try
+        {
+            await js.InvokeVoidAsync("localStorage.setItem", StorageKey, mix.ToJson());
+        }
+        catch (JSException)
+        {
+            // Storage unavailable/full: the draft is still the screen's truth;
+            // only durability degrades.
+        }
     }
 
     /// <summary>
-    /// Return the draft to the blank builder — the shared normalization behind
-    /// the panel's Reset gesture and its last-row removal, both of which then
-    /// commit and persist <see cref="QuizMix.Empty"/>. The toggle and length
-    /// reset to their blank-builder defaults so "zero rows" means one state
-    /// however it was reached. Hydration is <i>not</i> forgotten: the current
-    /// setup keeps its now-blank draft (its blankness is about to be persisted,
-    /// so a re-mount would hydrate blank anyway). Ending a setup is
+    /// The shared tail of every mutator: announce the change, then write
+    /// through. Raising <see cref="Changed"/> first keeps derived state (the
+    /// start gate, the panel) current even when the write is skipped or slow.
+    /// </summary>
+    private Task MutatedAsync()
+    {
+        Changed?.Invoke();
+        return WriteThroughAsync();
+    }
+
+    /// <summary>
+    /// Return the draft to the blank builder — the <i>Clear mix</i> gesture's
+    /// whole substance now: rows go, the toggle and length reset to their
+    /// blank-builder defaults so "zero rows" means one state however it was
+    /// reached, and the write-through persists <see cref="QuizMix.Empty"/> so
+    /// storage follows the screen (deliberate data removal — the button's one
+    /// honest job). Consent is untouched: a checked box over the blank mix is
+    /// vacuous, in-effect passthrough (ruled — the app flips the bit in
+    /// neither direction). Hydration is <i>not</i> forgotten: the current
+    /// setup keeps its now-blank draft, whose blankness is persisted, so a
+    /// re-mount would hydrate blank anyway. Ending a setup is
     /// <see cref="Discard"/>'s job.
     /// </summary>
-    public void Clear()
+    public Task ClearAsync()
     {
         ClearCore();
-        Changed?.Invoke();
+        return MutatedAsync();
     }
 
     /// <summary>
     /// End the draft's setup: blank the builder <i>and</i> forget hydration, so
     /// the next panel mount re-offers the stored mix afresh. Called from
     /// <c>Home.EndCurrentSetupAsync</c> — the start of every pick gesture, and
-    /// Clear — beside <see cref="AppliedMix.Reset"/>: uncommitted mix edits
-    /// were made against the outgoing setup's stats slot and do not carry to
-    /// the next. Does not touch localStorage — the stored mix survives for the
-    /// next hydration to re-offer, mirroring <see cref="AppliedMix.Reset"/>'s
-    /// hands-off treatment.
+    /// Clear — beside <c>MixConsent.Revoke</c>. Deliberately <b>not</b> a
+    /// write-through mutator: it does not touch localStorage, so the stored
+    /// last-valid mix survives the end of the setup for the next hydration to
+    /// re-offer — this asymmetry (Clear persists blank, Discard persists
+    /// nothing) is exactly §4's choice-vs-consent line drawn through the
+    /// draft.
     /// </summary>
     public void Discard()
     {
@@ -213,7 +247,8 @@ internal sealed class MixDraft(IJSRuntime js)
     }
 
     // -----------------------------------------------------------------------
-    //  Mutators — the only writes to the draft, so Changed always fires
+    //  Mutators — the only writes to the draft, so Changed always fires and
+    //  the last-valid write-through always runs (see MutatedAsync)
     // -----------------------------------------------------------------------
 
     /// <summary>
@@ -222,74 +257,75 @@ internal sealed class MixDraft(IJSRuntime js)
     /// born invalid), then every row's percent re-derived to an even 100 total
     /// (finding AH).
     /// </summary>
-    public void AddRow()
+    public Task AddRowAsync()
     {
         var kind = NextUnusedKind();
         _rows.Add(new Row(kind, DefaultParamText(kind), string.Empty));
         RebalancePercentsEvenly();
-        Changed?.Invoke();
+        return MutatedAsync();
     }
 
     /// <summary>
     /// Remove the row at <paramref name="index"/>, rebalancing the survivors
-    /// to an even 100 split (symmetric with <see cref="AddRow"/> — a removal
-    /// must not strand the panel demanding percent the user never chose to
-    /// give away). Removing the last row leaves the blank draft; committing
-    /// the blank mix that follows is the panel's job (its shared blank path).
+    /// to an even 100 split (symmetric with <see cref="AddRowAsync"/> — a
+    /// removal must not strand the panel demanding percent the user never
+    /// chose to give away). Removing the last row leaves the blank draft,
+    /// which builds <see cref="QuizMix.Empty"/> and so writes the blank mix
+    /// through — no special panel path any more; it is an edit like any other.
     /// </summary>
-    public void RemoveRow(int index)
+    public Task RemoveRowAsync(int index)
     {
         _rows.RemoveAt(index);
         if (_rows.Count > 0) RebalancePercentsEvenly();
-        Changed?.Invoke();
+        return MutatedAsync();
     }
 
-    /// <summary>Move the row at <paramref name="index"/> by <paramref name="delta"/> (±1) — order is semantic, so a reorder is a real edit and derives dirty.</summary>
-    public void MoveRow(int index, int delta)
+    /// <summary>Move the row at <paramref name="index"/> by <paramref name="delta"/> (±1) — order is semantic (earlier rows win contested overlap), so a reorder is a real edit and writes through.</summary>
+    public Task MoveRowAsync(int index, int delta)
     {
         var target = index + delta;
-        if (target < 0 || target >= _rows.Count) return;
+        if (target < 0 || target >= _rows.Count) return Task.CompletedTask;
         (_rows[index], _rows[target]) = (_rows[target], _rows[index]);
-        Changed?.Invoke();
+        return MutatedAsync();
     }
 
     /// <summary>
     /// Change a row's kind, seeding the new kind's sensible default parameter
     /// so the row is immediately valid; the user edits from there.
     /// </summary>
-    public void SetKind(int index, QuizCategoryKind kind)
+    public Task SetKindAsync(int index, QuizCategoryKind kind)
     {
         _rows[index].Kind = kind;
         _rows[index].ParamText = DefaultParamText(kind);
-        Changed?.Invoke();
+        return MutatedAsync();
     }
 
-    public void SetParamText(int index, string text)
+    public Task SetParamTextAsync(int index, string text)
     {
         _rows[index].ParamText = text;
-        Changed?.Invoke();
+        return MutatedAsync();
     }
 
-    public void SetPercentText(int index, string text)
+    public Task SetPercentTextAsync(int index, string text)
     {
         _rows[index].PercentText = text;
-        Changed?.Invoke();
+        return MutatedAsync();
     }
 
-    public void SetRandomOrder(bool value)
+    public Task SetRandomOrderAsync(bool value)
     {
         RandomOrder = value;
-        Changed?.Invoke();
+        return MutatedAsync();
     }
 
-    public void SetLengthText(string text)
+    public Task SetLengthTextAsync(string text)
     {
         LengthText = text;
-        Changed?.Invoke();
+        return MutatedAsync();
     }
 
     // -----------------------------------------------------------------------
-    //  Derivations — validation, build, and the derived start-gate rule
+    //  Derivations — validation and the build
     // -----------------------------------------------------------------------
 
     /// <summary>The rows' percent total as typed (unparseable buffers count 0) — the panel's running-total line.</summary>
@@ -298,13 +334,14 @@ internal sealed class MixDraft(IJSRuntime js)
 
     /// <summary>
     /// The first problem with the current draft, or null when it would build
-    /// cleanly. Recomputed per read; the panel disables Apply while non-null,
-    /// so the construction-time try/catch in <see cref="Build"/> is a
-    /// backstop, not the primary validation. A blank draft reports no error —
-    /// it <i>would</i> build the inert <see cref="QuizMix.Empty"/> — but the
-    /// panel separately disables Apply at zero rows: committing the blank mix
-    /// is the blank path's job (Reset / last-row removal), so Apply requires
-    /// at least one row.
+    /// cleanly. Recomputed per read; the panel renders it as the in-place
+    /// account of <i>why</i> the state is invalid — which matters more now
+    /// than under the Apply era, because a checked "Mix applies" over an
+    /// invalid draft gates Start (Home's hint says fix-or-uncheck; this line
+    /// says what to fix). The construction-time try/catch in
+    /// <see cref="Build"/> is a backstop, not the primary validation. A blank
+    /// draft reports no error: it builds the inert <see cref="QuizMix.Empty"/>
+    /// (see <see cref="Build"/> — that is a ruled, load-bearing line).
     /// </summary>
     public string? ValidationError
     {
@@ -338,10 +375,14 @@ internal sealed class MixDraft(IJSRuntime js)
 
     /// <summary>
     /// Flush the rows / toggle / length into a validated <see cref="QuizMix"/>,
-    /// preserving row order (order is contractual). Zero rows build
-    /// <see cref="QuizMix.Empty"/>; null when the draft doesn't build — which
-    /// the derived gate reads as dirty by definition (an unbuildable draft can
-    /// never agree with a committed mix).
+    /// preserving row order (order is contractual). <b>The blank (zero-row)
+    /// draft builds <see cref="QuizMix.Empty"/> — never null.</b> Null is
+    /// reserved for genuinely invalid states (validation errors), and two
+    /// rulings load-bear on that line: checked + blank is in-effect
+    /// <i>passthrough</i>, not the gated mix-invalid state (Home's
+    /// <c>EffectiveMix</c> must read <see cref="QuizMix.Empty"/> there), and
+    /// Clear-persists-blank requires the write-through to see blank as a
+    /// persistable mix.
     /// </summary>
     public QuizMix? Build()
     {
@@ -372,23 +413,6 @@ internal sealed class MixDraft(IJSRuntime js)
         {
             return null; // set-level rule the per-row checks missed — unbuildable, so dirty
         }
-    }
-
-    /// <summary>
-    /// The start gate's mix half, fully derived: whether this draft builds and
-    /// the built mix content-equals <paramref name="committed"/> (the
-    /// <see cref="AppliedMix.Current"/> the quiz would actually run). False —
-    /// i.e. dirty, Start gated — while the draft holds an uncommitted or
-    /// unbuildable edit; true again the moment the draft and the commitment
-    /// agree, however that came about (Apply, Reset, or an edit that returns
-    /// the draft to exactly the committed content). Because a blank draft
-    /// builds <see cref="QuizMix.Empty"/>, the fresh blank state matches the
-    /// fresh holder with no special case.
-    /// </summary>
-    public bool Matches(QuizMix committed)
-    {
-        ArgumentNullException.ThrowIfNull(committed);
-        return Build() is { } built && built == committed;
     }
 
     // -----------------------------------------------------------------------
@@ -516,7 +540,7 @@ internal sealed class MixDraft(IJSRuntime js)
     /// gesture that changes the row count is a restructuring of the mix, and the
     /// alternative is leaving the user to redo the arithmetic the panel already
     /// knows. Above 100 rows the floor share is 0 and the per-row 1–100 check
-    /// reports it: that state is genuinely uncommittable, not a rounding bug.
+    /// reports it: that state is genuinely invalid, not a rounding bug.
     /// Both call sites guarantee at least one row — Add has just appended, and
     /// Remove skips the rebalance at zero rows.
     /// </summary>

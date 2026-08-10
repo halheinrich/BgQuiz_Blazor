@@ -5,108 +5,101 @@ using Microsoft.AspNetCore.Components;
 namespace BgQuiz_Blazor.Client.Components.Pages;
 
 /// <summary>
-/// The stats-weighted mix builder hosted on <c>Home</c> — the
-/// <c>FilterPanel</c> of quiz composition, and a <b>view</b> over the
-/// app-scoped <see cref="MixDraft"/>: every gesture routes through the
-/// draft's mutators, and the markup renders the draft's rows, toggle, length,
-/// and validation. The panel holds no edit state of its own, so mix edits
-/// survive in-app navigation with the draft (ratified product behavior) and
-/// the start gate can be derived from state that shares the draft's lifetime
-/// — no dirty events, no hydration reconcile (both dissolved with the stored
-/// <c>AppliedMix.IsDirty</c> flag this architecture replaced).
+/// The stats-weighted mix builder hosted on <c>Home</c> — a <b>view</b> over
+/// the app-scoped <see cref="MixDraft"/> and <see cref="MixConsent"/>: every
+/// gesture routes through the draft's mutators or the consent bit, and the
+/// markup renders the draft's rows, toggle, length, and validation. The panel
+/// holds no state of its own, so mix edits and the activation bit survive
+/// in-app navigation with their services (ratified product behavior), and
+/// everything Start derives from shares one lifetime.
 ///
 /// <para>
-/// <b>Commit model mirrors <c>FilterPanel</c>.</b>
-/// <see cref="OnMixApplied"/> fires on Apply, on <i>Clear mix</i>, and when the
-/// last row is removed (both the clear and the last-row removal are an explicit apply of
-/// <see cref="QuizMix.Empty"/>, distinct from the never-silently-rewrite rule
-/// because the user asked for the blank state) — never per keystroke. Commits
-/// persist through <see cref="MixDraft.PersistAsync"/> (committed-only
-/// persistence) before the parent adopts the mix into <c>AppliedMix</c>.
-/// Edits raise no event at all: the draft notifies its own subscribers
-/// (<see cref="MixDraft.Changed"/>), and the gate re-derives from
-/// draft-vs-committed content equality.
+/// <b>Activation is the "Mix applies" checkbox — the sole control</b>
+/// (<c>SPEC-filtering.md</c> §5, Fork B; it replaced the Apply Mix button
+/// outright). Checked means the on-screen mix is in effect: there is no
+/// committed copy, no commit gesture, and no event to the host — the host
+/// observes <see cref="MixConsent.Changed"/> / <see cref="MixDraft.Changed"/>
+/// like any other state-container subscriber. The check gesture is gated by
+/// <see cref="CanActivate"/> (the host's Fork A fact: the filter is in effect
+/// <i>now</i>); <b>unchecking is always live</b> — the box is disabled only
+/// while unchecked-and-gated, so consent can always be withdrawn, which is
+/// what keeps a checked-but-invalid mix (Start gated, hint says
+/// fix-or-uncheck) from ever wedging.
+/// </para>
+///
+/// <para>
+/// <b>Persistence is the draft's, per edit.</b> Every mutator writes the
+/// built mix through while the draft validates (blank included), so storage
+/// follows the screen with no commit moment; this panel never touches a
+/// serializer or localStorage. <i>Clear mix</i> is
+/// <see cref="MixDraft.ClearAsync"/> whole: blank the builder and persist the
+/// blank mix — deliberate row removal, its one honest job. It never touches
+/// the checkbox (checked over blank is vacuous, in-effect passthrough — the
+/// app flips the bit in neither direction).
 /// </para>
 ///
 /// <para>
 /// <b>Hydration is the draft's, triggered here.</b> Init awaits the
 /// idempotent <see cref="MixDraft.EnsureHydratedAsync"/>: the first mount of
-/// a setup loads the stored mix into the draft (re-offering it, gated by the
-/// derived rule, until the user Applies or clears); a re-mount after in-app
-/// navigation finds the draft already hydrated and shows it as-is — edits
-/// included.
+/// a setup loads the stored last-valid mix into the draft — visible but inert
+/// until the user checks the box; a re-mount after in-app navigation finds
+/// the draft already hydrated and shows it as-is, edits included.
 /// </para>
 ///
 /// <para>
 /// <b>Row order is semantic.</b> Composition draws entries in declared order
 /// — a contested (overlapping) decision goes to the earlier entry (producer
-/// contract) — so the rows carry explicit ↑/↓ reorder buttons, the commit
-/// preserves order exactly, and a reorder alone derives dirty.
+/// contract) — so the rows carry explicit ↑/↓ reorder buttons and a reorder
+/// alone is a real, persisted edit.
 /// </para>
 ///
 /// <para>
 /// <b>The row count owns the percents.</b> Every change to the number of rows
 /// — Add and Remove alike — re-derives <i>all</i> percents as an even split
-/// totalling exactly 100 (<see cref="MixDraft.AddRow"/> /
-/// <see cref="MixDraft.RemoveRow"/>), deliberately overwriting hand-edited
-/// values: the panel demands a 100 total, so a structural edit that left the
-/// old numbers standing simply handed the user arithmetic (findings AH/AI).
-/// Because the split always lands on 100, the "must reach 100%" error can
-/// never appear as a <i>consequence</i> of Add/Remove — only of a subsequent
-/// hand edit, which is the one case where it is informative. A new row also
-/// starts on the first kind no existing row uses, so successive Adds walk
-/// <see cref="MixDraft.CategoryKinds"/> in order instead of piling up
-/// duplicates. Both rules are Add/Remove-time seeding only: once a row exists
-/// the user owns its kind and its percent, and a duplicate kind chosen by
-/// hand is left to stand as the validation error it is.
+/// totalling exactly 100 (<see cref="MixDraft.AddRowAsync"/> /
+/// <see cref="MixDraft.RemoveRowAsync"/>), deliberately overwriting
+/// hand-edited values: the panel demands a 100 total, so a structural edit
+/// that left the old numbers standing simply handed the user arithmetic
+/// (findings AH/AI). A new row also starts on the first kind no existing row
+/// uses, so successive Adds walk <see cref="MixDraft.CategoryKinds"/> in
+/// order instead of piling up duplicates. Both rules are Add/Remove-time
+/// seeding only: once a row exists the user owns its kind and its percent,
+/// and a duplicate kind chosen by hand is left to stand as the validation
+/// error it is.
 /// </para>
 /// </summary>
 public partial class MixPanel : ComponentBase
 {
     /// <summary>
-    /// Raised on <b>Apply</b>, on <b>Clear mix</b>, and when the <b>last row is
-    /// removed</b> (which returns the builder to the blank passthrough state) —
-    /// never per keystroke — carrying the committed <see cref="QuizMix"/>.
-    /// Required: the panel exists to produce this, so a missing binding is an
-    /// <c>RZ2012</c> compile error rather than a silent Razor splat.
-    /// </summary>
-    [Parameter, EditorRequired] public EventCallback<QuizMix> OnMixApplied { get; set; }
-
-    /// <summary>
-    /// Gates the <b>Apply Mix</b> gesture only — the host's sequencing switch,
-    /// mirroring <c>SavedFiltersPanel.CanPersist</c>. <c>Home</c> binds it to
-    /// "a filter has been applied for the currently picked folder": the mix
-    /// draws from the filtered pool, so composing one before any filter exists
-    /// is premature (issue #45). The panel is <i>told</i>, never asks — it holds
-    /// no notion of filters, and none of the mix's own state
-    /// (<see cref="MixDraft"/>, <c>AppliedMix</c>) takes part in the gate, which
-    /// is what keeps this from re-creating the (AK) lifetime split.
+    /// Gates the <b>check</b> gesture of "Mix applies" — the host's Fork A
+    /// fact ("the filter is in effect right now", the same fact Start reads),
+    /// told to this panel because the panel knows nothing of filters. Gates
+    /// checking only: while the box is already checked it renders enabled
+    /// regardless, so unchecking — the universal way out — is never taken
+    /// away, and the app never unchecks on the user's behalf.
     ///
     /// <para>
-    /// <b>Clear mix and the blank path stay enabled regardless.</b> Returning to
-    /// the passthrough mix — an explicit clear, or removing the last row — is how a
-    /// user escapes a dirty draft that is gating Start, and a hydrated stored
-    /// mix arrives dirty <i>before</i> any filter is applied. Gating that too
-    /// would wedge the page. Only the forward commit is sequenced.
-    /// </para>
-    ///
-    /// <para>
-    /// Defaults to <see langword="true"/>, like its precedent, so a host that
-    /// doesn't sequence its panels simply omits it. <see cref="ApplyAsync"/>
-    /// early-returns as well, so the contract holds even for programmatic event
-    /// dispatch that ignores the <c>disabled</c> attribute.
+    /// Defaults to <see langword="true"/> (a host that doesn't sequence its
+    /// panels gets an always-checkable box), but is <c>[EditorRequired]</c>
+    /// all the same: with the Apply event gone this component has no other
+    /// required binding, and a future host mounting it bare would otherwise
+    /// compile silently into an ungated activation control. The
+    /// <see cref="HandleAppliesChanged"/> backstop enforces the gate even for
+    /// programmatic event dispatch that ignores the <c>disabled</c> attribute.
     /// </para>
     /// </summary>
-    [Parameter] public bool CanApply { get; set; } = true;
+    [Parameter, EditorRequired] public bool CanActivate { get; set; } = true;
 
     /// <summary>
-    /// Optional host-supplied explanation shown while <see cref="CanApply"/> is
-    /// <see langword="false"/> — as the disabled button's <c>title</c> and as a
-    /// muted hint line beneath it. Ignored while Apply is enabled. The sentence
-    /// belongs to the host because the <i>rule</i> does: this panel knows
-    /// nothing of what it is being sequenced behind.
+    /// Host-supplied explanation shown while the check gesture is gated
+    /// (<see cref="CanActivate"/> false and the box unchecked) — as the
+    /// disabled checkbox's <c>title</c> and as a muted hint line beneath the
+    /// controls. Ignored otherwise. The sentence belongs to the host because
+    /// the <i>rule</i> does: this panel knows nothing of what it is being
+    /// sequenced behind. <c>[EditorRequired]</c> beside its gate for the same
+    /// reason the gate is: a host that sequences must also say why.
     /// </summary>
-    [Parameter] public string? ApplyDisabledReason { get; set; }
+    [Parameter, EditorRequired] public string? ActivateDisabledReason { get; set; }
 
     /// <summary>
     /// Trigger the draft's once-per-setup hydration. Awaiting it here (rather
@@ -138,65 +131,28 @@ public partial class MixPanel : ComponentBase
         _ => string.Empty,
     };
 
-    private void HandleKindChanged(int index, ChangeEventArgs e)
+    private Task HandleKindChangedAsync(int index, ChangeEventArgs e)
     {
-        if (!Enum.TryParse<QuizCategoryKind>(e.Value?.ToString(), out var kind)) return;
-        Draft.SetKind(index, kind);
+        if (!Enum.TryParse<QuizCategoryKind>(e.Value?.ToString(), out var kind))
+            return Task.CompletedTask;
+        return Draft.SetKindAsync(index, kind);
     }
 
-    private Task RemoveRowAsync(int index)
-    {
-        Draft.RemoveRow(index);
-        // Removing the last row returns the draft to its blank (passthrough)
-        // state. Apply is disabled at zero rows (committing Empty is the blank
-        // path's job, not Apply's), so leaving this a mere edit would gate
-        // Start with no in-panel commit but Clear mix — the pre-beta wedge.
-        // Auto-commit the blank mix through the same channel Clear mix uses, so
-        // the holder, the gate, and localStorage all land where it would put them.
-        return Draft.Rows.Count == 0 ? GoBlankAsync() : Task.CompletedTask;
-    }
-
-    /// <summary>The disabled button's tooltip — the host's reason, or nothing while Apply is enabled.</summary>
-    private string? ApplyDisabledTitle => CanApply ? null : ApplyDisabledReason;
-
-    private Task ApplyAsync()
-    {
-        // Both backstops behind a disabled button, for the same reason: a
-        // programmatic dispatch ignores `disabled`, and neither the host's
-        // sequencing gate nor the draft's validity may be bypassed that way.
-        if (!CanApply) return Task.CompletedTask;
-        if (Draft.Build() is not { } mix) return Task.CompletedTask;
-        return CommitAsync(mix);
-    }
+    /// <summary>The gated checkbox's tooltip — the host's reason, or nothing while checking is available (or the box is checked).</summary>
+    private string? ActivateDisabledTitle =>
+        !CanActivate && !Consent.Applies ? ActivateDisabledReason : null;
 
     /// <summary>
-    /// The <i>Clear mix</i> gesture. Named for what it does — blank the builder
-    /// and commit the blank mix — rather than for undoing edits, which is what
-    /// the former <c>Reset</c> label and method promised and never delivered
-    /// (issue <c>halheinrich/backgammon#87</c>). Behavior is unchanged; only the
-    /// name is honest now.
+    /// The "Mix applies" gesture. Asymmetric by design: unchecking always
+    /// lands (consent can always be withdrawn), while a <i>check</i> arriving
+    /// past the gate — programmatic dispatch ignores <c>disabled</c> — is
+    /// dropped, mirroring the old Apply backstop. No other logic: effect is
+    /// derived by the host from the bit and the draft, never computed here.
     /// </summary>
-    private Task ClearAsync() => GoBlankAsync();
-
-    /// <summary>
-    /// Normalize to the blank draft and commit <see cref="QuizMix.Empty"/> —
-    /// the shared path for the explicit <i>Clear mix</i> gesture and for
-    /// removing the last row, which lands in the same state. Both persist Empty
-    /// (localStorage stays consistent) and raise <see cref="OnMixApplied"/>,
-    /// the sanctioned way this panel writes Empty over a stored mix.
-    /// <see cref="MixDraft.Clear"/> also resets the toggle and length to their
-    /// blank-builder defaults so "zero rows" means one state regardless of how
-    /// it was reached.
-    /// </summary>
-    private Task GoBlankAsync()
+    private void HandleAppliesChanged(ChangeEventArgs e)
     {
-        Draft.Clear();
-        return CommitAsync(QuizMix.Empty);
-    }
-
-    private async Task CommitAsync(QuizMix mix)
-    {
-        await Draft.PersistAsync(mix);
-        await OnMixApplied.InvokeAsync(mix);
+        var requested = e.Value is true;
+        if (requested && !CanActivate) return;
+        Consent.Set(requested);
     }
 }

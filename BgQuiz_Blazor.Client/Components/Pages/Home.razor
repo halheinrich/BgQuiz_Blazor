@@ -11,7 +11,7 @@
 @inject PickedProblemFolder Folder
 @inject AppliedFilter AppliedFilter
 @inject FilterRestoreNotice FilterRestoreNotice
-@inject AppliedMix AppliedMix
+@inject MixConsent MixConsent
 @inject MixDraft MixDraft
 @inject ShuffleOption ShuffleOption
 @inject QuizStatsStore StatsStore
@@ -24,9 +24,9 @@
 <PageTitle>BgQuiz</PageTitle>
 
 @* app-busy: the progress-cursor idiom (app.css) whenever this page is working
-   — a controller transition, a pick's scan-and-buffer, an Apply's match count,
-   or a mix commit. The predicate is IsBusy for all of them, and the fieldset
-   below reads the same one, so cursor and disabled controls cannot disagree. *@
+   — a controller transition, a pick's scan-and-buffer, or an Apply's match
+   count. The predicate is IsBusy for all of them, and the fieldset below
+   reads the same one, so cursor and disabled controls cannot disagree. *@
 <div class="container py-3 @(IsBusy ? "app-busy" : null)">
     <h1>BgQuiz</h1>
 
@@ -310,12 +310,13 @@
        first-parse after a pick.
 
        The count is filter-only by construction — SummarizeMatchesAsync passes
-       QuizMix.Empty — so with a mix committed the number describes the pool the
+       QuizMix.Empty — so with a mix in effect the number describes the pool the
        mix draws *from*, which the quiz itself can fall far short of. Rather than
        leave that number to be read as the quiz's length, the caveat states the
        relationship; it rides inside the same role="status" region so the count
        and its qualification are announced together, and it derives from
-       HasCommittedMix so applying or resetting a mix updates it live. Hedged
+       MixInEffect (checked ∧ non-passthrough, live per keystroke) so checking,
+       unchecking, or clearing the mix updates it the moment it happens. Hedged
        ("can be"), not "will be smaller": a capless mix over Everything else can
        legitimately draw the whole pool. Pre-Start composition *preview* is a
        separate, deliberately unbuilt thing — a preview would have to compose
@@ -351,10 +352,10 @@
             <div>
                 <strong>@matchSummary.Total</strong>
                 @(matchSummary.Total == 1 ? "decision matches" : "decisions match") your filters.
-                @if (HasCommittedMix)
+                @if (MixInEffect)
                 {
                     <text>
-                        Your applied mix draws the quiz from these matches rather than
+                        Your mix applies: the quiz is drawn from these matches rather than
                         presenting all of them, so the quiz itself can be much smaller.
                     </text>
                 }
@@ -393,30 +394,32 @@
        mix until its own first quiz has written some stats.
 
        Under a false predicate the mix plays no part in Start, by construction:
-       there is no way to build a mix, every pick resets the committed mix and
+       there is no way to build a mix, every pick revokes the consent bit and
        discards the draft (see EndCurrentSetupAsync), and with no panel mounted
-       nothing re-hydrates — the blank draft matches the passthrough holder, so
-       the derived gate never fires. Keyed on the pick generation so every pick
-       re-mounts it: the fresh mount triggers the discarded draft's re-hydration,
-       which re-offers the persisted mix — gated by the derived draft-vs-committed
-       rule against the just-reset holder — enforcing "no committed mix silently
-       survives a pick" with no reconcile code.
+       nothing re-hydrates — the unchecked consent reads as passthrough, so no
+       mix gate, warning, or refusal can fire. Keyed on the pick generation so
+       every pick re-mounts it: the fresh mount triggers the discarded draft's
+       re-hydration, which re-offers the stored last-valid mix — visible but
+       inert until the user re-checks "Mix applies" (consent died with the
+       setup) — enforcing "no mix silently survives a pick in effect" with no
+       reconcile code.
 
        The @key now decides less than it did: since the reset moved to the click,
        the enclosing HasFiles gate already unmounts this panel on every pick. The
        key stays because it — not the gate — is what guarantees the remount, and
        nothing here should depend on the gate's timing. *@
-    @* Apply Mix is gated on a filter having been applied for this pick
-       (MixApplyEnabled) — UX sequencing only: the mix composes over the
+    @* The "Mix applies" CHECK gesture is gated on a filter being in effect for
+       this pick right now (MixActivationEnabled — the spec's Fork A, strict; the
+       same fact Start reads) — UX sequencing only: the mix composes over the
        filtered pool at Start, so the pipeline never required the order, but
-       nothing on the page said which draws from which. Nothing about the mix's
-       own state takes part in the gate, and the panel is told, never asks. *@
+       nothing on the page said which draws from which. Unchecking is never
+       gated, nothing about the mix's own state takes part, and the panel is
+       told, never asks. *@
     @if (StatsStore.CanWeightMix)
     {
         <MixPanel @key="Folder.PickGeneration"
-                  CanApply="MixApplyEnabled"
-                  ApplyDisabledReason="@MixApplyDisabledReason"
-                  OnMixApplied="HandleMixApplied" />
+                  CanActivate="MixActivationEnabled"
+                  ActivateDisabledReason="@MixActivationDisabledReason" />
     }
 
     @* Disabled — not rewritten — while a committed mix owns presentation
@@ -444,6 +447,14 @@
         Start Quiz
     </button>
 
+    @* Four sibling hints, one per Start gate, in the gate's own order: each
+       states its reason, and exactly one shows at a time (the chain mirrors
+       CanStart's conjunction, most-fundamental first). The zero-pool hint
+       renders only on a KNOWN-empty pool — a resolved summary with Total 0 —
+       never while the count is null or still running, matching the gate. The
+       mix hint is the ruled fix-or-uncheck sentence: the box stays checked
+       (it records intent), Start goes dark, and the panel's own validation
+       line says what specifically is broken. *@
     @if (FilterInEffect is null)
     {
         <small class="text-muted ms-2">Apply the filters above to enable Start.</small>
@@ -452,9 +463,13 @@
     {
         <small class="text-muted ms-2">Pick a folder containing .xg / .xgp files to enable Start.</small>
     }
-    else if (MixDirty)
+    else if (_matchSummary is { Total: 0 })
     {
-        <small class="text-muted ms-2">Apply or clear the mix above to enable Start.</small>
+        <small class="text-muted ms-2">The filters match no problems — adjust and re-apply them to enable Start.</small>
+    }
+    else if (EffectiveMix is null)
+    {
+        <small class="text-muted ms-2">Mix applies but isn't valid — fix it or uncheck.</small>
     }
 
     @if (!string.IsNullOrEmpty(_startError))
@@ -464,10 +479,14 @@
         </div>
     }
 
-    @* Weighted-start refusal: the mix has entries but no lifetime stats are
-       available, and running silently unweighted would substitute content the
-       user didn't ask for. Actionable and assertive — the one-click per-run
-       escape sits inside the notice; the stored mix is never touched. *@
+    @* Weighted-start refusal: the effective mix has entries but no lifetime
+       stats are available, and running silently unweighted would substitute
+       content the user didn't ask for. Actionable and assertive — the
+       one-click per-run escape sits inside the notice; the mix rows and the
+       checkbox are never touched by either path (the escape is per-run, and
+       unchecking is the user's own standing off-switch). The copy no longer
+       points at Clear mix: under screen-follows-storage Clear genuinely
+       deletes the rows, so the honest keep-your-mix escape is uncheck. *@
     @if (_mixRefused)
     {
         <div class="alert alert-warning mt-3" role="alert">
@@ -481,8 +500,8 @@
                 Start without mix
             </button>
             <span class="small text-muted ms-2">
-                runs this one quiz unweighted — or Clear mix above to
-                remove it; your saved mix is kept either way.
+                runs this one quiz unweighted — or uncheck <em>Mix applies</em>
+                above to turn the mix off; your mix rows are kept either way.
             </span>
         </div>
     }

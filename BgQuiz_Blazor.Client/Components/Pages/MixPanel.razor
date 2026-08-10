@@ -1,20 +1,21 @@
 @using BgGame_Lib
 @using BgQuiz_Blazor.Client.Quiz
 @inject MixDraft Draft
+@inject MixConsent Consent
 
 @* ── MixPanel.razor ──────────────────────────────────────────────────────────
-   The stats-weighted mix builder: a VIEW over the app-scoped MixDraft — an
-   ordered list of (category, percent) rows plus the Random-order toggle and an
-   optional quiz length, all owned by the draft so edits survive in-app
-   navigation. Raises OnMixApplied on Apply, on Clear mix, and when the last row
-   is removed (Clear mix and last-row removal both being an explicit apply of
-   the blank mix); mere edits raise nothing — the draft notifies its subscribers
-   and the start gate derives from draft-vs-committed content equality. Init
-   triggers the draft's once-per-setup localStorage hydration; it never
-   commits. Row order is semantic — earlier rows win contested overlap
-   (producer contract) — hence the explicit ↑/↓ affordance.
-   The committed mix persists as one QuizMix blob (xg_quizMix) via the draft's
-   PersistAsync; this component never touches a serializer or localStorage.
+   The stats-weighted mix builder: a VIEW over the app-scoped MixDraft and
+   MixConsent — an ordered list of (category, percent) rows plus the
+   Random-order toggle and an optional quiz length, all owned by the draft so
+   edits survive in-app navigation; and the "Mix applies" checkbox, the sole
+   activation control (SPEC-filtering.md §5 Fork B), whose bit lives in the
+   scoped MixConsent because the panel dies on navigation and §4 says
+   navigation changes nothing. There is no committed mix and no commit
+   gesture: checked = the mix shown here is in effect, and every edit that
+   validates writes the built mix through to localStorage (xg_quizMix, via the
+   draft — last-valid write-through; this component never touches a serializer
+   or localStorage). Row order is semantic — earlier rows win contested
+   overlap (producer contract) — hence the explicit ↑/↓ affordance.
 ──────────────────────────────────────────────────────────────────────────── *@
 
 <div class="card mb-4" style="max-width:800px">
@@ -47,7 +48,7 @@
             var index = i; // capture per iteration for the lambdas below
             <div class="d-flex flex-wrap align-items-center gap-2 mb-2 mix-row">
                 <select class="form-select form-select-sm w-auto" aria-label="Category"
-                        @onchange="e => HandleKindChanged(index, e)">
+                        @onchange="e => HandleKindChangedAsync(index, e)">
                     @foreach (var kind in MixDraft.CategoryKinds)
                     {
                         <option value="@kind" selected="@(row.Kind == kind)">@MixDisplay.KindLabel(kind)</option>
@@ -58,21 +59,25 @@
                     <input class="form-control form-control-sm mix-param" style="max-width:90px"
                            aria-label="@ParameterLabel(row.Kind)"
                            value="@row.ParamText"
-                           @oninput="e => Draft.SetParamText(index, e.Value?.ToString() ?? string.Empty)" />
+                           @oninput="e => Draft.SetParamTextAsync(index, e.Value?.ToString() ?? string.Empty)" />
                     <span class="text-muted small">@ParameterUnit(row.Kind)</span>
                 }
                 <input class="form-control form-control-sm mix-percent" style="max-width:80px"
                        type="number" min="1" max="100" aria-label="Percent"
                        value="@row.PercentText"
-                       @oninput="e => Draft.SetPercentText(index, e.Value?.ToString() ?? string.Empty)" />
+                       @oninput="e => Draft.SetPercentTextAsync(index, e.Value?.ToString() ?? string.Empty)" />
                 <span class="text-muted small">%</span>
                 <div class="btn-group btn-group-sm ms-auto" role="group">
                     <button type="button" class="btn btn-outline-secondary" title="Move up"
-                            disabled="@(index == 0)" @onclick="() => Draft.MoveRow(index, -1)">↑</button>
+                            disabled="@(index == 0)" @onclick="() => Draft.MoveRowAsync(index, -1)">↑</button>
                     <button type="button" class="btn btn-outline-secondary" title="Move down"
-                            disabled="@(index == Draft.Rows.Count - 1)" @onclick="() => Draft.MoveRow(index, +1)">↓</button>
+                            disabled="@(index == Draft.Rows.Count - 1)" @onclick="() => Draft.MoveRowAsync(index, +1)">↓</button>
+                    @* Removing the last row is an edit like any other now: the
+                       blank draft builds the blank mix, which the write-through
+                       persists — no auto-commit path, nothing gates Start,
+                       and a checked box simply reads as passthrough. *@
                     <button type="button" class="btn btn-outline-secondary" title="Remove"
-                            @onclick="() => RemoveRowAsync(index)">✕</button>
+                            @onclick="() => Draft.RemoveRowAsync(index)">✕</button>
                 </div>
             </div>
         }
@@ -81,13 +86,14 @@
             @* Outline-*primary*, not the secondary grey the panel's other
                buttons wear. Adding a row is always valid — there is no state in
                which this is disabled — but at zero rows it is surrounded by
-               three controls that genuinely are (Random order, Quiz length,
-               Apply Mix), so in secondary grey it read as a fourth switched-off
-               control, which is the one reading that must never happen: it is
-               the only way out of the zero-row state. Same class as Home's
-               "Choose folder…" — the page's other required-but-unstarted step. *@
+               controls that genuinely are (Random order, Quiz length, and the
+               gated "Mix applies" box before a filter is applied), so in
+               secondary grey it read as another switched-off control, which is
+               the one reading that must never happen: it is the only way out of
+               the zero-row state. Same class as Home's "Choose folder…" — the
+               page's other required-but-unstarted step. *@
             <button type="button" id="mixAddRow" class="btn btn-outline-primary btn-sm"
-                    @onclick="Draft.AddRow">
+                    @onclick="Draft.AddRowAsync">
                 Add category
             </button>
             @if (Draft.Rows.Count > 0)
@@ -101,7 +107,7 @@
         <div class="mb-2 form-check">
             <input class="form-check-input" type="checkbox" id="mixRandomOrder"
                    checked="@Draft.RandomOrder" disabled="@(Draft.Rows.Count == 0)"
-                   @onchange="e => Draft.SetRandomOrder(e.Value is true)" />
+                   @onchange="e => Draft.SetRandomOrderAsync(e.Value is true)" />
             <label class="form-check-label" for="mixRandomOrder">
                 Random order
                 <small class="text-muted">(off = draw and present in file order)</small>
@@ -119,7 +125,7 @@
                    type="number" min="1" placeholder="No cap"
                    disabled="@(Draft.Rows.Count == 0)"
                    value="@Draft.LengthText"
-                   @oninput="e => Draft.SetLengthText(e.Value?.ToString() ?? string.Empty)" />
+                   @oninput="e => Draft.SetLengthTextAsync(e.Value?.ToString() ?? string.Empty)" />
         </div>
 
         @if (Draft.ValidationError is { } error)
@@ -127,32 +133,43 @@
             <div class="text-danger small mb-2" role="status">@error</div>
         }
 
-        @* Clear mix is deliberately ungated by CanApply: it is the way *out* of
-           a dirty draft (a hydrated stored mix gates Start before any filter is
-           applied), so gating both would wedge the page. Apply's own two
-           conditions — at least one row, and a draft that validates — are
-           unchanged; the host gate is a third, independent one.
+        @* "Mix applies" — the sole activation control (SPEC §5 Fork B):
+           checked = the mix above is in effect for the next Start; there is no
+           committed copy for it to diverge from. The disabled condition is
+           ASYMMETRIC on purpose: only the *check* gesture is gated (CanActivate
+           — the host's filter-in-effect fact, Fork A strict), so while the box
+           is checked it stays operable and unchecking — the universal way out —
+           is never taken away. The app flips the bit in neither direction:
+           clearing the rows, breaking the mix, or editing the filter leaves the
+           user's consent exactly where they put it (a checked box over the
+           blank mix is honest passthrough — the zero-row copy above says so).
+           Deliberately NOT disabled at zero rows, ruled. *@
+        <div class="mb-2 form-check">
+            <input class="form-check-input" type="checkbox" id="mixApplies"
+                   checked="@Consent.Applies"
+                   disabled="@(!Consent.Applies && !CanActivate)"
+                   title="@ActivateDisabledTitle"
+                   @onchange="HandleAppliesChanged" />
+            <label class="form-check-label" for="mixApplies">
+                Mix applies
+                <small class="text-muted">(checked = the next quiz is drawn by the mix above)</small>
+            </label>
+        </div>
 
-           Named for what it does, not for what it undoes (issue #87): the
-           gesture blanks the builder AND commits the blank mix, so "Reset"
-           promised a return to some earlier state and delivered a commitment
-           instead. The sibling precedent is the filter panel's "Clear
-           filters" — same shape of gesture, same honesty. *@
+        @* Clear mix keeps its one honest job — deliberately removing the rows,
+           with storage following the screen (the write-through persists the
+           blank mix). Ungated in every state: it is a way out, never a way
+           into anything. It does NOT touch the checkbox — consent is the
+           user's alone. *@
         <div class="d-flex gap-2">
-            <button class="btn btn-primary btn-sm" id="mixApply"
-                    disabled="@(!CanApply || Draft.Rows.Count == 0 || Draft.ValidationError is not null)"
-                    title="@ApplyDisabledTitle"
-                    @onclick="ApplyAsync">
-                Apply Mix
-            </button>
-            <button class="btn btn-outline-secondary btn-sm" id="mixClear" @onclick="ClearAsync">
+            <button class="btn btn-outline-secondary btn-sm" id="mixClear" @onclick="Draft.ClearAsync">
                 Clear mix
             </button>
         </div>
 
-        @if (!CanApply && ApplyDisabledReason is not null)
+        @if (!CanActivate && !Consent.Applies && ActivateDisabledReason is not null)
         {
-            <div class="form-text" id="mixApplyDisabledReason">@ApplyDisabledReason</div>
+            <div class="form-text" id="mixActivateDisabledReason">@ActivateDisabledReason</div>
         }
 
     </div>

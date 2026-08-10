@@ -296,14 +296,15 @@ public abstract class E2eTestBase : IAsyncLifetime
     }
 
     /// <summary>
-    /// Apply the mix builder as-is and wait for the commit to land (the
-    /// dirty-mix Start hint disappears) — the mix analog of
-    /// <see cref="ApplyFilterAsync"/>.
+    /// Put the on-screen mix in effect by checking <b>"Mix applies"</b> — the
+    /// sole activation control — and wait for the checked state to land.
+    /// Playwright's CheckAsync auto-waits for the box to be enabled, so this
+    /// also implicitly waits out the activation gate (a filter in effect).
     /// </summary>
-    protected async Task ApplyMixAsync()
+    protected async Task ActivateMixAsync()
     {
-        await Page.Locator("#mixApply").ClickAsync();
-        await Expect(Page.GetByText("Apply or clear the mix above to enable Start")).ToHaveCountAsync(0);
+        await Page.Locator("#mixApplies").CheckAsync();
+        await Expect(Page.Locator("#mixApplies")).ToBeCheckedAsync();
     }
 
     /// <summary>

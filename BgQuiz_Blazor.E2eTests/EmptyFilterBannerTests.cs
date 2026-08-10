@@ -4,11 +4,14 @@ using static Microsoft.Playwright.Assertions;
 namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
-/// The empty-result outcome: a valid Start whose filters admit nothing must
-/// stay on Home with a polite status banner — not bounce silently through
-/// <c>/quiz</c> to a 0/0 <c>/done</c>. This automates the live repro from the
-/// beta-readiness assessment (the fourth of the four invisible-to-tests
-/// production defects this suite exists to gate).
+/// The known-empty pool: filters the page has just reported matching nothing
+/// must darken Start with their own hint — not leave it live to dead-end in
+/// the no-match outcome (the live dogfooding find folded into the #83
+/// rebuild). The click-through banner this suite originally gated (the fourth
+/// of the four invisible-to-tests production defects) survives as the
+/// backstop for a Start racing the count, pinned at the bUnit layer where the
+/// race can be staged; in a real browser the primary path now never reaches
+/// it, because the button is genuinely dark.
 /// </summary>
 public sealed class EmptyFilterBannerTests : E2eTestBase
 {
@@ -16,7 +19,7 @@ public sealed class EmptyFilterBannerTests : E2eTestBase
         : base(app, playwright) { }
 
     [Fact]
-    public async Task RaceFilterAgainstContactPosition_ShowsBannerAndStaysHome()
+    public async Task RaceFilterAgainstContactPosition_DarkensStart_UntilRelaxedAndReapplied()
     {
         await BootHomeAsync();
 
@@ -32,13 +35,21 @@ public sealed class EmptyFilterBannerTests : E2eTestBase
         await Page.GetByLabel("Race", new() { Exact = true }).CheckAsync();
         await ApplyFilterAsync();
 
-        await Expect(StartButton).ToBeEnabledAsync();
-        await StartButton.ClickAsync();
+        // The page states the empty pool, and Start is dark with the reason —
+        // the exact pinned sentence, adjacent to its sibling gate hints.
+        await Expect(Page.GetByText("0 decisions match your filters")).ToBeVisibleAsync();
+        await Expect(StartButton).ToBeDisabledAsync();
+        await Expect(Page.GetByText(
+                "The filters match no problems — adjust and re-apply them to enable Start."))
+            .ToBeVisibleAsync();
 
-        // Outcome, not failure: a polite role="status" banner, and no navigation.
-        var banner = Page.GetByRole(AriaRole.Status)
-            .Filter(new() { HasText = "No quiz problems matched these filters" });
-        await Expect(banner).ToBeVisibleAsync();
-        await ExpectUrlAsync("/");
+        // Adjust and re-apply — exactly what the hint says — and the page
+        // recovers: a non-empty count, the hint gone, Start live.
+        await Page.GetByLabel("Race", new() { Exact = true }).UncheckAsync();
+        await ApplyFilterAsync();
+
+        await Expect(Page.GetByText("1 decision matches your filters")).ToBeVisibleAsync();
+        await Expect(Page.GetByText("The filters match no problems")).ToHaveCountAsync(0);
+        await Expect(StartButton).ToBeEnabledAsync();
     }
 }
