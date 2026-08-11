@@ -1,5 +1,6 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using BgDataTypes_Lib;
 using BgGame_Lib;
 using Microsoft.Extensions.Logging;
 
@@ -29,9 +30,50 @@ using Microsoft.Extensions.Logging;
 /// every later Start/Restart by filtering the cached decisions (the cache slot
 /// rides <see cref="PickedProblemFolder"/>, so a re-pick or Clear invalidates
 /// it by construction). See its own section in INSTRUCTIONS.md.</item>
+/// <item><see cref="DistinctPositionProblemSetSource"/> — one item per distinct
+/// position, always. See the placement rule below.</item>
 /// <item><see cref="ShuffledProblemSetSource"/>, conditionally — see the
 /// arbitration rule below.</item>
 /// </list>
+/// </para>
+///
+/// <para>
+/// <b>Dedupe sits at the bottom, so every quiz mode inherits the rule</b>
+/// (issue <c>halheinrich/backgammon#84</c>). A quiz could serve the same
+/// position twice, because <c>DecisionId</c> is file-relative: duplicate files
+/// of one match, or an identical early position reached in two different
+/// matches, carry distinct ids yet render the same problem. Wiring the dedupe
+/// beneath shuffle and mix means plain, shuffled and weighted runs all draw
+/// from an already position-distinct supply — one rule, stated once, with no
+/// per-mode variant to keep in step. It is also what makes the pre-Start match
+/// summary agree with what a capless quiz serves: that count comes from the
+/// same factory (<c>QuizController.SummarizeMatchesAsync</c>), so "N decisions
+/// match your filters" counts deduped positions too.
+/// </para>
+///
+/// <para>
+/// <b>Above the filter, not below it.</b> The decorator wraps the
+/// <i>filtered</i> stream deliberately. Deduping the raw parse first could
+/// elect a survivor the filter then rejects while dropping the content-equal
+/// copy that would have passed — filters are not purely positional (players,
+/// dates, error bands), so the copies are not interchangeable to them, and a
+/// matching position would be silently lost. Filter-then-dedupe cannot lose
+/// one.
+/// </para>
+///
+/// <para>
+/// <b>The survivor preference is the stats seam.</b> Among content-equal
+/// copies, one carrying a lifetime-stats record beats one that does not: plain
+/// first-wins could drop the id the user's history is attached to and silently
+/// empty the mix pool that history feeds. The predicate reads
+/// <see cref="IDecisionStatsSink.CurrentDocument"/> <i>live</i> on every call
+/// rather than closing over a snapshot, because the decorator re-arbitrates on
+/// every enumeration — so a Restart after this session's folds re-picks
+/// survivors against the record as it now stands. It is passed unconditionally,
+/// never as null: with no document bound the predicate simply answers false for
+/// every id, which the producer's tie rule resolves to first occurrence — the
+/// same outcome "no preference" would give, without a branch that would have to
+/// guess at wiring time whether a document will be bound by enumeration time.
 /// </para>
 ///
 /// <para>
@@ -62,24 +104,36 @@ internal static class PickedFolderSourceFactory
     /// </summary>
     /// <param name="picked">The picked-folder holder — supplies the files and carries the cross-Start parse cache.</param>
     /// <param name="shuffle">The user's "Shuffle order" choice, read per invocation.</param>
+    /// <param name="stats">The lifetime-stats seam the survivor preference reads, live per call.</param>
     /// <param name="loggerFactory">Forwarded to the parsing source for its per-file failure logging.</param>
     /// <param name="clock">Monotonic pacing clock for the sources' cooperative yields.</param>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
     internal static ProblemSetSourceFactory Create(
         PickedProblemFolder picked,
         ShuffleOption shuffle,
+        IDecisionStatsSink stats,
         ILoggerFactory loggerFactory,
         TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(picked);
         ArgumentNullException.ThrowIfNull(shuffle);
+        ArgumentNullException.ThrowIfNull(stats);
         ArgumentNullException.ThrowIfNull(loggerFactory);
         ArgumentNullException.ThrowIfNull(clock);
 
         return (filters, mix) =>
         {
-            IProblemSetSource inner = new CachedProblemSetSource(picked, filters, loggerFactory, clock);
+            IProblemSetSource inner = new DistinctPositionProblemSetSource(
+                new CachedProblemSetSource(picked, filters, loggerFactory, clock),
+                HasLifetimeRecord);
             return mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner) : inner;
         };
+
+        // Whether the lifetime record holds anything at all for this id — any
+        // history counts, which is the whole question the survivor rule asks. A
+        // local function rather than a captured delegate so it is named where it
+        // is read, and so each call re-reads CurrentDocument (see the remarks).
+        bool HasLifetimeRecord(DecisionId id) =>
+            stats.CurrentDocument?.Decisions.ContainsKey(id) == true;
     }
 }

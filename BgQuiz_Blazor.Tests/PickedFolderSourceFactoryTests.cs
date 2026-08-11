@@ -16,7 +16,10 @@ namespace BgQuiz_Blazor.Tests;
 ///
 /// <para>
 /// Like the corpus tests they assert shape-level invariants over the umbrella's
-/// rotating <c>TestData/xg</c> corpus and skip cleanly when it is empty.
+/// rotating <c>TestData/xg</c> corpus and skip cleanly when it is empty. The
+/// position-dedupe layer's own behaviour needs content-equal copies to observe
+/// at all, so it is pinned deterministically against a committed fixture in
+/// <see cref="PositionDedupeTests"/>.
 /// </para>
 /// </summary>
 public class PickedFolderSourceFactoryTests
@@ -48,7 +51,7 @@ public class PickedFolderSourceFactoryTests
     private static ProblemSetSourceFactory FactoryOver(
         PickedProblemFolder picked, ShuffleOption shuffle) =>
         PickedFolderSourceFactory.Create(
-            picked, shuffle, NullLoggerFactory.Instance, TimeProvider.System);
+            picked, shuffle, new FakeDecisionStatsSink(), NullLoggerFactory.Instance, TimeProvider.System);
 
     // -----------------------------------------------------------------------
     //  Argument validation
@@ -57,22 +60,27 @@ public class PickedFolderSourceFactoryTests
     [Fact]
     public void Create_NullPicked_Throws() =>
         Assert.Throws<ArgumentNullException>(() => PickedFolderSourceFactory.Create(
-            null!, new ShuffleOption(), NullLoggerFactory.Instance, TimeProvider.System));
+            null!, new ShuffleOption(), new FakeDecisionStatsSink(), NullLoggerFactory.Instance, TimeProvider.System));
 
     [Fact]
     public void Create_NullShuffle_Throws() =>
         Assert.Throws<ArgumentNullException>(() => PickedFolderSourceFactory.Create(
-            new PickedProblemFolder(), null!, NullLoggerFactory.Instance, TimeProvider.System));
+            new PickedProblemFolder(), null!, new FakeDecisionStatsSink(), NullLoggerFactory.Instance, TimeProvider.System));
+
+    [Fact]
+    public void Create_NullStats_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => PickedFolderSourceFactory.Create(
+            new PickedProblemFolder(), new ShuffleOption(), null!, NullLoggerFactory.Instance, TimeProvider.System));
 
     [Fact]
     public void Create_NullLoggerFactory_Throws() =>
         Assert.Throws<ArgumentNullException>(() => PickedFolderSourceFactory.Create(
-            new PickedProblemFolder(), new ShuffleOption(), null!, TimeProvider.System));
+            new PickedProblemFolder(), new ShuffleOption(), new FakeDecisionStatsSink(), null!, TimeProvider.System));
 
     [Fact]
     public void Create_NullClock_Throws() =>
         Assert.Throws<ArgumentNullException>(() => PickedFolderSourceFactory.Create(
-            new PickedProblemFolder(), new ShuffleOption(), NullLoggerFactory.Instance, null!));
+            new PickedProblemFolder(), new ShuffleOption(), new FakeDecisionStatsSink(), NullLoggerFactory.Instance, null!));
 
     // -----------------------------------------------------------------------
     //  Factory -> source -> controller wire
@@ -117,8 +125,10 @@ public class PickedFolderSourceFactoryTests
 
         // The baseline is the factory's own shuffle-OFF order rather than a bare
         // parse, so the comparison isolates the shuffle decorator from every
-        // other layer in the stack: a difference introduced further down would
-        // otherwise read as a shuffle that wasn't suppressed.
+        // other layer in the stack. It has to be: the stack dedupes positions,
+        // and the corpus repeats early positions across matches, so a raw-parse
+        // baseline would differ here for a reason that has nothing to do with
+        // shuffle arbitration.
         var plainOrder = await CollectAllAsync(factory(new DecisionFilterSet(), QuizMix.Empty));
         if (plainOrder.Count < 2) return; // suppression unobservable over <2 items
 

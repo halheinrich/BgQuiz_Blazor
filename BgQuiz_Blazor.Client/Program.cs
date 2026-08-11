@@ -122,17 +122,19 @@ builder.Services.AddScoped<QuizSettings>();
 builder.Services.AddScoped<QuizLiveMarker>();
 
 // Source factory: the layer stack the running quiz draws through — parse-once
-// cache over the pick, then a conditional shuffle. Which layers, in
-// which order, and why lives with PickedFolderSourceFactory, deliberately: the
-// composition is the app's most wiring-sensitive code, so it sits in a named
-// type the tests can call rather than in a lambda they could only re-type by
-// hand. This registration's whole job is to resolve the app-scoped ingredients
-// and hand them over; every one of them is read live at invocation
-// (QuizController.StartAsync), not here.
+// cache over the pick, position dedupe, then a conditional shuffle. Which
+// layers, in which order, and why lives with PickedFolderSourceFactory,
+// deliberately: the composition is the app's most wiring-sensitive code, so it
+// sits in a named type the tests can call rather than in a lambda they could
+// only re-type by hand. This registration's whole job is to resolve the
+// app-scoped ingredients and hand them over; every one of them is read live at
+// invocation (QuizController.StartAsync), not here — the stats sink included,
+// which is why the dedupe layer's survivor preference sees this session's folds.
 builder.Services.AddScoped<ProblemSetSourceFactory>(sp =>
     PickedFolderSourceFactory.Create(
         sp.GetRequiredService<PickedProblemFolder>(),
         sp.GetRequiredService<ShuffleOption>(),
+        sp.GetRequiredService<IDecisionStatsSink>(),
         sp.GetRequiredService<ILoggerFactory>(),
         sp.GetRequiredService<TimeProvider>()));
 
