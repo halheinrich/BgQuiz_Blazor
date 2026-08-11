@@ -23,7 +23,10 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
 
 - **BgGame_Lib** — substrate. `IProblemSetSource`, `ShuffledProblemSetSource`
   (the shuffle decorator the source factory wraps the picked set in; the app
-  uses the **unseeded** ctor — the seeded one is test-only), `SubmittedPlay`,
+  uses the **unseeded** ctor — the seeded one is test-only),
+  `DistinctPositionProblemSetSource` (the content-identity dedupe decorator at
+  the bottom of the composition — one item per distinct non-empty `Xgid`, with
+  the app's stats-backed `survivorPreference`), `SubmittedPlay`,
   `SubmittedCubeAction`, `QuizScore` (segmented: `PlayDecisions` /
   `DoubleDecisions` / `TakeDecisions` + derived `Total`), the stats-weighted
   composition surface — `QuizCategory`/`QuizCategoryKind`,
@@ -130,7 +133,8 @@ BgQuiz_Blazor/                      — thin ASP.NET Core WASM host (server)
 BgQuiz_Blazor.Client/              — WASM client (the whole interactive surface)
   BgQuiz_Blazor.Client.csproj       — Sdk.BlazorWebAssembly; the bg-lib closure
   Program.cs                        — TimeProvider.System + controller, holders,
-                                      stores, ProblemSetSourceFactory
+                                      stores; registers the source factory by
+                                      resolving PickedFolderSourceFactory.Create
   _Imports.razor
   AppInfo.cs                        — app-level identity SSOT (§ AppInfo)
   Quiz/
@@ -157,6 +161,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     QuizLiveMarker.cs               — sessionStorage was-a-quiz-live marker
     WasmUploadedProblemSetSource.cs — in-browser stream-backed source (parser)
     CachedProblemSetSource.cs       — parse-once layer over the holder's cache
+    PickedFolderSourceFactory.cs    — the source composition (cache → dedupe →
+                                      shuffle?), the one layer-order statement
   Components/
     Pages/
       Home.razor / .razor.cs        — landing: pick + filters + mix + Start
@@ -179,6 +185,10 @@ BgQuiz_Blazor.Tests/
   QuizControllerTests.cs
   QuizControllerOverlapTests.cs     — the transition-gate overlap suite
   CachedProblemSetSourceTests.cs    — parse-once / invalidation / equivalence
+  PickedFolderSourceFactoryTests.cs — the real composition: layer wire, shuffle
+                                      arbitration (corpus-level, skips if empty)
+  PositionDedupeTests.cs            — the #84 repro: one fixture under two names
+                                      (fixture absent ⇒ FAIL, never skip)
   CubeActionDisplayTests.cs
   AnswerTypeDisplayTests.cs         — bucket→field mapping, order, always-five
   MixPanelTests.cs                  — builder / validation / rebalance pins
@@ -197,6 +207,10 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
   Fixtures/                         — committed single-decision .xgp files
     BothAnalysis.xgp                — cube decision; best action "No Double"
     Opening 32 65 64 31 65.xgp      — 6-5 checker play; best play 24/13
+    TooGoodAndTake.xgp              — cube decision, a *different* board
+    match35253054_2_37.xgp          — cube decision, Double / Pass
+                                      (the two above exist so a multi-problem
+                                      run can be staged from distinct positions)
   PublishedAppFixture.cs            — publish + spawn once; BGQUIZ_E2E_BASE_URL
   PlaywrightFixture.cs              — Chromium lifecycle; fail-loud
   E2eCollection.cs                  — the single (sequential) test collection
@@ -354,18 +368,67 @@ answer, not the .xg-recorded player's.
 
 **Source construction is factory-injected.** The controller takes a
 `ProblemSetSourceFactory` delegate (`(DecisionFilterSet, QuizMix) →
-IProblemSetSource`). The client's `Program.cs` registers it scoped as a
-lambda that reads the `PickedProblemFolder` holder, builds a
-`CachedProblemSetSource` over the pick (the parse-once layer — see its
-section), then reads the `ShuffleOption` holder and conditionally wraps:
-`mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner)
-: inner`. The mix parameter exists for exactly that one rule — **shuffle
-arbitration** (see Pitfalls). The factory never wires the composition layer
-itself (that is the controller's — below). Both holders are read at
-**invocation** time (`StartAsync`), not at DI registration, so choices made
-before Start take effect. Future alternatives (deployed bundles, curated
-libraries) plug in by registering a different factory; unit tests substitute a
-fake source the same way.
+IProblemSetSource`). `PickedFolderSourceFactory.Create` builds the production
+one and is the **single statement of the layer stack**; `Program.cs` registers
+it scoped by resolving the app-scoped ingredients and handing them over. The
+stack, innermost first:
+
+1. `CachedProblemSetSource` over the pick — the parse-once layer (see its
+   section).
+2. `DistinctPositionProblemSetSource` — content-identity dedupe, always on.
+3. `ShuffledProblemSetSource` — only when `mix.IsPassthrough &&
+   shuffle.Enabled`. The mix parameter exists for exactly that one rule —
+   **shuffle arbitration** (see Pitfalls). The factory never wires the
+   composition layer itself (that is the controller's — below).
+
+Every holder is read at **invocation** time (`StartAsync`), not at DI
+registration, so choices made before Start take effect. Future alternatives
+(deployed bundles, curated libraries) plug in by registering a different
+factory; unit tests substitute a fake source the same way.
+
+**Why a named type and not the DI lambda it replaced.** The composition is the
+app's most wiring-sensitive code and the only place the layer *order* is
+stated, so it has to be reachable from a test. As a lambda it was not, and the
+tests that claimed to pin "the path `Program.cs` wires" re-typed it by hand —
+and had drifted, composing over the stream source and skipping the parse-once
+layer entirely. `PickedFolderSourceFactoryTests` now calls `Create` itself. The
+one exception is deliberate and documented in place: pinning that a *shuffled*
+source reorders needs `ShuffledProblemSetSource`'s seeded ctor, which
+production deliberately does not use, so that test keeps a hand-built stack
+rather than a permutation that flakes on the identity.
+
+**Position dedupe sits beneath shuffle and mix** (issue
+`halheinrich/backgammon#84`). A quiz could serve the same position twice:
+`DecisionId` is file-relative, so two copies of one match in a folder — or an
+identical early position reached in two different matches — carry distinct ids
+yet render the same problem. Both were ruled in scope for the collapse. Wiring
+the decorator at the bottom means **one rule for every quiz mode**: plain,
+shuffled and weighted runs all draw from an already position-distinct supply,
+with no per-mode variant to keep in step. Two things follow without their own
+wiring — the pre-Start match summary counts the same deduped pool the quiz
+draws (same factory; see below), and the mix's pool sizes and composition
+notice tally deduped supply.
+
+- **Above the filter, not below it.** The decorator wraps the *filtered*
+  stream. Deduping the raw parse first could elect a survivor the filter then
+  rejects while dropping the content-equal copy that would have passed —
+  filters are not purely positional (players, dates, error bands) — so a
+  matching position would be silently lost (see Pitfalls).
+- **The survivor preference is the stats seam.** Among content-equal copies the
+  one carrying a lifetime-stats record wins: plain first-wins could drop the id
+  the user's GotWrong history hangs on and silently empty the mix pool that
+  history feeds. The predicate reads `IDecisionStatsSink.CurrentDocument`
+  **live** on every call, never a captured snapshot, because the decorator
+  re-arbitrates per enumeration — so a Restart after this session's folds
+  re-picks survivors against the record as it now stands.
+- **Passed unconditionally, never as null.** With no document bound the
+  predicate answers false for every id, which the producer's tie rule resolves
+  to first occurrence — the same outcome "no preference" gives. A null-or-not
+  branch would have to guess at wiring time whether a document will be bound by
+  enumeration time (it is not: the factory is invoked after `BeginQuizAsync`
+  for a Start, and with whatever the last bind left for a pre-Start summary).
+- The producer's `Count` is null through this layer by contract — how many
+  positions collapse is unknowable before enumeration.
 
 **Mix ownership mirrors filter ownership, and a weighted start can be
 refused.** `StartAsync(FilterConfig, QuizMix, bool ignoreMix = false)` takes
@@ -374,7 +437,10 @@ Start, stored for Restart, no caller-set mutation — and returns a
 `QuizStartOutcome`. For a
 non-blank *effective* mix (the stored mix, unless the per-run `ignoreMix`
 override), `ResetAndAdvanceAsync` wires the producer's `MixedProblemSetSource`
-around the factory source, holding the typed reference so `LastComposition`
+around the factory source — so **the supply it composes from is already
+position-distinct**, and every pool size, `Requested`/`Drawn` figure and
+composition notice downstream counts deduped positions with no work of its own
+(§ Source construction) — holding the typed reference so `LastComposition`
 telemetry surfaces without type-testing; the stats provider resolves
 `IDecisionStatsSink.CurrentDocument` fresh per enumeration, so **Restart
 recomposes against the lifetime record as it stands, this session's folds
@@ -436,6 +502,15 @@ parse cache**, front-loading Start's one-time corpus parse rather than adding
 a cost on top of it. It counts every matching decision, forced-move pass
 positions included, so it describes the **pre-mix pool** — "decisions that
 match", not "problems you'll see".
+
+**It counts deduped positions, and cannot disagree with the quiz.** The summary
+draws from the *same* factory, so the position-dedupe layer is in the pool it
+counts: "N decisions match your filters" means N distinct positions. The
+agreement is structural, not a convention two call sites must honour — and it
+survives the survivor preference being resolved differently in the two paths
+(a summary runs pre-Start, possibly with no document bound), because the
+preference only decides *which* copy survives, never how many do. Pool size is
+preference-invariant.
 
 **The count is `Total`, and there is no second surface for it.** The
 producer's fold contract (every `Add` increments exactly one bucket) makes the
@@ -534,6 +609,10 @@ milliseconds.
   is entirely this app-side layer. Both passes pace their yields with
   `CooperativeYielder`, so the busy cursor keeps painting. `Name` delegates to
   the inner naming rule; `Count` stays null.
+- **This layer knows nothing about position dedupe**, and the ordering is the
+  reason: the dedupe decorator wraps *this* source, so it sees filtered items.
+  Folding a dedupe into the cached parse would put it below the filter, where it
+  can lose a matching position (see the composition section and Pitfalls).
 
 ### Folder picking & lifetime stats
 
@@ -1330,6 +1409,10 @@ The asymmetry is pinned three times over: at the service seam
   edit or new/cleared pick. One `role="status"` region carries all of it — the
   count from `Total`, the mix caveat, and the breakdown — so a screen reader
   gets the pool and its make-up in one announcement. Settled rules:
+  - **The count is a count of distinct positions** — "N decisions match your
+    filters" is N *positions*, with no re-picked copy hiding behind the number,
+    and it cannot disagree with what a capless quiz then serves (§ Pre-Start
+    match summary for why that agreement is structural).
   - **The count is filter-only, and says so when a mix is in effect.** With
     `MixInEffect` (`EffectiveMix is { IsPassthrough: false }` — live per
     keystroke, since effect follows the screen) a caveat renders in the same
@@ -1935,10 +2018,22 @@ through the app's real fallback collection path, no native dialog involved.
 Staged dirs are cleaned per test; those scenarios therefore run as no-stats
 quizzes by construction, which is correct — they assert quiz flow, not stats.
 Multi-file folders come in two shapes over one private stager:
-`PickFixtureCopiesAsync` stages N copies of a single fixture (every problem
-the same kind, so a scenario walking a run needs no knowledge of source
-ordering), while `PickFixturesAsync` stages one copy of each named fixture —
-the heterogeneous folder a scenario about what a pool *contains* needs.
+`PickCubeProblemsAsync(n)` stages the first *n* of the committed, mutually
+distinct `CubeFixtures` (every problem the same kind, so a scenario walking a
+run needs no knowledge of source ordering), while `PickFixturesAsync` stages
+one copy of each named fixture — the heterogeneous folder a scenario about what
+a pool *contains* needs.
+
+**A multi-problem run must be staged from distinct positions.** The walking
+helper used to stage N *copies* of one fixture, which the position-dedupe layer
+(§ Source construction) now collapses to a single problem — the trick
+manufactures nothing. Distinct cube fixtures buy the same ordering-independence
+by a route the app agrees with. Distinctness is scarcer than it looks:
+`DoubleAnalysis.xgp` / `TakeAnalysis.xgp` are the *same* position as
+`BothAnalysis.xgp` with different analysis sections, so the three committed cube
+fixtures are the whole supply — a scenario needing a fourth problem must commit
+a genuinely different position, and `PickCubeProblemsAsync` throws with that
+instruction rather than silently padding.
 
 **The FS-Access path** lives in `FsAccessFakeTestBase`, riding the base
 class's second customization seam, `ContextInitScript` (applied via
@@ -2511,6 +2606,32 @@ public (see Pitfalls). The externally visible surface is the route map:
   hints (the contract lives on `IDecisionFilter`/`IMatchFilter` in
   XgFilter_Lib); a filter whose votes cut rows its `Matches` would admit
   breaks that contract and this cache.
+- **Position dedupe must stay *above* the filter and *below* shuffle and
+  mix.** Both halves of that sandwich are load-bearing. Moving it below the
+  filter — the tempting edit, since folding it into the cached parse would
+  dedupe once instead of per enumeration — lets it elect a survivor the filter
+  then rejects while dropping the content-equal copy that would have passed:
+  filters are not purely positional (players, dates, error bands), so
+  content-equal copies are *not* interchangeable to them, and a matching
+  position vanishes with nothing reporting it. Moving it above shuffle or mix
+  gives each quiz mode its own dedupe story, which is how #84 arose in the
+  first place (id-level dedupe existed inside the mix; the bug was
+  mix-independent). Also: don't "improve" the survivor predicate into a
+  snapshot captured at wiring time — the decorator re-arbitrates per
+  enumeration, and a Restart after this session's folds must see the current
+  record; and don't add a null-vs-predicate branch, since an unbound document
+  already resolves to first occurrence through the producer's tie rule.
+  `PositionDedupeTests` pins all of it against a committed fixture streamed
+  twice under two names, and **fails loudly if that fixture is missing** —
+  never convert it to a skip (§ the e2e rule, same reasoning).
+- **Never manufacture a multi-problem test run by duplicating a fixture.** It
+  used to work and no longer can: the app collapses content-equal positions, so
+  N copies of one file are one problem. A scenario that needs N problems needs N
+  distinct positions (§ The e2e smoke gate). The failure mode is quiet in one
+  direction — a scenario whose pool silently shrank to one problem can keep
+  *passing* while no longer exercising what it names (the end-early-while-reading
+  scenario did exactly that), so when a pool's size changes, re-read the
+  scenarios that were green as well as the ones that broke.
 - **Browser directory handles live in JS module state only** (a
   BgFolderAccess_Razor contract this app must not work around).
   `FileSystemDirectoryHandle` / `File` objects cannot round-trip the interop
