@@ -162,106 +162,11 @@ public class WasmUploadedProblemSetSourceTests
         Assert.False(any);
     }
 
-    // -----------------------------------------------------------------------
-    //  Factory -> source -> controller wire
-    // -----------------------------------------------------------------------
-
-    [Fact]
-    public async Task FactoryShape_FeedsControllerStart()
-    {
-        // Pins the path Program.cs wires: a ProblemSetSourceFactory that builds a
-        // WasmUploadedProblemSetSource over the picked set drives
-        // QuizController.StartAsync to a first problem.
-        var files = CorpusFiles();
-        if (files.Count == 0) return;
-
-        var picked = new PickedProblemFolder();
-        picked.Set("corpus", files, FolderWriteCapability.BrowserUnsupported, []);
-
-        BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory =
-            (filters, _) => new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance, TimeProvider.System);
-        var controller = new QuizController(factory, new FakeDecisionStatsSink(), TimeProvider.System);
-
-        await controller.StartAsync(new FilterConfig(), QuizMix.Empty);
-
-        Assert.True(controller.HasStarted);
-        // A real corpus yields at least one non-pass decision; if every decision
-        // happened to be a pass the controller would finish, which is still a
-        // valid started state.
-        Assert.True(controller.Current is not null || controller.IsFinished);
-    }
-
-    [Fact]
-    public async Task FactoryShape_ShuffleEnabled_WrapsSourceAndChangesOrder()
-    {
-        // Pins the shuffle half of the path Program.cs wires: when the user's
-        // ShuffleOption is enabled, the factory wraps the WasmUploadedProblemSetSource
-        // in a ShuffledProblemSetSource rather than handing the controller the
-        // plain source directly. Needs >=2 corpus decisions for a shuffle to be
-        // observable at all.
-        var files = CorpusFiles();
-        if (files.Count == 0) return;
-
-        var picked = new PickedProblemFolder();
-        picked.Set("corpus", files, FolderWriteCapability.BrowserUnsupported, []);
-        var shuffle = new ShuffleOption();
-
-        BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory = (filters, mix) =>
-        {
-            IProblemSetSource inner = new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance, TimeProvider.System);
-            return mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner, seed: 42) : inner;
-        };
-
-        var unshuffledOrder = await CollectAllAsync(factory(new DecisionFilterSet(), QuizMix.Empty));
-        if (unshuffledOrder.Count < 2) return; // can't observe a shuffle over <2 items
-
-        shuffle.Set(true);
-        var shuffledOrder = await CollectAllAsync(factory(new DecisionFilterSet(), QuizMix.Empty));
-
-        Assert.Equal(unshuffledOrder.Count, shuffledOrder.Count);
-        Assert.NotEqual(unshuffledOrder, shuffledOrder); // order differs (seeded, so deterministic)
-    }
-
-    [Fact]
-    public async Task FactoryShape_ActiveMix_SuppressesShuffleWrap()
-    {
-        // Pins the arbitration rule the Program.cs factory now carries: an
-        // active mix owns presentation order (its RandomOrder toggle), so the
-        // shuffle decorator must not wrap under it — a shuffled inner would
-        // silently break RandomOrder:false's source-order determinism. With
-        // shuffle ON but a non-blank mix, the factory hands back the plain
-        // source: enumeration order equals the unshuffled order.
-        var files = CorpusFiles();
-        if (files.Count == 0) return;
-
-        var picked = new PickedProblemFolder();
-        picked.Set("corpus", files, FolderWriteCapability.BrowserUnsupported, []);
-        var shuffle = new ShuffleOption();
-        shuffle.Set(true);
-
-        BgQuiz_Blazor.Client.Quiz.ProblemSetSourceFactory factory = (filters, mix) =>
-        {
-            IProblemSetSource inner = new WasmUploadedProblemSetSource(picked.Files, filters, NullLoggerFactory.Instance, TimeProvider.System);
-            return mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner, seed: 42) : inner;
-        };
-        var activeMix = new QuizMix([new QuizMixEntry(QuizCategory.EverythingElse, 100)]);
-
-        var plainOrder = await CollectAllAsync(
-            new WasmUploadedProblemSetSource(picked.Files, new DecisionFilterSet(), NullLoggerFactory.Instance, TimeProvider.System));
-        if (plainOrder.Count < 2) return; // suppression unobservable over <2 items
-
-        var underMixOrder = await CollectAllAsync(factory(new DecisionFilterSet(), activeMix));
-
-        Assert.Equal(plainOrder.Select(d => d.Id), underMixOrder.Select(d => d.Id));
-    }
-
-    private static async Task<List<BgDecisionData>> CollectAllAsync(IProblemSetSource src)
-    {
-        var items = new List<BgDecisionData>();
-        await foreach (var d in src.EnumerateAsync())
-            items.Add(d);
-        return items;
-    }
+    // Composition-level tests — the factory the client registers, the layer
+    // order it wires, and how a controller drives it — live with the type that
+    // owns that composition, in PickedFolderSourceFactoryTests. What stays here
+    // is this source's own contract: naming, extensions, filter application,
+    // re-iterability.
 
     private static async Task<BgDecisionData?> TakeFirstAsync(WasmUploadedProblemSetSource src)
     {

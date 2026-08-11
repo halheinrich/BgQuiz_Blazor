@@ -5,7 +5,6 @@
 // problem-set source, board rendering, and in-browser .xg/.xgp parsing.
 
 using BgFolderAccess_Razor;
-using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Microsoft.Extensions.Logging;
@@ -122,34 +121,19 @@ builder.Services.AddScoped<QuizSettings>();
 // completion. See QuizLiveMarker for why the store is sessionStorage.
 builder.Services.AddScoped<QuizLiveMarker>();
 
-// Source factory: builds a CachedProblemSetSource over whatever files the
-// user has picked at quiz-start — the parse-once layer that parses the pick
-// unfiltered on the first Start and serves every later Start/Restart by
-// filtering the cached decisions (the cache slot rides PickedProblemFolder,
-// so a re-pick/Clear invalidates it by construction) — then wraps it in a
-// ShuffledProblemSetSource when the user asked to shuffle. Both the picked
-// set and the shuffle toggle are read at invocation time
-// (QuizController.StartAsync), not registration, so choices made before Start
-// take effect. The unseeded ShuffledProblemSetSource ctor is used here
-// deliberately — reproducibility is a test-only concern (see
-// ShuffledProblemSetSource's seeded ctor), never user-facing.
-//
-// Shuffle applies only to a passthrough (blank-mix) run: an active mix owns
-// presentation order through its own RandomOrder toggle, and a shuffled inner
-// under the composing decorator would silently break RandomOrder:false's
-// fully-deterministic contract (draws and presentation in source order). The
-// composition layer itself is the controller's to wire, not the factory's.
+// Source factory: the layer stack the running quiz draws through — parse-once
+// cache over the pick, then a conditional shuffle. Which layers, in
+// which order, and why lives with PickedFolderSourceFactory, deliberately: the
+// composition is the app's most wiring-sensitive code, so it sits in a named
+// type the tests can call rather than in a lambda they could only re-type by
+// hand. This registration's whole job is to resolve the app-scoped ingredients
+// and hand them over; every one of them is read live at invocation
+// (QuizController.StartAsync), not here.
 builder.Services.AddScoped<ProblemSetSourceFactory>(sp =>
-{
-    var picked = sp.GetRequiredService<PickedProblemFolder>();
-    var shuffle = sp.GetRequiredService<ShuffleOption>();
-    var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-    var clock = sp.GetRequiredService<TimeProvider>();
-    return (filters, mix) =>
-    {
-        IProblemSetSource inner = new CachedProblemSetSource(picked, filters, loggerFactory, clock);
-        return mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner) : inner;
-    };
-});
+    PickedFolderSourceFactory.Create(
+        sp.GetRequiredService<PickedProblemFolder>(),
+        sp.GetRequiredService<ShuffleOption>(),
+        sp.GetRequiredService<ILoggerFactory>(),
+        sp.GetRequiredService<TimeProvider>()));
 
 await builder.Build().RunAsync();
