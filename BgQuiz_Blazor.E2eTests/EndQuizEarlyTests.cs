@@ -35,7 +35,7 @@ public sealed class EndQuizEarlyTests : E2eTestBase
         // Three problems, so the run is unmistakably cut short: one answered,
         // one abandoned, one never reached.
         await BootHomeAsync();
-        await PickFixtureCopiesAsync(CubeFixture, copies: 3);
+        await PickCubeProblemsAsync(3);
         await ApplyFilterAsync();
         await StartQuizAsync();
 
@@ -70,8 +70,10 @@ public sealed class EndQuizEarlyTests : E2eTestBase
     [Fact]
     public async Task EndingWhileReadingASolutionKeepsThatAnswer()
     {
+        // Two problems, so ending here is genuinely early: a one-problem pool
+        // would make this scenario indistinguishable from finishing the quiz.
         await BootHomeAsync();
-        await PickFixtureCopiesAsync(CubeFixture, copies: 2);
+        await PickCubeProblemsAsync(2);
         await ApplyFilterAsync();
         await StartQuizAsync();
 

@@ -34,6 +34,30 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </summary>
     protected const string CheckerFixture = "Opening 32 65 64 31 65.xgp";
 
+    /// <summary>
+    /// The committed cube fixtures, each a <b>different position</b> — the pool a
+    /// multi-problem scenario is staged from (see
+    /// <see cref="PickCubeProblemsAsync"/>). Order here is the order they are
+    /// staged in, but no scenario may depend on it: what makes them
+    /// interchangeable is that every one of them is a cube decision, not where
+    /// they sit.
+    ///
+    /// <para>
+    /// Distinctness is the load-bearing property and it is scarcer than it
+    /// looks: the umbrella's <c>DoubleAnalysis.xgp</c> / <c>TakeAnalysis.xgp</c>
+    /// are the <i>same</i> position as <see cref="CubeFixture"/> with different
+    /// analysis sections, so they are useless here. These three are the distinct
+    /// cube positions available; a scenario needing a fourth problem must commit
+    /// another genuinely different one.
+    /// </para>
+    /// </summary>
+    private static readonly string[] CubeFixtures =
+    [
+        CubeFixture,                 // No Double / Take
+        "TooGoodAndTake.xgp",        // a different board, also No Double / Take
+        "match35253054_2_37.xgp",    // a different board, Double / Pass
+    ];
+
     private readonly PublishedAppFixture _app;
     private readonly PlaywrightFixture _playwright;
     private readonly List<string> _stagedDirs = [];
@@ -169,44 +193,55 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// <c>StatsPersistenceTests</c>.
     /// </summary>
     protected Task PickFixtureAsync(string fixtureFileName) =>
-        PickFixtureCopiesAsync(fixtureFileName, copies: 1);
+        StageAndPickAsync(
+            Path.GetFileNameWithoutExtension(fixtureFileName),
+            [(FixturePath(fixtureFileName), fixtureFileName)]);
 
     /// <summary>
     /// The multi-problem form of <see cref="PickFixtureAsync"/>: stage
-    /// <paramref name="copies"/> copies of one committed fixture into the folder,
+    /// <paramref name="problems"/> of the committed <see cref="CubeFixtures"/>,
     /// so the quiz has several problems to walk through.
     ///
     /// <para>
-    /// Copies of a single fixture rather than the two different committed
-    /// fixtures, deliberately: every problem in the run is then the same kind
-    /// with the same right answer, so a scenario that walks the run needs no
-    /// knowledge of which problem the source happens to hand it first — and the
-    /// source's ordering is not a contract these scenarios should depend on.
+    /// <b>Distinct fixtures, not copies of one</b> — and that is not a style
+    /// choice. This helper used to stage N copies of a single fixture, because a
+    /// uniform pool lets a scenario walk the run without knowing which problem
+    /// the source hands it first. Since <c>halheinrich/backgammon#84</c> the app
+    /// guarantees a quiz never serves the same <i>position</i> twice, so copies
+    /// of one file collapse to a single problem: that trick manufactures nothing
+    /// any more. Distinct cube fixtures restore what the trick was buying by a
+    /// route the app agrees with — every problem is still a cube decision, so
+    /// still answerable by the same gesture in any order.
     /// </para>
     /// </summary>
-    protected Task PickFixtureCopiesAsync(string fixtureFileName, int copies)
+    /// <param name="problems">How many problems the run needs; at most <see cref="CubeFixtures"/>' length.</param>
+    protected Task PickCubeProblemsAsync(int problems)
     {
-        string dirName = Path.GetFileNameWithoutExtension(fixtureFileName);
-        string extension = Path.GetExtension(fixtureFileName);
-
-        var staged = new List<(string Source, string DestName)>
+        if (problems < 1 || problems > CubeFixtures.Length)
         {
-            (FixturePath(fixtureFileName), fixtureFileName),
-        };
-        for (int copy = 2; copy <= copies; copy++)
-            staged.Add((FixturePath(fixtureFileName), $"{dirName}-{copy}{extension}"));
+            throw new ArgumentOutOfRangeException(
+                nameof(problems), problems,
+                $"Only {CubeFixtures.Length} distinct cube positions are committed, and a run cannot " +
+                "be padded with copies (the app dedupes positions — see this helper's remarks). " +
+                "Commit another genuinely different cube fixture to go higher.");
+        }
 
-        return StageAndPickAsync(dirName, staged);
+        var staged = CubeFixtures
+            .Take(problems)
+            .Select(name => (Source: FixturePath(name), DestName: name))
+            .ToList();
+
+        return StageAndPickAsync("cubes", staged);
     }
 
     /// <summary>
-    /// Pick a folder holding <b>one copy of each</b> named fixture — the mixed
-    /// form of <see cref="PickFixtureCopiesAsync"/>, for scenarios about what a
-    /// folder is <i>made of</i> rather than what walking it does. The
-    /// copies-of-one rule those scenarios follow exists to keep them independent
-    /// of the source's ordering; a scenario reading the answer-type breakdown is
+    /// Pick a folder holding <b>one copy of each</b> named fixture — the
+    /// heterogeneous form of <see cref="PickCubeProblemsAsync"/>, for scenarios
+    /// about what a folder is <i>made of</i> rather than what walking it does.
+    /// Walking scenarios keep to a pool of one kind so they stay independent of
+    /// the source's ordering; a scenario reading the answer-type breakdown is
     /// independent of ordering by construction (a distribution has no order), so
-    /// a genuinely heterogeneous folder is exactly what it needs.
+    /// a genuinely mixed folder is exactly what it needs.
     /// </summary>
     protected Task PickFixturesAsync(params string[] fixtureFileNames)
     {

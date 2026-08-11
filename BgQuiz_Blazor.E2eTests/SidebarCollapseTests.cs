@@ -133,7 +133,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
     {
         await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
         await BootHomeAsync();
-        await PickFixtureCopiesAsync(CubeFixture, copies: 3);
+        await PickCubeProblemsAsync(3);
         await ApplyFilterAsync();
 
         // Fold BEFORE starting, purely so the navigation's DOM synchronization
