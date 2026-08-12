@@ -373,7 +373,12 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
 
-        // Summary renders straight from the persisted holder, no pick handler run.
+        // Summary renders straight from the persisted holder, no pick handler run,
+        // under the markup-side caption that says what the folder IS (#96). The
+        // caption is pinned here because it lives only in Home's markup: every
+        // other pin on this line matches the holder's own Summary text, so all
+        // of them would stay green with the caption gone.
+        Assert.Contains("Problem folder:", cut.Markup);
         Assert.Contains("resume", cut.Markup);
         Assert.Contains("1 problem file", cut.Markup);
 
