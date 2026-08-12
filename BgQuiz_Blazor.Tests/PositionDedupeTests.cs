@@ -17,7 +17,7 @@ namespace BgQuiz_Blazor.Tests;
 /// <see cref="DecisionId"/> is file-relative, so the very same match under two
 /// filenames yields content-identical decisions carrying <i>distinct</i> ids —
 /// nothing upstream of a real parse can reproduce that, and every layer above
-/// dedupes by id at best. So these tests stream one committed fixture's bytes
+/// dedupes by id at best. So these tests stream one fixture file's bytes
 /// twice under two source-file names and run them through
 /// <see cref="PickedFolderSourceFactory"/>, the composition
 /// <c>Program.cs</c> registers. Pre-fix this failed 100% deterministically.
@@ -33,9 +33,10 @@ namespace BgQuiz_Blazor.Tests;
 /// would let the repro quietly stop existing.
 /// </para>
 /// </summary>
+[Trait("Category", "RequiresFixtureFiles")]
 public class PositionDedupeTests
 {
-    /// <summary>The committed fixture whose bytes are re-streamed under two names.</summary>
+    /// <summary>The fixture file whose bytes are re-streamed under two names.</summary>
     private const string FixtureName = "match_40296079.xg";
 
     /// <summary>
@@ -64,7 +65,7 @@ public class PositionDedupeTests
         if (!File.Exists(FixturePath))
         {
             throw new FileNotFoundException(
-                $"The issue #84 duplicate-position repro needs the committed fixture '{FixtureName}'. " +
+                $"The issue #84 duplicate-position repro needs the FixtureFiles fixture '{FixtureName}'. " +
                 "TestData/FixtureFiles is append-only so pinned tests may name files in it; this test " +
                 "fails loudly rather than skipping, because a repro that skips is a repro that has " +
                 "stopped existing.",
