@@ -1338,7 +1338,10 @@ The asymmetry is pinned three times over: at the service seam
   best-effort: where a browser never fires `cancel` the outcome degrades to
   silence — no wrong statement, only a missing one (bUnit pins the binding,
   not the browser's delivery). The pick label renders straight from
-  `PickedProblemFolder.Summary` (the SSOT), with a **Clear** affordance beside
+  `PickedProblemFolder.Summary` (the SSOT) under a markup-side
+  `"Problem folder:"` caption — the caption frames the line on *this* screen
+  and stays out of `Summary`, which other surfaces re-derive from — with a
+  **Clear** affordance beside
   it bound to `EndCurrentSetupAsync`. Clearing is safe mid-quiz and left
   unguarded on purpose — files are read only at Start time and the clear
   touches only the JS *picked* slot (pinned).
@@ -1393,7 +1396,7 @@ The asymmetry is pinned three times over: at the service seam
   `EffectiveMix => MixConsent.Applies ? MixDraft.Build() : QuizMix.Empty` —
   derived per render, never stored (§ MixPanel / MixDraft / MixConsent).
   **The pool gate is known-zero only** (found dogfooding, ruled): a resolved
-  count of 0 darkens Start with "The filters match no problems — adjust and
+  count of 0 darkens Start with "No problems match the filters — adjust and
   re-apply them to enable Start."; a null or still-computing summary gates
   nothing (no async dependency in the gate), and the no-match outcome notice
   stays the backstop for a Start racing the count. The mix surface — panel,

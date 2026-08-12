@@ -677,7 +677,7 @@ public class PageTests : BunitContext
         Assert.Contains("0 decisions match your filters", Normalize(MatchSummaryRegion(cut).TextContent));
         Assert.True(StartButton(cut).HasAttribute("disabled"));
         Assert.Contains(cut.FindAll("small"), s => s.TextContent.Trim()
-            == "The filters match no problems — adjust and re-apply them to enable Start.");
+            == "No problems match the filters — adjust and re-apply them to enable Start.");
     }
 
     [Fact]
@@ -694,12 +694,12 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await ApplyFiltersAsync(cut);
-        Assert.Contains("match no problems", cut.Markup);
+        Assert.Contains("No problems match the filters", cut.Markup);
 
         await EditFilterControlAsync(cut);
 
         Assert.True(StartButton(cut).HasAttribute("disabled")); // now the filter's gate
-        Assert.DoesNotContain("match no problems", cut.Markup);
+        Assert.DoesNotContain("No problems match the filters", cut.Markup);
         Assert.Contains("Apply the filters above to enable Start", cut.Markup);
     }
 

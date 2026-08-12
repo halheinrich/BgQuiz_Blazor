@@ -155,7 +155,11 @@
         @if (!string.IsNullOrEmpty(Folder.Summary))
         {
             <div class="text-muted small mt-1 d-flex align-items-center gap-2">
-                <span>@Folder.Summary</span>
+                @* The caption is markup-side, not part of Summary: that property
+                   is the single source of the folder's description and other
+                   surfaces re-derive from it, so what frames it on THIS screen
+                   belongs to this call site. *@
+                <span>Problem folder: @Folder.Summary</span>
                 @* Clear and "Choose folder…" end the current setup identically —
                    one handler, so the two can't drift. *@
                 <button type="button" class="btn btn-link btn-sm p-0 align-baseline"
@@ -465,7 +469,7 @@
     }
     else if (_matchSummary is { Total: 0 })
     {
-        <small class="text-muted ms-2">The filters match no problems — adjust and re-apply them to enable Start.</small>
+        <small class="text-muted ms-2">No problems match the filters — adjust and re-apply them to enable Start.</small>
     }
     else if (EffectiveMix is null)
     {

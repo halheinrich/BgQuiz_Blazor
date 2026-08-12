@@ -40,7 +40,7 @@ public sealed class EmptyFilterBannerTests : E2eTestBase
         await Expect(Page.GetByText("0 decisions match your filters")).ToBeVisibleAsync();
         await Expect(StartButton).ToBeDisabledAsync();
         await Expect(Page.GetByText(
-                "The filters match no problems — adjust and re-apply them to enable Start."))
+                "No problems match the filters — adjust and re-apply them to enable Start."))
             .ToBeVisibleAsync();
 
         // Adjust and re-apply — exactly what the hint says — and the page
@@ -49,7 +49,7 @@ public sealed class EmptyFilterBannerTests : E2eTestBase
         await ApplyFilterAsync();
 
         await Expect(Page.GetByText("1 decision matches your filters")).ToBeVisibleAsync();
-        await Expect(Page.GetByText("The filters match no problems")).ToHaveCountAsync(0);
+        await Expect(Page.GetByText("No problems match the filters")).ToHaveCountAsync(0);
         await Expect(StartButton).ToBeEnabledAsync();
     }
 }
