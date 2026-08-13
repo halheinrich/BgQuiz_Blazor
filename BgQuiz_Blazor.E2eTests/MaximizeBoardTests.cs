@@ -37,6 +37,13 @@ public sealed class MaximizeBoardTests : E2eTestBase
     /// <summary>The fixed-height legend/verdict strip — suppressed with it.</summary>
     private ILocator StatusStrip => Page.Locator(".status-strip");
 
+    /// <summary>
+    /// The XGID badge, in the one home <c>SPEC-quiz-view.md</c> §4 gives it
+    /// (issue <c>halheinrich/backgammon#98</c>): the action row's trailing
+    /// cluster, in both view modes and both states.
+    /// </summary>
+    private ILocator XgidBadge => Page.Locator(".action-row-tail .xgid-label");
+
     private ILocator MaximizeCheckbox => Page.GetByRole(
         AriaRole.Checkbox, new() { Name = "Make the board as large as possible while you answer" });
 
@@ -84,6 +91,15 @@ public sealed class MaximizeBoardTests : E2eTestBase
         await Expect(Page.Locator(".board-container .bg-diagram")).ToBeVisibleAsync();
         await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "No double" })).ToBeVisibleAsync();
 
+        // And so does the XGID — the badge rides the action row, which this mode
+        // keeps. This is the composition #98 came out of: the badge used to
+        // overlay a title strip that no longer exists here at all, so "present in
+        // the maximized answering view" is the ruling's load-bearing half, and
+        // "nowhere on the canvas" is the other.
+        await Expect(XgidBadge).ToBeVisibleAsync();
+        await Expect(Page.Locator(".board-container .xgid-label")).ToHaveCountAsync(0);
+        await AssertBadgeSitsBelowTheBoardAsync();
+
         await AnswerCubeNoDoubleAsync();
 
         // Review, normalized: the full composition is back, verdict included, and
@@ -94,6 +110,31 @@ public sealed class MaximizeBoardTests : E2eTestBase
         await Expect(ScorePanel).ToHaveCountAsync(1);
         await Expect(VerdictBand).ToContainTextAsync("No Double: correct · Take: correct");
         await Expect(Page.Locator(".bg-diagram")).ToContainTextAsync("Best: No Double");
+
+        // The badge did not move when the composition did — one home, both
+        // states. A badge that teleported per mode would read as a bug, which is
+        // the whole of §4's ruling.
+        await Expect(XgidBadge).ToBeVisibleAsync();
+        await Expect(Page.Locator(".board-container .xgid-label")).ToHaveCountAsync(0);
+        await AssertBadgeSitsBelowTheBoardAsync();
+    }
+
+    /// <summary>
+    /// The badge is off the canvas as real geometry, not merely as DOM position:
+    /// its box starts below the board region's. Only a browser can judge this —
+    /// the bUnit pins assert the tree, which is not the same claim once the
+    /// producer's own CSS is laying the board out.
+    /// </summary>
+    private async Task AssertBadgeSitsBelowTheBoardAsync()
+    {
+        var boardBox = await Page.Locator(".board-container").BoundingBoxAsync();
+        var badgeBox = await XgidBadge.BoundingBoxAsync();
+
+        Assert.NotNull(boardBox);
+        Assert.NotNull(badgeBox);
+        Assert.True(badgeBox!.Y >= boardBox!.Y + boardBox.Height,
+            $"the XGID badge (y={badgeBox.Y}) must sit below the board region " +
+            $"(y={boardBox.Y}, height={boardBox.Height})");
     }
 
     [Fact]
@@ -111,6 +152,13 @@ public sealed class MaximizeBoardTests : E2eTestBase
         await Expect(ScorePanel).ToHaveCountAsync(1);
         await Expect(StatusStrip).ToHaveCountAsync(1);
         await Expect(VerdictBand).ToContainTextAsync("Pick the cube action, then Submit.");
+
+        // Normal view's half of "one home, both modes" — with the setting off the
+        // badge is in exactly the same place, which is what makes it a home
+        // rather than a maximize-mode behavior.
+        await Expect(XgidBadge).ToBeVisibleAsync();
+        await Expect(Page.Locator(".board-container .xgid-label")).ToHaveCountAsync(0);
+        await AssertBadgeSitsBelowTheBoardAsync();
     }
 
     [Fact]
@@ -127,7 +175,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
         await StartQuizAsync();
 
         await Expect(ScorePanel).ToBeVisibleAsync();
-        var actionRow = Page.Locator(".board-chrome div.d-flex.flex-wrap.gap-2").First;
+        var actionRow = Page.Locator(".board-chrome .action-row");
         var rowBox = await actionRow.BoundingBoxAsync();
         var panelBox = await ScorePanel.BoundingBoxAsync();
 
