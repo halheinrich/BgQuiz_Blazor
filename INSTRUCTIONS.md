@@ -60,9 +60,11 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   review view uses `DiagramRequest.Builder.From(…, DiagramMode.Solution)` and
   overrides the user marks (§ Pages → Quiz). `DiagramOptions.Aspect` carries the
   canvas preset: the producer's default everywhere except maximized answering,
-  which asks for **`AspectPreset.BoardOnly`** — the panel allocation dropped, so
-  the canvas is the board proper plus its title strip. It is **Problem-mode
-  only**: a Solution request carrying it throws `ArgumentException` from
+  which asks for **`AspectPreset.BoardOnly`** — the panel allocation **and the
+  title strip** dropped, so the canvas is the board proper alone (the strip
+  joined the crop at `SPEC-quiz-view.md` §4's 2026-08-13 amendment, issue
+  `halheinrich/backgammon#98`; its texts are ruled lost while answering
+  maximized and restored at review). It is **Problem-mode only**: a Solution request carrying it throws `ArgumentException` from
   `RenderSvg` and `GetHitRegions` alike, which `Quiz.BoardOptions`' derivation
   prevents structurally rather than by a check. Direct `<ProjectReference>` —
   the page calls the factory by name, so the dependency is explicit rather than
@@ -171,6 +173,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     PickedFolderSourceFactory.cs    — the source composition (cache → dedupe →
                                       shuffle?), the one layer-order statement
   Components/
+    XgidLabel.razor / .razor.cs    — selectable+copyable XGID badge (in-flow;
+                                      the quiz page's bottom row is its one home)
     Pages/
       Home.razor / .razor.cs        — landing: pick + filters + mix + Start
       MixPanel.razor / .razor.cs    — mix builder (a view over MixDraft)
@@ -1659,14 +1663,23 @@ The asymmetry is pinned three times over: at the service seam
   partial-move state); checker keeps Undo last / Undo all (clearing the
   latched play, since the component does not notify on undo). **Both Undo
   buttons are disabled only while `Controller.IsBusy`** — deliberately *not*
-  on `_playEntry` being assigned (see the `@ref`-timing pitfall). Both rows
-  trail with a "Show stats" button opening an `ms-auto` cluster that **"End
-  quiz"** closes (issue #57 — § `QuizController` for what that transition does).
-  It is one-click and immediate, ruled: the confirmation the issue first sketched
-  was dropped, so its placement at the far end of the row — as far from Submit /
-  Continue as the row allows — *is* the mitigation, and `PageTests` pins it
-  there. Adding it to **both** rows is also what leaves their relative heights
-  (and so the board's flex remainder) unchanged. **Review** (`Review`
+  on `_playEntry` being assigned (see the `@ref`-timing pitfall).
+
+  **There is ONE action row (`.action-row`), shared by both states** — only the
+  leading answer instruments branch. Its trailing cluster (`.action-row-tail`,
+  which carries the `ms-auto`) is the XGID badge, then "Show stats", then
+  **"End quiz"** (issue #57 — § `QuizController` for what that transition does).
+  End quiz is one-click and immediate, ruled: the confirmation the issue first
+  sketched was dropped, so its placement at the far end of the row — as far from
+  Submit / Continue as the row allows — *is* the mitigation, and `PageTests` pins
+  it there; the badge therefore *opens* the cluster rather than closing it. The
+  shared row is what keeps the two states' row heights equal (and so the board's
+  flex remainder unchanged) **by construction** — the claim the old two-row
+  arrangement had to make by hand. The `ms-auto` lives on the cluster, not on its
+  first child: `XgidLabel` renders nothing for a decision with no XGID, so a
+  first-child `ms-auto` would be a different element per problem. The semantic
+  class names are the pins' hooks — the Bootstrap utilities beside them still do
+  the layout. **Review** (`Review`
   set): a read-only `BackgammonDiagram` in `DiagramMode.Solution` plus
   Continue / Redo / Show stats, built with `DiagramRequest.Builder.From(...)`
   and then the user's marks overridden from `Review` — `UserPlayIndex` for a
@@ -1690,6 +1703,24 @@ The asymmetry is pinned three times over: at the service seam
   `flex: 0 0 auto` block leaves its total height, and so the board's flex
   remainder, unchanged. `Done` and `Stats` render their own `ScorePanel` with
   their own parameters and are untouched.
+
+  **The XGID has one home: the bottom row** (`SPEC-quiz-view.md` §4's
+  2026-08-13 amendment, issue `halheinrich/backgammon#98`). `XgidLabel` — the
+  selectable-text-plus-copy badge, the DOM counterpart of the label the
+  PDF/PPTX/PNG exporters bake in — renders at **one** site, opening
+  `.action-row-tail`, present in both view modes and both states. It used to
+  ride the producer's `Overlay` slot on all three board branches; it left the
+  canvas so it can neither obscure board content nor appear to teleport when
+  the mode changes, and the branches now render the producer components bare.
+  Consequences worth knowing before touching it: **one site, not three** (a
+  per-branch badge is how one composition ends up rendering it differently);
+  the badge is **in-flow and positions nothing**, so the old `position:
+  relative` host requirement and the `container-type: inline-size` cqw anchor
+  on `.board-container .bg-diagram` are both gone (pinned retired — see
+  Pitfalls); and it must never be the element carrying the cluster's `ms-auto`,
+  because it renders nothing for a decision with an empty `Xgid`. The
+  producer's `Overlay` slot and the exporters' baked corner label are
+  untouched — this is the quiz page's placement choice only.
 
   **The maximize-board mode** (issue #41 / `SPEC-quiz-view.md` §4). With the
   user's `QuizSettings.MaximizeBoardWhileAnswering` on, the *answering*
@@ -2799,7 +2830,14 @@ public (see Pitfalls). The externally visible surface is the route map:
   `.bg-diagram` contain-fit default do the rest — re-adding consumer
   `max-height` glue, `display: contents` on a wrapper, or styles inside
   `.bg-board-slot` breaks it (`AppCss_RetiredBoundedHeightGlue_StaysGone`
-  pins this). The cube-answering and review boards are a bare `.bg-diagram`
+  pins this). **Nothing consumer-side may style or contain the board box for a
+  badge's benefit any more:** `container-type: inline-size` on
+  `.board-container .bg-diagram` existed solely as the overlaid XGID's cqw
+  anchor, and went with the badge (issue `halheinrich/backgammon#98`) —
+  containment is layout, not decoration, so it was measured (board box
+  identical on and off) and then removed rather than left behind.
+  `AppCss_RetiredBadgeContainerQueryAnchor_StaysGone` pins both halves.
+  The cube-answering and review boards are a bare `.bg-diagram`
   directly under `.board-container` — the cube radios live in the action row —
   so all three states size identically under the fold cap *within a mode*;
   unifying it any other way would re-encode producer chrome height in the
