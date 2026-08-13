@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -2713,7 +2713,7 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         var cut = Render<QuizPage>();
-        var labels = cut.FindAll("div.d-flex.flex-wrap.gap-2 button")
+        var labels = cut.FindAll(".action-row button")
             .Select(b => b.TextContent.Trim()).ToList();
 
         Assert.Equal("End quiz", labels[^1]);   // the far end of the row...
@@ -3094,7 +3094,7 @@ public class PageTests : BunitContext
         // producer's caption text (a cosmetic rename there is BgDiag_Razor's
         // concern, covered by its own component tests).
         Assert.NotNull(cut.FindComponent<BackgammonCubeActions>());
-        var actionRow = cut.Find("div.d-flex.flex-wrap.gap-2");
+        var actionRow = cut.Find(".action-row");
         Assert.NotEmpty(actionRow.QuerySelectorAll("[role=\"radiogroup\"]"));
         Assert.Empty(cut.FindAll(".board-container [role=\"radiogroup\"]"));
 
@@ -3143,8 +3143,8 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Quiz_ProblemWithXgid_RendersXgidTextAndCopyButton()
     {
-        // The decision carries an XGID, so the entry (problem) view overlays it
-        // as selectable text plus a copy button in the board's upper-right.
+        // The decision carries an XGID, so the answering view renders it as
+        // selectable text plus a copy button in the bottom row.
         const string xgid = "XGID=-b----E-C---eE---c-e----B-:0:0:1:00:0:0:0:0:10";
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: xgid));
@@ -3153,7 +3153,7 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
 
         Assert.Contains(xgid, cut.Markup);
-        Assert.Contains("board-xgid", cut.Markup);
+        Assert.Contains("xgid-label", cut.Markup);
         var copy = cut.FindAll("button").First(b => b.TextContent.Trim() == "Copy");
         Assert.NotNull(copy);
     }
@@ -3167,7 +3167,7 @@ public class PageTests : BunitContext
 
         var cut = Render<QuizPage>();
 
-        Assert.DoesNotContain("board-xgid", cut.Markup);
+        Assert.DoesNotContain("xgid-label", cut.Markup);
     }
 
     [Fact]
@@ -3185,7 +3185,7 @@ public class PageTests : BunitContext
         Assert.NotNull(c.Review); // in the review (solution) state
 
         Assert.Contains(xgid, cut.Markup);
-        Assert.Contains("board-xgid", cut.Markup);
+        Assert.Contains("xgid-label", cut.Markup);
     }
 
     [Fact]
@@ -3548,25 +3548,30 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_AnsweringState_ShowStatsButton_OccupiesTrailingMsAutoSlot()
+    public async Task Quiz_AnsweringState_ShowStatsButton_OpensTheTrailingCluster()
     {
-        // Show stats now sits where Restart used to — the row's trailing
-        // ms-auto slot — rather than the standalone block above the branch. It
-        // *opens* that trailing cluster rather than closing the row: End quiz
-        // trails it (issue #57), and the ms-auto is what pushes the pair away
-        // from the answer controls.
+        // Show stats sits where Restart used to — the row's trailing cluster —
+        // rather than in a standalone block above the branch. It *opens* that
+        // cluster rather than closing the row: End quiz trails it (issue #57).
+        //
+        // The ms-auto that pushes the cluster away from the answer controls is
+        // the CLUSTER's, not this button's: the cluster now leads with the XGID
+        // badge, which renders nothing for a decision without one, so an ms-auto
+        // on its first child would be on a different element per problem.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
-        var rowButtons = cut.FindAll("div.d-flex.flex-wrap.gap-2 button").ToList();
-        var showStats = Assert.Single(rowButtons, b => b.TextContent.Trim() == "Show stats");
-        Assert.True(showStats.ClassList.Contains("ms-auto"));
-        Assert.Same(showStats, rowButtons[^2]); // first button of the trailing cluster
+        var tail = cut.Find(".action-row-tail");
+        Assert.Contains("ms-auto", tail.ClassList);
+
+        var tailButtons = tail.QuerySelectorAll("button");
+        Assert.Equal("Show stats", tailButtons[0].TextContent.Trim());
+        Assert.Equal("End quiz", tailButtons[^1].TextContent.Trim());
     }
 
     [Fact]
-    public async Task Quiz_ReviewState_ShowStatsButton_OccupiesTrailingMsAutoSlot()
+    public async Task Quiz_ReviewState_ShowStatsButton_OpensTheTrailingCluster()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
@@ -3574,10 +3579,12 @@ public class PageTests : BunitContext
         await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
         Assert.NotNull(c.Review);
 
-        var rowButtons = cut.FindAll("div.d-flex.flex-wrap.gap-2 button").ToList();
-        var showStats = Assert.Single(rowButtons, b => b.TextContent.Trim() == "Show stats");
-        Assert.True(showStats.ClassList.Contains("ms-auto"));
-        Assert.Same(showStats, rowButtons[^2]);
+        var tail = cut.Find(".action-row-tail");
+        Assert.Contains("ms-auto", tail.ClassList);
+
+        var tailButtons = tail.QuerySelectorAll("button");
+        Assert.Equal("Show stats", tailButtons[0].TextContent.Trim());
+        Assert.Equal("End quiz", tailButtons[^1].TextContent.Trim());
     }
 
     [Fact]
@@ -4327,51 +4334,62 @@ public class PageTests : BunitContext
     }
 
     // -----------------------------------------------------------------------
-    //  Quiz.razor layout: board-on-top + XGID badge in the producer overlay
+    //  Quiz.razor layout: board-on-top + the XGID's one home in the bottom row
     //
     //  These pin the structural contract the width-driven bottom-row layout
-    //  depends on; the sizing itself (aspect-ratio, letterboxing, badge tracking)
-    //  is pure CSS that bUnit's AngleSharp DOM can't evaluate — verified live in
-    //  the browser instead.
+    //  depends on; the sizing itself (aspect-ratio, letterboxing) is pure CSS
+    //  that bUnit's AngleSharp DOM can't evaluate — verified live in the browser
+    //  instead.
+    //
+    //  The XGID set below is SPEC-quiz-view.md §4's one-home ruling (issue
+    //  halheinrich/backgammon#98) from both ends, in every branch: the badge is
+    //  in the action row's trailing cluster, and it is NOT on the canvas. Both
+    //  halves are load-bearing — a present-only assertion would stay green if
+    //  the badge were rendered twice, and an absent-only assertion would stay
+    //  green if it were not rendered at all.
     // -----------------------------------------------------------------------
 
     private const string SampleXgid = "XGID=-b----E-C---eE---c-e----B-:0:0:1:42:0:0:0:1:10";
 
-    [Fact]
-    public async Task Quiz_PlayState_XgidBadge_RendersInProducerOverlay_NotBoardContainerSibling()
+    /// <summary>
+    /// The badge's home, asserted as one place: exactly one badge on the page,
+    /// inside the action row's trailing cluster, and nothing of it anywhere in
+    /// the board region — neither as a producer overlay child (the slot it left)
+    /// nor as a <c>.board-container</c> child.
+    /// </summary>
+    private static void AssertXgidIsInTheBottomRowOnly(IRenderedComponent<QuizPage> cut)
     {
-        // The badge is passed via BackgammonPlayEntry's Overlay slot, so it lands
-        // inside the producer's .bg-diagram-overlay (which tracks the board box),
-        // not as a direct child of .board-container (which no longer matches the
-        // board under letterboxing — the whole reason for the overlay move).
+        var badge = Assert.Single(cut.FindAll(".xgid-label"));
+        Assert.Contains("action-row-tail", badge.ParentElement!.ClassList);
+        Assert.NotNull(badge.Closest(".board-chrome"));
+
+        Assert.Empty(cut.FindAll(".board-container .xgid-label"));
+        Assert.Empty(cut.FindAll(".bg-diagram-overlay .xgid-label"));
+    }
+
+    [Fact]
+    public async Task Quiz_PlayAnswering_Xgid_RendersInTheBottomRow_NotOnTheBoard()
+    {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: SampleXgid));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
-        var badge = cut.Find(".board-xgid");
-        Assert.Contains("bg-diagram-overlay", badge.ParentElement!.ClassList);
-        Assert.NotEmpty(cut.FindAll(".bg-play-entry .bg-diagram-overlay .board-xgid"));
-        Assert.Empty(cut.FindAll(".board-container > .board-xgid"));
+        AssertXgidIsInTheBottomRowOnly(cut);
+        Assert.Contains(SampleXgid, cut.Find(".action-row-tail").TextContent);
     }
 
     [Fact]
-    public async Task Quiz_CubeState_XgidBadge_RendersInProducerOverlay()
+    public async Task Quiz_CubeAnswering_Xgid_RendersInTheBottomRow_NotOnTheBoard()
     {
-        // Cube answering now renders a bare BackgammonDiagram (board-only), so the
-        // badge lands in the producer's .bg-diagram-overlay exactly as in review —
-        // there is no .bg-cube-entry wrapper any more.
         var c = WithController(TestFixtures.CubeDecision(xgid: SampleXgid));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
-        var badge = cut.Find(".board-xgid");
-        Assert.Contains("bg-diagram-overlay", badge.ParentElement!.ClassList);
-        Assert.NotEmpty(cut.FindAll(".board-container .bg-diagram .bg-diagram-overlay .board-xgid"));
-        Assert.Empty(cut.FindAll(".board-container > .board-xgid"));
+        AssertXgidIsInTheBottomRowOnly(cut);
     }
 
     [Fact]
-    public async Task Quiz_ReviewState_XgidBadge_RendersInProducerOverlay()
+    public async Task Quiz_Review_Xgid_RendersInTheBottomRow_NotOnTheBoard()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: SampleXgid));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
@@ -4379,9 +4397,44 @@ public class PageTests : BunitContext
         await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
         Assert.NotNull(c.Review);
 
-        var badge = cut.Find(".board-xgid");
-        Assert.Contains("bg-diagram-overlay", badge.ParentElement!.ClassList);
-        Assert.Empty(cut.FindAll(".board-container > .board-xgid"));
+        AssertXgidIsInTheBottomRowOnly(cut);
+    }
+
+    [Fact]
+    public async Task Quiz_ActionRow_IsOneRow_SharedByBothStates()
+    {
+        // The single row is what makes the badge's one home reachable at all:
+        // an in-row site plus a per-state row would be two sites. It is also
+        // what keeps the two states' row heights equal by construction, which
+        // the board's flex remainder depends on — the claim the old two-row
+        // arrangement had to make by hand ("add the button to BOTH rows").
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: SampleXgid));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        Assert.Single(cut.FindAll(".board-chrome > .action-row"));
+        Assert.Single(cut.FindAll(".action-row > .action-row-tail"));
+
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.NotNull(c.Review);
+
+        Assert.Single(cut.FindAll(".board-chrome > .action-row"));
+        Assert.Single(cut.FindAll(".action-row > .action-row-tail"));
+    }
+
+    [Fact]
+    public async Task Quiz_NoXgid_TrailingClusterKeepsItsMsAuto()
+    {
+        // XgidLabel renders nothing for an empty XGID, so the ms-auto that pushes
+        // the trailing cluster away from the answer controls cannot live on the
+        // badge — this is the state that would silently left-align the cluster if
+        // it did.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        Assert.Empty(cut.FindAll(".xgid-label"));
+        Assert.Contains("ms-auto", cut.Find(".action-row-tail").ClassList);
     }
 
     [Fact]
@@ -4503,7 +4556,7 @@ public class PageTests : BunitContext
 
         var markup = cut.Markup;
         var stripIdx = markup.IndexOf("status-strip", StringComparison.Ordinal);
-        var rowIdx = markup.IndexOf("d-flex flex-wrap gap-2", StringComparison.Ordinal);
+        var rowIdx = markup.IndexOf("action-row", StringComparison.Ordinal);
         var scoreIdx = markup.IndexOf("score-panel", StringComparison.Ordinal);
         Assert.True(stripIdx >= 0 && rowIdx >= 0 && scoreIdx >= 0, "all three chrome pieces present");
         Assert.True(stripIdx < rowIdx, "the status strip renders before the action row");
@@ -4571,7 +4624,7 @@ public class PageTests : BunitContext
         // The board and the action row are what remain — the mode suppresses
         // chrome, it does not suppress the page.
         Assert.NotEmpty(cut.FindAll(".board-container .bg-play-entry"));
-        Assert.NotEmpty(cut.FindAll("div.d-flex.flex-wrap.gap-2"));
+        Assert.NotEmpty(cut.FindAll(".action-row"));
     }
 
     [Fact]
@@ -4592,7 +4645,7 @@ public class PageTests : BunitContext
         Assert.Empty(cut.FindAll(".status-strip"));
         Assert.Equal(AspectPreset.BoardOnly, RenderedCanvas(cut));
 
-        var actionRow = cut.Find("div.d-flex.flex-wrap.gap-2");
+        var actionRow = cut.Find(".action-row");
         Assert.NotEmpty(actionRow.QuerySelectorAll("[role=\"radiogroup\"]"));
         Assert.Contains("Submit", actionRow.TextContent);
         Assert.Contains("Skip", actionRow.TextContent);
@@ -4622,6 +4675,33 @@ public class PageTests : BunitContext
         Assert.Equal(DiagramMode.Solution, cut.FindComponent<BackgammonDiagram>().Instance.Request!.Mode);
         Assert.NotEmpty(cut.FindAll(".score-panel"));
         Assert.NotEmpty(cut.FindAll(".status-strip"));
+    }
+
+    [Fact]
+    public async Task Quiz_Maximized_Xgid_KeepsItsBottomRowHome_AnsweringAndReview()
+    {
+        // The XGID has ONE home in BOTH view modes (SPEC-quiz-view.md §4, issue
+        // halheinrich/backgammon#98), and this is the composition the ruling came
+        // out of: maximized answering, where the title strip the badge used to
+        // obscure no longer exists at all. The row survives the chrome
+        // suppression, so the badge rides with it — and then still sits in the
+        // same place one Submit later, which is the "never teleports between
+        // modes" half.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: SampleXgid));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await MaximizeAsync();
+
+        var cut = Render<QuizPage>();
+
+        Assert.Empty(cut.FindAll(".status-strip"));   // maximized, as staged
+        Assert.Equal(AspectPreset.BoardOnly, RenderedCanvas(cut));
+        AssertXgidIsInTheBottomRowOnly(cut);
+
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.NotNull(c.Review);
+
+        Assert.NotEmpty(cut.FindAll(".status-strip"));  // normalized
+        AssertXgidIsInTheBottomRowOnly(cut);
     }
 
     [Fact]
@@ -4738,6 +4818,25 @@ public class PageTests : BunitContext
         Assert.DoesNotContain("display:contents", noComments);
         Assert.DoesNotContain("max-height", noComments);
         Assert.DoesNotContain(":has(", noComments);
+    }
+
+    [Fact]
+    public void AppCss_RetiredBadgeContainerQueryAnchor_StaysGone()
+    {
+        // Migration pin for the XGID's move off the canvas (SPEC-quiz-view.md §4,
+        // issue halheinrich/backgammon#98). `.board-container .bg-diagram` was
+        // made a `container-type: inline-size` query container for exactly one
+        // consumer: the overlaid badge, sized in cqw so it tracked the *rendered*
+        // board width under letterboxing. With the badge in the bottom row there
+        // is no cqw anchor to be — and containment is real layout, not a comment,
+        // so it was removed rather than left as decoration (measured first: the
+        // board box is identical with it on and off). Both halves are pinned,
+        // since re-adding either one alone is how it would creep back.
+        var css = File.ReadAllText(AppCssPath());
+        var noComments = Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);
+
+        Assert.DoesNotContain("container-type", noComments);
+        Assert.DoesNotContain("cqw", noComments);
     }
 
     /// <summary>

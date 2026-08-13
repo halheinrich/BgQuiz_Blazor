@@ -76,16 +76,14 @@ h1:focus {
     box-sizing: border-box;
 }
 
-.board-container .bg-diagram {
-    /* Board-relative query container so the overlaid XGID badge (cqw units
-       below) scales with the *rendered board width*, tracking it under
-       letterboxing. The badge lives inside .bg-diagram via the producer's
-       Overlay slot, so this is its sizing anchor. Consumer-owned — the badge
-       is BgQuiz content — unlike the sizing itself: the contain-fit letterbox
-       (max-height: 100%; margin-inline: auto) is now the producer's own
-       inline default on .bg-diagram, so no sizing glue belongs here. */
-    container-type: inline-size;
-}
+/* Retired with the XGID badge's move off the canvas (SPEC-quiz-view.md §4,
+   issue halheinrich/backgammon#98): `.board-container .bg-diagram` carried
+   `container-type: inline-size` for exactly one reason — to be the cqw anchor
+   the overlaid badge sized against, so it tracked the *rendered* board width
+   under letterboxing. Nothing sizes in cqw here any more, and a containment
+   declaration is not inert layout, so it goes rather than lingering as
+   decoration. Measured before removing: the board box is identical with the
+   containment on and off (see AppCss_RetiredBadgeContainerQueryAnchor_StaysGone). */
 
 /* Ensure the rendered SVG fills the board box on the width axis (the producer
    emits width="100%" but no height; height comes from the box's aspect-ratio). */
@@ -210,51 +208,53 @@ h1:focus {
     line-height: 1.35;
 }
 
-/* XGID badge — upper-right of the board, sized in container-query units so it
-   tracks the board's ~28/468-tall title strip at every viewport width and never
-   spills onto the playing surface. Mirrors the right-justified label the
-   PDF/PPTX/PNG exporters bake into that same strip. Now rendered inside the
-   producer's Overlay slot (position:absolute against .bg-diagram-overlay, which
-   is inset:0 of the board box), so it stays on the board corner under any board
-   sizing. cqw resolves against .bg-diagram (its container-type anchor). */
-.board-xgid {
-    position: absolute;
-    top: 0.5cqw;
-    right: 0.5cqw;
-    z-index: 2;
-    /* The producer's Overlay wrapper is pointer-events:none so board clicks
-       fall through; the badge opts its own interactive bits (selectable text +
-       copy button) back in. */
-    pointer-events: auto;
-    display: flex;
+/* XGID badge — an in-flow badge in the quiz page's action row, never on the
+   canvas (SPEC-quiz-view.md §4's one-home ruling, issue
+   halheinrich/backgammon#98). It was previously absolutely positioned in the
+   board's upper-right corner and sized in container-query units against
+   .bg-diagram; both are gone with the overlay, because outside the board box
+   there is no cqw anchor to resolve against and nothing to letterbox with. Plain
+   rem sizing instead: the row it sits in is ordinary chrome. Mirrors the
+   right-justified label the PDF/PPTX/PNG exporters bake into the title strip. */
+.xgid-label {
+    display: inline-flex;
     align-items: center;
-    gap: 0.4cqw;
-    padding: 0 0.4cqw;
+    gap: 0.4rem;
+    /* Below 641px the vertical law does not exist (the page flows and the board
+       is width-bound), so a long XGID wrapping inside the badge costs height
+       that is free there — and it is the alternative to a 45-character
+       unbreakable token pushing the row wider than the viewport. */
+    max-width: 100%;
+    padding: 0.15rem 0.4rem;
+    border: 1px solid #dee2e6;
     border-radius: 0.25rem;
-    background: rgba(255, 255, 255, 0.85);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-    font-size: clamp(0.55rem, 2.05cqw, 0.78rem);
+    background: #f8f9fa;
+    font-size: 0.85rem;
     line-height: 1.2;
 }
 
-.board-xgid-text {
+.xgid-label-text {
     color: #212529;
     user-select: all;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
 }
 
-.board-xgid-copy {
+.xgid-label-copy {
+    /* Sized so the hit target stays honest beside the row's Bootstrap buttons:
+       the badge is secondary chrome, but the copy affordance is still a control
+       a user aims at. */
+    min-height: 1.75rem;
     border: 1px solid #adb5bd;
     border-radius: 0.2rem;
     background: #fff;
     color: #212529;
     font-size: 0.9em;
     line-height: 1.15;
-    padding: 0 0.3cqw;
+    padding: 0.2rem 0.5rem;
     cursor: pointer;
 }
 
-.board-xgid-copy:hover {
+.xgid-label-copy:hover {
     background: #e9ecef;
 }
 

@@ -140,20 +140,19 @@
         @* Board on top; the chrome (score panel, legend, verdict, actions) sits
            in the full-width region below it. The board sizes width-first from
            this row and takes its height from the producer's own aspect-ratio —
-           BgQuiz names no ratio anywhere. The XGID badge rides in the producer's
-           Overlay slot (not a sibling of .board-container), so it tracks the
-           rendered board box even when max-height letterboxes the board narrower
-           than the row. *@
+           BgQuiz names no ratio anywhere.
+
+           Nothing is overlaid on the canvas here: the XGID left the producer's
+           Overlay slot for the bottom row (SPEC-quiz-view.md §4's one-home
+           ruling, issue halheinrich/backgammon#98), so all three branches render
+           the producer component bare. Adding an overlay back to one branch is
+           how the badge would start teleporting between modes again. *@
         <div class="board-container my-3">
             @if (review is not null)
             {
                 <BackgammonDiagram Request="BuildSolutionRequest(current, review)"
                                    Options="BoardOptions"
-                                   OnDiceClicked="ContinueAsync">
-                    <Overlay>
-                        <XgidLabel Xgid="@current.Xgid" />
-                    </Overlay>
-                </BackgammonDiagram>
+                                   OnDiceClicked="ContinueAsync" />
             }
             else if (current.Decision.IsCube)
             {
@@ -166,11 +165,7 @@
                    maximize mode reverses that deliberately and only across the mode
                    boundary — see BoardOptions and SPEC-quiz-view.md §2. *@
                 <BackgammonDiagram Request="BuildRenderRequest(current)"
-                                   Options="BoardOptions">
-                    <Overlay>
-                        <XgidLabel Xgid="@current.Xgid" />
-                    </Overlay>
-                </BackgammonDiagram>
+                                   Options="BoardOptions" />
             }
             else
             {
@@ -178,11 +173,7 @@
                                      Request="BuildRenderRequest(current)"
                                      Options="BoardOptions"
                                      OnPlayCompleted="HandlePlayCompleted"
-                                     OnSubmitRequested="Submit">
-                    <Overlay>
-                        <XgidLabel Xgid="@current.Xgid" />
-                    </Overlay>
-                </BackgammonPlayEntry>
+                                     OnSubmitRequested="Submit" />
             }
         </div>
 
@@ -214,28 +205,40 @@
                 </div>
             }
 
-            @* Transition-driving buttons disable while the controller is busy
+            @* ONE action row for every state (.action-row), not one per state.
+               Only the leading segment — the answer instruments — branches; the
+               trailing cluster (.action-row-tail) is shared, because it is the
+               same three things in every state and a second copy of it is how
+               two rows drift apart. The semantic class names the region for
+               readers and pins alike; the Bootstrap utilities beside them still
+               do the layout, as everywhere else on this page.
+
+               One row also means the XGID has one render site (below), which is
+               the point of §4's one-home ruling: three sites is exactly how a
+               badge ends up rendering differently in one composition.
+
+               Transition-driving buttons disable while the controller is busy
                (the gate would no-op them anyway — this is the honest mirror);
                Show stats stays enabled: it only navigates.
 
-               "End quiz" (issue #57) rides the trailing ms-auto cluster in both
-               rows, after Show stats — the far end of the row, as far from the
-               buttons a user clicks over and over (Submit, Continue) as the row
-               allows. That distance is the whole mitigation: the control is
-               one-click and acts immediately, ruled so deliberately, so there is
-               no confirmation step to catch a misclick. It is styled like its
+               "End quiz" (issue #57) closes the trailing cluster, after Show
+               stats — the far end of the row, as far from the buttons a user
+               clicks over and over (Submit, Continue) as the row allows. That
+               distance is the whole mitigation: the control is one-click and
+               acts immediately, ruled so deliberately, so there is no
+               confirmation step to catch a misclick. It is styled like its
                neighbours rather than as a danger action, because ending a run
                early is a normal way to finish one, not a destructive act — Done
                receives it as the completed quiz it is.
 
                It IS a transition (it retires the enumerator and finishes the
-               run), so unlike Show stats it disables on IsBusy. Adding one
-               button to *both* action rows leaves the two rows' relative heights
-               exactly as they were, which is what the board's flex remainder
-               depends on — see the status strip's fixed-height contract. *@
-            @if (review is not null)
-            {
-                <div class="d-flex flex-wrap gap-2">
+               run), so unlike Show stats it disables on IsBusy. The shared row
+               is also what keeps the states' row heights equal by construction —
+               what the board's flex remainder depends on, see the status strip's
+               fixed-height contract. *@
+            <div class="action-row d-flex flex-wrap gap-2 align-items-center">
+                @if (review is not null)
+                {
                     <button class="btn btn-primary" disabled="@Controller.IsBusy"
                             @onclick="ContinueAsync">
                         Continue
@@ -244,7 +247,76 @@
                             @onclick="RedoAsync">
                         Redo
                     </button>
-                    <button class="btn btn-outline-secondary ms-auto" @onclick="ShowStats">
+                }
+                else if (current.Decision.IsCube)
+                {
+                    @* The cube answer lives here in the chrome, beside its own
+                       Submit / Skip — the board region above is board-only. The
+                       radios lead the row (form order: choose, then Submit lights
+                       up); @bind-Value keeps _completedCube current, which gates
+                       Submit. There is no automatic reset — HandleStateChanged
+                       nulls _completedCube on every advance, clearing the radios. *@
+                    <BackgammonCubeActions @bind-Value="_completedCube" />
+                    <button class="btn btn-primary"
+                            disabled="@(_completedCube is null || Controller.IsBusy)"
+                            @onclick="Submit">
+                        Submit
+                    </button>
+                    <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
+                            @onclick="SkipAsync">
+                        Skip
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-primary"
+                            disabled="@(_completedPlay is null || Controller.IsBusy)"
+                            @onclick="Submit">
+                        Submit
+                    </button>
+                    <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
+                            @onclick="SkipAsync">
+                        Skip
+                    </button>
+                    @* Busy-only, deliberately not "_playEntry is not null":
+                       that @ref is assigned *after* the render that creates
+                       the entry, so this branch's first render always read
+                       null and disabled both buttons — and nothing
+                       re-renders this page during click-by-click assembly,
+                       so they stayed disabled until the play completed. The
+                       branch already guarantees an entry is rendered
+                       (!IsCube), and a click can only land after the ref is
+                       assigned, so the null term tested nothing this branch
+                       had not already established. See UndoLast. *@
+                    <button class="btn btn-outline-secondary"
+                            disabled="@Controller.IsBusy"
+                            @onclick="UndoLast">
+                        Undo last
+                    </button>
+                    <button class="btn btn-outline-secondary"
+                            disabled="@Controller.IsBusy"
+                            @onclick="UndoAll">
+                        Undo all
+                    </button>
+                }
+
+                @* The trailing cluster, pushed away from the answer controls by
+                   its own ms-auto rather than by the first button's — so the
+                   cluster stays right-aligned in the one state that renders no
+                   badge at all (a decision with no XGID: XgidLabel renders
+                   nothing, and an ms-auto living on the button would then be
+                   the wrong element's).
+
+                   THE XGID'S ONE HOME (SPEC-quiz-view.md §4, issue
+                   halheinrich/backgammon#98). It leads the cluster — present in
+                   both view modes and both states, since maximized answering
+                   keeps this row — so it never obscures canvas content and never
+                   teleports between modes. It leads rather than closes the
+                   cluster so that End quiz keeps the far end of the row, which
+                   is #57's mitigation and not this badge's to spend. *@
+                <div class="action-row-tail d-flex flex-wrap gap-2 align-items-center ms-auto">
+                    <XgidLabel Xgid="@current.Xgid" />
+                    <button class="btn btn-outline-secondary" @onclick="ShowStats">
                         Show stats
                     </button>
                     <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
@@ -252,70 +324,7 @@
                         End quiz
                     </button>
                 </div>
-            }
-            else
-            {
-                <div class="d-flex flex-wrap gap-2">
-                    @if (current.Decision.IsCube)
-                    {
-                        @* The cube answer lives here in the chrome, beside its own
-                           Submit / Skip — the board region above is board-only. The
-                           radios lead the row (form order: choose, then Submit lights
-                           up); @bind-Value keeps _completedCube current, which gates
-                           Submit. There is no automatic reset — HandleStateChanged
-                           nulls _completedCube on every advance, clearing the radios. *@
-                        <BackgammonCubeActions @bind-Value="_completedCube" />
-                        <button class="btn btn-primary"
-                                disabled="@(_completedCube is null || Controller.IsBusy)"
-                                @onclick="Submit">
-                            Submit
-                        </button>
-                        <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
-                                @onclick="SkipAsync">
-                            Skip
-                        </button>
-                    }
-                    else
-                    {
-                        <button class="btn btn-primary"
-                                disabled="@(_completedPlay is null || Controller.IsBusy)"
-                                @onclick="Submit">
-                            Submit
-                        </button>
-                        <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
-                                @onclick="SkipAsync">
-                            Skip
-                        </button>
-                        @* Busy-only, deliberately not "_playEntry is not null":
-                           that @ref is assigned *after* the render that creates
-                           the entry, so this branch's first render always read
-                           null and disabled both buttons — and nothing
-                           re-renders this page during click-by-click assembly,
-                           so they stayed disabled until the play completed. The
-                           branch already guarantees an entry is rendered
-                           (!IsCube), and a click can only land after the ref is
-                           assigned, so the null term tested nothing this branch
-                           had not already established. See UndoLast. *@
-                        <button class="btn btn-outline-secondary"
-                                disabled="@Controller.IsBusy"
-                                @onclick="UndoLast">
-                            Undo last
-                        </button>
-                        <button class="btn btn-outline-secondary"
-                                disabled="@Controller.IsBusy"
-                                @onclick="UndoAll">
-                            Undo all
-                        </button>
-                    }
-                    <button class="btn btn-outline-secondary ms-auto" @onclick="ShowStats">
-                        Show stats
-                    </button>
-                    <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
-                            @onclick="EndQuizAsync">
-                        End quiz
-                    </button>
-                </div>
-            }
+            </div>
 
             @* The ongoing-stats strip, at the BOTTOM of the page — below the
                action row, not above the status strip where it used to sit
