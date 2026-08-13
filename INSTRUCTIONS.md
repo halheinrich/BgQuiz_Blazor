@@ -58,8 +58,14 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   answering view uses `DiagramRequest.FromDecisionData(…, DiagramMode.Problem)`
   (Problem mode blanks the analysis panel, so it never leaks the answer); the
   review view uses `DiagramRequest.Builder.From(…, DiagramMode.Solution)` and
-  overrides the user marks (§ Pages → Quiz). Direct `<ProjectReference>` — the
-  page calls the factory by name, so the dependency is explicit rather than
+  overrides the user marks (§ Pages → Quiz). `DiagramOptions.Aspect` carries the
+  canvas preset: the producer's default everywhere except maximized answering,
+  which asks for **`AspectPreset.BoardOnly`** — the panel allocation dropped, so
+  the canvas is the board proper plus its title strip. It is **Problem-mode
+  only**: a Solution request carrying it throws `ArgumentException` from
+  `RenderSvg` and `GetHitRegions` alike, which `Quiz.BoardOptions`' derivation
+  prevents structurally rather than by a check. Direct `<ProjectReference>` —
+  the page calls the factory by name, so the dependency is explicit rather than
   riding BgDiag_Razor's transitive surface. Only the **native-free core** is
   referenced (see Pitfalls).
 - **XgFilter_Lib** — `DecisionFilterSet`, `FilterConfig`,
@@ -156,7 +162,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     MixDisplay.cs                   — mix wording SSOT
     CubeActionDisplay.cs            — cube-verdict wording SSOT
     AnswerTypeDisplay.cs            — answer-type wording SSOT (always five)
-    MixNoticeDismissal.cs           — composition-keyed notice dismissal
+    QuizNoticeDismissal.cs          — occurrence-keyed dismissal, one slot per
+                                      Quiz-page notice (+ the QuizNotice enum)
     ShuffleOption.cs                — "shuffle order" toggle holder
     QuizLiveMarker.cs               — sessionStorage was-a-quiz-live marker
     WasmUploadedProblemSetSource.cs — in-browser stream-backed source (parser)
@@ -229,6 +236,9 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
   AnswerTypeBreakdownTests.cs       — the pre-Start breakdown: labels and zeros
   SidebarCollapseTests.cs           — fold, chevron state, how long it lasts
   SettingsTests.cs                  — board side by geometry; the fold setting
+  MaximizeBoardTests.cs             — maximize on via the Settings checkbox →
+                                      chrome absent answering, back at review;
+                                      the score strip's real bottom position
   MidQuizNavigationTests.cs         — Home's way back into a running quiz
   EndQuizEarlyTests.cs              — ending a run before the source runs out
   BetaOnboardingTests.cs            — robots.txt over HTTP; the feedback mailto
@@ -1170,12 +1180,13 @@ guarantees Drawn == Target capless). The page keys the split on
 `Controller.ActiveMixHasLength`; a length-bound mix that filled exactly
 shows no notice at all.
 
-**Both mix notices retire on the first submitted answer.** They say how
-*this* quiz was built — worth reading before answering, stale chrome after —
-so `Quiz.Submit` dismisses them once an answer lands, checker or cube alike.
+**Both mix notices retire on the first submitted answer** — *or* on a click,
+like every notice on the page (§ Dismissible notices). They say how *this*
+quiz was built — worth reading before answering, stale chrome after — so
+`Quiz.Submit` dismisses them once an answer lands, checker or cube alike.
 Three deliberate choices: **dismissal, not deletion** (the controller's
 telemetry is untouched — a presentation concern must not destroy load-bearing
-state); **a scoped holder (`MixNoticeDismissal`), not a page field** (*Show
+state); **a scoped holder (`QuizNoticeDismissal`), not a page field** (*Show
 stats* is a mainline mid-quiz gesture and returning re-instantiates `Quiz`, so
 a field would resurrect a dismissed notice); **keyed on the composition
 instance** (`ReferenceEquals`, never `==` — the record's value equality would
@@ -1186,6 +1197,48 @@ submit call, not the call itself: both mutators no-op under the transition
 gate, and dismissing on a submit that scored nothing would drop the notice
 with no answer given; the predicate also covers an off-list play. **Skip is
 deliberately not a dismissal** — it moves past a problem without answering it.
+
+### Dismissible notices — `QuizNoticeDismissal` (issue #41, `SPEC-quiz-view.md` §4)
+
+**Every notice on the Quiz page dismisses on a click**: the mix composition
+notice (both framings) and the stats-context degrade notice (`LoadFailed`'s
+polite one, `WriteFailed`'s assertive one). This is the answer to the board
+space they cost, because the maximize mode is **forbidden from suppressing
+them** — the composition notice retires on the first answer, so hiding it
+while answering means it is never seen at all, and a degraded recording
+context must be seen. Dismissing frees their space for the board, which is
+the mode's own goal.
+
+**Per occurrence, transient, app-scoped.** The holder generalizes the old
+composition-only `MixNoticeDismissal` by adding a **slot key** (`QuizNotice`)
+and nothing else: one dismissal per notice, so dismissing one never dismisses
+another. Every slot is keyed by **reference identity of an occurrence token**
+— one rule, one kind of token — which is why the stats side needed a token to
+exist at all:
+
+- **Composition** → the `MixComposition` instance (unchanged).
+- **StatsContext** → `QuizStatsStore.StatusOccurrence`, an **opaque object
+  whose only meaning is identity**, replaced at the top of `BeginQuizAsync`
+  (the context is re-derived) and in `SetStatus` on a real transition.
+
+Keying the stats notice on the `Status` *value* gets two real cases wrong: a
+mid-run `Ready → WriteFailed` is a new thing to say, and **a second quiz bound
+against the same unreadable file is also a new thing to say** — that run
+records nothing either, and `SetStatus` reports no transition for it (hence
+the bind-side replacement, not just the transition-side one). A generation
+`int` would work for the store but would force the holder to compare two kinds
+of token by two rules, and value equality is exactly the trap `MixComposition`
+documents avoiding.
+
+**The affordance is deliberately two things**: the whole alert is the click
+target (large, low-vision-friendly — this arc's reason for existing) *and* a
+standard Bootstrap `btn-close` renders inside it, because a bare clickable
+region is undiscoverable and carries none of the keyboard / screen-reader
+semantics. The button's click is `stopPropagation`'d; both routes call the
+same idempotent `Dismiss`. **Never `data-bs-dismiss`** — it removes the node
+behind Blazor's back, leaving the renderer's tree disagreeing with the DOM.
+Nothing here is persisted: a dismissal is transient by design, and a reload
+has no quiz to come back to.
 
 ### `ShuffleOption` — the "Shuffle order" toggle holder
 
@@ -1244,16 +1297,17 @@ distinction that isn't there.
 
 ### `QuizSettings` — the user settings service (issue #30 leg 1)
 
-The app-scoped service behind `Settings.razor`, owning three settings and the
+The app-scoped service behind `Settings.razor`, owning four settings and the
 one `localStorage` entry (`xg_quizSettings`) they persist in: the home-board
-side, whether that side re-rolls per problem, and whether the navigation panel
-stays folded. Every change is **recorded and persisted the moment it is made**;
-when it becomes *visible* is a separate question, and the fold answers it
-differently (§ The fold it cannot apply itself, below).
+side, whether that side re-rolls per problem, whether the board is maximized
+while answering, and whether the navigation panel stays folded. Every change is
+**recorded and persisted the moment it is made**; when it becomes *visible* is
+a separate question, and the fold answers it differently (§ The fold it cannot
+apply itself, below).
 **Defaults reproduce the app that shipped before it existed** —
 home board right (the producer's own `DiagramRequest.HomeBoardOnRight`
-default), no randomization, panel unfolded — so a user who never opens the page
-sees no change.
+default), no randomization, no maximized board, panel unfolded — so a user who
+never opens the page sees no change.
 
 **No draft, no commit, no dirty flag, no `Changed` event.** Nothing here is
 composed into a quiz at a Start gesture, so there is no half-edited state to
@@ -1280,7 +1334,28 @@ Reads are **tolerant**, unlike the mix's fail-loud converter: a format two
 readers share and later legs will extend must survive a missing field (that
 setting's default), an unknown field (ignored), a non-boolean value (that
 field's default), and anything that isn't a JSON object (every default). See
-Pitfalls.
+Pitfalls. **Field order is append-only** — `maximizeBoardWhileAnswering`
+joined at the end, after the fold field, whatever the C#-side grouping — so an
+older build's bytes stay a prefix of a newer one's and the pinned literal's
+diff reads as "a field was added" rather than "the format moved under the
+applier". Extending the format needed **no migration and no version stamp**:
+the tolerant restore gives a payload predating a field that field's default,
+and the default reproduces the pre-field behavior by construction.
+
+**The maximize-board setting** (issue #41 / `SPEC-quiz-view.md` §3) is the one
+field here that reverses a documented invariant rather than choosing between
+equals. This service records the *choice* only — the composition it produces is
+`Quiz`'s derivation (§ `Quiz.razor`), and **nothing stores "currently
+maximized"** (§6: a second copy of the view mode is a divergence from the
+model). It is a **choice, never consent**: it survives navigation, reload and
+quiz boundaries, and no gesture expires it. The **Settings checkbox is its sole
+control** (fork D, ruled) — an on-page toggle would be a second write surface
+for one fact and would force this service to grow the notify plumbing its
+contract defers until a real second consumer exists. Its fine print states the
+ratified consequence (the board is deliberately a different size while
+answering than while reading), so a user who sees the board move reads the
+feature working rather than a bug — the same posture the fold row takes toward
+its deferral.
 
 **The side, and the roll.** `QuizController.RandomHomeBoardOnRight` is a coin
 flip taken **unconditionally**, beside the assignment of `Current` and after
@@ -1601,12 +1676,50 @@ The asymmetry is pinned three times over: at the service seam
   `OnDiceClicked` is bound to the same `ContinueAsync` handler as Continue
   (safe under the transition gate). Redo falls back to the answering branch on
   the same problem; no explicit reset or `@key` is needed (see Pitfalls).
-  Between the score panel and either action row sits an always-rendered,
-  **fixed-height status strip** (`.status-strip`, `app.css`): a one-line
-  legend slot and a two-line-clamped verdict band — a neutral prompt while
-  answering; the legend (`* played · † your answer`) and outcome-coloured
-  verdict at review. Its fixed height, and the board sizing that rides on it,
-  are in Pitfalls. **Busy affordances:** every transition-driving button
+  Above either action row sits a **fixed-height status strip**
+  (`.status-strip`, `app.css`): a one-line legend slot and a two-line-clamped
+  verdict band — a neutral prompt while answering; the legend
+  (`* played · † your answer`) and outcome-coloured verdict at review. Its
+  fixed height, and the board sizing that rides on it, are in Pitfalls.
+  **Below the action row — the page's bottom chrome — sits the `ScorePanel`**
+  (`SPEC-quiz-view.md` §5, issue #41): reference material read between
+  problems, not while deciding one, so it sits below the controls the user is
+  reaching for and leaves the chrome nearest the board to the chrome that
+  speaks to the problem in hand. It stays *inside* `.board-chrome`, which is
+  the move's whole no-interaction claim — reordering within the measured
+  `flex: 0 0 auto` block leaves its total height, and so the board's flex
+  remainder, unchanged. `Done` and `Stats` render their own `ScorePanel` with
+  their own parameters and are untouched.
+
+  **The maximize-board mode** (issue #41 / `SPEC-quiz-view.md` §4). With the
+  user's `QuizSettings.MaximizeBoardWhileAnswering` on, the *answering*
+  composition renders **the board and the action row and nothing else below the
+  notices**: score panel and status strip suppressed (and with them the
+  "Problem N of M" indicator and the neutral prompt — ratified consequences),
+  and the board on `AspectPreset.BoardOnly`. **Both legs are required**: §2
+  measured that suppressing chrome alone changes the rendered canvas *not at
+  all* (1082×609 before and after — the freed height is unusable while the
+  panel-padded 16:9 canvas is width-bound); together they measured 722×780, the
+  board proper ~28% larger linearly and ~64% by area. Review **normalizes** to
+  the full composition, because it needs the panel and needs it filled.
+
+  The mode is **a pure derivation and stays one**: `MaximizedAnswering` is
+  `setting && Review is null`, re-derived every render, and `BoardOptions`
+  picks the canvas from it. **No holder, no page field, no "currently
+  maximized" bit** (§6) — that second copy is what would let the chrome and the
+  canvas disagree about which composition is on screen. Every transition falls
+  out with no special case: Submit normalizes, Redo and Continue re-maximize,
+  Undo never leaves answering. `BoardOptions` replaces the old shared
+  `_diagramOptions` field and applies the `HomeBoardOnRight` pattern to the
+  second thing all three board branches must agree about — and it is where the
+  producer's throw is prevented **structurally**: `BoardOnly` is rejected for a
+  `DiagramMode.Solution` request (`ArgumentException` from `RenderSvg` and
+  `GetHitRegions` alike), and the derivation cannot select it while a review is
+  rendering. The action row keeps **every** instrument, cube radios included,
+  so every answer stays makeable without leaving the maximized view. Notices
+  are deliberately *not* gated on the mode — see § Dismissible notices.
+
+  **Busy affordances:** every transition-driving button
   (Submit, Skip, Undo, Continue, Redo, End quiz) disables on `Controller.IsBusy`
   and the container carries `app-busy` — the honest mirror of the gate, which
   would no-op the clicks anyway; "Show stats" stays enabled (navigation only).
@@ -1616,8 +1729,9 @@ The asymmetry is pinned three times over: at the service seam
   Above the board: the active-context stats notices (`LoadFailed` polite,
   `WriteFailed` assertive — the store subscription surfaces a mid-quiz write
   failure the moment it happens) and the mix notices from
-  `Controller.LastComposition`, framed per § MixPanel's honest-notices list
-  and gated on `!MixNotice.IsDismissed(comp)`. The `ScorePanel` carries
+  `Controller.LastComposition`, framed per § MixPanel's honest-notices list.
+  Both are gated on `!Notices.IsDismissed(slot, occurrence)` and **both
+  dismiss on a click** — § Dismissible notices. The `ScorePanel` carries
   "Problem N of M" from `Controller.ProblemNumber` / `ProblemCount`.
 - **`Stats.razor`** — read-only mid-quiz stats view: the same `ScorePanel` /
   `ScoreBreakdown` pair `Done` shows, rendered against the live in-progress
@@ -1630,18 +1744,20 @@ The asymmetry is pinned three times over: at the service seam
   to itself.
 - **`Settings.razor`** — the user settings page (issue #30 leg 1), a plain
   view over `QuizSettings` (§ that section for the contracts). Radios for
-  the home-board side, checkboxes for randomize-per-problem and
-  keep-nav-folded; every control writes straight through, recording and
-  persisting on the spot (the fold's *visible* effect defers by one navigation
-  — § `QuizSettings`; the page's job in that split is the fine print that says
-  so). **No Apply button — pinned as a design constraint, not a
+  the home-board side, checkboxes for randomize-per-problem,
+  maximize-while-answering and keep-nav-folded; every control writes straight
+  through, recording and persisting on the spot (the fold's *visible* effect
+  defers by one navigation — § `QuizSettings`; the page's job in that split is
+  the fine print that says so). The board's three rows share one fieldset; the
+  fold's is its own. **No Apply button — pinned as a design constraint, not a
   coincidence:** an Apply is the front end of the draft/commit lifetime
   split behind finding (AK)'s wedge. The only page state is whether hydration
   landed, which gates the controls so none can paint a default the stored
   settings are about to overwrite. Reachable from the host `NavMenu` beside
   Help (`NavMenuTests` pins the link, as it does Help's); nothing else links
   to it, and the pages the settings affect deliberately carry no control of
-  their own — the mid-quiz-tweaking question booked on #30 is still open.
+  their own — for the maximize mode that is a *ruling* (fork D), not an open
+  question; the broader mid-quiz-tweaking question booked on #30 still is one.
   It offers the same **"Back to quiz"** button `Help` does — same predicate,
   same markup, same words (§ `Help`) — copied rather than designed, because
   the two pages sit in the same position: reachable from any state, so neither
@@ -2662,12 +2778,21 @@ public (see Pitfalls). The externally visible surface is the route map:
   across review (e.g. overlaying the solution instead of swapping branches).
   The cube answer needs none of this: `BackgammonCubeActions` is strictly
   controlled off `_completedCube`, which nulls on every transition.
-- **The status strip must stay fixed-height, and the board-sizing glue must
-  stay retired.** The strip's whole purpose is state-invariant chrome: equal
-  chrome height ⇒ equal board flex remainder ⇒ no answering↔review board-size
-  jump. Sizing it by content (`min-height`, auto height) reintroduces the
-  per-question jitter it was built to remove — long content clamps instead
-  (legend one line, verdict two). On the board side, sizing belongs to
+- **The status strip must stay fixed-height *within a view mode*, and the
+  board-sizing glue must stay retired.** The strip's purpose is mode-invariant
+  chrome: equal chrome height ⇒ equal board flex remainder ⇒ no
+  answering↔review board-size jump. Sizing it by content (`min-height`, auto
+  height) reintroduces the per-question jitter it was built to remove — long
+  content clamps instead (legend one line, verdict two). **The invariance is
+  scoped, not absolute** (`SPEC-quiz-view.md` §2, issue #41): with the maximize
+  setting on, the answering composition suppresses this strip outright and
+  renders a board-only canvas, so the board is deliberately larger while
+  answering than at review and oscillates once per problem. That reversal is
+  the opted-in feature, not this contract failing; what the contract still
+  forbids is size drift nobody asked for, inside Normal view and inside
+  Maximized view's own review composition alike. No CSS knows about the mode —
+  which composition renders is `Quiz.razor`'s `MaximizedAnswering` derivation.
+  On the board side, sizing belongs to
   BgDiag_Razor's bounded-height contract: bound the `BackgammonPlayEntry`
   wrapper with a real height (the fold column hands `.board-container`'s
   definite post-flex height down) and let the producer's `bg-board-slot` and
@@ -2676,9 +2801,9 @@ public (see Pitfalls). The externally visible surface is the route map:
   `.bg-board-slot` breaks it (`AppCss_RetiredBoundedHeightGlue_StaysGone`
   pins this). The cube-answering and review boards are a bare `.bg-diagram`
   directly under `.board-container` — the cube radios live in the action row —
-  so all three states size identically under the fold cap; unifying it any
-  other way would re-encode producer chrome height in the consumer, the
-  magic-constant pattern this arc removed.
+  so all three states size identically under the fold cap *within a mode*;
+  unifying it any other way would re-encode producer chrome height in the
+  consumer, the magic-constant pattern this arc removed.
 - **Pages set render mode per-page, not via `<Routes>`.** Each routable page
   carries `@rendermode @(new InteractiveWebAssemblyRenderMode(prerender:
   false))`. There is no global `<Routes @rendermode>` here (that was the old
