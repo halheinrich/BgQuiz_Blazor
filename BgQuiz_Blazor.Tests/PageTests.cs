@@ -4528,6 +4528,174 @@ public class PageTests : BunitContext
         Assert.Empty(cut.FindAll(".board-container .score-panel"));
     }
 
+    // -----------------------------------------------------------------------
+    //  The maximize-board mode (issue #41 / SPEC-quiz-view.md §4). The mode is
+    //  a pure derivation over (the setting, answering|review), so these pin it
+    //  from both ends: which chrome renders, and which canvas the producer is
+    //  asked for. bUnit cannot measure the resulting board, which is the e2e
+    //  suite's job; what it CAN pin is that the two legs move together, since
+    //  §2's measurement says either one alone delivers nothing on desktop.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The canvas preset the currently rendered board is asking the producer for
+    /// — the mirror of <see cref="RenderedBoardSide"/>, and read off the same
+    /// outermost component so it reflects what <c>Quiz</c> passed rather than
+    /// what a producer default supplied.
+    /// </summary>
+    private static AspectPreset RenderedCanvas(IRenderedComponent<QuizPage> cut) =>
+        cut.FindComponents<BackgammonPlayEntry>().Count > 0
+            ? cut.FindComponent<BackgammonPlayEntry>().Instance.Options.Aspect
+            : cut.FindComponent<BackgammonDiagram>().Instance.Options.Aspect;
+
+    /// <summary>Turn the maximize setting on, as the Settings page would.</summary>
+    private Task MaximizeAsync() => Settings().SetMaximizeBoardWhileAnsweringAsync(true);
+
+    [Fact]
+    public async Task Quiz_Maximized_PlayAnswering_SuppressesChrome_AndCropsTheCanvas()
+    {
+        // Both legs of §4's maximized-answering composition, asserted together
+        // because either alone is a feature that measures as doing nothing:
+        // suppressing chrome frees height the width-bound 16:9 canvas cannot use,
+        // and cropping the canvas without freeing height wastes the crop.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await MaximizeAsync();
+
+        var cut = Render<QuizPage>();
+
+        Assert.Empty(cut.FindAll(".score-panel"));
+        Assert.Empty(cut.FindAll(".status-strip"));
+        Assert.Equal(AspectPreset.BoardOnly, RenderedCanvas(cut));
+
+        // The board and the action row are what remain — the mode suppresses
+        // chrome, it does not suppress the page.
+        Assert.NotEmpty(cut.FindAll(".board-container .bg-play-entry"));
+        Assert.NotEmpty(cut.FindAll("div.d-flex.flex-wrap.gap-2"));
+    }
+
+    [Fact]
+    public async Task Quiz_Maximized_CubeAnswering_KeepsEveryAnswerInstrument()
+    {
+        // The filing's play/cube fork, dissolved by ruling: the action row keeps
+        // every instrument — cube radios included — so a cube answer stays
+        // makeable without leaving the maximized view. A mode that suppressed the
+        // radios with the rest of the chrome would strand the user on exactly the
+        // decisions the cube fixtures cover.
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await MaximizeAsync();
+
+        var cut = Render<QuizPage>();
+
+        Assert.Empty(cut.FindAll(".score-panel"));
+        Assert.Empty(cut.FindAll(".status-strip"));
+        Assert.Equal(AspectPreset.BoardOnly, RenderedCanvas(cut));
+
+        var actionRow = cut.Find("div.d-flex.flex-wrap.gap-2");
+        Assert.NotEmpty(actionRow.QuerySelectorAll("[role=\"radiogroup\"]"));
+        Assert.Contains("Submit", actionRow.TextContent);
+        Assert.Contains("Skip", actionRow.TextContent);
+    }
+
+    [Fact]
+    public async Task Quiz_Maximized_Review_NormalizesChrome_AndNeverAsksForBoardOnly()
+    {
+        // The normalize trigger is exactly the answering → review transition, and
+        // this is the pin that keeps the producer from throwing: BoardOnly is
+        // rejected outright for a Solution request (ArgumentException from
+        // RenderSvg and GetHitRegions alike), and the review branch is the one
+        // that builds Solution requests. The guard is BoardOptions' derivation,
+        // not a check — so this asserts the derivation, in the state that would
+        // fault if it were ever loosened.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await MaximizeAsync();
+
+        var cut = Render<QuizPage>();
+        Assert.Equal(AspectPreset.BoardOnly, RenderedCanvas(cut)); // maximized first
+
+        await cut.InvokeAsync(() => c.SubmitPlay(AltPlay()));
+        Assert.NotNull(c.Review);
+
+        Assert.NotEqual(AspectPreset.BoardOnly, RenderedCanvas(cut));
+        Assert.Equal(DiagramMode.Solution, cut.FindComponent<BackgammonDiagram>().Instance.Request!.Mode);
+        Assert.NotEmpty(cut.FindAll(".score-panel"));
+        Assert.NotEmpty(cut.FindAll(".status-strip"));
+    }
+
+    [Fact]
+    public async Task Quiz_Maximized_RedoAndContinue_ReMaximize_WithNoSpecialCase()
+    {
+        // "One rule, no special cases" (§4): the composition is derived from the
+        // answering/review fact every render, so Redo — which returns to
+        // answering on the SAME problem — re-maximizes without any transition
+        // knowing the mode exists. A stored "currently maximized" bit is what
+        // would make this a special case to remember; there isn't one.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await MaximizeAsync();
+
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.NotEmpty(cut.FindAll(".status-strip"));      // normalized at review
+
+        await cut.InvokeAsync(() => c.RedoAsync());
+        Assert.Null(c.Review);
+        Assert.Empty(cut.FindAll(".status-strip"));         // re-maximized
+        Assert.Equal(AspectPreset.BoardOnly, RenderedCanvas(cut));
+
+        // And the next problem's answering state, reached by Continue, is
+        // maximized too — the mode is not a per-problem thing.
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        await cut.InvokeAsync(() => c.ContinueAsync());
+        Assert.Null(c.Review);
+        Assert.Empty(cut.FindAll(".status-strip"));
+        Assert.Equal(AspectPreset.BoardOnly, RenderedCanvas(cut));
+    }
+
+    [Fact]
+    public async Task Quiz_SettingOff_AnsweringReproducesTodaysComposition()
+    {
+        // The contract that lets the mode ship dark, and the other half of every
+        // assertion above: with the setting off — the default — the answering
+        // state keeps all its chrome and the producer's own canvas. Written as
+        // its own test rather than left implicit in the older pins, so a
+        // suppression that leaked out of the mode fails somewhere that names why.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        var cut = Render<QuizPage>();
+
+        Assert.False(Settings().MaximizeBoardWhileAnswering);
+        Assert.NotEmpty(cut.FindAll(".score-panel"));
+        Assert.NotEmpty(cut.FindAll(".status-strip"));
+        Assert.NotEqual(AspectPreset.BoardOnly, RenderedCanvas(cut));
+    }
+
+    [Fact]
+    public async Task Quiz_Maximized_NoticesAreNeverSuppressedByTheMode()
+    {
+        // §4's notices ruling, in the composition that would be tempted to hide
+        // them: the mix notice retires on the first answer, so suppressing it
+        // while answering means it is never seen at all — and the stats notices
+        // report degraded recording, which must be seen. Dismissibility is the
+        // answer to the space they cost, not suppression.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
+        await MaximizeAsync();
+
+        var cut = Render<QuizPage>();
+
+        Assert.Empty(cut.FindAll(".status-strip"));   // maximized, as staged
+        Assert.NotEmpty(cut.FindAll(".alert-danger")); // and the notice stands
+        Assert.Contains("stats won't be recorded", cut.Markup);
+    }
+
     [Fact]
     public void AppCss_DeclaresNoBoardAspectRatioLiteral()
     {

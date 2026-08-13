@@ -132,6 +132,23 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
+/// <b>The maximize-board mode</b> (issue <c>halheinrich/backgammon#41</c>,
+/// conforming to <c>SPEC-quiz-view.md</c> §4). With the user's
+/// <see cref="QuizSettings.MaximizeBoardWhileAnswering"/> setting on, the
+/// <i>answering</i> composition drops everything below the notices except the
+/// action row — score panel and status strip suppressed — and renders the board
+/// on a board-only canvas. Both legs are required: §2's measurement found that
+/// suppressing chrome alone changes the rendered canvas not at all, because the
+/// panel-padded 16:9 canvas is width-bound, so the freed height is unusable
+/// until the canvas itself stops allocating the blank panel. Review normalizes
+/// back to the full composition, because it needs the panel and needs it
+/// filled. The action row keeps every instrument, cube radios included, so every
+/// answer stays makeable without leaving the maximized view.
+/// <see cref="MaximizedAnswering"/> is the whole of the mode's state; see it for
+/// why nothing stores it.
+/// </para>
+///
+/// <para>
 /// <b>IsFinished transition.</b> Subscribed to
 /// <see cref="QuizController.StateChanged"/>. When the controller's
 /// <see cref="QuizController.IsFinished"/> flips true (source exhausted on
@@ -143,7 +160,34 @@ public partial class Quiz : ComponentBase, IDisposable
     private BackgammonPlayEntry? _playEntry;
     private Play? _completedPlay;
     private CubeDecisionPair? _completedCube;
-    private readonly DiagramOptions _diagramOptions = new();
+
+    /// <summary>
+    /// The two canvases this page ever asks for, shared rather than rebuilt per
+    /// render: <see cref="DiagramOptions"/> is all-<c>init</c>, so an instance is
+    /// immutable and two static readonly ones cost nothing and cannot drift.
+    /// <see cref="FullCanvas"/> is the producer's own defaults — the canvas every
+    /// state used before this arc, and still every state's canvas with the
+    /// maximize setting off.
+    /// </summary>
+    private static readonly DiagramOptions FullCanvas = new();
+
+    /// <summary>
+    /// The maximized-answering canvas: the analysis panel's blank allocation
+    /// dropped, so the freed height actually reaches the board proper
+    /// (SPEC-quiz-view.md §2 — suppressing chrome alone measured as changing the
+    /// canvas <i>not at all</i>, because the 16:9 canvas is width-bound).
+    ///
+    /// <para>
+    /// <b>Problem mode only.</b> The producer throws
+    /// <see cref="ArgumentException"/> from both <c>RenderSvg</c> and
+    /// <c>GetHitRegions</c> for a <see cref="DiagramMode.Solution"/> request
+    /// carrying this preset — Solution exists to show the filled panel. The
+    /// guard is not a check anywhere; it is <see cref="BoardOptions"/>'s
+    /// derivation, which cannot select this while a review is being rendered.
+    /// </para>
+    /// </summary>
+    private static readonly DiagramOptions BoardOnlyCanvas =
+        new() { Aspect = AspectPreset.BoardOnly };
 
     /// <summary>
     /// Whether the composition fell short of what the mix requested — the
@@ -233,6 +277,60 @@ public partial class Quiz : ComponentBase, IDisposable
     /// </summary>
     private bool HomeBoardOnRight =>
         Settings.EffectiveHomeBoardOnRight(Controller.RandomHomeBoardOnRight);
+
+    /// <summary>
+    /// <b>The view mode, derived — never stored.</b> True when the page is in
+    /// SPEC-quiz-view.md §4's <i>maximized answering</i> composition: the user
+    /// asked for the maximize mode <i>and</i> there is no review to read. That is
+    /// the whole state machine this feature adds, which is to say none:
+    /// <c>mode = f(the setting, answering | review)</c>, re-derived on every
+    /// render from two facts that already exist.
+    ///
+    /// <para>
+    /// <b>No holder, no page field, no "currently maximized" bit</b> (§6). A
+    /// second copy of the mode is a divergence from the model rather than an
+    /// implementation detail — it is the thing that would let the chrome and the
+    /// canvas disagree about which composition is on screen, and the thing a
+    /// navigation round trip could then desynchronize.
+    /// </para>
+    ///
+    /// <para>
+    /// Every consequence reads this one member: the markup suppresses the score
+    /// panel and the status strip on it, and <see cref="BoardOptions"/> picks the
+    /// canvas from it. The transitions fall out with no special cases — Submit
+    /// sets <see cref="QuizController.Review"/> and the page normalizes; Redo and
+    /// Continue clear it and the page re-maximizes; Undo never leaves the
+    /// answering state, so it changes nothing.
+    /// </para>
+    ///
+    /// <para>
+    /// Notices are deliberately <b>not</b> gated on this: they render in both
+    /// modes and are dismissed by the user instead (§4's notices ruling). The mix
+    /// notice retires on the first answer, so a mode that suppressed it while
+    /// answering would mean it is never seen at all; the stats notices report
+    /// degraded recording, which must be seen.
+    /// </para>
+    /// </summary>
+    private bool MaximizedAnswering =>
+        Settings.MaximizeBoardWhileAnswering && Controller.Review is null;
+
+    /// <summary>
+    /// The canvas every board branch renders against — the
+    /// <see cref="HomeBoardOnRight"/> pattern applied to the second thing all
+    /// three branches must agree about. One place decides, so play answering,
+    /// cube answering, and the solution cannot disagree; three correct-looking
+    /// call sites is exactly how that class of bug survives review.
+    ///
+    /// <para>
+    /// It is also the <see cref="BoardOnlyCanvas"/> safety property, stated
+    /// structurally rather than as a check: <see cref="MaximizedAnswering"/>
+    /// requires <see cref="QuizController.Review"/> to be null, and the review
+    /// branch is exactly the branch that renders a
+    /// <see cref="DiagramMode.Solution"/> request — so the preset the producer
+    /// throws on can never reach the request it throws for.
+    /// </para>
+    /// </summary>
+    private DiagramOptions BoardOptions => MaximizedAnswering ? BoardOnlyCanvas : FullCanvas;
 
     private DiagramRequest BuildRenderRequest(BgDataTypes_Lib.BgDecisionData current) =>
         // DiagramMode.Problem hides the analysis panel (the candidate list is the
@@ -328,10 +426,13 @@ public partial class Quiz : ComponentBase, IDisposable
 
     /// <summary>
     /// Text for the status strip's verdict band: the scored verdict at review,
-    /// a neutral state-appropriate prompt while answering. The strip is always
-    /// rendered (fixed height — see <c>.status-strip</c> in <c>app.css</c>) so
-    /// chrome height, and therefore board size, is state-invariant; only the
-    /// content swaps.
+    /// a neutral state-appropriate prompt while answering. The strip renders at
+    /// a fixed height (see <c>.status-strip</c> in <c>app.css</c>) so chrome
+    /// height, and therefore board size, is invariant across states and
+    /// questions <i>within a view mode</i>; only the content swaps. Under
+    /// <see cref="MaximizedAnswering"/> the strip — this prompt included — is
+    /// not rendered at all, which is the one place that invariance is
+    /// deliberately crossed.
     /// </summary>
     private static string StatusText(ProblemReview? review, DecisionData decision) =>
         review is not null

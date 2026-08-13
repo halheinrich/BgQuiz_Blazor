@@ -122,7 +122,7 @@
             @if (review is not null)
             {
                 <BackgammonDiagram Request="BuildSolutionRequest(current, review)"
-                                   Options="_diagramOptions"
+                                   Options="BoardOptions"
                                    OnDiceClicked="ContinueAsync">
                     <Overlay>
                         <XgidLabel Xgid="@current.Xgid" />
@@ -135,10 +135,12 @@
                    is entered by the BackgammonCubeActions radios in the action row
                    below — not on the board — so this is the same read-only shape as
                    the review branch (a bare BackgammonDiagram in Problem mode). That
-                   parity is the arc's whole point: the board sizes identically across
-                   cube-answering, play-answering, and review. *@
+                   parity is the arc's whole point: within a view mode the board sizes
+                   identically across cube-answering, play-answering, and review. The
+                   maximize mode reverses that deliberately and only across the mode
+                   boundary — see BoardOptions and SPEC-quiz-view.md §2. *@
                 <BackgammonDiagram Request="BuildRenderRequest(current)"
-                                   Options="_diagramOptions">
+                                   Options="BoardOptions">
                     <Overlay>
                         <XgidLabel Xgid="@current.Xgid" />
                     </Overlay>
@@ -148,7 +150,7 @@
             {
                 <BackgammonPlayEntry @ref="_playEntry"
                                      Request="BuildRenderRequest(current)"
-                                     Options="_diagramOptions"
+                                     Options="BoardOptions"
                                      OnPlayCompleted="HandlePlayCompleted"
                                      OnSubmitRequested="Submit">
                     <Overlay>
@@ -159,21 +161,32 @@
         </div>
 
         <div class="board-chrome">
-            @* State-invariant status strip: always present, fixed height, so the
-               chrome's total height — and therefore the board's flex remainder,
-               and therefore the board size — is identical across the answering
-               and review states and across questions. While answering it carries
-               a neutral prompt (legend line empty); at review the legend line
-               and the verdict band fill in. Content changes; the box never does
-               (long content clamps inside the fixed lines — see app.css). *@
-            <div class="status-strip">
-                <div class="status-legend text-muted small">
-                    @(review is not null ? SolutionLegend(review, current.Decision) : null)
+            @* Mode-invariant status strip: present in every composition EXCEPT
+               maximized answering, at a fixed height, so the chrome's total
+               height — and therefore the board's flex remainder, and therefore
+               the board size — is identical across the answering and review
+               states and across questions *within a view mode*. While answering
+               it carries a neutral prompt (legend line empty); at review the
+               legend line and the verdict band fill in. Content changes; the box
+               never does (long content clamps inside the fixed lines — see
+               app.css).
+
+               Suppressed under MaximizedAnswering along with the score panel
+               below: SPEC-quiz-view.md §4's chrome-suppression leg. The user
+               accepted losing the neutral prompt (and the progress indicator)
+               for the answering half of each problem — review restores both,
+               every problem. *@
+            @if (!MaximizedAnswering)
+            {
+                <div class="status-strip">
+                    <div class="status-legend text-muted small">
+                        @(review is not null ? SolutionLegend(review, current.Decision) : null)
+                    </div>
+                    <div class="status-verdict alert @StatusVerdictColor(review)" role="status">
+                        <span class="status-verdict-text">@StatusText(review, current.Decision)</span>
+                    </div>
                 </div>
-                <div class="status-verdict alert @StatusVerdictColor(review)" role="status">
-                    <span class="status-verdict-text">@StatusText(review, current.Decision)</span>
-                </div>
-            </div>
+            }
 
             @* Transition-driving buttons disable while the controller is busy
                (the gate would no-op them anyway — this is the honest mirror);
@@ -293,12 +306,20 @@
 
                Done and Stats render their own ScorePanel with their own
                parameters and are deliberately untouched: one component, one
-               move. *@
-            <ScorePanel Score="Controller.Score"
-                        Skipped="Controller.SkippedCount"
-                        Source="@Controller.Name"
-                        ProblemNumber="Controller.ProblemNumber"
-                        ProblemCount="Controller.ProblemCount" />
+               move.
+
+               Suppressed under MaximizedAnswering with the status strip above —
+               which is also where the "Problem N of M" counter goes, the
+               progress indicator §4 ratifies losing for the answering half of
+               each problem. *@
+            @if (!MaximizedAnswering)
+            {
+                <ScorePanel Score="Controller.Score"
+                            Skipped="Controller.SkippedCount"
+                            Source="@Controller.Name"
+                            ProblemNumber="Controller.ProblemNumber"
+                            ProblemCount="Controller.ProblemCount" />
+            }
         </div>
     }
 </div>
