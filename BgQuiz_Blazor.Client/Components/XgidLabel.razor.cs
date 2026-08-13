@@ -40,6 +40,15 @@ public partial class XgidLabel : ComponentBase
     private const int CopiedFeedbackMs = 1500;
 
     /// <summary>
+    /// The copy button's accessible name, and its tooltip — one string for both,
+    /// because they name the same control to two audiences.
+    /// </summary>
+    private const string CopyLabel = "Copy XGID to clipboard";
+
+    /// <summary>The post-copy confirmation, in the same two places.</summary>
+    private const string CopiedLabel = "Copied";
+
+    /// <summary>
     /// The XGID to display. Empty (the default) hides the label entirely —
     /// callers need not branch, they can bind it unconditionally.
     /// </summary>

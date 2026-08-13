@@ -220,42 +220,78 @@ h1:focus {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    /* Below 641px the vertical law does not exist (the page flows and the board
-       is width-bound), so a long XGID wrapping inside the badge costs height
-       that is free there — and it is the alternative to a 45-character
-       unbreakable token pushing the row wider than the viewport. */
     max-width: 100%;
-    padding: 0.15rem 0.4rem;
-    border: 1px solid #dee2e6;
-    border-radius: 0.25rem;
-    background: #f8f9fa;
     font-size: 0.85rem;
     line-height: 1.2;
+    /* No pill: the padded, bordered, drop-shadowed chip was how the badge held
+       its own against the *board* it used to overlay. In a row of buttons it is
+       decoration — and decoration priced in board pixels, since every pixel of
+       badge width is a pixel closer to the row wrapping (see the cap below).
+       Dropping it is worth ~15px, which is most of the margin under 1366x800.
+       The copy button keeps its own border; it is the control. */
 }
 
+/* The visible text is CAPPED, and the cap is a board-size contract, not a taste
+   call (SPEC-quiz-view.md §2, issue halheinrich/backgammon#98). Uncapped, the
+   badge measured ~401px and pushed the action row onto a second line at widths
+   where the board is height-bound — and because a cube row is wider than a
+   checker row (the radios), the wrap width depends on the PROBLEM KIND, which
+   is per-problem board jitter inside Normal view and exactly what §2's
+   invariance forbids. Capped, the row is one line for both kinds down past the
+   pre-badge baseline, so the badge stops being a term in the board's size.
+   (The row's own wrapping below that baseline is pre-existing and is
+   halheinrich/backgammon#99's, not this rule's.)
+
+   Nothing is lost with the pixels: the full value is what Copy writes to the
+   clipboard, `user-select: all` still selects the whole string rather than the
+   visible part, the title attribute reveals it on hover, and the complete text
+   is in the DOM for a screen reader — the clip is visual only.
+
+   2.5rem is measured, not chosen, and it is deliberately small: the visible
+   text only has to make the badge identifiable, so it is clipped to the value's
+   own self-labeling prefix — "XGID=" measures 32.7px and the ellipsis 6.5px in
+   this element's font, so the 40px cap renders exactly "XGID=…" with the
+   ellipsis intact. That doubles as the label for the icon-only copy button
+   beside it, which is why no separate caption is needed. The whole badge is
+   then 74.4px, and the cube row (the wide one — four radios) stays one line
+   down to 1360px: 1440x900 and 1366x800 both show no per-problem-kind
+   divergence at all, boards bit-identical to their no-badge baselines. Widen
+   this and that stops being true — re-measure before touching it. */
 .xgid-label-text {
+    display: block;
+    max-width: 2.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: #212529;
     user-select: all;
-    overflow-wrap: anywhere;
 }
 
+/* Icon-only copy button — a clipboard glyph, swapping to a ticked clipboard for
+   the post-copy beat. Icon-only because the row's width is board budget (see the
+   cap above) and "Copy" spelled out cost more of it than the label was worth;
+   the accessible name is a visually-hidden span in the markup, not an
+   aria-label, so the same text carries the confirmation to a screen reader.
+   The glyphs are Bootstrap Icons' clipboard / clipboard-check, inlined as data
+   URIs exactly like the nav rail's icons (NavMenu.razor.css) — no icon font is
+   loaded for three shapes. A square, so the hit target stays honest beside the
+   row's Bootstrap buttons. */
 .xgid-label-copy {
-    /* Sized so the hit target stays honest beside the row's Bootstrap buttons:
-       the badge is secondary chrome, but the copy affordance is still a control
-       a user aims at. */
-    min-height: 1.75rem;
+    flex: none;
+    width: 1.75rem;
+    height: 1.75rem;
     border: 1px solid #adb5bd;
     border-radius: 0.2rem;
-    background: #fff;
-    color: #212529;
-    font-size: 0.9em;
-    line-height: 1.15;
-    padding: 0.2rem 0.5rem;
+    background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23212529' viewBox='0 0 16 16'%3E%3Cpath d='M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z'/%3E%3Cpath d='M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z'/%3E%3C/svg%3E") no-repeat center / 0.9rem;
     cursor: pointer;
 }
 
 .xgid-label-copy:hover {
-    background: #e9ecef;
+    background-color: #e9ecef;
+}
+
+.xgid-label-copy.is-copied {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23198754' viewBox='0 0 16 16'%3E%3Cpath d='M10.854 7.146a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 1 1 .708-.708L7.5 9.793l2.646-2.647a.5.5 0 0 1 .708 0z'/%3E%3Cpath d='M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z'/%3E%3Cpath d='M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z'/%3E%3C/svg%3E");
 }
 
 /* Quiz-page notices — dismissible on a click anywhere in the alert, not just on

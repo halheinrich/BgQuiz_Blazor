@@ -1722,6 +1722,29 @@ The asymmetry is pinned three times over: at the service seam
   producer's `Overlay` slot and the exporters' baked corner label are
   untouched — this is the quiz page's placement choice only.
 
+  **The visible text is capped at `2.5rem`, and the cap is a board-size
+  contract** (`AppCss_XgidLabelText_StaysCapped`). Uncapped the badge measured
+  ~401px and wrapped the action row wherever the board is height-bound — and
+  because a cube row is wider than a checker row (four radios), the wrap width
+  depended on the **problem kind**, which is per-problem board jitter inside
+  Normal view and exactly what `SPEC-quiz-view.md` §2 forbids. The visible text
+  does not try to show the value: 40px is `XGID=` (32.7px in this font) plus the
+  ellipsis (6.5px), so it renders exactly `XGID=…` — the value's own
+  self-labeling prefix, which doubles as the caption for the **icon-only** copy
+  button beside it. Whole badge: 74.4px, no pill (the padded chip was how it
+  held its own against the board it used to overlay; in a row of buttons it was
+  decoration priced in board pixels). Measured result: at **1440×900 and
+  1366×800 there is no per-kind divergence at all** — both kinds one line, both
+  boards bit-identical to their no-badge baselines. Nothing is lost with the
+  pixels: Copy writes the full value, `user-select: all` selects the whole
+  string, `title` reveals it on hover, and the complete text is in the DOM for a
+  screen reader. A horizontal-scroll affordance was considered and **declined**
+  by the umbrella — tooltip plus copy covers the read path.
+  **Not this rule's to fix:** the row's own wrapping below ~1270px (cube) /
+  ~900px (checker) predates the badge and is `halheinrich/backgammon#99`. The
+  badge adds a uniform ~80px to both thresholds (cube 1350, checker 980), so a
+  cube-only divergence band survives between ~1280 and ~1350.
+
   **The maximize-board mode** (issue #41 / `SPEC-quiz-view.md` §4). With the
   user's `QuizSettings.MaximizeBoardWhileAnswering` on, the *answering*
   composition renders **the board and the action row and nothing else below the

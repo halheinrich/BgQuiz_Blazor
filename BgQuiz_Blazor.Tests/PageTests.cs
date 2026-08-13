@@ -3152,10 +3152,22 @@ public class PageTests : BunitContext
 
         var cut = Render<QuizPage>();
 
-        Assert.Contains(xgid, cut.Markup);
         Assert.Contains("xgid-label", cut.Markup);
-        var copy = cut.FindAll("button").First(b => b.TextContent.Trim() == "Copy");
-        Assert.NotNull(copy);
+
+        // The full value is in the DOM twice over — as the element's text and as
+        // its title — even though the CSS clips the visible part to the "XGID="
+        // prefix. That is what keeps the clip visual only: a select-all, a
+        // screen reader and the tooltip all still get the whole string.
+        var text = cut.Find(".xgid-label-text");
+        Assert.Equal(xgid, text.TextContent);
+        Assert.Equal(xgid, text.GetAttribute("title"));
+
+        // The copy control is icon-only, so its accessible name is real text in
+        // a visually-hidden span rather than a caption — asserted as the name,
+        // not as the glyph, which is a CSS background bUnit cannot see.
+        var copy = cut.Find(".xgid-label-copy");
+        Assert.Equal("Copy XGID to clipboard", copy.TextContent.Trim());
+        Assert.Contains("visually-hidden", copy.QuerySelector("span")!.ClassList);
     }
 
     [Fact]
@@ -4837,6 +4849,32 @@ public class PageTests : BunitContext
 
         Assert.DoesNotContain("container-type", noComments);
         Assert.DoesNotContain("cqw", noComments);
+    }
+
+    [Fact]
+    public void AppCss_XgidLabelText_StaysCapped()
+    {
+        // The visible-XGID cap is a board-size contract, not styling (issue
+        // halheinrich/backgammon#98, SPEC-quiz-view.md §2). Uncapped, the badge
+        // measured ~401px and wrapped the action row at widths where the board is
+        // height-bound — and since a cube row is wider than a checker row, the
+        // wrap width depended on the PROBLEM KIND, i.e. per-problem board jitter
+        // inside Normal view. The three declarations are one mechanism (clip,
+        // ellipsis, no wrapping): drop any one and the cap stops capping, so all
+        // three are pinned, together with the measured 2.5rem value — 40px, which
+        // is "XGID=" (32.7px in this font) plus the ellipsis (6.5px), so the
+        // visible text is exactly the value's self-labeling prefix and the whole
+        // badge is 74.4px. At that width 1440x900 and 1366x800 show no
+        // per-problem-kind divergence at all. bUnit cannot measure CSS; what it
+        // can do is stop the contract being edited away without a fresh
+        // measurement.
+        var css = File.ReadAllText(AppCssPath());
+        var rule = Regex.Match(css, @"\.xgid-label-text\s*\{[^}]*\}", RegexOptions.Singleline);
+
+        Assert.True(rule.Success, ".xgid-label-text rule present");
+        Assert.Contains("max-width: 2.5rem", rule.Value);
+        Assert.Contains("text-overflow: ellipsis", rule.Value);
+        Assert.Contains("white-space: nowrap", rule.Value);
     }
 
     /// <summary>
