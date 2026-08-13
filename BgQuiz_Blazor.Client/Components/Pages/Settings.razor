@@ -62,6 +62,34 @@
                 draws its own side, and keeps it while you answer and read the
                 solution. The choice above applies whenever this is off.
             </div>
+
+            @* The maximize mode (issue #41), and the ONLY control for it — ruled
+               (SPEC-quiz-view.md §3, fork D): no on-page toggle on the quiz
+               itself, which would be a second write surface for one fact and
+               would force QuizSettings to grow the notify plumbing its contract
+               defers until a real second consumer exists.
+
+               The fine print leads with what disappears and closes with the
+               consequence the model ratified rather than leaving it to be
+               discovered: the board is deliberately a different size while
+               answering than while reading, so a user who notices it moving is
+               reading the feature working, not a bug. Same posture as the fold
+               row below, which states its deferral for the same reason. *@
+            <div class="form-check mt-3">
+                <input class="form-check-input" type="checkbox" id="settingsMaximizeBoard"
+                       checked="@QuizSettings.MaximizeBoardWhileAnswering"
+                       @onchange="@(e => SetMaximizeBoardWhileAnsweringAsync((bool)e.Value!))" />
+                <label class="form-check-label" for="settingsMaximizeBoard">
+                    Make the board as large as possible while you answer
+                </label>
+            </div>
+            <div class="form-text">
+                While you answer, the score line and the prompt below the board are
+                hidden, and the board is drawn without the space the solution's
+                analysis panel needs — so it fills the screen. Everything comes
+                back when you submit and read the solution, so the board changes
+                size between answering and reading.
+            </div>
         </fieldset>
 
         <fieldset>

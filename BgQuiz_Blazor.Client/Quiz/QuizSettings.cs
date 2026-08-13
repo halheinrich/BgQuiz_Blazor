@@ -9,11 +9,12 @@ using XgFilter_Razor;
 /// <summary>
 /// The per-app (Scoped, one-per-tab in WASM) <b>user settings</b> the
 /// <c>Settings</c> page edits: which side the home board renders on, whether
-/// that side is re-rolled per problem, and whether the navigation panel stays
-/// folded. Every setting is recorded and persisted the moment it is changed —
-/// there is no Apply gesture anywhere in this service. When each becomes
-/// <i>visible</i> is a separate question, and the fold answers it differently
-/// from the other two: see <see cref="SetKeepNavigationPanelFoldedAsync"/>.
+/// that side is re-rolled per problem, whether the board is maximized while the
+/// user answers, and whether the navigation panel stays folded. Every setting is
+/// recorded and persisted the moment it is changed — there is no Apply gesture
+/// anywhere in this service. When each becomes <i>visible</i> is a separate
+/// question, and the fold answers it differently from the other three: see
+/// <see cref="SetKeepNavigationPanelFoldedAsync"/>.
 ///
 /// <para>
 /// <b>No draft, no commit, no dirty flag — deliberately.</b> Unlike the
@@ -37,12 +38,12 @@ using XgFilter_Razor;
 /// <b>Defaults reproduce the behavior that shipped before this existed:</b>
 /// the home board on the right (the producer's own
 /// <c>DiagramRequest.HomeBoardOnRight</c> default), no per-problem randomization,
-/// and the navigation panel unfolded.
+/// no maximized board, and the navigation panel unfolded.
 /// </para>
 ///
 /// <para>
 /// <b>Persistence.</b> One localStorage key (<see cref="StorageKey"/>) holding
-/// all three settings as one JSON object — see <see cref="ToJson"/> for the wire
+/// all four settings as one JSON object — see <see cref="ToJson"/> for the wire
 /// format and why it is pinned by a test. <see cref="EnsureHydratedAsync"/> is
 /// idempotent (the <see cref="MixDraft.EnsureHydratedAsync"/> pattern) but needs
 /// no stale-read generation guard: settings have no per-setup lifecycle, so
@@ -80,12 +81,14 @@ internal sealed class QuizSettings(IJSRuntime js)
     private const string HomeBoardOnRightField = "homeBoardOnRight";
     private const string RandomizeSidePerProblemField = "randomizeSidePerProblem";
     private const string KeepNavigationPanelFoldedField = "keepNavigationPanelFolded";
+    private const string MaximizeBoardWhileAnsweringField = "maximizeBoardWhileAnswering";
 
     // The defaults, named once so the property initializers and the
     // missing-field fallbacks in Restore cannot disagree.
     private const bool DefaultHomeBoardOnRight = true;
     private const bool DefaultRandomizeSidePerProblem = false;
     private const bool DefaultKeepNavigationPanelFolded = false;
+    private const bool DefaultMaximizeBoardWhileAnswering = false;
 
     /// <summary>
     /// The global the <c>navFold.js</c> applier publishes — the only way to move
@@ -111,6 +114,31 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// live play, where the home board's side is not yours to choose).
     /// </summary>
     public bool RandomizeSidePerProblem { get; private set; } = DefaultRandomizeSidePerProblem;
+
+    /// <summary>
+    /// True when the user wants the board given as much of the page as it can
+    /// take <b>while they answer</b> — the low-vision ask behind issue
+    /// <c>halheinrich/backgammon#41</c>, and the one setting here that reverses a
+    /// documented invariant rather than choosing between equals.
+    ///
+    /// <para>
+    /// This service records the <i>choice</i> only. What it composes into — the
+    /// suppressed score panel and status strip, and the board-only diagram canvas
+    /// — is the <c>Quiz</c> page's derivation from this and the answering/review
+    /// fact, and lives there in one member. Nothing anywhere stores "currently
+    /// maximized": the view mode is a pure derivation
+    /// (<c>SPEC-quiz-view.md</c> §6), so a second copy of it would be a
+    /// divergence from the model, not an implementation detail.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>A choice, never consent</b> (<c>SPEC-filtering.md</c> §4's vocabulary):
+    /// it survives navigation, reload, and quiz boundaries alike, and no gesture
+    /// expires it. Default off, which reproduces today's page exactly.
+    /// </para>
+    /// </summary>
+    public bool MaximizeBoardWhileAnswering { get; private set; } =
+        DefaultMaximizeBoardWhileAnswering;
 
     /// <summary>
     /// True when the user wants the navigation panel to stay folded. This service
@@ -168,6 +196,19 @@ internal sealed class QuizSettings(IJSRuntime js)
     public Task SetRandomizeSidePerProblemAsync(bool value)
     {
         RandomizeSidePerProblem = value;
+        return PersistAsync();
+    }
+
+    /// <summary>
+    /// Record the maximize-while-answering choice, applying and persisting
+    /// immediately. Like the two side settings and unlike the fold, there is
+    /// nothing to defer: the next quiz render derives the view mode from the new
+    /// value, and no page the user is standing in gets pulled out from under
+    /// them by it.
+    /// </summary>
+    public Task SetMaximizeBoardWhileAnsweringAsync(bool value)
+    {
+        MaximizeBoardWhileAnswering = value;
         return PersistAsync();
     }
 
@@ -232,6 +273,16 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// field here without updating the applier fails there rather than in
     /// production. Every field is always written, so a reader never has to
     /// distinguish "absent" from "false".
+    ///
+    /// <para>
+    /// <b>Field order is append-only.</b> A new setting is written after the
+    /// existing ones however the properties above are grouped — the payload is a
+    /// durable format two readers share, so the bytes an older build wrote stay a
+    /// prefix of the bytes a newer one writes. (Order carries no meaning to
+    /// <see cref="Restore"/>, which reads by name; it matters only to the pinned
+    /// literal, and keeping it stable is what makes that pin's diff say
+    /// "a field was added" rather than "the format changed".)
+    /// </para>
     /// </summary>
     private string ToJson()
     {
@@ -242,6 +293,7 @@ internal sealed class QuizSettings(IJSRuntime js)
             writer.WriteBoolean(HomeBoardOnRightField, HomeBoardOnRight);
             writer.WriteBoolean(RandomizeSidePerProblemField, RandomizeSidePerProblem);
             writer.WriteBoolean(KeepNavigationPanelFoldedField, KeepNavigationPanelFolded);
+            writer.WriteBoolean(MaximizeBoardWhileAnsweringField, MaximizeBoardWhileAnswering);
             writer.WriteEndObject();
         }
         return Encoding.UTF8.GetString(buffer.WrittenSpan);
@@ -266,6 +318,7 @@ internal sealed class QuizSettings(IJSRuntime js)
         bool homeBoardOnRight;
         bool randomizeSidePerProblem;
         bool keepNavigationPanelFolded;
+        bool maximizeBoardWhileAnswering;
         try
         {
             using var document = JsonDocument.Parse(json);
@@ -277,6 +330,12 @@ internal sealed class QuizSettings(IJSRuntime js)
                 ReadBool(root, RandomizeSidePerProblemField, DefaultRandomizeSidePerProblem);
             keepNavigationPanelFolded =
                 ReadBool(root, KeepNavigationPanelFoldedField, DefaultKeepNavigationPanelFolded);
+            // Absent from every payload written before this setting existed, and
+            // therefore the field the tolerance rule above exists for: an old
+            // entry restores with the board unmaximized, which is the default and
+            // is today's behavior. No migration, no version stamp.
+            maximizeBoardWhileAnswering =
+                ReadBool(root, MaximizeBoardWhileAnsweringField, DefaultMaximizeBoardWhileAnswering);
         }
         catch (JsonException)
         {
@@ -286,6 +345,7 @@ internal sealed class QuizSettings(IJSRuntime js)
         HomeBoardOnRight = homeBoardOnRight;
         RandomizeSidePerProblem = randomizeSidePerProblem;
         KeepNavigationPanelFolded = keepNavigationPanelFolded;
+        MaximizeBoardWhileAnswering = maximizeBoardWhileAnswering;
     }
 
     private static bool ReadBool(JsonElement root, string name, bool fallback) =>

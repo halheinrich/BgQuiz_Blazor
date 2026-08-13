@@ -48,6 +48,7 @@ public class QuizSettingsTests : BunitContext
         Assert.True(settings.HomeBoardOnRight);
         Assert.False(settings.RandomizeSidePerProblem);
         Assert.False(settings.KeepNavigationPanelFolded);
+        Assert.False(settings.MaximizeBoardWhileAnswering);
     }
 
     [Fact]
@@ -62,6 +63,7 @@ public class QuizSettingsTests : BunitContext
         Assert.True(settings.HomeBoardOnRight);
         Assert.False(settings.RandomizeSidePerProblem);
         Assert.False(settings.KeepNavigationPanelFolded);
+        Assert.False(settings.MaximizeBoardWhileAnswering);
     }
 
     // -----------------------------------------------------------------------
@@ -121,6 +123,10 @@ public class QuizSettingsTests : BunitContext
         await settings.SetKeepNavigationPanelFoldedAsync(true);
         Assert.True(settings.KeepNavigationPanelFolded);
         Assert.Contains("\"keepNavigationPanelFolded\":true", LastPersisted());
+
+        await settings.SetMaximizeBoardWhileAnsweringAsync(true);
+        Assert.True(settings.MaximizeBoardWhileAnswering);
+        Assert.Contains("\"maximizeBoardWhileAnswering\":true", LastPersisted());
     }
 
     [Fact]
@@ -133,12 +139,17 @@ public class QuizSettingsTests : BunitContext
         // written against the constants would agree with any name at all.
         // Every field is always written, so no reader has to distinguish
         // "absent" from "false".
+        //
+        // Field order is append-only (see ToJson): maximizeBoardWhileAnswering
+        // joined at the END, after the fold field, however the properties are
+        // grouped on the C# side. That is what makes this literal's diff read as
+        // "a field was added" rather than "the format moved under the applier".
         var settings = NewSettings();
 
         await settings.SetRandomizeSidePerProblemAsync(true);
 
         Assert.Equal(
-            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false}""",
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":false}""",
             LastPersisted());
     }
 
@@ -151,6 +162,7 @@ public class QuizSettingsTests : BunitContext
         await writer.SetHomeBoardOnRightAsync(false);
         await writer.SetRandomizeSidePerProblemAsync(true);
         await writer.SetKeepNavigationPanelFoldedAsync(true);
+        await writer.SetMaximizeBoardWhileAnsweringAsync(true);
 
         StageStored(LastPersisted());
         var reader = NewSettings();
@@ -159,6 +171,7 @@ public class QuizSettingsTests : BunitContext
         Assert.False(reader.HomeBoardOnRight);
         Assert.True(reader.RandomizeSidePerProblem);
         Assert.True(reader.KeepNavigationPanelFolded);
+        Assert.True(reader.MaximizeBoardWhileAnswering);
     }
 
     [Fact]
@@ -227,6 +240,27 @@ public class QuizSettingsTests : BunitContext
         Assert.True(settings.RandomizeSidePerProblem);
         Assert.True(settings.HomeBoardOnRight);          // default, not false
         Assert.False(settings.KeepNavigationPanelFolded);
+        Assert.False(settings.MaximizeBoardWhileAnswering);
+    }
+
+    [Fact]
+    public async Task Hydrate_PayloadPredatingTheMaximizeField_RestoresItOff()
+    {
+        // The tolerance rule in the concrete case it now has: the exact bytes
+        // every build before issue #41 wrote. There is no migration and no
+        // version stamp — the missing field simply takes its default, and the
+        // default is off, which is today's page. The other three must come back
+        // as written, so this is not a "the payload was ignored" pass.
+        StageStored(
+            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true}""");
+        var settings = NewSettings();
+
+        await settings.EnsureHydratedAsync();
+
+        Assert.False(settings.MaximizeBoardWhileAnswering);
+        Assert.False(settings.HomeBoardOnRight);
+        Assert.True(settings.RandomizeSidePerProblem);
+        Assert.True(settings.KeepNavigationPanelFolded);
     }
 
     [Fact]
@@ -263,21 +297,26 @@ public class QuizSettingsTests : BunitContext
         Assert.True(settings.HomeBoardOnRight);
         Assert.False(settings.RandomizeSidePerProblem);
         Assert.False(settings.KeepNavigationPanelFolded);
+        Assert.False(settings.MaximizeBoardWhileAnswering);
     }
 
     [Fact]
     public async Task Hydrate_NonBooleanFieldValues_TakeTheirDefaults()
     {
         // Per-field tolerance rather than whole-payload rejection: one field
-        // written as the wrong type must not cost the user the other two.
+        // written as the wrong type must not cost the user the other three.
         StageStored(
-            """{"homeBoardOnRight":"yes","randomizeSidePerProblem":1,"keepNavigationPanelFolded":true}""");
+            """
+            {"homeBoardOnRight":"yes","randomizeSidePerProblem":1,
+             "keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":"true"}
+            """);
         var settings = NewSettings();
 
         await settings.EnsureHydratedAsync();
 
-        Assert.True(settings.HomeBoardOnRight);          // default
-        Assert.False(settings.RandomizeSidePerProblem);  // default
-        Assert.True(settings.KeepNavigationPanelFolded); // the readable one survives
+        Assert.True(settings.HomeBoardOnRight);            // default
+        Assert.False(settings.RandomizeSidePerProblem);    // default
+        Assert.False(settings.MaximizeBoardWhileAnswering); // default — "true" is a string
+        Assert.True(settings.KeepNavigationPanelFolded);   // the readable one survives
     }
 }

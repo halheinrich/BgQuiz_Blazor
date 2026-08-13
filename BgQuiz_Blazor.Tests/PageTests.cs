@@ -5975,7 +5975,10 @@ public class PageTests : BunitContext
         // what hydration put there, not a page-local default.
         WithController();
         JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey).SetResult(
-            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true}""");
+            """
+            {"homeBoardOnRight":false,"randomizeSidePerProblem":true,
+             "keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":true}
+            """);
 
         var cut = Render<SettingsPage>();
 
@@ -5983,6 +5986,47 @@ public class PageTests : BunitContext
         Assert.True(cut.Find("#settingsSideLeft").HasAttribute("checked"));
         Assert.True(cut.Find("#settingsRandomizeSide").HasAttribute("checked"));
         Assert.True(cut.Find("#settingsKeepNavFolded").HasAttribute("checked"));
+        Assert.True(cut.Find("#settingsMaximizeBoard").HasAttribute("checked"));
+    }
+
+    [Fact]
+    public void Settings_MaximizeBoard_IsTheSoleControlForTheMode_AndSitsWithTheBoard()
+    {
+        // Fork D (SPEC-quiz-view.md §3): the Settings checkbox is the ONLY write
+        // surface for the maximize mode — no on-page toggle on the quiz itself,
+        // which would be a second writer of one fact and would force QuizSettings
+        // to grow notify plumbing its contract defers. Pinned here as placement
+        // (it belongs to the board's fieldset, beside the side settings, not to
+        // the navigation panel's) plus the label a user reads.
+        WithController();
+
+        var cut = Render<SettingsPage>();
+
+        var control = cut.Find("#settingsMaximizeBoard");
+        Assert.False(control.HasAttribute("checked")); // default off — today's page
+        Assert.Same(
+            control.Closest("fieldset"),
+            cut.Find("#settingsRandomizeSide").Closest("fieldset"));
+        Assert.Contains(
+            "Make the board as large as possible while you answer",
+            Normalize(control.Closest("fieldset")!.TextContent));
+    }
+
+    [Fact]
+    public void Settings_MaximizeBoard_StatesTheSizeChangeItCauses()
+    {
+        // The consequence the model ratified rather than hid: the board is
+        // deliberately a different size while answering than while reading. A
+        // user who sees it move must be able to read that as the feature working.
+        // Keyed on the fieldset's own text, so a reworded row that drops the
+        // claim fails here instead of going vacuously green.
+        WithController();
+
+        var cut = Render<SettingsPage>();
+
+        var fieldset = Normalize(cut.Find("#settingsMaximizeBoard").Closest("fieldset")!.TextContent);
+        Assert.Contains("changes size between answering and reading", fieldset);
+        Assert.Contains("Everything comes back when you submit", fieldset);
     }
 
     [Fact]
@@ -6018,11 +6062,14 @@ public class PageTests : BunitContext
         await cut.Find("#settingsKeepNavFolded").ChangeAsync(new() { Value = true });
         Assert.True(Settings().KeepNavigationPanelFolded);
 
+        await cut.Find("#settingsMaximizeBoard").ChangeAsync(new() { Value = true });
+        Assert.True(Settings().MaximizeBoardWhileAnswering);
+
         // …and each landed in the one storage entry, with no further gesture.
         var stored = JSInterop.Invocations["localStorage.setItem"]
             .Last(i => (string?)i.Arguments[0] == QuizSettings.StorageKey).Arguments[1] as string;
         Assert.Equal(
-            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true}""",
+            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":true}""",
             stored);
     }
 
