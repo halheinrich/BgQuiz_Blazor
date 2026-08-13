@@ -115,20 +115,41 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// <b>The mix composition notice retires on the first answer.</b> Both variants
-/// above the board — the capless composition-only status line and the length-bound
-/// shortfall alert — render from <see cref="QuizController.LastComposition"/>,
-/// which lives as long as the run does, so they used to sit above every problem
-/// for the whole quiz. They now disappear once the user submits their first
-/// answer, checker or cube alike (see <see cref="Submit"/>): the notice describes
-/// how this quiz was built, worth reading before answering and stale chrome after.
-/// The dismissal is recorded in the scoped <see cref="MixNoticeDismissal"/> holder
-/// — <i>not</i> by clearing the controller's telemetry, which still frames the
-/// notice, carries <see cref="QuizController.ProblemCount"/>, and feeds Home's
-/// composed-to-zero wording, and <i>not</i> in a page field, which the
-/// <c>Show stats</c> round trip would reset (this page is re-instantiated on
-/// in-app navigation). Keyed on the composition instance, so the next
-/// Start/Restart's notice shows again without any reset call site.
+/// <b>Every notice above the board dismisses on click, and the mix composition
+/// notice also retires on the first answer.</b> Both composition variants — the
+/// capless composition-only status line and the length-bound shortfall alert —
+/// render from <see cref="QuizController.LastComposition"/>, which lives as long
+/// as the run does, so they used to sit above every problem for the whole quiz.
+/// They disappear once the user submits their first answer, checker or cube alike
+/// (see <see cref="Submit"/>), <i>or</i> the moment the user clicks them
+/// (<see cref="DismissComposition"/>): the notice describes how this quiz was
+/// built, worth reading before answering and stale chrome after. Either gesture
+/// ends it. The stats notices dismiss the same way
+/// (<see cref="DismissStats"/>) but have no automatic retirement — a degraded
+/// recording context is not something an answer makes stale.
+/// </para>
+///
+/// <para>
+/// Every dismissal is recorded in the scoped <see cref="QuizNoticeDismissal"/>
+/// holder — <i>not</i> by clearing the controller's telemetry, which still frames
+/// the composition notice, carries <see cref="QuizController.ProblemCount"/>, and
+/// feeds Home's composed-to-zero wording, and <i>not</i> in a page field, which
+/// the <c>Show stats</c> round trip would reset (this page is re-instantiated on
+/// in-app navigation). Each is keyed on its notice's current occurrence — the
+/// composition instance, the store's
+/// <see cref="QuizStatsStore.StatusOccurrence"/> — so the next Start/Restart, or
+/// the next stats transition, shows its notice again without any reset call site.
+/// </para>
+///
+/// <para>
+/// <b>The affordance is a visible close button plus the whole alert.</b> The
+/// large click target is the low-vision one (this arc's whole reason for
+/// existing), but a bare clickable region with nothing to look at is
+/// undiscoverable — so the standard <c>btn-close</c> renders too, and it is the
+/// button, not the region, that carries the keyboard and screen-reader
+/// semantics. Bootstrap's own <c>data-bs-dismiss</c> is deliberately not used:
+/// it removes the node outside Blazor's knowledge, leaving the renderer's tree
+/// disagreeing with the DOM.
 /// </para>
 ///
 /// <para>
@@ -456,6 +477,26 @@ public partial class Quiz : ComponentBase, IDisposable
         _ => "alert-secondary",
     };
 
+    /// <summary>
+    /// Dismiss the stats-context notice the user is looking at, keyed on the
+    /// occurrence the store is currently reporting rather than on "the stats
+    /// notice" as a standing thing. A later transition — or the next run's bind
+    /// — mints a new occurrence and shows its notice fresh, which is the point:
+    /// a run that records nothing has to say so once per run, not once per app.
+    /// </summary>
+    private void DismissStats() =>
+        Notices.Dismiss(QuizNotice.StatsContext, StatsStore.StatusOccurrence);
+
+    /// <summary>
+    /// Dismiss the composition notice for <paramref name="composition"/> — the
+    /// click half of a retirement the first submitted answer also performs (see
+    /// <see cref="Submit"/>). Either gesture ends it, and both record the same
+    /// dismissal against the same key, so there is no ordering between them to
+    /// get wrong.
+    /// </summary>
+    private void DismissComposition(BgGame_Lib.MixComposition composition) =>
+        Notices.Dismiss(QuizNotice.Composition, composition);
+
     private void HandlePlayCompleted(Play play)
     {
         _completedPlay = play;
@@ -491,7 +532,7 @@ public partial class Quiz : ComponentBase, IDisposable
         // it, so the composition is still the thing the user hasn't engaged with.
         if (Controller.Review is not null && Controller.LastComposition is { } comp)
         {
-            MixNotice.Dismiss(comp);
+            DismissComposition(comp);
         }
     }
 

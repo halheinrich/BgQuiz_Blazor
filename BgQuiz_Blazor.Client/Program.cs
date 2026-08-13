@@ -99,19 +99,22 @@ builder.Services.AddScoped<ShuffleOption>();
 builder.Services.AddScoped<MixConsent>();
 builder.Services.AddScoped<MixDraft>();
 
-// Per-app dismissal state for the Quiz page's mix composition notice: the notice
-// says how the running quiz was composed — read before answering, stale chrome
-// after — so the first submitted answer retires it. Scoped rather than a page
-// field so the Show-stats round trip can't resurrect it; keyed on the
-// composition's identity, so a new run's notice shows again with no reset call
-// site. The controller's composition telemetry is never touched.
-builder.Services.AddScoped<MixNoticeDismissal>();
+// Per-app dismissal state for every notice on the Quiz page: the composition
+// notice (which the first submitted answer also retires — it says how the
+// running quiz was composed, read before answering and stale chrome after) and
+// the stats-context degrade notice. Scoped rather than a page field so the
+// Show-stats round trip can't resurrect a dismissal; each keyed on its notice's
+// current occurrence, so the next run — or the next stats transition — shows
+// again with no reset call site. The controller's composition telemetry and the
+// store's status are never touched.
+builder.Services.AddScoped<QuizNoticeDismissal>();
 
 // Per-app user settings (localStorage-backed): the home-board side, whether it
-// re-rolls per problem, and whether the navigation panel stays folded. Scoped
-// like the holders, so one hydration serves the whole app and every page reads
-// the same instance. Deliberately no draft/commit lifecycle — a setting applies
-// and persists the moment it changes.
+// re-rolls per problem, whether the board is maximized while answering, and
+// whether the navigation panel stays folded. Scoped like the holders, so one
+// hydration serves the whole app and every page reads the same instance.
+// Deliberately no draft/commit lifecycle — a setting applies and persists the
+// moment it changes.
 builder.Services.AddScoped<QuizSettings>();
 
 // Per-app marker (sessionStorage-backed) recording that a quiz is live in this

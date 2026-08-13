@@ -195,6 +195,37 @@ internal sealed class QuizStatsStore : IDecisionStatsSink
     public QuizStatsStatus Status { get; private set; } = QuizStatsStatus.Disabled;
 
     /// <summary>
+    /// <b>The identity of the condition <see cref="Status"/> currently reports</b>
+    /// — a token with no content whatsoever, whose only meaning is that it is or
+    /// is not the same object as one held earlier. It is replaced in exactly two
+    /// places, both of which mean "what this store is reporting is a different
+    /// occurrence now": at the top of <see cref="BeginQuizAsync"/>, which
+    /// re-derives the whole context for a new run, and in <see cref="SetStatus"/>
+    /// on a real transition.
+    ///
+    /// <para>
+    /// It exists for the Quiz page's dismissible stats notice
+    /// (<see cref="QuizNoticeDismissal"/>), which needs to distinguish "the user
+    /// dismissed <i>this</i> report" from "a report is showing". The two cases
+    /// that make a plain <see cref="Status"/> comparison wrong are both real: a
+    /// <c>Ready → WriteFailed</c> transition mid-run is a new thing to say, and a
+    /// second quiz bound against the same unreadable file is <i>also</i> a new
+    /// thing to say — that run records nothing either, which the user has not
+    /// been told yet. Re-binding therefore mints a fresh token even when the
+    /// status it lands on is the one already showing.
+    /// </para>
+    ///
+    /// <para>
+    /// Deliberately an opaque object rather than a generation counter: the
+    /// dismissal holder keys every notice by reference identity (the composition
+    /// notice's token is its <c>MixComposition</c>, a record whose value equality
+    /// would silently dismiss a later identical run), so a value token would have
+    /// to be compared by a second rule. One rule, one kind of token.
+    /// </para>
+    /// </summary>
+    public object StatusOccurrence { get; private set; } = new();
+
+    /// <summary>
     /// Whether the picked folder can hold a stats document at all — the write-
     /// capability half of both <see cref="CanWeightMix"/> and the
     /// <see cref="BeginQuizAsync"/> bind, single-sourced so the question
@@ -279,8 +310,14 @@ internal sealed class QuizStatsStore : IDecisionStatsSink
     public async Task BeginQuizAsync()
     {
         // Re-derive the whole context: a re-bind clears any prior LoadFailed /
-        // WriteFailed and replaces the previous quiz's document outright.
+        // WriteFailed and replaces the previous quiz's document outright — and
+        // starts a new notice occurrence, so a dismissal recorded against the
+        // last run cannot silence this one. That matters precisely when the
+        // status below lands on the value already showing (the same unreadable
+        // file, a second time): SetStatus would report no transition, but this
+        // run still has something unsaid to say.
         _doc = DecisionStatsDocument.Empty;
+        StatusOccurrence = new object();
 
         // Capability is the pick-time verdict; the promote is the handle-level
         // half of the same check (false when the picked slot holds no
@@ -358,6 +395,10 @@ internal sealed class QuizStatsStore : IDecisionStatsSink
     {
         if (Status == status) return;
         Status = status;
+        // A different condition is a different thing to report, so it gets its
+        // own occurrence: a dismissal of the load-failure notice must not
+        // pre-dismiss a write failure that happens later in the same run.
+        StatusOccurrence = new object();
         StatusChanged?.Invoke();
     }
 }

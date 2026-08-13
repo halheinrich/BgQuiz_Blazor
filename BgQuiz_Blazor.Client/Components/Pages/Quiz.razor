@@ -8,7 +8,7 @@
 
 @inject QuizController Controller
 @inject QuizStatsStore StatsStore
-@inject MixNoticeDismissal MixNotice
+@inject QuizNoticeDismissal Notices
 @inject QuizSettings Settings
 @inject NavigationManager Nav
 @implements IDisposable
@@ -22,20 +22,34 @@
        (bound at Start, reset by the next Start's re-bind). A load failure is an
        outcome — the quiz runs, the file stays untouched — so polite
        role="status"; a write failure is a failure mid-quiz, so the assertive
-       alert idiom. Neither ever blocks the quiz. *@
-    @if (StatsStore.Status == QuizStatsStatus.LoadFailed)
+       alert idiom. Neither ever blocks the quiz.
+
+       Dismissible, like every notice on this page (see DismissStats): keyed on
+       the store's StatusOccurrence, so a dismissal covers the report the user
+       actually read — a later Ready → WriteFailed, or the next run binding
+       against the same unreadable file, is a new occurrence and shows again. *@
+    @if (!Notices.IsDismissed(QuizNotice.StatsContext, StatsStore.StatusOccurrence))
     {
-        <div class="alert alert-warning" role="status">
-            The existing <strong>@QuizStatsFile.FileName</strong> couldn't be read, so this
-            quiz won't record stats. The file has not been changed.
-        </div>
-    }
-    else if (StatsStore.Status == QuizStatsStatus.WriteFailed)
-    {
-        <div class="alert alert-danger" role="alert">
-            Your stats file could not be saved — the quiz continues, but this
-            quiz's stats won't be recorded.
-        </div>
+        @if (StatsStore.Status == QuizStatsStatus.LoadFailed)
+        {
+            <div class="alert alert-warning alert-dismissible quiz-notice" role="status"
+                 @onclick="DismissStats">
+                The existing <strong>@QuizStatsFile.FileName</strong> couldn't be read, so this
+                quiz won't record stats. The file has not been changed.
+                <button type="button" class="btn-close" aria-label="Dismiss this message"
+                        @onclick="DismissStats" @onclick:stopPropagation="true"></button>
+            </div>
+        }
+        else if (StatsStore.Status == QuizStatsStatus.WriteFailed)
+        {
+            <div class="alert alert-danger alert-dismissible quiz-notice" role="alert"
+                 @onclick="DismissStats">
+                Your stats file could not be saved — the quiz continues, but this
+                quiz's stats won't be recorded.
+                <button type="button" class="btn-close" aria-label="Dismiss this message"
+                        @onclick="DismissStats" @onclick:stopPropagation="true"></button>
+            </div>
+        }
     }
     @* Mix notices, composition-first: whatever the framing, the first line is
        the quiz actually underway ("Your quiz has N problems: …"), rendered
@@ -49,25 +63,37 @@
        what was asked), leading with the composition and demoting the
        per-entry apportionment internals to the explanation below it.
 
-       Both variants retire on the user's first submitted answer: the notice says
-       how this quiz was built, which is worth reading before answering and is
-       stale chrome above the board for every problem after. The dismissal lives
-       in MixNoticeDismissal — a holder, not a page field, so the Show-stats round
-       trip can't resurrect it — keyed on this composition's identity so the next
-       run's notice shows again. The controller's telemetry is deliberately left
-       intact: it still frames this notice, counts the quiz's problems, and feeds
-       Home's composed-to-zero wording. *@
-    @if (Controller.LastComposition is { } comp && !MixNotice.IsDismissed(comp))
+       Both variants retire on the user's first submitted answer OR on a click:
+       the notice says how this quiz was built, which is worth reading before
+       answering and is stale chrome above the board for every problem after.
+       Either gesture ends it — the first-answer retirement is unchanged by the
+       click affordance, and a user who has read it early gets the space back
+       early. The dismissal lives in QuizNoticeDismissal — a holder, not a page
+       field, so the Show-stats round trip can't resurrect it — keyed on this
+       composition's identity so the next run's notice shows again. The
+       controller's telemetry is deliberately left intact: it still frames this
+       notice, counts the quiz's problems, and feeds Home's composed-to-zero
+       wording. *@
+    @if (Controller.LastComposition is { } comp
+         && !Notices.IsDismissed(QuizNotice.Composition, comp))
     {
         @if (!Controller.ActiveMixHasLength)
         {
-            <div class="alert alert-info" role="status">
+            <div class="alert alert-info alert-dismissible quiz-notice" role="status"
+                 @onclick="@(() => DismissComposition(comp))">
                 @MixDisplay.CompositionSummary(comp)
+                <button type="button" class="btn-close" aria-label="Dismiss this message"
+                        @onclick="@(() => DismissComposition(comp))"
+                        @onclick:stopPropagation="true"></button>
             </div>
         }
         else if (HasShortfall(comp))
         {
-            <div class="alert alert-warning" role="alert">
+            <div class="alert alert-warning alert-dismissible quiz-notice" role="alert"
+                 @onclick="@(() => DismissComposition(comp))">
+                <button type="button" class="btn-close" aria-label="Dismiss this message"
+                        @onclick="@(() => DismissComposition(comp))"
+                        @onclick:stopPropagation="true"></button>
                 <div>@MixDisplay.CompositionSummary(comp)</div>
                 @if (comp.DrawnCount < comp.TargetCount)
                 {

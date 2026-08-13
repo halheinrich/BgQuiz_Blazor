@@ -108,11 +108,11 @@ public class PageTests : BunitContext
         // which is the app-scoped behavior the side settings depend on.
         Services.AddScoped<QuizSettings>();
 
-        // Quiz injects MixNoticeDismissal (its composition notice checks it before
+        // Quiz injects QuizNoticeDismissal (every notice checks it before
         // rendering). Scoped, as in Program.cs, so a test that re-renders the page
         // sees the same dismissal the first instance recorded — the navigate-back
         // case the holder exists for.
-        Services.AddScoped<MixNoticeDismissal>();
+        Services.AddScoped<QuizNoticeDismissal>();
     }
 
     /// <summary>The sessionStorage key <see cref="QuizLiveMarker"/> reads/writes.</summary>
@@ -5864,6 +5864,148 @@ public class PageTests : BunitContext
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Skip").ClickAsync(new());
 
         Assert.Contains("Your quiz has", cut.Markup);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Dismissible notices (SPEC-quiz-view.md §4). Every notice on the Quiz page
+    //  dismisses on a click — the answer to the board space they cost, since the
+    //  maximize mode is forbidden from suppressing them. Per occurrence,
+    //  transient, and app-scoped, which is three separate claims: these pin each
+    //  one, plus the slot key that keeps two notices from dismissing each other.
+    // -----------------------------------------------------------------------
+
+    /// <summary>The dismiss button rendered inside <paramref name="alert"/>.</summary>
+    private static AngleSharp.Dom.IElement CloseButton(AngleSharp.Dom.IElement alert) =>
+        alert.QuerySelector("button.btn-close")!;
+
+    [Fact]
+    public async Task Quiz_StatsNotice_ClickingTheAlertDismissesIt()
+    {
+        // The oversized target: a click anywhere in the alert, not only on the
+        // button. That is the low-vision affordance the arc exists for.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
+
+        var cut = Render<QuizPage>();
+        Assert.Contains("could not be saved", cut.Markup);
+
+        await cut.Find(".quiz-notice").ClickAsync(new());
+
+        Assert.DoesNotContain("could not be saved", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_StatsNotice_CloseButtonDismissesIt_AndCarriesItsOwnLabel()
+    {
+        // The discoverable half, and the accessible one: a bare clickable region
+        // has no keyboard or screen-reader affordance at all, so the standard
+        // btn-close renders beside it and carries the semantics. What this pins
+        // is the button's presence, its label, and that activating it dismisses;
+        // it deliberately does NOT claim to distinguish the button's own handler
+        // from the alert's via bubbling, which the render layer's event dispatch
+        // makes indistinguishable from here. Both are wired, and Dismiss is
+        // idempotent, so either route is correct.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await WithStatsStoreInStatusAsync(QuizStatsStatus.LoadFailed);
+
+        var cut = Render<QuizPage>();
+        var close = CloseButton(cut.Find(".quiz-notice"));
+        Assert.Equal("Dismiss this message", close.GetAttribute("aria-label"));
+
+        await close.ClickAsync(new());
+
+        Assert.DoesNotContain("couldn't be read", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_StatsNotice_DismissedThenShowStatsRoundTrip_StaysDismissed()
+    {
+        // App-scoped, not a page field: "Show stats" is a mainline mid-quiz
+        // gesture and returning re-instantiates this page. A dismissal the user
+        // made must not come back with it.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
+
+        var cut = Render<QuizPage>();
+        await cut.Find(".quiz-notice").ClickAsync(new());
+
+        Assert.DoesNotContain("could not be saved", Render<QuizPage>().Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_StatsNotice_ANewBind_ShowsFreshEvenOnTheSameStatus()
+    {
+        // "The next occurrence shows fresh", in the case that a status-value key
+        // would get wrong: a second quiz bound against the same unreadable file
+        // lands on the status already showing, so SetStatus reports no
+        // transition — and that run still records nothing, which the user has not
+        // been told. BeginQuizAsync mints the occurrence, so the notice returns.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var store = await WithStatsStoreInStatusAsync(QuizStatsStatus.LoadFailed);
+
+        var cut = Render<QuizPage>();
+        await cut.Find(".quiz-notice").ClickAsync(new());
+        Assert.DoesNotContain("couldn't be read", cut.Markup);
+
+        await store.BeginQuizAsync();                       // the next run binds
+        Assert.Equal(QuizStatsStatus.LoadFailed, store.Status); // same status…
+
+        Assert.Contains("couldn't be read", Render<QuizPage>().Markup); // …new notice
+    }
+
+    [Fact]
+    public async Task Quiz_MixNotice_ClickDismissesIt_WithoutWaitingForAnAnswer()
+    {
+        // The composition notice gains the click gesture and keeps its
+        // retire-on-first-answer: either gesture ends it. This is the half the
+        // existing pins could not cover — a user who has read it before
+        // answering gets the board space back immediately.
+        var c = WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        sink.CanWeightMix = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
+
+        var cut = Render<QuizPage>();
+        Assert.Contains("Your quiz has", cut.Markup);
+
+        await cut.Find(".quiz-notice").ClickAsync(new());
+
+        Assert.DoesNotContain("Your quiz has", cut.Markup);
+        Assert.Null(c.Review);   // nothing was answered to get here
+        Assert.DoesNotContain("Your quiz has", Render<QuizPage>().Markup); // and it survives the round trip
+    }
+
+    [Fact]
+    public async Task Quiz_DismissingOneNotice_LeavesTheOtherStanding()
+    {
+        // The slot key's whole job. Both notices render together (a weighted run
+        // whose stats context then degrades), and they dismiss independently —
+        // one holder slot per notice, never a single "last dismissed" token that
+        // the second dismissal would overwrite and the first would lose.
+        var c = WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        sink.CanWeightMix = true;
+        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
+        await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
+
+        var cut = Render<QuizPage>();
+        Assert.Equal(2, cut.FindAll(".quiz-notice").Count);
+
+        // Dismiss the stats one (it renders first, above the mix notices).
+        await cut.FindAll(".quiz-notice")[0].ClickAsync(new());
+
+        Assert.DoesNotContain("could not be saved", cut.Markup);
+        Assert.Contains("Your quiz has", cut.Markup);
+
+        // …and now the other, independently.
+        await cut.Find(".quiz-notice").ClickAsync(new());
+        Assert.Empty(cut.FindAll(".quiz-notice"));
     }
 
     [Fact]

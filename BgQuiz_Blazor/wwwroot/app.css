@@ -258,6 +258,18 @@ h1:focus {
     background: #e9ecef;
 }
 
+/* Quiz-page notices — dismissible on a click anywhere in the alert, not just on
+   the btn-close inside it (SPEC-quiz-view.md §4). The oversized target is the
+   low-vision affordance this arc exists for; the button beside it is what makes
+   the target discoverable at all and what carries the keyboard / screen-reader
+   semantics a bare clickable region has none of. This rule is only the pointer
+   the region needs to read as clickable — the dismissal is Blazor's @onclick,
+   never Bootstrap's data-bs-dismiss, which would remove the node behind the
+   renderer's back. The button keeps its own cursor from Bootstrap. */
+.quiz-notice {
+    cursor: pointer;
+}
+
 /* Busy transition (controller IsBusy): the progress-cursor idiom over the
    whole page region while a Start/Restart/Continue/Skip transition runs.
    The descendant selector matters — Bootstrap's disabled buttons drop
