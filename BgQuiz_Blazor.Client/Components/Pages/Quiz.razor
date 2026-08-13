@@ -159,12 +159,6 @@
         </div>
 
         <div class="board-chrome">
-            <ScorePanel Score="Controller.Score"
-                        Skipped="Controller.SkippedCount"
-                        Source="@Controller.Name"
-                        ProblemNumber="Controller.ProblemNumber"
-                        ProblemCount="Controller.ProblemCount" />
-
             @* State-invariant status strip: always present, fixed height, so the
                chrome's total height — and therefore the board's flex remainder,
                and therefore the board size — is identical across the answering
@@ -283,6 +277,28 @@
                     </button>
                 </div>
             }
+
+            @* The ongoing-stats strip, at the BOTTOM of the page — below the
+               action row, not above the status strip where it used to sit
+               (SPEC-quiz-view.md §5). It is reference material read between
+               problems, not while deciding one, so it belongs below the controls
+               the user is actually reaching for; and the board wants the space
+               nearest itself given to the chrome that speaks to the problem in
+               hand (the strip's verdict and prompt).
+
+               Reordering inside the chrome block does not change the block's
+               total measured height, so the board's flex remainder — and
+               therefore board size — is untouched by the move. That is what lets
+               this ride alongside the maximize mode without the two interacting.
+
+               Done and Stats render their own ScorePanel with their own
+               parameters and are deliberately untouched: one component, one
+               move. *@
+            <ScorePanel Score="Controller.Score"
+                        Skipped="Controller.SkippedCount"
+                        Source="@Controller.Name"
+                        ProblemNumber="Controller.ProblemNumber"
+                        ProblemCount="Controller.ProblemCount" />
         </div>
     }
 </div>

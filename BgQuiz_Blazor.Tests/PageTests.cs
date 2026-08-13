@@ -4487,22 +4487,45 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_StatusStrip_SitsBetweenScorePanelAndActionRow()
+    public async Task Quiz_Chrome_OrdersStatusStripThenActionRowThenScorePanel()
     {
-        // The settled design places the fixed-height strip between the score
-        // panel and the button row in both states; pin the answering order (the
-        // review branch shares the same strip instance above the branch).
+        // SPEC-quiz-view.md §5: the ongoing-stats strip moved to the BOTTOM of
+        // the page, below the action row. Both halves of this pin were re-keyed
+        // by that move — it used to assert score-panel FIRST (scoreIdx < stripIdx
+        // < rowIdx), and an assertion that merely dropped the score panel would
+        // have gone vacuously green while the panel sat anywhere at all.
+        //
+        // Pinned on the answering state; the review branch shares this strip and
+        // this score panel, which sit outside the per-state action-row branch.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
         var markup = cut.Markup;
-        var scoreIdx = markup.IndexOf("score-panel", StringComparison.Ordinal);
         var stripIdx = markup.IndexOf("status-strip", StringComparison.Ordinal);
         var rowIdx = markup.IndexOf("d-flex flex-wrap gap-2", StringComparison.Ordinal);
-        Assert.True(scoreIdx >= 0 && stripIdx >= 0 && rowIdx >= 0, "all three chrome pieces present");
-        Assert.True(scoreIdx < stripIdx, "strip renders after the score panel");
-        Assert.True(stripIdx < rowIdx, "strip renders before the action row");
+        var scoreIdx = markup.IndexOf("score-panel", StringComparison.Ordinal);
+        Assert.True(stripIdx >= 0 && rowIdx >= 0 && scoreIdx >= 0, "all three chrome pieces present");
+        Assert.True(stripIdx < rowIdx, "the status strip renders before the action row");
+        Assert.True(rowIdx < scoreIdx, "the score panel renders after the action row — page bottom");
+    }
+
+    [Fact]
+    public async Task Quiz_ScorePanelMove_LeavesTheChromeBlockIntact()
+    {
+        // The move's whole no-interaction claim: the score panel changed
+        // position, not membership. It is still inside .board-chrome (the
+        // measured flex:0 0 auto region), so the block's total height — and
+        // therefore the board's flex remainder — is what it was. A "move" that
+        // hoisted the panel out of the chrome block would silently resize the
+        // board in Normal view, which §5 says this rider must not do.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        var panel = cut.Find(".score-panel");
+        Assert.NotNull(panel.Closest(".board-chrome"));
+        Assert.Empty(cut.FindAll(".board-container .score-panel"));
     }
 
     [Fact]
