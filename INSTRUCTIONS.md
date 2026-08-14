@@ -220,8 +220,9 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
     Opening 32 65 64 31 65.xgp      — 6-5 checker play; best play 24/13
     TooGoodAndTake.xgp              — cube decision, a *different* board
     match35253054_2_37.xgp          — cube decision, Double / Pass
-                                      (the two above exist so a multi-problem
-                                      run can be staged from distinct positions)
+                                      (the three cube fixtures are mutually
+                                      distinct positions — the supply a
+                                      multi-problem run is staged from)
   PublishedAppFixture.cs            — publish + spawn once; BGQUIZ_E2E_BASE_URL
   PlaywrightFixture.cs              — Chromium lifecycle; fail-loud
   E2eCollection.cs                  — the single (sequential) test collection
@@ -367,8 +368,7 @@ the fake sink's `RecordGate`.
   because it was submitted, scored, and read. Ending from review is a forward
   exit, so it goes through the same `RecordReviewedSubmissionAsync` Continue uses
   — which is what preserves the standing invariant that **every answer visible on
-  Done has reached the lifetime record** (until this method existed that held only
-  because Continue was the sole route there, and Done states it to the user; see
+  Done has reached the lifetime record** (Done states it to the user; see
   Pitfalls). The run is a **completed quiz**, ruled: `/done` is unchanged, with no
   ended-early wording and no controller flag for one — the partial score is simply
   the score of the problems answered.
@@ -402,10 +402,10 @@ factory; unit tests substitute a fake source the same way.
 
 **Why a named type and not the DI lambda it replaced.** The composition is the
 app's most wiring-sensitive code and the only place the layer *order* is
-stated, so it has to be reachable from a test. As a lambda it was not, and the
-tests that claimed to pin "the path `Program.cs` wires" re-typed it by hand —
-and had drifted, composing over the stream source and skipping the parse-once
-layer entirely. `PickedFolderSourceFactoryTests` now calls `Create` itself. The
+stated, so it has to be reachable from a test. As a lambda it was not, and
+tests claiming to pin "the path `Program.cs` wires" could only re-type it by
+hand — which drifted, silently. `PickedFolderSourceFactoryTests` calls `Create`
+itself. The
 one exception is deliberate and documented in place: pinning that a *shuffled*
 source reorders needs `ShuffledProblemSetSource`'s seeded ctor, which
 production deliberately does not use, so that test keeps a hand-built stack
@@ -424,23 +424,21 @@ draws (same factory; see below), and the mix's pool sizes and composition
 notice tally deduped supply.
 
 - **Above the filter, not below it.** The decorator wraps the *filtered*
-  stream. Deduping the raw parse first could elect a survivor the filter then
-  rejects while dropping the content-equal copy that would have passed —
-  filters are not purely positional (players, dates, error bands) — so a
-  matching position would be silently lost (see Pitfalls).
+  stream; deduping the raw parse first can silently lose a matching position
+  (Pitfalls owns why, and why the reverse edit is the tempting one).
 - **The survivor preference is the stats seam.** Among content-equal copies the
   one carrying a lifetime-stats record wins: plain first-wins could drop the id
   the user's GotWrong history hangs on and silently empty the mix pool that
   history feeds. The predicate reads `IDecisionStatsSink.CurrentDocument`
-  **live** on every call, never a captured snapshot, because the decorator
-  re-arbitrates per enumeration — so a Restart after this session's folds
-  re-picks survivors against the record as it now stands.
+  **live** on every call, because the decorator re-arbitrates per enumeration —
+  so a Restart after this session's folds re-picks survivors against the record
+  as it now stands (never a captured snapshot; see Pitfalls).
 - **Passed unconditionally, never as null.** With no document bound the
   predicate answers false for every id, which the producer's tie rule resolves
-  to first occurrence — the same outcome "no preference" gives. A null-or-not
-  branch would have to guess at wiring time whether a document will be bound by
-  enumeration time (it is not: the factory is invoked after `BeginQuizAsync`
-  for a Start, and with whatever the last bind left for a pre-Start summary).
+  to first occurrence. A null-or-not branch would have to guess at wiring time
+  whether a document will be bound by enumeration time (it is not: the factory
+  is invoked after `BeginQuizAsync` for a Start, and with whatever the last
+  bind left for a pre-Start summary).
 - The producer's `Count` is null through this layer by contract — how many
   positions collapse is unknowable before enumeration.
 
@@ -452,9 +450,8 @@ Start, stored for Restart, no caller-set mutation — and returns a
 non-blank *effective* mix (the stored mix, unless the per-run `ignoreMix`
 override), `ResetAndAdvanceAsync` wires the producer's `MixedProblemSetSource`
 around the factory source — so **the supply it composes from is already
-position-distinct**, and every pool size, `Requested`/`Drawn` figure and
-composition notice downstream counts deduped positions with no work of its own
-(§ Source construction) — holding the typed reference so `LastComposition`
+position-distinct** (§ Source construction, which owns what follows
+downstream) — holding the typed reference so `LastComposition`
 telemetry surfaces without type-testing; the stats provider resolves
 `IDecisionStatsSink.CurrentDocument` fresh per enumeration, so **Restart
 recomposes against the lifetime record as it stands, this session's folds
@@ -824,8 +821,8 @@ the contract.
 - **`Summary`** (`string?`) — the holder-owned label:
   `"'{FolderName}' — {N} problem file(s)"`, `null` when nothing is picked.
   The **single source of truth** for how a pick describes itself; `Home`
-  renders it directly rather than caching text in a component field (the old
-  field desynced on navigate-back).
+  renders it directly rather than caching text in a component field (see
+  Pitfalls: holder, not field).
 
 The pick is **in-memory only** — the stats *file* is not lost with it;
 re-picking the folder resumes it.
@@ -949,11 +946,10 @@ state — the holder is the sole authority on "applied".
 
 ### `FilterRestoreNotice` — the reload is legible (`SPEC-filtering.md` §4)
 
-A reload ends the setup: the panel restores the persisted selection, nothing is
-applied, and Apply re-arms. That is correct and **indistinguishable from a
-bug** — the user's filter on screen with Apply mysteriously live — so the screen
-has to say what happened. `FilterRestoreNotice` (XgFilter_Razor's, rendered by
-the panel as `#filterRestoredNotice`) is the state that copy hangs on.
+A reload ends the setup, and §4 rules that the resulting state must say what it
+is rather than look like a defect. `FilterRestoreNotice` (XgFilter_Razor's,
+rendered by the panel as `#filterRestoredNotice`) is the state that copy hangs
+on.
 
 **This host's entire contract is two lines**: register it Scoped in
 `Program.cs` beside `AppliedFilter`, and bind it to `FilterSurface`. Every
@@ -976,17 +972,16 @@ is a producer internal no host may name.
 
 ### `MixPanel` / `MixDraft` / `MixConsent` — the stats-weighted mix
 
-**The model** (`SPEC-filtering.md` §5, ratified 2026-08-09, rebuilt here per
-umbrella #83): **there is no committed copy of the mix.** The sole activation
-control is the **"Mix applies" checkbox** (`#mixApplies`), whose one boolean
-lives in the app-scoped `MixConsent`; checked means *the mix on screen is in
-effect*, and what a consented Start runs is the draft's own `Build()` — screen
-and effect cannot diverge, so the whole draft-vs-committed machinery
-(`AppliedMix`, the Apply Mix button and `OnMixApplied` event, `MixDirty`, the
-withdraw-on-edit choreography) is deleted, not relocated. The checkbox is
+**The model is `SPEC-filtering.md` §5 / Fork B** (ratified 2026-08-09, rebuilt
+here per umbrella #83) — read it there; what this app has is: **no committed
+copy of the mix.** The sole activation control is the **"Mix applies"
+checkbox** (`#mixApplies`), whose one boolean lives in the app-scoped
+`MixConsent`; checked means *the mix on screen is in effect*, and what a
+consented Start runs is the draft's own `Build()`. The checkbox is
 **consent**, the rows are **choice** (§4's law): the rows persist — across
 navigation, picks, and reloads — while the bit is revoked at every setup end
-and dies on reload with the scope.
+and dies on reload with the scope. (Nothing may reintroduce a committed copy —
+see Pitfalls.)
 
 **`MixPanel`** (Components/Pages) is the FilterPanel of quiz composition — a
 **view over the app-scoped `MixDraft` and `MixConsent`** (all state lives in
@@ -1047,8 +1042,8 @@ box is **checked** it stays operable regardless — unchecking is consent
 withdrawn and is never taken away — and `HandleAppliesChanged` drops a *check*
 arriving past the gate, so a dispatch ignoring `disabled` still cannot
 activate. **The app flips the bit in neither direction**: not on Clear, not on
-invalid, not on a filter edit (auto-uncheck is a rejected alternative the spec
-records; a control the app flips stops being consent). The one app-initiated
+invalid, not on a filter edit (auto-uncheck and its neighbours are rejected
+alternatives `SPEC-filtering.md` §5 records). The one app-initiated
 move is `MixConsent.Revoke()` at setup end. Zero rows do **not** disable the
 box (ruled: checked-but-inert — vacuous consent is passthrough).
 
@@ -1086,10 +1081,7 @@ mix* clears the rows in every state.
 **Offered only where a mix can mean something — one predicate, every consumer**
 (issue #87). Home renders `MixPanel` only while
 **`QuizStatsStore.CanWeightMix`**, and the controller's stage-1 refusal reads
-the same member through `IDecisionStatsSink`. It was two readings of one
-question before — Home mounted on `Capability == Enabled` while the controller
-peeked at capability separately — and they disagreed about the case that
-matters: a folder that *can* save stats but has none yet. Ruled: **a weighted
+the same member through `IDecisionStatsSink`. Ruled: **a weighted
 mix does not apply to an empty stats document, and an empty document is
 treated exactly as no document**; missing, empty, and unreadable are one
 answer, not three rungs. The predicate is therefore write capability **and** a
@@ -1206,12 +1198,9 @@ deliberately not a dismissal** — it moves past a problem without answering it.
 
 **Every notice on the Quiz page dismisses on a click**: the mix composition
 notice (both framings) and the stats-context degrade notice (`LoadFailed`'s
-polite one, `WriteFailed`'s assertive one). This is the answer to the board
-space they cost, because the maximize mode is **forbidden from suppressing
-them** — the composition notice retires on the first answer, so hiding it
-while answering means it is never seen at all, and a degraded recording
-context must be seen. Dismissing frees their space for the board, which is
-the mode's own goal.
+polite one, `WriteFailed`'s assertive one). Dismissal is §4's answer to the
+board space they cost, the mode being forbidden from suppressing them — the
+ruling and its reasoning are the spec's.
 
 **Per occurrence, transient, app-scoped.** The holder generalizes the old
 composition-only `MixNoticeDismissal` by adding a **slot key** (`QuizNotice`)
@@ -1294,10 +1283,9 @@ deliberately — not `localStorage`** (see Pitfalls).
 section names this entry to the user, so the key is rendered from here rather
 than typed as prose — the discipline `QuizStatsFile.FileName` established. It
 is widened exactly as far as that one doc surface needs — `internal`, never
-`public`. It was **renamed** from `Key` on becoming documented surface, to
-match `MixDraft.StorageKey`: the two render side by side in that section, and
-a documented pair reading `Key` / `StorageKey` invites a reader to look for a
-distinction that isn't there.
+`public`. The name matches `MixDraft.StorageKey` deliberately: the two render
+side by side in that section, and a documented pair reading `Key` /
+`StorageKey` invites a reader to look for a distinction that isn't there.
 
 ### `QuizSettings` — the user settings service (issue #30 leg 1)
 
@@ -1351,8 +1339,8 @@ field here that reverses a documented invariant rather than choosing between
 equals. This service records the *choice* only — the composition it produces is
 `Quiz`'s derivation (§ `Quiz.razor`), and **nothing stores "currently
 maximized"** (§6: a second copy of the view mode is a divergence from the
-model). It is a **choice, never consent**: it survives navigation, reload and
-quiz boundaries, and no gesture expires it. The **Settings checkbox is its sole
+model). It is a **choice, never consent** in §3's sense, so nothing here
+expires it. The **Settings checkbox is its sole
 control** (fork D, ruled) — an on-page toggle would be a second write surface
 for one fact and would force this service to grow the notify plumbing its
 contract defers until a real second consumer exists. Its fine print states the
@@ -1544,10 +1532,9 @@ The asymmetry is pinned three times over: at the service seam
   the applied filter
   (`AppliedFilter.Clear` — the one line of filter choreography left host-side,
   see § `AppliedFilter` for the unmount-gap ruling), and every pick-scoped
-  notice and the match summary. The saved-filters context needs no line: it
-  lives in the composite, which the closing `HasFiles` gate unmounts — store,
-  notices, and typed state die with it, and a successful pick's fresh mount
-  re-reads the new folder's document through the seam. Nothing selected
+  notice and the match summary. The saved-filters context needs no line — it
+  dies with the composite the closing `HasFiles` gate unmounts (§
+  `AppliedFilter` for that unmount/re-mount ruling). Nothing selected
   against the previous corpus can be assumed
   to mean the same thing against the next one, so **a pick re-gates Start** —
   never inherited across one. It runs at the **start of the gesture**, before
@@ -1606,11 +1593,10 @@ The asymmetry is pinned three times over: at the service seam
   - **A dirty filter revokes the check gesture** — the same fact Start reads
     (`SPEC-filtering.md` §5 Fork A, ruled strict); re-applying restores it,
     and a new pick revokes it by construction (the generation bumps). No
-    "has this corpus been filtered?" fact exists anywhere in the model (§3).
-    Accepted cost: mid-composition friction, one re-Apply to recover — and
-    nothing can *run* wrong in the window, since Start is dead while the
-    filter is dirty. **The gate darkens checking only**: a checked box stays
-    operable (unchecking is never sequenced away) and the bit is untouched.
+    "has this corpus been filtered?" fact exists anywhere in the model (§3),
+    and Fork A records the cost this accepts. **The gate darkens checking
+    only**: a checked box stays operable (unchecking is never sequenced away)
+    and the bit is untouched.
   - **Nothing about the mix's own lifetimes takes part.** The gate reads the
     *filter* and the *pick* only, per render — which is what keeps it clear of
     the (AK) wedge, whose cause was a stored judgement outliving its inputs.
@@ -1708,10 +1694,9 @@ The asymmetry is pinned three times over: at the service seam
   2026-08-13 amendment, issue `halheinrich/backgammon#98`). `XgidLabel` — the
   selectable-text-plus-copy badge, the DOM counterpart of the label the
   PDF/PPTX/PNG exporters bake in — renders at **one** site, opening
-  `.action-row-tail`, present in both view modes and both states. It used to
-  ride the producer's `Overlay` slot on all three board branches; it left the
-  canvas so it can neither obscure board content nor appear to teleport when
-  the mode changes, and the branches now render the producer components bare.
+  `.action-row-tail`, present in both view modes and both states. It is off the
+  canvas entirely (§4 for why), so the three board branches render the producer
+  components bare.
   Consequences worth knowing before touching it: **one site, not three** (a
   per-branch badge is how one composition ends up rendering it differently);
   the badge is **in-flow and positions nothing**, so the old `position:
@@ -1723,19 +1708,18 @@ The asymmetry is pinned three times over: at the service seam
   untouched — this is the quiz page's placement choice only.
 
   **The visible text is capped at `2.5rem`, and the cap is a board-size
-  contract** (`AppCss_XgidLabelText_StaysCapped`). Uncapped the badge measured
-  ~401px and wrapped the action row wherever the board is height-bound — and
-  because a cube row is wider than a checker row (four radios), the wrap width
-  depended on the **problem kind**, which is per-problem board jitter inside
-  Normal view and exactly what `SPEC-quiz-view.md` §2 forbids. The visible text
+  contract** (`AppCss_XgidLabelText_StaysCapped`). Uncapped, the badge wraps the
+  action row wherever the board is height-bound — and because a cube row is
+  wider than a checker row (four radios), the wrap width depends on the
+  **problem kind**, which is per-problem board jitter inside Normal view and
+  exactly what `SPEC-quiz-view.md` §2 forbids. The visible text
   does not try to show the value: 40px is `XGID=` (32.7px in this font) plus the
   ellipsis (6.5px), so it renders exactly `XGID=…` — the value's own
   self-labeling prefix, which doubles as the caption for the **icon-only** copy
-  button beside it. Whole badge: 74.4px, no pill (the padded chip was how it
-  held its own against the board it used to overlay; in a row of buttons it was
-  decoration priced in board pixels). Measured result: at **1440×900 and
-  1366×800 there is no per-kind divergence at all** — both kinds one line, both
-  boards bit-identical to their no-badge baselines. Nothing is lost with the
+  button beside it. **Re-measure that 40px if the font changes**; it is the whole
+  basis of the cap. No pill either — in a row of buttons the padded chip was
+  decoration priced in board pixels. §2 records the measured result the cap
+  buys. Nothing is lost with the
   pixels: Copy writes the full value, `user-select: all` selects the whole
   string, `title` reveals it on hover, and the complete text is in the DOM for a
   screen reader. A horizontal-scroll affordance was considered and **declined**
@@ -1750,11 +1734,9 @@ The asymmetry is pinned three times over: at the service seam
   composition renders **the board and the action row and nothing else below the
   notices**: score panel and status strip suppressed (and with them the
   "Problem N of M" indicator and the neutral prompt — ratified consequences),
-  and the board on `AspectPreset.BoardOnly`. **Both legs are required**: §2
-  measured that suppressing chrome alone changes the rendered canvas *not at
-  all* (1082×609 before and after — the freed height is unusable while the
-  panel-padded 16:9 canvas is width-bound); together they measured 722×780, the
-  board proper ~28% larger linearly and ~64% by area. Review **normalizes** to
+  and the board on `AspectPreset.BoardOnly`. **Both legs are required** — §2's
+  measurement is what rules that, chrome suppression alone changing the rendered
+  canvas not at all. Review **normalizes** to
   the full composition, because it needs the panel and needs it filled.
 
   The mode is **a pure derivation and stays one**: `MaximizedAnswering` is
@@ -1945,8 +1927,8 @@ The asymmetry is pinned three times over: at the service seam
   + one Take). "Back to setup" is **navigation only** — the start-gate
   holders persist, so `Home` arrives armed with the same picks and filters;
   its label describes that navigation rather than promising a reset it
-  doesn't perform (the former "Start over (new filters)" lied — Restart and
-  Back-to-setup differ only in *where they land*, not in what they clear).
+  doesn't perform — Restart and Back-to-setup differ only in *where they
+  land*, not in what they clear.
   Done participates in the `QuizLiveMarker` lifecycle both ways (clears on
   reaching it, re-sets on Restart — § QuizLiveMarker) and mirrors Quiz's
   active-context stats notices (`LoadFailed` status / `WriteFailed` alert) —
@@ -1977,9 +1959,8 @@ nothing here is about quizzing) owns the two facts the app states about
 *itself*:
 
 - **`Version`** — the running build's informational version (§ the version
-  footer below). Hoisted off `Home.AppVersion` when Help became a second
-  consumer: a page class is the wrong owner of app-level metadata the moment
-  another page reaches into it.
+  footer below). It lives here and not on a page class, which is the wrong
+  owner of app-level metadata the moment another page reaches into it.
 - **`FeedbackAddress` / `FeedbackMailto`** — the beta mailbox and the
   `mailto:` href Home's footer and Help's *Send feedback* section both render,
   with `Version` pre-filled into the subject (they sit side by side in the
@@ -2197,16 +2178,16 @@ run needs no knowledge of source ordering), while `PickFixturesAsync` stages
 one copy of each named fixture — the heterogeneous folder a scenario about what
 a pool *contains* needs.
 
-**A multi-problem run must be staged from distinct positions.** The walking
-helper used to stage N *copies* of one fixture, which the position-dedupe layer
-(§ Source construction) now collapses to a single problem — the trick
-manufactures nothing. Distinct cube fixtures buy the same ordering-independence
-by a route the app agrees with. Distinctness is scarcer than it looks:
-`DoubleAnalysis.xgp` / `TakeAnalysis.xgp` are the *same* position as
-`BothAnalysis.xgp` with different analysis sections, so the three committed cube
-fixtures are the whole supply — a scenario needing a fourth problem must commit
-a genuinely different position, and `PickCubeProblemsAsync` throws with that
-instruction rather than silently padding.
+**A multi-problem run must be staged from distinct positions.** Staging N
+*copies* of one fixture manufactures nothing — the position-dedupe layer
+(§ Source construction) collapses them to a single problem (see Pitfalls).
+Distinct cube fixtures buy the same ordering-independence by a route the app
+agrees with. Distinctness is scarcer than it looks, because position files that
+differ only in their *analysis* sections are the same position to the app: the
+committed cube fixtures listed in the Directory tree are the whole supply, and
+`PickCubeProblemsAsync` throws with the instruction to commit a genuinely
+different position rather than silently padding. Its `CubeFixtures` remarks name
+the specific look-alikes ruled out.
 
 **The FS-Access path** lives in `FsAccessFakeTestBase`, riding the base
 class's second customization seam, `ContextInitScript` (applied via
@@ -2275,20 +2256,22 @@ the never-skip ruling lives in Pitfalls.
 
 **Determinism.** No `Task.Delay` sleeps anywhere — Playwright auto-wait and
 explicit `Expect` assertions only. Every flow helper ends by awaiting the
-user-visible consequence of the transition it triggered. The two committed
-fixtures are single-decision `.xgp` files (the `.xgp` emission policy yields at
-most one decision per file), so each quiz is exactly one problem long with
-shuffle left off. Their *answer types* are a contract too — the checker fixture
-is a checker play and the cube fixture's best **pair** is No Double / Take — so
-a folder holding both is a pool of exactly two answer types with three empty,
-which is what makes the breakdown suite's zeros real rather than arranged. In-app navigation is asserted with polling URL assertions
+user-visible consequence of the transition it triggered. Every committed
+fixture is a single-decision `.xgp` file (the `.xgp` emission policy yields at
+most one decision per file), so a one-fixture quiz is exactly one problem long
+with shuffle left off, and an N-fixture folder is N problems. Their *answer
+types* are a contract too: the breakdown suite stages `CheckerFixture` beside
+`CubeFixture`, whose best **pair** is No Double / Take, so that folder is a pool
+of exactly two answer types with three empty — which is what makes its zeros
+real rather than arranged. In-app navigation is asserted with polling URL assertions
 (`Expect(Page).ToHaveURLAsync`), **not** `WaitForURLAsync` — Blazor navigates by
 `pushState` (same-document), and the navigation-event wait can lose the race
 when the push lands between the triggering click and the wait's registration
 (observed as a rare timeout with the app already on the target URL).
 
-**Fixtures are safe to publish.** Both are synthetic and carry no player names
-(verified before committing); the copies rule is in Pitfalls.
+**Fixtures are safe to publish.** None carries a player name, verified on each
+addition — anything sliced out of the corpus is exported with **anonymize ON**,
+because these commit to a public repo; the copies rule is in Pitfalls.
 
 **Board driving.** The checker scenario enters a real play by clicking the
 diagram's transparent SVG hit-region rects. Region identity is positional: the
@@ -2571,10 +2554,7 @@ public (see Pitfalls). The externally visible surface is the route map:
   (**`Discard` must never persist the blank it leaves**, or every pick would
   delete the user's mix — the Clear/Discard asymmetry is §4's
   choice-vs-consent line). The one sanctioned writer is the draft's own
-  last-valid write-through: every mutation that validates (blank included —
-  *Clear mix* and the last-row removal persist `Empty` as ordinary edits), and
-  never a mutation that doesn't (storage holds the last well-formed screen
-  state; a torn half-edit is not what a reload should restore — ruled).
+  last-valid write-through (§ MixPanel / MixDraft / MixConsent owns its rules).
 - **The mix hydration fills the draft; it must never activate or write.** The
   stored mix loads into `MixDraft` (once per setup) and stops there: the
   consent bit stays wherever the user left it (unchecked on any fresh setup),
@@ -2659,8 +2639,8 @@ public (see Pitfalls). The externally visible surface is the route map:
   it page-side, and don't "fix" the dice-click + Continue double-binding.**
   The gate (see Architecture § `QuizController`) is what makes a second
   mid-transition gesture safe; page-level debouncing would duplicate the
-  rule and rot. Two load-bearing details: the gate's post-set yield is what
-  lets the busy state paint before the churn (don't "simplify" it away), and
+  rule and rot. Two load-bearing details: the gate's post-set yield (the
+  busy-paint pitfall below owns why it must survive), and
   `AdvanceAsync` deliberately fires no `StateChanged` — the gate's busy-off
   fire is the completion signal, so re-adding a fire there double-renders
   every transition and breaks the pinned fire counts.
@@ -2684,10 +2664,9 @@ public (see Pitfalls). The externally visible surface is the route map:
   mid-pick, which unmounts and re-mounts the whole `FilterSurface`.** The
   pick's reset
   runs at the click, so the paint that follows finds `HasFiles` false and the
-  progressive-disclosure gate closed. That re-mount is production behavior —
-  and load-bearing since the composite adoption: the fresh mount is what
-  re-arms Apply and re-reads the saved-filters document, and the unmount is
-  why the composite's source-change rule never runs here (§ `AppliedFilter`).
+  progressive-disclosure gate closed. That re-mount is production behavior, and
+  load-bearing — § `AppliedFilter` owns what it buys and why the composite's
+  source-change rule never runs here.
   So a page test that expands the panel's "more filters" disclosure before a
   pick must expand it *again* afterwards, and one that pre-arms
   `WithAppliedFilter` then picks through the UI must re-apply, exactly as a
@@ -2928,15 +2907,14 @@ public (see Pitfalls). The externally visible surface is the route map:
   content negotiation on the `Accept` header; a path-prefix or extension sniff
   duplicates routing knowledge inside middleware and still misses cases like
   `/no-such.json`.
-- **There are two `wwwroot`s — a served static file belongs to the host's.**
-  `BgQuiz_Blazor/wwwroot` is what the host serves (`app.css`, `favicon.png`,
-  `lib/`, `robots.txt`, `js/navFold.js`); `BgQuiz_Blazor.Client/wwwroot`
-  reaches the browser only as the client's static *web assets*, under its own
-  path — since the BgFolderAccess_Razor adoption it holds no authored JS (the
-  folder module ships as that library's `_content` asset; `navFold.js` is the
-  app's one remaining authored script, a classic script the host shell tags
-  because it must run on static pages before any runtime boots). A file that
-  must
+- **A served static file belongs to the host's `wwwroot` — the only one there
+  is.** `BgQuiz_Blazor/wwwroot` is what the host serves (`app.css`,
+  `favicon.png`, `lib/`, `robots.txt`, `js/navFold.js`); the `.Client` project
+  has no `wwwroot` at all since the BgFolderAccess_Razor adoption took the
+  folder module (it ships as that library's `_content` asset, and `navFold.js`
+  — the app's one remaining authored script — is a classic script the host
+  shell tags because it must run on static pages before any runtime boots).
+  A file that must
   answer at a fixed URL (`/robots.txt`, and anything else a crawler, browser,
   or platform probe asks for by name) goes in the host's, and the mistake is
   silent in every layer but one: it still builds, still publishes, and 404s at
@@ -2972,7 +2950,8 @@ public (see Pitfalls). The externally visible surface is the route map:
   Costs to measure before committing: publish time, payload size, and the
   umbrella `infra/` zip-deploy recipe re-verified.
 - **e2e Too-Good coverage gap.** No e2e exercises a Too-Good cube answer end
-  to end — the committed cube fixture is (NoDouble, Take); a bUnit case
+  to end — no committed cube fixture is one (`E2eTestBase.CubeFixtures` names
+  what each is); a bUnit case
   covers the verdict + scoring path meanwhile. Close by sourcing a Too-Good
   single-decision `.xgp` (`nd ≥ 1.0 && dt ≥ 1.0`) from the corpus via
   ExtractFromXgToCsv's slice export — **anonymize ON**, the fixture commits
