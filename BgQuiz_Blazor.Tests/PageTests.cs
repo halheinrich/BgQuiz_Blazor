@@ -4355,9 +4355,9 @@ public class PageTests : BunitContext
     //
     //  The XGID set below is SPEC-quiz-view.md §4's one-home ruling (issue
     //  halheinrich/backgammon#98) from both ends, in every branch: the badge is
-    //  in the action row's trailing cluster, and it is NOT on the canvas. Both
-    //  halves are load-bearing — a present-only assertion would stay green if
-    //  the badge were rendered twice, and an absent-only assertion would stay
+    //  in the action row's trailing cluster, and the XGID is NOT on the canvas.
+    //  Both halves are load-bearing — a present-only assertion would stay green
+    //  if the badge were rendered twice, and an absent-only assertion would stay
     //  green if it were not rendered at all.
     // -----------------------------------------------------------------------
 
@@ -4365,10 +4365,21 @@ public class PageTests : BunitContext
 
     /// <summary>
     /// The badge's home, asserted as one place: exactly one badge on the page,
-    /// inside the action row's trailing cluster, and nothing of it anywhere in
-    /// the board region — neither as a producer overlay child (the slot it left)
-    /// nor as a <c>.board-container</c> child.
+    /// inside the action row's trailing cluster, and no XGID anywhere in the
+    /// board region — neither the component nor the value by any other route.
     /// </summary>
+    /// <remarks>
+    /// The absent half is asserted twice on purpose, at two levels. The
+    /// component-level pin catches the badge being re-parented onto the board.
+    /// The content-level pin catches the route a class selector is blind to:
+    /// <c>DiagramOptions.ShowXgid</c> bakes the XGID into the producer's SVG as
+    /// a plain, class-less <c>&lt;text&gt;</c> (default off; the raster
+    /// exporters use it), so flipping it on in <c>Quiz.BoardOptions</c> would
+    /// put the XGID back on the canvas with every class-level pin still green.
+    /// Neither half can go vacuous: <c>Find</c> throws if the board region is
+    /// missing, and the present half fails loudly if the badge's class is
+    /// renamed.
+    /// </remarks>
     private static void AssertXgidIsInTheBottomRowOnly(IRenderedComponent<QuizPage> cut)
     {
         var badge = Assert.Single(cut.FindAll(".xgid-label"));
@@ -4376,7 +4387,7 @@ public class PageTests : BunitContext
         Assert.NotNull(badge.Closest(".board-chrome"));
 
         Assert.Empty(cut.FindAll(".board-container .xgid-label"));
-        Assert.Empty(cut.FindAll(".bg-diagram-overlay .xgid-label"));
+        Assert.DoesNotContain(SampleXgid, cut.Find(".board-container").InnerHtml);
     }
 
     [Fact]
