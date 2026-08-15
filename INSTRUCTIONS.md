@@ -25,8 +25,8 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   (the shuffle decorator the source factory wraps the picked set in; the app
   uses the **unseeded** ctor — the seeded one is test-only),
   `DistinctPositionProblemSetSource` (the content-identity dedupe decorator at
-  the bottom of the composition — one item per distinct non-empty `Xgid`, with
-  the app's stats-backed `survivorPreference`), `SubmittedPlay`,
+  the bottom of the composition — one item per distinct `ProblemKey`, first
+  occurrence surviving; keyless items pass through unmerged), `SubmittedPlay`,
   `SubmittedCubeAction`, `QuizScore` (segmented: `PlayDecisions` /
   `DoubleDecisions` / `TakeDecisions` + derived `Total`), the stats-weighted
   composition surface — `QuizCategory`/`QuizCategoryKind`,
@@ -35,15 +35,20 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `MixedProblemSetSource` (the composing decorator the controller wires for a
   non-blank mix) + `MixComposition` telemetry — `AnswerTypeDistribution` (the
   answer-type fold behind Home's pre-Start summary), and the lifetime-stats
-  model `DecisionStats` / `DecisionStatsDocument` (immutable; `doc =
-  doc.Plus(submission, TimeProvider)`; bundled type-level JSON converter —
-  deserializes with no registration, any bad load throws `JsonException`).
+  model `ProblemStats` / `ProblemStatsDocument` (immutable, keyed by
+  `ProblemKey`; `doc = doc.Plus(submission, TimeProvider)`; bundled type-level
+  JSON converter — deserializes with no registration, any bad load throws
+  `JsonException`, and a genuine schema-v1 document throws the
+  `RetiredStatsSchemaException` subtype the store retires on).
   The controller talks to the source through `IProblemSetSource` and scores
   via `QuizScore.Plus`; the stats store folds finalized submissions via the
   document's `Plus`. Producer behavior — the per-enumeration reshuffle, the
   fold contracts — lives in BgGame_Lib's own INSTRUCTIONS.md.
 - **BgDataTypes_Lib** — data types. `BgDecisionData`, `Play`,
-  `PlayCandidate`, `BoardState`, `CubeDecisionPair`, `CubeAction`. The matcher
+  `PlayCandidate`, `BoardState`, `CubeDecisionPair`, `CubeAction`,
+  `ProblemKey` (content identity; `TryDerive` is the one factory — the
+  controller stamps every submission through it, and `false` is the no-key
+  rung, never a guess). The matcher
   compares the submitted `Play` against each `PlayCandidate.Play` by canonical
   `Play` equality; cube scoring reads `DecisionData`'s `BestDoublerAction` /
   `BestTakerAction` / `DoublerActionError` / `TakerActionError`.
@@ -157,8 +162,9 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     PickedFolderFilterStorage.cs    — IFilterDocumentStorage over the picked
                                       slot (the two-producer adapter glue)
     FolderPickDisplay.cs            — folder-pick wording SSOT
-    QuizStatsFile.cs                — stats filename + JsonSerializerOptions SSOT
-    QuizStatsStore.cs               — IDecisionStatsSink + document lifecycle
+    QuizStatsFile.cs                — stats filenames (live + retired sidecar) +
+                                      JsonSerializerOptions SSOT
+    QuizStatsStore.cs               — IProblemStatsSink + document lifecycle
     MixConsent.cs                   — the "Mix applies" bit (consent, not choice)
     MixDraft.cs                     — mix edit state + write-through xg_quizMix
     MixDisplay.cs                   — mix wording SSOT
@@ -192,7 +198,9 @@ BgQuiz_Blazor.Tests/
   FakeProblemSetSource.cs
   GatedProblemSetSource.cs          — externally-completable MoveNextAsync
   FakeFolderAccess.cs               — scriptable IFolderAccess double
-  FakeDecisionStatsSink.cs          — recording sink double + RecordGate
+  FakeProblemStatsSink.cs           — recording sink double + RecordGate
+  RetiredStatsFixture.cs            — stats files this build cannot write:
+                                      the retired v1 doc + its near misses
   QuizControllerTests.cs
   QuizControllerOverlapTests.cs     — the transition-gate overlap suite
   CachedProblemSetSourceTests.cs    — parse-once / invalidation / equivalence
@@ -205,7 +213,8 @@ BgQuiz_Blazor.Tests/
   MixPanelTests.cs                  — builder / validation / rebalance pins
   MixDraftTests.cs                  — build/write-through matrix + hydration
   QuizSettingsTests.cs              — the settings seam + the pinned wire bytes
-  QuizStatsStoreTests.cs            — bind / fold / write-back / degrade
+  QuizStatsStoreTests.cs            — bind / fold / write-back / degrade,
+                                      the v1 retirement, the pre-write guard
   WasmUploadedProblemSetSourceTests.cs
   PickedProblemFolderTests.cs
   PageTests.cs
@@ -349,7 +358,7 @@ the fake sink's `RecordGate`.
   from `QuizScore.Empty`, and clears `Review` — back to *answering* on the
   same `Current`. Enumerator and `IsFinished` untouched. No-op outside review.
 - **`ContinueAsync`** — the only *forward* exit from review: folds the
-  just-reviewed submission into the `IDecisionStatsSink` (see Pitfalls: on
+  just-reviewed submission into the `IProblemStatsSink` (see Pitfalls: on
   Continue, never at Submit), clears `Review`, and advances. Exhausting the
   source here flips `IsFinished` — after the fold, so the final answer
   records. No-op outside review.
@@ -426,19 +435,13 @@ notice tally deduped supply.
 - **Above the filter, not below it.** The decorator wraps the *filtered*
   stream; deduping the raw parse first can silently lose a matching position
   (Pitfalls owns why, and why the reverse edit is the tempting one).
-- **The survivor preference is the stats seam.** Among content-equal copies the
-  one carrying a lifetime-stats record wins: plain first-wins could drop the id
-  the user's GotWrong history hangs on and silently empty the mix pool that
-  history feeds. The predicate reads `IDecisionStatsSink.CurrentDocument`
-  **live** on every call, because the decorator re-arbitrates per enumeration —
-  so a Restart after this session's folds re-picks survivors against the record
-  as it now stands (never a captured snapshot; see Pitfalls).
-- **Passed unconditionally, never as null.** With no document bound the
-  predicate answers false for every id, which the producer's tie rule resolves
-  to first occurrence. A null-or-not branch would have to guess at wiring time
-  whether a document will be bound by enumeration time (it is not: the factory
-  is invoked after `BeginQuizAsync` for a Start, and with whatever the last
-  bind left for a pre-Start summary).
+- **Which copy survives is nobody's business here.** First occurrence, for
+  display and provenance only. Lifetime stats are keyed by content, so every
+  copy reads and writes the same record whichever one the quiz shows — which is
+  why this factory no longer takes the stats seam at all. (The stats-bearing
+  survivor preference it used to pass existed solely to keep id-keyed stats
+  reachable across content-identical copies; #95 deleted the fragmentation and
+  the seam with it. Don't reintroduce one.)
 - The producer's `Count` is null through this layer by contract — how many
   positions collapse is unknowable before enumeration.
 
@@ -453,12 +456,12 @@ around the factory source — so **the supply it composes from is already
 position-distinct** (§ Source construction, which owns what follows
 downstream) — holding the typed reference so `LastComposition`
 telemetry surfaces without type-testing; the stats provider resolves
-`IDecisionStatsSink.CurrentDocument` fresh per enumeration, so **Restart
+`IProblemStatsSink.CurrentDocument` fresh per enumeration, so **Restart
 recomposes against the lifetime record as it stands, this session's folds
 included** (deliberate, producer-documented). Composing without stats is
 banned (ratified: no stats → feature unavailable, never silently unweighted),
 so the start is **refused** in two stages: stage 1, the side-effect-free
-`IDecisionStatsSink.CanWeightMix` shared predicate (§ `QuizStatsStore`) —
+`IProblemStatsSink.CanWeightMix` shared predicate (§ `QuizStatsStore`) —
 before even the stats bind; stage 2, after `BeginQuizAsync` (ordered **before**
 the source build, because the wrap decision needs the bound context), when the
 bind yielded no document. Since #87 the refusal is a **backstop, not a routine
@@ -484,7 +487,7 @@ never exceeds M and lands exactly on M at exhaustion; the accepted trade-off —
 an auto-skip shows as a rare gap — is documented on `ProblemNumber`.
 
 **Lifetime-stats sink is ctor-injected.** The controller's second dependency
-is the `IDecisionStatsSink` (production: `QuizStatsStore`), driven at exactly
+is the `IProblemStatsSink` (production: `QuizStatsStore`), driven at exactly
 two points: `ResetAndAdvanceAsync` calls `BeginQuizAsync()` — the one shared
 path under Start *and* Restart, so the stats context binds there and nowhere
 else — and the **forward exits from review** fold via `RecordAsync`, through the
@@ -517,11 +520,9 @@ match", not "problems you'll see".
 **It counts deduped positions, and cannot disagree with the quiz.** The summary
 draws from the *same* factory, so the position-dedupe layer is in the pool it
 counts: "N decisions match your filters" means N distinct positions. The
-agreement is structural, not a convention two call sites must honour — and it
-survives the survivor preference being resolved differently in the two paths
-(a summary runs pre-Start, possibly with no document bound), because the
-preference only decides *which* copy survives, never how many do. Pool size is
-preference-invariant.
+agreement is structural, not a convention two call sites must honour: the
+layer decides *which* copy survives, never how many do, so pool size cannot
+vary between a pre-Start summary and the quiz it precedes.
 
 **The count is `Total`, and there is no second surface for it.** The
 producer's fold contract (every `Add` increments exactly one bucket) makes the
@@ -533,7 +534,7 @@ question is a second answer waiting to disagree. The fold takes
 cube decision (BgGame_Lib's Pitfalls carry the trap). Classification is never
 re-derived here — a cube decision buckets once, on the analysis's declared
 best pair, deliberately unlike the two-half convention `QuizScore` and
-`DecisionStats` use for *answers*.
+`ProblemStats` use for *answers*.
 
 **Decision-type policy.** The user's `FilterConfig.DecisionType` choice
 governs which decisions the quiz admits; `FilterConfig.Build()` adds a
@@ -696,36 +697,55 @@ picked slot so it never requires a promote and never touches a running quiz's
 active handle.
 
 **`QuizStatsFile`** — the persistence SSOT: `FileName`
-(`bgquiz-stats.json`) and the one fixed `JsonSerializerOptions`
+(`bgquiz-stats.json`), `RetiredFileName` (`bgquiz-stats.v1.json` — the
+set-aside name, bare and path-free), and the one fixed `JsonSerializerOptions`
 (`WriteIndented = true` — whitespace is the only options-controlled aspect;
 the bundled converter pins names and ordering). The filename is passed *into*
 the lib's name-parameterized active-slot calls per call and rendered by `Help`
 from the constant — neither restates it.
 
-**`QuizStatsStore`** (scoped; aliased as `IDecisionStatsSink` so the
+**`QuizStatsStore`** (scoped; aliased as `IProblemStatsSink` so the
 controller's sink and the pages' status notices observe one instance; deps:
 `IFolderAccess`, `TimeProvider`, `PickedProblemFolder`) owns the
-`DecisionStatsDocument` lifecycle:
+`ProblemStatsDocument` lifecycle:
 
 - `BeginQuizAsync` (every Start/Restart) re-derives the whole context and
   resets any prior failure state: capability ≠ `Enabled` or no promoted
   handle ⇒ `Disabled`; `null` read ⇒ `Ready` over `Empty` (fresh corpus);
   `JsonException` / read `JSException` ⇒ **`LoadFailed`** — records nothing,
   never writes (see Pitfalls; recovery is user-side, no overwrite offer).
-- `RecordAsync` (from `ContinueAsync`, only while `Ready`): fold via
-  `doc.Plus(submission, clock)` then **write back immediately** — per-fold
-  write-back is the crash-safety choice (small file; a lost tab loses no
-  answered problem). A write `JSException` keeps the folded document in
-  memory, flips `WriteFailed`, raises `StatusChanged`, and stops writing (no
-  per-answer error spam). The store **never throws** — Continue cannot fault
-  on stats trouble.
+- **The v1 retirement** (SPEC-stats-identity.md §3) is the one exception to
+  that never-writes rule, and it is caught *before* the general
+  `JsonException`: a `RetiredStatsSchemaException` means a genuine v1 document,
+  so the store copies its bytes aside under `RetiredFileName` **unparsed and
+  first**, then puts a fresh `Empty` under `FileName`, then mints
+  `StatsRetiredOccurrence` and lands `Ready`. Order is the data-safety
+  guarantee — a file that could not be preserved is never replaced — so a
+  `JSException` from either write reports `LoadFailed` with `FileName` still
+  holding v1, which the next bind recognises and retries over identical bytes.
+  Newer-than-supported is **not** retired: it keeps the untouched `LoadFailed`
+  posture, as does a document claiming v1 without v1's shape. No rename API was
+  lifted into BgFolderAccess_Razor for this; a second consumer would be the
+  trigger.
+- `RecordAsync` (from `ContinueAsync`, only while `Ready`): fold then **write
+  back immediately** — per-fold write-back is the crash-safety choice (small
+  file; a lost tab loses no answered problem). The fold's base is a **fresh
+  read** of the file, not the bind-time snapshot (the ruled pre-write guard,
+  SPEC-stats-identity.md §5): whole-document writes mean a second context over
+  the same folder would otherwise be silently overwritten, and the re-read
+  shrinks that to a same-instant race. Read trouble — missing, unreadable,
+  unparseable, *including* a file swapped to v1 mid-quiz — is one answer:
+  degrade to the in-memory fold, touching no status. A write `JSException`
+  keeps the folded document in memory, flips `WriteFailed`, raises
+  `StatusChanged`, and stops writing (no per-answer error spam). The store
+  **never throws** — Continue cannot fault on stats trouble.
 - The clock is the DI `TimeProvider` (registered `TimeProvider.System` in
   `Program.cs`), handed to the document's `Plus` — ambient time is never read.
 
 **Two states, two lifetimes, no traffic between them** (issue #87). Beside the
 *active context* above sits the **pick-time probe** behind `CanWeightMix`:
 
-- **`CanWeightMix`** (on `IDecisionStatsSink`, replacing the old
+- **`CanWeightMix`** (on `IProblemStatsSink`, replacing the old
   `CanBindStats`) — *the* predicate for "can a weighted mix mean anything
   here": `Capability == Enabled` **and** the probe found a stats document with
   `Count > 0` **and** the probe's generation stamp still matches
@@ -738,7 +758,10 @@ controller's sink and the pages' status notices observe one instance; deps:
   (`ReadPickedFileAsync(QuizStatsFile.FileName)`), deserialize, `Count > 0`.
   Degrade-tolerant *because that is the ruling*, not as a defensive extra:
   missing, empty, corrupt, foreign-schema, and browser-read-failure all leave
-  it false, with no status, no notice, and nothing thrown. It **promotes
+  it false, with no status, no notice, and nothing thrown. **A retired v1 file
+  reads as "no stats to weight by" too**, and stays that way until the first
+  quiz performs the set-aside: the probe never binds, so it never retires. That
+  is the ruling working, not a gap to close (SPEC-stats-identity.md §3). It **promotes
   nothing** and never assigns the active document or `Status`, so a probe
   during a running quiz cannot disturb what that quiz records. Under a
   non-`Enabled` capability the interop is skipped through the same private
@@ -1081,7 +1104,7 @@ mix* clears the rows in every state.
 **Offered only where a mix can mean something — one predicate, every consumer**
 (issue #87). Home renders `MixPanel` only while
 **`QuizStatsStore.CanWeightMix`**, and the controller's stage-1 refusal reads
-the same member through `IDecisionStatsSink`. Ruled: **a weighted
+the same member through `IProblemStatsSink`. Ruled: **a weighted
 mix does not apply to an empty stats document, and an empty document is
 treated exactly as no document**; missing, empty, and unreadable are one
 answer, not three rungs. The predicate is therefore write capability **and** a
@@ -1197,8 +1220,9 @@ deliberately not a dismissal** — it moves past a problem without answering it.
 ### Dismissible notices — `QuizNoticeDismissal` (issue #41, `SPEC-quiz-view.md` §4)
 
 **Every notice on the Quiz page dismisses on a click**: the mix composition
-notice (both framings) and the stats-context degrade notice (`LoadFailed`'s
-polite one, `WriteFailed`'s assertive one). Dismissal is §4's answer to the
+notice (both framings), the stats-context degrade notice (`LoadFailed`'s
+polite one, `WriteFailed`'s assertive one), and the stats-retirement report.
+Dismissal is §4's answer to the
 board space they cost, the mode being forbidden from suppressing them — the
 ruling and its reasoning are the spec's.
 
@@ -1213,6 +1237,17 @@ exist at all:
 - **StatsContext** → `QuizStatsStore.StatusOccurrence`, an **opaque object
   whose only meaning is identity**, replaced at the top of `BeginQuizAsync`
   (the context is re-derived) and in `SetStatus` on a real transition.
+- **StatsRetired** → `QuizStatsStore.StatsRetiredOccurrence`, the same kind of
+  token but **nullable — the token is the flag**, non-null only on a run that
+  actually set a v1 file aside, so no companion boolean can disagree with it.
+  Its own slot rather than a share of `StatusOccurrence`, because it can be
+  showing *beside* a degrade notice: a later `Ready → WriteFailed` mints a
+  fresh status token, which must not resurrect a retirement report already
+  read. And deliberately not a `QuizStatsStatus` value — after a retirement
+  the context is `Ready` and can still fail its next write, so retired-ness is
+  orthogonal to the condition `Status` reports; folding it in would make every
+  `== Ready` site grow an "or retired" clause. `Done` mirrors it
+  non-dismissibly, as it mirrors the degrade notices.
 
 Keying the stats notice on the `Status` *value* gets two real cases wrong: a
 mid-run `Ready → WriteFailed` is a new thing to say, and **a second quiz bound
@@ -2206,12 +2241,18 @@ permission) is a page-level init script overriding the fake's config object; a
 mid-test `EvaluateAsync` can mutate it between quizzes (the app re-reads the
 stats file at every Start's re-bind). Three suites ride the fake.
 `StatsPersistenceTests` pins: one fold ⇒ one captured write with
-`schemaVersion` 1, one decision record, a cube-as-two-decisions tally,
-indented; corrupt file ⇒ polite notice + **zero writes**; denied ⇒ denied
-notice + zero writes; and the fallback pick's "can't save stats" notice. The
-stats filename and wire property names are deliberately hardcoded there — the
-consumer-side pin of those contracts (the e2e project references no app
-assembly by design). `MixWeightingTests` drives the weighted path to Done and pins #87's gating
+`schemaVersion` 2, one `problems` record whose key carries no filename, a
+cube-as-two-decisions tally, indented; a **retired v1 file** ⇒ the set-aside
+report (not the "couldn't be read" degrade), its bytes captured verbatim under
+`bgquiz-stats.v1.json`, and two writes to the standard name (the empty seed,
+then the fold); corrupt file ⇒ polite notice + **zero writes**; denied ⇒
+denied notice + zero writes; and the fallback pick's "can't save stats" notice.
+The stats filenames, the retired document's own bytes, and the wire property
+names are deliberately hardcoded there — the consumer-side pin of those
+contracts (the e2e project references no app assembly by design), and the v1
+literal has no other possible source: the format has no writer left anywhere.
+The fake's set-aside slot is **write-only by construction** (no `getFile`), so
+an app that read it back would fail the gesture loudly. `MixWeightingTests` drives the weighted path to Done and pins #87's gating
 smoke — a folder with **no stats history** offers no mix and the quiz runs
 anyway, the state every first-time user of a folder is in. Every mix scenario
 now needs a seeded history first, which `SeedStatsHistoryAsync` supplies the
@@ -2533,7 +2574,7 @@ public (see Pitfalls). The externally visible surface is the route map:
   on `Controller.StartAsync` and `Home.razor` banners them.
 - **Lifetime stats fold on the forward exits from review, never at Submit.**
   `RedoAsync` pops the last submission *while `Review` is set*, and
-  `DecisionStatsDocument` has no `Minus` — folding at Submit would let a redone
+  `ProblemStatsDocument` has no `Minus` — folding at Submit would let a redone
   answer fold twice with no way back. An answer is final only when the user moves
   forward past it, and the deliberate flip side is that an answer abandoned in
   review (tab close, Start/Restart without Continue) never folds — don't "fix"
@@ -2768,11 +2809,11 @@ public (see Pitfalls). The externally visible surface is the route map:
   position vanishes with nothing reporting it. Moving it above shuffle or mix
   gives each quiz mode its own dedupe story, which is how #84 arose in the
   first place (id-level dedupe existed inside the mix; the bug was
-  mix-independent). Also: don't "improve" the survivor predicate into a
-  snapshot captured at wiring time — the decorator re-arbitrates per
-  enumeration, and a Restart after this session's folds must see the current
-  record; and don't add a null-vs-predicate branch, since an unbound document
-  already resolves to first occurrence through the producer's tie rule.
+  mix-independent). Also: don't reintroduce a survivor *preference*. The old
+  one existed solely to keep id-keyed lifetime stats reachable across
+  content-identical copies; content-keyed stats make every copy read and write
+  the same record, so #95 deleted the fragmentation and the seam together —
+  first occurrence survives, for display and provenance only.
   `PositionDedupeTests` pins all of it against a committed fixture streamed
   twice under two names, and **fails loudly if that fixture is missing** —
   never convert it to a skip (§ the e2e rule, same reasoning).
