@@ -499,6 +499,18 @@
             read (edited by hand, or written by a newer BgQuiz), the quiz runs without
             recording and the file is not touched.
         </li>
+        @* Names both files from the constants, like every other file name on
+           this page — the prose cannot drift from what is written. Says what
+           happens and what it costs; the reason it can't be carried forward is
+           a fact about the file, not an invitation to explain position
+           identity to someone who came here to quiz. *@
+        <li>
+            <strong>Stats from an earlier version start over.</strong> BgQuiz changed
+            how it recognises a position, so a stats file written by an earlier version
+            can't be carried forward. The first quiz you run in that folder sets the old
+            file aside as <code>@QuizStatsFile.RetiredFileName</code> — nothing is
+            deleted — and starts a fresh <code>@QuizStatsFile.FileName</code> beside it.
+        </li>
     </ul>
 
     <h2 class="h4 mt-4">Things worth knowing</h2>

@@ -4400,6 +4400,23 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public void Help_ExplainsThatEarlierVersionStatsStartOver()
+    {
+        // The clean break's user-facing half (SPEC-stats-identity.md §3). Both
+        // names come from their constants, for the same no-drift reason; the
+        // "nothing is deleted" claim is the one a tester needs, and is exactly
+        // what the store's set-aside guarantees.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        var text = Normalize(cut.Find("div.container").TextContent);
+        Assert.Contains("start over", text);
+        Assert.Contains($"sets the old file aside as {QuizStatsFile.RetiredFileName}", text);
+        Assert.Contains("nothing is deleted", text);
+    }
+
+    [Fact]
     public void Help_NoQuizInProgress_RendersWithoutRedirecting_AndOffersNoBackButton()
     {
         // Unlike Stats, Help is reachable from any state — including a cold visit
