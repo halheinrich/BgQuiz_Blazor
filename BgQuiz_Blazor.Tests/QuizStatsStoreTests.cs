@@ -35,12 +35,27 @@ public class QuizStatsStoreTests
         FakeFolderAccess fake, PickedProblemFolder? folder = null) =>
         new(fake, new FixedTimeProvider(), folder ?? EnabledFolder());
 
-    private static SubmittedPlay PlaySubmission(string file = "stats.xgp", bool correct = true) =>
-        new(new XgpDecisionId(file), TestFixtures.MakePlay((8, 5)), 0,
+    /// <summary>
+    /// The content key of the <paramref name="problem"/>-th distinct fixture
+    /// problem, derived through the producer's one factory. Distinct values are
+    /// distinct <i>problems</i> and therefore distinct lifetime records — the
+    /// only thing that separates records now that identity is content, not
+    /// provenance (the file a decision came from is no longer part of it).
+    /// </summary>
+    private static ProblemKey PlayKey(int problem = 0) =>
+        TestFixtures.KeyOf(TestFixtures.TwoChoiceDecision(
+            TestFixtures.MakePlay((8, 5)), TestFixtures.MakePlay((13, 10)), away: problem));
+
+    /// <summary>The cube analog of <see cref="PlayKey"/>; a cube key never collides with a play key (no dice field).</summary>
+    private static ProblemKey CubeKey(int problem = 0) =>
+        TestFixtures.KeyOf(TestFixtures.CubeDecision(away: problem));
+
+    private static SubmittedPlay PlaySubmission(int problem = 0, bool correct = true) =>
+        new(PlayKey(problem), TestFixtures.MakePlay((8, 5)), 0,
             correct ? 0.0 : 0.05, correct);
 
-    private static SubmittedCubeAction CubeSubmission(string file = "cube.xgp") =>
-        new(new XgpDecisionId(file), new CubeDecisionPair(CubeAction.Double, CubeAction.Take),
+    private static SubmittedCubeAction CubeSubmission(int problem = 0) =>
+        new(CubeKey(problem), new CubeDecisionPair(CubeAction.Double, CubeAction.Take),
             0.0, 0.0, DoublerCorrect: true, TakerCorrect: true);
 
     // -----------------------------------------------------------------------
@@ -131,7 +146,7 @@ public class QuizStatsStoreTests
         // records: one prior submission for this decision on disk, one folded
         // now → the written tally shows two.
         var clock = new FixedTimeProvider();
-        var existing = DecisionStatsDocument.Empty.Plus(PlaySubmission(), clock);
+        var existing = ProblemStatsDocument.Empty.Plus(PlaySubmission(), clock);
         var fake = new FakeFolderAccess
         {
             StatsJson = JsonSerializer.Serialize(existing, QuizStatsFile.SerializerOptions),
@@ -142,9 +157,9 @@ public class QuizStatsStoreTests
 
         await store.RecordAsync(PlaySubmission());
 
-        var written = JsonSerializer.Deserialize<DecisionStatsDocument>(fake.Writes.Single());
+        var written = JsonSerializer.Deserialize<ProblemStatsDocument>(fake.Writes.Single());
         Assert.NotNull(written);
-        var record = Assert.Single(written.Decisions).Value;
+        var record = Assert.Single(written.Problems).Value;
         Assert.Equal(2, record.Tally.Submitted);
         Assert.Equal(2, record.Tally.Correct);
     }
@@ -216,9 +231,9 @@ public class QuizStatsStoreTests
 
         var payload = Assert.Single(fake.Writes);
         Assert.Contains('\n', payload); // WriteIndented pin — the one options-controlled aspect
-        var doc = JsonSerializer.Deserialize<DecisionStatsDocument>(payload);
+        var doc = JsonSerializer.Deserialize<ProblemStatsDocument>(payload);
         Assert.NotNull(doc);
-        var record = Assert.Single(doc.Decisions).Value;
+        var record = Assert.Single(doc.Problems).Value;
         Assert.Equal(1, record.Tally.Submitted);
         Assert.Equal(1, record.Tally.Correct);
         Assert.Equal(FixedNow, record.LastQuizzed); // clock came from the TimeProvider seam
@@ -236,9 +251,9 @@ public class QuizStatsStoreTests
 
         await store.RecordAsync(CubeSubmission());
 
-        var doc = JsonSerializer.Deserialize<DecisionStatsDocument>(fake.Writes.Single());
+        var doc = JsonSerializer.Deserialize<ProblemStatsDocument>(fake.Writes.Single());
         Assert.NotNull(doc);
-        var record = Assert.Single(doc.Decisions).Value;
+        var record = Assert.Single(doc.Problems).Value;
         Assert.Equal(2, record.Tally.Submitted);
         Assert.Equal(2, record.Tally.Correct);
     }
@@ -252,11 +267,11 @@ public class QuizStatsStoreTests
         var store = MakeStore(fake);
         await store.BeginQuizAsync();
 
-        await store.RecordAsync(PlaySubmission("a.xgp"));
-        await store.RecordAsync(PlaySubmission("b.xgp"));
+        await store.RecordAsync(PlaySubmission(1));
+        await store.RecordAsync(PlaySubmission(2));
 
         Assert.Equal(2, fake.Writes.Count);
-        var last = JsonSerializer.Deserialize<DecisionStatsDocument>(fake.Writes[^1]);
+        var last = JsonSerializer.Deserialize<ProblemStatsDocument>(fake.Writes[^1]);
         Assert.NotNull(last);
         Assert.Equal(2, last.Count);
     }
@@ -270,8 +285,8 @@ public class QuizStatsStoreTests
         var statusChanges = 0;
         store.StatusChanged += () => statusChanges++;
 
-        await store.RecordAsync(PlaySubmission("a.xgp")); // fold ok, write fails
-        await store.RecordAsync(PlaySubmission("b.xgp")); // degraded: no further attempt
+        await store.RecordAsync(PlaySubmission(1)); // fold ok, write fails
+        await store.RecordAsync(PlaySubmission(2)); // degraded: no further attempt
 
         Assert.Equal(QuizStatsStatus.WriteFailed, store.Status);
         Assert.Equal(1, statusChanges); // Ready → WriteFailed exactly once, no per-answer spam
@@ -342,15 +357,19 @@ public class QuizStatsStoreTests
         var fake = new FakeFolderAccess();
         var store = MakeStore(fake);
         await store.BeginQuizAsync();
-        await store.RecordAsync(PlaySubmission("old.xgp"));
+        await store.RecordAsync(PlaySubmission(1));
 
-        await store.BeginQuizAsync(); // fake still reads null — nothing persisted it
-        await store.RecordAsync(PlaySubmission("new.xgp"));
+        // Empty the folder's file before the re-bind: the point is what the
+        // second context loads *from the file*, so the first run's write must
+        // not be what it finds — that would pin the round-trip instead.
+        fake.StatsJson = null;
+        await store.BeginQuizAsync();
+        await store.RecordAsync(PlaySubmission(2));
 
-        var last = JsonSerializer.Deserialize<DecisionStatsDocument>(fake.Writes[^1]);
+        var last = JsonSerializer.Deserialize<ProblemStatsDocument>(fake.Writes[^1]);
         Assert.NotNull(last);
-        var record = Assert.Single(last.Decisions);
-        Assert.Equal(new XgpDecisionId("new.xgp"), record.Key);
+        var record = Assert.Single(last.Problems);
+        Assert.Equal(PlayKey(2), record.Key);
     }
 
     // -----------------------------------------------------------------------
@@ -363,7 +382,7 @@ public class QuizStatsStoreTests
     /// </summary>
     private static string StatsDocumentJson() =>
         JsonSerializer.Serialize(
-            DecisionStatsDocument.Empty.Plus(PlaySubmission(), new FixedTimeProvider()),
+            ProblemStatsDocument.Empty.Plus(PlaySubmission(), new FixedTimeProvider()),
             QuizStatsFile.SerializerOptions);
 
     [Fact]

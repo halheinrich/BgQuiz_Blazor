@@ -71,7 +71,7 @@ using XgFilter_Lib.Filtering;
 ///
 /// <para>
 /// Lifetime stats: the controller drives the injected
-/// <see cref="IDecisionStatsSink"/> at exactly two points — the context bind
+/// <see cref="IProblemStatsSink"/> at exactly two points — the context bind
 /// in <see cref="ResetAndAdvanceAsync"/> (every Start/Restart) and the
 /// per-answer fold on the forward exits from review
 /// (<see cref="ContinueAsync"/> and <see cref="EndQuizAsync"/>, through one
@@ -103,7 +103,7 @@ using XgFilter_Lib.Filtering;
 internal sealed class QuizController : IAsyncDisposable
 {
     private readonly ProblemSetSourceFactory _sourceFactory;
-    private readonly IDecisionStatsSink _statsSink;
+    private readonly IProblemStatsSink _statsSink;
     private readonly TimeProvider _clock;
     private readonly List<SubmittedPlay> _history = [];
     private readonly List<SubmittedCubeAction> _cubeHistory = [];
@@ -114,7 +114,7 @@ internal sealed class QuizController : IAsyncDisposable
     private MixedProblemSetSource? _mixedSource;
     private IAsyncEnumerator<BgDecisionData>? _enumerator;
 
-    public QuizController(ProblemSetSourceFactory sourceFactory, IDecisionStatsSink statsSink, TimeProvider clock)
+    public QuizController(ProblemSetSourceFactory sourceFactory, IProblemStatsSink statsSink, TimeProvider clock)
     {
         _sourceFactory = sourceFactory ?? throw new ArgumentNullException(nameof(sourceFactory));
         _statsSink = statsSink ?? throw new ArgumentNullException(nameof(statsSink));
@@ -461,7 +461,7 @@ internal sealed class QuizController : IAsyncDisposable
         {
             var candidate = plays[idx];
             var submitted = new SubmittedPlay(
-                Current.Id,
+                KeyFor(Current),
                 play,
                 idx,
                 candidate.EquityLoss,
@@ -513,7 +513,7 @@ internal sealed class QuizController : IAsyncDisposable
 
         var d = Current.Decision;
         var submitted = new SubmittedCubeAction(
-            Current.Id,
+            KeyFor(Current),
             answer,
             d.DoublerActionError(answer.Doubler),
             d.TakerActionError(answer.Taker),
@@ -530,6 +530,25 @@ internal sealed class QuizController : IAsyncDisposable
 
         StateChanged?.Invoke();
     }
+
+    /// <summary>
+    /// The content identity stamped on a submission — the problem's
+    /// <see cref="ProblemKey"/>, or <see langword="null"/> on the ratified
+    /// no-key rung (SPEC-stats-identity.md §2), where the record's facts are
+    /// malformed or degenerate and a derivation would have to guess. Null is
+    /// carried, never substituted for: the submission still scores the session
+    /// exactly as any other, and only the lifetime record abstains — the
+    /// producer's document performs that skip, so nothing here branches on it.
+    ///
+    /// <para>
+    /// The one derivation site in this app, over the producer's single factory:
+    /// the two submit paths differ in everything except which problem they
+    /// answer, and a key assembled twice is a key that can be assembled two
+    /// ways.
+    /// </para>
+    /// </summary>
+    private static ProblemKey? KeyFor(BgDecisionData problem) =>
+        ProblemKey.TryDerive(problem, out var key) ? key : null;
 
     /// <summary>
     /// Reverse the just-submitted answer and return to the <i>answering</i>
@@ -596,7 +615,7 @@ internal sealed class QuizController : IAsyncDisposable
     ///
     /// <para>
     /// <b>Lifetime-stats fold point.</b> The just-reviewed submission folds
-    /// into the <see cref="IDecisionStatsSink"/> here — on leaving review, not
+    /// into the <see cref="IProblemStatsSink"/> here — on leaving review, not
     /// at Submit — because <see cref="RedoAsync"/> pops the last submission
     /// while <see cref="Review"/> is set and the stats document has no
     /// <c>Minus</c>: an answer is final only once the user moves forward past
@@ -654,7 +673,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// <b>A reviewed answer stands, and folds.</b> Ending from the <i>review</i>
     /// state is a forward exit, not an abandonment: the answer was submitted,
     /// scored into <see cref="Score"/>, and read — so it stays in the partial
-    /// score and folds into the <see cref="IDecisionStatsSink"/> exactly as
+    /// score and folds into the <see cref="IProblemStatsSink"/> exactly as
     /// <see cref="ContinueAsync"/> would fold it, through the one shared
     /// <see cref="RecordReviewedSubmissionAsync"/>. That is what keeps the
     /// standing invariant true: <i>every answer visible on Done has reached the
@@ -847,7 +866,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// banned (the producer's provider contract throws on null by design) —
     /// so no stats means the start is refused, never silently unweighted.
     /// Stage 1 is the side-effect-free shared predicate
-    /// (<see cref="IDecisionStatsSink.CanWeightMix"/>): a folder that can't
+    /// (<see cref="IProblemStatsSink.CanWeightMix"/>): a folder that can't
     /// save stats, or has no stats record yet, refuses before anything —
     /// including the stats bind — happens. Stage 2 runs after the bind:
     /// a context that bound without a document (unreadable stats file)
@@ -931,7 +950,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// null-provider contract rather than masking the bug as an
     /// all-never-seen quiz.
     /// </summary>
-    private DecisionStatsDocument GetCurrentDocumentOrThrow() =>
+    private ProblemStatsDocument GetCurrentDocumentOrThrow() =>
         _statsSink.CurrentDocument ?? throw new InvalidOperationException(
             "The mix composition layer is wired but the stats sink holds no document — " +
             "a weighted start should have been refused.");
@@ -1037,7 +1056,7 @@ internal enum QuizStartOutcome
     /// <para>
     /// <b>A backstop, not a routine outcome</b>, since issue
     /// <c>halheinrich/backgammon#87</c>: the host offers no way to build a mix
-    /// where <see cref="IDecisionStatsSink.CanWeightMix"/> is false, so a
+    /// where <see cref="IProblemStatsSink.CanWeightMix"/> is false, so a
     /// non-passthrough mix can barely coexist with absent stats. What is left
     /// is the genuinely reachable case this member is kept for — a bind that
     /// fails <i>after</i> the pick looked capable (the file changed, or turned

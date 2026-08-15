@@ -14,7 +14,7 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 
-// The clock seam: BgGame_Lib's DecisionStatsDocument folds resolve GetUtcNow
+// The clock seam: BgGame_Lib's ProblemStatsDocument folds resolve GetUtcNow
 // from a TimeProvider, so the app hands the system clock in exactly once here
 // and nothing ever reads ambient time (tests substitute a fixed provider).
 builder.Services.AddSingleton(TimeProvider.System);
@@ -48,10 +48,10 @@ builder.Services.AddScoped<PickedProblemFolder>();
 // anything for this folder", which Home's panel gate and the controller's
 // stage-1 refusal both read (issue #87); that probe touches the picked slot
 // only and never the active context above. Registered once and aliased as
-// IDecisionStatsSink so the controller's sink and the pages' status notices
+// IProblemStatsSink so the controller's sink and the pages' status notices
 // observe the same instance.
 builder.Services.AddScoped<QuizStatsStore>();
-builder.Services.AddScoped<IDecisionStatsSink>(sp => sp.GetRequiredService<QuizStatsStore>());
+builder.Services.AddScoped<IProblemStatsSink>(sp => sp.GetRequiredService<QuizStatsStore>());
 
 // Per-app holder for the filter half of Home's start gate — XgFilter_Razor's
 // AppliedFilter, mediated by the FilterSurface Home hosts (a commit Sets it
@@ -131,13 +131,12 @@ builder.Services.AddScoped<QuizLiveMarker>();
 // sits in a named type the tests can call rather than in a lambda they could
 // only re-type by hand. This registration's whole job is to resolve the
 // app-scoped ingredients and hand them over; every one of them is read live at
-// invocation (QuizController.StartAsync), not here — the stats sink included,
-// which is why the dedupe layer's survivor preference sees this session's folds.
+// invocation (QuizController.StartAsync), not here — so a pick or a shuffle
+// toggle made before Start takes effect on that Start.
 builder.Services.AddScoped<ProblemSetSourceFactory>(sp =>
     PickedFolderSourceFactory.Create(
         sp.GetRequiredService<PickedProblemFolder>(),
         sp.GetRequiredService<ShuffleOption>(),
-        sp.GetRequiredService<IDecisionStatsSink>(),
         sp.GetRequiredService<ILoggerFactory>(),
         sp.GetRequiredService<TimeProvider>()));
 

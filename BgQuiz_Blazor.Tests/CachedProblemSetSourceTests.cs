@@ -127,7 +127,7 @@ public class CachedProblemSetSourceTests
         var folder = FolderOver(files);
         ProblemSetSourceFactory factory = (filters, _) =>
             new CachedProblemSetSource(folder, filters, NullLoggerFactory.Instance, TimeProvider.System);
-        var controller = new QuizController(factory, new FakeDecisionStatsSink(), TimeProvider.System);
+        var controller = new QuizController(factory, new FakeProblemStatsSink(), TimeProvider.System);
 
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty);
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty);

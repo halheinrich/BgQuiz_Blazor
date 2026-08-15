@@ -17,7 +17,7 @@ namespace BgQuiz_Blazor.Tests;
 /// <para>
 /// Overlap windows are frozen deterministically: <see cref="GatedProblemSetSource"/>
 /// suspends the controller inside an awaited <c>MoveNextAsync</c>, and
-/// <see cref="FakeDecisionStatsSink.RecordGate"/> suspends it inside the
+/// <see cref="FakeProblemStatsSink.RecordGate"/> suspends it inside the
 /// awaited stats fold (where <c>Review</c> is still set — the double-fold
 /// window). The gate flips <c>IsBusy</c> synchronously before its first
 /// await, so a second call issued while the first task is pending observes
@@ -38,12 +38,12 @@ public class QuizControllerOverlapTests
     /// tests can pin that an overlapped Start/Restart never built a source.
     /// </summary>
     private static QuizController MakeGated(
-        out GatedProblemSetSource source, out FakeDecisionStatsSink sink,
+        out GatedProblemSetSource source, out FakeProblemStatsSink sink,
         out Func<int> factoryCalls, params BgDecisionData[] items)
     {
         var gated = new GatedProblemSetSource(items);
         source = gated;
-        sink = new FakeDecisionStatsSink();
+        sink = new FakeProblemStatsSink();
         var calls = 0;
         factoryCalls = () => calls;
         return new QuizController((_, _) => { calls++; return gated; }, sink, TimeProvider.System);
@@ -319,7 +319,7 @@ public class QuizControllerOverlapTests
             (_, _) => throwNext
                 ? throw new InvalidOperationException("boom")
                 : fake,
-            new FakeDecisionStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => c.StartAsync(new FilterConfig(), QuizMix.Empty));
@@ -338,7 +338,7 @@ public class QuizControllerOverlapTests
         var throwNext = true;
         var c = new QuizController(
             (_, _) => throwNext ? new ThrowingProblemSetSource() : good,
-            new FakeDecisionStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => c.StartAsync(new FilterConfig(), QuizMix.Empty));

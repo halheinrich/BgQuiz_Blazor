@@ -43,6 +43,27 @@ internal static class TestFixtures
     }
 
     /// <summary>
+    /// The content identity of <paramref name="decision"/>, through the
+    /// producer's single derivation factory — the only way a test may obtain a
+    /// <see cref="ProblemKey"/>. Hand-assembling a canonical string here would
+    /// be a second derivation site that can disagree with the app's, which is
+    /// exactly what the type's one-factory rule forbids.
+    ///
+    /// <para>
+    /// Throws when the fixture has no derivable key: every fixture in this file
+    /// carries real, physically-possible facts, so an underivable one is a
+    /// broken fixture rather than a scenario. Tests that mean to exercise the
+    /// no-key rung build the malformed record where they use it and pass
+    /// <see langword="null"/> themselves.
+    /// </para>
+    /// </summary>
+    public static ProblemKey KeyOf(BgDecisionData decision) =>
+        ProblemKey.TryDerive(decision, out var key)
+            ? key
+            : throw new InvalidOperationException(
+                "Fixture has no derivable ProblemKey — its facts are malformed or degenerate.");
+
+    /// <summary>
     /// Deterministic two-candidate decision: <c>play1</c> at zero loss (best),
     /// <c>play2</c> at <paramref name="play2Loss"/>. Standard Mop, dice (3,1)
     /// for the pass-detection step (not pass — standard start has many plays
@@ -51,17 +72,27 @@ internal static class TestFixtures
     /// play) so existing callers are unaffected. <paramref name="id"/> overrides the
     /// decision's stable identity for tests that pin how <c>BgDecisionData.Id</c>
     /// flows through submissions; defaults to a shared placeholder.
+    /// <paramref name="away"/> sets both sides' away score (0 = money game) —
+    /// the discriminator for tests needing <i>content-distinct</i> problems.
+    /// Away scores participate in <see cref="ProblemKey"/> identity, and unlike
+    /// the board or the dice they leave move generation untouched, so a fixture
+    /// varied this way stays exactly as playable as the default one.
     /// </summary>
     public static BgDecisionData TwoChoiceDecision(
         Play play1, Play play2, double play2Loss = 0.05, string onRoll = "Alice",
         string opp = "Bob", string xgid = "", int recordedPlayIndex = -1,
-        DecisionId? id = null)
+        DecisionId? id = null, int away = 0)
     {
         return new BgDecisionData
         {
             Id = id ?? new XgpDecisionId("test.xgp"),
             Xgid = xgid,
-            Position = new PositionData { Mop = StandardMop() },
+            Position = new PositionData
+            {
+                Mop = StandardMop(),
+                OnRollNeeds = away,
+                OpponentNeeds = away,
+            },
             Decision = new DecisionData
             {
                 Dice = [3, 1],
@@ -87,17 +118,24 @@ internal static class TestFixtures
     /// data-layer cube invariant ([0, 0]). <paramref name="id"/> overrides the
     /// decision's stable identity for tests that pin how <c>BgDecisionData.Id</c>
     /// flows through submissions; defaults to a shared placeholder.
+    /// <paramref name="away"/> discriminates content identity exactly as on
+    /// <see cref="TwoChoiceDecision"/>.
     /// </summary>
     public static BgDecisionData CubeDecision(
         double noDoubleEquity = 0.5, double doubleTakeEquity = 0.7,
         string onRoll = "Alice", string opp = "Bob", string xgid = "",
-        DecisionId? id = null)
+        DecisionId? id = null, int away = 0)
     {
         return new BgDecisionData
         {
             Id = id ?? new XgpDecisionId("test.xgp"),
             Xgid = xgid,
-            Position = new PositionData { Mop = StandardMop() },
+            Position = new PositionData
+            {
+                Mop = StandardMop(),
+                OnRollNeeds = away,
+                OpponentNeeds = away,
+            },
             Decision = new DecisionData
             {
                 IsCube = true,

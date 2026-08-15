@@ -136,7 +136,7 @@ public class PageTests : BunitContext
     private QuizController WithController(params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
-        var controller = new QuizController((_, _) => fake, new FakeDecisionStatsSink(), TimeProvider.System);
+        var controller = new QuizController((_, _) => fake, new FakeProblemStatsSink(), TimeProvider.System);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -187,8 +187,9 @@ public class PageTests : BunitContext
     private static string StatsDocumentJson(Play play)
     {
         var decision = TestFixtures.TwoChoiceDecision(play, AltPlay());
-        var doc = DecisionStatsDocument.Empty.Plus(
-            new SubmittedPlay(decision.Id, play, 0, 0.0, IsCorrect: true), TimeProvider.System);
+        var doc = ProblemStatsDocument.Empty.Plus(
+            new SubmittedPlay(TestFixtures.KeyOf(decision), play, 0, 0.0, IsCorrect: true),
+            TimeProvider.System);
         return JsonSerializer.Serialize(doc, QuizStatsFile.SerializerOptions);
     }
 
@@ -199,7 +200,7 @@ public class PageTests : BunitContext
     /// treat it as a third state.
     /// </summary>
     private static string EmptyStatsDocumentJson() =>
-        JsonSerializer.Serialize(DecisionStatsDocument.Empty, QuizStatsFile.SerializerOptions);
+        JsonSerializer.Serialize(ProblemStatsDocument.Empty, QuizStatsFile.SerializerOptions);
 
     /// <summary>
     /// Register an <see cref="AppliedFilter"/> (XgFilter_Razor's holder) for the
@@ -308,10 +309,10 @@ public class PageTests : BunitContext
     /// (<c>CanWeightMix</c> / <c>CurrentDocument</c>) before driving the UI.
     /// </summary>
     private QuizController WithWeighableController(
-        out FakeDecisionStatsSink sink, params BgDecisionData[] items)
+        out FakeProblemStatsSink sink, params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
-        sink = new FakeDecisionStatsSink();
+        sink = new FakeProblemStatsSink();
         var controller = new QuizController((_, _) => fake, sink, TimeProvider.System);
         Services.AddSingleton(controller);
         return controller;
@@ -419,7 +420,7 @@ public class PageTests : BunitContext
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         var controller = new QuizController(
             (set, _) => { capturedPipeline = set; return fake; },
-            new FakeDecisionStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System);
         Services.AddSingleton(controller);
         WithPickedFolder(); // satisfy the folder gate so Start is clickable
         WithAppliedFilter();
@@ -2067,7 +2068,7 @@ public class PageTests : BunitContext
         // observable — SummarizeMatchesAsync enumerates the source once per call.
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         Services.AddSingleton(
-            new QuizController((_, _) => fake, new FakeDecisionStatsSink(), TimeProvider.System));
+            new QuizController((_, _) => fake, new FakeProblemStatsSink(), TimeProvider.System));
         WithAppliedFilter();
         WithShuffleOption();
         _folderAccess.NextPickOutcome = OneFileOutcome();
@@ -2472,7 +2473,7 @@ public class PageTests : BunitContext
         var fake = new FakeProblemSetSource(items);
         var controller = new QuizController(
             (_, _) => shuffle.Enabled ? new ShuffledProblemSetSource(fake, seed: 42) : fake,
-            new FakeDecisionStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -2492,7 +2493,7 @@ public class PageTests : BunitContext
     private static BgDecisionData[] OrderedDecisions(int count) =>
         Enumerable.Range(0, count)
             .Select(i => TestFixtures.TwoChoiceDecision(
-                BestPlay(), AltPlay(), id: new XgpDecisionId($"test{i}.xgp")))
+                BestPlay(), AltPlay(), id: new XgpDecisionId($"test{i}.xgp"), away: i + 1))
             .ToArray();
 
     [Fact]
@@ -2732,8 +2733,8 @@ public class PageTests : BunitContext
     public async Task Quiz_Counter_RendersPositionOfTotal_AndAdvances()
     {
         var c = WithController(
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp")),
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp")));
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         var cut = Render<QuizPage>();
@@ -2752,7 +2753,7 @@ public class PageTests : BunitContext
         // total — the indicator degrades to the bare position.
         var fake = new FakeProblemSetSource(
             [TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())], countKnown: false);
-        var c = new QuizController((_, _) => fake, new FakeDecisionStatsSink(), TimeProvider.System);
+        var c = new QuizController((_, _) => fake, new FakeProblemStatsSink(), TimeProvider.System);
         Services.AddSingleton(c);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
@@ -2766,12 +2767,12 @@ public class PageTests : BunitContext
     {
         // Weighted, the total comes from the composition's drawn count (1),
         // not the inner source's Count (2).
-        var seen = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
-        var unseen = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var seen = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1);
+        var unseen = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2);
         var c = WithWeighableController(out var sink, seen, unseen);
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty.Plus(
-            new SubmittedPlay(seen.Id, BestPlay(), 0, 0.0, IsCorrect: true),
+        sink.CurrentDocument = ProblemStatsDocument.Empty.Plus(
+            new SubmittedPlay(TestFixtures.KeyOf(seen), BestPlay(), 0, 0.0, IsCorrect: true),
             TimeProvider.System);
         await c.StartAsync(new FilterConfig(), NeverSeenMix());
 
@@ -2817,7 +2818,8 @@ public class PageTests : BunitContext
                 access.WriteException = new JSException("write refused");
                 await store.BeginQuizAsync();
                 await store.RecordAsync(new SubmittedPlay(
-                    new XgpDecisionId("x.xgp"), TestFixtures.MakePlay((8, 5)), 0, 0.0, true));
+                    TestFixtures.KeyOf(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())),
+                    TestFixtures.MakePlay((8, 5)), 0, 0.0, true));
                 break;
         }
 
@@ -5000,7 +5002,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
@@ -5026,7 +5028,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
@@ -5285,7 +5287,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
@@ -5316,7 +5318,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
@@ -5653,8 +5655,9 @@ public class PageTests : BunitContext
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = WithWeighableController(out var sink, d);
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty.Plus(
-            new SubmittedPlay(d.Id, BestPlay(), 0, 0.0, IsCorrect: true), TimeProvider.System);
+        sink.CurrentDocument = ProblemStatsDocument.Empty.Plus(
+            new SubmittedPlay(TestFixtures.KeyOf(d), BestPlay(), 0, 0.0, IsCorrect: true),
+            TimeProvider.System);
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
         WithShuffleOption();
@@ -5773,7 +5776,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         WithAppliedFilter();
         WithShuffleOption();
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
@@ -5863,7 +5866,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
 
         var cut = Render<QuizPage>();
@@ -5883,11 +5886,11 @@ public class PageTests : BunitContext
         // the apportionment internals to a share explanation — no
         // "asked for … could be drawn" line, no bare requested-vs-drawn.
         var c = WithWeighableController(out var sink,
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp")),
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp")),
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("c.xgp")));
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("c.xgp"), away: 3));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), SplitMix(quizLength: 2));
 
         var cut = Render<QuizPage>();
@@ -5909,11 +5912,11 @@ public class PageTests : BunitContext
         // showed a misleading "drew 0 of 1 requested" alert here). The notice
         // reduces to a polite composition-only status line.
         var c = WithWeighableController(out var sink,
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp")),
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp")),
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("c.xgp")));
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("c.xgp"), away: 3));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), SplitMix()); // no length
 
         var cut = Render<QuizPage>();
@@ -5935,7 +5938,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
 
         var cut = Render<QuizPage>();
@@ -5959,7 +5962,7 @@ public class PageTests : BunitContext
         // answer is a submitted answer too, so it retires the notice identically.
         var c = WithWeighableController(out var sink, TestFixtures.CubeDecision());
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix()); // capless
 
         var cut = Render<QuizPage>();
@@ -5982,7 +5985,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
 
         var cut = Render<QuizPage>();
@@ -6000,10 +6003,10 @@ public class PageTests : BunitContext
         // still the thing the user hasn't engaged with — the settled rule is
         // "first submitted answer", and Skip isn't one.
         var c = WithWeighableController(out var sink,
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp")),
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp")));
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
 
         var cut = Render<QuizPage>();
@@ -6115,7 +6118,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
 
         var cut = Render<QuizPage>();
@@ -6138,7 +6141,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
         await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
 
@@ -6164,7 +6167,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 1));
 
         var cut = Render<QuizPage>();
@@ -6183,7 +6186,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix());
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts the one-problem source → finished
@@ -6222,12 +6225,12 @@ public class PageTests : BunitContext
     /// busy affordances before releasing it.
     /// </summary>
     private QuizController WithGatedController(
-        out GatedProblemSetSource source, out FakeDecisionStatsSink sink,
+        out GatedProblemSetSource source, out FakeProblemStatsSink sink,
         params BgDecisionData[] items)
     {
         var gated = new GatedProblemSetSource(items);
         source = gated;
-        sink = new FakeDecisionStatsSink();
+        sink = new FakeProblemStatsSink();
         var controller = new QuizController((_, _) => gated, sink, TimeProvider.System);
         Services.AddSingleton(controller);
         return controller;

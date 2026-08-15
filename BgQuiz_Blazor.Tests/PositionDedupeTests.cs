@@ -85,9 +85,9 @@ public class PositionDedupeTests
     }
 
     private static ProblemSetSourceFactory FactoryOver(
-        PickedProblemFolder picked, ShuffleOption shuffle, IDecisionStatsSink stats) =>
+        PickedProblemFolder picked, ShuffleOption shuffle) =>
         PickedFolderSourceFactory.Create(
-            picked, shuffle, stats, NullLoggerFactory.Instance, TimeProvider.System);
+            picked, shuffle, NullLoggerFactory.Instance, TimeProvider.System);
 
     /// <summary>
     /// What the composition's innermost layer yields — the undeduped, filtered
@@ -129,8 +129,8 @@ public class PositionDedupeTests
             "test can no longer observe the #84 duplication it exists to pin.");
 
         var controller = new QuizController(
-            FactoryOver(picked, new ShuffleOption(), new FakeDecisionStatsSink()),
-            new FakeDecisionStatsSink(),
+            FactoryOver(picked, new ShuffleOption()),
+            new FakeProblemStatsSink(),
             TimeProvider.System);
 
         Assert.Equal(QuizStartOutcome.Started, await controller.StartAsync(EarlyMoves, QuizMix.Empty));
@@ -171,7 +171,7 @@ public class PositionDedupeTests
             undeduped.Count > undeduped.Select(d => d.Xgid).Distinct(StringComparer.Ordinal).Count(),
             "Premise broken: the two copies no longer yield content-equal decisions.");
 
-        var factory = FactoryOver(picked, shuffle, new FakeDecisionStatsSink());
+        var factory = FactoryOver(picked, shuffle);
         var drawn = await CollectAsync(factory(new FilterConfig().Build(), QuizMix.Empty));
 
         Assert.NotEmpty(drawn);
@@ -180,61 +180,35 @@ public class PositionDedupeTests
     }
 
     // -----------------------------------------------------------------------
-    //  Survivor preference through the wire
+    //  Which copy survives
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task SurvivorPreference_TheStatsBearingCopySurvives()
+    public async Task FirstOccurrenceSurvives_AcrossTheTwoNamedCopies()
     {
         var picked = HolderOverTwoCopies();
 
-        // Name the two ids dedupe has to arbitrate between: one contested
-        // position, its copy from each named file. First occurrence is the
-        // first-named file's, since the pick's file order is the parse order.
+        // Name the two ids dedupe arbitrates between: one contested position,
+        // its copy from each named file. The pick's file order is the parse
+        // order, so the first-named file holds the first occurrence.
         var undeduped = await UndedupedAsync(picked, EarlyMoves);
         var contested = undeduped
             .GroupBy(d => d.Xgid, StringComparer.Ordinal)
             .First(g => g.Count() == 2);
-        var fromFirstCopy = contested.ElementAt(0).Id;
-        var fromSecondCopy = contested.ElementAt(1).Id;
-        Assert.Equal(FirstCopyName, fromFirstCopy.Filename);
-        Assert.Equal(SecondCopyName, fromSecondCopy.Filename);
+        Assert.Equal(FirstCopyName, contested.ElementAt(0).Id.Filename);
+        Assert.Equal(SecondCopyName, contested.ElementAt(1).Id.Filename);
 
-        // One sink and one factory across both enumerations: the predicate reads
-        // the sink live, so changing the document between draws is exactly the
-        // Restart-after-stats-changed case, re-arbitrated against current state
-        // rather than a snapshot taken at wiring time.
-        var sink = new FakeDecisionStatsSink();
-        var factory = FactoryOver(picked, new ShuffleOption(), sink);
-
-        // No document bound: no id is preferred, so first occurrence survives.
-        Assert.Equal(fromFirstCopy, await SurvivorOfAsync(factory, contested.Key));
-
-        // Stage the lifetime record on the *second-named* copy — the one
-        // first-wins would have dropped, silently emptying the mix pool that
-        // history belongs to. It survives instead, so the user's GotWrong
-        // history still has a position behind it.
-        sink.CurrentDocument = DocumentWithRecordFor(fromSecondCopy);
-        Assert.Equal(fromSecondCopy, await SurvivorOfAsync(factory, contested.Key));
-    }
-
-    /// <summary>The id of the single decision the composed source yields for <paramref name="xgid"/>.</summary>
-    private static async Task<DecisionId> SurvivorOfAsync(ProblemSetSourceFactory factory, string xgid)
-    {
+        // First occurrence, unconditionally — and unconditional is the claim:
+        // the survivor once had to be the copy carrying lifetime stats, because
+        // stats were keyed by file-relative id and dropping the wrong copy
+        // emptied the mix pool that history fed. Content-keyed stats make every
+        // copy read and write the same record, so that seam is deleted rather
+        // than satisfied here (SPEC-stats-identity.md §4) and nothing about the
+        // lifetime record can move this outcome.
+        var factory = FactoryOver(picked, new ShuffleOption());
         var drawn = await CollectAsync(factory(EarlyMoves.Build(), QuizMix.Empty));
-        return Assert.Single(drawn, d => string.Equals(d.Xgid, xgid, StringComparison.Ordinal)).Id;
+        var survivor = Assert.Single(
+            drawn, d => string.Equals(d.Xgid, contested.Key, StringComparison.Ordinal));
+        Assert.Equal(FirstCopyName, survivor.Id.Filename);
     }
-
-    /// <summary>
-    /// A lifetime-stats document holding one wrong sighting of
-    /// <paramref name="id"/> — "this id has history", which is all the survivor
-    /// predicate asks. Wrong rather than correct because the history that makes
-    /// dropping a copy costly is the history that feeds the GotWrong pool.
-    /// </summary>
-    private static DecisionStatsDocument DocumentWithRecordFor(DecisionId id) =>
-        DecisionStatsDocument.FromStats(
-            [new DecisionStats(id, new ScoreSegment(Submitted: 1, Correct: 0, TotalEquityLoss: 0.042), Quizzed)]);
-
-    /// <summary>A fixed fold timestamp — nothing here reads ambient time.</summary>
-    private static readonly DateTimeOffset Quizzed = new(2026, 8, 10, 12, 0, 0, TimeSpan.Zero);
 }

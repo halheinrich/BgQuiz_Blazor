@@ -12,7 +12,7 @@ using Microsoft.JSInterop;
 /// <see cref="QuizController"/> depend on exactly the two operations it
 /// drives, and lets tests substitute a recording fake.
 /// </summary>
-internal interface IDecisionStatsSink
+internal interface IProblemStatsSink
 {
     /// <summary>
     /// Bind the active stats context for the quiz now starting: promote the
@@ -32,7 +32,7 @@ internal interface IDecisionStatsSink
     /// <b>The one predicate for "can a weighted mix mean anything here"</b>
     /// (issue <c>halheinrich/backgammon#87</c>): the picked folder can save
     /// stats <i>and</i> already holds a stats document with at least one
-    /// decision in it. Every consumer of that question routes through this —
+    /// problem in it. Every consumer of that question routes through this —
     /// <c>Home</c>'s decision to offer the mix panel at all, and the
     /// controller's stage-1 refusal below — so the two can never disagree
     /// about whether a mix is meaningful for the folder in hand.
@@ -75,13 +75,13 @@ internal interface IDecisionStatsSink
     /// stats provider) sees the record as it stands <i>now</i>, this
     /// session's folds included.
     /// </summary>
-    DecisionStatsDocument? CurrentDocument { get; }
+    ProblemStatsDocument? CurrentDocument { get; }
 }
 
 /// <summary>
 /// The active stats context's condition, driving the quiz-context notices on
 /// the Quiz and Done pages. Scoped to the running quiz: every
-/// <see cref="IDecisionStatsSink.BeginQuizAsync"/> re-derives it from scratch.
+/// <see cref="IProblemStatsSink.BeginQuizAsync"/> re-derives it from scratch.
 /// </summary>
 internal enum QuizStatsStatus
 {
@@ -106,7 +106,7 @@ internal enum QuizStatsStatus
 }
 
 /// <summary>
-/// Owns the persistent <see cref="DecisionStatsDocument"/> for the running
+/// Owns the persistent <see cref="ProblemStatsDocument"/> for the running
 /// quiz: binds it at quiz start (<see cref="BeginQuizAsync"/>), folds each
 /// finalized submission via the producer's <c>Plus</c>, and writes the
 /// document back through <see cref="IFolderAccess"/> after every fold
@@ -114,7 +114,7 @@ internal enum QuizStatsStatus
 ///
 /// <para>
 /// Lifetime: <b>Scoped</b>, like the controller it serves. Registered once
-/// and aliased as <see cref="IDecisionStatsSink"/> so the controller's sink
+/// and aliased as <see cref="IProblemStatsSink"/> so the controller's sink
 /// and the pages' status reads observe the same instance.
 /// </para>
 ///
@@ -147,17 +147,17 @@ internal enum QuizStatsStatus
 /// — ambient time is never read here.
 /// </para>
 /// </summary>
-internal sealed class QuizStatsStore : IDecisionStatsSink
+internal sealed class QuizStatsStore : IProblemStatsSink
 {
     private readonly IFolderAccess _folderAccess;
     private readonly TimeProvider _clock;
     private readonly PickedProblemFolder _folder;
 
-    private DecisionStatsDocument _doc = DecisionStatsDocument.Empty;
+    private ProblemStatsDocument _doc = ProblemStatsDocument.Empty;
 
     /// <summary>
     /// The pick-time probe's verdict: whether the picked folder's stats
-    /// document exists and holds at least one decision. Written only by
+    /// document exists and holds at least one problem. Written only by
     /// <see cref="RefreshPickedStatsAsync"/>, read only through
     /// <see cref="CanWeightMix"/>, and deliberately never consulted by the
     /// bind path — a fresh folder with no stats still binds and still records.
@@ -287,7 +287,7 @@ internal sealed class QuizStatsStore : IDecisionStatsSink
         {
             var json = await _folderAccess.ReadPickedFileAsync(QuizStatsFile.FileName);
             _pickedHasStats = json is not null
-                && JsonSerializer.Deserialize<DecisionStatsDocument>(json) is { Count: > 0 };
+                && JsonSerializer.Deserialize<ProblemStatsDocument>(json) is { Count: > 0 };
         }
         catch (Exception ex) when (ex is JsonException or JSException)
         {
@@ -298,7 +298,7 @@ internal sealed class QuizStatsStore : IDecisionStatsSink
     }
 
     /// <inheritdoc/>
-    public DecisionStatsDocument? CurrentDocument =>
+    public ProblemStatsDocument? CurrentDocument =>
         Status is QuizStatsStatus.Ready or QuizStatsStatus.WriteFailed ? _doc : null;
 
     /// <summary>
@@ -316,7 +316,7 @@ internal sealed class QuizStatsStore : IDecisionStatsSink
         // status below lands on the value already showing (the same unreadable
         // file, a second time): SetStatus would report no transition, but this
         // run still has something unsaid to say.
-        _doc = DecisionStatsDocument.Empty;
+        _doc = ProblemStatsDocument.Empty;
         StatusOccurrence = new object();
 
         // Capability is the pick-time verdict; the promote is the handle-level
@@ -341,8 +341,8 @@ internal sealed class QuizStatsStore : IDecisionStatsSink
 
             var json = await _folderAccess.ReadActiveFileAsync(QuizStatsFile.FileName);
             _doc = json is null
-                ? DecisionStatsDocument.Empty                          // fresh corpus — first quiz here
-                : JsonSerializer.Deserialize<DecisionStatsDocument>(json)
+                ? ProblemStatsDocument.Empty                          // fresh corpus — first quiz here
+                : JsonSerializer.Deserialize<ProblemStatsDocument>(json)
                   ?? throw new JsonException("Stats document deserialized to null.");
             SetStatus(QuizStatsStatus.Ready);
         }
@@ -374,7 +374,7 @@ internal sealed class QuizStatsStore : IDecisionStatsSink
     /// so no further writes are attempted this quiz. Never throws — the
     /// controller's Continue must not fault on stats trouble.
     /// </summary>
-    private async Task FoldAndPersistAsync(Func<DecisionStatsDocument, DecisionStatsDocument> fold)
+    private async Task FoldAndPersistAsync(Func<ProblemStatsDocument, ProblemStatsDocument> fold)
     {
         if (Status != QuizStatsStatus.Ready) return;
 

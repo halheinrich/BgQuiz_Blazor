@@ -1,4 +1,4 @@
-using BgDataTypes_Lib;
+﻿using BgDataTypes_Lib;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using XgFilter_Lib.Enums;
@@ -11,7 +11,7 @@ public class QuizControllerTests
     private static QuizController Make(params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
-        return new QuizController((_, _) => fake, new FakeDecisionStatsSink(), TimeProvider.System);
+        return new QuizController((_, _) => fake, new FakeProblemStatsSink(), TimeProvider.System);
     }
 
     /// <summary>
@@ -21,10 +21,10 @@ public class QuizControllerTests
     /// nothing.
     /// </summary>
     private static QuizController MakeWithSink(
-        out FakeDecisionStatsSink sink, params BgDecisionData[] items)
+        out FakeProblemStatsSink sink, params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
-        sink = new FakeDecisionStatsSink();
+        sink = new FakeProblemStatsSink();
         return new QuizController((_, _) => fake, sink, TimeProvider.System);
     }
 
@@ -40,7 +40,7 @@ public class QuizControllerTests
         var fake = new FakeProblemSetSource(items);
         DecisionFilterSet? holder = null;
         captured = () => holder;
-        return new QuizController((set, _) => { holder = set; return fake; }, new FakeDecisionStatsSink(), TimeProvider.System);
+        return new QuizController((set, _) => { holder = set; return fake; }, new FakeProblemStatsSink(), TimeProvider.System);
     }
 
     private static Play BestPlay() => TestFixtures.MakePlay((8, 5), (8, 5));
@@ -55,7 +55,7 @@ public class QuizControllerTests
     public void Ctor_NullFactory_Throws()
     {
         Assert.Throws<ArgumentNullException>(
-            () => new QuizController(null!, new FakeDecisionStatsSink(), TimeProvider.System));
+            () => new QuizController(null!, new FakeProblemStatsSink(), TimeProvider.System));
     }
 
     [Fact]
@@ -407,20 +407,58 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task SubmitPlay_CarriesDecisionIdIntoHistory()
+    public async Task SubmitPlay_CarriesProblemKeyIntoHistory()
     {
-        // Wire: the submitted play must carry the answered decision's stable
-        // identity (BgDecisionData.Id) into History so a submission can be keyed
-        // back to its problem. A distinctive per-problem id pins the actual
-        // carry — a fix that merely compiled by passing a placeholder id would
-        // fail this equality.
-        var id = new XgpDecisionId("wire-play.xgp");
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: id));
+        // Wire: the submitted play must carry the answered problem's CONTENT
+        // identity into History, so the lifetime fold keys on the problem rather
+        // than on where the record came from. A distinctive per-problem key pins
+        // the actual carry — a fix that merely compiled by passing null (the
+        // no-key rung) would fail this equality, and one passing a placeholder
+        // key would fail it too.
+        var problem = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 7);
+        var c = Make(problem);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitPlay(BestPlay());
 
-        Assert.Equal(id, c.History[^1].DecisionId);
+        Assert.Equal(TestFixtures.KeyOf(problem), c.History[^1].ProblemKey);
+    }
+
+    [Fact]
+    public async Task SubmitPlay_ProblemWithNoDerivableKey_SubmitsWithNullKey()
+    {
+        // The no-key rung end to end (SPEC-stats-identity.md §2): a record whose
+        // facts cannot yield a key — here unstamped dice on a checker play —
+        // still scores the session exactly as any other answer, and carries null
+        // rather than a guessed key. The producer's document performs the skip;
+        // the controller's job is only to refuse to invent one.
+        var wellFormed = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var problem = new BgDecisionData
+        {
+            Id = wellFormed.Id,
+            Xgid = wellFormed.Xgid,
+            // One side 0-away and the other not: an impossible score, since a
+            // 0-away side means the match is already over. The board, dice and
+            // candidates are the fixture's, so the position stays exactly as
+            // playable — only the key is underivable, which is the rung.
+            Position = new PositionData
+            {
+                Mop = TestFixtures.StandardMop(),
+                OnRollNeeds = 3,
+                OpponentNeeds = 0,
+            },
+            Decision = wellFormed.Decision,
+            Descriptive = wellFormed.Descriptive,
+        };
+        Assert.False(ProblemKey.TryDerive(problem, out _)); // the premise, asserted
+
+        var c = Make(problem);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitPlay(BestPlay());
+
+        Assert.Null(c.History[^1].ProblemKey);
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted); // the session still scores it
     }
 
     // -----------------------------------------------------------------------
@@ -528,18 +566,18 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task SubmitCubeAction_CarriesDecisionIdIntoCubeHistory()
+    public async Task SubmitCubeAction_CarriesProblemKeyIntoCubeHistory()
     {
-        // Wire: the cube submission must carry the answered decision's stable
-        // identity (BgDecisionData.Id) into CubeHistory — the cube analog of
-        // SubmitPlay_CarriesDecisionIdIntoHistory. Distinctive id pins the carry.
-        var id = new XgpDecisionId("wire-cube.xgp");
-        var c = Make(TestFixtures.CubeDecision(id: id));
+        // Wire: the cube submission must carry the answered problem's content
+        // identity into CubeHistory — the cube analog of
+        // SubmitPlay_CarriesProblemKeyIntoHistory. Distinctive key pins the carry.
+        var problem = TestFixtures.CubeDecision(away: 7);
+        var c = Make(problem);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
 
-        Assert.Equal(id, c.CubeHistory[^1].DecisionId);
+        Assert.Equal(TestFixtures.KeyOf(problem), c.CubeHistory[^1].ProblemKey);
     }
 
     [Fact]
@@ -1137,7 +1175,7 @@ public class QuizControllerTests
     {
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var fake = new FakeProblemSetSource([d]);
-        var c = new QuizController((_, _) => fake, new FakeDecisionStatsSink(), TimeProvider.System);
+        var c = new QuizController((_, _) => fake, new FakeProblemStatsSink(), TimeProvider.System);
 
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         Assert.Equal(1, fake.EnumerateCallCount);
@@ -1453,26 +1491,32 @@ public class QuizControllerTests
     /// tests can pin what the controller actually composes with.
     /// </summary>
     private static QuizController MakeWeighable(
-        out FakeDecisionStatsSink sink, out List<QuizMix> mixes, params BgDecisionData[] items)
+        out FakeProblemStatsSink sink, out List<QuizMix> mixes, params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
-        sink = new FakeDecisionStatsSink();
+        sink = new FakeProblemStatsSink();
         var captured = new List<QuizMix>();
         mixes = captured;
         return new QuizController(
             (_, mix) => { captured.Add(mix); return fake; }, sink, TimeProvider.System);
     }
 
-    /// <summary>A lifetime-stats document holding one correct sighting of <paramref name="id"/>.</summary>
-    private static DecisionStatsDocument DocWithSeen(DecisionId id) =>
-        DecisionStatsDocument.Empty.Plus(
-            new SubmittedPlay(id, BestPlay(), 0, 0.0, IsCorrect: true), TimeProvider.System);
+    /// <summary>
+    /// A lifetime-stats document holding one correct sighting of
+    /// <paramref name="problem"/> — keyed by the problem's content, which is
+    /// what the mix classifier now looks up, so the fixtures it discriminates
+    /// between must differ in content and not merely in provenance.
+    /// </summary>
+    private static ProblemStatsDocument DocWithSeen(BgDecisionData problem) =>
+        ProblemStatsDocument.Empty.Plus(
+            new SubmittedPlay(TestFixtures.KeyOf(problem), BestPlay(), 0, 0.0, IsCorrect: true),
+            TimeProvider.System);
 
     [Fact]
     public void Ctor_NullClock_Throws()
     {
         Assert.Throws<ArgumentNullException>(
-            () => new QuizController((_, _) => new FakeProblemSetSource([]), new FakeDecisionStatsSink(), null!));
+            () => new QuizController((_, _) => new FakeProblemSetSource([]), new FakeProblemStatsSink(), null!));
     }
 
     [Fact]
@@ -1541,8 +1585,8 @@ public class QuizControllerTests
     [Fact]
     public async Task StartAsync_RefusedMidQuiz_PriorQuizAndStoredConfigUntouched()
     {
-        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
-        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1);
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2);
         var c = MakeWeighable(out var sink, out var mixes, d1, d2);
 
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
@@ -1569,11 +1613,11 @@ public class QuizControllerTests
     [Fact]
     public async Task StartAsync_MixWithDocument_ComposesFromLifetimeStats()
     {
-        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
-        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1);
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2);
         var c = MakeWeighable(out var sink, out var mixes, d1, d2);
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DocWithSeen(d1.Id); // d1 seen before; d2 never seen
+        sink.CurrentDocument = DocWithSeen(d1); // d1 seen before; d2 never seen
 
         var mix = NeverSeenMix();
         var outcome = await c.StartAsync(new FilterConfig(), mix);
@@ -1594,8 +1638,8 @@ public class QuizControllerTests
     [Fact]
     public async Task StartAsync_IgnoreMix_RunsPassthroughButStoresTheMix()
     {
-        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
-        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1);
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2);
         var c = MakeWeighable(out var sink, out var mixes, d1, d2);
         sink.CanWeightMix = false; // stats unavailable — the refusal scenario
 
@@ -1617,11 +1661,11 @@ public class QuizControllerTests
     [Fact]
     public async Task RestartAsync_ReattemptsStoredMix_RecomposingAgainstCurrentDocument()
     {
-        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
-        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1);
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2);
         var c = MakeWeighable(out var sink, out _, d1, d2);
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty; // nothing seen yet
+        sink.CurrentDocument = ProblemStatsDocument.Empty; // nothing seen yet
 
         await c.StartAsync(new FilterConfig(), NeverSeenMix());
         Assert.Same(d1, c.Current);
@@ -1630,7 +1674,7 @@ public class QuizControllerTests
         // The lifetime record advances (as folds would advance it mid-quiz);
         // Restart resolves the provider fresh and composes against the record
         // as it stands now — the deliberate Restart-recomposes semantics.
-        sink.CurrentDocument = DocWithSeen(d1.Id);
+        sink.CurrentDocument = DocWithSeen(d1);
         var outcome = await c.RestartAsync();
 
         Assert.Equal(QuizStartOutcome.Started, outcome);
@@ -1644,7 +1688,7 @@ public class QuizControllerTests
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = MakeWeighable(out var sink, out _, d);
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
 
         await c.StartAsync(new FilterConfig(), NeverSeenMix());
         c.SubmitPlay(BestPlay());
@@ -1674,9 +1718,9 @@ public class QuizControllerTests
         // position in slot 2 is consumed-but-never-presented, so the second
         // presented problem reads slot 3 — and N lands exactly on M at the
         // stream's end rather than the quiz finishing below its stated total.
-        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1);
         var pass = TestFixtures.PassDecision();
-        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2);
         var c = Make(d1, pass, d2);
 
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
@@ -1696,8 +1740,8 @@ public class QuizControllerTests
     [Fact]
     public async Task ProblemNumber_RedoLeavesItUntouched_RestartResets()
     {
-        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
-        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1);
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2);
         var c = Make(d1, d2);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitPlay(BestPlay());
@@ -1718,7 +1762,7 @@ public class QuizControllerTests
     {
         var fake = new FakeProblemSetSource(
             [TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())], countKnown: false);
-        var c = new QuizController((_, _) => fake, new FakeDecisionStatsSink(), TimeProvider.System);
+        var c = new QuizController((_, _) => fake, new FakeProblemStatsSink(), TimeProvider.System);
 
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
@@ -1731,11 +1775,11 @@ public class QuizControllerTests
     {
         // Weighted, the total is the composition's drawn count — not the
         // inner source's Count (2 here), which the mix composed down to 1.
-        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"));
-        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1);
+        var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2);
         var c = MakeWeighable(out var sink, out _, d1, d2);
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DocWithSeen(d1.Id);
+        sink.CurrentDocument = DocWithSeen(d1);
 
         await c.StartAsync(new FilterConfig(), NeverSeenMix());
 
@@ -1753,7 +1797,7 @@ public class QuizControllerTests
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = MakeWeighable(out var sink, out _, d);
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
 
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         Assert.False(c.ActiveMixHasLength);                 // passthrough
@@ -1776,7 +1820,7 @@ public class QuizControllerTests
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = MakeWeighable(out var sink, out _, d);
         sink.CanWeightMix = true;
-        sink.CurrentDocument = DecisionStatsDocument.Empty;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 1));
         Assert.True(c.ActiveMixHasLength);
 

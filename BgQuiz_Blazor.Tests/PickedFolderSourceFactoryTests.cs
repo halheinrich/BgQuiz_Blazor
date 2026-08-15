@@ -1,4 +1,4 @@
-using BgDataTypes_Lib;
+﻿using BgDataTypes_Lib;
 using BgFolderAccess_Razor;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
@@ -51,7 +51,7 @@ public class PickedFolderSourceFactoryTests
     private static ProblemSetSourceFactory FactoryOver(
         PickedProblemFolder picked, ShuffleOption shuffle) =>
         PickedFolderSourceFactory.Create(
-            picked, shuffle, new FakeDecisionStatsSink(), NullLoggerFactory.Instance, TimeProvider.System);
+            picked, shuffle, NullLoggerFactory.Instance, TimeProvider.System);
 
     // -----------------------------------------------------------------------
     //  Argument validation
@@ -60,27 +60,22 @@ public class PickedFolderSourceFactoryTests
     [Fact]
     public void Create_NullPicked_Throws() =>
         Assert.Throws<ArgumentNullException>(() => PickedFolderSourceFactory.Create(
-            null!, new ShuffleOption(), new FakeDecisionStatsSink(), NullLoggerFactory.Instance, TimeProvider.System));
+            null!, new ShuffleOption(), NullLoggerFactory.Instance, TimeProvider.System));
 
     [Fact]
     public void Create_NullShuffle_Throws() =>
         Assert.Throws<ArgumentNullException>(() => PickedFolderSourceFactory.Create(
-            new PickedProblemFolder(), null!, new FakeDecisionStatsSink(), NullLoggerFactory.Instance, TimeProvider.System));
-
-    [Fact]
-    public void Create_NullStats_Throws() =>
-        Assert.Throws<ArgumentNullException>(() => PickedFolderSourceFactory.Create(
-            new PickedProblemFolder(), new ShuffleOption(), null!, NullLoggerFactory.Instance, TimeProvider.System));
+            new PickedProblemFolder(), null!, NullLoggerFactory.Instance, TimeProvider.System));
 
     [Fact]
     public void Create_NullLoggerFactory_Throws() =>
         Assert.Throws<ArgumentNullException>(() => PickedFolderSourceFactory.Create(
-            new PickedProblemFolder(), new ShuffleOption(), new FakeDecisionStatsSink(), null!, TimeProvider.System));
+            new PickedProblemFolder(), new ShuffleOption(), null!, TimeProvider.System));
 
     [Fact]
     public void Create_NullClock_Throws() =>
         Assert.Throws<ArgumentNullException>(() => PickedFolderSourceFactory.Create(
-            new PickedProblemFolder(), new ShuffleOption(), new FakeDecisionStatsSink(), NullLoggerFactory.Instance, null!));
+            new PickedProblemFolder(), new ShuffleOption(), NullLoggerFactory.Instance, null!));
 
     // -----------------------------------------------------------------------
     //  Factory -> source -> controller wire
@@ -95,7 +90,7 @@ public class PickedFolderSourceFactoryTests
         if (files.Count == 0) return; // corpus may be empty in CI
 
         var factory = FactoryOver(HolderOver(files), new ShuffleOption());
-        var controller = new QuizController(factory, new FakeDecisionStatsSink(), TimeProvider.System);
+        var controller = new QuizController(factory, new FakeProblemStatsSink(), TimeProvider.System);
 
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty);
 

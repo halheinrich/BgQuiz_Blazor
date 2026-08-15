@@ -9,8 +9,8 @@ using System.Text.Json;
 ///
 /// <para>
 /// The wire shape itself is pinned by BgGame_Lib's bundled
-/// <c>DecisionStatsDocumentJsonConverter</c> (fixed property names, canonical
-/// id ordering — consumers register nothing), so the only serialization choice
+/// <c>ProblemStatsDocumentJsonConverter</c> (fixed property names, canonical
+/// key ordering — consumers register nothing), so the only serialization choice
 /// this app owns is whitespace. <see cref="SerializerOptions"/> makes that
 /// choice once: indented, because the file lives beside the user's corpus and
 /// should be human-readable and diff-friendly. Every write goes through these

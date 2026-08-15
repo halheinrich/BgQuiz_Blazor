@@ -4,12 +4,12 @@ using BgQuiz_Blazor.Client.Quiz;
 namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
-/// Recording <see cref="IDecisionStatsSink"/> for controller and page tests:
+/// Recording <see cref="IProblemStatsSink"/> for controller and page tests:
 /// counts binds and captures every folded submission in order, so tests can
 /// assert exactly which answers the controller finalized — and, as important,
 /// which flows (skip, off-list, auto-skip, redo) folded nothing.
 /// </summary>
-internal sealed class FakeDecisionStatsSink : IDecisionStatsSink
+internal sealed class FakeProblemStatsSink : IProblemStatsSink
 {
     public int BeginQuizCallCount { get; private set; }
 
@@ -26,7 +26,7 @@ internal sealed class FakeDecisionStatsSink : IDecisionStatsSink
     /// weighted-start test sets it — and can replace it mid-test to model the
     /// lifetime record advancing between runs (the Restart-recomposes pin).
     /// </summary>
-    public DecisionStatsDocument? CurrentDocument { get; set; }
+    public ProblemStatsDocument? CurrentDocument { get; set; }
 
     /// <summary>Checker-play folds, in fold order.</summary>
     public List<SubmittedPlay> Plays { get; } = [];
