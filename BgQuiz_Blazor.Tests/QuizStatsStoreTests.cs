@@ -419,6 +419,92 @@ public class QuizStatsStoreTests
         Assert.Equal(2, last.Count);
     }
 
+    // -----------------------------------------------------------------------
+    //  The pre-write guard (SPEC-stats-identity.md §5)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Record_FoldsOntoTheFileAsItStandsNow_NotTheBindSnapshot()
+    {
+        // The lost-update the guard exists for: a second stats context over the
+        // same folder (another tab, or an external edit) records something after
+        // this context bound. Without the re-read, this fold would write the
+        // bind-time snapshot plus itself and silently discard the other party's
+        // record; with it, the written document holds both.
+        var fake = new FakeFolderAccess();
+        var store = MakeStore(fake);
+        await store.BeginQuizAsync();
+
+        fake.StatsJson = JsonSerializer.Serialize(
+            ProblemStatsDocument.Empty.Plus(PlaySubmission(1), new FixedTimeProvider()),
+            QuizStatsFile.SerializerOptions);
+
+        await store.RecordAsync(PlaySubmission(2));
+
+        var written = JsonSerializer.Deserialize<ProblemStatsDocument>(fake.Writes.Single());
+        Assert.NotNull(written);
+        Assert.Equal(2, written.Count);
+        Assert.Contains(PlayKey(1), written.Problems.Keys);
+        Assert.Contains(PlayKey(2), written.Problems.Keys);
+    }
+
+    [Theory]
+    [InlineData("unreadable")]
+    [InlineData("corrupt")]
+    [InlineData("missing")]
+    public async Task Record_ReadTroubleAtFoldTime_FoldsInMemoryAndKeepsRecording(string trouble)
+    {
+        // Every read trouble degrades to the fold-and-write behaviour that
+        // predated the guard, and none of them changes Status: the guard
+        // improves the overwrite window, it is not a new way for a quiz to stop
+        // recording. Two folds so the in-memory accumulation is visible — the
+        // second must land on top of the first, not replace it.
+        var fake = new FakeFolderAccess();
+        var store = MakeStore(fake);
+        await store.BeginQuizAsync();
+        await store.RecordAsync(PlaySubmission(1));
+
+        switch (trouble)
+        {
+            case "unreadable": fake.ReadException = new JSException("read failed"); break;
+            case "corrupt": fake.StatsJson = "not json at all"; break;
+            case "missing": fake.StatsJson = null; break;
+        }
+
+        await store.RecordAsync(PlaySubmission(2));
+
+        Assert.Equal(QuizStatsStatus.Ready, store.Status);
+        var written = JsonSerializer.Deserialize<ProblemStatsDocument>(fake.Writes[^1]);
+        Assert.NotNull(written);
+        Assert.Equal(2, written.Count);
+        Assert.Contains(PlayKey(1), written.Problems.Keys);
+    }
+
+    [Fact]
+    public async Task Record_NoKeySubmission_ScoresTheSessionButIsAbsentFromTheDocument()
+    {
+        // The no-key rung's consumer end (SPEC-stats-identity.md §2): a
+        // submission carrying no key never reaches the lifetime record. The
+        // store neither blocks it nor branches on it — the producer's document
+        // performs the skip, and the surrounding folds are untouched by it.
+        var fake = new FakeFolderAccess();
+        var store = MakeStore(fake);
+        await store.BeginQuizAsync();
+
+        await store.RecordAsync(new SubmittedPlay(
+            null, TestFixtures.MakePlay((8, 5)), 0, 0.0, IsCorrect: true));
+
+        var afterNoKey = JsonSerializer.Deserialize<ProblemStatsDocument>(fake.Writes[^1]);
+        Assert.NotNull(afterNoKey);
+        Assert.Equal(0, afterNoKey.Count);
+
+        // …and a keyed submission either side of it still records normally.
+        await store.RecordAsync(PlaySubmission());
+        var written = JsonSerializer.Deserialize<ProblemStatsDocument>(fake.Writes[^1]);
+        Assert.NotNull(written);
+        Assert.Equal(PlayKey(), Assert.Single(written.Problems).Key);
+    }
+
     [Fact]
     public async Task Record_WriteThrows_WriteFailedOnceThenStopsWritingWithoutThrowing()
     {

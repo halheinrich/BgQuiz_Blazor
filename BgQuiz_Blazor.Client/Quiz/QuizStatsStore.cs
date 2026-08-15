@@ -472,12 +472,31 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// itself succeeded) but flips to <see cref="QuizStatsStatus.WriteFailed"/>
     /// so no further writes are attempted this quiz. Never throws — the
     /// controller's Continue must not fault on stats trouble.
+    ///
+    /// <para>
+    /// <b>The pre-write guard</b> (ruled; SPEC-stats-identity.md §5). Each fold
+    /// re-reads the file and applies this submission to <i>that</i> document
+    /// rather than to the bind-time snapshot. Every write is a whole-document
+    /// write, so two stats contexts over one folder — a second tab, or an
+    /// external edit mid-quiz — otherwise mean the last writer silently
+    /// discards everything the other recorded since its bind. The re-read
+    /// shrinks that loss window to a same-instant race, for one small read per
+    /// answer. It does not make concurrent recording safe, and is not meant to:
+    /// it is the boring lost-update answer, not a lock.
+    /// </para>
+    ///
+    /// <para>
+    /// A no-key submission (the ratified rung) folds to the same document and
+    /// is still written. Skipping the write would have to key on the producer's
+    /// return being reference-identical — a fragile cross-check for a write
+    /// already paid per answer.
+    /// </para>
     /// </summary>
     private async Task FoldAndPersistAsync(Func<ProblemStatsDocument, ProblemStatsDocument> fold)
     {
         if (Status != QuizStatsStatus.Ready) return;
 
-        _doc = fold(_doc);
+        _doc = fold(await ReadFoldBaseAsync());
         try
         {
             await _folderAccess.WriteActiveFileAsync(
@@ -487,6 +506,35 @@ internal sealed class QuizStatsStore : IProblemStatsSink
         catch (JSException)
         {
             SetStatus(QuizStatsStatus.WriteFailed);
+        }
+    }
+
+    /// <summary>
+    /// The document this fold applies to: the file as it stands right now, or —
+    /// on any trouble reading it — the in-memory document, which is exactly the
+    /// fold-and-write behaviour that predated the guard.
+    ///
+    /// <para>
+    /// Missing, unreadable and unparseable are one answer here, deliberately,
+    /// and none of them changes <see cref="Status"/>: the guard is an
+    /// improvement on the overwrite window, never a new way for a quiz to stop
+    /// recording. The retired-schema exception is caught with the rest — a file
+    /// swapped to v1 mid-quiz is read trouble, not a second retirement, and the
+    /// bind is the one place that decides to set a file aside.
+    /// </para>
+    /// </summary>
+    private async Task<ProblemStatsDocument> ReadFoldBaseAsync()
+    {
+        try
+        {
+            var json = await _folderAccess.ReadActiveFileAsync(QuizStatsFile.FileName);
+            return json is null
+                ? _doc
+                : JsonSerializer.Deserialize<ProblemStatsDocument>(json) ?? _doc;
+        }
+        catch (Exception ex) when (ex is JsonException or JSException)
+        {
+            return _doc;
         }
     }
 
