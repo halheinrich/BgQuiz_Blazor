@@ -28,6 +28,26 @@
        the store's StatusOccurrence, so a dismissal covers the report the user
        actually read — a later Ready → WriteFailed, or the next run binding
        against the same unreadable file, is a new occurrence and shows again. *@
+    @* The stats-retirement report: this run found a stats file in the retired
+       format, set it aside, and started a fresh one. An outcome and not a
+       failure — the quiz records normally into the new file — so the polite
+       informational idiom, beside (not instead of) whatever the degrade notice
+       below is saying. Its own occurrence token, so dismissing it and
+       dismissing a later write failure are two separate gestures. *@
+    @if (StatsStore.StatsRetiredOccurrence is { } retired
+         && !Notices.IsDismissed(QuizNotice.StatsRetired, retired))
+    {
+        <div class="alert alert-info alert-dismissible quiz-notice" role="status"
+             @onclick="DismissStatsRetired">
+            Your stats file was written by an earlier version of BgQuiz and can't be
+            carried forward. It has been set aside as
+            <strong>@QuizStatsFile.RetiredFileName</strong> and a new
+            <strong>@QuizStatsFile.FileName</strong> started, so your lifetime stats
+            begin again with this quiz.
+            <button type="button" class="btn-close" aria-label="Dismiss this message"
+                    @onclick="DismissStatsRetired" @onclick:stopPropagation="true"></button>
+        </div>
+    }
     @if (!Notices.IsDismissed(QuizNotice.StatsContext, StatsStore.StatusOccurrence))
     {
         @if (StatsStore.Status == QuizStatsStatus.LoadFailed)

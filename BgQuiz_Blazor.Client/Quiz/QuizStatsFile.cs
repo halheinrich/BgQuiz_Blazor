@@ -33,6 +33,24 @@ internal static class QuizStatsFile
     internal const string FileName = "bgquiz-stats.json";
 
     /// <summary>
+    /// Name the retired schema-version-1 document is set aside under when a
+    /// quiz binds against one (SPEC-stats-identity.md §3): its bytes are copied
+    /// here unparsed and a fresh current-version document takes
+    /// <see cref="FileName"/>. Nothing ever reads this file — it exists so the
+    /// clean break destroys nothing the user had.
+    ///
+    /// <para>
+    /// A bare file name, deliberately path-free: every name in this type
+    /// crosses to the browser's folder module as a name <i>within</i> the
+    /// picked directory, and a separator would be a path the module has no
+    /// business resolving. The version is baked into the literal because only
+    /// version 1 is ever retired — a future retirement is a new spec, and would
+    /// bring its own name.
+    /// </para>
+    /// </summary>
+    internal const string RetiredFileName = "bgquiz-stats.v1.json";
+
+    /// <summary>
     /// The one fixed options instance every stats write uses. Whitespace is the
     /// only aspect the converter leaves to options; everything else about the
     /// format is converter-pinned.

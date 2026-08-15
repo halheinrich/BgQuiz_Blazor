@@ -14,9 +14,11 @@ namespace BgQuiz_Blazor.Tests;
 ///
 /// <para>
 /// The named-file members model the lib's two slots the way the app uses them:
-/// the <b>active</b> slot serves only the stats document
-/// (<see cref="StatsJson"/> / <see cref="Writes"/> — the fake also records the
-/// names, so a test can pin the filename SSOT), and the <b>picked</b> slot
+/// the <b>active</b> slot is a name-keyed store that round-trips its writes,
+/// serving the stats document (<see cref="StatsJson"/>) and the set-aside
+/// retired one (<see cref="RetiredStatsJson"/>) — <see cref="Writes"/> keeps the
+/// payloads in order and the fake also records the names, so a test can pin the
+/// filename SSOT — and the <b>picked</b> slot
 /// serves the saved-filters document under the producer's two names —
 /// <see cref="FiltersJson"/> is the canonical
 /// <see cref="SavedFiltersDocument.FileName"/> content and
@@ -67,8 +69,44 @@ internal sealed class FakeFolderAccess : IFolderAccess
     /// <summary>What <see cref="PromoteToActiveAsync"/> returns (default: an FS-Access handle is active).</summary>
     public bool PromoteResult { get; set; } = true;
 
-    /// <summary>Stats-file content <see cref="ReadActiveFileAsync"/> returns; null = no file yet.</summary>
-    public string? StatsJson { get; set; }
+    /// <summary>
+    /// The active slot's files by name — the real slot's shape, which the app
+    /// now needs of it in two places: the store re-reads the stats document
+    /// before every fold (the pre-write guard), so a write has to be readable
+    /// back, and the v1 retirement writes a <i>second</i> name into the same
+    /// folder, so the slot has to tell its files apart. Both were invisible to
+    /// the single-blob-for-every-name fake this replaced.
+    /// </summary>
+    private readonly Dictionary<string, string> _activeFiles = [];
+
+    /// <summary>
+    /// Stats-file content under <see cref="QuizStatsFile.FileName"/> — the
+    /// staging property tests set, and the one they read back to see what the
+    /// folder now holds. Setting null removes the file (an absent read).
+    /// </summary>
+    public string? StatsJson
+    {
+        get => _activeFiles.GetValueOrDefault(QuizStatsFile.FileName);
+        set => SetActiveFile(QuizStatsFile.FileName, value);
+    }
+
+    /// <summary>
+    /// Content of the set-aside retired stats document
+    /// (<see cref="QuizStatsFile.RetiredFileName"/>); null = no such file. The
+    /// retirement's whole promise is that these bytes are the old file's, so a
+    /// test reads them here and compares.
+    /// </summary>
+    public string? RetiredStatsJson
+    {
+        get => _activeFiles.GetValueOrDefault(QuizStatsFile.RetiredFileName);
+        set => SetActiveFile(QuizStatsFile.RetiredFileName, value);
+    }
+
+    private void SetActiveFile(string fileName, string? content)
+    {
+        if (content is null) _activeFiles.Remove(fileName);
+        else _activeFiles[fileName] = content;
+    }
 
     /// <summary>When set, <see cref="ReadActiveFileAsync"/> throws it instead.</summary>
     public Exception? ReadException { get; set; }
@@ -201,7 +239,9 @@ internal sealed class FakeFolderAccess : IFolderAccess
     public Task<string?> ReadActiveFileAsync(string fileName)
     {
         ActiveFileNames.Add(fileName);
-        return ReadException is { } ex ? Task.FromException<string?>(ex) : Task.FromResult(StatsJson);
+        return ReadException is { } ex
+            ? Task.FromException<string?>(ex)
+            : Task.FromResult(_activeFiles.GetValueOrDefault(fileName));
     }
 
     public Task WriteActiveFileAsync(string fileName, string json)
@@ -209,6 +249,10 @@ internal sealed class FakeFolderAccess : IFolderAccess
         if (WriteException is { } ex) return Task.FromException(ex);
         ActiveFileNames.Add(fileName);
         Writes.Add(json);
+        // Round-trip, as the real slot does: what was written is what a later
+        // read of that name returns. The pre-write guard's whole behaviour is
+        // invisible against a slot that forgets its writes.
+        _activeFiles[fileName] = json;
         return Task.CompletedTask;
     }
 

@@ -1,0 +1,54 @@
+namespace BgQuiz_Blazor.Tests;
+
+/// <summary>
+/// Stats-file contents no current-version reader can parse, staged by the tests
+/// that exercise what the store does about each. One spelling per case, shared
+/// between the store suite and the page suite so the two cannot drift about what
+/// "a retired file" is.
+///
+/// <para>
+/// These are deliberately hand-written literals, unlike every other stats
+/// fixture in this project (which serializes a real document so a wire-format
+/// change reaches it). Nothing can produce them: the retired format has no
+/// writer left, and the newer one has no reader — a literal is the only way to
+/// stage a file this build cannot itself create.
+/// </para>
+/// </summary>
+internal static class RetiredStatsFixture
+{
+    /// <summary>
+    /// A genuine version-1 document: <c>schemaVersion</c> first, then a
+    /// <c>decisions</c> array of <c>DecisionId</c>-keyed records — the format
+    /// retired by the clean break (SPEC-stats-identity.md §3). The array's
+    /// contents are never parsed by anything, in the app or here; they are real
+    /// v1 shape so that what a test stages is what a tester actually has.
+    /// </summary>
+    public const string V1Json = """
+        {
+          "schemaVersion": 1,
+          "decisions": [
+            { "id": "legacy.xg:g3:m12:play",
+              "tally": { "submitted": 3, "correct": 2, "totalEquityLoss": 0.125 },
+              "lastQuizzed": "2026-07-18T19:04:11+00:00" }
+          ]
+        }
+        """;
+
+    /// <summary>
+    /// Claims version 1 but is not shaped like one. Corrupt, not retired: it
+    /// must take the untouched-file path, never the set-aside one — a file
+    /// nobody can identify is a file nobody may rewrite.
+    /// </summary>
+    public const string ClaimsV1ButMalformedJson = """
+        { "schemaVersion": 1, "somethingElse": [] }
+        """;
+
+    /// <summary>
+    /// A schema version newer than this build reads — written by a later
+    /// BgQuiz. Fail-loud and untouched, explicitly not retired: retiring it
+    /// would set aside a file whose owner is a version still to come.
+    /// </summary>
+    public const string NewerSchemaJson = """
+        { "schemaVersion": 99, "problems": [] }
+        """;
+}

@@ -2828,6 +2828,26 @@ public class PageTests : BunitContext
         return store;
     }
 
+    /// <summary>
+    /// Register a real <see cref="QuizStatsStore"/> that has just retired a v1
+    /// stats file, driven through its own bind against one — the only way to
+    /// reach the state, since the retirement is a consequence of what the folder
+    /// held and not a setting.
+    /// </summary>
+    private async Task<QuizStatsStore> WithRetiredStatsStoreAsync()
+    {
+        var access = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V1Json };
+        var folder = new PickedProblemFolder();
+        folder.Set("Corpus", [new PickedFile("a.xgp", [1])], FolderWriteCapability.Enabled, []);
+        var store = new QuizStatsStore(access, TimeProvider.System, folder);
+
+        await store.BeginQuizAsync();
+
+        Assert.NotNull(store.StatsRetiredOccurrence); // helper sanity: the drive worked
+        Services.AddSingleton(store);
+        return store;
+    }
+
     [Fact]
     public async Task Quiz_StatsLoadFailed_ShowsPoliteUntouchedFileNotice()
     {
@@ -2875,6 +2895,48 @@ public class PageTests : BunitContext
 
         Assert.DoesNotContain("couldn't be read", cut.Markup);
         Assert.DoesNotContain("could not be saved", cut.Markup);
+        Assert.DoesNotContain("set aside", cut.Markup);
+        Assert.DoesNotContain(QuizStatsFile.RetiredFileName, cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_StatsRetired_ShowsPoliteRestartNotice()
+    {
+        // The retirement report: both file names from their constants (so the
+        // prose cannot drift from what was written), the polite idiom because
+        // this is an outcome and not a failure, and the quiz running normally
+        // beneath it — the new file records from this quiz on.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await WithRetiredStatsStoreAsync();
+
+        var cut = Render<QuizPage>();
+
+        Assert.Contains(QuizStatsFile.RetiredFileName, cut.Markup);
+        Assert.Contains(QuizStatsFile.FileName, cut.Markup);
+        Assert.Contains("set aside", cut.Markup);
+        Assert.Contains("begin again", cut.Markup);
+        Assert.Contains("role=\"status\"", cut.Markup);
+        Assert.Contains("Submit", cut.Markup);           // quiz still fully functional
+        Assert.DoesNotContain("couldn't be read", cut.Markup); // and not reported as a failure
+    }
+
+    [Fact]
+    public async Task Quiz_StatsRetiredNotice_IsDismissible()
+    {
+        // Dismissible like every notice above the board, and on its own slot:
+        // this one can be showing while a degrade notice is too, so dismissing
+        // it must not depend on there being no other.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await WithRetiredStatsStoreAsync();
+
+        var cut = Render<QuizPage>();
+        Assert.Contains("set aside", cut.Markup); // positive precondition
+
+        await cut.Find(".quiz-notice").ClickAsync(new());
+
+        Assert.DoesNotContain("set aside", cut.Markup);
     }
 
     [Fact]
@@ -2907,6 +2969,43 @@ public class PageTests : BunitContext
 
         Assert.Contains("couldn't be read", cut.Markup);
         Assert.Contains("role=\"status\"", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Done_StatsRetired_ShowsTheRestartNotice()
+    {
+        // Mirrored from Quiz: what happened to the stats context is exactly what
+        // someone reading their results wants to know, and a restarted lifetime
+        // record is the most consequential thing that can have happened to it.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+        await WithRetiredStatsStoreAsync();
+
+        var cut = Render<DonePage>();
+
+        Assert.Contains(QuizStatsFile.RetiredFileName, cut.Markup);
+        Assert.Contains("set aside", cut.Markup);
+        Assert.Contains("role=\"status\"", cut.Markup);
+        // A retirement is not a recording failure, so the page's "nothing needs
+        // saving" line — gated on the two failure statuses — still stands.
+        Assert.Contains("Nothing here needs saving", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Done_StatsNotRetired_ShowsNoRestartNotice()
+    {
+        // The absence half, keyed on the same wording the present half asserts.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+
+        var cut = Render<DonePage>();
+
+        Assert.DoesNotContain("set aside", cut.Markup);
+        Assert.DoesNotContain(QuizStatsFile.RetiredFileName, cut.Markup);
     }
 
     [Fact]

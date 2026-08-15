@@ -488,6 +488,18 @@ public partial class Quiz : ComponentBase, IDisposable
         Notices.Dismiss(QuizNotice.StatsContext, StatsStore.StatusOccurrence);
 
     /// <summary>
+    /// Dismiss this run's stats-retirement report. Keyed on
+    /// <see cref="QuizStatsStore.StatsRetiredOccurrence"/>, which is non-null
+    /// only on a run that actually retired a file — and a different token on the
+    /// next one that does, so a folder retired later says so on its own.
+    /// </summary>
+    private void DismissStatsRetired()
+    {
+        if (StatsStore.StatsRetiredOccurrence is { } occurrence)
+            Notices.Dismiss(QuizNotice.StatsRetired, occurrence);
+    }
+
+    /// <summary>
     /// Dismiss the composition notice for <paramref name="composition"/> — the
     /// click half of a retirement the first submitted answer also performs (see
     /// <see cref="Submit"/>). Either gesture ends it, and both record the same

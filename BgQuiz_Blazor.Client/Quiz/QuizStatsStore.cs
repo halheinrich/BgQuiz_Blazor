@@ -226,6 +226,34 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     public object StatusOccurrence { get; private set; } = new();
 
     /// <summary>
+    /// <b>The occurrence of this run's stats-retirement report, or
+    /// <see langword="null"/> when this run retired nothing</b> — the nullable
+    /// token <i>is</i> the flag, so there is no companion boolean that could
+    /// disagree with it. Minted only in
+    /// <see cref="RetirePreviousStatsAsync"/>, once the set-aside has actually
+    /// happened, and cleared at the top of every <see cref="BeginQuizAsync"/>:
+    /// a second quiz over the now-current file has nothing to report, without
+    /// anyone having to remember to reset anything.
+    ///
+    /// <para>
+    /// Deliberately <b>not</b> a <see cref="QuizStatsStatus"/> value. After a
+    /// retirement the context is <see cref="QuizStatsStatus.Ready"/> and can
+    /// still fail its next write — retired-ness is a fact about how this run
+    /// began, orthogonal to the condition <see cref="Status"/> reports, and
+    /// folding it into that enum would make every <c>== Ready</c> site grow an
+    /// "or retired" clause.
+    /// </para>
+    ///
+    /// <para>
+    /// Its own token rather than a share of <see cref="StatusOccurrence"/>,
+    /// for the same reason the two notices are separate: a mid-run
+    /// <c>Ready → WriteFailed</c> mints a fresh status token, which must not
+    /// resurrect a retirement report the user has already read and dismissed.
+    /// </para>
+    /// </summary>
+    public object? StatsRetiredOccurrence { get; private set; }
+
+    /// <summary>
     /// Whether the picked folder can hold a stats document at all — the write-
     /// capability half of both <see cref="CanWeightMix"/> and the
     /// <see cref="BeginQuizAsync"/> bind, single-sourced so the question
@@ -318,6 +346,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
         // run still has something unsaid to say.
         _doc = ProblemStatsDocument.Empty;
         StatusOccurrence = new object();
+        StatsRetiredOccurrence = null;
 
         // Capability is the pick-time verdict; the promote is the handle-level
         // half of the same check (false when the picked slot holds no
@@ -331,6 +360,10 @@ internal sealed class QuizStatsStore : IProblemStatsSink
             return;
         }
 
+        // Two try blocks, not one, so the file's own text is still in hand at
+        // the retirement catch below: the bytes set aside there are the bytes
+        // just read, never a second read of a file that may have moved on.
+        string? json;
         try
         {
             if (!await _folderAccess.PromoteToActiveAsync())
@@ -339,20 +372,86 @@ internal sealed class QuizStatsStore : IProblemStatsSink
                 return;
             }
 
-            var json = await _folderAccess.ReadActiveFileAsync(QuizStatsFile.FileName);
+            json = await _folderAccess.ReadActiveFileAsync(QuizStatsFile.FileName);
+        }
+        catch (JSException)
+        {
+            // The browser failed the read: this quiz records nothing and the
+            // existing file is never written.
+            SetStatus(QuizStatsStatus.LoadFailed);
+            return;
+        }
+
+        try
+        {
             _doc = json is null
                 ? ProblemStatsDocument.Empty                          // fresh corpus — first quiz here
                 : JsonSerializer.Deserialize<ProblemStatsDocument>(json)
                   ?? throw new JsonException("Stats document deserialized to null.");
-            SetStatus(QuizStatsStatus.Ready);
         }
-        catch (Exception ex) when (ex is JsonException or JSException)
+        catch (RetiredStatsSchemaException)
         {
-            // Corrupt / foreign / newer-schema file (JsonException), or the
-            // browser failed the read (JSException). Either way: this quiz
-            // records nothing and the existing file is never written.
-            SetStatus(QuizStatsStatus.LoadFailed);
+            // The producer's deliberate recognition signal: a genuine document
+            // in the retired v1 format. Caught BEFORE the general JsonException
+            // below — an existing tester's file must not surface as a hard load
+            // error with their stats silently dead.
+            await RetirePreviousStatsAsync(json!);
+            return;
         }
+        catch (JsonException)
+        {
+            // Corrupt, foreign, or a NEWER schema than this build reads. Newer
+            // is deliberately not retired: it is a file this version has no
+            // business rewriting, so it keeps the untouched posture.
+            SetStatus(QuizStatsStatus.LoadFailed);
+            return;
+        }
+
+        SetStatus(QuizStatsStatus.Ready);
+    }
+
+    /// <summary>
+    /// Retire a stats file in the retired schema version (SPEC-stats-identity.md
+    /// §3): copy its bytes aside under <see cref="QuizStatsFile.RetiredFileName"/>
+    /// unparsed, put a fresh current-version document under the standard name,
+    /// and mint <see cref="StatsRetiredOccurrence"/> so the run says so. There is
+    /// no migration — the retired content is never read, only preserved.
+    ///
+    /// <para>
+    /// <b>Set aside first, replace second, and never the other way round.</b> A
+    /// failure on the copy leaves the user's file exactly as it was and reports
+    /// <see cref="QuizStatsStatus.LoadFailed"/>: replacing a file we could not
+    /// first preserve would destroy it. A failure on the replace is the same
+    /// answer — the standard name still holds the retired document, so the next
+    /// bind recognises it and retries. The whole operation is idempotent under
+    /// that retry: the second attempt copies identical bytes over the sidecar it
+    /// wrote the first time.
+    /// </para>
+    ///
+    /// <para>
+    /// Built from the existing named-file primitives rather than a rename API,
+    /// deliberately: one consumer does not justify lifting a rename into
+    /// BgFolderAccess_Razor's surface. A second one would.
+    /// </para>
+    /// </summary>
+    private async Task RetirePreviousStatsAsync(string retiredJson)
+    {
+        try
+        {
+            await _folderAccess.WriteActiveFileAsync(QuizStatsFile.RetiredFileName, retiredJson);
+            await _folderAccess.WriteActiveFileAsync(
+                QuizStatsFile.FileName,
+                JsonSerializer.Serialize(ProblemStatsDocument.Empty, QuizStatsFile.SerializerOptions));
+        }
+        catch (JSException)
+        {
+            SetStatus(QuizStatsStatus.LoadFailed);
+            return;
+        }
+
+        _doc = ProblemStatsDocument.Empty;
+        StatsRetiredOccurrence = new object();
+        SetStatus(QuizStatsStatus.Ready);
     }
 
     public Task RecordAsync(SubmittedPlay play)

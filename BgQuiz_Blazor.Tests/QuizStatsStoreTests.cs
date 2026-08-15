@@ -206,6 +206,149 @@ public class QuizStatsStoreTests
     }
 
     // -----------------------------------------------------------------------
+    //  The v1 retirement — clean break with deliberate recognition
+    //  (SPEC-stats-identity.md §3; halheinrich/backgammon#95)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task BeginQuiz_RetiredV1File_SetsItAsideSeedsFreshAndRecords()
+    {
+        // The whole rung in one pass: a genuine v1 file is recognised (not read
+        // as a hard load error, which would strand every existing tester with
+        // stats silently dead), its bytes are preserved verbatim under the
+        // sidecar name, the standard name gets a fresh current-version document,
+        // and the quiz records into it normally.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V1Json };
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.Ready, store.Status);
+        Assert.NotNull(store.StatsRetiredOccurrence);       // the run has something to say
+        Assert.Equal(RetiredStatsFixture.V1Json, fake.RetiredStatsJson); // bytes, unparsed
+        Assert.Equal(0, JsonSerializer.Deserialize<ProblemStatsDocument>(fake.StatsJson!)!.Count);
+
+        await store.RecordAsync(PlaySubmission());
+
+        var written = JsonSerializer.Deserialize<ProblemStatsDocument>(fake.Writes[^1]);
+        Assert.NotNull(written);
+        Assert.Equal(PlayKey(), Assert.Single(written.Problems).Key);
+    }
+
+    [Fact]
+    public async Task BeginQuiz_RetiredV1File_SetsAsideBeforeReplacing()
+    {
+        // Order is the data-safety guarantee, so it is pinned rather than
+        // inferred: the copy aside must be written before the standard name is
+        // overwritten. The reverse order would destroy the retired document in
+        // the window between the two writes.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V1Json };
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+
+        var writeNames = fake.ActiveFileNames
+            .Skip(1)   // the bind's read of the standard name
+            .ToList();
+        Assert.Equal(
+            [QuizStatsFile.RetiredFileName, QuizStatsFile.FileName],
+            writeNames);
+    }
+
+    [Fact]
+    public async Task BeginQuiz_RetiredV1File_SetAsideFails_LoadFailedAndFileUntouched()
+    {
+        // A file that could not be preserved must not be replaced: the write
+        // failure leaves the v1 document exactly where it was and reports the
+        // ordinary untouched-file posture. Nothing claims a retirement happened.
+        var fake = new FakeFolderAccess
+        {
+            StatsJson = RetiredStatsFixture.V1Json,
+            WriteException = new JSException("write refused"),
+        };
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.LoadFailed, store.Status);
+        Assert.Null(store.StatsRetiredOccurrence);
+        Assert.Empty(fake.Writes);
+        Assert.Equal(RetiredStatsFixture.V1Json, fake.StatsJson); // untouched
+    }
+
+    [Fact]
+    public async Task BeginQuiz_AfterRetirement_ReportsNothingAndRetiresNothing()
+    {
+        // Idempotence from the other side: the retirement is a one-off. The
+        // second quiz over the same folder binds against the fresh document it
+        // left, so there is no report and no second set-aside — the occurrence
+        // token is cleared by the re-bind rather than by anyone remembering to.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V1Json };
+        var store = MakeStore(fake);
+        await store.BeginQuizAsync();
+        Assert.NotNull(store.StatsRetiredOccurrence); // positive precondition
+        fake.Writes.Clear();
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.Ready, store.Status);
+        Assert.Null(store.StatsRetiredOccurrence);
+        Assert.Empty(fake.Writes);
+    }
+
+    [Fact]
+    public async Task BeginQuiz_RetiredV1File_FailedReplaceIsRetriedOnTheNextBind()
+    {
+        // Idempotence under retry: the set-aside landed but the replace didn't,
+        // so the standard name still holds v1 and the next bind recognises it
+        // again — copying identical bytes over the sidecar it already wrote.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V1Json };
+        var store = MakeStore(fake);
+        fake.WriteException = new JSException("write refused");
+        await store.BeginQuizAsync();
+        Assert.Equal(QuizStatsStatus.LoadFailed, store.Status); // positive precondition
+
+        fake.WriteException = null;
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.Ready, store.Status);
+        Assert.NotNull(store.StatsRetiredOccurrence);
+        Assert.Equal(RetiredStatsFixture.V1Json, fake.RetiredStatsJson);
+    }
+
+    [Fact]
+    public async Task BeginQuiz_ClaimsV1ButMalformed_LoadFailedNotRetired()
+    {
+        // Recognition is shape-based, and a file nobody can identify is a file
+        // nobody may rewrite: this takes the corrupt path, not the retirement.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.ClaimsV1ButMalformedJson };
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.LoadFailed, store.Status);
+        Assert.Null(store.StatsRetiredOccurrence);
+        Assert.Empty(fake.Writes);
+    }
+
+    [Fact]
+    public async Task BeginQuiz_NewerSchemaFile_LoadFailedNotRetired()
+    {
+        // The posture the clean break explicitly leaves alone: a document from a
+        // LATER BgQuiz is not retired. Setting it aside would take a file whose
+        // owner is a version still to come.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.NewerSchemaJson };
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.LoadFailed, store.Status);
+        Assert.Null(store.StatsRetiredOccurrence);
+        Assert.Empty(fake.Writes);
+        Assert.Equal(RetiredStatsFixture.NewerSchemaJson, fake.StatsJson);
+    }
+
+    // -----------------------------------------------------------------------
     //  RecordAsync — fold + write-back per submission
     // -----------------------------------------------------------------------
 

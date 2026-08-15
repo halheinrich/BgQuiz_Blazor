@@ -4,9 +4,10 @@ using BgGame_Lib;
 
 /// <summary>
 /// The <c>Quiz</c> page's dismissible notices, named so a dismissal of one is
-/// never a dismissal of another. Two, because the two stats notices are
-/// mutually exclusive branches of one condition and therefore one notice as far
-/// as the user is concerned.
+/// never a dismissal of another. The two stats <i>degrade</i> notices share a
+/// slot, because they are mutually exclusive branches of one condition and
+/// therefore one notice as far as the user is concerned; the retirement report
+/// gets its own, because it can be showing at the same time as either of them.
 /// </summary>
 internal enum QuizNotice
 {
@@ -24,6 +25,14 @@ internal enum QuizNotice
     /// <see cref="QuizStatsStore.StatusOccurrence"/>.
     /// </summary>
     StatsContext,
+
+    /// <summary>
+    /// The stats-retirement report: this run found a stats file in the retired
+    /// format, set it aside, and started a fresh one (SPEC-stats-identity.md
+    /// §3). Occurrence: <see cref="QuizStatsStore.StatsRetiredOccurrence"/>,
+    /// which is null on every run that retired nothing.
+    /// </summary>
+    StatsRetired,
 }
 
 /// <summary>
