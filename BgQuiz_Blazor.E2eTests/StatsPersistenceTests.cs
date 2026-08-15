@@ -36,20 +36,86 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 
         // Exactly one fold (one answered problem), one write-back — captured by
         // the fake writable. Pin the wire contract from the consumer side:
-        // schemaVersion 1, one decision record, a fully-correct cube submission
-        // tallied as TWO decisions (one per half), indented output.
+        // schemaVersion 2, one problem record keyed by content, a fully-correct
+        // cube submission tallied as TWO decisions (one per half), indented.
         var writes = await CapturedWritesAsync();
         var payload = Assert.Single(writes);
         Assert.Contains('\n', payload);
 
         using var doc = JsonDocument.Parse(payload);
-        Assert.Equal(1, doc.RootElement.GetProperty("schemaVersion").GetInt32());
-        var decisions = doc.RootElement.GetProperty("decisions");
-        Assert.Equal(1, decisions.GetArrayLength());
-        var tally = decisions[0].GetProperty("tally");
+        Assert.Equal(2, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+        var problems = doc.RootElement.GetProperty("problems");
+        var record = Assert.Single(problems.EnumerateObject());
+        var tally = record.Value.GetProperty("tally");
         Assert.Equal(2, tally.GetProperty("submitted").GetInt32());
         Assert.Equal(2, tally.GetProperty("correct").GetInt32());
+
+        // The key is content, not provenance: a fixture filename appearing in it
+        // would mean the #95 fragmentation had survived the re-key. A cube key
+        // additionally carries no dice field (the kind discriminant).
+        Assert.DoesNotContain(CubeFixture, record.Name, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, record.Name.Count(c => c == '/'));
     }
+
+    [Fact]
+    public async Task FsAccessPick_RetiredV1StatsFile_SetsItAsideAndStartsFresh()
+    {
+        // The clean break's one act of recognition, through the real
+        // folderAccess.js (SPEC-stats-identity.md §3): a genuine v1 file must
+        // not surface as the polite "couldn't be read" degrade, which would
+        // strand an existing tester with stats silently dead. Its bytes go to
+        // the sidecar name, a fresh v2 document takes the standard name, and
+        // the run says so and records normally.
+        await Page.AddInitScriptAsync(
+            $"window.__statsFake.statsJson = {JsonSerializer.Serialize(V1StatsJson)};");
+
+        await BootHomeAsync();
+        await PickFakeFolderAsync();
+        await ApplyFilterAsync();
+        await StartQuizAsync();
+
+        await Expect(Page.GetByText("set aside as").First).ToBeVisibleAsync();
+        await Expect(Page.GetByText(RetiredStatsFileName).First).ToBeVisibleAsync();
+        await Expect(Page.GetByText("couldn't be read")).ToBeHiddenAsync();
+
+        await AnswerCubeNoDoubleAsync();
+        await ContinueToDoneAsync();
+
+        // The old file preserved verbatim, unparsed. Line endings normalized on
+        // both sides: this literal carries the source file's, and what crossed
+        // the browser is whatever the fake's File gave back — the claim is about
+        // the content, not about which newline a round trip settled on.
+        Assert.Equal(
+            V1StatsJson.ReplaceLineEndings("\n"),
+            Assert.Single(await CapturedRetiredWritesAsync()).ReplaceLineEndings("\n"));
+
+        // …and the standard name written twice: the fresh empty seed at bind,
+        // then the answered problem folded into it.
+        var writes = await CapturedWritesAsync();
+        Assert.Equal(2, writes.Length);
+        using var seeded = JsonDocument.Parse(writes[0]);
+        Assert.Equal(2, seeded.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Empty(seeded.RootElement.GetProperty("problems").EnumerateObject());
+        using var folded = JsonDocument.Parse(writes[1]);
+        Assert.Single(folded.RootElement.GetProperty("problems").EnumerateObject());
+    }
+
+    /// <summary>
+    /// A genuine retired (schema v1) stats document. Hand-written because
+    /// nothing can produce one any more — the format has no writer left — and
+    /// hardcoded here for the same reason the wire assertions above are: this
+    /// suite is the consumer-side pin, and references no app assembly.
+    /// </summary>
+    private const string V1StatsJson = """
+        {
+          "schemaVersion": 1,
+          "decisions": [
+            { "id": "legacy.xg:g3:m12:play",
+              "tally": { "submitted": 3, "correct": 2, "totalEquityLoss": 0.125 },
+              "lastQuizzed": "2026-07-18T19:04:11+00:00" }
+          ]
+        }
+        """;
 
     [Fact]
     public async Task FsAccessPick_CorruptStatsFile_PoliteNoticeAndNoWrites()

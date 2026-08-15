@@ -1,4 +1,4 @@
-using Microsoft.Playwright;
+﻿using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
 
 namespace BgQuiz_Blazor.E2eTests;
@@ -38,6 +38,13 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     protected const string StatsFileName = "bgquiz-stats.json";
 
     /// <summary>
+    /// The name a retired schema-v1 stats document must be set aside under —
+    /// the consumer-side pin of the clean break's preservation promise
+    /// (SPEC-stats-identity.md §3).
+    /// </summary>
+    protected const string RetiredStatsFileName = "bgquiz-stats.v1.json";
+
+    /// <summary>
     /// The canonical on-disk saved-filters filename the app must read first and
     /// write — the consumer-side pin of the producer's document identity.
     /// </summary>
@@ -73,7 +80,7 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
           window.__statsFake = {
             permission: 'granted', statsJson: null,
             filtersJson: null, legacyFiltersJson: null,
-            writes: [], filtersWrites: [], scanGate: null,
+            writes: [], retiredWrites: [], filtersWrites: [], scanGate: null,
           };
           const cfg = window.__statsFake;
           const notFound = () => new DOMException('not found', 'NotFoundError');
@@ -97,6 +104,21 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
               return {
                 write: async d => { buf += d; },
                 close: async () => { cfg.writes.push(buf); },
+              };
+            },
+          };
+
+          // The set-aside slot for a retired stats document. Write-only in
+          // practice — nothing in the app ever reads it back — so this captures
+          // writes and serves no content: a read attempt is a contract
+          // violation and fails the gesture loudly rather than passing.
+          const retiredStatsHandle = {
+            kind: 'file', name: '{{RetiredStatsFileName}}',
+            createWritable: async () => {
+              let buf = '';
+              return {
+                write: async d => { buf += d; },
+                close: async () => { cfg.retiredWrites.push(buf); },
               };
             },
           };
@@ -142,6 +164,10 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
               if (name === '{{StatsFileName}}') {
                 if (cfg.statsJson === null && !(opts && opts.create)) throw notFound();
                 return statsHandle;
+              }
+              if (name === '{{RetiredStatsFileName}}') {
+                if (!(opts && opts.create)) throw notFound();
+                return retiredStatsHandle;
               }
               if (name === '{{CanonicalFiltersFileName}}') {
                 if (cfg.filtersJson === null && !(opts && opts.create)) throw notFound();
@@ -234,6 +260,10 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     /// <summary>Every stats write-back the fake writable captured, in order.</summary>
     protected Task<string[]> CapturedWritesAsync() =>
         Page.EvaluateAsync<string[]>("() => window.__statsFake.writes");
+
+    /// <summary>Every write the fake made to the set-aside retired-stats name, in order.</summary>
+    protected Task<string[]> CapturedRetiredWritesAsync() =>
+        Page.EvaluateAsync<string[]>("() => window.__statsFake.retiredWrites");
 
     /// <summary>Every saved-filters write-back the fake writable captured, in order.</summary>
     protected Task<string[]> CapturedFilterWritesAsync() =>

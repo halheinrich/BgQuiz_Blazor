@@ -42,8 +42,8 @@ using Microsoft.Extensions.Logging;
 /// position twice, because the records' identities are file-relative:
 /// duplicate files of one match, or an identical early position reached in two
 /// different matches, carry distinct <c>DecisionId</c>s yet render the same
-/// problem — the decorator keys on the content identity instead. Wiring the dedupe
-/// beneath shuffle and mix means plain, shuffled and weighted runs all draw
+/// problem — the decorator keys on the content identity instead. Wiring the
+/// dedupe beneath shuffle and mix means plain, shuffled and weighted runs all draw
 /// from an already position-distinct supply — one rule, stated once, with no
 /// per-mode variant to keep in step. It is also what makes the pre-Start match
 /// summary agree with what a capless quiz serves: that count comes from the
