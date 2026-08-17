@@ -2973,12 +2973,32 @@ public (see Pitfalls). The externally visible surface is the route map:
   + progress persisted client-side (IndexedDB — `localStorage` is too small
   for buffered `.xg` bytes); a deferred arc of its own, distinct from the
   stats file (which survives via re-pick). The rule itself is in Pitfalls.
-- **Mobile assessment — layout and folder picking.** Mobile layout has never
-  been assessed (the beta-readiness live drive was text/DOM-only). The
-  quiz-stats arc raised the stakes: `webkitdirectory` is weak-to-absent on
-  mobile browsers, so on phones the fallback pick — and with it the whole
-  app's pick gesture — may not work at all. Assess the pick alongside the
-  layout pass; neither is solved here.
+- **Device assessment — what tablet emulation settled, and what it can't.**
+  Tablet *layout* has now been driven at 768x1024, 1024x768, 820x1180 and
+  1180x820 (halheinrich/backgammon#67). Settled: no page overflows
+  horizontally at any of them, and no chrome falls below the fold; the
+  desktop nav applies (the rail's threshold is 641px) and stays usable
+  folded and unfolded. The one layout defect found and fixed was width
+  accounting — the desktop panel and page padding were taking 358px of a
+  768px viewport from a board that is **width**-bound there, which the
+  641–1200px band in `MainLayout.razor.css` now returns (+23% board width
+  at 768x1024). Two findings stay open and are **not** this repo's to
+  close: the wide cube action row wraps to two or three lines across the
+  whole tablet band (halheinrich/backgammon#99), and in portrait the
+  vertical law leaves 287–588px of blank page between board and chrome
+  because the board cannot spend height it is not width-bound to use —
+  a `SPEC-quiz-view.md` §2 question, not a CSS one.
+- **Device assessment — what only hardware can answer.** Emulation cannot
+  reach the questions that actually gate a tablet or phone visitor: the
+  browser pane is desktop Chromium, so it still exposes File System Access
+  and desktop pointer semantics, and it emulates touch only below 768px.
+  So the pick gesture end to end, one-click checker entry by touch, the
+  real hit size of the cube radios and the collapse rail, and whether stats
+  persist at all remain hardware questions. `showDirectoryPicker` is absent
+  on Android Chrome and `webkitdirectory` behaves differently there, so the
+  fallback path is the one a tablet exercises — and on phones it may not
+  work at all, which the honest phone notice
+  (halheinrich/backgammon#105) owns.
 - **Done-page retrospective.** Per-problem review ships *in-quiz*; what's
   missing is a *post-quiz* retrospective on Done — the four-way
   `ScoreBreakdown` reports only aggregates, with no way to revisit
