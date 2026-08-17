@@ -62,10 +62,12 @@ h1:focus {
 /* Width-driven board (all viewports). BgQuiz names no ratio: the producer's
    .bg-diagram carries its own aspect-ratio (derived from the viewBox it owns),
    so giving the board a definite *width* — it fills this block — yields the
-   height for free. .board-container is a plain full-width flow box; it no longer
-   sizes, shrink-wraps, or re-encodes the ratio. Removing the old
-   width:100%/height:100% pins on .bg-diagram (which made the producer's
-   aspect-ratio a no-op by pinning both dimensions) is what lets the ratio drive. */
+   height for free. .board-container re-encodes no ratio and never sizes the
+   board: it supplies the width and takes back whatever height the ratio then
+   yields (which is why, at desktop, it is `flex: 0 1 auto` — see the vertical
+   law below). Removing the old width:100%/height:100% pins on .bg-diagram
+   (which made the producer's aspect-ratio a no-op by pinning both dimensions)
+   is what lets the ratio drive. */
 .board-container {
     /* Full-row width is the board's one definite dimension; the producer's
        aspect-ratio derives the height. (Set explicitly rather than relying on
@@ -96,26 +98,52 @@ h1:focus {
 @media (min-width: 641px) {
     /* Desktop: board on top, chrome (score panel, legend, verdict, actions) in
        the full-width region below. Height-bounded so the chrome stays above the
-       fold on short/wide viewports: the board row is 1fr (whatever height the
-       auto chrome row doesn't take), and the board caps to it via max-height,
-       letterboxing — width re-derives from the producer's ratio — when the
-       viewport is too short. 1.1rem is article.content's own padding-top; the
-       chrome height is measured (the auto row), never a guessed constant. */
+       fold on short/wide viewports: the chrome row sizes to its own content and
+       the board takes the remainder OR its natural height, whichever is smaller
+       (SPEC-quiz-view.md §2's vertical law — see .board-container below). When
+       the remainder binds, the board caps to it and letterboxes, width
+       re-deriving from the producer's ratio. 1.1rem is article.content's own
+       padding-top; the chrome height is measured, never a guessed constant. */
     .board-page {
         display: flex;
         flex-direction: column;
         height: calc(100vh - 1.1rem);
     }
 
-    /* The board region takes the height the chrome doesn't; the chrome sizes to
-       its own content (measured, not guessed). align-items:stretch (the flex
-       default) gives .board-container a definite full-row width — the board's
-       one definite dimension — from which the producer's aspect-ratio yields
-       height. .board-container carries no aspect-ratio itself, so flex growing
-       its height never distorts the board (the ratio lives on the block child,
-       .bg-diagram, sized width-first in normal flow). */
+    /* THE VERTICAL LAW (SPEC-quiz-view.md §2, amended 2026-08-17 by issue
+       halheinrich/backgammon#67's F2 fork): the board gets the chrome's
+       remainder OR its natural height, WHICHEVER IS SMALLER. That is the whole
+       of `flex: 0 1 auto` — basis auto is the board's natural height (the
+       producer's aspect-ratio applied to the row width), shrink 1 lets the
+       remainder cap it, grow 0 stops the region claiming height the board
+       cannot spend.
+
+       Two regimes, one declaration. Where the board is HEIGHT-bound the
+       remainder is the smaller term, the region fills it, and .bg-diagram's
+       contain-fit default letterboxes inside it — identical to the pre-amendment
+       `flex: 1 1 0` by measurement (folded 1024x768 is bit-identical; 1440x900
+       keeps §2's own 1082x609 canvas). Where the board is WIDTH-bound — portrait
+       tablets above all — the natural height is smaller, so the region hugs the
+       board and the chrome rises to sit directly beneath it. The unusable slack
+       then falls BELOW the chrome, so the page may end above the fold: accepted
+       at every desktop width (33px of chrome rise at 1440x900, 588px at
+       820x1180). Board size is unchanged at every measured viewport.
+
+       align-items:stretch (the flex default) still supplies the definite
+       full-row WIDTH — the board's one definite dimension. The region carries no
+       aspect-ratio itself, so nothing here can distort the board; the ratio
+       lives on the block child, .bg-diagram, sized width-first in normal flow.
+
+       Centring the board in an unchanged full-height region was considered and
+       STRUCK as unbuildable, not merely declined (§2, measured across four
+       variants): the producer's inline `margin-inline: auto` contain-fit absorbs
+       cross-axis free space in flex and grid alike, collapsing the board to its
+       intrinsic size (556x313 to 300x169); the only repair is the retired
+       pre-contract glue the bounded-height comment below records as removed; and
+       even repaired it centres the cube and review branches but not the
+       play-entry branch, which is per-branch divergence inside one view mode. */
     .board-container {
-        flex: 1 1 0;
+        flex: 0 1 auto;
         min-width: 0;
         min-height: 0;
     }

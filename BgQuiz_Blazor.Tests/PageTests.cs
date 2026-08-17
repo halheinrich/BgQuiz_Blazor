@@ -5006,6 +5006,34 @@ public class PageTests : BunitContext
         Assert.Contains("white-space: nowrap", rule.Value);
     }
 
+    [Fact]
+    public void AppCss_BoardRegion_TakesTheSmallerOfRemainderAndNaturalHeight()
+    {
+        // SPEC-quiz-view.md §2's vertical law as amended 2026-08-17 (issue
+        // halheinrich/backgammon#67's F2 fork). `flex: 0 1 auto` IS the law:
+        // basis auto is the board's natural height, shrink 1 lets the chrome's
+        // remainder cap it, and grow 0 is what stops the region claiming height
+        // the board cannot spend — which is the whole amendment. Reverting any
+        // one of the three to `flex: 1 1 0` restores the portrait dead space
+        // (531px at 820x1180, measured) without breaking anything a test would
+        // otherwise notice, since board SIZE is identical under both.
+        //
+        // Both halves are pinned, and that is the point rather than belt-and-
+        // braces: board size is unchanged at every viewport under the amendment,
+        // so the presence pin is the only thing that can fail if the grow term
+        // creeps back, and the absence pin is the only thing that catches the
+        // literal old declaration returning beside it. bUnit has no CSS engine —
+        // the geometry lives in the commit message and §2; this stops the
+        // declaration being reverted without a fresh measurement.
+        var css = File.ReadAllText(AppCssPath());
+        var noComments = Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);
+        var rule = Regex.Match(noComments, @"\.board-container\s*\{[^}]*\}", RegexOptions.Singleline);
+
+        Assert.True(rule.Success, ".board-container rule present");
+        Assert.Contains("flex: 0 1 auto", noComments);
+        Assert.DoesNotContain("flex: 1 1 0", noComments);
+    }
+
     /// <summary>
     /// Absolute path to the server project's <c>wwwroot/app.css</c>, resolved from
     /// this test file's own compile-time location so it doesn't depend on the test
