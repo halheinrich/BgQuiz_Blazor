@@ -77,8 +77,14 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
           // long as it likes. That is the only way to observe the busy
           // affordance in a real browser: unheld, the fake's one-file scan is
           // over in milliseconds and nothing could be asserted about it.
+          // permissionError: null by default. A scenario may set it to a
+          // DOMException *name*, which makes requestPermission THROW that
+          // instead of resolving — the browser refusing to ask, as distinct
+          // from a user who answers no (cfg.permission). Only the real
+          // refusal name is meant to degrade; see the pair of scenarios in
+          // StatsPersistenceTests.
           window.__statsFake = {
-            permission: 'granted', statsJson: null,
+            permission: 'granted', permissionError: null, statsJson: null,
             filtersJson: null, legacyFiltersJson: null,
             writes: [], retiredWrites: [], filtersWrites: [], scanGate: null,
           };
@@ -155,7 +161,17 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
           const dir = {
             kind: 'directory', name: 'FakeCorpus',
             queryPermission: async () => cfg.permission,
-            requestPermission: async () => cfg.permission,
+            requestPermission: async () => {
+              // Chromium's own wording for the no-transient-activation refusal,
+              // so the scenario reproduces the observed Android arc exactly
+              // (halheinrich/backgammon#109) rather than an invented message.
+              if (cfg.permissionError !== null) {
+                throw new DOMException(
+                  'User activation is required to request permissions.',
+                  cfg.permissionError);
+              }
+              return cfg.permission;
+            },
             values: async function* () {
               if (cfg.scanGate !== null) await cfg.scanGate;
               yield fixtureEntry;

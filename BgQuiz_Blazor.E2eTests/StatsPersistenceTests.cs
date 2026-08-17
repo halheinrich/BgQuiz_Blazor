@@ -167,6 +167,54 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 
         Assert.Empty(await CapturedWritesAsync());
     }
+
+    [Fact]
+    public async Task FsAccessPick_WriteRequestRefusedWithoutActivation_DegradesLikeADecline()
+    {
+        // The Chrome-for-Android arc (halheinrich/backgammon#109). The picker
+        // resolves normally and then requestPermission THROWS SecurityError,
+        // because no transient user activation survives the pick there. Before
+        // the fix that throw escaped folderAccess.js as a JSException and
+        // destroyed the WHOLE pick — the folder whose files the user had
+        // already granted read access to was lost behind "Could not read the
+        // folder", which is why the device could not use the app at all.
+        //
+        // It must land exactly where a user's own "no" lands: folder held,
+        // files readable, quiz runnable end to end, nothing written. The
+        // notice is pinned to the same distinctive consequence clause the
+        // declined-write scenario above uses — the two causes share a rung and
+        // must be indistinguishable on the surface.
+        await Page.AddInitScriptAsync("window.__statsFake.permissionError = 'SecurityError';");
+
+        await BootHomeAsync();
+        // Waits on the holder summary, so a pick that died fails right here.
+        await PickFakeFolderAsync();
+        await Expect(Page.GetByText("Could not read the folder")).ToBeHiddenAsync();
+        await Expect(Page.GetByText("which problems give you difficulty")).ToBeVisibleAsync();
+
+        await ApplyFilterAsync();
+        await StartQuizAsync();
+        await AnswerCubeNoDoubleAsync();
+        await ContinueToDoneAsync();
+
+        Assert.Empty(await CapturedWritesAsync());
+    }
+
+    [Fact]
+    public async Task FsAccessPick_WriteRequestFailsUnexpectedly_StillFailsThePickLoudly()
+    {
+        // The other side of that catch, and the reason it is written narrowly.
+        // Only the refuse-to-ask SecurityError degrades; any other failure out
+        // of the write request is a genuine browser fault and must still reach
+        // the pick-error banner. A blanket catch would pass the scenario above
+        // and silently swallow this one into a read-only pick.
+        await Page.AddInitScriptAsync("window.__statsFake.permissionError = 'InvalidStateError';");
+
+        await BootHomeAsync();
+        await PickFolderButton.ClickAsync();
+
+        await Expect(Page.GetByText("Could not read the folder")).ToBeVisibleAsync();
+    }
 }
 
 /// <summary>
