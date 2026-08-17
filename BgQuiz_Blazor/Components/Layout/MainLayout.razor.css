@@ -140,6 +140,47 @@ main {
     }
 }
 
+/* Narrow desktop — the tablet band, and any window that lands in it (issue
+   halheinrich/backgammon#67). Everything above is sized for a wide screen, and
+   below ~1200px the pixels that chrome spends come straight out of the board.
+   Measured on the quiz page at 768x1024 with the panel showing: the board is
+   410px wide in a 768px viewport (53%), while the rail, the panel and the
+   page's own horizontal padding take 358px between them — and the board is
+   WIDTH-bound there, not height-bound (the region under it is 699px tall for a
+   231px board), so every pixel returned here becomes board.
+
+   Two constants shrink, neither load-bearing:
+
+   - The panel's content measures 148px at its widest ("Settings" inside
+     .nav-item's px-3), so 250px is 69% wider than anything in it. 180px still
+     clears the content with room to spare.
+   - The page padding is 11% of the content width at 768px against 3.6% at
+     1440px — a desktop-shaped constant. 1rem a side is still wider than the
+     .container-fluid gutter nested inside it, and matches the ps-3 the nav
+     panel's own brand row uses.
+
+   Only `article` here, not the `.top-row, article` pair above: MainLayout's
+   scoped CSS cannot reach NavMenu's `.top-row` (different scope attribute), so
+   that half of the sibling rule has never applied to anything.
+
+   Bounded at 1200px deliberately. app.css's XGID-badge and action-row
+   arithmetic was measured at 1360-1440px and the e2e suite drives 1280x800, so
+   the band stops short of both and neither is disturbed. Nothing here changes
+   composition: no chrome appears or disappears, and the vertical law and both
+   size-invariance contracts (SPEC-quiz-view.md §2) are untouched — this only
+   stops giving the board's width away. The collapse rail remains the large
+   lever (folding the panel is worth more than this band is), unchanged. */
+@media (min-width: 641px) and (max-width: 1200px) {
+    .sidebar {
+        width: 180px;
+    }
+
+    article {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+}
+
 #blazor-error-ui {
     color-scheme: light only;
     background: lightyellow;
