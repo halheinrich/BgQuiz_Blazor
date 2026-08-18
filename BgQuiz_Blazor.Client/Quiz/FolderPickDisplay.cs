@@ -90,13 +90,18 @@ internal static class FolderPickDisplay
     /// <para>
     /// <b>It deliberately does not say the user declined.</b>
     /// <see cref="FolderWriteCapability.PermissionDenied"/> has two causes and
-    /// cannot tell them apart: the user answered no, <i>or</i> the readwrite
-    /// request auto-denied because the picker had already consumed the transient
-    /// user activation (observed on some Chromium versions — see
-    /// <c>folderAccess.js</c>'s <c>beginPick</c>). On that second path no
-    /// second prompt is ever shown, so "you declined write access" attributes a
-    /// decision the user never made. Same discipline as the cancelled-pick
-    /// notice: true under both causes, and non-accusatory.
+    /// cannot tell them apart: the user answered no, <i>or</i> the browser
+    /// <b>refused to ask</b>. That refusal is spec'd, not a quirk:
+    /// <c>requestPermission</c> requires transient user activation and
+    /// <i>throws</i> <c>SecurityError</c> when there is none — it never
+    /// resolves "denied" — and <c>folderAccess.js</c>'s <c>beginPick</c>
+    /// catches exactly that throw and degrades onto this rung. It is what
+    /// Chrome for Android does on <i>every</i> pick, a second fresh gesture
+    /// included, because the picker leaves no live activation behind
+    /// (halheinrich/backgammon#109). On that second path no second prompt is
+    /// ever shown, so "you declined write access" attributes a decision the
+    /// user never made. Same discipline as the cancelled-pick notice: true
+    /// under both causes, and non-accusatory.
     /// </para>
     ///
     /// <para>

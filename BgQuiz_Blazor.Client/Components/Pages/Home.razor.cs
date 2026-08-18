@@ -402,7 +402,8 @@ public partial class Home : ComponentBase, IDisposable
     /// The premise is <see cref="FolderPickDisplay.WriteAccessNotGranted"/>, not
     /// a local literal: this is the second surface stating it, and the two had
     /// already drifted once — both said "you declined", which this rung cannot
-    /// know (an auto-denied readwrite request lands here too), and only the
+    /// know (a browser that refused to ask for the write grant lands here too),
+    /// and only the
     /// stats notice was corrected. Sharing the clause is what keeps the next
     /// correction from being half-applied again.
     /// </para>

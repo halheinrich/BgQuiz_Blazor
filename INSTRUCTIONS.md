@@ -639,11 +639,14 @@ browser offers — probed **at pick time**, per gesture:
   graceful rung: granted ⇒ `FolderWriteCapability.Enabled`; not granted ⇒
   `PermissionDenied` — the handle stays readable, so the file list loads and
   the quiz runs read-only. `PermissionDenied` likewise carries **two** causes
-  it can't tell apart: the user answered no, *or* the request **auto-denied**
-  with no prompt shown (some Chromium versions treat the transient user
-  activation as consumed by the picker). So every surface for this rung opens
-  with the cause-agnostic `FolderPickDisplay.WriteAccessNotGranted` — never
-  "you declined", which on the auto-deny path attributes a decision the user
+  it can't tell apart: the user answered no, *or* **the browser refused to
+  ask** — `requestPermission` requires transient user activation and *throws*
+  `SecurityError` without it (never resolves "denied"), which `beginPick`
+  catches and degrades onto this rung. That is Chrome for Android on *every*
+  pick: the picker leaves no live activation behind
+  (halheinrich/backgammon#109). So every surface for this rung opens with the
+  cause-agnostic `FolderPickDisplay.WriteAccessNotGranted` — never "you
+  declined", which on the refused-to-ask path attributes a decision the user
   never made, and never a *count* of prompts.
 - **`webkitdirectory` fallback** (everywhere else): a hidden
   `<input type="file" webkitdirectory>` opened by the same button. Read-only
@@ -2657,7 +2660,7 @@ public (see Pitfalls). The externally visible surface is the route map:
   browser will ask…"), and asserts no exact prompt string — in markup, comments,
   or docs. `FolderPickDisplay` carries the rule. It also asserts nothing about
   *how many* prompts appear, or that a missing grant was a user decision — both
-  are false on the auto-deny path.
+  are false where the browser refused to ask.
 - **Don't pin a user-visible string wider than it needs to be.** A test pin
   should be the *minimum discriminating substring*: long enough to prove the
   right surface rendered, short enough that a copy polish doesn't break it

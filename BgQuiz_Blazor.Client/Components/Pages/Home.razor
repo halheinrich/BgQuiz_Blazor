@@ -110,10 +110,11 @@
 
            Describes the grants; quotes no browser's prompt text — see
            FolderPickDisplay for why any such quote would be wrong somewhere.
-           The lead-in promises no *count* of prompts on purpose: the readwrite
-           request auto-denies on some Chromium versions (folderAccess.js), and
-           on that path the second prompt never appears — so the list says what
-           the browser may ask, not that it will ask twice. Step 2's consequence
+           The lead-in promises no *count* of prompts on purpose: where the
+           browser refuses to ask for the write grant at all (folderAccess.js
+           catches that refusal and degrades — it is Chrome for Android's every
+           pick), the second prompt never appears — so the list says what the
+           browser may ask, not that it will ask twice. Step 2's consequence
            is worded "without it" rather than "decline and" for the same reason.
            Polite role="status". *@
         @if (_fsAccessAvailable && !Folder.HasFiles)
@@ -214,9 +215,10 @@
                     break;
                 case FolderWriteCapability.PermissionDenied:
                     @* Both halves come from FolderPickDisplay: the premise is
-                       cause-agnostic (this rung is also reached by an auto-deny
-                       the user never saw, so "you declined" would attribute a
-                       decision they never made), and the consequence is the same
+                       cause-agnostic (this rung is also reached by a browser
+                       that refused to ask, with no prompt the user ever saw, so
+                       "you declined" would attribute a decision they never
+                       made), and the consequence is the same
                        clause the pre-pick guidance's step 2 promised — one
                        constant each, so warning and follow-through can't drift. *@
                     <div class="alert alert-warning mt-2" role="status">

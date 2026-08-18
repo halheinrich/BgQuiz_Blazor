@@ -822,7 +822,7 @@ public class PageTests : BunitContext
         Assert.Contains(FolderPickDisplay.WriteAccessNotGranted, notice.TextContent);
         // Finding (AA): the notice says what that costs — not "stats won't be
         // saved". And it never claims the user declined: this rung is also
-        // reached by a readwrite request that auto-denied with no prompt shown.
+        // reached by a browser that refused to ask, with no prompt ever shown.
         Assert.Contains(FolderPickDisplay.WriteAccessConsequence, notice.TextContent);
         Assert.DoesNotContain("declined", notice.TextContent);
         var folder = Services.GetRequiredService<PickedProblemFolder>();
@@ -1221,9 +1221,9 @@ public class PageTests : BunitContext
 
         cut.WaitForAssertion(() =>
         {
-            // The lead-in promises no count of prompts: the readwrite request
-            // auto-denies on some Chromium versions, and then only one prompt
-            // ever appears.
+            // The lead-in promises no count of prompts: where the browser
+            // refuses to ask for the write grant (Chrome for Android, every
+            // pick), only one prompt ever appears.
             Assert.Contains("Your browser will ask about the selected folder", cut.Markup);
             Assert.DoesNotContain("ask you twice", cut.Markup);
 
