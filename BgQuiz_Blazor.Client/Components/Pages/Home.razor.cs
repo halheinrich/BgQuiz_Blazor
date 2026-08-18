@@ -145,11 +145,11 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <para>
 /// Two statements on this page are about the <i>app</i> rather than about the
 /// quiz, and neither is gated on any pick state the setup surface uses. Beside
-/// the pick button, <see cref="FolderPickDisplay.SupportedBrowsers"/> names the
-/// browsers and devices the pick actually works on — deliberately <b>not</b>
-/// behind the <see cref="_fsAccessAvailable"/> probe, because the visitor it is
-/// written for (a phone, where the pick may raise nothing at all) is precisely
-/// the one that probe excludes. In the footer, <see cref="AppInfo.Version"/>
+/// the pick button, <see cref="FolderPickDisplay.SupportedBrowsers"/> names what
+/// the pick actually needs from a browser — deliberately <b>not</b> behind the
+/// <see cref="_fsAccessAvailable"/> probe, because the visitor it is written for
+/// (a browser that can serve neither mechanism, where the pick may raise nothing
+/// at all) is precisely the one that probe excludes. In the footer, <see cref="AppInfo.Version"/>
 /// and <see cref="AppInfo.FeedbackMailto"/> render together: the version is what
 /// makes a beta report actionable, and putting the feedback link beside it means
 /// the two cannot disagree.

@@ -31,17 +31,20 @@ using BgFolderAccess_Razor;
 internal static class FolderPickDisplay
 {
     /// <summary>
-    /// Which browsers and devices the folder pick actually works on, in one
-    /// sentence pair that reads correctly standing alone (Home, beside the pick
-    /// button) and inside a prerequisites list (Help's "before you start" lead).
+    /// What the folder pick actually needs from a browser, in one sentence pair
+    /// that reads correctly standing alone (Home, beside the pick button) and
+    /// inside a prerequisites list (Help's "before you start" lead).
     ///
     /// <para>
-    /// It exists because the pick is a <b>dead entry point</b> where it isn't
-    /// supported: on a phone the <c>webkitdirectory</c> fallback is weak to
-    /// absent, so the button may raise nothing at all and leave the visitor on an
-    /// unchanged page with no account of why — the same silence the cancelled-pick
-    /// notice was added to end, except that no code path here ever runs to report
-    /// it. Only a statement made <i>before</i> the gesture can cover that case.
+    /// It exists because the pick is a <b>dead entry point</b> where the browser
+    /// can serve neither mechanism: with no <c>showDirectoryPicker</c> the hidden
+    /// <c>webkitdirectory</c> input is all that is left, and a browser may accept
+    /// that attribute while its picker never honors it — observed on a tablet,
+    /// where the button raised no chooser of any kind
+    /// (halheinrich/backgammon#108). The visitor is left on an unchanged page
+    /// with no account of why — the same silence the cancelled-pick notice was
+    /// added to end, except that no code path here can even report the cause.
+    /// Only a statement made <i>before</i> the gesture can cover that case.
     /// </para>
     ///
     /// <para>
@@ -52,18 +55,34 @@ internal static class FolderPickDisplay
     /// </para>
     ///
     /// <para>
-    /// The middle clause is hedged on purpose. A desktop non-Chromium browser is
-    /// not broken — the fallback picker works and the quiz runs, it just cannot
-    /// write, which is the <see cref="FolderWriteCapability.BrowserUnsupported"/>
-    /// rung. Only the phone case is genuinely "may not work at all", and it says
-    /// <i>may</i>: this asserts no behavior of a browser we cannot observe from
-    /// here, the same discipline as the never-quote-a-prompt rule above.
+    /// <b>The claims are device-free on purpose, bar one.</b> This sentence once
+    /// read "on phones, choosing a folder may not work at all", which is now
+    /// false in <i>both</i> directions: Chrome for Android completes the pick
+    /// (read-only — halheinrich/backgammon#109), while a WebView-wrapping browser
+    /// on a tablet could not pick at all (halheinrich/backgammon#108). A dead
+    /// pick gesture is <b>capability</b>-shaped, not screen-shaped, so the
+    /// sentence names capabilities and hedges what it cannot observe from here:
+    /// "often" run the quiz, "some" can't open a folder. That is the
+    /// never-quote-a-prompt discipline above, extended to device classes.
+    /// </para>
+    ///
+    /// <para>
+    /// The one vendor pair it still names is scoped to <b>desktop</b>, and the
+    /// scope is load-bearing rather than stylistic: desktop Chromium is where
+    /// <i>both</i> grants are observed to land, and Chrome for Android is
+    /// precisely a Chrome that cannot write (the write request is refused for
+    /// want of transient activation — see <see cref="WriteAccessNotGranted"/>).
+    /// An unscoped "Chrome and Edge can save" would be false on that browser.
+    /// The names stay because "a browser that can open a folder" is not
+    /// something a reader can check, and two names are: the rule is capabilities
+    /// over vendors <i>where possible</i>, not vendors never.
     /// </para>
     /// </summary>
     internal const string SupportedBrowsers =
-        "BgQuiz supports desktop Chrome and Edge. Other desktop browsers can "
-        + "usually run the quiz but save nothing; on phones, choosing a folder "
-        + "may not work at all.";
+        "BgQuiz needs a browser that can open a folder of your .xg/.xgp files "
+        + "— desktop Chrome and Edge do, and can also save your lifetime stats "
+        + "back into that folder. Other browsers often run the quiz but save "
+        + "nothing, and some can't open a folder at all.";
 
     /// <summary>
     /// What the absence of write access to the picked folder actually costs, in

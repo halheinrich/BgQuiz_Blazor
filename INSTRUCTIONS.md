@@ -2997,11 +2997,13 @@ public (see Pitfalls). The externally visible surface is the route map:
   and desktop pointer semantics, and it emulates touch only below 768px.
   So the pick gesture end to end, one-click checker entry by touch, the
   real hit size of the cube radios and the collapse rail, and whether stats
-  persist at all remain hardware questions. `showDirectoryPicker` is absent
-  on Android Chrome and `webkitdirectory` behaves differently there, so the
-  fallback path is the one a tablet exercises — and on phones it may not
-  work at all, which the honest phone notice
-  (halheinrich/backgammon#105) owns.
+  persist at all remain hardware questions. Hardware corrected this
+  checklist's own expectation: `showDirectoryPicker` is **present** on
+  current Chrome for Android and opens a real chooser there
+  (halheinrich/backgammon#109), while a WebView-wrapping browser on the same
+  tablet raised no chooser at all (halheinrich/backgammon#108). So a dead
+  pick gesture is **capability**-shaped, not screen-shaped — which is what
+  the honest-notice posture (halheinrich/backgammon#105) is written against.
 - **Done-page retrospective.** Per-problem review ships *in-quiz*; what's
   missing is a *post-quiz* retrospective on Done — the four-way
   `ScoreBreakdown` reports only aggregates, with no way to revisit

@@ -1317,11 +1317,11 @@ public class PageTests : BunitContext
     [Fact]
     public void Home_NoFsAccessBrowser_StillStatesTheSupportedBrowsers()
     {
-        // The beta wave's device statement, and the case that decides its gate.
-        // A visitor whose browser has no directory picker — a phone, where the
-        // webkitdirectory fallback is weak-to-absent — meets a pick button that
-        // may raise nothing at all, with no code path that ever runs to explain
-        // it. So unlike the two-step permission guidance directly beneath it,
+        // The beta wave's supported-browser statement, and the case that decides
+        // its gate. A visitor whose browser has no directory picker — where the
+        // webkitdirectory fallback may be accepted but never honored — meets a
+        // pick button that may raise nothing at all, with no code path that ever
+        // runs to explain it. So unlike the two-step guidance directly beneath it,
         // this line is NOT behind the FS-Access probe: the reader it exists for
         // is exactly the one that probe excludes. Pinned together here so the
         // two gates can't be conflated by a later edit.

@@ -62,11 +62,12 @@
                 Choose folder…
             </button>
         </div>
-        @* Supported-device statement. A tester who opens BgQuiz on a phone meets
-           a dead entry point: the webkitdirectory fallback is weak-to-absent
-           there, so the button may raise nothing at all and no code path here
-           ever runs to explain it. Only a statement made *before* the gesture
-           reaches that reader.
+        @* Supported-browser statement. Where the browser can serve neither pick
+           mechanism the button is a dead entry point: it may raise nothing at
+           all, and no code path here ever runs to explain it. Only a statement
+           made *before* the gesture reaches that reader. Capability-shaped, not
+           device-shaped — FolderPickDisplay records why the old phone framing
+           was false in both directions.
 
            Deliberately NOT gated on _fsAccessAvailable, unlike the permission
            guidance below: the readers this is written for are exactly the ones
