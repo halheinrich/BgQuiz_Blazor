@@ -1337,6 +1337,97 @@ public class PageTests : BunitContext
         Assert.DoesNotContain("Your browser will ask about the selected folder", cut.Markup);
     }
 
+    /// <summary>
+    /// The minimum discriminating substring of Home's silent-gesture account
+    /// (issue #105), shared by the presence and absence pins below so a copy
+    /// polish moves both or neither. An absence assertion keyed on its own
+    /// literal is the vacuous-green trap this repo has already paid for twice:
+    /// reword the notice and the DoesNotContain keeps passing for the wrong
+    /// reason. One const is what makes the pair fail together.
+    /// </summary>
+    private const string SilentGestureAccount = "opens nothing at all";
+
+    [Fact]
+    public async Task Home_NoFsAccessBrowser_AccountsForAPickGestureThatDoesNothing()
+    {
+        // Issue #105. With no showDirectoryPicker the hidden webkitdirectory
+        // input is the only mechanism left, and whether a browser honors it is
+        // not feature-detectable — the attribute is present on the input object
+        // even where the picker never opens (#108's tablet raised no chooser of
+        // any kind). So the page says what silence would mean, BEFORE the
+        // gesture, on the one predicate it can honestly report.
+        //
+        // The load-bearing half is the second gesture: this reader taps Choose
+        // folder and sees nothing happen, so the account must still be standing
+        // afterwards. The cancelled-pick notice lands BESIDE it, not instead of
+        // it — which is the exact arc observed on the tablet.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.SupportsDirectoryPicker = false;
+
+        var cut = Render<HomePage>();
+
+        cut.WaitForAssertion(() => Assert.Contains(SilentGestureAccount, cut.Markup));
+        // An advisory, never an alert: nothing has failed yet.
+        Assert.DoesNotContain("alert-danger", cut.Markup);
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await cut.Find("#problemFolderFallback").TriggerEventAsync("oncancel", EventArgs.Empty);
+
+        Assert.Contains("No folder is picked", cut.Markup);
+        Assert.Contains(SilentGestureAccount, cut.Markup);
+    }
+
+    [Fact]
+    public void Home_FsAccessBrowser_OmitsTheSilentGestureAccount()
+    {
+        // The other branch of the same probe, pinned as a pair with the test
+        // above (see SilentGestureAccount). A pick served by showDirectoryPicker
+        // cannot die silently: it opens a chooser, or it aborts, or it throws —
+        // and every one of those has a code path here that reports it. So the
+        // account would be noise, and the two-prompt guidance is what this
+        // branch owes the reader instead. Exactly one of the two ever shows.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+
+        cut.WaitForAssertion(() =>
+            Assert.Contains("Your browser will ask about the selected folder", cut.Markup));
+        Assert.DoesNotContain(SilentGestureAccount, cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_FallbackPickHoldsFolder_RetiresTheSilentGestureAccount()
+    {
+        // The one event that settles the question the account hedges: a folder
+        // is held, so this browser's fallback demonstrably works and a caution
+        // about it doing nothing would be a claim the screen itself refutes.
+        // Clear brings it back — the gate is "no folder held", the same window
+        // its two neighbours use.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.SupportsDirectoryPicker = false;
+        _folderAccess.NextCollectOutcome = new FolderPickOutcome(
+            Cancelled: false, "FallbackDir",
+            [new PickedFile("fb.xgp", [9, 9])], FolderWriteCapability.BrowserUnsupported,
+            Truncations: []);
+
+        var cut = Render<HomePage>();
+        cut.WaitForAssertion(() => Assert.Contains(SilentGestureAccount, cut.Markup));
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await cut.Find("#problemFolderFallback").ChangeAsync(new ChangeEventArgs());
+        Assert.Contains("FallbackDir", cut.Markup);
+        Assert.DoesNotContain(SilentGestureAccount, cut.Markup);
+
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear").ClickAsync(new());
+        Assert.Contains(SilentGestureAccount, cut.Markup);
+    }
+
     [Fact]
     public async Task Home_PickHoldsFolder_HidesTheSupportedBrowsersStatement()
     {

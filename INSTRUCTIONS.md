@@ -256,6 +256,9 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
   MidQuizNavigationTests.cs         — Home's way back into a running quiz
   EndQuizEarlyTests.cs              — ending a run before the source runs out
   BetaOnboardingTests.cs            — robots.txt over HTTP; the feedback mailto
+  DeadPickGestureTests.cs           — the pick-capability pair: no
+                                      showDirectoryPicker ⇒ the silent-gesture
+                                      account; the fake installed ⇒ absent
   NotFoundTests.cs                  — unknown URL → 404 status + styled body
 ```
 
@@ -1450,12 +1453,18 @@ The asymmetry is pinned three times over: at the service seam
   it bound to `EndCurrentSetupAsync`. Clearing is safe mid-quiz and left
   unguarded on purpose — files are read only at Start time and the clear
   touches only the JS *picked* slot (pinned).
-  **Pre-pick advisories, both ungated by any probe of the *pick outcome*.**
-  The **supported-browsers statement** (`FolderPickDisplay.SupportedBrowsers`,
-  beside the pick button) is gated only on "no folder held": where the pick
-  isn't supported the button is a *dead entry point* and no code path ever
-  runs to say why, so the readers it exists for are exactly the ones a
-  capability probe would exclude. The **two-step permission guidance** covers
+  **Pre-pick advisories, none of them gated by any probe of the *pick
+  outcome*.** The **supported-browser statement**
+  (`FolderPickDisplay.SupportedBrowsers`, beside the pick button) is gated only
+  on "no folder held": where the pick isn't supported the button is a *dead
+  entry point* and no code path ever runs to say why, so the readers it exists
+  for are exactly the ones a capability probe would exclude. It states a
+  **capability, never a device class** — it once said "on phones, choosing a
+  folder may not work at all", which hardware falsified in both directions
+  (halheinrich/backgammon#108/#109); a dead pick gesture is capability-shaped,
+  not screen-shaped. The two remaining advisories are the **two branches of
+  one `_fsAccessAvailable` snapshot**, so exactly one of them is ever on
+  screen. The **two-step permission guidance** covers
   both rungs of the ladder (§ Folder picking) as an ordered list naming what
   declining each costs, shown **from page load** on
   `_fsAccessAvailable && !Folder.HasFiles` — continuous through an in-flight
@@ -1468,7 +1477,24 @@ The asymmetry is pinned three times over: at the service seam
   It is **static, not stage-aware** — stage-swapping was *declined, not
   deferred*: it needs a Blazor render to land between two prompts that arrive
   seconds apart on WASM's single thread. It promises no *number* of prompts
-  and **quotes no browser's prompt text** (see Pitfalls).
+  and **quotes no browser's prompt text** (see Pitfalls). The
+  **silent-gesture account** is the other branch —
+  `!_fsAccessAvailable && !Folder.HasFiles` — and it is what
+  halheinrich/backgammon#105 bought. Where `showDirectoryPicker` is absent the
+  hidden `webkitdirectory` input is the only mechanism left, and **whether a
+  browser honors it cannot be feature-detected**: the attribute is present on
+  the input object even where the picker never opens (observed on a tablet,
+  halheinrich/backgammon#108, where Choose folder raised no chooser of any
+  kind). So the gate does **not** claim the pick is dead — nothing can. It
+  claims the *undetectable* mechanism is the one that will run, which is the
+  most the probe can honestly report, and the notice it gates is a
+  **conditional** ("if choosing a folder opens nothing at all…") that asserts
+  nothing about the browser rendering it — vacuously true, never false, on a
+  desktop browser whose fallback works. **Honest hedge over false certainty**
+  is the standing rule here: a detection that overclaimed would be worse than
+  the hedge. It deliberately survives the gesture (a dead tap leaves the
+  cancelled-pick notice *beside* it, not instead of it) and retires only on a
+  folder held — the one event that refutes it.
   **Progressive disclosure.** Everything downstream of the pick — the
   `FilterSurface` (one producer composite: saved filters rendered above the
   filter panel so load-then-refine reads top-down, plus every saved-filters
@@ -2242,7 +2268,18 @@ the module's use of the FS-Access surface drifts from what the fake mirrors,
 the scenarios fail loudly. Per-scenario variation (corrupt stats file, denied
 permission) is a page-level init script overriding the fake's config object; a
 mid-test `EvaluateAsync` can mutate it between quizzes (the app re-reads the
-stats file at every Start's re-bind). Three suites ride the fake.
+stats file at every Start's re-bind). Four suites ride the fake — the fourth
+being `LivePickGestureTests`, which uses it for the *opposite* purpose: it is
+the only place the seam **removes** rather than supplies a capability. Its
+sibling `DeadPickGestureTests` sets `window.showDirectoryPicker = undefined`
+(shadowing the operation, which lives on `Window.prototype`, so a `delete`
+would not bite) and the two halves differ in exactly one fact about the
+browser. Headless Chromium **does** expose the picker — verified by neutering
+the init script and watching the dead half fail — so the removal is
+load-bearing and every other e2e scenario runs FS-Access-capable. Both halves
+key on one shared `SilentPickGestureCopy.Account` fragment, because an absence
+pin written against its own literal goes vacuously green the moment the notice
+is reworded.
 `StatsPersistenceTests` pins: one fold ⇒ one captured write with
 `schemaVersion` 2, one `problems` record whose key carries no filename, a
 cube-as-two-decisions tally, indented; a **retired v1 file** ⇒ the set-aside

@@ -135,6 +135,38 @@
                 </ol>
             </div>
         }
+        @* Silent-gesture account, the OTHER branch of the same probe the
+           guidance above is gated on — one snapshot, two branches, each saying
+           what its branch means. Where showDirectoryPicker is absent the hidden
+           webkitdirectory input below is the only mechanism left, and whether a
+           given browser HONORS it cannot be feature-detected: the attribute
+           exists on the input object even where the picker never opens (observed
+           on a tablet, halheinrich/backgammon#108, where Choose folder raised no
+           chooser of any kind). So this gate does not claim the pick is dead —
+           it claims the mechanism whose viability is undetectable is the one
+           that will run, which is exactly what the probe can honestly report.
+
+           The wording carries the rest. It is a CONDITIONAL, and asserts nothing
+           about this browser: on desktop Firefox or Safari, where the fallback
+           works, the antecedent is simply never met and no false claim has been
+           made — the price is one grey line. A detection that overclaimed
+           certainty would be worse than this hedge.
+
+           Deliberately NOT gated on any pick state beyond "no folder held": the
+           reader it is written for taps the button and sees nothing happen, so
+           it must still be standing after that gesture. It is (the cancelled
+           notice below appears beside it, not instead of it), and it goes away
+           on the one event that proves the mechanism worked — a folder held.
+
+           Names no vendor, no device class, no prompt count; quotes no browser
+           UI. Polite role="status", like both advisories above it. *@
+        @if (!_fsAccessAvailable && !Folder.HasFiles)
+        {
+            <div class="text-muted small mt-1" role="status">
+                If choosing a folder opens nothing at all, this browser can't hand
+                BgQuiz a folder of files — there's nothing more to try here.
+            </div>
+        }
         @* Fallback picker for browsers without showDirectoryPicker: a hidden
            webkitdirectory input, opened by the same button. Always rendered —
            not conditional on the capability probe — so the e2e suite can drive

@@ -243,14 +243,31 @@ public partial class Home : ComponentBase, IDisposable
 
     /// <summary>
     /// Whether this browser offers the File System Access directory picker,
-    /// probed once in <see cref="OnInitializedAsync"/>. Gates the in-page
-    /// guidance for the <i>two</i> browser-anchored permission prompts that
-    /// mechanism's pick raises — both easily missed, and each with a very
-    /// different cost to declining (see the markup, and <c>folderAccess.js</c>'s
-    /// <c>beginPick</c> for why the two prompts cannot be collapsed into
-    /// one). The guidance is inherently FS-Access-only: the fallback mechanism
+    /// probed once in <see cref="OnInitializedAsync"/>. Gates <b>both branches</b>
+    /// of the pre-pick advice, each saying what its branch means — one snapshot,
+    /// two consequences, so the page can never show both or neither.
+    ///
+    /// <para>
+    /// <b>True</b> — the in-page guidance for the <i>two</i> browser-anchored
+    /// permission prompts that mechanism's pick raises, both easily missed, each
+    /// with a very different cost to declining (see the markup, and
+    /// <c>folderAccess.js</c>'s <c>beginPick</c> for why the two prompts cannot
+    /// be collapsed into one). Inherently FS-Access-only: the fallback mechanism
     /// raises no permission prompt to guide toward, so showing it there would
     /// promise prompts that never arrive.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>False</b> — the account of a pick gesture that may do nothing at all.
+    /// The hidden <c>webkitdirectory</c> input is then the only mechanism left,
+    /// and whether a browser <i>honors</i> it cannot be feature-detected: the
+    /// attribute exists on the input object even where the picker never opens
+    /// (halheinrich/backgammon#108). So this branch does not detect a dead
+    /// gesture — nothing can. It detects that the <i>undetectable</i> mechanism
+    /// is the one that will run, and the notice it gates is a conditional that
+    /// asserts nothing about the browser rendering it. Honest hedge over false
+    /// certainty; see the markup for the full reasoning.
+    /// </para>
     ///
     /// <para>
     /// A deliberate <i>second</i> probe, not a replacement for the pick-time one
