@@ -282,9 +282,17 @@ h1:focus {
    ellipsis intact. That doubles as the label for the icon-only copy button
    beside it, which is why no separate caption is needed. The whole badge is
    then 74.4px, and the cube row (the wide one — four radios) stays one line
-   down to 1360px: 1440x900 and 1366x800 both show no per-problem-kind
-   divergence at all, boards bit-identical to their no-badge baselines. Widen
-   this and that stops being true — re-measure before touching it. */
+   down to 1100px with the nav panel showing, 920px folded — the binding fact
+   is the row's own available width, not the viewport: one line needs 836px of
+   it. (That threshold was 1360px until issue halheinrich/backgammon#99's
+   producer leg compacted the cube pills, taking the row from 1001.4px to
+   835.8px — BgDiag_Razor a152d00, re-measured 2026-08-18. The badge's own
+   contribution to the row is unchanged.) Every pixel of badge is a pixel off
+   that margin, so widening this cap walks the threshold back up — re-measure
+   before touching it. Board size shows no per-problem-kind divergence at any
+   width ≥ 641 with height ≥ 768 (SPEC-quiz-view.md §2's invariance floor);
+   below that height the row wraps again by ruling, and this cap is one of the
+   terms in where. */
 .xgid-label-text {
     display: block;
     max-width: 2.5rem;

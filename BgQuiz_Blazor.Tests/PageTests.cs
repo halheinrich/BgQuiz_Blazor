@@ -5084,10 +5084,13 @@ public class PageTests : BunitContext
         // three are pinned, together with the measured 2.5rem value — 40px, which
         // is "XGID=" (32.7px in this font) plus the ellipsis (6.5px), so the
         // visible text is exactly the value's self-labeling prefix and the whole
-        // badge is 74.4px. At that width 1440x900 and 1366x800 show no
-        // per-problem-kind divergence at all. bUnit cannot measure CSS; what it
-        // can do is stop the contract being edited away without a fresh
-        // measurement.
+        // badge is 74.4px. At that width the cube row stays one line down to
+        // 1100px with the nav panel showing (920px folded), and board size shows
+        // no per-problem-kind divergence at any width >= 641 with height >= 768 —
+        // SPEC-quiz-view.md §2's invariance floor, after issue
+        // halheinrich/backgammon#99's producer-side pill compaction moved that
+        // threshold down from 1360px. bUnit cannot measure CSS; what it can do is
+        // stop the contract being edited away without a fresh measurement.
         var css = File.ReadAllText(AppCssPath());
         var rule = Regex.Match(css, @"\.xgid-label-text\s*\{[^}]*\}", RegexOptions.Singleline);
 
