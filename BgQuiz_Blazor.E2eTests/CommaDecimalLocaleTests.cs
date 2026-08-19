@@ -106,7 +106,12 @@ public sealed class CommaDecimalLocaleTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        await Expect(VerdictBand).ToContainTextAsync("Click the board to build your play, then Submit.");
+        // The hit overlay is both this scenario's subject and its readiness gate.
+        // It used to wait on the status strip's neutral prompt, which the
+        // maximize mode — the default since #113 — suppresses while answering;
+        // waiting on the overlay is in any case the closer gate, since every
+        // measurement below reads geometry out of it.
+        await Expect(HitOverlaySvg).ToBeVisibleAsync();
 
         // --- Bar: the production repro region. -------------------------------
         // Playwright's click actionability IS the behavioral assertion here:

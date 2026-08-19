@@ -41,7 +41,13 @@ public sealed class EndQuizEarlyTests : E2eTestBase
 
         await AnswerCubeNoDoubleAsync();
         await Page.GetByRole(AriaRole.Button, new() { Name = "Continue" }).ClickAsync();
-        await Expect(Page.GetByText("Problem 2")).ToBeVisibleAsync();
+        // Past the review and answering again — the state the quit below has to
+        // happen in for the abandoned problem to count as a skip. Keyed on the
+        // answering row's own Submit rather than the "Problem 2" counter, which
+        // rides in the score panel and is suppressed while answering under the
+        // maximize mode (the default since #113). That the run really was two
+        // problems in is settled downstream, by the Done totals.
+        await Expect(SubmitButton).ToBeVisibleAsync();
 
         // One click, no confirmation, straight to the summary.
         await EndQuizButton.ClickAsync();

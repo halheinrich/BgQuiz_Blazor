@@ -250,9 +250,9 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
   AnswerTypeBreakdownTests.cs       — the pre-Start breakdown: labels and zeros
   SidebarCollapseTests.cs           — fold, chevron state, how long it lasts
   SettingsTests.cs                  — board side by geometry; the fold setting
-  MaximizeBoardTests.cs             — maximize on via the Settings checkbox →
-                                      chrome absent answering, back at review;
-                                      the score strip's real bottom position
+  MaximizeBoardTests.cs             — chrome absent answering, back at review;
+                                      maximize off via the Settings checkbox →
+                                      chrome stays; the strip's bottom position
   MidQuizNavigationTests.cs         — Home's way back into a running quiz
   EndQuizEarlyTests.cs              — ending a run before the source runs out
   BetaOnboardingTests.cs            — robots.txt over HTTP; the feedback mailto
@@ -1337,10 +1337,11 @@ while answering, and whether the navigation panel stays folded. Every change is
 **recorded and persisted the moment it is made**; when it becomes *visible* is
 a separate question, and the fold answers it differently (§ The fold it cannot
 apply itself, below).
-**Defaults reproduce the app that shipped before it existed** —
-home board right (the producer's own `DiagramRequest.HomeBoardOnRight`
-default), no randomization, no maximized board, panel unfolded — so a user who
-never opens the page sees no change.
+**Defaults state the product's answers, not the app's history** — home board
+right (the producer's own `DiagramRequest.HomeBoardOnRight` default), no
+randomization, panel unfolded, and **the board maximized while answering**.
+Three of the four still reproduce the app that shipped before this page
+existed; the fourth deliberately does not (§ The maximize-board setting).
 
 **No draft, no commit, no dirty flag, no `Changed` event.** Nothing here is
 composed into a quiz at a Start gesture, so there is no half-edited state to
@@ -1371,13 +1372,24 @@ Pitfalls. **Field order is append-only** — `maximizeBoardWhileAnswering`
 joined at the end, after the fold field, whatever the C#-side grouping — so an
 older build's bytes stay a prefix of a newer one's and the pinned literal's
 diff reads as "a field was added" rather than "the format moved under the
-applier". Extending the format needed **no migration and no version stamp**:
-the tolerant restore gives a payload predating a field that field's default,
-and the default reproduces the pre-field behavior by construction.
+applier". Extending the format needed **no migration and no version stamp**: the
+tolerant restore gives a payload predating a field that field's *current*
+default. That same rule is what lets a **default change** ship without a
+migration — it reaches exactly the users who never chose, because an explicit
+stored value is still read and still wins. The asymmetry is pinned from both
+sides in `QuizSettingsTests` (absent ⇒ the new default; stored `false` ⇒
+`false`, forever); it is load-bearing, not incidental, and #113 is the arc that
+first leaned on it.
 
 **The maximize-board setting** (issue #41 / `SPEC-quiz-view.md` §3) is the one
 field here that reverses a documented invariant rather than choosing between
-equals. This service records the *choice* only — the composition it produces is
+equals — and the one whose default is not the pre-settings app. **Default on**
+since 2026-08-19 (§3 amended, `halheinrich/backgammon#113`): it shipped off
+because off reproduced the pre-arc page exactly, which is a migration-safety
+argument and pre-beta protects nobody, so the default now states the product's
+own answer to *how large should the board be while you answer*. Users who had
+already turned it off keep it off — see the absent-field asymmetry above.
+This service records the *choice* only — the composition it produces is
 `Quiz`'s derivation (§ `Quiz.razor`), and **nothing stores "currently
 maximized"** (§6: a second copy of the view mode is a divergence from the
 model). It is a **choice, never consent** in §3's sense, so nothing here

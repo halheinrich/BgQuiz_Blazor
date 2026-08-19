@@ -2736,8 +2736,13 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Quiz_Active_RendersScorePanelAndButtons()
     {
+        // Normal view: the score panel is the half of this that the maximize mode
+        // suppresses while answering, and since #113 that mode is the default —
+        // so the composition carrying a score panel beside the answer controls has
+        // to be asked for by name.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await NormalViewAsync();
 
         var cut = Render<QuizPage>();
 
@@ -2816,6 +2821,15 @@ public class PageTests : BunitContext
     /// The problem-position indicator's visible text, whitespace-normalized
     /// (the markup spreads "Problem <strong>N</strong> of <strong>M</strong>"
     /// across source lines).
+    ///
+    /// <para>
+    /// The indicator rides inside the score panel, so it is <b>Normal-view
+    /// chrome</b>: SPEC-quiz-view.md §4 ratifies losing it for the answering half
+    /// of each problem, and since #113 that is the default. Every counter
+    /// scenario below therefore stages Normal view — the counter is their
+    /// subject, not incidental staging, so moving them to a composition that
+    /// renders it is the honest re-key.
+    /// </para>
     /// </summary>
     private static string ProblemPositionText(IRenderedComponent<QuizPage> cut) =>
         Regex.Replace(cut.Find(".problem-position").TextContent, @"\s+", " ").Trim();
@@ -2827,6 +2841,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await NormalViewAsync();
 
         var cut = Render<QuizPage>();
         Assert.Equal("Problem 1 of 2", ProblemPositionText(cut));
@@ -2847,6 +2862,7 @@ public class PageTests : BunitContext
         var c = new QuizController((_, _) => fake, new FakeProblemStatsSink(), TimeProvider.System);
         Services.AddSingleton(c);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await NormalViewAsync();
 
         var cut = Render<QuizPage>();
 
@@ -2866,6 +2882,7 @@ public class PageTests : BunitContext
             new SubmittedPlay(TestFixtures.KeyOf(seen), BestPlay(), 0, 0.0, IsCorrect: true),
             TimeProvider.System);
         await c.StartAsync(new FilterConfig(), NeverSeenMix());
+        await NormalViewAsync();
 
         var cut = Render<QuizPage>();
 
@@ -4602,8 +4619,14 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Quiz_PlayAnswering_Xgid_RendersInTheBottomRow_NotOnTheBoard()
     {
+        // Normal view by name, because §4's ruling is a BOTH-modes claim and this
+        // is the pin standing on the Normal side of it — Maximized answering has
+        // its own, in Quiz_Maximized_Xgid_KeepsItsBottomRowHome_AnsweringAndReview.
+        // Left to the default this would have quietly moved to the maximized side
+        // when #113 flipped it, leaving the other side uncovered.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: SampleXgid));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await NormalViewAsync();
         var cut = Render<QuizPage>();
 
         AssertXgidIsInTheBottomRowOnly(cut);
@@ -4688,11 +4711,19 @@ public class PageTests : BunitContext
 
     // -----------------------------------------------------------------------
     //  Status strip: state-invariant chrome between the score panel and the
-    //  action row. The strip is ALWAYS rendered — empty legend + neutral prompt
-    //  while answering, legend + verdict at review — so chrome height (a fixed
-    //  CSS constant) and therefore board size is equal across states. bUnit
-    //  can't measure the CSS heights; these pin the structural half: the strip
-    //  and both its lines exist in every state, with the right content.
+    //  action row. Within Normal view the strip is ALWAYS rendered — empty
+    //  legend + neutral prompt while answering, legend + verdict at review — so
+    //  chrome height (a fixed CSS constant) and therefore board size is equal
+    //  across states. bUnit can't measure the CSS heights; these pin the
+    //  structural half: the strip and both its lines exist in every state, with
+    //  the right content.
+    //
+    //  "State-invariant" was never "mode-invariant": Maximized view suppresses
+    //  the strip while answering (SPEC-quiz-view.md §4), which is the one place
+    //  the height equality is deliberately broken. Since #113 that mode is the
+    //  default, so the two ANSWERING scenarios below stage Normal view by name.
+    //  The two review scenarios need no staging — review normalizes the chrome
+    //  in both modes, so they read the same strip either way.
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -4700,6 +4731,7 @@ public class PageTests : BunitContext
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await NormalViewAsync();
         var cut = Render<QuizPage>();
 
         var strip = cut.Find(".status-strip");
@@ -4714,6 +4746,7 @@ public class PageTests : BunitContext
     {
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await NormalViewAsync();
         var cut = Render<QuizPage>();
 
         var strip = cut.Find(".status-strip");
@@ -4780,10 +4813,14 @@ public class PageTests : BunitContext
         // < rowIdx), and an assertion that merely dropped the score panel would
         // have gone vacuously green while the panel sat anywhere at all.
         //
-        // Pinned on the answering state; the review branch shares this strip and
-        // this score panel, which sit outside the per-state action-row branch.
+        // Pinned on the answering state in Normal view; the review branch shares
+        // this strip and this score panel, which sit outside the per-state
+        // action-row branch. Normal view is stated because all three pieces have
+        // to be on the page at once for an ordering to mean anything, and
+        // Maximized view — the default since #113 — renders only one of them.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await NormalViewAsync();
         var cut = Render<QuizPage>();
 
         var markup = cut.Markup;
@@ -4803,9 +4840,11 @@ public class PageTests : BunitContext
         // measured flex:0 0 auto region), so the block's total height — and
         // therefore the board's flex remainder — is what it was. A "move" that
         // hoisted the panel out of the chrome block would silently resize the
-        // board in Normal view, which §5 says this rider must not do.
+        // board in Normal view, which §5 says this rider must not do — and Normal
+        // view is therefore the composition this is asserted in, by name.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await NormalViewAsync();
         var cut = Render<QuizPage>();
 
         var panel = cut.Find(".score-panel");
@@ -4820,6 +4859,11 @@ public class PageTests : BunitContext
     //  asked for. bUnit cannot measure the resulting board, which is the e2e
     //  suite's job; what it CAN pin is that the two legs move together, since
     //  §2's measurement says either one alone delivers nothing on desktop.
+    //
+    //  Every scenario here stages its view mode explicitly (MaximizedViewAsync /
+    //  NormalViewAsync) rather than leaning on whichever one is currently the
+    //  default — see MaximizedViewAsync for why. §3's default is on since
+    //  2026-08-19 (issue halheinrich/backgammon#113).
     // -----------------------------------------------------------------------
 
     /// <summary>
@@ -4833,8 +4877,29 @@ public class PageTests : BunitContext
             ? cut.FindComponent<BackgammonPlayEntry>().Instance.Options.Aspect
             : cut.FindComponent<BackgammonDiagram>().Instance.Options.Aspect;
 
-    /// <summary>Turn the maximize setting on, as the Settings page would.</summary>
-    private Task MaximizeAsync() => Settings().SetMaximizeBoardWhileAnsweringAsync(true);
+    /// <summary>
+    /// Stage <b>Maximized view</b> — SPEC-quiz-view.md §4's name for the
+    /// composition the maximize setting selects — through the same setter the
+    /// Settings page calls.
+    ///
+    /// <para>
+    /// A matched pair with <see cref="NormalViewAsync"/>, and both are stated at
+    /// every call site that cares which composition it is looking at, whichever
+    /// one the default happens to supply. That is deliberate: the default flipped
+    /// once already (#113), and a test whose staging is "say nothing and inherit"
+    /// silently changes subject when it flips again. The default itself is one
+    /// fact, pinned in one place — QuizSettingsTests for the value, and
+    /// Settings_MaximizeBoard_* for what the control shows on a fresh visit.
+    /// </para>
+    /// </summary>
+    private Task MaximizedViewAsync() => Settings().SetMaximizeBoardWhileAnsweringAsync(true);
+
+    /// <summary>
+    /// Stage <b>Normal view</b> — the full-chrome composition, and since #113 the
+    /// one a user has to ask for. See <see cref="MaximizedViewAsync"/> for why
+    /// both are always stated.
+    /// </summary>
+    private Task NormalViewAsync() => Settings().SetMaximizeBoardWhileAnsweringAsync(false);
 
     [Fact]
     public async Task Quiz_Maximized_PlayAnswering_SuppressesChrome_AndCropsTheCanvas()
@@ -4845,7 +4910,7 @@ public class PageTests : BunitContext
         // and cropping the canvas without freeing height wastes the crop.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        await MaximizeAsync();
+        await MaximizedViewAsync();
 
         var cut = Render<QuizPage>();
 
@@ -4869,7 +4934,7 @@ public class PageTests : BunitContext
         // decisions the cube fixtures cover.
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        await MaximizeAsync();
+        await MaximizedViewAsync();
 
         var cut = Render<QuizPage>();
 
@@ -4895,7 +4960,7 @@ public class PageTests : BunitContext
         // fault if it were ever loosened.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        await MaximizeAsync();
+        await MaximizedViewAsync();
 
         var cut = Render<QuizPage>();
         Assert.Equal(AspectPreset.BoardOnly, RenderedCanvas(cut)); // maximized first
@@ -4921,7 +4986,7 @@ public class PageTests : BunitContext
         // modes" half.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: SampleXgid));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        await MaximizeAsync();
+        await MaximizedViewAsync();
 
         var cut = Render<QuizPage>();
 
@@ -4948,7 +5013,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        await MaximizeAsync();
+        await MaximizedViewAsync();
 
         var cut = Render<QuizPage>();
 
@@ -4970,15 +5035,21 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_SettingOff_AnsweringReproducesTodaysComposition()
+    public async Task Quiz_SettingOff_AnsweringKeepsAllItsChrome()
     {
-        // The contract that lets the mode ship dark, and the other half of every
-        // assertion above: with the setting off — the default — the answering
-        // state keeps all its chrome and the producer's own canvas. Written as
-        // its own test rather than left implicit in the older pins, so a
-        // suppression that leaked out of the mode fails somewhere that names why.
+        // The other half of every assertion above: with the setting off the
+        // answering state keeps all its chrome and the producer's own canvas.
+        // Written as its own test rather than left implicit in the older pins, so
+        // a suppression that leaked out of the mode fails somewhere that names why.
+        //
+        // Its premise inverted at #113. It used to read "with the setting off —
+        // the default", and was the contract that let the mode ship dark; off is
+        // now a choice a user makes, so the setting is turned off here by hand and
+        // the assertion below reads as "the opt-out landed", not "nobody has
+        // touched this".
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await NormalViewAsync();
 
         var cut = Render<QuizPage>();
 
@@ -4999,7 +5070,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
-        await MaximizeAsync();
+        await MaximizedViewAsync();
 
         var cut = Render<QuizPage>();
 
@@ -6695,11 +6766,18 @@ public class PageTests : BunitContext
     {
         // The page is a view over the service and nothing else: what it shows is
         // what hydration put there, not a page-local default.
+        //
+        // Every stored value is the OPPOSITE of that setting's default, which is
+        // what makes the claim testable at all: a control showing its default
+        // would agree with a page that read nothing. The maximize field is stored
+        // false for that reason since #113 flipped its default to true — stored
+        // true would now be indistinguishable from the page-local default this
+        // test exists to rule out.
         WithController();
         JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey).SetResult(
             """
             {"homeBoardOnRight":false,"randomizeSidePerProblem":true,
-             "keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":true}
+             "keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false}
             """);
 
         var cut = Render<SettingsPage>();
@@ -6708,7 +6786,7 @@ public class PageTests : BunitContext
         Assert.True(cut.Find("#settingsSideLeft").HasAttribute("checked"));
         Assert.True(cut.Find("#settingsRandomizeSide").HasAttribute("checked"));
         Assert.True(cut.Find("#settingsKeepNavFolded").HasAttribute("checked"));
-        Assert.True(cut.Find("#settingsMaximizeBoard").HasAttribute("checked"));
+        Assert.False(cut.Find("#settingsMaximizeBoard").HasAttribute("checked"));
     }
 
     [Fact]
@@ -6725,7 +6803,10 @@ public class PageTests : BunitContext
         var cut = Render<SettingsPage>();
 
         var control = cut.Find("#settingsMaximizeBoard");
-        Assert.False(control.HasAttribute("checked")); // default off — today's page
+        // Default ON since #113 (SPEC-quiz-view.md §3) — and this is where a
+        // fresh visit's state is pinned, the counterpart to the stored-false pin
+        // in Settings_RendersEveryControl_ReflectingTheStoredValues.
+        Assert.True(control.HasAttribute("checked"));
         Assert.Same(
             control.Closest("fieldset"),
             cut.Find("#settingsRandomizeSide").Closest("fieldset"));
@@ -6784,14 +6865,17 @@ public class PageTests : BunitContext
         await cut.Find("#settingsKeepNavFolded").ChangeAsync(new() { Value = true });
         Assert.True(Settings().KeepNavigationPanelFolded);
 
-        await cut.Find("#settingsMaximizeBoard").ChangeAsync(new() { Value = true });
-        Assert.True(Settings().MaximizeBoardWhileAnswering);
+        // Off, not on: every control here is driven AWAY from its default, so a
+        // handler wired to nothing cannot pass. Ticking maximize on has been a
+        // no-op against the service's state since #113 made on the default.
+        await cut.Find("#settingsMaximizeBoard").ChangeAsync(new() { Value = false });
+        Assert.False(Settings().MaximizeBoardWhileAnswering);
 
         // …and each landed in the one storage entry, with no further gesture.
         var stored = JSInterop.Invocations["localStorage.setItem"]
             .Last(i => (string?)i.Arguments[0] == QuizSettings.StorageKey).Arguments[1] as string;
         Assert.Equal(
-            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":true}""",
+            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false}""",
             stored);
     }
 

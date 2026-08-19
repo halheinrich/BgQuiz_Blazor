@@ -6,15 +6,26 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <summary>
 /// The maximize-board mode's primary path in a real browser (issue
 /// <c>halheinrich/backgammon#41</c>, conforming to <c>SPEC-quiz-view.md</c> §4):
-/// tick the setting, run a quiz, and watch the answering composition shed its
-/// chrome and the review composition put it back.
+/// run a quiz and watch the answering composition shed its chrome and the
+/// review composition put it back — then untick the setting and watch the
+/// chrome stay.
 ///
 /// <para>
-/// <b>The setting is enabled through the Settings page, not by seeding
+/// <b>The setting is driven through the Settings page, not by seeding
 /// localStorage.</b> The chain this leg adds is exactly checkbox → service →
 /// persisted entry → the quiz page's derivation reading it back, and a seeded
 /// entry would skip the first two links of it — the smoke would then pass with
 /// the control wired to nothing.
+/// </para>
+///
+/// <para>
+/// <b>Which test carries that chain inverted at #113.</b> The mode is the
+/// default since 2026-08-19 (<c>SPEC-quiz-view.md</c> §3), so ticking the box
+/// no longer moves anything: the maximized scenario simply starts a quiz, and
+/// it is <see cref="WithTheSettingOff_AnsweringKeepsItsChrome"/> — the one whose
+/// composition a user now has to ask for — that drives the control and so
+/// exercises all four links. Same chain, opposite direction; the round trip out
+/// to Settings and back to Home for the pick moved with it.
 /// </para>
 ///
 /// <para>
@@ -48,34 +59,34 @@ public sealed class MaximizeBoardTests : E2eTestBase
         AriaRole.Checkbox, new() { Name = "Make the board as large as possible while you answer" });
 
     /// <summary>
-    /// Turn the mode on the way a user does: navigate to Settings and tick the
-    /// box. Waits for the checked state to land, which is also the service's
+    /// Turn the mode off the way a user does: navigate to Settings and untick the
+    /// box. Waits for the unchecked state to land, which is also the service's
     /// write having happened — the control is bound to the property the setter
     /// assigns before it persists.
+    ///
+    /// <para>
+    /// This was <c>EnableMaximizeAsync</c> and ticked the box. Renaming it would
+    /// not have been enough: since #113 made the mode the default, the very same
+    /// gesture on the very same control turns the mode <i>off</i>, so the helper
+    /// changed meaning rather than spelling, and moved to the scenario that wants
+    /// the other composition.
+    /// </para>
     /// </summary>
-    private async Task EnableMaximizeAsync()
+    private async Task DisableMaximizeAsync()
     {
         await Page.GetByRole(AriaRole.Link, new() { Name = "Settings" }).ClickAsync();
         await ExpectUrlAsync("/settings");
-        await MaximizeCheckbox.CheckAsync();
-        await Expect(MaximizeCheckbox).ToBeCheckedAsync();
+        await MaximizeCheckbox.UncheckAsync();
+        await Expect(MaximizeCheckbox).Not.ToBeCheckedAsync();
     }
 
     [Fact]
     public async Task MaximizedAnsweringShedsItsChrome_AndReviewPutsItBack()
     {
+        // No trip to Settings: since #113 this is what a visitor gets by walking
+        // straight in, and that is the more valuable thing to smoke. The control
+        // that produces the other composition is driven in the test below.
         await BootHomeAsync();
-        await EnableMaximizeAsync();
-
-        // Back to Home for the pick — the nav link, since no quiz is running yet
-        // and the page's own "Back to quiz" affordance is absent by its
-        // predicate. Waited out on Home's own control rather than on the URL:
-        // the Home NavLink's href is the app base, so the landing URL's trailing
-        // form is the framework's business, and the pick button being there is
-        // the readiness this test actually needs.
-        await Page.GetByRole(AriaRole.Link, new() { Name = "Home" }).First.ClickAsync();
-        await Expect(PickFolderButton).ToBeVisibleAsync();
-
         await PickFixtureAsync(CubeFixture);
         await ApplyFilterAsync();
         await StartQuizAsync();
@@ -140,11 +151,27 @@ public sealed class MaximizeBoardTests : E2eTestBase
     [Fact]
     public async Task WithTheSettingOff_AnsweringKeepsItsChrome()
     {
-        // The other half of the pin pair above, and the claim that lets the mode
-        // ship dark: the default visit is today's page exactly. Without this, the
-        // absence assertions above would be satisfied by chrome that had gone
-        // missing for some entirely different reason.
+        // The other half of the pin pair above: without this, the absence
+        // assertions there would be satisfied by chrome that had gone missing for
+        // some entirely different reason.
+        //
+        // It is also the scenario carrying the control's whole chain since #113,
+        // which is why the untick is a real gesture on the real page rather than a
+        // seeded storage entry: the box is ticked when this arrives, and unticking
+        // it has to reach the service, the entry, and the quiz page's derivation
+        // for the chrome below to be there at all.
         await BootHomeAsync();
+        await DisableMaximizeAsync();
+
+        // Back to Home for the pick — the nav link, since no quiz is running yet
+        // and the page's own "Back to quiz" affordance is absent by its
+        // predicate. Waited out on Home's own control rather than on the URL:
+        // the Home NavLink's href is the app base, so the landing URL's trailing
+        // form is the framework's business, and the pick button being there is
+        // the readiness this test actually needs.
+        await Page.GetByRole(AriaRole.Link, new() { Name = "Home" }).First.ClickAsync();
+        await Expect(PickFolderButton).ToBeVisibleAsync();
+
         await PickFixtureAsync(CubeFixture);
         await ApplyFilterAsync();
         await StartQuizAsync();
@@ -169,10 +196,17 @@ public sealed class MaximizeBoardTests : E2eTestBase
         // as real geometry (the panel's box starts below the action row's), not
         // as source order — that is what the bUnit pin already covers, and it is
         // not the same claim once CSS is in play.
+        //
+        // Judged at REVIEW rather than while answering, and not by turning the
+        // maximize mode off: since #113 review is where a default visitor sees
+        // this panel at all, so it is where the geometry claim is worth making.
+        // The chrome block sits outside the per-state action-row branch, so the
+        // rider is the same rider in either state.
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
         await ApplyFilterAsync();
         await StartQuizAsync();
+        await AnswerCubeNoDoubleAsync();
 
         await Expect(ScorePanel).ToBeVisibleAsync();
         var actionRow = Page.Locator(".board-chrome .action-row");

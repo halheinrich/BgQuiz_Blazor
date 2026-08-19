@@ -61,7 +61,9 @@ public sealed class SettingsTests : E2eTestBase
         await Expect(Page).ToHaveTitleAsync("BgQuiz — Settings");
         await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Settings" })).ToBeVisibleAsync();
 
-        // Defaults, as a fresh visitor sees them: home board right, nothing else on.
+        // The side and fold defaults, as a fresh visitor sees them. (The maximize
+        // default is on since #113 and is pinned by MaximizeBoardTests, which
+        // reads it where it has a consequence — on the quiz page.)
         await Expect(HomeBoardRightRadio).ToBeCheckedAsync();
         await Expect(HomeBoardLeftRadio).Not.ToBeCheckedAsync();
         await Expect(KeepFoldedCheckbox).Not.ToBeCheckedAsync();
@@ -102,7 +104,12 @@ public sealed class SettingsTests : E2eTestBase
         // Back to the quiz that was left running, by the page's own affordance.
         await BackToQuizButton.ClickAsync();
         await ExpectUrlAsync("/quiz");
-        await Expect(Page.GetByText("Problem 1")).ToBeVisibleAsync();
+        // The board is laid out again — the gate the geometry read below needs.
+        // It used to wait on the "Problem 1" counter, which rides in the score
+        // panel and is suppressed while answering under the maximize mode (the
+        // default since #113); the overlay this reads its rects from is the
+        // closer gate anyway.
+        await Expect(HitOverlaySvg).ToBeVisibleAsync();
 
         Assert.False(await PointOneIsRightOfTheBarAsync(),
             "with the home board on the left, point 1 must render left of the bar");

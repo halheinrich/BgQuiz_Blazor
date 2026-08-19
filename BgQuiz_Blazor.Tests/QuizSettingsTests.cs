@@ -6,8 +6,9 @@ namespace BgQuiz_Blazor.Tests;
 /// <summary>
 /// Tests for <see cref="QuizSettings"/> — the app-scoped user settings and the
 /// one localStorage entry behind them. Three things are pinned here: the
-/// defaults (which must reproduce the behavior that shipped before settings
-/// existed), the <b>serialized wire format</b> byte-for-byte (a durable payload
+/// defaults (the product's own answers, no longer a reproduction of the
+/// pre-settings app — see <see cref="FreshSettings_AreTheProductsOwnAnswers"/>),
+/// the <b>serialized wire format</b> byte-for-byte (a durable payload
 /// with a second reader in another language — see
 /// <see cref="Persist_WritesThePinnedWireFormat"/>), and the tolerance rules a
 /// format that later legs will extend has to hold. Extends
@@ -37,18 +38,23 @@ public class QuizSettingsTests : BunitContext
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void FreshSettings_ReproduceThePreSettingsBehavior()
+    public void FreshSettings_AreTheProductsOwnAnswers()
     {
-        // The contract that lets this feature ship dark: a user who never opens
-        // the Settings page must see exactly the app that shipped before it —
-        // home board on the right (the producer's own DiagramRequest default),
-        // no randomization, navigation panel unfolded.
+        // What a user who never opens the Settings page gets. Three of the four
+        // are still the pre-settings app — home board on the right (the
+        // producer's own DiagramRequest default), no randomization, navigation
+        // panel unfolded. The fourth deliberately is not: the board is maximized
+        // while answering (SPEC-quiz-view.md §3, amended 2026-08-19 by issue
+        // halheinrich/backgammon#113). This test used to assert that the defaults
+        // REPRODUCED the pre-settings app, which was a migration-safety claim
+        // about an installed base that does not exist pre-beta; the default now
+        // states the product's answer instead of preserving history.
         var settings = NewSettings();
 
         Assert.True(settings.HomeBoardOnRight);
         Assert.False(settings.RandomizeSidePerProblem);
         Assert.False(settings.KeepNavigationPanelFolded);
-        Assert.False(settings.MaximizeBoardWhileAnswering);
+        Assert.True(settings.MaximizeBoardWhileAnswering);
     }
 
     [Fact]
@@ -63,7 +69,7 @@ public class QuizSettingsTests : BunitContext
         Assert.True(settings.HomeBoardOnRight);
         Assert.False(settings.RandomizeSidePerProblem);
         Assert.False(settings.KeepNavigationPanelFolded);
-        Assert.False(settings.MaximizeBoardWhileAnswering);
+        Assert.True(settings.MaximizeBoardWhileAnswering);
     }
 
     // -----------------------------------------------------------------------
@@ -149,7 +155,7 @@ public class QuizSettingsTests : BunitContext
         await settings.SetRandomizeSidePerProblemAsync(true);
 
         Assert.Equal(
-            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":false}""",
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true}""",
             LastPersisted());
     }
 
@@ -157,12 +163,17 @@ public class QuizSettingsTests : BunitContext
     public async Task PersistedPayload_RoundTripsThroughHydration()
     {
         // The whole point of the entry: what one app writes, the next app boot
-        // reads back identically.
+        // reads back identically. Every field is driven AWAY from its own
+        // default, without exception — a field left sitting on its default would
+        // round-trip green through a reader that ignored the payload entirely.
+        // The maximize field was that exception until #113 flipped its default;
+        // it now writes false for the same reason the other three write what they
+        // write.
         var writer = NewSettings();
         await writer.SetHomeBoardOnRightAsync(false);
         await writer.SetRandomizeSidePerProblemAsync(true);
         await writer.SetKeepNavigationPanelFoldedAsync(true);
-        await writer.SetMaximizeBoardWhileAnsweringAsync(true);
+        await writer.SetMaximizeBoardWhileAnsweringAsync(false);
 
         StageStored(LastPersisted());
         var reader = NewSettings();
@@ -171,7 +182,7 @@ public class QuizSettingsTests : BunitContext
         Assert.False(reader.HomeBoardOnRight);
         Assert.True(reader.RandomizeSidePerProblem);
         Assert.True(reader.KeepNavigationPanelFolded);
-        Assert.True(reader.MaximizeBoardWhileAnswering);
+        Assert.False(reader.MaximizeBoardWhileAnswering);
     }
 
     [Fact]
@@ -240,27 +251,55 @@ public class QuizSettingsTests : BunitContext
         Assert.True(settings.RandomizeSidePerProblem);
         Assert.True(settings.HomeBoardOnRight);          // default, not false
         Assert.False(settings.KeepNavigationPanelFolded);
-        Assert.False(settings.MaximizeBoardWhileAnswering);
+        Assert.True(settings.MaximizeBoardWhileAnswering);
     }
 
     [Fact]
-    public async Task Hydrate_PayloadPredatingTheMaximizeField_RestoresItOff()
+    public async Task Hydrate_PayloadPredatingTheMaximizeField_RestoresItOn()
     {
         // The tolerance rule in the concrete case it now has: the exact bytes
         // every build before issue #41 wrote. There is no migration and no
-        // version stamp — the missing field simply takes its default, and the
-        // default is off, which is today's page. The other three must come back
-        // as written, so this is not a "the payload was ignored" pass.
+        // version stamp — the missing field simply takes its default, and since
+        // #113 that default is ON. This is the half of the asymmetry that lets a
+        // default change reach the users it should: they never chose, so they get
+        // the product's current answer. The other three must come back as
+        // written, so this is not a "the payload was ignored" pass.
+        //
+        // It asserted OFF until #113, by the same rule and the opposite
+        // arithmetic — the assertion follows the default, which is the point.
         StageStored(
             """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true}""");
         var settings = NewSettings();
 
         await settings.EnsureHydratedAsync();
 
-        Assert.False(settings.MaximizeBoardWhileAnswering);
+        Assert.True(settings.MaximizeBoardWhileAnswering);
         Assert.False(settings.HomeBoardOnRight);
         Assert.True(settings.RandomizeSidePerProblem);
         Assert.True(settings.KeepNavigationPanelFolded);
+    }
+
+    [Fact]
+    public async Task Hydrate_StoredFalse_OutranksTheDefault()
+    {
+        // The OTHER half of the asymmetry, and the one that made changing the
+        // default safe at all (#113): a user who went to the Settings page and
+        // turned the mode off wrote an explicit false, and an explicit false has
+        // to keep winning — a default change is not a licence to overrule a
+        // choice somebody made. Nothing in Restore separates "stored false" from
+        // "absent" except the field being there, so this pin is what stands
+        // between the tolerant fallback and a silent migration.
+        //
+        // Deliberately not folded into the round-trip test above: that one asks
+        // whether this type reads back what it wrote, and would stay green if
+        // absent and false ever collapsed to the same answer.
+        StageStored(
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":false,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":false}""");
+        var settings = NewSettings();
+
+        await settings.EnsureHydratedAsync();
+
+        Assert.False(settings.MaximizeBoardWhileAnswering);
     }
 
     [Fact]
@@ -297,7 +336,7 @@ public class QuizSettingsTests : BunitContext
         Assert.True(settings.HomeBoardOnRight);
         Assert.False(settings.RandomizeSidePerProblem);
         Assert.False(settings.KeepNavigationPanelFolded);
-        Assert.False(settings.MaximizeBoardWhileAnswering);
+        Assert.True(settings.MaximizeBoardWhileAnswering);
     }
 
     [Fact]
@@ -305,10 +344,16 @@ public class QuizSettingsTests : BunitContext
     {
         // Per-field tolerance rather than whole-payload rejection: one field
         // written as the wrong type must not cost the user the other three.
+        // Every unreadable value is the OPPOSITE of its field's default, so
+        // falling back is distinguishable from parsing it loosely: the maximize
+        // field is staged as the string "false" against a default of true,
+        // exactly as randomizeSidePerProblem is staged as 1 against a default of
+        // false. (It was staged as "true" until #113 flipped that default, at
+        // which point the assertion below would have passed either way.)
         StageStored(
             """
             {"homeBoardOnRight":"yes","randomizeSidePerProblem":1,
-             "keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":"true"}
+             "keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":"false"}
             """);
         var settings = NewSettings();
 
@@ -316,7 +361,7 @@ public class QuizSettingsTests : BunitContext
 
         Assert.True(settings.HomeBoardOnRight);            // default
         Assert.False(settings.RandomizeSidePerProblem);    // default
-        Assert.False(settings.MaximizeBoardWhileAnswering); // default — "true" is a string
+        Assert.True(settings.MaximizeBoardWhileAnswering); // default — "false" is a string
         Assert.True(settings.KeepNavigationPanelFolded);   // the readable one survives
     }
 }

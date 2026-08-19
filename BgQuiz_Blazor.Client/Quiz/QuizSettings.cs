@@ -35,10 +35,14 @@ using XgFilter_Razor;
 /// </para>
 ///
 /// <para>
-/// <b>Defaults reproduce the behavior that shipped before this existed:</b>
-/// the home board on the right (the producer's own
-/// <c>DiagramRequest.HomeBoardOnRight</c> default), no per-problem randomization,
-/// no maximized board, and the navigation panel unfolded.
+/// <b>Defaults are the product's own answers, not a migration.</b> The home
+/// board on the right (the producer's own <c>DiagramRequest.HomeBoardOnRight</c>
+/// default), no per-problem randomization, the navigation panel unfolded — and
+/// the board maximized while answering, which is the one default that does
+/// <i>not</i> reproduce the pre-settings page. It was ruled on 2026-08-19
+/// (<c>SPEC-quiz-view.md</c> §3, issue <c>halheinrich/backgammon#113</c>): see
+/// <see cref="MaximizeBoardWhileAnswering"/> for why, and for the absent-field
+/// asymmetry that lets a default change without a migration.
 /// </para>
 ///
 /// <para>
@@ -88,7 +92,7 @@ internal sealed class QuizSettings(IJSRuntime js)
     private const bool DefaultHomeBoardOnRight = true;
     private const bool DefaultRandomizeSidePerProblem = false;
     private const bool DefaultKeepNavigationPanelFolded = false;
-    private const bool DefaultMaximizeBoardWhileAnswering = false;
+    private const bool DefaultMaximizeBoardWhileAnswering = true;
 
     /// <summary>
     /// The global the <c>navFold.js</c> applier publishes — the only way to move
@@ -134,7 +138,25 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// <para>
     /// <b>A choice, never consent</b> (<c>SPEC-filtering.md</c> §4's vocabulary):
     /// it survives navigation, reload, and quiz boundaries alike, and no gesture
-    /// expires it. Default off, which reproduces today's page exactly.
+    /// expires it.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Default on</b> (<c>SPEC-quiz-view.md</c> §3, amended 2026-08-19 by
+    /// issue <c>halheinrich/backgammon#113</c>). It shipped default <i>off</i>,
+    /// on the grounds that off reproduced the pre-arc page exactly — a
+    /// migration-safety argument with no installed base to protect. With that
+    /// reason gone the default states the product's own answer to <i>how large
+    /// should the board be while you answer</i>: as large as possible, which is
+    /// the legibility the mode was built for.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The flip reaches only the users who never chose.</b>
+    /// <see cref="Restore"/> maps an <i>absent</i> field to this default, so a
+    /// stored explicit <c>false</c> keeps winning and no migration runs — which
+    /// is what made the default safe to change at all. The asymmetry is the
+    /// feature, and it is pinned from both sides in <c>QuizSettingsTests</c>.
     /// </para>
     /// </summary>
     public bool MaximizeBoardWhileAnswering { get; private set; } =
@@ -332,8 +354,10 @@ internal sealed class QuizSettings(IJSRuntime js)
                 ReadBool(root, KeepNavigationPanelFoldedField, DefaultKeepNavigationPanelFolded);
             // Absent from every payload written before this setting existed, and
             // therefore the field the tolerance rule above exists for: an old
-            // entry restores with the board unmaximized, which is the default and
-            // is today's behavior. No migration, no version stamp.
+            // entry restores with the CURRENT default, whatever that is. That is
+            // what let the default flip to on (#113) with no migration and no
+            // version stamp — the flip reaches exactly the users who never chose,
+            // while an explicit stored false keeps winning.
             maximizeBoardWhileAnswering =
                 ReadBool(root, MaximizeBoardWhileAnsweringField, DefaultMaximizeBoardWhileAnswering);
         }

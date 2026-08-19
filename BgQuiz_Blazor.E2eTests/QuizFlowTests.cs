@@ -22,9 +22,16 @@ public sealed class QuizFlowTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        // Answering state: cube problems prompt for the radio row, and the
+        // Answering state: cube problems offer the radio row, and the
         // Problem-mode board must not leak the answer.
-        await Expect(VerdictBand).ToContainTextAsync("Pick the cube action, then Submit.");
+        //
+        // Keyed on the radios, not on the status strip's neutral prompt. The
+        // prompt is Normal-view chrome and the maximize mode — the default since
+        // #113 — suppresses it while answering, so a primary-path smoke asserting
+        // it would be asserting a composition its own users do not get. The
+        // prompt's own pins live in MaximizeBoardTests (the setting-off scenario)
+        // and in bUnit.
+        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "No double" })).ToBeVisibleAsync();
         await Expect(Page.Locator(".bg-diagram")).Not.ToContainTextAsync("Best:");
 
         await AnswerCubeNoDoubleAsync();
@@ -51,9 +58,11 @@ public sealed class QuizFlowTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        // Answering state: checker problems prompt for board clicks, and Submit
-        // stays gated until a complete play has been assembled.
-        await Expect(VerdictBand).ToContainTextAsync("Click the board to build your play, then Submit.");
+        // Answering state: checker problems get the click-to-build board, and
+        // Submit stays gated until a complete play has been assembled. Keyed on
+        // the play-entry board rather than the status strip's neutral prompt —
+        // see the cube path above for why.
+        await Expect(Page.Locator(".board-container .bg-play-entry")).ToBeVisibleAsync();
         await Expect(SubmitButton).ToBeDisabledAsync();
 
         // The fixture's decision is a 6-5 roll whose best play is 24/13. The

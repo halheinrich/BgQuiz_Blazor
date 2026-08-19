@@ -194,7 +194,8 @@ h1:focus {
    composition suppresses this strip (and the score panel) outright and renders
    a board-only canvas, so the answering board is deliberately larger than the
    review board and the size oscillates once per problem. That reversal is the
-   feature, opted into and ruled; it is not this contract failing. What the
+   feature — ruled, and the default since #113, so it is what a visitor sees
+   unless they opt out; it is not this contract failing. What the
    contract still forbids is size drift nobody asked for — inside Normal view,
    and inside Maximized view's own review composition, the strip's height stays
    a constant and the board stays put. Which composition is on screen is

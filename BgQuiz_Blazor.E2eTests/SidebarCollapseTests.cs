@@ -38,6 +38,29 @@ public sealed class SidebarCollapseTests : E2eTestBase
 
     private ILocator NavigationPanel => Page.Locator(".sidebar");
 
+    /// <summary>
+    /// The XGID badge's text node — the identity of the problem currently on
+    /// screen, and this suite's per-step "the app advanced" marker. It lives in
+    /// the action row's trailing cluster, which every view mode keeps
+    /// (<c>SPEC-quiz-view.md</c> §4's one-home ruling), so unlike the score
+    /// panel's problem counter it cannot be taken away by a setting that has
+    /// nothing to do with the fold.
+    /// </summary>
+    private ILocator XgidBadgeText => Page.Locator(".action-row-tail .xgid-label-text");
+
+    /// <summary>
+    /// The XGID of the problem on screen, once it is there — the value a later
+    /// step compares against to prove the run moved on.
+    /// </summary>
+    private async Task<string> CurrentProblemXgidAsync()
+    {
+        await Expect(XgidBadgeText).ToBeVisibleAsync();
+        string xgid = (await XgidBadgeText.TextContentAsync())!;
+        Assert.False(string.IsNullOrWhiteSpace(xgid),
+            "the XGID badge is this suite's advance marker and must carry a value");
+        return xgid;
+    }
+
     [Fact]
     public async Task RailFoldsTheNavigationPanelAway_AndItsChevronReversesToMatch()
     {
@@ -115,10 +138,21 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// run.
     ///
     /// <para>
-    /// Each step asserts the app actually advanced (the problem indicator moves)
+    /// Each step asserts the app actually advanced (the problem on screen changes)
     /// before asserting the panel stayed folded: a click that silently failed to
     /// land would otherwise read as "the fold survived answering" while nothing
     /// had been answered at all.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The advance is read off the XGID badge</b>, not the "Problem N"
+    /// counter. The counter rides in the score panel, which the maximize mode
+    /// suppresses while answering — and that mode is the default since #113, so
+    /// the marker this test's discipline depends on had to be one the view mode
+    /// cannot take away. The badge qualifies twice over: it has one home in both
+    /// modes (<c>SPEC-quiz-view.md</c> §4) and it names the <i>position</i>, so a
+    /// changed badge is a genuinely different problem rather than a counter that
+    /// could in principle move without one.
     /// </para>
     ///
     /// <para>
@@ -144,11 +178,12 @@ public sealed class SidebarCollapseTests : E2eTestBase
 
         await CollapseRail.ClickAsync();
         Assert.Equal(0d, await PanelWidthAsync());
-        await Expect(Page.GetByText("Problem 1")).ToBeVisibleAsync();
+        string firstProblem = await CurrentProblemXgidAsync();
 
         // Skip: advances without scoring, entirely in-page.
         await Page.GetByRole(AriaRole.Button, new() { Name = "Skip" }).ClickAsync();
-        await Expect(Page.GetByText("Problem 2")).ToBeVisibleAsync();
+        await Expect(XgidBadgeText).Not.ToHaveTextAsync(firstProblem);
+        string secondProblem = await CurrentProblemXgidAsync();
         Assert.Equal(0d, await PanelWidthAsync());
 
         // Submit: scores and shows the solution, still in-page.
@@ -158,7 +193,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
         // Continue through that solution — the step that ends a run when it is
         // the last problem, and here is just an advance.
         await Page.GetByRole(AriaRole.Button, new() { Name = "Continue" }).ClickAsync();
-        await Expect(Page.GetByText("Problem 3")).ToBeVisibleAsync();
+        await Expect(XgidBadgeText).Not.ToHaveTextAsync(secondProblem);
         await ExpectUrlAsync("/quiz");
         Assert.Equal(0d, await PanelWidthAsync());
         await Expect(CollapseRail).ToBeCheckedAsync();

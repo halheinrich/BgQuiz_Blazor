@@ -39,7 +39,11 @@ public sealed class MidQuizNavigationTests : E2eTestBase
         await PickFixtureAsync(CubeFixture);
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await Expect(Page.GetByText("Problem 1")).ToBeVisibleAsync();
+        // The answering state is on screen. Keyed on the cube radios rather than
+        // the "Problem N" counter: the counter rides in the score panel, which
+        // the maximize mode — the default since #113 — suppresses while
+        // answering, so it is no longer a marker this test can read.
+        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "No double" })).ToBeVisibleAsync();
 
         // Out to Home mid-quiz, the way a user gets there: the nav menu.
         await HomeNavLink.ClickAsync();
@@ -54,10 +58,12 @@ public sealed class MidQuizNavigationTests : E2eTestBase
         await BackToQuizButton.ClickAsync();
         await ExpectUrlAsync("/quiz");
 
-        // Back on the same problem, with the run intact: nothing was answered,
-        // skipped or restarted by the trip.
-        await Expect(Page.GetByText("Problem 1")).ToBeVisibleAsync();
+        // Back on the problem, with the run intact: it is still answerable and
+        // still unanswered, so nothing was submitted, skipped or restarted by the
+        // trip. (The fixture is a single-problem folder, so "the same problem" and
+        // "a problem" are the same claim here.)
         await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "No double" })).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "No double" })).Not.ToBeCheckedAsync();
     }
 
     /// <summary>
