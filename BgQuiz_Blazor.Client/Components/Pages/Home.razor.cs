@@ -208,13 +208,18 @@ public partial class Home : ComponentBase, IDisposable
     ///
     /// <para>
     /// This <i>reverses</i> the earlier deliberate silence. Cancellation covers
-    /// two causes — the picker was dismissed, or the required view-files
-    /// permission was declined — and the second is not the user changing their
-    /// mind: it is the load-bearing grant refused, leaving them on an unchanged,
-    /// empty page with no explanation. The browser reports both as
-    /// <c>AbortError</c>, so they are indistinguishable here; the notice is
-    /// worded to be true under either and to stay non-accusatory (see the markup
-    /// comment). Distinguishing them is not attempted.
+    /// three causes — the picker was dismissed, the required view-files
+    /// permission was declined, or a present-but-inert
+    /// <c>showDirectoryPicker</c> aborted without ever opening a chooser
+    /// (issue #116, observed live on a WebView-wrapping browser) — and only the
+    /// first is the user changing their mind: the second is the load-bearing
+    /// grant refused, the third a gesture that did nothing at all, each leaving
+    /// them on an unchanged, empty page with no explanation. The browser
+    /// reports all of them as <c>AbortError</c>, so they are indistinguishable
+    /// here; the notice is worded to be true under every cause — conditional
+    /// advice, plus the FS-Access-branch dead-chooser tail — and to stay
+    /// non-accusatory (see the markup comment). Distinguishing them is not
+    /// attempted.
     /// </para>
     ///
     /// <para>

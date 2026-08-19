@@ -1468,7 +1468,15 @@ The asymmetry is pinned three times over: at the service seam
   (`_cancelledPickNotice`, `_emptyFolderNotice`) — no pick ever returns the
   user to an unchanged page with no account of what happened; the capability
   drives the pick-time stats status notice. The cancelled notice is
-  deliberately **cause-agnostic** (§ `IFolderAccess`) and **both mechanisms
+  deliberately **cause-agnostic** (§ `IFolderAccess`) — its causes include a
+  *present-but-inert* `showDirectoryPicker` that aborts without ever opening
+  (halheinrich/backgammon#116, observed live), so its advice is a
+  **conditional** ("if your browser asks…"), and on the FS-Access branch only
+  it carries the post-gesture sibling of #105's dead-gesture conditional
+  ("If no folder chooser opened, …" + `FolderPickDisplay.DeadPickVerdict`,
+  the clause both accounts share) — omitted on the fallback branch, where the
+  notice only fires via a `cancel` event a chooser must have opened to raise
+  and the #105 grey line stands beside it. **Both mechanisms
   reach it by different routes**: only `PickFolderAsync` reports cancellation
   as an *outcome*, while a dismissed `webkitdirectory` picker fires no change
   event at all, so the fallback's dismissal comes through the input's own

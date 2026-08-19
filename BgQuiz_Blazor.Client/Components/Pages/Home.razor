@@ -164,8 +164,9 @@
         @if (!_fsAccessAvailable && !Folder.HasFiles)
         {
             <div class="text-muted small mt-1" role="status">
-                If choosing a folder opens nothing at all, this browser can't hand
-                BgQuiz a folder of files — there's nothing more to try here.
+                If choosing a folder opens nothing at all,
+                @(FolderPickDisplay.DeadPickVerdict) — there's nothing more to
+                try here.
             </div>
         }
         @* Fallback picker for browsers without showDirectoryPicker: a hidden
@@ -289,13 +290,31 @@
             }
         }
         @* Cancelled-pick outcome (not a failure): the pick ended holding no
-           folder. Two causes reach here — the picker was dismissed, or the
-           required view-files permission was declined — and they are
-           deliberately not distinguished, so the wording must be true under
-           both and stay non-accusatory toward the user who simply backed out.
-           Silence (the earlier choice) left them on an unchanged, empty page
-           with no explanation of why nothing happened. Polite role="status",
-           like its sibling outcome notices.
+           folder. Three causes reach here — the picker was dismissed, the
+           required view-files permission was declined, or a present-but-inert
+           showDirectoryPicker aborted without ever opening (issue #116,
+           observed live) — and they are deliberately not distinguished
+           (AbortError conflates them; pinned in BgFolderAccess_Razor), so the
+           wording must be true under all of them and stay non-accusatory
+           toward the user who simply backed out. Hence the advice is a
+           CONDITIONAL ("if your browser asks…"): on the inert browser no
+           request ever appears, and the old imperative "allow your browser's
+           request" recommended an action that could not be taken. Silence
+           (the earlier choice) left them on an unchanged, empty page with no
+           explanation of why nothing happened. Polite role="status", like its
+           sibling outcome notices.
+
+           The dead-chooser tail renders on the FS-Access branch only — the
+           same one-snapshot two-branches discipline as the advisories above.
+           On that branch the inert case lands here with nothing else on the
+           page accounting for it, and the tail is the post-gesture sibling of
+           the #105 conditional (same FolderPickDisplay verdict, its own
+           antecedent), which is what breaks the retry loop the issue
+           reported. On the fallback branch the tail is omitted because its
+           antecedent is known false — this notice only fires there via the
+           input's cancel event, which a chooser must open to raise — and the
+           #105 grey line already stands beside this notice covering the
+           silent case.
 
            Dismissible on a click (issue #107), same affordance as the
            holder-backed notices above — but recorded by clearing the page
@@ -308,7 +327,15 @@
             <div id="cancelledPickNotice" class="alert alert-warning alert-dismissible quiz-notice mt-2"
                  role="status" @onclick="DismissCancelledPick">
                 No folder is picked, so there's nothing for BgQuiz to read yet —
-                choose a folder and allow your browser's request to view its files.
+                choose a folder and, if your browser asks to view its files,
+                allow that request.
+                @if (_fsAccessAvailable)
+                {
+                    <text>
+                        If no folder chooser opened,
+                        @(FolderPickDisplay.DeadPickVerdict).
+                    </text>
+                }
                 <button type="button" class="btn-close" aria-label="Dismiss this message"
                         @onclick="DismissCancelledPick" @onclick:stopPropagation="true"></button>
             </div>

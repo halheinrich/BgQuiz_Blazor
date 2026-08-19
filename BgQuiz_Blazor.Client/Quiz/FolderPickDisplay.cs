@@ -132,4 +132,26 @@ internal static class FolderPickDisplay
     /// </para>
     /// </summary>
     internal const string WriteAccessNotGranted = "Write access wasn't granted";
+
+    /// <summary>
+    /// The dead-pick verdict — what it means when the pick gesture raises no
+    /// chooser at all — in one clause that reads correctly mid-sentence inside
+    /// either surface's own conditional: the pre-pick silent-gesture account
+    /// ("If choosing a folder opens nothing at all, … — there's nothing more to
+    /// try here", issue #105) and the cancelled-pick notice's post-gesture hedge
+    /// ("If no folder chooser opened, …", issue #116).
+    ///
+    /// <para>
+    /// The clause is only ever asserted <b>under an antecedent the reader can
+    /// check</b> ("opens nothing" / "no chooser opened"), never flatly: no code
+    /// path can detect a dead gesture (§ <see cref="SupportedBrowsers"/> for the
+    /// absent-mechanism case; issue #116's present-but-inert
+    /// <c>showDirectoryPicker</c> for the other — it aborts without ever opening,
+    /// indistinguishable from a user cancel). Each surface supplies the
+    /// antecedent for the moment it renders in; sharing the verdict is what
+    /// keeps the two accounts of the same dead end from drifting.
+    /// </para>
+    /// </summary>
+    internal const string DeadPickVerdict =
+        "this browser can't hand BgQuiz a folder of files";
 }

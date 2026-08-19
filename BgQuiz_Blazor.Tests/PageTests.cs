@@ -851,6 +851,71 @@ public class PageTests : BunitContext
         Assert.DoesNotContain("alert-danger", cut.Markup);
     }
 
+    /// <summary>
+    /// The minimum discriminating substring of the cancelled notice's
+    /// conditional advice (issue #116) — conditional because on a
+    /// present-but-inert <c>showDirectoryPicker</c> no view-files request ever
+    /// appears, so an imperative "allow the request" recommended an action that
+    /// could not be taken.
+    /// </summary>
+    private const string CancelledPickConditionalAdvice = "if your browser asks to view its files";
+
+    /// <summary>
+    /// The minimum discriminating substring of the cancelled notice's
+    /// dead-chooser tail (issue #116), shared by the presence and absence pins
+    /// below so a copy polish moves both or neither — the same anti-vacuous
+    /// pairing as <see cref="SilentGestureAccount"/>, whose sentence this tail
+    /// is deliberately <i>not</i> (that copy's own presence/absence pair keys
+    /// on being unique to the pre-pick grey line).
+    /// </summary>
+    private const string DeadChooserTail = "If no folder chooser opened";
+
+    [Fact]
+    public async Task Home_CancelledFsAccessPick_HedgesTheAdvice_AndAccountsForADeadChooser()
+    {
+        // Issue #116, the observed arc: showDirectoryPicker exists but is inert
+        // — the pick aborts without ever opening a chooser, lands here as a
+        // plain cancellation, and nothing else on the page covers it (#105's
+        // grey line is honestly gated on the capability being absent). So on
+        // this branch the notice itself must carry both hedges: advice that is
+        // conditional on the request actually appearing, and the post-gesture
+        // sibling of the #105 conditional naming what a silent gesture means.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = FolderPickOutcome.CancelledOutcome;
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        var notice = Normalize(cut.Find("#cancelledPickNotice").TextContent);
+        Assert.Contains(CancelledPickConditionalAdvice, notice);
+        Assert.Contains(DeadChooserTail, notice);
+    }
+
+    [Fact]
+    public async Task Home_CancelledFallbackPick_OmitsTheDeadChooserTail()
+    {
+        // The other branch of the same snapshot: this notice reaches the
+        // fallback path only through the input's cancel event, which a chooser
+        // must have opened to raise — the tail's antecedent is known false, and
+        // the #105 grey line already stands beside the notice covering the
+        // silent case. Rendering the tail here would say the same thing twice.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.SupportsDirectoryPicker = false;
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await cut.Find("#problemFolderFallback").TriggerEventAsync("oncancel", EventArgs.Empty);
+
+        var notice = Normalize(cut.Find("#cancelledPickNotice").TextContent);
+        Assert.Contains(CancelledPickConditionalAdvice, notice);
+        Assert.DoesNotContain(DeadChooserTail, notice);
+        Assert.Contains(SilentGestureAccount, cut.Markup); // the grey line has the silent case
+    }
+
     [Fact]
     public async Task Home_FolderPick_Cancelled_NoticeClearsOnNextPick()
     {
