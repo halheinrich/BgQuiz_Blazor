@@ -429,6 +429,29 @@
        separate, deliberately unbuilt thing — a preview would have to compose
        against the lifetime stats, which is Start's work.
 
+       The number is a count of distinct positions (the source stack dedupes by
+       content identity), and saying nothing about that is what raised issue
+       #104: a user reads their file count, reads this number, subtracts, and
+       has no account for the difference except a bug. Two sentences close that.
+       The first is standing — repeats are counted once, true of every pool — so
+       the count is legible as a deduplicated count even where nothing
+       collapsed. The second is the magnitude, and only the magnitude actually
+       removes the mystery: "distinct" alone still leaves the subtraction
+       unexplained. It renders only when something did collapse, because "left
+       out 0" is a sentence about nothing.
+
+       Both sentences claim exactly what the telemetry measures — matching
+       decisions dropped as duplicates of a position already counted. Not files:
+       a file can hold many decisions, and the magnitude is measured on the
+       filtered stream, so any claim about how many *files* repeat would be a
+       different number the app does not have. Neither sentence inventories what
+       makes two positions the same; that is the producer's identity rule
+       (SPEC-stats-identity.md §4) and restating it here would be a second
+       spelling of it to keep in step.
+
+       The standing sentence is suppressed on an empty pool for the reason the
+       breakdown is: with nothing matched there is no pool to characterize.
+
        The breakdown answers a different question than the count does — not "how
        big is the pool" but "what is my collection made of", the curation-bias
        check a beta tester asked for. It is one number and five short pairs on
@@ -453,12 +476,23 @@
     {
         <div class="text-muted small mb-3" role="status">Counting matching decisions…</div>
     }
-    else if (_matchSummary is { } matchSummary)
+    else if (_matchSummary is { AnswerTypes: var pool, DuplicatesCollapsed: var collapsed })
     {
         <div class="text-muted small mb-3" role="status">
             <div>
-                <strong>@matchSummary.Total</strong>
-                @(matchSummary.Total == 1 ? "decision matches" : "decisions match") your filters.
+                <strong>@pool.Total</strong>
+                @(pool.Total == 1 ? "decision matches" : "decisions match") your filters.
+                @if (pool.Total > 0)
+                {
+                    <text>Repeated positions are counted once.</text>
+                }
+                @if (collapsed > 0)
+                {
+                    <text>
+                        That left out @collapsed more matching
+                        @(collapsed == 1 ? "decision" : "decisions").
+                    </text>
+                }
                 @if (MixInEffect)
                 {
                     <text>
@@ -472,12 +506,12 @@
                match" would be noise where the page most needs to be quiet. That
                is not the zero-bucket case — a zero bucket inside a non-empty
                pool is a finding and always renders. *@
-            @if (matchSummary.Total > 0)
+            @if (pool.Total > 0)
             {
                 <div class="mt-1">
                     By answer type:
                     <ul class="list-inline d-inline mb-0">
-                        @foreach (var bucket in AnswerTypeDisplay.Buckets(matchSummary))
+                        @foreach (var bucket in AnswerTypeDisplay.Buckets(pool))
                         {
                             <li class="list-inline-item">@bucket.Label: <strong>@bucket.Count</strong></li>
                         }
@@ -570,7 +604,7 @@
     {
         <small class="text-muted ms-2">Pick a folder containing .xg / .xgp files to enable Start.</small>
     }
-    else if (_matchSummary is { Total: 0 })
+    else if (_matchSummary is { AnswerTypes.Total: 0 })
     {
         <small class="text-muted ms-2">No problems match the filters — adjust and re-apply them to enable Start.</small>
     }

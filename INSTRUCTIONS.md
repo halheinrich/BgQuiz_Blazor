@@ -179,6 +179,9 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     CachedProblemSetSource.cs       — parse-once layer over the holder's cache
     PickedFolderSourceFactory.cs    — the source composition (cache → dedupe →
                                       shuffle?), the one layer-order statement
+    ComposedProblemSource.cs        — the factory's product: stack + collapse
+                                      magnitude reader
+    MatchSummary.cs                 — pre-Start pool + what it deduped away
   Components/
     XgidLabel.razor / .razor.cs    — selectable+copyable XGID badge (in-flow;
                                       the quiz page's bottom row is its one home)
@@ -249,6 +252,9 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
   CommaDecimalLocaleTests.cs        — nb-NO comma-decimal guard
   HelpAndTitlesTests.cs             — /help renders; document.title contract
   AnswerTypeBreakdownTests.cs       — the pre-Start breakdown: labels and zeros
+  DeduplicatedCountTests.cs         — the count as a deduplicated count (#104):
+                                      duplicated files collapse, magnitude says
+                                      how many
   SidebarCollapseTests.cs           — fold, chevron state, how long it lasts
   SettingsTests.cs                  — board side by geometry; the fold setting
   MaximizeBoardTests.cs             — chrome absent answering, back at review;
@@ -395,10 +401,11 @@ answer, not the .xg-recorded player's.
 
 **Source construction is factory-injected.** The controller takes a
 `ProblemSetSourceFactory` delegate (`(DecisionFilterSet, QuizMix) →
-IProblemSetSource`). `PickedFolderSourceFactory.Create` builds the production
-one and is the **single statement of the layer stack**; `Program.cs` registers
-it scoped by resolving the app-scoped ingredients and handing them over. The
-stack, innermost first:
+ComposedProblemSource` — the stack plus its collapse-magnitude reader).
+`PickedFolderSourceFactory.Create` builds the production one and is the
+**single statement of the layer stack**; `Program.cs` registers it scoped by
+resolving the app-scoped ingredients and handing them over. The stack,
+innermost first:
 
 1. `CachedProblemSetSource` over the pick — the parse-once layer (see its
    section).
@@ -506,10 +513,12 @@ pipeline, which it owns end-to-end — no shared mutable state ever exists
 between page and controller. The `ProblemSetSourceFactory` delegate still
 takes the runtime `DecisionFilterSet` (the source's contract is the runtime
 pipeline; the controller is the authority on assembling it), plus the run's
-effective `QuizMix` for shuffle arbitration.
+effective `QuizMix` for shuffle arbitration. It returns a
+`ComposedProblemSource` — the stack to enumerate paired with a reader for the
+dedupe layer's collapse magnitude (§ It counts deduped positions).
 
 **Pre-Start match summary.** `SummarizeMatchesAsync(FilterConfig)` reports
-what a config would admit, as an `AnswerTypeDistribution`. It builds the same
+what a config would admit, as a `MatchSummary`. It builds the same
 controller-owned pipeline `StartAsync` would and folds a source from the
 factory over a **throwaway** enumerator, so the shared enumerator, `Current`,
 `Score`, and the histories are never touched and a summary is safe against a
@@ -521,12 +530,20 @@ a cost on top of it. It counts every matching decision, forced-move pass
 positions included, so it describes the **pre-mix pool** — "decisions that
 match", not "problems you'll see".
 
-**It counts deduped positions, and cannot disagree with the quiz.** The summary
-draws from the *same* factory, so the position-dedupe layer is in the pool it
-counts: "N decisions match your filters" means N distinct positions. The
-agreement is structural, not a convention two call sites must honour: the
-layer decides *which* copy survives, never how many do, so pool size cannot
-vary between a pre-Start summary and the quiz it precedes.
+**It counts deduped positions, says so, and cannot disagree with the quiz.**
+The summary draws from the *same* factory, so the position-dedupe layer is in
+the pool it counts: "N decisions match your filters" means N distinct
+positions. The agreement is structural, not a convention two call sites must
+honour: the layer decides *which* copy survives, never how many do, so pool
+size cannot vary between a pre-Start summary and the quiz it precedes. The
+collapse **magnitude** rides in the same `MatchSummary` (issue #104): the
+factory folds the producer's duplicate-class telemetry to one number and the
+summary reads it after the drain, since it is telemetry of that enumeration.
+`Total + DuplicatesCollapsed` is the whole filtered stream — the accounting
+identity `PositionDedupeTests` pins against a real parse. The factory returns
+the pair rather than the decorator so the shuffle wrapper above it needs no
+type-test, and so a substitute stack with no dedupe layer reports `0` honestly
+instead of fabricating one.
 
 **The count is `Total`, and there is no second surface for it.** The
 producer's fold contract (every `Add` increments exactly one bucket) makes the
@@ -1575,16 +1592,27 @@ The asymmetry is pinned three times over: at the service seam
   (checked + invalid — the only mix state that gates).
   **Match summary and answer-type breakdown** (umbrella #35). On Apply, Home
   calls `Controller.SummarizeMatchesAsync` (§ Pre-Start match summary) and
-  holds the returned `AnswerTypeDistribution` in `_matchSummary`. Home owns
+  holds the returned `MatchSummary` in `_matchSummary`. Home owns
   only display and lifecycle: a request id stamped per Apply discards a stale
   result landing after a newer Apply, and the summary clears on any filter
   edit or new/cleared pick. One `role="status"` region carries all of it — the
-  count from `Total`, the mix caveat, and the breakdown — so a screen reader
-  gets the pool and its make-up in one announcement. Settled rules:
-  - **The count is a count of distinct positions** — "N decisions match your
-    filters" is N *positions*, with no re-picked copy hiding behind the number,
-    and it cannot disagree with what a capless quiz then serves (§ Pre-Start
-    match summary for why that agreement is structural).
+  count from `AnswerTypes.Total`, the dedupe sentences, the mix caveat, and the
+  breakdown — so a screen reader gets the pool and its make-up in one
+  announcement. Settled rules:
+  - **The count is a count of distinct positions, and the line says so**
+    (umbrella #104) — "N decisions match your filters" is N *positions*, and it
+    cannot disagree with what a capless quiz then serves (§ Pre-Start match
+    summary for why that agreement is structural). Two sentences carry it. The
+    standing one, "Repeated positions are counted once.", renders on any
+    non-empty pool, so the number reads as deduplicated even where nothing
+    collapsed; it is suppressed on an empty pool for the reason the breakdown
+    is. The magnitude, "That left out N more matching decision(s).", renders
+    only when N > 0 — and it is the half that actually works, since "distinct"
+    alone still leaves the user's file-count subtraction unexplained. Both
+    claim exactly what the telemetry measures: matching *decisions* dropped,
+    never files (a file holds many decisions, and the magnitude is measured on
+    the filtered stream). Neither inventories what makes two positions the
+    same — that is the producer's identity rule, not this app's to restate.
   - **The count is filter-only, and says so when a mix is in effect.** With
     `MixInEffect` (`EffectiveMix is { IsPassthrough: false }` — live per
     keystroke, since effect follows the screen) a caveat renders in the same
@@ -2290,6 +2318,9 @@ committed cube fixtures listed in the Directory tree are the whole supply, and
 `PickCubeProblemsAsync` throws with the instruction to commit a genuinely
 different position rather than silently padding. Its `CubeFixtures` remarks name
 the specific look-alikes ruled out.
+The one deliberate exception is `PickDuplicatedFixtureAsync`, which stages
+copies *because* they collapse: it is how the #104 scenario — a file count and
+a smaller match count on one screen — is set up at all.
 
 **The FS-Access path** lives in `FsAccessFakeTestBase`, riding the base
 class's second customization seam, `ContextInitScript` (applied via

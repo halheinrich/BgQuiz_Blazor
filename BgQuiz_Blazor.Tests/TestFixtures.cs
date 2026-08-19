@@ -1,4 +1,6 @@
 using BgDataTypes_Lib;
+using BgGame_Lib;
+using BgQuiz_Blazor.Client.Quiz;
 
 namespace BgQuiz_Blazor.Tests;
 
@@ -193,4 +195,21 @@ internal static class TestFixtures
             Descriptive = new DescriptiveData { OnRollName = "Alice", OpponentName = "Bob" },
         };
     }
+
+    /// <summary>
+    /// A <see cref="ComposedProblemSource"/> over <paramref name="source"/> —
+    /// what a substitute <c>ProblemSetSourceFactory</c> hands back where the
+    /// test's subject is the source and not the stack's dedupe telemetry.
+    ///
+    /// <para>
+    /// <paramref name="duplicatesCollapsed"/> defaults to <c>0</c> because a
+    /// substitute stack has no dedupe layer and so genuinely collapses nothing
+    /// — an honest report, not a stub. A test about the magnitude passes the
+    /// number its stack should report: the composed pair is the contract the
+    /// controller consumes, so driving it directly is what pins the wire.
+    /// </para>
+    /// </summary>
+    public static ComposedProblemSource Composed(
+        IProblemSetSource source, int duplicatesCollapsed = 0) =>
+        new(source, () => duplicatesCollapsed);
 }

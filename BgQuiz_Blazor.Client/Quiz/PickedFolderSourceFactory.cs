@@ -52,6 +52,18 @@ using Microsoft.Extensions.Logging;
 /// </para>
 ///
 /// <para>
+/// <b>The stack reports what it collapsed.</b> A count the user cannot
+/// reconcile with their own file count reads as a bug
+/// (halheinrich/backgammon#104), so the factory returns a
+/// <see cref="ComposedProblemSource"/> rather than a bare source: the pair
+/// carries the stack to enumerate and a reader for the dedupe layer's collapse
+/// magnitude. The magnitude is the producer's own duplicate-class telemetry
+/// (<see cref="DistinctPositionProblemSetSource.LastDuplicateClasses"/>) folded
+/// to one number here — the composition knows which layer holds it, and no
+/// caller has to.
+/// </para>
+///
+/// <para>
 /// <b>Above the filter, not below it.</b> The decorator wraps the
 /// <i>filtered</i> stream deliberately. Deduping the raw parse first could
 /// elect a survivor the filter then rejects while dropping the content-equal
@@ -116,9 +128,32 @@ internal static class PickedFolderSourceFactory
 
         return (filters, mix) =>
         {
-            IProblemSetSource inner = new DistinctPositionProblemSetSource(
+            var deduped = new DistinctPositionProblemSetSource(
                 new CachedProblemSetSource(picked, filters, loggerFactory, clock));
-            return mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner) : inner;
+            IProblemSetSource composed = mix.IsPassthrough && shuffle.Enabled
+                ? new ShuffledProblemSetSource(deduped)
+                : deduped;
+            // The reader closes over the layer that owns the telemetry, so no
+            // caller has to reach through the conditional shuffle wrapper to
+            // find it — see ComposedProblemSource for why a reader travels back
+            // rather than the decorator itself.
+            return new ComposedProblemSource(composed, () => DuplicatesCollapsed(deduped));
         };
     }
+
+    /// <summary>
+    /// How many records <paramref name="deduped"/> dropped in its most recent
+    /// enumeration: every member of every duplicate class past the one that
+    /// survived it. The producer reports the classes; folding them into the one
+    /// number the app talks about belongs here, with the composer that put the
+    /// layer in the stack.
+    ///
+    /// <para>
+    /// Null telemetry — no enumeration has run yet — reads as zero rather than
+    /// as unknown: a stack nobody has drawn from has collapsed nothing, and the
+    /// only caller reads this after enumerating.
+    /// </para>
+    /// </summary>
+    private static int DuplicatesCollapsed(DistinctPositionProblemSetSource deduped) =>
+        deduped.LastDuplicateClasses?.Sum(duplicateClass => duplicateClass.Members.Count - 1) ?? 0;
 }

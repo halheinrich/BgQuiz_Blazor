@@ -217,24 +217,28 @@
         <em>Shuffle order</em> to see positions in a random order rather than in
         file order.
     </p>
-    @* The count line, previously undocumented anywhere. Two things about it are
+    @* The count line, previously undocumented anywhere. Three things about it are
        easy to read wrongly — it counts matching *decisions* rather than problems
-       you will be shown, and it describes the filters alone — and the second is
-       load-bearing once a mix is applied, since the quiz can then be far smaller
-       than the number on screen. Home states that caveat beside the number in its
-       own voice; this stays prose, per FolderPickDisplay's "Help's prose stays
-       prose" rule (a shared constant is earned only by two surfaces rendering the
-       same sentence). *@
+       you will be shown, it counts each position once, and it describes the
+       filters alone — and the last is load-bearing once a mix is applied, since
+       the quiz can then be far smaller than the number on screen. The dedupe
+       sentence is issue #104's: the count has always been deduplicated, and the
+       gap between it and a file count reads as a bug while nothing names it.
+       Home states each caveat beside the number in its own voice; this stays
+       prose, per FolderPickDisplay's "Help's prose stays prose" rule (a shared
+       constant is earned only by two surfaces rendering the same sentence). *@
     <p>
         Each time you press Apply, a line below the panel says how many decisions
         your filters matched. That is the pool your quiz is drawn from — and it
         counts <em>decisions</em>, not problems you will be shown: a position whose
         dice leave no legal play is counted here and then skipped for you at quiz
-        time. It also describes the filters only. So if you have applied a weighted
-        mix, the mix draws the quiz from that pool rather than presenting all of
-        it, and the quiz can be much smaller than the number shown. Starting is
-        what composes the mix, and the quiz page then tells you exactly what it
-        drew.
+        time. Repeated positions are counted once: where the same position turns
+        up more than once in your collection, the extra copies are left out of
+        that number, and the line says how many they were. It also describes the
+        filters only. So if you have applied a weighted mix, the mix draws the
+        quiz from that pool rather than presenting all of it, and the quiz
+        can be much smaller than the number shown. Starting is what composes
+        the mix, and the quiz page then tells you exactly what it drew.
     </p>
     @* The answer-type breakdown that rides under the count. It answers a
        question the count cannot — what the collection is made of, rather than

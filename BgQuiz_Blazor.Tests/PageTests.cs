@@ -136,7 +136,28 @@ public class PageTests : BunitContext
     private QuizController WithController(params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
-        var controller = new QuizController((_, _) => fake, new FakeProblemStatsSink(), TimeProvider.System);
+        var controller = new QuizController(
+            (_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System);
+        Services.AddSingleton(controller);
+        return controller;
+    }
+
+    /// <summary>
+    /// A controller whose composed stack reports
+    /// <paramref name="duplicatesCollapsed"/> records dropped as duplicates —
+    /// the state a real stack reaches over a corpus holding content-equal
+    /// copies. Driven through the composed pair rather than by manufacturing
+    /// duplicate fixtures: the pair is the contract the controller consumes, and
+    /// what the dedupe layer itself collapses is pinned against a real parse in
+    /// <c>PositionDedupeTests</c>.
+    /// </summary>
+    private QuizController WithCollapsingController(
+        int duplicatesCollapsed, params BgDecisionData[] items)
+    {
+        var fake = new FakeProblemSetSource(items);
+        var controller = new QuizController(
+            (_, _) => TestFixtures.Composed(fake, duplicatesCollapsed),
+            new FakeProblemStatsSink(), TimeProvider.System);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -313,7 +334,7 @@ public class PageTests : BunitContext
     {
         var fake = new FakeProblemSetSource(items);
         sink = new FakeProblemStatsSink();
-        var controller = new QuizController((_, _) => fake, sink, TimeProvider.System);
+        var controller = new QuizController((_, _) => TestFixtures.Composed(fake), sink, TimeProvider.System);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -419,7 +440,7 @@ public class PageTests : BunitContext
         DecisionFilterSet? capturedPipeline = null;
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         var controller = new QuizController(
-            (set, _) => { capturedPipeline = set; return fake; },
+            (set, _) => { capturedPipeline = set; return TestFixtures.Composed(fake); },
             new FakeProblemStatsSink(), TimeProvider.System);
         Services.AddSingleton(controller);
         WithPickedFolder(); // satisfy the folder gate so Start is clickable
@@ -531,6 +552,99 @@ public class PageTests : BunitContext
         Assert.Contains("<strong>1</strong>", cut.Markup);
         Assert.Contains("decision matches your filters", cut.Markup);
         Assert.DoesNotContain("decisions match your filters", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_ApplyFilters_CountSaysRepeatsAreCountedOnce()
+    {
+        // Issue #104. The count has always been a count of distinct positions —
+        // the source stack dedupes beneath everything — but the line said
+        // nothing about it, so a user comparing it to their file count read the
+        // difference as a bug. The standing sentence makes the number legible as
+        // a deduplicated count whether or not this particular pool collapsed
+        // anything, which is why it renders here with the magnitude at zero.
+        WithCollapsingController(
+            0,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        var region = Normalize(MatchSummaryRegion(cut).TextContent);
+        Assert.Contains("2 decisions match your filters. Repeated positions are counted once.", region);
+        // Nothing collapsed, so there is no magnitude to state — "left out 0"
+        // is a sentence about nothing.
+        Assert.DoesNotContain("That left out", region);
+    }
+
+    [Fact]
+    public async Task Home_ApplyFilters_DuplicatesCollapsed_StatesTheMagnitude()
+    {
+        // The half that actually removes the mystery: "distinct" alone still
+        // leaves the user's subtraction unexplained, so the collapse magnitude
+        // is stated whenever there is one. It claims matching *decisions*
+        // dropped — never files, which is a number the stack does not measure.
+        WithCollapsingController(
+            21,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        var region = Normalize(MatchSummaryRegion(cut).TextContent);
+        Assert.Contains("Repeated positions are counted once.", region);
+        Assert.Contains("That left out 21 more matching decisions.", region);
+        // The count itself stays the deduped pool — the collapsed copies are
+        // not folded back into it.
+        Assert.Contains("2 decisions match your filters", region);
+    }
+
+    [Fact]
+    public async Task Home_ApplyFilters_OneDuplicateCollapsed_UsesSingularWording()
+    {
+        // Pluralization pin for the magnitude sentence, the mate of the count
+        // line's own: one collapsed copy reads "decision", not "decisions".
+        WithCollapsingController(
+            1,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        var region = Normalize(MatchSummaryRegion(cut).TextContent);
+        Assert.Contains("That left out 1 more matching decision.", region);
+        Assert.DoesNotContain("more matching decisions", region);
+    }
+
+    [Fact]
+    public async Task Home_ApplyFilters_NoMatches_SaysNothingAboutRepeats()
+    {
+        // Suppressed on an empty pool for the reason the breakdown is: with
+        // nothing matched there is no pool to characterize, so a qualification
+        // of its size is noise where the page should be quiet.
+        WithController();
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        var region = Normalize(MatchSummaryRegion(cut).TextContent);
+        Assert.Contains("0 decisions match your filters", region);
+        Assert.DoesNotContain("Repeated positions are counted once", region);
     }
 
     [Fact]
@@ -2403,7 +2517,7 @@ public class PageTests : BunitContext
         // observable — SummarizeMatchesAsync enumerates the source once per call.
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         Services.AddSingleton(
-            new QuizController((_, _) => fake, new FakeProblemStatsSink(), TimeProvider.System));
+            new QuizController((_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System));
         WithAppliedFilter();
         WithShuffleOption();
         _folderAccess.NextPickOutcome = OneFileOutcome();
@@ -2807,7 +2921,7 @@ public class PageTests : BunitContext
     {
         var fake = new FakeProblemSetSource(items);
         var controller = new QuizController(
-            (_, _) => shuffle.Enabled ? new ShuffledProblemSetSource(fake, seed: 42) : fake,
+            (_, _) => TestFixtures.Composed(shuffle.Enabled ? new ShuffledProblemSetSource(fake, seed: 42) : fake),
             new FakeProblemStatsSink(), TimeProvider.System);
         Services.AddSingleton(controller);
         return controller;
@@ -3103,7 +3217,7 @@ public class PageTests : BunitContext
         // total — the indicator degrades to the bare position.
         var fake = new FakeProblemSetSource(
             [TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())], countKnown: false);
-        var c = new QuizController((_, _) => fake, new FakeProblemStatsSink(), TimeProvider.System);
+        var c = new QuizController((_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System);
         Services.AddSingleton(c);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         await NormalViewAsync();
@@ -4583,6 +4697,29 @@ public class PageTests : BunitContext
         Assert.Contains("says how many decisions", section);
         Assert.Contains("not problems you will be shown", section);
         Assert.Contains("can be much smaller than the number shown", section);
+    }
+
+    [Fact]
+    public void Help_ChooseFilters_DocumentsThatRepeatedPositionsAreCountedOnce()
+    {
+        // Issue #104's Help half: the count has always been deduplicated, and
+        // the prose that explains the line has to say so — otherwise the gap
+        // between a file count and this number has no account anywhere. Both
+        // halves are pinned: the rule, and that the line reports how many the
+        // rule left out. What is NOT pinned — deliberately — is any statement
+        // of what makes two positions the same; that is the producer's identity
+        // rule, and restating it here would be a second copy to keep in step.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        var section = SectionText(
+            cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters"));
+
+        // Substrings deliberately kept inside a single source line: the rendered
+        // text carries the razor file's own line breaks and indentation.
+        Assert.Contains("Repeated positions are counted once", section);
+        Assert.Contains("the line says how many they were", section);
     }
 
     [Fact]
@@ -6784,7 +6921,7 @@ public class PageTests : BunitContext
         var gated = new GatedProblemSetSource(items);
         source = gated;
         sink = new FakeProblemStatsSink();
-        var controller = new QuizController((_, _) => gated, sink, TimeProvider.System);
+        var controller = new QuizController((_, _) => TestFixtures.Composed(gated), sink, TimeProvider.System);
         Services.AddSingleton(controller);
         return controller;
     }

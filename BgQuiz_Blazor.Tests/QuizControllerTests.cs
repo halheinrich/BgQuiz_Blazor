@@ -11,7 +11,7 @@ public class QuizControllerTests
     private static QuizController Make(params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
-        return new QuizController((_, _) => fake, new FakeProblemStatsSink(), TimeProvider.System);
+        return new QuizController((_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System);
     }
 
     /// <summary>
@@ -25,7 +25,7 @@ public class QuizControllerTests
     {
         var fake = new FakeProblemSetSource(items);
         sink = new FakeProblemStatsSink();
-        return new QuizController((_, _) => fake, sink, TimeProvider.System);
+        return new QuizController((_, _) => TestFixtures.Composed(fake), sink, TimeProvider.System);
     }
 
     /// <summary>
@@ -40,7 +40,7 @@ public class QuizControllerTests
         var fake = new FakeProblemSetSource(items);
         DecisionFilterSet? holder = null;
         captured = () => holder;
-        return new QuizController((set, _) => { holder = set; return fake; }, new FakeProblemStatsSink(), TimeProvider.System);
+        return new QuizController((set, _) => { holder = set; return TestFixtures.Composed(fake); }, new FakeProblemStatsSink(), TimeProvider.System);
     }
 
     private static Play BestPlay() => TestFixtures.MakePlay((8, 5), (8, 5));
@@ -62,7 +62,7 @@ public class QuizControllerTests
     public void Ctor_NullStatsSink_Throws()
     {
         Assert.Throws<ArgumentNullException>(
-            () => new QuizController((_, _) => new FakeProblemSetSource([]), null!, TimeProvider.System));
+            () => new QuizController((_, _) => TestFixtures.Composed(new FakeProblemSetSource([])), null!, TimeProvider.System));
     }
 
     [Fact]
@@ -1175,7 +1175,7 @@ public class QuizControllerTests
     {
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var fake = new FakeProblemSetSource([d]);
-        var c = new QuizController((_, _) => fake, new FakeProblemStatsSink(), TimeProvider.System);
+        var c = new QuizController((_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System);
 
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         Assert.Equal(1, fake.EnumerateCallCount);
@@ -1212,8 +1212,8 @@ public class QuizControllerTests
 
         var summary = await c.SummarizeMatchesAsync(new FilterConfig());
 
-        Assert.Equal(3, summary.Total);
-        Assert.Equal(3, summary.CheckerPlays);
+        Assert.Equal(3, summary.AnswerTypes.Total);
+        Assert.Equal(3, summary.AnswerTypes.CheckerPlays);
     }
 
     [Fact]
@@ -1236,15 +1236,45 @@ public class QuizControllerTests
 
         Assert.Equal(new AnswerTypeDistribution(
             CheckerPlays: 1, NoDoubleTake: 1, TooGood: 1, DoubleTake: 1, DoublePass: 1),
-            summary);
-        Assert.Equal(5, summary.Total);
+            summary.AnswerTypes);
+        Assert.Equal(5, summary.AnswerTypes.Total);
     }
 
     [Fact]
     public async Task SummarizeMatchesAsync_EmptySource_ReturnsEmpty()
     {
         var c = Make();
-        Assert.Equal(AnswerTypeDistribution.Empty, await c.SummarizeMatchesAsync(new FilterConfig()));
+        Assert.Equal(
+            new MatchSummary(AnswerTypeDistribution.Empty, 0),
+            await c.SummarizeMatchesAsync(new FilterConfig()));
+    }
+
+    [Fact]
+    public async Task SummarizeMatchesAsync_CarriesTheStacksCollapseMagnitude()
+    {
+        // Issue halheinrich/backgammon#104. The pool the summary counts is
+        // already deduplicated, so the count on its own cannot be reconciled
+        // with what the user picked. The composed stack reports how many
+        // matching records it dropped as duplicates, and the summary carries
+        // that number alongside the distribution measured in the same pass —
+        // one enumeration, so the two halves describe the same pool.
+        //
+        // What the dedupe layer itself collapses is pinned against a real parse
+        // in PositionDedupeTests; what is owed here is that the controller
+        // reports the stack's number rather than inventing or dropping one.
+        var fake = new FakeProblemSetSource([
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
+        var c = new QuizController(
+            (_, _) => TestFixtures.Composed(fake, duplicatesCollapsed: 7),
+            new FakeProblemStatsSink(), TimeProvider.System);
+
+        var summary = await c.SummarizeMatchesAsync(new FilterConfig());
+
+        Assert.Equal(7, summary.DuplicatesCollapsed);
+        // The collapsed copies are never folded back into the count: the pool
+        // is what the stack actually yielded.
+        Assert.Equal(2, summary.AnswerTypes.Total);
     }
 
     [Fact]
@@ -1283,7 +1313,7 @@ public class QuizControllerTests
 
         var summary = await c.SummarizeMatchesAsync(new FilterConfig());
 
-        Assert.Equal(2, summary.Total);
+        Assert.Equal(2, summary.AnswerTypes.Total);
         Assert.Equal(currentIdBefore, c.Current!.Id);
         Assert.Equal(scoreBefore, c.Score);
         Assert.Equal(historyBefore, c.History.Count);
@@ -1498,7 +1528,7 @@ public class QuizControllerTests
         var captured = new List<QuizMix>();
         mixes = captured;
         return new QuizController(
-            (_, mix) => { captured.Add(mix); return fake; }, sink, TimeProvider.System);
+            (_, mix) => { captured.Add(mix); return TestFixtures.Composed(fake); }, sink, TimeProvider.System);
     }
 
     /// <summary>
@@ -1516,7 +1546,7 @@ public class QuizControllerTests
     public void Ctor_NullClock_Throws()
     {
         Assert.Throws<ArgumentNullException>(
-            () => new QuizController((_, _) => new FakeProblemSetSource([]), new FakeProblemStatsSink(), null!));
+            () => new QuizController((_, _) => TestFixtures.Composed(new FakeProblemSetSource([])), new FakeProblemStatsSink(), null!));
     }
 
     [Fact]
@@ -1762,7 +1792,7 @@ public class QuizControllerTests
     {
         var fake = new FakeProblemSetSource(
             [TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())], countKnown: false);
-        var c = new QuizController((_, _) => fake, new FakeProblemStatsSink(), TimeProvider.System);
+        var c = new QuizController((_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System);
 
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 

@@ -253,6 +253,34 @@ public abstract class E2eTestBase : IAsyncLifetime
     }
 
     /// <summary>
+    /// Pick a folder holding <paramref name="copies"/> copies of one fixture —
+    /// the original plus numbered duplicates, the shape a re-downloaded match
+    /// takes in a real problem folder. Every copy is content-identical, so the
+    /// pool collapses to a single position and the pick summary's file count and
+    /// the match count deliberately disagree: the scenario umbrella issue #104
+    /// exists for.
+    /// </summary>
+    /// <param name="fixtureFileName">The committed fixture to duplicate.</param>
+    /// <param name="copies">
+    /// How many copies to stage. At least two — one copy collapses nothing, so a
+    /// scenario asking for it is asking for something this helper cannot set up.
+    /// </param>
+    protected Task PickDuplicatedFixtureAsync(string fixtureFileName, int copies)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(copies, 2);
+
+        string stem = Path.GetFileNameWithoutExtension(fixtureFileName);
+        string extension = Path.GetExtension(fixtureFileName);
+        var staged = Enumerable.Range(0, copies)
+            .Select(i => (
+                Source: FixturePath(fixtureFileName),
+                DestName: i == 0 ? fixtureFileName : $"{stem} ({i}){extension}"))
+            .ToList();
+
+        return StageAndPickAsync("duplicates", staged);
+    }
+
+    /// <summary>
     /// Copy the given fixtures into a fresh staged temp directory (named after
     /// the scenario, so runs stay distinguishable in failure output) and hand
     /// that directory to the hidden <c>webkitdirectory</c> input — a genuine

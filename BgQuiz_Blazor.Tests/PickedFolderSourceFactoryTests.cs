@@ -154,7 +154,8 @@ public class PickedFolderSourceFactoryTests
         {
             IProblemSetSource inner = new CachedProblemSetSource(
                 picked, filters, NullLoggerFactory.Instance, TimeProvider.System);
-            return mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner, seed: 42) : inner;
+            return TestFixtures.Composed(
+                mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner, seed: 42) : inner);
         };
 
         var unshuffledOrder = await CollectAllAsync(seededFactory(new DecisionFilterSet(), QuizMix.Empty));
@@ -167,10 +168,10 @@ public class PickedFolderSourceFactoryTests
         Assert.NotEqual(unshuffledOrder, shuffledOrder); // order differs (seeded, so deterministic)
     }
 
-    private static async Task<List<BgDecisionData>> CollectAllAsync(IProblemSetSource src)
+    private static async Task<List<BgDecisionData>> CollectAllAsync(ComposedProblemSource composed)
     {
         var items = new List<BgDecisionData>();
-        await foreach (var d in src.EnumerateAsync())
+        await foreach (var d in composed.Source.EnumerateAsync())
             items.Add(d);
         return items;
     }

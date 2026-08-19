@@ -46,7 +46,7 @@ public class QuizControllerOverlapTests
         sink = new FakeProblemStatsSink();
         var calls = 0;
         factoryCalls = () => calls;
-        return new QuizController((_, _) => { calls++; return gated; }, sink, TimeProvider.System);
+        return new QuizController((_, _) => { calls++; return TestFixtures.Composed(gated); }, sink, TimeProvider.System);
     }
 
     // -----------------------------------------------------------------------
@@ -318,7 +318,7 @@ public class QuizControllerOverlapTests
         var c = new QuizController(
             (_, _) => throwNext
                 ? throw new InvalidOperationException("boom")
-                : fake,
+                : TestFixtures.Composed(fake),
             new FakeProblemStatsSink(), TimeProvider.System);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -337,7 +337,7 @@ public class QuizControllerOverlapTests
         var good = new FakeProblemSetSource([Decision()]);
         var throwNext = true;
         var c = new QuizController(
-            (_, _) => throwNext ? new ThrowingProblemSetSource() : good,
+            (_, _) => TestFixtures.Composed(throwNext ? new ThrowingProblemSetSource() : good),
             new FakeProblemStatsSink(), TimeProvider.System);
 
         await Assert.ThrowsAsync<InvalidOperationException>(

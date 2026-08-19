@@ -339,11 +339,14 @@ public partial class Home : ComponentBase, IDisposable
     /// forced-move passes auto-skip at quiz time).
     ///
     /// <para>
-    /// <b>One value carries both halves of the display.</b> The count line
-    /// renders <see cref="AnswerTypeDistribution.Total"/> and the breakdown
-    /// renders the five buckets, so the number and its decomposition come from a
-    /// single fold of a single enumeration and cannot disagree — the reason this
-    /// field is the distribution rather than an <c>int</c> beside one.
+    /// <b>One value carries every half of the display.</b> The count line
+    /// renders <see cref="AnswerTypeDistribution.Total"/> off
+    /// <see cref="MatchSummary.AnswerTypes"/>, the breakdown renders that same
+    /// distribution's five buckets, and the collapse sentence renders
+    /// <see cref="MatchSummary.DuplicatesCollapsed"/> — one fold of one
+    /// enumeration, so the number, its decomposition and what it left out
+    /// cannot disagree. That is the reason this field is the summary record
+    /// rather than an <c>int</c> with figures parked beside it.
     /// </para>
     ///
     /// <para>
@@ -364,7 +367,7 @@ public partial class Home : ComponentBase, IDisposable
     /// user is empty is not one a Start click should dead-end against.
     /// </para>
     /// </summary>
-    private AnswerTypeDistribution? _matchSummary;
+    private MatchSummary? _matchSummary;
 
     /// <summary>
     /// True while <see cref="QuizController.SummarizeMatchesAsync"/> runs on Apply.
@@ -511,7 +514,7 @@ public partial class Home : ComponentBase, IDisposable
     private bool CanStart =>
         FilterInEffect is not null
         && Folder.HasFiles
-        && _matchSummary is not { Total: 0 }
+        && _matchSummary is not { AnswerTypes.Total: 0 }
         && EffectiveMix is not null;
 
     /// <summary>

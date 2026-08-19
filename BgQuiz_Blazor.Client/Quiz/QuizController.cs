@@ -384,23 +384,36 @@ internal sealed class QuizController : IAsyncDisposable
     /// <see cref="BgDecisionData.IsCube"/> but not the best-pair halves, so the
     /// inner <see cref="DecisionData"/> is what carries the classification.
     /// </para>
+    ///
+    /// <para>
+    /// <b>It also reports what the pool collapsed.</b> The source stack dedupes
+    /// by content identity, so the count is a count of distinct positions and a
+    /// user comparing it to their file count sees a gap they cannot account for
+    /// (halheinrich/backgammon#104). The composed stack reports how many
+    /// matching records it dropped as duplicates, and that magnitude travels
+    /// back in the same <see cref="MatchSummary"/> as the distribution it was
+    /// measured alongside — read after the drain, since it is telemetry of the
+    /// enumeration just completed. This method composes its own stack per call,
+    /// which is what keeps that per-instance telemetry out of the way of a live
+    /// quiz or a concurrent count.
+    /// </para>
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="userConfig"/> is null.</exception>
     /// <exception cref="ArgumentException">
     /// <paramref name="userConfig"/> contains a malformed value — propagated
     /// from <see cref="FilterConfig.Build"/>.
     /// </exception>
-    public async Task<AnswerTypeDistribution> SummarizeMatchesAsync(FilterConfig userConfig)
+    public async Task<MatchSummary> SummarizeMatchesAsync(FilterConfig userConfig)
     {
         ArgumentNullException.ThrowIfNull(userConfig);
 
         var pipeline = userConfig.Build();
-        var source = _sourceFactory(pipeline, QuizMix.Empty);
+        var composed = _sourceFactory(pipeline, QuizMix.Empty);
 
         var distribution = AnswerTypeDistribution.Empty;
-        await foreach (var decision in source.EnumerateAsync())
+        await foreach (var decision in composed.Source.EnumerateAsync())
             distribution = distribution.Add(decision.Decision);
-        return distribution;
+        return new MatchSummary(distribution, composed.GetDuplicatesCollapsed());
     }
 
     /// <summary>
@@ -912,7 +925,7 @@ internal sealed class QuizController : IAsyncDisposable
 
         await DisposeEnumeratorAsync();
 
-        var inner = _sourceFactory(pipeline, effectiveMix);
+        var inner = _sourceFactory(pipeline, effectiveMix).Source;
         // A blank mix wires no composition layer at all — the settled
         // passthrough default. An active mix composes via the producer's
         // decorator; holding the typed reference is what surfaces
@@ -1016,10 +1029,19 @@ internal sealed class QuizController : IAsyncDisposable
 }
 
 /// <summary>
-/// Factory delegate for constructing the active <see cref="IProblemSetSource"/>
-/// from a user-supplied filter set. The client's <c>Program.cs</c> binds this to
-/// the in-browser source for the current run (the picked-files source, or a
+/// Factory delegate for constructing the active problem source from a
+/// user-supplied filter set. The client's <c>Program.cs</c> binds this to the
+/// in-browser source for the current run (the picked-files source, or a
 /// bundled sample); tests substitute a fake source via the same delegate shape.
+///
+/// <para>
+/// It returns a <see cref="ComposedProblemSource"/> rather than the source
+/// itself: a caller needs the stack to enumerate <i>and</i> — for the pre-Start
+/// match summary — how many duplicates that stack collapsed, which only the
+/// composer knows how to read back out of its own layers. A caller that wants
+/// only the stack takes <see cref="ComposedProblemSource.Source"/> and ignores
+/// the rest.
+/// </para>
 ///
 /// <para>
 /// The <paramref name="mix"/> is the run's <i>effective</i> composition config,
@@ -1031,7 +1053,7 @@ internal sealed class QuizController : IAsyncDisposable
 /// never wires the composition layer itself; that stays with the controller.
 /// </para>
 /// </summary>
-internal delegate IProblemSetSource ProblemSetSourceFactory(DecisionFilterSet filters, QuizMix mix);
+internal delegate ComposedProblemSource ProblemSetSourceFactory(DecisionFilterSet filters, QuizMix mix);
 
 /// <summary>
 /// The result of <see cref="QuizController.StartAsync"/> /

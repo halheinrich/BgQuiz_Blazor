@@ -172,7 +172,7 @@ public class PositionDedupeTests
             "Premise broken: the two copies no longer yield content-equal decisions.");
 
         var factory = FactoryOver(picked, shuffle);
-        var drawn = await CollectAsync(factory(new FilterConfig().Build(), QuizMix.Empty));
+        var drawn = await CollectAsync(factory(new FilterConfig().Build(), QuizMix.Empty).Source);
 
         Assert.NotEmpty(drawn);
         var xgids = drawn.Select(d => d.Xgid).ToList();
@@ -206,9 +206,52 @@ public class PositionDedupeTests
         // than satisfied here (SPEC-stats-identity.md §4) and nothing about the
         // lifetime record can move this outcome.
         var factory = FactoryOver(picked, new ShuffleOption());
-        var drawn = await CollectAsync(factory(EarlyMoves.Build(), QuizMix.Empty));
+        var drawn = await CollectAsync(factory(EarlyMoves.Build(), QuizMix.Empty).Source);
         var survivor = Assert.Single(
             drawn, d => string.Equals(d.Xgid, contested.Key, StringComparison.Ordinal));
         Assert.Equal(FirstCopyName, survivor.Id.Filename);
+    }
+
+    // -----------------------------------------------------------------------
+    //  What the stack reports it collapsed
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MatchSummary_OverTwoNamedCopies_ReportsWhatCollapsed(bool shuffled)
+    {
+        // Issue halheinrich/backgammon#104. The pre-Start count is a count of
+        // distinct positions, so the difference between it and the corpus is a
+        // number the user is otherwise left to infer — and infers as a bug. The
+        // magnitude is read back through the real composition, including (the
+        // shuffled case) through the wrapper that sits ABOVE the dedupe layer:
+        // that wrapper is the whole reason the factory hands back a composed
+        // pair rather than a bare source a caller would have to type-test.
+        var picked = HolderOverTwoCopies();
+        var shuffle = new ShuffleOption();
+        if (shuffled) shuffle.Set(true);
+
+        var undeduped = await UndedupedAsync(picked, EarlyMoves);
+        Assert.True(
+            undeduped.Count > undeduped.Select(d => d.Xgid).Distinct(StringComparer.Ordinal).Count(),
+            "Premise broken: the two copies no longer yield content-equal decisions, so this " +
+            "test can no longer observe a collapse to report.");
+
+        var controller = new QuizController(
+            FactoryOver(picked, shuffle), new FakeProblemStatsSink(), TimeProvider.System);
+
+        var summary = await controller.SummarizeMatchesAsync(EarlyMoves);
+
+        // The accounting identity, stated without assuming what the identity
+        // key collapses: every filtered record either survives into the pool or
+        // is reported as a duplicate of one that did. Pinned this way rather
+        // than against a distinct-XGID count because the content key collapses
+        // strictly more than the XGID string does (SPEC-stats-identity.md §4),
+        // and this test is not the place that rules on which.
+        Assert.Equal(undeduped.Count, summary.AnswerTypes.Total + summary.DuplicatesCollapsed);
+        Assert.True(
+            summary.DuplicatesCollapsed > 0,
+            "The pick holds content-equal copies, so the summary must report a collapse.");
     }
 }

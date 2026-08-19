@@ -125,8 +125,8 @@ public class CachedProblemSetSourceTests
         // → controller. Two full Starts, one parse.
         var files = new CountingFileList([new PickedFile("a.xg", [1, 2, 3])]);
         var folder = FolderOver(files);
-        ProblemSetSourceFactory factory = (filters, _) =>
-            new CachedProblemSetSource(folder, filters, NullLoggerFactory.Instance, TimeProvider.System);
+        ProblemSetSourceFactory factory = (filters, _) => TestFixtures.Composed(
+            new CachedProblemSetSource(folder, filters, NullLoggerFactory.Instance, TimeProvider.System));
         var controller = new QuizController(factory, new FakeProblemStatsSink(), TimeProvider.System);
 
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty);
