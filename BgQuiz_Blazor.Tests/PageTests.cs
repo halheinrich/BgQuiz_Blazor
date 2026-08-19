@@ -1242,8 +1242,11 @@ public class PageTests : BunitContext
     public void Home_TruncatedPick_XgpOnly_ReportsThatKindFromTheConstants()
     {
         // Issue #59, the motivating case: a position library past the .xgp cap.
-        // Blame-free and factual — what was used, and how many were not read —
-        // with both figures from the constants the pick enforced, never literals.
+        // Blame-free and factual — how many were used, how many were not read,
+        // and that the pick drew them at random (issue #106) — with both figures
+        // from the constants the pick enforced, never literals. The equality is
+        // what pins the other half of the claim: never *which* files, because
+        // PickTruncation reports counts and carries no identities to name.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
@@ -1252,7 +1255,7 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
 
         Assert.Equal(
-            $"Using the first {PickedFileLimits.MaxXgpFileCount} .xgp files; 340 more were not read.",
+            $"Using {PickedFileLimits.MaxXgpFileCount} .xgp files chosen at random; 340 more were not read.",
             Assert.Single(TruncationLines(cut)));
         // An outcome, not a failure: the quiz runs on what was read.
         Assert.DoesNotContain("alert-danger", cut.Markup);
@@ -1272,7 +1275,7 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
 
         Assert.Equal(
-            $"Using the first {PickedFileLimits.MaxXgFileCount} .xg files; 1 more was not read.",
+            $"Using {PickedFileLimits.MaxXgFileCount} .xg files chosen at random; 1 more was not read.",
             Assert.Single(TruncationLines(cut)));
     }
 
@@ -1294,8 +1297,8 @@ public class PageTests : BunitContext
 
         Assert.Equal(
             [
-                $"Using the first {PickedFileLimits.MaxXgFileCount} .xg files; 12 more were not read.",
-                $"Using the first {PickedFileLimits.MaxXgpFileCount} .xgp files; 340 more were not read.",
+                $"Using {PickedFileLimits.MaxXgFileCount} .xg files chosen at random; 12 more were not read.",
+                $"Using {PickedFileLimits.MaxXgpFileCount} .xgp files chosen at random; 340 more were not read.",
             ],
             TruncationLines(cut));
     }
@@ -1314,7 +1317,7 @@ public class PageTests : BunitContext
 
         Assert.DoesNotContain("were not read", cut.Markup);
         Assert.DoesNotContain("was not read", cut.Markup);
-        Assert.DoesNotContain("Using the first", cut.Markup);
+        Assert.DoesNotContain("files chosen at random", cut.Markup);
     }
 
     [Fact]
@@ -1353,11 +1356,11 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
-        Assert.Contains("Using the first", Normalize(cut.Markup));
+        Assert.Contains("files chosen at random", Normalize(cut.Markup));
 
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear").ClickAsync(new());
 
-        Assert.DoesNotContain("Using the first", Normalize(cut.Markup));
+        Assert.DoesNotContain("files chosen at random", Normalize(cut.Markup));
         Assert.Empty(Services.GetRequiredService<PickedProblemFolder>().Truncations);
     }
 
@@ -1390,11 +1393,11 @@ public class PageTests : BunitContext
         WithPickedFolder(truncations: [SomeTruncation()]);
 
         var cut = Render<HomePage>();
-        Assert.Contains("Using the first", Normalize(cut.Markup));
+        Assert.Contains("files chosen at random", Normalize(cut.Markup));
 
         await cut.Find("#truncationNotice").ClickAsync(new());
 
-        Assert.DoesNotContain("Using the first", Normalize(cut.Markup));
+        Assert.DoesNotContain("files chosen at random", Normalize(cut.Markup));
         // BrowserUnsupported is WithPickedFolder's default capability, so its
         // warning is the neighbour still standing.
         Assert.Contains("can't save quiz stats", cut.Markup);
@@ -1416,7 +1419,7 @@ public class PageTests : BunitContext
 
         await close.ClickAsync(new());
 
-        Assert.DoesNotContain("Using the first", Normalize(cut.Markup));
+        Assert.DoesNotContain("files chosen at random", Normalize(cut.Markup));
     }
 
     [Fact]
@@ -1436,7 +1439,7 @@ public class PageTests : BunitContext
         await cut.Find("#statsCapabilityNotice").ClickAsync(new());
 
         Assert.DoesNotContain("will be saved to", cut.Markup);
-        Assert.Contains("Using the first", Normalize(cut.Markup));
+        Assert.Contains("files chosen at random", Normalize(cut.Markup));
     }
 
     [Fact]
@@ -1455,7 +1458,7 @@ public class PageTests : BunitContext
         await cut.Find("#statsCapabilityNotice").ClickAsync(new());
 
         var back = Render<HomePage>();
-        Assert.DoesNotContain("Using the first", Normalize(back.Markup));
+        Assert.DoesNotContain("files chosen at random", Normalize(back.Markup));
         Assert.DoesNotContain("will be saved to", back.Markup);
     }
 
@@ -1473,13 +1476,13 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#truncationNotice").ClickAsync(new());
         await cut.Find("#statsCapabilityNotice").ClickAsync(new());
-        Assert.DoesNotContain("Using the first", Normalize(cut.Markup));
+        Assert.DoesNotContain("files chosen at random", Normalize(cut.Markup));
 
         _folderAccess.NextPickOutcome = OneFileOutcome(
             capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        Assert.Contains("Using the first", Normalize(cut.Markup));
+        Assert.Contains("files chosen at random", Normalize(cut.Markup));
         Assert.Contains("will be saved to", cut.Markup);
     }
 

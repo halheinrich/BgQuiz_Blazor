@@ -898,7 +898,11 @@ can admit its full quota of both.
 **The two caps end differently, and that is the design.** An oversized *file*
 throws (lib-side, before any bytes move) and lands on Home's pick-error
 banner. A folder past a *count* cap **truncates and reports**: the pick takes
-the first N of that kind, and the left-behind count rides back as
+a **uniformly random** N of that kind — never a prefix, so repeated picks of
+one folder reach the whole corpus rather than the same slice forever
+(`BgFolderAccess_Razor`'s `PickTruncation` holds the rationale; Home's notice
+says "chosen at random" because the shifting match count is otherwise
+unexplained, issue #106) — and the left-behind count rides back as
 `FolderPickOutcome.Truncations` → `PickedProblemFolder.Truncations` → Home's
 polite per-kind notice. Failing the whole pick threw away the 2000 files that
 were perfectly readable; the caps are a cost ceiling, not an admissions test.

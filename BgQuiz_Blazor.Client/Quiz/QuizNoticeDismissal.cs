@@ -37,10 +37,10 @@ internal enum QuizNotice
 
     /// <summary>
     /// <c>Home</c>'s truncated-pick report (issue #59): the folder held more
-    /// files of some kind than that kind's cap admits, so the first N were
-    /// taken and the rest left unread. One slot for the whole alert, however
-    /// many kinds it lists — it is one report about one pick. Occurrence:
-    /// <see cref="PickedProblemFolder.PickOccurrence"/>.
+    /// files of some kind than that kind's cap admits, so a randomly drawn N
+    /// were taken and the rest left unread. One slot for the whole alert,
+    /// however many kinds it lists — it is one report about one pick.
+    /// Occurrence: <see cref="PickedProblemFolder.PickOccurrence"/>.
     /// </summary>
     PickTruncations,
 
