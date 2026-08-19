@@ -1044,13 +1044,12 @@ public class PageTests : BunitContext
     }
 
     /// <summary>
-    /// Home's truncated-pick notice — scoped the way
-    /// <see cref="MatchSummaryRegion"/> is, by role and a weak content marker,
-    /// because the region carries no id and shares its alert styling with the
-    /// stats-capability notice below it.
+    /// Home's truncated-pick notice, addressed by its id — the structural hook
+    /// issue #107's dismissal affordance added, preferred over a content marker
+    /// so #106's coming reword of the truncation copy can't re-key this suite.
     /// </summary>
     private static AngleSharp.Dom.IElement TruncationNotice(IRenderedComponent<HomePage> cut) =>
-        cut.FindAll("div[role=status]").First(d => d.TextContent.Contains("not read"));
+        cut.Find("#truncationNotice");
 
     /// <summary>
     /// The truncation notice's lines as a reader sees them — whitespace
@@ -1181,6 +1180,186 @@ public class PageTests : BunitContext
 
         Assert.DoesNotContain("Using the first", Normalize(cut.Markup));
         Assert.Empty(Services.GetRequiredService<PickedProblemFolder>().Truncations);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Dismissible pick-outcome notices (issue #107). The Quiz page's contract,
+    //  extended to Home's band: every outcome/status notice dismisses on a
+    //  click. The holder-backed pair (truncations, stats capability) record it
+    //  in QuizNoticeDismissal keyed on PickedProblemFolder.PickOccurrence —
+    //  per occurrence (a re-pick resurrects), surviving navigation, one slot
+    //  each. The per-visit pair (cancelled, empty) clear their own fields. The
+    //  red pick-error banner is a failure report and stays undismissible.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// One .xgp-truncation entry for staging dismissal fixtures — the content
+    /// is irrelevant to these tests, which address the notice structurally.
+    /// </summary>
+    private static PickTruncation SomeTruncation() =>
+        new(PickedFileLimits.XgpExtension, 5, PickedFileLimits.MaxXgpFileCount);
+
+    [Fact]
+    public async Task Home_TruncationNotice_ClickingTheAlertDismissesIt_LeavingItsNeighborStanding()
+    {
+        // The oversized target (a click anywhere in the alert), and the slot
+        // key's job in the same gesture: the stats-capability notice beside it
+        // must not go with it.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithPickedFolder(truncations: [SomeTruncation()]);
+
+        var cut = Render<HomePage>();
+        Assert.Contains("Using the first", Normalize(cut.Markup));
+
+        await cut.Find("#truncationNotice").ClickAsync(new());
+
+        Assert.DoesNotContain("Using the first", Normalize(cut.Markup));
+        // BrowserUnsupported is WithPickedFolder's default capability, so its
+        // warning is the neighbour still standing.
+        Assert.Contains("can't save quiz stats", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_TruncationNotice_CloseButtonDismissesIt_AndCarriesItsOwnLabel()
+    {
+        // The discoverable, accessible half — same pin as the Quiz page's: the
+        // btn-close is present, labeled, and dismisses.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithPickedFolder(truncations: [SomeTruncation()]);
+
+        var cut = Render<HomePage>();
+        var close = CloseButton(cut.Find("#truncationNotice"));
+        Assert.Equal("Dismiss this message", close.GetAttribute("aria-label"));
+
+        await close.ClickAsync(new());
+
+        Assert.DoesNotContain("Using the first", Normalize(cut.Markup));
+    }
+
+    [Fact]
+    public async Task Home_StatsCapabilityNotice_ClickDismisses_LeavingTruncationsStanding()
+    {
+        // The other direction of slot independence, on the info branch the
+        // issue's ruling named ("a colored info message should go away when
+        // clicked" — the stats-location line).
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
+
+        var cut = Render<HomePage>();
+        Assert.Contains("will be saved to", cut.Markup);
+
+        await cut.Find("#statsCapabilityNotice").ClickAsync(new());
+
+        Assert.DoesNotContain("will be saved to", cut.Markup);
+        Assert.Contains("Using the first", Normalize(cut.Markup));
+    }
+
+    [Fact]
+    public async Task Home_PickNoticeDismissals_SurviveTheNavigationRoundTrip()
+    {
+        // App-scoped, not page fields: the pick itself survives navigation, so
+        // returning re-renders its notices — and a dismissal the user already
+        // made must not come back with them.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#truncationNotice").ClickAsync(new());
+        await cut.Find("#statsCapabilityNotice").ClickAsync(new());
+
+        var back = Render<HomePage>();
+        Assert.DoesNotContain("Using the first", Normalize(back.Markup));
+        Assert.DoesNotContain("will be saved to", back.Markup);
+    }
+
+    [Fact]
+    public async Task Home_PickNoticeDismissals_ANewPickShowsItsNoticesFresh()
+    {
+        // Per occurrence, never "this notice is off": the next pick is a new
+        // thing to report, so both notices return — with no reset call site
+        // anywhere, which is the occurrence-token pattern's whole point.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#truncationNotice").ClickAsync(new());
+        await cut.Find("#statsCapabilityNotice").ClickAsync(new());
+        Assert.DoesNotContain("Using the first", Normalize(cut.Markup));
+
+        _folderAccess.NextPickOutcome = OneFileOutcome(
+            capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Contains("Using the first", Normalize(cut.Markup));
+        Assert.Contains("will be saved to", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_CancelledPickNotice_ClickDismissesIt()
+    {
+        // The per-visit pair's affordance: same click contract as the
+        // holder-backed notices, recorded by clearing the page field itself —
+        // the notice's transience already scopes the dismissal.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = FolderPickOutcome.CancelledOutcome;
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        Assert.Contains("No folder is picked", cut.Markup);
+
+        await cut.Find("#cancelledPickNotice").ClickAsync(new());
+
+        Assert.DoesNotContain("No folder is picked", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_EmptyFolderNotice_ClickDismissesIt()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = new FolderPickOutcome(
+            Cancelled: false, "Empty", [], FolderWriteCapability.Enabled, Truncations: []);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        Assert.Contains("No .xg / .xgp files found", cut.Markup);
+
+        await cut.Find("#emptyFolderNotice").ClickAsync(new());
+
+        Assert.DoesNotContain("No .xg / .xgp files found", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_PickErrorBanner_IsNotDismissible()
+    {
+        // The claim-class boundary the issue drew: the red banner reports a
+        // failure (role="alert"), not an outcome, so it carries neither half of
+        // the dismissal affordance — no clickable-region class, no btn-close.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.PickException = new InvalidOperationException("boom");
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        var banner = cut.FindAll(".alert-danger")
+            .Single(a => a.TextContent.Contains("Could not read the folder"));
+        Assert.DoesNotContain("quiz-notice", banner.ClassName);
+        Assert.Null(banner.QuerySelector("button.btn-close"));
     }
 
     [Fact]

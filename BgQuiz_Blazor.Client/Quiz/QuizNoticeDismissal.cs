@@ -3,11 +3,12 @@ namespace BgQuiz_Blazor.Client.Quiz;
 using BgGame_Lib;
 
 /// <summary>
-/// The <c>Quiz</c> page's dismissible notices, named so a dismissal of one is
-/// never a dismissal of another. The two stats <i>degrade</i> notices share a
-/// slot, because they are mutually exclusive branches of one condition and
-/// therefore one notice as far as the user is concerned; the retirement report
-/// gets its own, because it can be showing at the same time as either of them.
+/// The app's dismissible notices, named so a dismissal of one is never a
+/// dismissal of another. Two notices share a slot exactly when they are
+/// mutually exclusive branches of one condition and therefore one notice as
+/// far as the user is concerned (the <c>Quiz</c> page's two stats <i>degrade</i>
+/// notices; <c>Home</c>'s three stats-capability branches); notices that can
+/// show side by side each get their own.
 /// </summary>
 internal enum QuizNotice
 {
@@ -33,33 +34,56 @@ internal enum QuizNotice
     /// which is null on every run that retired nothing.
     /// </summary>
     StatsRetired,
+
+    /// <summary>
+    /// <c>Home</c>'s truncated-pick report (issue #59): the folder held more
+    /// files of some kind than that kind's cap admits, so the first N were
+    /// taken and the rest left unread. One slot for the whole alert, however
+    /// many kinds it lists — it is one report about one pick. Occurrence:
+    /// <see cref="PickedProblemFolder.PickOccurrence"/>.
+    /// </summary>
+    PickTruncations,
+
+    /// <summary>
+    /// <c>Home</c>'s pick-time stats-capability notice — the stats-location
+    /// info line, or either capability-degrade warning
+    /// (<c>BrowserUnsupported</c> / <c>PermissionDenied</c>). One slot because
+    /// the three are mutually exclusive renderings of one verdict
+    /// (<see cref="PickedProblemFolder.Capability"/>, fixed per pick), so at
+    /// most one can ever show for a given occurrence. Occurrence:
+    /// <see cref="PickedProblemFolder.PickOccurrence"/> — its own slot beside
+    /// <see cref="PickTruncations"/>, because the two notices render side by
+    /// side and dismiss independently.
+    /// </summary>
+    PickStatsCapability,
 }
 
 /// <summary>
-/// Per-app holder for one bit of <c>Quiz</c>-page presentation state per notice:
-/// whether the user has dismissed the notice's <i>current occurrence</i>.
+/// Per-app holder for one bit of presentation state per notice: whether the
+/// user has dismissed the notice's <i>current occurrence</i>.
 ///
 /// <para>
-/// <b>Why it exists.</b> Every notice above the board says something worth
-/// reading once and then costs the board space for the rest of the run — the
-/// composition notice describes how this quiz was built, the stats notices
-/// report that recording has degraded. Neither may be suppressed by the
-/// maximize mode (<c>SPEC-quiz-view.md</c> §4: the composition notice retires on
-/// the first answer, so hiding it while answering means it is never seen, and a
-/// recording failure must be seen), so the answer to the space they cost is the
-/// user dismissing them — which also frees that space for the board, which is
-/// the point of the mode they render inside.
+/// <b>Why it exists.</b> Every notice it covers says something worth reading
+/// once and then costs screen space for as long as its subject stands. On the
+/// <c>Quiz</c> page that space is the board's — the composition notice
+/// describes how this quiz was built, the stats notices report that recording
+/// has degraded, and neither may be suppressed by the maximize mode
+/// (<c>SPEC-quiz-view.md</c> §4: the composition notice retires on the first
+/// answer, so hiding it while answering means it is never seen, and a
+/// recording failure must be seen). On <c>Home</c> the pick-outcome notices
+/// render for as long as the pick is held (issue #107). In both cases the
+/// answer to the space they cost is the user dismissing them.
 /// </para>
 ///
 /// <para>
 /// Lifetime: <b>Scoped</b> — one instance per loaded app (one tab), like the
-/// start-gate holders. A component field would have been smaller but wrong: the
-/// Quiz page is re-instantiated on in-app navigation, so the <i>Show stats</i>
-/// round trip (a mainline mid-quiz gesture, right there in the action row) would
-/// resurrect a notice the user had already dismissed. See INSTRUCTIONS' Pitfalls:
-/// anything that must survive navigation belongs in a holder. Nothing here is
-/// persisted — a dismissal is transient by design, and a reload has no quiz to
-/// come back to anyway.
+/// start-gate holders. A component field would have been smaller but wrong:
+/// pages are re-instantiated on in-app navigation, so a mainline round trip —
+/// <i>Show stats</i> from the Quiz page, or any visit away from Home while a
+/// pick is held — would resurrect a notice the user had already dismissed. See
+/// INSTRUCTIONS' Pitfalls: anything that must survive navigation belongs in a
+/// holder. Nothing here is persisted — a dismissal is transient by design, and
+/// a reload resets the state every covered notice describes anyway.
 /// </para>
 ///
 /// <para>
@@ -73,7 +97,8 @@ internal enum QuizNotice
 /// dismissed. Every occurrence token this holder is handed therefore means
 /// <b>identity, never content</b> — see <see cref="QuizStatsStore.StatusOccurrence"/>,
 /// which exists to give the stats notices the same kind of token the composition
-/// already had.
+/// already had, and <see cref="PickedProblemFolder.PickOccurrence"/>, which does
+/// the same for <c>Home</c>'s pick-outcome notices.
 /// </para>
 ///
 /// <para>

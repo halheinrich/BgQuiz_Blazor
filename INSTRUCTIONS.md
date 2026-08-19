@@ -171,7 +171,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     CubeActionDisplay.cs            — cube-verdict wording SSOT
     AnswerTypeDisplay.cs            — answer-type wording SSOT (always five)
     QuizNoticeDismissal.cs          — occurrence-keyed dismissal, one slot per
-                                      Quiz-page notice (+ the QuizNotice enum)
+                                      dismissible notice, Quiz page and Home's
+                                      pick band (+ the QuizNotice enum)
     ShuffleOption.cs                — "shuffle order" toggle holder
     QuizLiveMarker.cs               — sessionStorage was-a-quiz-live marker
     WasmUploadedProblemSetSource.cs — in-browser stream-backed source (parser)
@@ -845,7 +846,11 @@ takes the truncation report rather than defaulting it, so a caller holding the
 fact cannot drop it. The holder also carries the **parse-once cache seam** —
 `ParsedDecisions` / `PickGeneration` / `StoreParsed` — so that invalidation
 is intrinsic to `Set`/`Clear`; see the `CachedProblemSetSource` section for
-the contract.
+the contract — and **`PickOccurrence`**, the opaque per-pick identity token
+(replaced exactly where `PickGeneration` bumps) that keys Home's dismissible
+pick-outcome notices in `QuizNoticeDismissal`; opaque rather than the boxed
+generation for the holder's one-rule-one-kind-of-token discipline (issue
+#107, mirroring `QuizStatsStore.StatusOccurrence`).
 
 - **`Summary`** (`string?`) — the holder-owned label:
   `"'{FolderName}' — {N} problem file(s)"`, `null` when nothing is picked.
@@ -1223,7 +1228,7 @@ gate, and dismissing on a submit that scored nothing would drop the notice
 with no answer given; the predicate also covers an off-list play. **Skip is
 deliberately not a dismissal** — it moves past a problem without answering it.
 
-### Dismissible notices — `QuizNoticeDismissal` (issue #41, `SPEC-quiz-view.md` §4)
+### Dismissible notices — `QuizNoticeDismissal` (issues #41 / #107, `SPEC-quiz-view.md` §4)
 
 **Every notice on the Quiz page dismisses on a click**: the mix composition
 notice (both framings), the stats-context degrade notice (`LoadFailed`'s
@@ -1231,6 +1236,19 @@ polite one, `WriteFailed`'s assertive one), and the stats-retirement report.
 Dismissal is §4's answer to the
 board space they cost, the mode being forbidden from suppressing them — the
 ruling and its reasoning are the spec's.
+
+**So does every outcome/status notice in Home's pick band** (issue #107, the
+ruling "a colored info message should go away when clicked"). The
+holder-backed pair — the truncation alert and the stats-capability notice
+(its three branches share one slot: mutually exclusive renderings of one
+per-pick verdict) — key on `PickedProblemFolder.PickOccurrence`, so a re-pick
+shows fresh and navigate-back stays dismissed. The per-visit pair — cancelled
+pick, empty folder — get the same click affordance but clear their own page
+fields: their transience already scopes the dismissal, so a token would have
+nothing to outlive. **Not dismissible, deliberately**: the red pick-error
+banner (a failure report, `role="alert"`, a different claim class) and the
+pre-pick advisory lines (guidance with their own retirement rules — #105's
+silent-gesture account is folder-held-gated, not a pick outcome).
 
 **Per occurrence, transient, app-scoped.** The holder generalizes the old
 composition-only `MixNoticeDismissal` by adding a **slot key** (`QuizNotice`)

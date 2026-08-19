@@ -92,7 +92,15 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// non-failure pick outcomes — a pick that ended holding no folder, and one that
 /// held a folder with no problem files — each get their own polite notice rather
 /// than silence, so no gesture ever returns the user to an unchanged page with
-/// no account of what happened. A
+/// no account of what happened. Every outcome/status notice in the pick band
+/// dismisses on a click (issue #107, the Quiz page's affordance): the
+/// holder-backed pair — truncations and stats capability, which survive
+/// navigation with the pick they describe — record their dismissal in the
+/// app-scoped <see cref="QuizNoticeDismissal"/> keyed on
+/// <see cref="PickedProblemFolder.PickOccurrence"/>, while the per-visit pair
+/// clear their own fields (see <see cref="DismissCancelledPick"/>). The red
+/// pick-error banner alone stays undismissible: it is a failure report
+/// (<c>role="alert"</c>), not an outcome. A
 /// weighted start with no lifetime stats is <i>refused</i> as an outcome (the
 /// actionable notice with its per-run "Start without mix" override — see
 /// <see cref="StartCoreAsync"/>), never silently run unweighted.
@@ -1132,6 +1140,41 @@ public partial class Home : ComponentBase, IDisposable
             }
         });
     }
+
+    /// <summary>
+    /// Dismiss the truncated-pick report for the pick on screen, keyed on the
+    /// holder's occurrence token (issue #107): navigating away and back finds
+    /// the same token and stays dismissed, while the next pick mints a fresh
+    /// one and reports its own truncations — with no reset call site to forget.
+    /// </summary>
+    private void DismissTruncations() =>
+        Notices.Dismiss(QuizNotice.PickTruncations, Folder.PickOccurrence);
+
+    /// <summary>
+    /// Dismiss the stats-capability notice for the pick on screen — whichever
+    /// of the three mutually exclusive branches is showing (they share the
+    /// slot; see <see cref="QuizNotice.PickStatsCapability"/>). Same token
+    /// discipline as <see cref="DismissTruncations"/>.
+    /// </summary>
+    private void DismissStatsCapability() =>
+        Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.PickOccurrence);
+
+    /// <summary>
+    /// Dismiss the cancelled-pick notice by clearing its own per-visit field —
+    /// deliberately not routed through <see cref="QuizNoticeDismissal"/>: the
+    /// notice describes a gesture that left nothing behind, dies with the
+    /// visit by construction, and <see cref="ClearPickNotices"/> already
+    /// retires it on the next gesture, so an occurrence token would have
+    /// nothing to outlive. The click affordance is what issue #107 adds; the
+    /// lifetime was already right.
+    /// </summary>
+    private void DismissCancelledPick() => _cancelledPickNotice = false;
+
+    /// <summary>
+    /// Dismiss the empty-folder notice — <see cref="DismissCancelledPick"/>'s
+    /// sibling, for the same reasons.
+    /// </summary>
+    private void DismissEmptyFolder() => _emptyFolderNotice = false;
 
     private void HandleShuffleToggled(ChangeEventArgs e)
     {

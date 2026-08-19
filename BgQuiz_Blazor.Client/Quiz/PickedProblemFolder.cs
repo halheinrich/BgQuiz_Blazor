@@ -83,6 +83,33 @@ internal sealed class PickedProblemFolder
     public int PickGeneration { get; private set; }
 
     /// <summary>
+    /// <b>The identity of the pick this holder currently describes</b> — a token
+    /// with no content whatsoever, whose only meaning is that it is or is not
+    /// the same object as one held earlier. Replaced exactly where
+    /// <see cref="PickGeneration"/> bumps (<see cref="Set"/> and
+    /// <see cref="Clear"/>), so token identity and generation name the same
+    /// pick by construction.
+    ///
+    /// <para>
+    /// It exists for <c>Home</c>'s dismissible pick-outcome notices
+    /// (<see cref="QuizNoticeDismissal"/>), which need to distinguish "the user
+    /// dismissed the notice about <i>this</i> pick" from "the notice is off": a
+    /// re-pick is a new occurrence and must show its notices fresh, while
+    /// navigating away and back must not resurrect a dismissal.
+    /// </para>
+    ///
+    /// <para>
+    /// Deliberately an opaque object rather than the generation counter it
+    /// shadows: the dismissal holder keys every notice by
+    /// <see cref="object.ReferenceEquals"/> identity — one rule, one kind of
+    /// token (see <see cref="QuizStatsStore.StatusOccurrence"/>, the precedent)
+    /// — and a boxed <see langword="int"/> would be a token whose <i>value</i>
+    /// invites comparison by a second rule.
+    /// </para>
+    /// </summary>
+    public object PickOccurrence { get; private set; } = new();
+
+    /// <summary>
     /// The parse-once cache: every decision parsed from <see cref="Files"/>
     /// with <b>no filters applied</b>, or null when the current pick has not
     /// been parsed yet. Living on the holder makes cache lifecycle equal pick
@@ -158,6 +185,7 @@ internal sealed class PickedProblemFolder
         Truncations = truncations;
         ParsedDecisions = null;
         PickGeneration++;
+        PickOccurrence = new object();
     }
 
     /// <summary>
@@ -173,5 +201,6 @@ internal sealed class PickedProblemFolder
         Truncations = [];
         ParsedDecisions = null;
         PickGeneration++;
+        PickOccurrence = new object();
     }
 }
