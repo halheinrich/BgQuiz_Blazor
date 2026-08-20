@@ -64,10 +64,15 @@
 
        The filter panel's storage is a POINTER, not a description. XgFilter_Razor
        owns that prose and renders it from the panel's own constants inside
-       FilterHelp (#fh-what-is-remembered), which this page already embeds under
-       Choose filters. Naming or describing the panel's keys here would be a
-       second encoding of a producer's internals that no test in this repo could
-       notice drifting — the same ruling that removed this page's facet prose. *@
+       FilterHelp's storage section, which this page already embeds under Choose
+       filters. Both halves of the link below — where it lands and what it says —
+       come from that section's exported identity (FilterHelp's
+       StorageSectionAnchorId / StorageSectionHeading), never spelled here: a
+       rename there is a compile error in this page rather than a link that
+       still renders and now lies. Naming or describing the panel's keys here
+       would be a second encoding of a producer's internals that no test in this
+       repo could notice drifting — the same ruling that removed this page's
+       facet prose. *@
     <h2 class="h4 mt-4">Your data stays yours</h2>
     <p>
         Your positions and matches are yours, and BgQuiz treats them that way. It
@@ -135,7 +140,7 @@
     </p>
     <p>
         The filter panel keeps its own settings in your browser as well —
-        <a href="@PanelStorageHref">What the panel remembers</a>, in
+        <a href="@PanelStorageHref">@FilterHelp.StorageSectionHeading</a>, in
         <em>Choose filters</em> below, lists exactly what those are.
     </p>
     <p>

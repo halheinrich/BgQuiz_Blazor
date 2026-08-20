@@ -1,5 +1,7 @@
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
+using XgFilter_Razor;
+using XgFilter_Razor.Components;
 
 namespace BgQuiz_Blazor.Client.Components.Pages;
 
@@ -49,24 +51,24 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 public partial class Help : ComponentBase
 {
     /// <summary>
-    /// The <c>id</c> of <c>FilterHelp</c>'s storage section — the one anchor this
-    /// page links into. A literal because it belongs to another repo and is not
-    /// exported as a constant; the drift that would leave behind is caught where
-    /// it can be, by the e2e test that clicks the link and asserts the target
-    /// actually comes into view, rather than by anything in this assembly.
-    /// </summary>
-    private const string PanelStorageAnchor = "fh-what-is-remembered";
-
-    /// <summary>
-    /// Href for the data section's pointer into <c>FilterHelp</c>'s
-    /// "what the panel remembers" — this page's own URL plus the fragment,
-    /// deliberately <b>not</b> the bare <c>#fragment</c> an ordinary page would
-    /// use.
+    /// Href for the data section's pointer into <c>FilterHelp</c>'s storage
+    /// section — this page's own URL plus the fragment, deliberately <b>not</b>
+    /// the bare <c>#fragment</c> an ordinary page would use.
+    ///
+    /// <para>
+    /// The fragment is <see cref="FilterHelp.StorageSectionAnchorId"/>, the
+    /// producer's exported deep-link surface, rather than the slug spelled out
+    /// here. It was a private literal until <c>XgFilter_Razor</c> exported it:
+    /// the id belonged to another repo, so a rename there left this page
+    /// pointing at nothing and only an e2e click could notice. Consuming the
+    /// constant makes that rename a compile error here instead — the same
+    /// posture <see cref="SavedFiltersDocument"/>'s file names take.
+    /// </para>
     ///
     /// <para>
     /// A fragment-only href resolves against the document's <c>&lt;base
     /// href="/"&gt;</c>, not against the current address, so on <c>/help</c> it
-    /// resolves to <c>/#fh-what-is-remembered</c> — the router matches
+    /// would resolve to the app root plus the fragment — the router matches
     /// <c>/</c>, and the reader is dropped on <c>Home</c> instead of moved down
     /// the page they were reading. Observed in a browser, not theorised.
     /// Computing the href from <see cref="NavigationManager.Uri"/> rather than
@@ -77,7 +79,7 @@ public partial class Help : ComponentBase
     /// </para>
     /// </summary>
     private string PanelStorageHref =>
-        $"{Nav.Uri.Split('#')[0]}#{PanelStorageAnchor}";
+        $"{Nav.Uri.Split('#')[0]}#{FilterHelp.StorageSectionAnchorId}";
 
     private void BackToQuiz()
     {

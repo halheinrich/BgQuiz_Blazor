@@ -97,11 +97,14 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   the saved-filters document identity and two-name migration rule, rendered
   wherever this app names the file). Also
   `FilterHelp.razor`, the producer's own documentation of every facet, of the
-  panel chrome that governs them (`#fh-using-the-panel`), **and** of what the
-  panel persists (`#fh-what-is-remembered`), embedded by `/help` at a
-  host-stated `HeadingLevel` — that prose has one owner, and it is not this
-  app (see Pitfalls: never describe a facet or a control, never restate what
-  the panel stores).
+  panel chrome that governs them, **and** of what the panel persists, embedded
+  by `/help` at a host-stated `HeadingLevel` — that prose has one owner, and it
+  is not this app (see Pitfalls: never describe a facet or a control, never
+  restate what the panel stores). Its storage section's identity is exported
+  for exactly this app's deep link: `FilterHelp.StorageSectionAnchorId` and
+  `FilterHelp.StorageSectionHeading`, the two values `Help`'s data-section
+  pointer is built from. The other `fh-*` ids stay `internal` — nothing here
+  links to them.
 - **BgFolderAccess_Razor** — the File System Access machinery this app
   originally grew app-side, rehomed (umbrella #79): `IFolderAccess` /
   `JsFolderAccess` (both pick mechanisms, name-parameterized picked/active
@@ -2027,7 +2030,8 @@ The asymmetry is pinned three times over: at the service seam
   the user's folder (*Before you start* already names them from
   `QuizStatsFile.FileName` / `SavedFiltersDocument.FileName`); the panel's own
   localStorage entries (one sentence in user terms plus a link into
-  `FilterHelp`'s `#fh-what-is-remembered` — see Pitfalls); and the
+  `FilterHelp`'s storage section, both halves of it built from that section's
+  exported identity — see Pitfalls); and the
   write-access caveat, a pointer into *Lifetime stats* — where the browser
   cannot write into the folder there is no record being kept, and the
   reassurance must not read as a promise that one is.
@@ -2058,12 +2062,16 @@ The asymmetry is pinned three times over: at the service seam
   claim was **moved** here out of *Before you start* and dropped from *Pick
   your folder*, so it is asserted once. `PageTests` pins the wiring (both keys
   from their constants; the section's `<code>` elements are *exactly* those
-  two; the anchor link present; neither filename restated);
-  `HelpAndTitlesTests` pins the phrasing as independent literals and clicks
-  the anchor in a real browser.
+  two; the pointer's href and text both from `FilterHelp`'s exported
+  constants, *and* landing on a heading that exists in the same render and
+  carries those words; neither filename restated); `HelpAndTitlesTests` pins
+  the phrasing as independent literals and clicks the anchor in a real
+  browser.
 
   **`Help.PanelStorageHref`** — the anchor href is **computed**, never
-  written as a bare `#fragment`. See Pitfalls (`<base href="/">`).
+  written as a bare `#fragment`, and its fragment is
+  `FilterHelp.StorageSectionAnchorId` rather than a slug spelled here. See
+  Pitfalls (`<base href="/">`).
 - **`Done.razor`** — final `ScorePanel` (Total) + `ScoreBreakdown`
   (four-way) + total problems shown + **Restart with same filters** /
   **Back to setup**, and — for the third exit, the one with no button — a
@@ -2548,22 +2556,35 @@ public (see Pitfalls). The externally visible surface is the route map:
   catches the first class and nothing catches the second.
 - **Same rule for what the panel *stores*: point, never restate.** `Help`'s
   data section says in plain user terms that the filter panel also remembers
-  its settings in the reader's browser, and links into `FilterHelp`'s
-  `#fh-what-is-remembered` for the detail. It **must not** name or describe
-  `FilterPanel`'s localStorage keys — those are `internal` to
-  `XgFilter_Razor` and rendered there from the panel's own constants, so a
-  copy here could only be a prose literal nothing in this repo can catch
-  drifting. Inlining that list "so the reader doesn't have to follow a link"
-  is the tempting edit and is exactly the defect. The pin
+  its settings in the reader's browser, and links into `FilterHelp`'s storage
+  section for the detail. It **must not** name or describe `FilterPanel`'s
+  localStorage keys — those are `internal` to `XgFilter_Razor` and rendered
+  there from the panel's own constants, so a copy here could only be a prose
+  literal nothing in this repo can catch drifting. Inlining that list "so the
+  reader doesn't have to follow a link" is the tempting edit and is exactly the
+  defect. The pin
   (`Help_DataSection_PointsAtTheFilterPanelsStorageInsteadOfDescribingIt`)
   asserts the section's `<code>` elements are *exactly* BgQuiz's own two keys
   — a form that survives the panel renaming its keys, which a
   `DoesNotContain("xg_filter_config")` would not.
+- **The deep link's slug and its words are both the producer's.** Build them
+  from `FilterHelp.StorageSectionAnchorId` / `StorageSectionHeading`; never
+  spell either here. Held as host literals they drifted in a way nothing
+  caught: the e2e tripwire looks the link up *by BgQuiz's own text*, so a
+  producer reword left the by-name lookup matching, the id unchanged, the
+  scroll assertion green — and the link naming something other than the
+  section it lands on. Note the limit of the unit half: a wiring pin reading
+  the same constant the page reads agrees with a host literal that happens to
+  equal it today, so it cannot prove the binding — `HelpAndTitlesTests`'
+  independent literals are what say which value is right, and the *structural*
+  half of the bUnit pin (the target heading exists in the render and carries
+  the link's words) is what catches the producer drifting off its own
+  constant.
 - **A bare `#fragment` href navigates to Home, not down the page.** `App.razor`
   sets `<base href="/">`, and a fragment-only href resolves against the **base
-  URI**, not the current address — so on `/help`, `href="#fh-what-is-remembered"`
-  resolves to `/#fh-what-is-remembered`, the router matches `/`, and the reader
-  lands on `Home` (observed, with markup that looked right).
+  URI**, not the current address — so on `/help` a bare `href="#…"` resolves to
+  the app root plus that fragment, the router matches `/`, and the reader lands
+  on `Home` (observed, with markup that looked right).
   `Help.PanelStorageHref` composes the href from `NavigationManager.Uri`
   (fragment stripped) instead — correct under a sub-path deployment too, where
   `/help#…` would not be. Blazor then handles the same-document navigation

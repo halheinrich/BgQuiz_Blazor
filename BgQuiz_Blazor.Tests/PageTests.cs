@@ -4639,8 +4639,28 @@ public class PageTests : BunitContext
         // and would land the reader on Home. That the *link* works is an e2e
         // question; what this pins is that the pointer exists and aims at the
         // producer's anchor.
-        Assert.Contains(links, a => a.GetAttribute("href")!.EndsWith("#fh-what-is-remembered"));
+        //
+        // Read from the producer's exported constants rather than spelled: this
+        // is the wiring half of the copy-pin split, so it deliberately agrees
+        // with any value those constants hold — HelpAndTitlesTests holds the
+        // independent literals that say which value is right.
+        var pointer = Assert.Single(
+            links,
+            a => a.GetAttribute("href")!
+                .EndsWith("#" + FilterHelp.StorageSectionAnchorId, StringComparison.Ordinal));
+        Assert.Equal(FilterHelp.StorageSectionHeading, pointer.TextContent.Trim());
         Assert.Equal([MixDraft.StorageKey, QuizSettings.StorageKey, QuizLiveMarker.StorageKey], codes);
+
+        // ...and the pointer lands on a heading that really exists in this
+        // render and really carries those words. Not implied by the two
+        // assertions above: those are satisfied by a link built correctly out
+        // of the constants while the section it names has moved, been renamed
+        // out from under the id, or dropped out of the embed entirely. bUnit
+        // renders the real FilterHelp, so the destination is checkable here
+        // rather than only in a browser — what stays e2e's alone is whether
+        // clicking it moves the reader (Blazor's same-document navigation).
+        var target = cut.Find("#" + FilterHelp.StorageSectionAnchorId);
+        Assert.Equal(pointer.TextContent.Trim(), target.TextContent.Trim());
     }
 
     [Fact]

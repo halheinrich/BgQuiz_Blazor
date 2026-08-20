@@ -192,6 +192,19 @@ public sealed class HelpAndTitlesTests : E2eTestBase
     /// in the running app, so "the anchor is in the markup" is not evidence that
     /// clicking it moves the reader — only a real browser can show that, and a
     /// dead pointer is worse than no pointer at all.
+    /// <para>
+    /// The anchor id and the link text stay <b>independent literals</b> here,
+    /// deliberately, now that the page renders both from
+    /// <c>FilterHelp.StorageSectionAnchorId</c> / <c>StorageSectionHeading</c>:
+    /// a test reading the same constants the page reads would agree with any
+    /// values at all, so this file is where the values themselves are pinned —
+    /// the copy-pin split this suite already applies to the storage key names.
+    /// Before the export these literals were the only guard on the id, and they
+    /// were structurally blind to a rename of the <i>heading</i>: BgQuiz's link
+    /// text was its own copy, so the by-name lookup kept matching and the link
+    /// simply drifted out of step with the section it lands on. Binding closed
+    /// that hole; these literals now say what the bound value must be.
+    /// </para>
     /// </summary>
     [Fact]
     public async Task HelpDataSectionAnchorScrollsToTheFilterPanelsStorageSection()
