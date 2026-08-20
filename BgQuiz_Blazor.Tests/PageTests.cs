@@ -4768,9 +4768,9 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public void Help_ChooseFilters_EmbedsTheProducerOwnedFacetReference()
+    public void Help_ChooseFilters_EmbedsTheProducerOwnedPanelReference()
     {
-        // Facet documentation has one owner, and it is not this app: XgFilter_Razor
+        // Panel documentation has one owner, and it is not this app: XgFilter_Razor
         // renders FilterHelp beside the panel that implements the facets, and Help
         // embeds it rather than restating what each filter admits. Pinning the
         // embedded *component* (not prose) is what makes a future edit that deletes
@@ -4790,6 +4790,15 @@ public class PageTests : BunitContext
             cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters"));
         Assert.Contains(FilterFacet.AnalysisDepth.ToLabel(), section);
         Assert.Contains(FilterFacet.ErrorRange.ToLabel(), section);
+
+        // The chrome section specifically (umbrella #36). This page used to
+        // describe the disclosure, Apply's disabled states and Clear filters in
+        // its own words; that prose moved to its owner rather than being
+        // deleted, and this is the assertion that says so — without it the
+        // absence pins below would be satisfied by a page that simply dropped
+        // the information. Keyed on the producer's fh-* anchor, its documented
+        // embedding contract, rather than on any of its wording.
+        Assert.Contains(cut.Find("#fh-using-the-panel").TextContent, section);
     }
 
     [Fact]
@@ -4840,28 +4849,42 @@ public class PageTests : BunitContext
         int.Parse(heading.TagName[1..], System.Globalization.CultureInfo.InvariantCulture);
 
     [Fact]
-    public void Help_ChooseFilters_KeepsItsFramingAndWritesNoFacetProseOfItsOwn()
+    public void Help_ChooseFilters_KeepsAppFramingAndDescribesNoneOfThePanelsControls()
     {
         // The other half of the ruling: what stays app-level is what FilterHelp
-        // cannot know — where the panel sits in the start flow, and that filters
-        // must be applied before Start. Pinned so a later "the producer documents
-        // filters now" sweep can't take the framing with it.
+        // cannot know — that in BgQuiz an applied filter is the gate on Start,
+        // and that Shuffle order is this app's control rather than the panel's.
+        // Pinned so a later "the producer documents filters now" sweep can't
+        // take the framing with it.
         //
-        // The negative half names the one gloss the embed retired: Help used to
-        // define the error-range facet in its own voice ("how costly the recorded
-        // mistake was"). Asserting its absence is narrow on purpose — a general
-        // "no facet prose" assertion isn't expressible — but it pins the specific
-        // second encoding this leg removed against being pasted back.
+        // Every assertion here reads HOST prose only, with the embedded block
+        // subtracted. That is load-bearing rather than tidy: FilterHelp is
+        // rendered *inside* this section and now documents the chrome too, so a
+        // whole-section pin on "Show more filters" — which is what this test
+        // used to assert — went vacuous the moment the host stopped saying it,
+        // and a whole-section absence pin on chrome wording could never be true.
         WithController();
 
         var cut = Render<HelpPage>();
 
-        var section = SectionText(
-            cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters"));
+        var heading = cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters");
+        var hostProse = HostProseInSection(heading);
 
-        Assert.Contains("Show more filters", section);
-        Assert.Contains("before Start becomes available", section);
-        Assert.DoesNotContain("how costly the recorded mistake was", section);
+        Assert.Contains("before Start becomes available", hostProse);
+        Assert.Contains("un-applies them until you press", hostProse);
+        Assert.Contains("Shuffle order", hostProse);
+
+        // The negative half. One entry is the facet gloss an earlier leg retired
+        // (Help used to define the error range in its own voice); the other
+        // three are the chrome sentences umbrella #36 retired — where the error
+        // range sits, what the hidden-active badge counts, and what Clear
+        // filters does. Each names a control's behavior, which is precisely what
+        // the producer's Pitfall reserves to FilterHelp, and each would pass
+        // every other test on this page if it were pasted back.
+        Assert.DoesNotContain("how costly the recorded mistake was", hostProse);
+        Assert.DoesNotContain("always shown", hostProse);
+        Assert.DoesNotContain("hidden sections", hostProse);
+        Assert.DoesNotContain("Clear filters", hostProse);
     }
 
     /// <summary>
@@ -4870,13 +4893,38 @@ public class PageTests : BunitContext
     /// means on a page where the same term legitimately appears in several
     /// sections (a whole-markup <c>Contains</c> would not discriminate).
     /// </summary>
-    private static string SectionText(AngleSharp.Dom.IElement heading)
+    private static string SectionText(AngleSharp.Dom.IElement heading) =>
+        SectionText(heading, includeEmbeddedPanelHelp: true);
+
+    /// <summary>
+    /// The rendered text of one Help section with <c>FilterHelp</c>'s embedded
+    /// block left out — the prose this app actually wrote, which is the only
+    /// text the "app framing only" ruling governs. A plain
+    /// <see cref="SectionText(AngleSharp.Dom.IElement)"/> assertion cannot serve
+    /// that ruling in either direction now that the producer documents the
+    /// panel's chrome inside this very section: a presence pin on chrome wording
+    /// passes on the producer's copy, and an absence pin on it can never pass at
+    /// all.
+    /// <para>
+    /// The block is identified by the producer's <c>fh-*</c> anchor ids, which
+    /// are its documented embedding contract, rather than by its markup — a
+    /// class name or tag would be a producer internal this repo has no claim on.
+    /// </para>
+    /// </summary>
+    private static string HostProseInSection(AngleSharp.Dom.IElement heading) =>
+        SectionText(heading, includeEmbeddedPanelHelp: false);
+
+    private static string SectionText(
+        AngleSharp.Dom.IElement heading, bool includeEmbeddedPanelHelp)
     {
         var text = new System.Text.StringBuilder();
         for (var node = heading.NextElementSibling;
              node is not null && !string.Equals(node.TagName, "H2", StringComparison.OrdinalIgnoreCase);
              node = node.NextElementSibling)
         {
+            if (!includeEmbeddedPanelHelp && node.QuerySelector("[id^='fh-']") is not null)
+                continue;
+
             text.Append(node.TextContent);
         }
         return text.ToString();

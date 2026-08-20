@@ -96,11 +96,12 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   (`FileName` = `xg-filters.json` / `LegacyFileName` = `bgquiz-filters.json` —
   the saved-filters document identity and two-name migration rule, rendered
   wherever this app names the file). Also
-  `FilterHelp.razor`, the producer's own facet documentation **and** its
-  account of what the panel persists (`#fh-what-is-remembered`), embedded by
-  `/help` at a host-stated `HeadingLevel` — that prose has one owner, and it
-  is not this app (see Pitfalls:
-  never describe a facet, never restate what the panel stores).
+  `FilterHelp.razor`, the producer's own documentation of every facet, of the
+  panel chrome that governs them (`#fh-using-the-panel`), **and** of what the
+  panel persists (`#fh-what-is-remembered`), embedded by `/help` at a
+  host-stated `HeadingLevel` — that prose has one owner, and it is not this
+  app (see Pitfalls: never describe a facet or a control, never restate what
+  the panel stores).
 - **BgFolderAccess_Razor** — the File System Access machinery this app
   originally grew app-side, rehomed (umbrella #79): `IFolderAccess` /
   `JsFolderAccess` (both pick mechanisms, name-parameterized picked/active
@@ -1968,15 +1969,20 @@ The asymmetry is pinned three times over: at the service seam
   *verbatim*, so this and Home's line beside the pick button cannot say
   different things), feedback + version from `AppInfo`. The *Choose filters*
   section extends that discipline one tier up: it embeds `XgFilter_Razor`'s
-  `FilterHelp` as its per-facet reference and writes **no facet prose of its
-  own**, keeping only app-level framing `FilterHelp` cannot know. `FilterHelp`
+  `FilterHelp` as its panel reference and writes **no facet or chrome prose of
+  its own**, keeping only app-level framing `FilterHelp` cannot know — that an
+  applied filter gates Start, what the match count means, that the mix draws
+  from that pool, and that `Shuffle order` is this app's control. `FilterHelp`
   takes one `[EditorRequired]` parameter, `HeadingLevel`, bound to **3** here:
   this page's own sections are `<h2>` (their `h4` class is Bootstrap sizing,
   not a level) and the block is embedded inside one, so its lead sits at `h3`
   and its sections at `h4`. `PageTests` pins that as a relationship, not as
   literals, plus a page-wide no-skipped-level walk — the hard-coded `h4`/`h5`
-  pair this replaced had been jumping `h2` → `h4` invisibly.
-  The breakdown paragraph applies it one tier down:
+  pair this replaced had been jumping `h2` → `h4` invisibly. The `no chrome
+  prose` pins read **host prose only**, with the embedded block subtracted by
+  its `fh-*` anchors: `FilterHelp` renders inside this very section, so a
+  section-wide pin on chrome wording is vacuous in one direction and
+  impossible in the other. The breakdown paragraph applies it one tier down:
   it deliberately **does not recite the five bucket labels** — those are
   `AnswerTypeDisplay`'s copy, rendered on Home, and a second spelling here
   would drift the first time one is reworded (`PageTests` asserts their
@@ -2525,12 +2531,17 @@ public (see Pitfalls). The externally visible surface is the route map:
   to that bullet's own `<li>`, so the rule survives a rewrite of the wording.
   The same note must not promise a **bigger board** either (§ The host layout
   has the measurements).
-- **Never describe a filter facet in BgQuiz's own prose.** What a facet
-  admits is the lib's behavior, so its documentation lives with the lib:
-  `/help` embeds `XgFilter_Razor`'s `FilterHelp` and adds app-level framing
-  only. A description written here is a second encoding that passes every
-  test on the day it ships and silently goes wrong the next time the lib
-  changes. If `FilterHelp` lacks prose the app needs, extend it in
+- **Never describe a filter facet — or a panel control — in BgQuiz's own
+  prose.** What a facet admits and what a control does are both the lib's
+  behavior, so their documentation lives with the lib: `/help` embeds
+  `XgFilter_Razor`'s `FilterHelp` and adds app-level framing only. The
+  producer's Pitfall draws the line: app-level framing means *where the panel
+  sits in this app and what applying it unlocks here*, never what the controls
+  do — so the disclosure and its hidden-active badge, Apply's two disabled
+  states and `Clear filters` are all off-limits here (umbrella #36 removed the
+  copy that described them). A description written here is a second encoding
+  that passes every test on the day it ships and silently goes wrong the next
+  time the lib changes. If `FilterHelp` lacks prose the app needs, extend it in
   `XgFilter_Razor`; don't restore it here.
   Corollary for the sweep after a producer facet change: grep BgQuiz for the
   retired *field* names **and** read the user-facing copy — the compiler

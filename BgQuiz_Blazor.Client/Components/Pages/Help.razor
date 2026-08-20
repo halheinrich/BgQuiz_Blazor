@@ -196,36 +196,33 @@
     </p>
 
     <h2 class="h4 mt-4">Choose filters</h2>
-    @* The panel's information hierarchy is user-visible, so the tour has to
-       describe it: a reader who sees only an error range needs telling that the
-       rest exists and where it went. Named in the panel's own words (Show more
-       filters / Clear filters) so the page and the control can be matched up at
-       a glance. The hidden-active signal is called out because it is the answer
-       to "why is my quiz smaller than I expect" when a filter is in force out
-       of sight.
+    @* App framing only, per umbrella #36: FilterHelp now documents the panel's
+       chrome as well as its facets — the disclosure and its hidden-active
+       badge, Apply as the only commit and both of its disabled states, Clear
+       filters — so the sentences that used to describe those controls here are
+       gone. They were the same defect the facet list was, one tier up: a second
+       encoding of the producer's behavior that no test in this repo could
+       notice drifting. The producer's Pitfalls now draw the line explicitly —
+       a host says where the panel sits in this app and what applying it unlocks
+       here, never what its controls do.
 
-       Which filters those are, and what each one admits, is deliberately not
-       written here — FilterHelp is embedded at the end of this section and
-       names every facet from the lib's own labels. This paragraph carries only
-       what FilterHelp cannot know: where the controls sit in *this* app's
-       panel, and that the disclosure remembers its state. The facet list this
-       paragraph used to recite was a hand-maintained copy of the panel's
-       sections, which is the drift the embed exists to end. *@
+       What is left is exactly the half FilterHelp cannot know: that in BgQuiz
+       an applied filter is the gate on Start (with the rider that navigating
+       the panel is not an edit, so looking around never costs the reader that
+       gate — phrased without naming a control, since the disclosure has no
+       antecedent this early and belongs to FilterHelp to introduce), and that
+       Shuffle order is this app's control, not the panel's. Extending any of it
+       means extending FilterHelp in XgFilter_Razor, never restoring prose
+       here. *@
     <p>
-        The filter panel narrows which decisions the quiz will ask you. The
-        <em>error range</em> is the control most people reach for, so it sits at
-        the top and is always shown; every other filter sits behind
-        <em>Show more filters</em>, and opening it once is remembered for next
-        time. While it is closed the button carries a count and names the hidden
-        sections that currently hold a filter, so nothing you set can quietly
-        stay in force out of sight.
+        On the home page, the filter panel narrows which decisions the quiz will
+        ask you.
     </p>
     <p>
         Filters must be <strong>applied</strong> before Start becomes available —
         editing any control un-applies them until you press <em>Apply Filter</em>
-        again. Opening or closing <em>Show more filters</em> is not an edit, so it
-        never un-applies anything. <em>Clear filters</em> puts every control back to
-        its default and applies that, leaving the quiz unfiltered. Optionally tick
+        again. Only edits count: expanding or collapsing part of the panel to see
+        what is in it never un-applies anything. Optionally tick
         <em>Shuffle order</em> to see positions in a random order rather than in
         file order.
     </p>
@@ -273,20 +270,21 @@
         suspect your saved positions lean one way, this is where it shows.
     </p>
 
-    @* Per-facet reference, rendered by XgFilter_Razor's own FilterHelp rather
-       than restated here. The facets are the panel's behavior, and the panel is
-       the producer's; a description of them written on this page would be a
-       second encoding of lib rules that drifts the moment those rules change,
-       with no test anywhere able to notice. The depth facet's redesign into
-       per-mode clauses is what settled it: BgQuiz was spared only because it
-       had never described that facet, which is luck, not a discipline. The
+    @* Panel reference, rendered by XgFilter_Razor's own FilterHelp rather than
+       restated here. Every facet — and, since umbrella #36, the chrome that
+       governs them all — is the panel's behavior, and the panel is the
+       producer's; a description written on this page would be a second encoding
+       of lib rules that drifts the moment those rules change, with no test
+       anywhere able to notice. The depth facet's redesign into per-mode clauses
+       is what settled the facet half: BgQuiz was spared only because it had
+       never described that facet, which is luck, not a discipline. The
        producer's Pitfalls make it a rule — a host embeds FilterHelp and adds
        app-level framing only, and prose FilterHelp lacks is extended there,
        never written here.
 
-       Placed last in the section so the app's own framing — where the controls
-       live, that Apply gates Start, what the count means — reads as continuous
-       prose before the reference block.
+       Placed last in the section so the app's own framing — that Apply gates
+       Start, what the count means — reads as continuous prose before the
+       reference block.
 
        HeadingLevel is read off this page's own outline rather than chosen: the
        sections above are <h2> (the "h4" on them is Bootstrap sizing, not a
