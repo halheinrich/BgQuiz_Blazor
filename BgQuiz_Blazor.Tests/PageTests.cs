@@ -2031,9 +2031,11 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_SaveAsInvalidPositionPattern_ShowsNoticeAndDoesNotWrite()
     {
-        // The one state Apply refuses — an unparseable position pattern — is the
-        // one TryGetEditedConfig refuses. The host surfaces the refusal (the
-        // panel already cleared its typed name) and nothing is written.
+        // One of the states Apply refuses — an unparseable position pattern — is
+        // one TryGetEditedConfig refuses (umbrella #39 put an out-of-range error
+        // bound in the same set; the two gates are one member producer-side, so
+        // either reaches this path). The host surfaces the refusal (the panel
+        // already cleared its typed name) and nothing is written.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
@@ -2049,7 +2051,16 @@ public class PageTests : BunitContext
         cut.Find("#saveFilterName").Input("Bad");
         await ClickSavedFilterButtonByTextAsync(cut, "Save");
 
-        Assert.Contains("position pattern is invalid", cut.Markup);
+        // The refusal copy names no field, by producer ruling (#39): the
+        // offending box is already marked in the panel with its own
+        // explanation, and a second naming here would be a second encoding of
+        // which rule failed. Both halves are scoped to the notice itself —
+        // "position pattern" appears legitimately elsewhere on the page as the
+        // facet's own label, so a whole-markup absence pin could never be true.
+        var notice = cut.Find("#filterSaveError");
+        Assert.Contains("The current filter has an invalid value", notice.TextContent);
+        Assert.DoesNotContain(
+            "position pattern", notice.TextContent, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(_folderAccess.FiltersWrites);
     }
 
@@ -2076,11 +2087,11 @@ public class PageTests : BunitContext
         cut.Find("#positionPattern").Input("[6,2"); // unparseable → save refused
         cut.Find("#saveFilterName").Input("Bad");
         await ClickSavedFilterButtonByTextAsync(cut, "Save");
-        Assert.Contains("position pattern is invalid", cut.Markup);
+        Assert.Contains("The current filter has an invalid value", cut.Markup);
 
         await cut.Find("#clearFilters").ClickAsync(new());
 
-        Assert.DoesNotContain("position pattern is invalid", cut.Markup);
+        Assert.DoesNotContain("The current filter has an invalid value", cut.Markup);
     }
 
     [Fact]
@@ -4780,6 +4791,53 @@ public class PageTests : BunitContext
         Assert.Contains(FilterFacet.AnalysisDepth.ToLabel(), section);
         Assert.Contains(FilterFacet.ErrorRange.ToLabel(), section);
     }
+
+    [Fact]
+    public void Help_ChooseFilters_EmbedsThePanelReferenceAtThisPagesOwnDepth()
+    {
+        // FilterHelp requires the host to state its heading level, because only
+        // the host knows the outline it is embedding into (RZ2012 makes an
+        // unstated level a build error). This page's sections are h2 — the "h4"
+        // class on them is Bootstrap sizing, not a level — and the block sits
+        // inside one of them, so its lead belongs one deeper and its own
+        // sections one deeper again.
+        //
+        // Asserted as the relationship rather than the literals 3 and 4: the
+        // rule is "one below the section that contains it", and a test spelling
+        // the number would agree with a page whose own sections had moved.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        var host = cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters");
+        var lead = cut.Find("#fh-filters");
+        var facet = cut.Find("#fh-error-range");
+
+        Assert.Equal(HeadingLevelOf(host) + 1, HeadingLevelOf(lead));
+        Assert.Equal(HeadingLevelOf(lead) + 1, HeadingLevelOf(facet));
+
+        // ...and the whole page's outline skips no level, which is the defect
+        // the hard-coded h4/h5 pair caused here (h2 -> h4) for as long as it
+        // shipped: invisible on screen, visible only in a screen reader's
+        // outline. The relationship pins above cannot catch a *lower* wrong
+        // level and this cannot catch a level that is merely misnested, so both
+        // are needed.
+        var levels = cut.FindAll("h1, h2, h3, h4, h5, h6").Select(HeadingLevelOf).ToList();
+        for (var i = 1; i < levels.Count; i++)
+        {
+            Assert.True(
+                levels[i] <= levels[i - 1] + 1,
+                $"Heading outline skips a level: h{levels[i - 1]} followed by h{levels[i]}.");
+        }
+    }
+
+    /// <summary>
+    /// The numeric level of a heading element (<c>h3</c> to 3). Lets the outline
+    /// pins state the rule — one level below the section that contains it —
+    /// rather than the literal tag names the rule currently works out to.
+    /// </summary>
+    private static int HeadingLevelOf(AngleSharp.Dom.IElement heading) =>
+        int.Parse(heading.TagName[1..], System.Globalization.CultureInfo.InvariantCulture);
 
     [Fact]
     public void Help_ChooseFilters_KeepsItsFramingAndWritesNoFacetProseOfItsOwn()

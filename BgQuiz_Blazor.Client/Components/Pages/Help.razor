@@ -286,11 +286,19 @@
 
        Placed last in the section so the app's own framing — where the controls
        live, that Apply gates Start, what the count means — reads as continuous
-       prose before the reference block. FilterHelp brings its own headings
-       (an h4 lead and one h5 per facet), which sit below this page's h2s and so
-       leave the pinned section skeleton alone. It is render-only and
-       parameterless: no state, no JS, nothing for this page to wire. *@
-    <FilterHelp />
+       prose before the reference block.
+
+       HeadingLevel is read off this page's own outline rather than chosen: the
+       sections above are <h2> (the "h4" on them is Bootstrap sizing, not a
+       level), and this block is embedded inside one of them, so its lead belongs
+       at h3 and its own sections land at h4. The hard-coded h4/h5 pair this
+       replaced had been jumping h2 → h4 here the whole time — invisible on
+       screen, visible in a screen reader's outline — which is why the producer
+       made the level required rather than defaulted. Nothing the block renders
+       is an h2, so the pinned section skeleton is untouched either way. It is
+       render-only otherwise: no state, no JS, nothing else for this page to
+       wire. *@
+    <FilterHelp HeadingLevel="3" />
 
     <h2 class="h4 mt-4">Save filters you use often</h2>
     <p>

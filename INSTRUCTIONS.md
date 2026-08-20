@@ -98,7 +98,8 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   wherever this app names the file). Also
   `FilterHelp.razor`, the producer's own facet documentation **and** its
   account of what the panel persists (`#fh-what-is-remembered`), embedded by
-  `/help` — that prose has one owner, and it is not this app (see Pitfalls:
+  `/help` at a host-stated `HeadingLevel` — that prose has one owner, and it
+  is not this app (see Pitfalls:
   never describe a facet, never restate what the panel stores).
 - **BgFolderAccess_Razor** — the File System Access machinery this app
   originally grew app-side, rehomed (umbrella #79): `IFolderAccess` /
@@ -1967,9 +1968,15 @@ The asymmetry is pinned three times over: at the service seam
   *verbatim*, so this and Home's line beside the pick button cannot say
   different things), feedback + version from `AppInfo`. The *Choose filters*
   section extends that discipline one tier up: it embeds `XgFilter_Razor`'s
-  `FilterHelp` (render-only, parameterless) as its per-facet reference and
-  writes **no facet prose of its own**, keeping only app-level framing
-  `FilterHelp` cannot know. The breakdown paragraph applies it one tier down:
+  `FilterHelp` as its per-facet reference and writes **no facet prose of its
+  own**, keeping only app-level framing `FilterHelp` cannot know. `FilterHelp`
+  takes one `[EditorRequired]` parameter, `HeadingLevel`, bound to **3** here:
+  this page's own sections are `<h2>` (their `h4` class is Bootstrap sizing,
+  not a level) and the block is embedded inside one, so its lead sits at `h3`
+  and its sections at `h4`. `PageTests` pins that as a relationship, not as
+  literals, plus a page-wide no-skipped-level walk — the hard-coded `h4`/`h5`
+  pair this replaced had been jumping `h2` → `h4` invisibly.
+  The breakdown paragraph applies it one tier down:
   it deliberately **does not recite the five bucket labels** — those are
   `AnswerTypeDisplay`'s copy, rendered on Home, and a second spelling here
   would drift the first time one is reworded (`PageTests` asserts their
