@@ -13,6 +13,16 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// decisions, the dice-click shortcut, and reload-resets-everything.
 ///
 /// <para>
+/// Its structure — five parts at <c>h2</c>, the sections beneath them at
+/// <c>h3</c>, in the journey order the page has always taught — is
+/// <see cref="HelpSections"/>'s, not this file's: every heading and every entry
+/// in the contents block renders its words and its anchor id from that one
+/// table, so the block cannot list a section the document lacks and a rename
+/// cannot land in one place only. The model is <c>SPEC-help.md</c>; a
+/// divergence from it is a defect, never a competing design.
+/// </para>
+///
+/// <para>
 /// A <c>.Client</c> WASM page rather than a static host page: a mid-quiz
 /// Help → Back round trip must not disturb the WASM runtime holding the quiz
 /// state, exactly as <see cref="Stats"/>'s round trip must not. It is interactive
@@ -51,19 +61,9 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 public partial class Help : ComponentBase
 {
     /// <summary>
-    /// Href for the data section's pointer into <c>FilterHelp</c>'s storage
-    /// section — this page's own URL plus the fragment, deliberately <b>not</b>
-    /// the bare <c>#fragment</c> an ordinary page would use.
-    ///
-    /// <para>
-    /// The fragment is <see cref="FilterHelp.StorageSectionAnchorId"/>, the
-    /// producer's exported deep-link surface, rather than the slug spelled out
-    /// here. It was a private literal until <c>XgFilter_Razor</c> exported it:
-    /// the id belonged to another repo, so a rename there left this page
-    /// pointing at nothing and only an e2e click could notice. Consuming the
-    /// constant makes that rename a compile error here instead — the same
-    /// posture <see cref="SavedFiltersDocument"/>'s file names take.
-    /// </para>
+    /// Href for an in-page link to <paramref name="anchorId"/> — this page's own
+    /// URL plus the fragment, deliberately <b>not</b> the bare <c>#fragment</c>
+    /// an ordinary page would use.
     ///
     /// <para>
     /// A fragment-only href resolves against the document's <c>&lt;base
@@ -74,12 +74,34 @@ public partial class Help : ComponentBase
     /// Computing the href from <see cref="NavigationManager.Uri"/> rather than
     /// writing <c>/help#…</c> keeps it correct if the app is ever served from a
     /// sub-path (where the base href is no longer <c>/</c>); the split drops any
-    /// fragment already on the address, so re-rendering after the link has been
+    /// fragment already on the address, so re-rendering after a link has been
     /// followed cannot accumulate a second one.
     /// </para>
+    ///
+    /// <para>
+    /// Shared by every entry in the contents block (<see cref="HelpSections"/>)
+    /// and by the data section's pointer below: the trap is a property of the
+    /// page, not of any one link, so a second link written the obvious way would
+    /// simply be broken.
+    /// </para>
     /// </summary>
-    private string PanelStorageHref =>
-        $"{Nav.Uri.Split('#')[0]}#{FilterHelp.StorageSectionAnchorId}";
+    private string AnchorHref(string anchorId) => $"{Nav.Uri.Split('#')[0]}#{anchorId}";
+
+    /// <summary>
+    /// Href for the data section's pointer into <c>FilterHelp</c>'s storage
+    /// section.
+    ///
+    /// <para>
+    /// The fragment is <see cref="FilterHelp.StorageSectionAnchorId"/>, the
+    /// producer's exported deep-link surface, rather than the slug spelled out
+    /// here. It was a private literal until <c>XgFilter_Razor</c> exported it:
+    /// the id belonged to another repo, so a rename there left this page
+    /// pointing at nothing and only an e2e click could notice. Consuming the
+    /// constant makes that rename a compile error here instead — the same
+    /// posture <see cref="SavedFiltersDocument"/>'s file names take.
+    /// </para>
+    /// </summary>
+    private string PanelStorageHref => AnchorHref(FilterHelp.StorageSectionAnchorId);
 
     private void BackToQuiz()
     {

@@ -51,6 +51,58 @@ public sealed class HelpAndTitlesTests : E2eTestBase
     }
 
     /// <summary>
+    /// The page's parts and its contents block (SPEC-help.md §§1, 2). The
+    /// headings and the contents entries are rendered from one table
+    /// (<c>HelpSections</c>) and bUnit pins that wiring against the table
+    /// itself — which means those pins agree with <i>any</i> words at all,
+    /// including a part named nothing in particular. This is the other half of
+    /// the copy-pin split: hardcoded literals, in the suite that references no
+    /// app assembly by design, saying which words the table must hold.
+    /// <para>
+    /// The renamed section is here for the same reason. <i>Before you start</i>
+    /// became <i>What you need</i> because the part that holds it kept the
+    /// journey framing, and two headings with one accessible name make exactly
+    /// the role-based lookups below ambiguous (§1, ruled).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task HelpGroupsItsSectionsIntoNamedParts_AndListsThemInAContentsBlock()
+    {
+        await Page.GotoAsync(BaseUrl + "/help");
+
+        foreach (var part in new[]
+                 {
+                     "Before you start", "Setting up a quiz", "Answering",
+                     "After the quiz", "Reference",
+                 })
+        {
+            await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = part, Exact = true }))
+                .ToBeVisibleAsync();
+        }
+
+        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "What you need", Exact = true }))
+            .ToBeVisibleAsync();
+
+        // The block itself, by the accessible name the spec gives it — and by
+        // its role, which is what makes it navigation rather than a list of
+        // words that happen to be links.
+        var contents = Page.GetByRole(AriaRole.Navigation, new() { Name = "Contents" });
+        await Expect(contents).ToBeVisibleAsync();
+
+        // ...and an entry that really moves the reader. bUnit can see that the
+        // href names an id the page renders; only a browser can show that
+        // clicking it scrolls, because a same-document link goes through
+        // Blazor's navigation interception on the way.
+        var target = Page.Locator("#help-scoring");
+        Assert.False(await IsInViewportAsync(target));
+
+        await contents.GetByRole(AriaRole.Link, new() { Name = "Scoring", Exact = true }).ClickAsync();
+
+        Assert.True(await IsInViewportAsync(target));
+        Assert.EndsWith("#help-scoring", Page.Url);
+    }
+
+    /// <summary>
     /// The data-ownership and storage assurance a beta tester asked for. Content
     /// is pinned here as independent literals (the wiring — that the two key
     /// names are rendered from the constants that write them — is asserted in

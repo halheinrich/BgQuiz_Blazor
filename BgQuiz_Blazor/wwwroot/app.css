@@ -352,3 +352,104 @@ h1:focus {
 .app-busy * {
     cursor: progress;
 }
+
+/* ---------------------------------------------------------------------------
+   /help — the document column and its contents block (SPEC-help.md §5).
+
+   Three grid children in one document: .help-intro (the h1 and its lead), the
+   .help-contents <nav>, and .help-doc (the five parts). The markup renders the
+   nav exactly once, immediately after the intro; which of the spec's two
+   placements a reader gets is decided here and nowhere else.
+
+   Below lg the three are ordinary blocks in source order, which IS the narrow
+   case: the contents block sits under the h1 and its lead as a plain list, and
+   there is no rail. The reading width below is the same 800px the container
+   used to carry as an inline max-width — moved onto the columns because the
+   container itself has to be free to be wider than the document once the rail
+   sits beside it.
+   --------------------------------------------------------------------------- */
+.help-intro,
+.help-doc,
+.help-contents {
+    max-width: 800px;
+}
+
+.help-contents {
+    margin-bottom: 1.5rem;
+    font-size: 0.9375rem;
+}
+
+.help-contents-label {
+    /* Labels the <nav> (aria-labelledby) rather than heading it: a real heading
+       here would land in the page's own outline, between the h1 and the first
+       part, and the outline is the structure this page exists to expose. */
+    margin-bottom: 0.35rem;
+    font-weight: 600;
+}
+
+.help-contents ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.help-contents > ul > li + li {
+    margin-top: 0.5rem;
+}
+
+.help-contents ul ul {
+    padding-left: 0.85rem;
+}
+
+.help-contents a {
+    text-decoration: none;
+}
+
+.help-contents a:hover {
+    text-decoration: underline;
+}
+
+@media (min-width: 992px) {
+    /* Bootstrap lg and up: the contents block becomes a sticky rail beside the
+       document. Two tracks, centred as a pair, so the document keeps its 800px
+       reading width wherever the content area is wide enough to hold both —
+       from roughly 1400px of viewport with the navigation panel showing, less
+       once it is folded. Below that the tracks share what there is and the
+       document narrows; the rail's own track is capped low (13rem) so it takes
+       as little of the squeeze as it can.
+
+       The rail spans both rows so its grid area is the height of the whole
+       document — that, plus align-self: start, is what gives position: sticky
+       something to travel through; a rail placed in the intro's row alone would
+       have nowhere to stick to. max-height keeps the nineteen entries scrollable
+       on a short window rather than clipped by the viewport. */
+    .help-page {
+        display: grid;
+        grid-template-columns: minmax(0, 800px) minmax(9rem, 13rem);
+        column-gap: 2rem;
+        justify-content: center;
+        align-items: start;
+    }
+
+    .help-intro {
+        grid-column: 1;
+        grid-row: 1;
+    }
+
+    .help-doc {
+        grid-column: 1;
+        grid-row: 2;
+    }
+
+    .help-contents {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        align-self: start;
+        position: sticky;
+        top: 1rem;
+        max-width: none;
+        max-height: calc(100vh - 2rem);
+        overflow-y: auto;
+        margin-bottom: 0;
+    }
+}

@@ -203,6 +203,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
       Stats.razor / .razor.cs       — read-only mid-quiz stats (live Controller)
       Settings.razor / .razor.cs    — user settings (a view over QuizSettings)
       Help.razor / .razor.cs        — end-user documentation (never redirects)
+      HelpSections.cs               — Help's structure: the five parts, their
+                                      fourteen sections, ids + headings (SSOT)
       ScorePanel.razor              — compact header strip (Total only)
       ScoreBreakdown.razor          — four-way Play/Double/Take/Total table
 
@@ -1957,9 +1959,41 @@ The asymmetry is pinned three times over: at the service seam
   redirects the way `Stats` does. It sits on the page and not in the nav panel
   because that panel renders statically and cannot know a quiz is live — the
   same constraint that put the fold applier in JS.
-- **`Help.razor`** — end-user documentation. `PageTests` pins the full `h2`
-  skeleton **in order**, so an edit cannot quietly drop or reorder a section.
-  The order is the journey: a **Before you start** prerequisites lead (a
+- **`Help.razor`** — end-user documentation. Its information architecture is
+  `../SPEC-help.md`'s, not this doc's: **five parts at `<h2>`** (*Before you
+  start* / *Setting up a quiz* / *Answering* / *After the quiz* / *Reference*)
+  with the fourteen sections at `<h3>` beneath them, each part opening with at
+  most one lead sentence. Read the spec for the model; what follows is only what
+  a session editing this page has to know.
+
+  **`HelpSections` is the structure's single source** — the five parts, their
+  sections, in document order, each with a hand-named `help-*` anchor id and its
+  heading text. Every heading and every contents entry renders from it and every
+  structural pin reads from it, so **nothing in the page or the unit tests
+  restates a heading string or an id**; the e2e suite keeps hardcoded literals
+  by design (it references no app assembly), which is the half of the copy-pin
+  split that says which words are right. Ids are stable and never derived from
+  heading text — a reword must not break a bookmark — and the `help-` prefix is
+  enforced in `HelpEntry`'s constructor rather than stated, because
+  `FilterHelp`'s `fh-*` ids share this document. `PageTests` pins the parts in
+  order, the sections grouped **under their part**, and the contents entries as
+  equal to `HelpSections` in order with every `href` resolving to an element
+  that really rendered.
+
+  The **contents block** is a `<nav>` named *Contents* listing two levels, parts
+  and sections; `FilterHelp`'s own sections are not listed. It is rendered
+  **once**, directly after the `<h1>` and its lead, and `app.css` decides where
+  it lands: a sticky rail beside the document at Bootstrap `lg` and up, an
+  ordinary list in the flow below that, with no rail (spec §5 — no scroll-spy,
+  no back-to-top). A second CSS-hidden copy would put two navigations named
+  *Contents* in the accessibility tree, so placement is CSS's job alone; bUnit
+  cannot evaluate a media query, so `AppCss_HelpContents_IsARailOnlyAtBootstrapLgAndUp`
+  is what holds the rule and the live check at both widths is the measurement.
+  Every in-page link on this page goes through `AnchorHref`: a bare
+  `#fragment` resolves against `<base href="/">` and lands the reader on Home.
+
+  The section order is the journey, unchanged by the grouping: a **What you
+  need** prerequisites lead (a
   folder of the reader's own `.xg` / `.xgp` files is required and BgQuiz ships
   none; the supported browsers; the two files BgQuiz writes) — it leads
   because everything after it assumes it — then **Your data stays yours**
@@ -1982,7 +2016,7 @@ The asymmetry is pinned three times over: at the service seam
   **Every documented constant renders from its SSOT, never as a literal** —
   file caps from `PickedFileLimits`, filenames from `QuizStatsFile` /
   `SavedFiltersDocument` (both saved-filters names: the canonical one in
-  *Before you start* and the saved-filters section, and the legacy name in the
+  *What you need* and the saved-filters section, and the legacy name in the
   fallback sentence the umbrella ruled in — a silently-read file would cut
   against the storage-transparency posture, and the fallback is a standing
   producer rule, so the sentence doesn't rot),
@@ -1994,12 +2028,16 @@ The asymmetry is pinned three times over: at the service seam
   its own**, keeping only app-level framing `FilterHelp` cannot know — that an
   applied filter gates Start, what the match count means, that the mix draws
   from that pool, and that `Shuffle order` is this app's control. `FilterHelp`
-  takes one `[EditorRequired]` parameter, `HeadingLevel`, bound to **3** here:
-  this page's own sections are `<h2>` (their `h4` class is Bootstrap sizing,
-  not a level) and the block is embedded inside one, so its lead sits at `h3`
-  and its sections at `h4`. `PageTests` pins that as a relationship, not as
-  literals, plus a page-wide no-skipped-level walk — the hard-coded `h4`/`h5`
-  pair this replaced had been jumping `h2` → `h4` invisibly. The `no chrome
+  takes one `[EditorRequired]` parameter, `HeadingLevel`, bound to **4** here:
+  this page's parts are `<h2>` and its sections `<h3>` (the `h4` class on a
+  section is Bootstrap sizing, not a level) and the block is embedded inside a
+  section, so its lead sits at `h4` and its sections at `h5`. It was **3**
+  while the page was flat; the tier the parts added pushed it down one, which
+  stays inside `FilterHelp`'s `1..5` range and so needed nothing from the
+  producer. `PageTests` pins that as a relationship, not as literals — which is
+  why the parts moved it without the pin being rewritten — plus a page-wide
+  no-skipped-level walk; the hard-coded `h4`/`h5` pair this replaced had been
+  jumping `h2` → `h4` invisibly. The `no chrome
   prose` pins read **host prose only**, with the embedded block subtracted by
   its `fh-*` anchors: `FilterHelp` renders inside this very section, so a
   section-wide pin on chrome wording is vacuous in one direction and
@@ -2025,7 +2063,7 @@ The asymmetry is pinned three times over: at the service seam
   for board sizing.
 
   **`Help`'s data section — "Your data stays yours".** Sits directly after
-  *Before you start* and ahead of the flow: a reader deciding whether to hand
+  *What you need* and ahead of the flow: a reader deciding whether to hand
   over a folder wants it before doing so, not twelve sections later. It
   carries the ownership statement (the files are the reader's; parsed in the
   browser and never uploaded; no account, and the server it is downloaded from
@@ -2045,7 +2083,7 @@ The asymmetry is pinned three times over: at the service seam
     user copy claiming otherwise would be the same lie in a second place.
 
   Three things are **pointed at, never restated**: the two files written into
-  the user's folder (*Before you start* already names them from
+  the user's folder (*What you need* already names them from
   `QuizStatsFile.FileName` / `SavedFiltersDocument.FileName`); the panel's own
   localStorage entries (one sentence in user terms plus a link into
   `FilterHelp`'s storage section, both halves of it built from that section's
@@ -2077,7 +2115,7 @@ The asymmetry is pinned three times over: at the service seam
   report: "nothing needs saving" printed under "your stats could not be saved"
   reads as a contradiction, and there the notice is the honest word. Composing
   rather than consolidating is the constraint — the nothing-leaves-your-machine
-  claim was **moved** here out of *Before you start* and dropped from *Pick
+  claim was **moved** here out of *What you need* and dropped from *Pick
   your folder*, so it is asserted once. `PageTests` pins the wiring (both keys
   from their constants; the section's `<code>` elements are *exactly* those
   two; the pointer's href and text both from `FilterHelp`'s exported
@@ -2606,9 +2644,12 @@ public (see Pitfalls). The externally visible surface is the route map:
   URI**, not the current address — so on `/help` a bare `href="#…"` resolves to
   the app root plus that fragment, the router matches `/`, and the reader lands
   on `Home` (observed, with markup that looked right).
-  `Help.PanelStorageHref` composes the href from `NavigationManager.Uri`
+  `Help.AnchorHref` composes the href from `NavigationManager.Uri`
   (fragment stripped) instead — correct under a sub-path deployment too, where
-  `/help#…` would not be. Blazor then handles the same-document navigation
+  `/help#…` would not be. **Every** in-page link on that page goes through it,
+  the storage pointer and all nineteen contents entries alike: the trap belongs
+  to the page, not to any one link, so a new link written the obvious way would
+  simply be broken. Blazor then handles the same-document navigation
   itself, which is *also* not assumable — verify any in-page anchor in a
   running browser. A bUnit href assertion cannot see any of this; the e2e test
   clicks the link and asserts the target moves into the viewport, having first

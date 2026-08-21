@@ -10,604 +10,689 @@
 
 <PageTitle>BgQuiz — Help</PageTitle>
 
-<div class="container py-3" style="max-width:800px">
-    <h1>How BgQuiz works</h1>
+@* Three grid children, one document (SPEC-help.md §5). The reading width that
+   used to be an inline max-width on the container now sits on .help-intro and
+   .help-doc, unchanged at 800px; the container itself has to be free to be
+   wider, because at Bootstrap lg and up the contents block sits BESIDE the
+   document as a sticky rail. Below lg the three fall back into ordinary block
+   flow, which is exactly the spec's narrow case: the contents block renders
+   once, under the <h1> and its lead, and no rail exists. One <nav> element
+   either way — a second, CSS-hidden copy would put two navigations named
+   "Contents" in the accessibility tree and duplicate every entry in the
+   document, so the placement is CSS's job and the markup states it once. *@
+<div class="container py-3 help-page">
+    <header class="help-intro">
+        <h1>How BgQuiz works</h1>
 
-    <p class="lead">
-        BgQuiz turns your own eXtreme Gammon analysis into practice: it shows you a
-        position from one of your files, you answer it, and it scores your answer
-        against XG's evaluation of that position.
-    </p>
+        <p class="lead">
+            BgQuiz turns your own eXtreme Gammon analysis into practice: it shows you a
+            position from one of your files, you answer it, and it scores your answer
+            against XG's evaluation of that position.
+        </p>
+    </header>
 
-    @* Prerequisites, ahead of the flow. BgQuiz ships no sample files and does
-       not work on every browser, so a reader can arrive with nothing it can
-       act on — and everything below assumes those two things are already true.
-       The browser sentence is rendered from FolderPickDisplay rather than
-       restated, so this lead and Home's line beside the pick button say the
-       identical thing; the file names come from the constants the stores
-       actually write, the same discipline the caps and stats-file prose use. *@
-    <h2 class="h4 mt-4">Before you start</h2>
-    <ul>
-        <li>
-            <strong>Your own analyzed positions.</strong> BgQuiz quizzes you on
-            <code>.xg</code> match files and <code>.xgp</code> position files
-            that you already have. It ships none of its own, so you need a folder
-            of them on this machine before anything below applies.
-        </li>
-        <li>
-            <strong>A supported browser.</strong> @FolderPickDisplay.SupportedBrowsers
-        </li>
-        <li>
-            <strong>Two small files, written into that folder.</strong> BgQuiz
-            saves <code>@QuizStatsFile.FileName</code> (your lifetime record) and
-            <code>@SavedFiltersDocument.FileName</code> (filters you save by name)
-            beside your problem files. It writes nothing else, and never changes
-            the files it quizzes you on.
-        </li>
-    </ul>
+    @* The contents block (SPEC-help.md §2): two levels, parts and their
+       sections, every entry an in-page link. Rendered from HelpSections — the
+       same table the headings below render from — so it cannot list a section
+       the document does not have, or miss one it does.
 
-    @* Data ownership and storage, directly after the prerequisites and ahead of
-       the flow: a reader who wants to know what happens to their positions wants
-       that answer before handing over a folder, not twelve sections later. The
-       "Nothing leaves your machine" bullet that used to close the list above was
-       *moved* here rather than copied — the same page asserting it twice is
-       exactly the duplication a consolidated section is prone to.
+       FilterHelp's own sections are deliberately NOT listed: they are the
+       producer's structure, reachable through the Choose filters entry and
+       their own fh-* anchors, and enumerating them here would be this repo
+       restating another's outline.
 
-       The browser entries are rendered from the constants that write them
-       (MixDraft.StorageKey, QuizSettings.StorageKey, QuizLiveMarker.StorageKey),
-       never typed as prose
-       literals, so a name a reader checks in devtools cannot drift from the name
-       the code stores under — the discipline the file names and pick caps already
-       use. The two files BgQuiz writes into the folder are deliberately NOT
-       restated: they are named from their own constants in the list above, and
-       this section points back at them.
+       Nothing collapses and nothing is hidden — find-in-page sees the whole
+       document — and there is no scroll-spy and no back-to-top by ruling.
 
-       The filter panel's storage is a POINTER, not a description. XgFilter_Razor
-       owns that prose and renders it from the panel's own constants inside
-       FilterHelp's storage section, which this page already embeds under Choose
-       filters. Both halves of the link below — where it lands and what it says —
-       come from that section's exported identity (FilterHelp's
-       StorageSectionAnchorId / StorageSectionHeading), never spelled here: a
-       rename there is a compile error in this page rather than a link that
-       still renders and now lies. Naming or describing the panel's keys here
-       would be a second encoding of a producer's internals that no test in this
-       repo could notice drifting — the same ruling that removed this page's
-       facet prose. *@
-    <h2 class="h4 mt-4">Your data stays yours</h2>
-    <p>
-        Your positions and matches are yours, and BgQuiz treats them that way. It
-        reads the files you point it at and parses them inside your browser; they
-        are never uploaded, and neither are the positions in them, the answers you
-        give, or your scores. There is no account to create, and the server BgQuiz
-        is downloaded from has nothing to receive any of it — it hands your browser
-        the app and plays no further part.
-    </p>
-    <p>
-        BgQuiz does keep three small entries in the browser itself, so your setup is
-        still there when you come back:
-    </p>
-    <ul>
-        <li>
-            <code>@MixDraft.StorageKey</code> — your weighted mix as last shown
-            on screen, in this site's local storage. It survives reloading the
-            page and closing the browser, and it holds the mix settings only:
-            the categories, their percentages and order, and the quiz length.
-        </li>
-        <li>
-            <code>@QuizSettings.StorageKey</code> — your choices from the
-            <em>Settings</em> page, also in this site's local storage. It holds
-            those settings and nothing else, and it too survives reloading and
-            closing the browser.
-        </li>
-        <li>
-            <code>@QuizLiveMarker.StorageKey</code> — a single mark noting that a
-            quiz was running, which is how BgQuiz can tell you afterwards that a
-            reload reset it. It is kept in <em>session</em> storage, which belongs
-            to this browser tab alone: another tab never sees it, and it
-            disappears when you close this one.
-        </li>
-    </ul>
-    @* What a reader can DO about the three entries above (issue #54). The
-       sentence this replaced put the whole answer behind "your browser's
-       developer tools" — a place most readers have never opened, and the only
-       route it offered. The ownership point is worthless to someone who cannot
-       act on it, so the route a general reader already has leads: the browser's
-       own setting for clearing what a site has stored.
+       The hrefs go through AnchorHref for the reason the data section's pointer
+       does: a bare "#fragment" resolves against <base href="/">, not against the
+       current address, so on /help it would land the reader on Home. *@
+    <nav class="help-contents" aria-labelledby="help-contents-label">
+        <p id="help-contents-label" class="help-contents-label">Contents</p>
+        <ul>
+            @foreach (var part in HelpSections.Parts)
+            {
+                <li>
+                    <a href="@AnchorHref(part.AnchorId)">@part.Heading</a>
+                    <ul>
+                        @foreach (var section in part.Sections)
+                        {
+                            <li><a href="@AnchorHref(section.AnchorId)">@section.Heading</a></li>
+                        }
+                    </ul>
+                </li>
+            }
+        </ul>
+    </nav>
 
-       Named by what it does, never by a menu path — every browser words and
-       places it differently, the same class of claim as the permission-prompt
-       text FolderPickDisplay rules out quoting. Hedged accordingly.
+    <div class="help-doc">
 
-       The devtools route survives as a trailing parenthesis, signposted as
-       optional. It is the only way to inspect the three entries individually,
-       which is what makes the key names above findable at all; what it must not
-       be again is the sentence's premise.
+        @* The parts are the page's own structure (SPEC-help.md §1), so every part
+           and section heading below renders its words and its id from HelpSections
+           rather than spelling either here. Each part opens with at most one lead
+           sentence saying what it covers — the only new prose this restructure
+           adds, and deliberately nothing a section beneath it already says. *@
+        <h2 class="h3 mt-5" id="@HelpSections.BeforeYouStart.AnchorId">@HelpSections.BeforeYouStart.Heading</h2>
+        <p>
+            What BgQuiz needs from you before it can quiz you, and what it does with
+            the files you point it at.
+        </p>
 
-       "Nothing of yours goes with them" is the ownership point restated as a
-       consequence, and it is the question a non-technical reader actually has
-       when told to clear a site's data — will this take my positions? It is not
-       a restatement of the paragraph below, which says where BgQuiz *writes*;
-       this says what clearing the browser does not reach. *@
-    <p>
-        All three live in this browser, on this machine — not on any server — and
-        they are yours to delete. Every browser has a setting for clearing what a
-        site has stored, usually with the history and cookie controls, worded a
-        little differently in each: using it on this site removes all three at
-        once. Nothing of yours goes with them — the files in your problem folder
-        are untouched — and BgQuiz simply starts again with its defaults. (If you
-        use your browser's developer tools, the three are listed there under this
-        site's storage.)
-    </p>
-    <p>
-        The filter panel keeps its own settings in your browser as well —
-        <a href="@PanelStorageHref">@FilterHelp.StorageSectionHeading</a>, in
-        <em>Choose filters</em> below, lists exactly what those are.
-    </p>
-    <p>
-        Everything else BgQuiz keeps, it writes into your own problem folder: the
-        two files named above, and nothing besides.
-    </p>
-    @* How to leave (issue #51). The section that has just accounted for
-       everything BgQuiz keeps is the one place this belongs: the answer to
-       "can I just close it?" is a consequence of that account, not a new fact,
-       and a reader who has been told what is stored where will otherwise
-       assume a quiz in progress is among it.
+        @* Prerequisites, ahead of the flow. BgQuiz ships no sample files and does
+           not work on every browser, so a reader can arrive with nothing it can
+           act on — and everything below assumes those two things are already true.
+           The browser sentence is rendered from FolderPickDisplay rather than
+           restated, so this lead and Home's line beside the pick button say the
+           identical thing; the file names come from the constants the stores
+           actually write, the same discipline the caps and stats-file prose use. *@
+        <h3 class="h4 mt-4" id="@HelpSections.WhatYouNeed.AnchorId">@HelpSections.WhatYouNeed.Heading</h3>
+        <ul>
+            <li>
+                <strong>Your own analyzed positions.</strong> BgQuiz quizzes you on
+                <code>.xg</code> match files and <code>.xgp</code> position files
+                that you already have. It ships none of its own, so you need a folder
+                of them on this machine before anything below applies.
+            </li>
+            <li>
+                <strong>A supported browser.</strong> @FolderPickDisplay.SupportedBrowsers
+            </li>
+            <li>
+                <strong>Two small files, written into that folder.</strong> BgQuiz
+                saves <code>@QuizStatsFile.FileName</code> (your lifetime record) and
+                <code>@SavedFiltersDocument.FileName</code> (filters you save by name)
+                beside your problem files. It writes nothing else, and never changes
+                the files it quizzes you on.
+            </li>
+        </ul>
 
-       No button was added for this, deliberately — closing the tab IS the exit
-       for an app with no account and nothing pending, and a "finish and quit"
-       control would invent an obligation the app does not have.
+        @* Data ownership and storage, directly after the prerequisites and ahead of
+           the flow: a reader who wants to know what happens to their positions wants
+           that answer before handing over a folder, not twelve sections later. The
+           "Nothing leaves your machine" bullet that used to close the list above was
+           *moved* here rather than copied — the same page asserting it twice is
+           exactly the duplication a consolidated section is prone to.
 
-       The write-access caveat is a POINTER, not a restatement: Lifetime stats
-       below already draws that distinction in full, and a second telling here
-       would be the copy that rots when the first one changes. The two files
-       are likewise named only in Before you start — hence "your lifetime
-       record", the words that section itself uses. *@
-    <p>
-        That is also why it is safe to close the tab whenever you like,
-        mid-quiz included: nothing here is waiting to be saved. Your lifetime
-        record is written to your folder as you answer rather than at the end,
-        so the answers you have already given are already in it — and the
-        things that do not outlive the tab, your folder pick and the quiz in
-        progress, were never meant to. (In browsers that cannot write into your
-        folder, nothing is being recorded to begin with — see
-        <em>Lifetime stats</em> below.)
-    </p>
+           The browser entries are rendered from the constants that write them
+           (MixDraft.StorageKey, QuizSettings.StorageKey, QuizLiveMarker.StorageKey),
+           never typed as prose
+           literals, so a name a reader checks in devtools cannot drift from the name
+           the code stores under — the discipline the file names and pick caps already
+           use. The two files BgQuiz writes into the folder are deliberately NOT
+           restated: they are named from their own constants in the list above, and
+           this section points back at them.
 
-    <h2 class="h4 mt-4">Pick your folder</h2>
-    @* The over-cap sentence carries the random draw because this is where the
-       actionable half belongs: Home's truncation notice reports one pick and
-       deliberately stops there, so "pick it again and you get different files"
-       has nowhere else to live. Not a restatement of that notice — it says what
-       happens NEXT time, which a status line about THIS pick cannot.
+           The filter panel's storage is a POINTER, not a description. XgFilter_Razor
+           owns that prose and renders it from the panel's own constants inside
+           FilterHelp's storage section, which this page already embeds under Choose
+           filters. Both halves of the link below — where it lands and what it says —
+           come from that section's exported identity (FilterHelp's
+           StorageSectionAnchorId / StorageSectionHeading), never spelled here: a
+           rename there is a compile error in this page rather than a link that
+           still renders and now lies. Naming or describing the panel's keys here
+           would be a second encoding of a producer's internals that no test in this
+           repo could notice drifting — the same ruling that removed this page's
+           facet prose. *@
+        <h3 class="h4 mt-4" id="@HelpSections.YourDataStaysYours.AnchorId">@HelpSections.YourDataStaysYours.Heading</h3>
+        <p>
+            Your positions and matches are yours, and BgQuiz treats them that way. It
+            reads the files you point it at and parses them inside your browser; they
+            are never uploaded, and neither are the positions in them, the answers you
+            give, or your scores. There is no account to create, and the server BgQuiz
+            is downloaded from has nothing to receive any of it — it hands your browser
+            the app and plays no further part.
+        </p>
+        <p>
+            BgQuiz does keep three small entries in the browser itself, so your setup is
+            still there when you come back:
+        </p>
+        <ul>
+            <li>
+                <code>@MixDraft.StorageKey</code> — your weighted mix as last shown
+                on screen, in this site's local storage. It survives reloading the
+                page and closing the browser, and it holds the mix settings only:
+                the categories, their percentages and order, and the quiz length.
+            </li>
+            <li>
+                <code>@QuizSettings.StorageKey</code> — your choices from the
+                <em>Settings</em> page, also in this site's local storage. It holds
+                those settings and nothing else, and it too survives reloading and
+                closing the browser.
+            </li>
+            <li>
+                <code>@QuizLiveMarker.StorageKey</code> — a single mark noting that a
+                quiz was running, which is how BgQuiz can tell you afterwards that a
+                reload reset it. It is kept in <em>session</em> storage, which belongs
+                to this browser tab alone: another tab never sees it, and it
+                disappears when you close this one.
+            </li>
+        </ul>
+        @* What a reader can DO about the three entries above (issue #54). The
+           sentence this replaced put the whole answer behind "your browser's
+           developer tools" — a place most readers have never opened, and the only
+           route it offered. The ownership point is worthless to someone who cannot
+           act on it, so the route a general reader already has leads: the browser's
+           own setting for clearing what a site has stored.
 
-       Deliberately no promise of eventual full coverage: the draw is uniform
-       per pick, not a queue, so "you will see all of it" would be a guarantee
-       the pick does not make. The claim stops at "not shut out permanently". *@
-    <p>
-        On the home page, choose the local folder holding your <code>.xg</code> match
-        files and <code>.xgp</code> position files. Only files directly in that folder
-        are used — subfolders are ignored. One pick reads up to
-        @PickedFileLimits.MaxXgFileCount <code>.xg</code> files and
-        @PickedFileLimits.MaxXgpFileCount <code>.xgp</code> files, each up to
-        @(PickedFileLimits.MaxFileMegabytes) MB. The two limits are separate because
-        a match file holds a whole match's worth of decisions while a position file
-        holds one, so the same number of them is nowhere near the same amount of
-        work. If a folder holds more of either than that, BgQuiz quizzes you on the
-        ones it read and tells you on the home page how many it left — nothing fails,
-        and the quiz simply does not include them. Which ones it reads are drawn at
-        random each time, so picking that folder again reads a different selection:
-        nothing in an oversized folder is shut out permanently, it just won't all
-        arrive in one pick.
-    </p>
+           Named by what it does, never by a menu path — every browser words and
+           places it differently, the same class of claim as the permission-prompt
+           text FolderPickDisplay rules out quoting. Hedged accordingly.
 
-    <h2 class="h4 mt-4">Choose filters</h2>
-    @* App framing only, per umbrella #36: FilterHelp now documents the panel's
-       chrome as well as its facets — the disclosure and its hidden-active
-       badge, Apply as the only commit and both of its disabled states, Clear
-       filters — so the sentences that used to describe those controls here are
-       gone. They were the same defect the facet list was, one tier up: a second
-       encoding of the producer's behavior that no test in this repo could
-       notice drifting. The producer's Pitfalls now draw the line explicitly —
-       a host says where the panel sits in this app and what applying it unlocks
-       here, never what its controls do.
+           The devtools route survives as a trailing parenthesis, signposted as
+           optional. It is the only way to inspect the three entries individually,
+           which is what makes the key names above findable at all; what it must not
+           be again is the sentence's premise.
 
-       What is left is exactly the half FilterHelp cannot know: that in BgQuiz
-       an applied filter is the gate on Start (with the rider that navigating
-       the panel is not an edit, so looking around never costs the reader that
-       gate — phrased without naming a control, since the disclosure has no
-       antecedent this early and belongs to FilterHelp to introduce), and that
-       Shuffle order is this app's control, not the panel's. Extending any of it
-       means extending FilterHelp in XgFilter_Razor, never restoring prose
-       here. *@
-    <p>
-        On the home page, the filter panel narrows which decisions the quiz will
-        ask you.
-    </p>
-    <p>
-        Filters must be <strong>applied</strong> before Start becomes available —
-        editing any control un-applies them until you press <em>Apply Filter</em>
-        again. Only edits count: expanding or collapsing part of the panel to see
-        what is in it never un-applies anything. Optionally tick
-        <em>Shuffle order</em> to see positions in a random order rather than in
-        file order.
-    </p>
-    @* The count line, previously undocumented anywhere. Three things about it are
-       easy to read wrongly — it counts matching *decisions* rather than problems
-       you will be shown, it counts each position once, and it describes the
-       filters alone — and the last is load-bearing once a mix is applied, since
-       the quiz can then be far smaller than the number on screen. The dedupe
-       sentence is issue #104's: the count has always been deduplicated, and the
-       gap between it and a file count reads as a bug while nothing names it.
-       Home states each caveat beside the number in its own voice; this stays
-       prose, per FolderPickDisplay's "Help's prose stays prose" rule (a shared
-       constant is earned only by two surfaces rendering the same sentence). *@
-    <p>
-        Each time you press Apply, a line below the panel says how many decisions
-        your filters matched. That is the pool your quiz is drawn from — and it
-        counts <em>decisions</em>, not problems you will be shown: a position whose
-        dice leave no legal play is counted here and then skipped for you at quiz
-        time. Repeated positions are counted once: where the same position turns
-        up more than once in your collection, the extra copies are left out of
-        that number, and the line says how many they were. It also describes the
-        filters only. So if you have applied a weighted mix, the mix draws the
-        quiz from that pool rather than presenting all of it, and the quiz
-        can be much smaller than the number shown. Starting is what composes
-        the mix, and the quiz page then tells you exactly what it drew.
-    </p>
-    @* The answer-type breakdown that rides under the count. It answers a
-       question the count cannot — what the collection is made of, rather than
-       how big it is — so it earns its own paragraph instead of a clause, and
-       that paragraph leads with the zero reading, which is the one a reader
-       would otherwise mistake for a rendering fault.
+           "Nothing of yours goes with them" is the ownership point restated as a
+           consequence, and it is the question a non-technical reader actually has
+           when told to clear a site's data — will this take my positions? It is not
+           a restatement of the paragraph below, which says where BgQuiz *writes*;
+           this says what clearing the browser does not reach. *@
+        <p>
+            All three live in this browser, on this machine — not on any server — and
+            they are yours to delete. Every browser has a setting for clearing what a
+            site has stored, usually with the history and cookie controls, worded a
+            little differently in each: using it on this site removes all three at
+            once. Nothing of yours goes with them — the files in your problem folder
+            are untouched — and BgQuiz simply starts again with its defaults. (If you
+            use your browser's developer tools, the three are listed there under this
+            site's storage.)
+        </p>
+        <p>
+            The filter panel keeps its own settings in your browser as well —
+            <a href="@PanelStorageHref">@FilterHelp.StorageSectionHeading</a>, in
+            <em>Choose filters</em> below, lists exactly what those are.
+        </p>
+        <p>
+            Everything else BgQuiz keeps, it writes into your own problem folder: the
+            two files named above, and nothing besides.
+        </p>
+        @* How to leave (issue #51). The section that has just accounted for
+           everything BgQuiz keeps is the one place this belongs: the answer to
+           "can I just close it?" is a consequence of that account, not a new fact,
+           and a reader who has been told what is stored where will otherwise
+           assume a quiz in progress is among it.
 
-       The five bucket names are deliberately NOT recited here. They are copy
-       owned by AnswerTypeDisplay and rendered on Home; a list of them in this
-       prose would be a second encoding that drifts silently the first time a
-       label is reworded — the same reasoning that removed this page's facet
-       list. What this paragraph carries is what the labels cannot say for
-       themselves: that the list is exhaustive, and what a zero means. *@
-    <p>
-        Under that number, BgQuiz breaks the pool down by the kind of answer its
-        decisions call for — checker plays, and each of the four cube verdicts.
-        Every kind is listed every time, so a kind showing
-        <strong>0</strong> is a result rather than an omission: it says your
-        folder holds none of that kind under the filters you applied. If you
-        suspect your saved positions lean one way, this is where it shows.
-    </p>
+           No button was added for this, deliberately — closing the tab IS the exit
+           for an app with no account and nothing pending, and a "finish and quit"
+           control would invent an obligation the app does not have.
 
-    @* Panel reference, rendered by XgFilter_Razor's own FilterHelp rather than
-       restated here. Every facet — and, since umbrella #36, the chrome that
-       governs them all — is the panel's behavior, and the panel is the
-       producer's; a description written on this page would be a second encoding
-       of lib rules that drifts the moment those rules change, with no test
-       anywhere able to notice. The depth facet's redesign into per-mode clauses
-       is what settled the facet half: BgQuiz was spared only because it had
-       never described that facet, which is luck, not a discipline. The
-       producer's Pitfalls make it a rule — a host embeds FilterHelp and adds
-       app-level framing only, and prose FilterHelp lacks is extended there,
-       never written here.
+           The write-access caveat is a POINTER, not a restatement: Lifetime stats
+           below already draws that distinction in full, and a second telling here
+           would be the copy that rots when the first one changes. The two files
+           are likewise named only in Before you start — hence "your lifetime
+           record", the words that section itself uses. *@
+        <p>
+            That is also why it is safe to close the tab whenever you like,
+            mid-quiz included: nothing here is waiting to be saved. Your lifetime
+            record is written to your folder as you answer rather than at the end,
+            so the answers you have already given are already in it — and the
+            things that do not outlive the tab, your folder pick and the quiz in
+            progress, were never meant to. (In browsers that cannot write into your
+            folder, nothing is being recorded to begin with — see
+            <em>Lifetime stats</em> below.)
+        </p>
 
-       Placed last in the section so the app's own framing — that Apply gates
-       Start, what the count means — reads as continuous prose before the
-       reference block.
+        <h2 class="h3 mt-5" id="@HelpSections.SettingUpAQuiz.AnchorId">@HelpSections.SettingUpAQuiz.Heading</h2>
+        <p>
+            How you choose which of your positions a quiz draws from, and how to keep
+            those choices for next time.
+        </p>
 
-       HeadingLevel is read off this page's own outline rather than chosen: the
-       sections above are <h2> (the "h4" on them is Bootstrap sizing, not a
-       level), and this block is embedded inside one of them, so its lead belongs
-       at h3 and its own sections land at h4. The hard-coded h4/h5 pair this
-       replaced had been jumping h2 → h4 here the whole time — invisible on
-       screen, visible in a screen reader's outline — which is why the producer
-       made the level required rather than defaulted. Nothing the block renders
-       is an h2, so the pinned section skeleton is untouched either way. It is
-       render-only otherwise: no state, no JS, nothing else for this page to
-       wire. *@
-    <FilterHelp HeadingLevel="3" />
+        <h3 class="h4 mt-4" id="@HelpSections.PickYourFolder.AnchorId">@HelpSections.PickYourFolder.Heading</h3>
+        @* The over-cap sentence carries the random draw because this is where the
+           actionable half belongs: Home's truncation notice reports one pick and
+           deliberately stops there, so "pick it again and you get different files"
+           has nowhere else to live. Not a restatement of that notice — it says what
+           happens NEXT time, which a status line about THIS pick cannot.
 
-    <h2 class="h4 mt-4">Save filters you use often</h2>
-    <p>
-        Above the filter panel, <em>Saved Filters</em> keeps named copies of
-        filter settings you want back later — a race-position set, one opponent,
-        a particular band of mistake sizes. Type a name and press <em>Save</em>
-        to store the filters as they currently stand; <em>Load</em> puts a saved
-        set back into the panel below, and <em>Delete</em> removes one (both
-        overwriting and deleting ask you to confirm first). A loaded set arrives
-        as an edit, not as a decision — Start stays disabled until you press
-        Apply, so you are free to adjust it first.
-    </p>
-    @* Both file names are rendered from SavedFiltersDocument's constants — the
-       producer's SSOT for the document identity and its two-name migration rule
-       (read canonical first, fall back to the legacy name only when the
-       canonical file is absent, write only canonical, never delete the legacy
-       file). The legacy sentence states the still-read fallback out loud: an
-       existing tester will see that file beside the newly-documented canonical
-       one, and a silently-read file would cut against this section's
-       storage-transparency posture. The rule is standing, so the sentence
-       doesn't rot. *@
-    <p>
-        Saved filters live in a file named <code>@SavedFiltersDocument.FileName</code>
-        inside your problem folder, so they belong to that folder and travel with
-        it. If a folder has filters saved under the earlier name
-        <code>@SavedFiltersDocument.LegacyFileName</code>, BgQuiz still reads
-        them from there; the next save writes <code>@SavedFiltersDocument.FileName</code>,
-        and the older file is left untouched. They need the same write access
-        lifetime stats need: without it you can still load filters saved
-        earlier, but not save, change, or delete them. If the file can't be
-        read, BgQuiz leaves it exactly as it found it and switches saving off
-        rather than risk overwriting it.
-    </p>
+           Deliberately no promise of eventual full coverage: the draw is uniform
+           per pick, not a queue, so "you will see all of it" would be a guarantee
+           the pick does not make. The claim stops at "not shut out permanently". *@
+        <p>
+            On the home page, choose the local folder holding your <code>.xg</code> match
+            files and <code>.xgp</code> position files. Only files directly in that folder
+            are used — subfolders are ignored. One pick reads up to
+            @PickedFileLimits.MaxXgFileCount <code>.xg</code> files and
+            @PickedFileLimits.MaxXgpFileCount <code>.xgp</code> files, each up to
+            @(PickedFileLimits.MaxFileMegabytes) MB. The two limits are separate because
+            a match file holds a whole match's worth of decisions while a position file
+            holds one, so the same number of them is nowhere near the same amount of
+            work. If a folder holds more of either than that, BgQuiz quizzes you on the
+            ones it read and tells you on the home page how many it left — nothing fails,
+            and the quiz simply does not include them. Which ones it reads are drawn at
+            random each time, so picking that folder again reads a different selection:
+            nothing in an oversized folder is shut out permanently, it just won't all
+            arrive in one pick.
+        </p>
 
-    <h2 class="h4 mt-4">Weight the quiz by your lifetime stats</h2>
-    <p>
-        Below the filters, <em>Weighted mix</em> composes the quiz out of your
-        <em>Lifetime stats</em> (below) instead of simply taking everything the
-        filters matched. Add categories — never seen, ever got wrong, not seen in
-        so many days, average equity loss over a threshold, wrong more than some
-        share of the time — give each a percentage, and make the percentages
-        total 100. You get a quiz built to those proportions from the problems
-        your filters selected.
-    </p>
-    <ul>
-        <li>
-            <strong>Row order settles overlap.</strong> A problem that fits two
-            of your categories counts toward the <em>earlier</em> row, so the
-            ↑ / ↓ buttons are how you say which category gets first claim.
-            <em>Everything else</em> catches whatever the rows above it didn't.
-        </li>
-        <li>
-            <strong>Quiz length is optional.</strong> Left blank, the mix takes
-            every problem its categories can reach; set it and the percentages
-            divide up that many problems instead.
-        </li>
-        <li>
-            <strong>A mix that applies owns the order.</strong> Its own
-            <em>Random order</em> setting then decides how problems are
-            presented, and the page's Shuffle order checkbox is disabled — your
-            choice there is kept, and comes back when you turn the mix off.
-        </li>
-        <li>
-            <strong>No lifetime stats, no mix.</strong> The mix is what your
-            stats record composes into a quiz, so it appears only for a folder
-            that can save stats <em>and</em> already has some — on a folder
-            you've never quizzed from, there is nothing yet to weight by, and
-            the section simply isn't there. Run one quiz from it and the mix is
-            offered from then on. If the stats turn out to be unusable when you
-            press Start, BgQuiz refuses rather than quietly running an
-            unweighted quiz: it offers to start that one quiz without the mix,
-            and keeps the mix you built either way.
-        </li>
-        <li>
-            <strong>Turn it on with <em>Mix applies</em>.</strong> The mix you
-            compose does nothing until you check that box (after applying the
-            filters — the mix draws from the filtered pool), and what runs is
-            always exactly the mix shown on screen. Unchecking turns it off
-            without losing anything. Your rows keep — across pages, folder
-            changes, and reloads — but the checkbox itself resets when you
-            change folders or reload, so check it again to weight the next
-            quiz. If the mix on screen is broken while the box is checked,
-            Start waits until you fix it or uncheck.
-        </li>
-    </ul>
+        <h3 class="h4 mt-4" id="@HelpSections.ChooseFilters.AnchorId">@HelpSections.ChooseFilters.Heading</h3>
+        @* App framing only, per umbrella #36: FilterHelp now documents the panel's
+           chrome as well as its facets — the disclosure and its hidden-active
+           badge, Apply as the only commit and both of its disabled states, Clear
+           filters — so the sentences that used to describe those controls here are
+           gone. They were the same defect the facet list was, one tier up: a second
+           encoding of the producer's behavior that no test in this repo could
+           notice drifting. The producer's Pitfalls now draw the line explicitly —
+           a host says where the panel sits in this app and what applying it unlocks
+           here, never what its controls do.
 
-    <h2 class="h4 mt-4">Answer the position</h2>
-    <p>
-        Each problem is one of two kinds, and the board tells you which:
-    </p>
-    <ul>
-        <li>
-            <strong>Checker play.</strong> The dice are rolled, and you enter the play you
-            would make by clicking the board — see <em>Making a checker play</em> below.
-        </li>
-        <li>
-            <strong>Cube decision.</strong> The board is read-only. Answer with the radio
-            buttons beside the Submit button: what the player on roll should do
-            (double or not), and how the opponent should respond (take or pass).
-        </li>
-    </ul>
-    <p>
-        Press <em>Submit</em> to answer, or <em>Skip</em> to move on without answering.
-    </p>
+           What is left is exactly the half FilterHelp cannot know: that in BgQuiz
+           an applied filter is the gate on Start (with the rider that navigating
+           the panel is not an edit, so looking around never costs the reader that
+           gate — phrased without naming a control, since the disclosure has no
+           antecedent this early and belongs to FilterHelp to introduce), and that
+           Shuffle order is this app's control, not the panel's. Extending any of it
+           means extending FilterHelp in XgFilter_Razor, never restoring prose
+           here. *@
+        <p>
+            On the home page, the filter panel narrows which decisions the quiz will
+            ask you.
+        </p>
+        <p>
+            Filters must be <strong>applied</strong> before Start becomes available —
+            editing any control un-applies them until you press <em>Apply Filter</em>
+            again. Only edits count: expanding or collapsing part of the panel to see
+            what is in it never un-applies anything. Optionally tick
+            <em>Shuffle order</em> to see positions in a random order rather than in
+            file order.
+        </p>
+        @* The count line, previously undocumented anywhere. Three things about it are
+           easy to read wrongly — it counts matching *decisions* rather than problems
+           you will be shown, it counts each position once, and it describes the
+           filters alone — and the last is load-bearing once a mix is applied, since
+           the quiz can then be far smaller than the number on screen. The dedupe
+           sentence is issue #104's: the count has always been deduplicated, and the
+           gap between it and a file count reads as a bug while nothing names it.
+           Home states each caveat beside the number in its own voice; this stays
+           prose, per FolderPickDisplay's "Help's prose stays prose" rule (a shared
+           constant is earned only by two surfaces rendering the same sentence). *@
+        <p>
+            Each time you press Apply, a line below the panel says how many decisions
+            your filters matched. That is the pool your quiz is drawn from — and it
+            counts <em>decisions</em>, not problems you will be shown: a position whose
+            dice leave no legal play is counted here and then skipped for you at quiz
+            time. Repeated positions are counted once: where the same position turns
+            up more than once in your collection, the extra copies are left out of
+            that number, and the line says how many they were. It also describes the
+            filters only. So if you have applied a weighted mix, the mix draws the
+            quiz from that pool rather than presenting all of it, and the quiz
+            can be much smaller than the number shown. Starting is what composes
+            the mix, and the quiz page then tells you exactly what it drew.
+        </p>
+        @* The answer-type breakdown that rides under the count. It answers a
+           question the count cannot — what the collection is made of, rather than
+           how big it is — so it earns its own paragraph instead of a clause, and
+           that paragraph leads with the zero reading, which is the one a reader
+           would otherwise mistake for a rendering fault.
 
-    <h2 class="h4 mt-4">Making a checker play</h2>
-    <p>
-        Plays are entered with single clicks — there is nothing to drag, and no
-        pick-up-and-put-down. The board updates after every click, and only clicks that keep
-        a legal full play reachable are accepted — anything else simply does nothing, so you
-        cannot build an illegal play, and you cannot leave part of the roll unplayed when it
-        could have been played. Landing on a lone opposing checker hits it automatically.
-    </p>
-    <ul>
-        <li>
-            <strong>Clicking on a point you occupy moves a checker from there:</strong> it
-            advances by one die straight away. When either die could play from that point, the
-            <em>leftmost</em> die shown on the board is used — click the dice to swap them
-            (see below). When the move carries the checker off the board, it bears off; that
-            is just an ordinary move.
-        </li>
-        <li>
-            <strong>Clicking on a point that's empty or contains an opposing blot brings
-            checkers there.</strong> If the point can be made, it is: two of your checkers land
-            on it in the fewest moves, hitting anything in the way. With ordinary dice that
-            uses both and finishes the play; with doubles you may still have dice left. If the
-            point cannot be made, one checker that can reach it goes there instead. When there
-            are two equally short ways to do it, the click does nothing; make the moves one at
-            a time instead. This works even while you have a checker on the bar — see
-            <em>Clicking on the bar</em>.
-        </li>
-        <li>
-            <strong>Clicking on the bar enters a checker</strong>, and always works while you
-            have one there. When both dice could enter, the <em>leftmost</em> die is used —
-            swap the dice to enter on the other point, or click the entry point directly. While
-            any checker of yours is on the bar it must enter before anything else can move —
-            but you can still click any point that is empty or holds an opposing blot: the
-            entry happens first, and the rest of the roll brings a checker to the point you
-            clicked. That checker need not be the one that entered — with a 2-1 from the bar,
-            clicking an opposing blot in your home board enters with the two and hits with the
-            one, as long as there is exactly one way to do it. Clicking a point you occupy does
-            nothing while you are on the bar, even one the entering checker could reach: enter
-            first, then move normally.
-        </li>
-        <li>
-            <strong>Clicking on the checker tray bears off as many checkers as the roll
-            allows</strong>, whenever there is a unique way to do it. If two ways bear off
-            equally many, the tray does nothing — bear off point by point instead, by clicking
-            each checker's own point.
-        </li>
-        <li>
-            <strong>Click the dice to swap them, or to submit.</strong> While the play is
-            unfinished, clicking the dice swaps the order they are shown in — which changes
-            which one a checker click uses — without disturbing the moves you have already
-            made. (Doubles have nothing to swap.) Once the play is finished, clicking the dice
-            submits it, exactly as the <em>Submit</em> button does.
-        </li>
-        <li>
-            <strong>Change your mind — <em>Undo last</em> and <em>Undo all</em>.</strong> Undo
-            last takes back the most recent move; Undo all restores the starting position.
-            <em>Submit</em> stays disabled until the whole roll has been played.
-        </li>
-    </ul>
+           The five bucket names are deliberately NOT recited here. They are copy
+           owned by AnswerTypeDisplay and rendered on Home; a list of them in this
+           prose would be a second encoding that drifts silently the first time a
+           label is reworded — the same reasoning that removed this page's facet
+           list. What this paragraph carries is what the labels cannot say for
+           themselves: that the list is exhaustive, and what a zero means. *@
+        <p>
+            Under that number, BgQuiz breaks the pool down by the kind of answer its
+            decisions call for — checker plays, and each of the four cube verdicts.
+            Every kind is listed every time, so a kind showing
+            <strong>0</strong> is a result rather than an omission: it says your
+            folder holds none of that kind under the filters you applied. If you
+            suspect your saved positions lean one way, this is where it shows.
+        </p>
 
-    <h2 class="h4 mt-4">Scoring</h2>
-    <p>
-        A submitted answer is scored against XG's analysis of that position. Correct means
-        you chose a play or action with no equity loss; otherwise the equity you gave up is
-        recorded. Skipped problems are counted separately and never affect your accuracy.
-        Scores are kept in four buckets: checker plays, doubling decisions, take decisions,
-        and the total across all three.
-    </p>
+        @* Panel reference, rendered by XgFilter_Razor's own FilterHelp rather than
+           restated here. Every facet — and, since umbrella #36, the chrome that
+           governs them all — is the panel's behavior, and the panel is the
+           producer's; a description written on this page would be a second encoding
+           of lib rules that drifts the moment those rules change, with no test
+           anywhere able to notice. The depth facet's redesign into per-mode clauses
+           is what settled the facet half: BgQuiz was spared only because it had
+           never described that facet, which is luck, not a discipline. The
+           producer's Pitfalls make it a rule — a host embeds FilterHelp and adds
+           app-level framing only, and prose FilterHelp lacks is extended there,
+           never written here.
 
-    <h2 class="h4 mt-4">Review the solution</h2>
-    <p>
-        After you submit, the board switches to the solution view: XG's full analysis panel,
-        with the recorded play marked <strong>*</strong> and your answer marked
-        <strong>†</strong> when it differs. <em>Continue</em> moves to the next problem;
-        <em>Redo</em> takes back your answer and returns you to the same position to try
-        again.
-    </p>
+           Placed last in the section so the app's own framing — that Apply gates
+           Start, what the count means — reads as continuous prose before the
+           reference block.
 
-    <h2 class="h4 mt-4">Stats and finishing</h2>
-    <p>
-        <em>Show stats</em> opens a running scoreboard at any point mid-quiz, and returns you
-        to exactly where you were. When the last problem is answered you land on the summary
-        page, where you can restart with the same filters or start over with new ones.
-    </p>
+           HeadingLevel is read off this page's own outline rather than chosen: the
+           parts are <h2> and the sections beneath them <h3> (the "h4" class on a
+           section is Bootstrap sizing, not a level), and this block is embedded
+           inside one of those sections, so its lead belongs at h4 and its own
+           sections land at h5. It was 3 while the page was flat; the extra tier the
+           parts added (SPEC-help.md §4) pushed it down one, which stays inside
+           FilterHelp's 1..5 range and so needs nothing from the producer. The
+           hard-coded h4/h5 pair this replaced had been jumping h2 → h4 here the
+           whole time — invisible on screen, visible in a screen reader's outline —
+           which is why the producer made the level required rather than defaulted.
+           Nothing the block renders is an h2 or an h3, so the pinned part and
+           section skeletons are untouched either way. It is render-only otherwise:
+           no state, no JS, nothing else for this page to wire. *@
+        <FilterHelp HeadingLevel="4" />
 
-    <h2 class="h4 mt-4">Lifetime stats</h2>
-    <p>
-        In browsers that can grant write access to a folder (Chrome and Edge), BgQuiz
-        also keeps a <em>lifetime</em> record: how often each position has been quizzed,
-        how often you got it right, and when you last saw it. It lives in a small file
-        named <code>@QuizStatsFile.FileName</code> inside your problem folder, right
-        beside the files it tracks, and is updated after each problem you answer.
-        Like your problem files, it never leaves your machine — it is written directly
-        to your own folder, and nothing is uploaded anywhere.
-    </p>
-    <ul>
-        <li>
-            <strong>Only answered problems count.</strong> Skips, plays XG never listed,
-            and positions skipped for you are not part of your lifetime record. A redone
-            answer counts once — the answer you continue past.
-        </li>
-        <li>
-            <strong>A cube position records two decisions.</strong> The double and the
-            take are counted separately, the same way the in-quiz score counts them — so
-            getting one half right and the other wrong reads as one correct out of two,
-            not as a single wrong answer.
-        </li>
-        <li>
-            <strong>Other browsers still quiz.</strong> Where the browser can't save into
-            the folder (Firefox, Safari), or write access isn't granted, the quiz itself is
-            unchanged — the same problems, the same filters, the same scoreboard. What is
-            lost is the record that builds up <em>across</em> sessions of which problems
-            give you difficulty: nothing is written, so nothing accumulates. The home page
-            tells you which applies when you pick.
-        </li>
-        <li>
-            <strong>An unreadable stats file is left alone.</strong> If the file can't be
-            read (edited by hand, or written by a newer BgQuiz), the quiz runs without
-            recording and the file is not touched.
-        </li>
-        @* Names both files from the app's own naming, like every other file name
-           on this page — the prose cannot drift from what is written. The
-           set-aside name depends on which version the old file was, which this
-           page has no way of knowing, so it states the rule and shows the rule
-           applied rather than promising one particular name. Says what happens
-           and what it costs; the reason it can't be carried forward is a fact
-           about the file, not an invitation to explain position identity to
-           someone who came here to quiz. *@
-        <li>
-            <strong>Stats from an earlier version start over.</strong> BgQuiz changed
-            how it recognises a position, so a stats file written by an earlier version
-            can't be carried forward. The first quiz you run in that folder sets the old
-            file aside — nothing is deleted — under a name that records the version it
-            came from, such as <code>@QuizStatsFile.RetiredNameFor(1)</code>, and starts
-            a fresh <code>@QuizStatsFile.FileName</code> beside it. The quiz tells you
-            the name it used.
-        </li>
-    </ul>
+        <h3 class="h4 mt-4" id="@HelpSections.SaveFilters.AnchorId">@HelpSections.SaveFilters.Heading</h3>
+        <p>
+            Above the filter panel, <em>Saved Filters</em> keeps named copies of
+            filter settings you want back later — a race-position set, one opponent,
+            a particular band of mistake sizes. Type a name and press <em>Save</em>
+            to store the filters as they currently stand; <em>Load</em> puts a saved
+            set back into the panel below, and <em>Delete</em> removes one (both
+            overwriting and deleting ask you to confirm first). A loaded set arrives
+            as an edit, not as a decision — Start stays disabled until you press
+            Apply, so you are free to adjust it first.
+        </p>
+        @* Both file names are rendered from SavedFiltersDocument's constants — the
+           producer's SSOT for the document identity and its two-name migration rule
+           (read canonical first, fall back to the legacy name only when the
+           canonical file is absent, write only canonical, never delete the legacy
+           file). The legacy sentence states the still-read fallback out loud: an
+           existing tester will see that file beside the newly-documented canonical
+           one, and a silently-read file would cut against this section's
+           storage-transparency posture. The rule is standing, so the sentence
+           doesn't rot. *@
+        <p>
+            Saved filters live in a file named <code>@SavedFiltersDocument.FileName</code>
+            inside your problem folder, so they belong to that folder and travel with
+            it. If a folder has filters saved under the earlier name
+            <code>@SavedFiltersDocument.LegacyFileName</code>, BgQuiz still reads
+            them from there; the next save writes <code>@SavedFiltersDocument.FileName</code>,
+            and the older file is left untouched. They need the same write access
+            lifetime stats need: without it you can still load filters saved
+            earlier, but not save, change, or delete them. If the file can't be
+            read, BgQuiz leaves it exactly as it found it and switches saving off
+            rather than risk overwriting it.
+        </p>
 
-    <h2 class="h4 mt-4">Things worth knowing</h2>
-    <ul>
-        <li>
-            <strong>Positions with no legal play are skipped for you.</strong> When the dice
-            leave the player on roll nothing to do, the position is passed over silently —
-            you never see it, and it does not count as a skip.
-        </li>
-        <li>
-            <strong>A play XG never listed counts as a skip, not a wrong answer.</strong> If
-            you submit a legal play that isn't among the analyzed candidates, there is no
-            equity loss to record against it, so it scores as a skip. You still see the
-            solution.
-        </li>
-        <li>
-            <strong>A cube position is two decisions, not one.</strong> The double and the
-            take are scored independently, so one cube problem contributes one doubling
-            decision and one take decision to your totals.
-        </li>
-        <li>
-            <strong>Clicking the dice advances.</strong> On the solution view, clicking the
-            dice on the board does exactly what <em>Continue</em> does.
-        </li>
-        @* Deliberately about the control and its behaviour, never an inventory of
-           what the panel holds — that list grows, and prose naming its entries
-           would be wrong the day one is added. *@
-        <li>
-            <strong>The side panel folds out of the way.</strong> On a wide screen, the
-            narrow strip down the left edge folds the blue panel away and hands its width
-            back to the page — worth a click if the quiz feels crowded. Clicking the strip
-            again brings the panel back, and the arrow on the strip always points the way
-            the panel will move. The fold stays put while you work through the quiz —
-            answering, skipping and continuing all leave it alone — and the panel comes
-            back when you move to another page or reload. If you would rather it did
-            not come back, turn on <em>Keep the navigation panel folded</em> on the
-            <em>Settings</em> page.
-        </li>
-        <li>
-            <strong>Reloading the browser starts you over.</strong> Moving between pages
-            inside the app is always safe — your folder, filters, and progress are kept. But a
-            full browser reload (F5) discards all of it, and you will need to pick your folder
-            again. Your lifetime stats file is not lost — it lives in your folder, and picking
-            the folder again resumes it.
-        </li>
-    </ul>
+        <h3 class="h4 mt-4" id="@HelpSections.WeightedMix.AnchorId">@HelpSections.WeightedMix.Heading</h3>
+        <p>
+            Below the filters, <em>Weighted mix</em> composes the quiz out of your
+            <em>Lifetime stats</em> (below) instead of simply taking everything the
+            filters matched. Add categories — never seen, ever got wrong, not seen in
+            so many days, average equity loss over a threshold, wrong more than some
+            share of the time — give each a percentage, and make the percentages
+            total 100. You get a quiz built to those proportions from the problems
+            your filters selected.
+        </p>
+        <ul>
+            <li>
+                <strong>Row order settles overlap.</strong> A problem that fits two
+                of your categories counts toward the <em>earlier</em> row, so the
+                ↑ / ↓ buttons are how you say which category gets first claim.
+                <em>Everything else</em> catches whatever the rows above it didn't.
+            </li>
+            <li>
+                <strong>Quiz length is optional.</strong> Left blank, the mix takes
+                every problem its categories can reach; set it and the percentages
+                divide up that many problems instead.
+            </li>
+            <li>
+                <strong>A mix that applies owns the order.</strong> Its own
+                <em>Random order</em> setting then decides how problems are
+                presented, and the page's Shuffle order checkbox is disabled — your
+                choice there is kept, and comes back when you turn the mix off.
+            </li>
+            <li>
+                <strong>No lifetime stats, no mix.</strong> The mix is what your
+                stats record composes into a quiz, so it appears only for a folder
+                that can save stats <em>and</em> already has some — on a folder
+                you've never quizzed from, there is nothing yet to weight by, and
+                the section simply isn't there. Run one quiz from it and the mix is
+                offered from then on. If the stats turn out to be unusable when you
+                press Start, BgQuiz refuses rather than quietly running an
+                unweighted quiz: it offers to start that one quiz without the mix,
+                and keeps the mix you built either way.
+            </li>
+            <li>
+                <strong>Turn it on with <em>Mix applies</em>.</strong> The mix you
+                compose does nothing until you check that box (after applying the
+                filters — the mix draws from the filtered pool), and what runs is
+                always exactly the mix shown on screen. Unchecking turns it off
+                without losing anything. Your rows keep — across pages, folder
+                changes, and reloads — but the checkbox itself resets when you
+                change folders or reload, so check it again to weight the next
+                quiz. If the mix on screen is broken while the box is checked,
+                Start waits until you fix it or uncheck.
+            </li>
+        </ul>
 
-    @* Feedback. Same href as Home's footer link, from the one AppInfo value, so
-       the version in the subject can never be the version of some other build.
-       Naming the version in the prose too is deliberate: a tester who mails from
-       a different device still knows what to quote. *@
-    <h2 class="h4 mt-4">Send feedback</h2>
-    <p>
-        BgQuiz is in beta, and the point of this round is to hear what breaks,
-        what confuses, and what is missing.
-        <a href="@AppInfo.FeedbackMailto">Email the BgQuiz beta address</a> — the
-        subject line comes pre-filled with the exact build you are running
-        (<code>@AppInfo.Version</code>), which is the first thing needed to make
-        sense of a report.
-    </p>
+        <h2 class="h3 mt-5" id="@HelpSections.Answering.AnchorId">@HelpSections.Answering.Heading</h2>
+        <p>
+            What each problem asks of you, and how the answer you give is scored.
+        </p>
 
-    @if (Controller.HasStarted && !Controller.IsFinished)
-    {
-        <button class="btn btn-primary mt-3" @onclick="BackToQuiz">
-            Back to quiz
-        </button>
-    }
+        <h3 class="h4 mt-4" id="@HelpSections.AnswerThePosition.AnchorId">@HelpSections.AnswerThePosition.Heading</h3>
+        <p>
+            Each problem is one of two kinds, and the board tells you which:
+        </p>
+        <ul>
+            <li>
+                <strong>Checker play.</strong> The dice are rolled, and you enter the play you
+                would make by clicking the board — see <em>Making a checker play</em> below.
+            </li>
+            <li>
+                <strong>Cube decision.</strong> The board is read-only. Answer with the radio
+                buttons beside the Submit button: what the player on roll should do
+                (double or not), and how the opponent should respond (take or pass).
+            </li>
+        </ul>
+        <p>
+            Press <em>Submit</em> to answer, or <em>Skip</em> to move on without answering.
+        </p>
+
+        <h3 class="h4 mt-4" id="@HelpSections.MakingACheckerPlay.AnchorId">@HelpSections.MakingACheckerPlay.Heading</h3>
+        <p>
+            Plays are entered with single clicks — there is nothing to drag, and no
+            pick-up-and-put-down. The board updates after every click, and only clicks that keep
+            a legal full play reachable are accepted — anything else simply does nothing, so you
+            cannot build an illegal play, and you cannot leave part of the roll unplayed when it
+            could have been played. Landing on a lone opposing checker hits it automatically.
+        </p>
+        <ul>
+            <li>
+                <strong>Clicking on a point you occupy moves a checker from there:</strong> it
+                advances by one die straight away. When either die could play from that point, the
+                <em>leftmost</em> die shown on the board is used — click the dice to swap them
+                (see below). When the move carries the checker off the board, it bears off; that
+                is just an ordinary move.
+            </li>
+            <li>
+                <strong>Clicking on a point that's empty or contains an opposing blot brings
+                checkers there.</strong> If the point can be made, it is: two of your checkers land
+                on it in the fewest moves, hitting anything in the way. With ordinary dice that
+                uses both and finishes the play; with doubles you may still have dice left. If the
+                point cannot be made, one checker that can reach it goes there instead. When there
+                are two equally short ways to do it, the click does nothing; make the moves one at
+                a time instead. This works even while you have a checker on the bar — see
+                <em>Clicking on the bar</em>.
+            </li>
+            <li>
+                <strong>Clicking on the bar enters a checker</strong>, and always works while you
+                have one there. When both dice could enter, the <em>leftmost</em> die is used —
+                swap the dice to enter on the other point, or click the entry point directly. While
+                any checker of yours is on the bar it must enter before anything else can move —
+                but you can still click any point that is empty or holds an opposing blot: the
+                entry happens first, and the rest of the roll brings a checker to the point you
+                clicked. That checker need not be the one that entered — with a 2-1 from the bar,
+                clicking an opposing blot in your home board enters with the two and hits with the
+                one, as long as there is exactly one way to do it. Clicking a point you occupy does
+                nothing while you are on the bar, even one the entering checker could reach: enter
+                first, then move normally.
+            </li>
+            <li>
+                <strong>Clicking on the checker tray bears off as many checkers as the roll
+                allows</strong>, whenever there is a unique way to do it. If two ways bear off
+                equally many, the tray does nothing — bear off point by point instead, by clicking
+                each checker's own point.
+            </li>
+            <li>
+                <strong>Click the dice to swap them, or to submit.</strong> While the play is
+                unfinished, clicking the dice swaps the order they are shown in — which changes
+                which one a checker click uses — without disturbing the moves you have already
+                made. (Doubles have nothing to swap.) Once the play is finished, clicking the dice
+                submits it, exactly as the <em>Submit</em> button does.
+            </li>
+            <li>
+                <strong>Change your mind — <em>Undo last</em> and <em>Undo all</em>.</strong> Undo
+                last takes back the most recent move; Undo all restores the starting position.
+                <em>Submit</em> stays disabled until the whole roll has been played.
+            </li>
+        </ul>
+
+        <h3 class="h4 mt-4" id="@HelpSections.Scoring.AnchorId">@HelpSections.Scoring.Heading</h3>
+        <p>
+            A submitted answer is scored against XG's analysis of that position. Correct means
+            you chose a play or action with no equity loss; otherwise the equity you gave up is
+            recorded. Skipped problems are counted separately and never affect your accuracy.
+            Scores are kept in four buckets: checker plays, doubling decisions, take decisions,
+            and the total across all three.
+        </p>
+
+        <h2 class="h3 mt-5" id="@HelpSections.AfterTheQuiz.AnchorId">@HelpSections.AfterTheQuiz.Heading</h2>
+        <p>
+            What you can look at once a problem is answered, and once a run is over.
+        </p>
+
+        <h3 class="h4 mt-4" id="@HelpSections.ReviewTheSolution.AnchorId">@HelpSections.ReviewTheSolution.Heading</h3>
+        <p>
+            After you submit, the board switches to the solution view: XG's full analysis panel,
+            with the recorded play marked <strong>*</strong> and your answer marked
+            <strong>†</strong> when it differs. <em>Continue</em> moves to the next problem;
+            <em>Redo</em> takes back your answer and returns you to the same position to try
+            again.
+        </p>
+
+        <h3 class="h4 mt-4" id="@HelpSections.StatsAndFinishing.AnchorId">@HelpSections.StatsAndFinishing.Heading</h3>
+        <p>
+            <em>Show stats</em> opens a running scoreboard at any point mid-quiz, and returns you
+            to exactly where you were. When the last problem is answered you land on the summary
+            page, where you can restart with the same filters or start over with new ones.
+        </p>
+
+        <h3 class="h4 mt-4" id="@HelpSections.LifetimeStats.AnchorId">@HelpSections.LifetimeStats.Heading</h3>
+        <p>
+            In browsers that can grant write access to a folder (Chrome and Edge), BgQuiz
+            also keeps a <em>lifetime</em> record: how often each position has been quizzed,
+            how often you got it right, and when you last saw it. It lives in a small file
+            named <code>@QuizStatsFile.FileName</code> inside your problem folder, right
+            beside the files it tracks, and is updated after each problem you answer.
+            Like your problem files, it never leaves your machine — it is written directly
+            to your own folder, and nothing is uploaded anywhere.
+        </p>
+        <ul>
+            <li>
+                <strong>Only answered problems count.</strong> Skips, plays XG never listed,
+                and positions skipped for you are not part of your lifetime record. A redone
+                answer counts once — the answer you continue past.
+            </li>
+            <li>
+                <strong>A cube position records two decisions.</strong> The double and the
+                take are counted separately, the same way the in-quiz score counts them — so
+                getting one half right and the other wrong reads as one correct out of two,
+                not as a single wrong answer.
+            </li>
+            <li>
+                <strong>Other browsers still quiz.</strong> Where the browser can't save into
+                the folder (Firefox, Safari), or write access isn't granted, the quiz itself is
+                unchanged — the same problems, the same filters, the same scoreboard. What is
+                lost is the record that builds up <em>across</em> sessions of which problems
+                give you difficulty: nothing is written, so nothing accumulates. The home page
+                tells you which applies when you pick.
+            </li>
+            <li>
+                <strong>An unreadable stats file is left alone.</strong> If the file can't be
+                read (edited by hand, or written by a newer BgQuiz), the quiz runs without
+                recording and the file is not touched.
+            </li>
+            @* Names both files from the app's own naming, like every other file name
+               on this page — the prose cannot drift from what is written. The
+               set-aside name depends on which version the old file was, which this
+               page has no way of knowing, so it states the rule and shows the rule
+               applied rather than promising one particular name. Says what happens
+               and what it costs; the reason it can't be carried forward is a fact
+               about the file, not an invitation to explain position identity to
+               someone who came here to quiz. *@
+            <li>
+                <strong>Stats from an earlier version start over.</strong> BgQuiz changed
+                how it recognises a position, so a stats file written by an earlier version
+                can't be carried forward. The first quiz you run in that folder sets the old
+                file aside — nothing is deleted — under a name that records the version it
+                came from, such as <code>@QuizStatsFile.RetiredNameFor(1)</code>, and starts
+                a fresh <code>@QuizStatsFile.FileName</code> beside it. The quiz tells you
+                the name it used.
+            </li>
+        </ul>
+
+        <h2 class="h3 mt-5" id="@HelpSections.Reference.AnchorId">@HelpSections.Reference.Heading</h2>
+        <p>
+            The details that belong to no single step, and where to send what you find.
+        </p>
+
+        <h3 class="h4 mt-4" id="@HelpSections.ThingsWorthKnowing.AnchorId">@HelpSections.ThingsWorthKnowing.Heading</h3>
+        <ul>
+            <li>
+                <strong>Positions with no legal play are skipped for you.</strong> When the dice
+                leave the player on roll nothing to do, the position is passed over silently —
+                you never see it, and it does not count as a skip.
+            </li>
+            <li>
+                <strong>A play XG never listed counts as a skip, not a wrong answer.</strong> If
+                you submit a legal play that isn't among the analyzed candidates, there is no
+                equity loss to record against it, so it scores as a skip. You still see the
+                solution.
+            </li>
+            <li>
+                <strong>A cube position is two decisions, not one.</strong> The double and the
+                take are scored independently, so one cube problem contributes one doubling
+                decision and one take decision to your totals.
+            </li>
+            <li>
+                <strong>Clicking the dice advances.</strong> On the solution view, clicking the
+                dice on the board does exactly what <em>Continue</em> does.
+            </li>
+            @* Deliberately about the control and its behaviour, never an inventory of
+               what the panel holds — that list grows, and prose naming its entries
+               would be wrong the day one is added. *@
+            <li>
+                <strong>The side panel folds out of the way.</strong> On a wide screen, the
+                narrow strip down the left edge folds the blue panel away and hands its width
+                back to the page — worth a click if the quiz feels crowded. Clicking the strip
+                again brings the panel back, and the arrow on the strip always points the way
+                the panel will move. The fold stays put while you work through the quiz —
+                answering, skipping and continuing all leave it alone — and the panel comes
+                back when you move to another page or reload. If you would rather it did
+                not come back, turn on <em>Keep the navigation panel folded</em> on the
+                <em>Settings</em> page.
+            </li>
+            <li>
+                <strong>Reloading the browser starts you over.</strong> Moving between pages
+                inside the app is always safe — your folder, filters, and progress are kept. But a
+                full browser reload (F5) discards all of it, and you will need to pick your folder
+                again. Your lifetime stats file is not lost — it lives in your folder, and picking
+                the folder again resumes it.
+            </li>
+        </ul>
+
+        @* Feedback. Same href as Home's footer link, from the one AppInfo value, so
+           the version in the subject can never be the version of some other build.
+           Naming the version in the prose too is deliberate: a tester who mails from
+           a different device still knows what to quote. *@
+        <h3 class="h4 mt-4" id="@HelpSections.SendFeedback.AnchorId">@HelpSections.SendFeedback.Heading</h3>
+        <p>
+            BgQuiz is in beta, and the point of this round is to hear what breaks,
+            what confuses, and what is missing.
+            <a href="@AppInfo.FeedbackMailto">Email the BgQuiz beta address</a> — the
+            subject line comes pre-filled with the exact build you are running
+            (<code>@AppInfo.Version</code>), which is the first thing needed to make
+            sense of a report.
+        </p>
+
+        @if (Controller.HasStarted && !Controller.IsFinished)
+        {
+            <button class="btn btn-primary mt-3" @onclick="BackToQuiz">
+                Back to quiz
+            </button>
+        }
+
+    </div>
 </div>

@@ -28,6 +28,11 @@ using QuizPage = BgQuiz_Blazor.Client.Components.Pages.Quiz;
 using DonePage = BgQuiz_Blazor.Client.Components.Pages.Done;
 using StatsPage = BgQuiz_Blazor.Client.Components.Pages.Stats;
 using HelpPage = BgQuiz_Blazor.Client.Components.Pages.Help;
+// Same-name aliases rather than importing the whole namespace: `using
+// BgQuiz_Blazor.Client.Components.Pages` would drag every page type in and
+// re-open the Quiz namespace/type ambiguity the aliases above exist to close.
+using HelpSections = BgQuiz_Blazor.Client.Components.Pages.HelpSections;
+using HelpEntry = BgQuiz_Blazor.Client.Components.Pages.HelpEntry;
 using SettingsPage = BgQuiz_Blazor.Client.Components.Pages.Settings;
 using ScorePanelComponent = BgQuiz_Blazor.Client.Components.Pages.ScorePanel;
 using MixPanelComponent = BgQuiz_Blazor.Client.Components.Pages.MixPanel;
@@ -4539,42 +4544,116 @@ public class PageTests : BunitContext
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void Help_RendersTheFlowSectionsAndTheSemanticsSection()
+    public void Help_RendersItsFivePartsInOrder()
     {
-        // The page exists to teach the prerequisites, the flow, the click
-        // vocabulary of a checker play, *and* the semantics a user cannot discover
-        // by clicking around; pin its section skeleton so a future edit can't
-        // quietly drop part of it. The headings alone are pinned, never the prose
-        // beneath them. Order is part of the pin: the two setup features live where
-        // the user meets them on Home (filters, then saved filters, then the mix),
-        // and the prerequisites lead because everything after them assumes them.
+        // The outer half of the skeleton (SPEC-help.md §1): the parts a reader
+        // scans, in the journey order, each carrying its own anchor id. The
+        // flat h2 list this replaced could not distinguish a part from a
+        // section, so the grouping had no pin at all.
+        //
+        // Read from HelpSections rather than spelled: the table is the page's
+        // single source for both the words and the ids, so a test restating
+        // either would be the second encoding the table exists to remove. Which
+        // words are right is the e2e suite's question — it references no app
+        // assembly, and holds the literals for exactly that reason.
         WithController();
 
         var cut = Render<HelpPage>();
 
-        var headings = cut.FindAll("h2").Select(h => h.TextContent.Trim()).ToList();
-        Assert.Equal(
-            [
-                "Before you start",
-                "Your data stays yours",
-                "Pick your folder",
-                "Choose filters",
-                "Save filters you use often",
-                "Weight the quiz by your lifetime stats",
-                "Answer the position",
-                "Making a checker play",
-                "Scoring",
-                "Review the solution",
-                "Stats and finishing",
-                "Lifetime stats",
-                "Things worth knowing",
-                "Send feedback",
-            ],
-            headings);
+        var parts = cut.FindAll("h2").ToList();
+        Assert.Equal(HelpSections.Parts.Select(p => p.Heading), parts.Select(h => h.TextContent.Trim()));
+        Assert.Equal(HelpSections.Parts.Select(p => p.AnchorId), parts.Select(h => h.Id));
     }
 
     [Fact]
-    public void Help_BeforeYouStart_StatesTheBrowserRuleFromTheSharedConstant()
+    public void Help_RendersEachPartsSectionsBeneathIt_InOrder()
+    {
+        // The inner half, grouped: every section is an h3, under the part that
+        // owns it, in HelpSections' order — so an edit can neither drop a
+        // section nor move one into the wrong part. Order is part of the pin:
+        // the two setup features live where the user meets them on Home
+        // (filters, then saved filters, then the mix), and the prerequisites
+        // lead their part because everything after them assumes them.
+        //
+        // Scoped by walking from each part heading to the next h2 rather than by
+        // taking all h3s at once: a flat comparison would pass on a page whose
+        // sections were all correct but attached to the wrong parts, which is
+        // precisely what the grouping added.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        foreach (var part in HelpSections.Parts)
+        {
+            var partHeading = cut.FindAll("h2").Single(h => h.Id == part.AnchorId);
+            var sections = new List<AngleSharp.Dom.IElement>();
+            for (var node = partHeading.NextElementSibling;
+                 node is not null && !string.Equals(node.TagName, "H2", StringComparison.OrdinalIgnoreCase);
+                 node = node.NextElementSibling)
+            {
+                if (string.Equals(node.TagName, "H3", StringComparison.OrdinalIgnoreCase))
+                    sections.Add(node);
+            }
+
+            Assert.Equal(
+                part.Sections.Select(s => s.Heading),
+                sections.Select(h => h.TextContent.Trim()));
+            Assert.Equal(part.Sections.Select(s => s.AnchorId), sections.Select(h => h.Id));
+        }
+    }
+
+    [Fact]
+    public void Help_ContentsBlock_ListsEveryPartAndSection_InOrder_AndEveryEntryLands()
+    {
+        // The contents block (SPEC-help.md §2). Two claims, and the page needs
+        // both:
+        //
+        //  - It is rendered from the same table the headings are, so it cannot
+        //    list a section the document does not have or miss one it does.
+        //    Asserted as the full entry sequence, parts and their sections
+        //    interleaved in document order — a set comparison would pass on a
+        //    contents block that listed everything in the wrong order, which is
+        //    the one thing a reader uses it for.
+        //  - Every entry actually lands. The href is checked against the
+        //    entry's anchor id AND the id is resolved in the rendered page,
+        //    because a contents block built correctly out of the table is still
+        //    dead if the heading it names never rendered — bUnit renders the
+        //    real page, so that half is checkable here rather than only in a
+        //    browser. What stays e2e's alone is whether clicking one moves the
+        //    reader (Blazor's same-document navigation).
+        //
+        // EndsWith, not equality: the hrefs are the page's own address plus the
+        // fragment, because a bare "#fragment" resolves against <base href="/">
+        // and would land the reader on Home.
+        //
+        // FilterHelp's own sections are deliberately absent from the expected
+        // sequence: they are the producer's structure, and the block lists two
+        // levels of this page's own.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        var nav = cut.Find("nav");
+        Assert.Equal(
+            "Contents",
+            cut.Find("#" + nav.GetAttribute("aria-labelledby")).TextContent.Trim());
+
+        var expected = HelpSections.Parts
+            .SelectMany(p => new HelpEntry[] { p }.Concat(p.Sections))
+            .ToList();
+        var entries = nav.QuerySelectorAll("a").ToList();
+
+        Assert.Equal(expected.Select(e => e.Heading), entries.Select(a => a.TextContent.Trim()));
+
+        foreach (var (entry, link) in expected.Zip(entries))
+        {
+            Assert.EndsWith("#" + entry.AnchorId, link.GetAttribute("href")!, StringComparison.Ordinal);
+            Assert.Equal(entry.Heading, cut.Find("#" + entry.AnchorId).TextContent.Trim());
+        }
+    }
+
+    [Fact]
+    public void Help_WhatYouNeed_StatesTheBrowserRuleFromTheSharedConstant()
     {
         // The beta wave's prerequisites lead. The browser sentence is the one
         // clause Help renders *verbatim* from FolderPickDisplay rather than
@@ -4591,7 +4670,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public void Help_BeforeYouStart_NamesBothFilesBgQuizWritesIntoTheFolder()
+    public void Help_WhatYouNeed_NamesBothFilesBgQuizWritesIntoTheFolder()
     {
         // Same page/rule discipline the caps and the stats filename already use,
         // extended to the second file the app writes: the prerequisites lead tells
@@ -4622,7 +4701,7 @@ public class PageTests : BunitContext
         var cut = Render<HelpPage>();
 
         var section = SectionText(
-            cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Your data stays yours"));
+            cut.FindAll("h3").Single(h => h.TextContent.Trim() == "Your data stays yours"));
 
         Assert.Contains(MixDraft.StorageKey, section);
         Assert.Contains(QuizSettings.StorageKey, section);
@@ -4646,12 +4725,12 @@ public class PageTests : BunitContext
 
         var cut = Render<HelpPage>();
 
-        var heading = cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Your data stays yours");
+        var heading = cut.FindAll("h3").Single(h => h.TextContent.Trim() == "Your data stays yours");
 
         var links = new List<AngleSharp.Dom.IElement>();
         var codes = new List<string>();
         for (var node = heading.NextElementSibling;
-             node is not null && !string.Equals(node.TagName, "H2", StringComparison.OrdinalIgnoreCase);
+             node is not null && !EndsASection(node);
              node = node.NextElementSibling)
         {
             links.AddRange(node.QuerySelectorAll("a"));
@@ -4692,7 +4771,7 @@ public class PageTests : BunitContext
     {
         // The other half of "compose, don't consolidate": the files BgQuiz writes
         // into the user's folder are already named from QuizStatsFile /
-        // SavedFiltersDocument in Before you start, so the data section points back at
+        // SavedFiltersDocument in What you need, so the data section points back at
         // them rather than restating them. Pinned because the natural instinct
         // when writing a section called "where everything is stored" is to list
         // all of it in one place — which would put the two filenames on the page
@@ -4702,7 +4781,7 @@ public class PageTests : BunitContext
         var cut = Render<HelpPage>();
 
         var section = SectionText(
-            cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Your data stays yours"));
+            cut.FindAll("h3").Single(h => h.TextContent.Trim() == "Your data stays yours"));
 
         Assert.DoesNotContain(QuizStatsFile.FileName, section);
         Assert.DoesNotContain(SavedFiltersDocument.FileName, section);
@@ -4720,7 +4799,7 @@ public class PageTests : BunitContext
 
         var cut = Render<HelpPage>();
 
-        var headings = cut.FindAll("h2").ToList();
+        var headings = cut.FindAll("h3").ToList();
         var savedFilters = headings.Single(h => h.TextContent.Trim() == "Save filters you use often");
         var mix = headings.Single(
             h => h.TextContent.Trim() == "Weight the quiz by your lifetime stats");
@@ -4748,7 +4827,7 @@ public class PageTests : BunitContext
         var cut = Render<HelpPage>();
 
         var section = SectionText(
-            cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters"));
+            cut.FindAll("h3").Single(h => h.TextContent.Trim() == "Choose filters"));
 
         // Substrings deliberately kept inside a single source line: the rendered
         // text carries the razor file's own line breaks and indentation.
@@ -4772,7 +4851,7 @@ public class PageTests : BunitContext
         var cut = Render<HelpPage>();
 
         var section = SectionText(
-            cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters"));
+            cut.FindAll("h3").Single(h => h.TextContent.Trim() == "Choose filters"));
 
         // Substrings deliberately kept inside a single source line: the rendered
         // text carries the razor file's own line breaks and indentation.
@@ -4796,7 +4875,7 @@ public class PageTests : BunitContext
         var cut = Render<HelpPage>();
 
         var section = SectionText(
-            cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters"));
+            cut.FindAll("h3").Single(h => h.TextContent.Trim() == "Choose filters"));
 
         Assert.Contains("breaks the pool down by the kind of", section);
         Assert.Contains("Every kind is listed every time", section);
@@ -4831,7 +4910,7 @@ public class PageTests : BunitContext
         // ...and it lands inside Choose filters, where the surrounding framing puts
         // it, rather than floating somewhere the reader meets before the panel.
         var section = SectionText(
-            cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters"));
+            cut.FindAll("h3").Single(h => h.TextContent.Trim() == "Choose filters"));
         Assert.Contains(FilterFacet.AnalysisDepth.ToLabel(), section);
         Assert.Contains(FilterFacet.ErrorRange.ToLabel(), section);
 
@@ -4850,19 +4929,22 @@ public class PageTests : BunitContext
     {
         // FilterHelp requires the host to state its heading level, because only
         // the host knows the outline it is embedding into (RZ2012 makes an
-        // unstated level a build error). This page's sections are h2 — the "h4"
-        // class on them is Bootstrap sizing, not a level — and the block sits
-        // inside one of them, so its lead belongs one deeper and its own
-        // sections one deeper again.
+        // unstated level a build error). This page's sections are h3 under
+        // parts at h2 — the "h4" class on a section is Bootstrap sizing, not a
+        // level — and the block sits inside one of those sections, so its lead
+        // belongs one deeper and its own sections one deeper again.
         //
-        // Asserted as the relationship rather than the literals 3 and 4: the
+        // Asserted as the relationship rather than the literals 4 and 5: the
         // rule is "one below the section that contains it", and a test spelling
-        // the number would agree with a page whose own sections had moved.
+        // the number would agree with a page whose own sections had moved. They
+        // just did move — the parts pushed every section down a level
+        // (SPEC-help.md §4) — and this pin held across it without being
+        // rewritten, which is the whole argument for stating it this way.
         WithController();
 
         var cut = Render<HelpPage>();
 
-        var host = cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters");
+        var host = cut.FindAll("h3").Single(h => h.TextContent.Trim() == "Choose filters");
         var lead = cut.Find("#fh-filters");
         var facet = cut.Find("#fh-error-range");
 
@@ -4911,7 +4993,7 @@ public class PageTests : BunitContext
 
         var cut = Render<HelpPage>();
 
-        var heading = cut.FindAll("h2").Single(h => h.TextContent.Trim() == "Choose filters");
+        var heading = cut.FindAll("h3").Single(h => h.TextContent.Trim() == "Choose filters");
         var hostProse = HostProseInSection(heading);
 
         Assert.Contains("before Start becomes available", hostProse);
@@ -4933,9 +5015,10 @@ public class PageTests : BunitContext
 
     /// <summary>
     /// The rendered text of one Help section: everything from the given heading
-    /// up to the next <c>h2</c>. Lets a section-scoped assertion say what it
-    /// means on a page where the same term legitimately appears in several
-    /// sections (a whole-markup <c>Contains</c> would not discriminate).
+    /// up to whatever ends the section (<see cref="EndsASection"/>). Lets a
+    /// section-scoped assertion say what it means on a page where the same term
+    /// legitimately appears in several sections (a whole-markup
+    /// <c>Contains</c> would not discriminate).
     /// </summary>
     private static string SectionText(AngleSharp.Dom.IElement heading) =>
         SectionText(heading, includeEmbeddedPanelHelp: true);
@@ -4958,12 +5041,26 @@ public class PageTests : BunitContext
     private static string HostProseInSection(AngleSharp.Dom.IElement heading) =>
         SectionText(heading, includeEmbeddedPanelHelp: false);
 
+    /// <summary>
+    /// Whether this element ends the section above it — the next section
+    /// (<c>h3</c>) or the next part (<c>h2</c>), since a section also ends where
+    /// its part does. Both are needed: keying on <c>h2</c> alone would run every
+    /// section's text on into the sections after it within the same part, and
+    /// keying on <c>h3</c> alone would run a part's last section into the next
+    /// part's lead sentence. <c>FilterHelp</c>'s embedded headings are neither
+    /// (<c>h4</c> / <c>h5</c>), so the block stays inside the section that hosts
+    /// it.
+    /// </summary>
+    private static bool EndsASection(AngleSharp.Dom.IElement element) =>
+        string.Equals(element.TagName, "H2", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(element.TagName, "H3", StringComparison.OrdinalIgnoreCase);
+
     private static string SectionText(
         AngleSharp.Dom.IElement heading, bool includeEmbeddedPanelHelp)
     {
         var text = new System.Text.StringBuilder();
         for (var node = heading.NextElementSibling;
-             node is not null && !string.Equals(node.TagName, "H2", StringComparison.OrdinalIgnoreCase);
+             node is not null && !EndsASection(node);
              node = node.NextElementSibling)
         {
             if (!includeEmbeddedPanelHelp && node.QuerySelector("[id^='fh-']") is not null)
@@ -5656,14 +5753,54 @@ public class PageTests : BunitContext
         //     the radios out of the board region (into the action row) removed
         //     that need entirely.
         // Comments are stripped so only real declarations are checked.
+        //
+        // The max-height half is scoped to the rules that name the board, not to
+        // the whole file, and that is the claim rather than a concession: what
+        // was retired is a *consumer-side height bound on the board*, and a
+        // file-wide absence said that only for as long as app.css described
+        // nothing else. It now also lays out /help, whose contents rail bounds
+        // its own height so nineteen entries scroll on a short window instead of
+        // being clipped — a declaration with no bearing on this contract that
+        // would nonetheless have failed the file-wide form. Every reintroduction
+        // this pin exists to catch names .bg-diagram, .bg-play-entry or
+        // .board-container, so scoping to those selectors keeps all of them and
+        // drops only the false positives.
         var css = File.ReadAllText(AppCssPath());
         var noComments = Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);
 
         Assert.DoesNotContain("display: contents", noComments);
         Assert.DoesNotContain("display:contents", noComments);
-        Assert.DoesNotContain("max-height", noComments);
         Assert.DoesNotContain(":has(", noComments);
+        Assert.DoesNotContain("max-height", BoardRules(noComments));
     }
+
+    /// <summary>
+    /// Every declaration block of comment-stripped <c>app.css</c> whose selector
+    /// satisfies <paramref name="matches"/>, concatenated — so a scoped CSS
+    /// assertion covers all the rules that style a thing rather than whichever
+    /// one a regex happened to reach first.
+    /// <para>
+    /// The selector pattern excludes <c>@</c>, so an at-rule prelude
+    /// (<c>@media …</c>) never matches as a selector while the rules nested
+    /// inside it still do: a rule inside a media query is as much a rule as one
+    /// outside, and both compositions this file lays out live in such queries.
+    /// </para>
+    /// </summary>
+    private static string RulesWhoseSelector(string noComments, Func<string, bool> matches) =>
+        string.Concat(
+            Regex.Matches(noComments, @"(?<selector>[^{}@]+)\{(?<body>[^{}]*)\}")
+                .Where(m => matches(m.Groups["selector"].Value))
+                .Select(m => m.Value));
+
+    /// <summary>
+    /// The rules that style the board — everything the bounded-height contract
+    /// governs.
+    /// </summary>
+    private static string BoardRules(string noComments) =>
+        RulesWhoseSelector(
+            noComments,
+            s => s.Contains("board", StringComparison.Ordinal)
+                 || s.Contains("bg-", StringComparison.Ordinal));
 
     [Fact]
     public void AppCss_RetiredBadgeContainerQueryAnchor_StaysGone()
@@ -5739,6 +5876,48 @@ public class PageTests : BunitContext
         Assert.True(rule.Success, ".board-container rule present");
         Assert.Contains("flex: 0 1 auto", noComments);
         Assert.DoesNotContain("flex: 1 1 0", noComments);
+    }
+
+    [Fact]
+    public void AppCss_HelpContents_IsARailOnlyAtBootstrapLgAndUp()
+    {
+        // SPEC-help.md §5's responsive ruling, which is a CSS-only fact: the
+        // markup renders ONE <nav>, always directly after the h1 and its lead,
+        // and which of the spec's two placements a reader gets is decided
+        // entirely here. bUnit renders the DOM and cannot evaluate a media
+        // query, so nothing else in either suite can see this — the live check
+        // at both widths is the measurement, and this is what stops the ruling
+        // being edited away without one.
+        //
+        // Three declarations, and each is a separate way to lose the rule.
+        // Outside any media query the block must NOT be positioned: a sticky
+        // rail that leaked out of the query would follow a narrow reader down
+        // the page, which is the failure the ruling names. Inside the lg query
+        // the grid is what puts it beside the document, and `position: sticky`
+        // is what makes it a rail rather than a column that scrolls away.
+        var css = File.ReadAllText(AppCssPath());
+        var noComments = Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);
+
+        var lgQuery = Regex.Match(
+            noComments,
+            @"@media\s*\(min-width:\s*992px\)\s*\{(?:[^{}]|\{[^{}]*\})*\}",
+            RegexOptions.Singleline);
+        Assert.True(lgQuery.Success, "lg media query present");
+        Assert.Contains(".help-page", lgQuery.Value);
+        Assert.Contains("display: grid", lgQuery.Value);
+        Assert.Contains("position: sticky", lgQuery.Value);
+
+        // EVERY unconditional rule naming the block, not the first one found:
+        // the block is styled by several (a shared reading-width rule, its own,
+        // its lists, its links), and a first-match form was vacuous — it kept
+        // matching the grouped max-width rule and passed with `position: sticky`
+        // sitting in the rule below it, which is the exact revert this half
+        // exists to catch.
+        var narrow = noComments.Replace(lgQuery.Value, "");
+        var narrowRules = RulesWhoseSelector(
+            narrow, s => s.Contains(".help-contents", StringComparison.Ordinal));
+        Assert.NotEmpty(narrowRules);
+        Assert.DoesNotContain("position:", narrowRules);
     }
 
     /// <summary>
