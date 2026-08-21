@@ -2,6 +2,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using AngleSharp.Dom;
 using BackgammonDiagram_Lib;
 using BackgammonDiagram_Lib.Rendering;
 using BgDataTypes_Lib;
@@ -4176,16 +4177,17 @@ public class PageTests : BunitContext
         // rather than in a standalone block above the branch. It *opens* that
         // cluster rather than closing the row: End quiz trails it (issue #57).
         //
-        // The ms-auto that pushes the cluster away from the answer controls is
-        // the CLUSTER's, not this button's: the cluster now leads with the XGID
-        // badge, which renders nothing for a decision without one, so an ms-auto
-        // on its first child would be on a different element per problem.
+        // The cluster is right-aligned as a CLUSTER, not by this button: since
+        // the locator joined it (halheinrich/backgammon#115) it takes the width
+        // the answer instruments leave and right-aligns inside it, so that it
+        // can shrink rather than wrap. The nowrap is the load-bearing half of
+        // that and is asserted here; the ms-auto this replaced is gone.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
         var tail = cut.Find(".action-row-tail");
-        Assert.Contains("ms-auto", tail.ClassList);
+        AssertClusterCannotWrap(tail);
 
         var tailButtons = tail.QuerySelectorAll("button");
         Assert.Equal("Show stats", tailButtons[0].TextContent.Trim());
@@ -4202,7 +4204,7 @@ public class PageTests : BunitContext
         Assert.NotNull(c.Review);
 
         var tail = cut.Find(".action-row-tail");
-        Assert.Contains("ms-auto", tail.ClassList);
+        AssertClusterCannotWrap(tail);
 
         var tailButtons = tail.QuerySelectorAll("button");
         Assert.Equal("Show stats", tailButtons[0].TextContent.Trim());
@@ -4814,6 +4816,45 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public void Help_AnswerThePosition_DocumentsTheProblemsLocator()
+    {
+        // SPEC-help.md §7's queued-copy ruling sends this sentence to the part
+        // that owns the behaviour, and SPEC-quiz-view.md §4 is the behaviour:
+        // the chip is the reader's only route back to a position in eXtreme
+        // Gammon, and while answering maximized it is the only surface naming
+        // the file at all.
+        //
+        // Scoped to the section, not to the page: an unscoped match would keep
+        // passing if the sentence were moved into any other part, which is the
+        // one thing §7 rules about it. And the claim is what it SAYS, not that
+        // some sentence exists — the file, the two numbers, and the "whole
+        // match" qualifier that covers the standalone-position case without
+        // making the page explain file formats.
+        WithController();
+
+        var cut = Render<HelpPage>();
+        // Whitespace-normalised, because the claim is about the SENTENCE and
+        // the razor's line breaks survive into TextContent — an unnormalised
+        // fragment pin fails the day the paragraph is re-wrapped, which says
+        // nothing about the copy.
+        var section = Regex.Replace(
+            SectionText(cut.FindAll("h3")
+                .Single(h => h.Id == HelpSections.AnswerThePosition.AnchorId)),
+            @"\s+", " ");
+
+        Assert.Contains("names the file each position came from", section);
+        Assert.Contains("when the file holds a whole match, its game and move number", section);
+        Assert.Contains("eXtreme Gammon", section);
+
+        // It names no chrome. The label's own words are ProblemLocator's
+        // constants; prose quoting them would be a second copy to keep in step,
+        // and the standing rule is that Help points at a surface rather than
+        // transcribing it.
+        Assert.DoesNotContain("Game 3", section);
+        Assert.DoesNotContain("Problem location", section);
+    }
+
+    [Fact]
     public void Help_ChooseFilters_DocumentsTheMatchCountAndItsMixCaveat()
     {
         // The count line shipped undocumented. Two readings of it are wrong and
@@ -5294,6 +5335,164 @@ public class PageTests : BunitContext
         AssertXgidIsInTheBottomRowOnly(cut);
     }
 
+    /// <summary>
+    /// The locator's home, asserted as one place — the mirror of
+    /// <see cref="AssertXgidIsInTheBottomRowOnly"/> for
+    /// <c>SPEC-quiz-view.md</c> §4's 2026-08-21 amendment (issue
+    /// <c>halheinrich/backgammon#115</c>).
+    /// </summary>
+    /// <remarks>
+    /// The absent half is asserted <b>once</b> here, not twice, and the
+    /// difference from the badge's helper is deliberate. The badge's
+    /// content-level twin exists because the XGID has a second route onto the
+    /// canvas (<c>DiagramOptions.ShowXgid</c>) that a class selector is blind
+    /// to. The file name has no such route into the quiz page's control — the
+    /// producer's own title strip names it, legitimately and untouched, in
+    /// every composition that renders one — so a content-level "the file name
+    /// is not in the board region" pin would be false wherever the strip
+    /// exists, and true only by accident where it does not. What §4 rules is
+    /// where BgQuiz renders <i>this chip</i>; that is what this asserts.
+    /// </remarks>
+    private static void AssertLocatorIsInTheBottomRowOnly(IRenderedComponent<QuizPage> cut)
+    {
+        var chip = Assert.Single(cut.FindAll(".problem-locator"));
+        Assert.Contains("action-row-tail", chip.ParentElement!.ClassList);
+        Assert.NotNull(chip.Closest(".board-chrome"));
+
+        Assert.Empty(cut.FindAll(".board-container .problem-locator"));
+    }
+
+    /// <summary>
+    /// How <see cref="SampleLocation"/>'s file name is expected to read on the
+    /// page — extension and middle gone. Spelled out rather than computed, so
+    /// a change to the derivation has to be re-typed here to pass.
+    /// </summary>
+    private const string SampleLocatorName = "gobetzu_…43811643";
+
+    /// <summary>And its coordinates, in the reader's terms.</summary>
+    private const string SampleLocatorWhere = "Game 3 · Move 12";
+
+    /// <summary>
+    /// A real-shaped source location: a match file name long enough that the
+    /// page exercises the truncation rather than only the short-name branch,
+    /// and coordinates that are neither 1 nor each other.
+    /// </summary>
+    private static TestFixtures.SourceLocation SampleLocation =>
+        TestFixtures.SourceLocation.InMatch("gobetzu_Brian Sposit_10082026_43811643.xg", 3, 12);
+
+    /// <summary>
+    /// The other source shape — a standalone position file, whose synthetic
+    /// coordinates the chip must not show (<c>SPEC-quiz-view.md</c> §4 ruling
+    /// (ii)). Named the way eXtreme Gammon names its own exports, so the pin
+    /// reads as the misdescription it exists to prevent: this file's own name
+    /// says game 2, move 37.
+    /// </summary>
+    private static TestFixtures.SourceLocation SampleOnePositionLocation =>
+        TestFixtures.SourceLocation.OnePosition("match35253054_2_37.xgp");
+
+    [Fact]
+    public async Task Quiz_PlayAnswering_Locator_RendersInTheBottomRow_NotOnTheBoard()
+    {
+        // Normal view by name, for the reason the badge's counterpart is:
+        // §4's ruling is a BOTH-modes claim, and this is the pin standing on
+        // the Normal side of it.
+        var c = WithController(TestFixtures.TwoChoiceDecision(
+            BestPlay(), AltPlay(), xgid: SampleXgid, location: SampleLocation));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await NormalViewAsync();
+        var cut = Render<QuizPage>();
+
+        AssertLocatorIsInTheBottomRowOnly(cut);
+
+        // Through the page, not only through the component: the three facts
+        // reach the chip from the record the controller is holding, so a
+        // mis-bound parameter fails here even though ProblemLocatorTests would
+        // stay green.
+        Assert.Equal(SampleLocatorName, cut.Find(".problem-locator-file").TextContent);
+        Assert.Equal(SampleLocatorWhere, cut.Find(".problem-locator-where").TextContent);
+        Assert.Equal(SampleLocation.SourceFile, cut.Find(".problem-locator .visually-hidden").TextContent);
+    }
+
+    [Fact]
+    public async Task Quiz_CubeAnswering_Locator_RendersInTheBottomRow_NotOnTheBoard()
+    {
+        // The cube branch renders a board-only diagram and a wider action row;
+        // §4 gives the chip one home across both problem kinds, not one per
+        // kind — per-kind chrome is exactly what §2's invariance forbids.
+        var c = WithController(TestFixtures.CubeDecision(
+            xgid: SampleXgid, location: SampleLocation));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        AssertLocatorIsInTheBottomRowOnly(cut);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_Locator_RendersInTheBottomRow_NotOnTheBoard()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(
+            BestPlay(), AltPlay(), xgid: SampleXgid, location: SampleLocation));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.NotNull(c.Review);
+
+        AssertLocatorIsInTheBottomRowOnly(cut);
+    }
+
+    [Fact]
+    public async Task Quiz_OnePositionSource_Locator_NamesTheFileAndNumbersNothing()
+    {
+        // §4's ruling (ii), through the page rather than only the component:
+        // the chip's suppression depends on the record's identity KIND, and the
+        // page is where that identity is bound. A binding that passed the
+        // Descriptive category, or nothing at all, would leave the component's
+        // own pins green and put "Game 1 · Move 1" back on a file whose name
+        // says game 2, move 37.
+        var c = WithController(TestFixtures.TwoChoiceDecision(
+            BestPlay(), AltPlay(), xgid: SampleXgid, location: SampleOnePositionLocation));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        AssertLocatorIsInTheBottomRowOnly(cut);
+
+        // The name, extension gone and middle elided — this one is 18 characters
+        // after the strip, so it also exercises the truncation through the page
+        // on a second, real file name.
+        Assert.Equal("match352…054_2_37", cut.Find(".problem-locator-file").TextContent);
+        Assert.Empty(cut.FindAll(".problem-locator-where"));
+
+        // …and the numbers really were there to be shown, so the absence above
+        // is the ruling working and not an unstamped record.
+        Assert.Equal(1, c.Current!.Descriptive.Game);
+        Assert.Equal(1, c.Current!.Descriptive.MoveNumber);
+    }
+
+    [Fact]
+    public async Task Quiz_TrailingCluster_OrdersXgidThenLocatorThenTheButtons()
+    {
+        // §4's tail order, as one claim rather than four: XGID → locator →
+        // Show stats → End quiz. The two ends are what the order exists for —
+        // the position's provenance opens the cluster, and End quiz keeps the
+        // far end of the row, which is issue #57's whole mitigation and not
+        // this chip's to spend. Asserting the sequence (rather than "the chip
+        // is somewhere in the tail") is what catches the chip being inserted
+        // past a button, which is the way that mitigation actually erodes.
+        var c = WithController(TestFixtures.TwoChoiceDecision(
+            BestPlay(), AltPlay(), xgid: SampleXgid, location: SampleLocation));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        var tail = cut.Find(".action-row-tail");
+        var children = tail.Children;
+
+        Assert.Equal(4, children.Length);
+        Assert.Contains("xgid-label", children[0].ClassList);
+        Assert.Contains("problem-locator", children[1].ClassList);
+        Assert.Equal("Show stats", children[2].TextContent.Trim());
+        Assert.Equal("End quiz", children[3].TextContent.Trim());
+    }
+
     [Fact]
     public async Task Quiz_ActionRow_IsOneRow_SharedByBothStates()
     {
@@ -5316,19 +5515,52 @@ public class PageTests : BunitContext
         Assert.Single(cut.FindAll(".action-row > .action-row-tail"));
     }
 
-    [Fact]
-    public async Task Quiz_NoXgid_TrailingClusterKeepsItsMsAuto()
+    /// <summary>
+    /// The cluster is a <b>single, non-wrapping</b> flex item — the structural
+    /// half of <c>SPEC-quiz-view.md</c> §4's shrink-never-wrap ruling (i).
+    /// A wrapping cluster is how the row grows a second line, which is the one
+    /// thing the fixed-height contract forbids; it shrinks its two text chips
+    /// instead, in the order <c>app.css</c> weights them.
+    /// </summary>
+    /// <remarks>
+    /// bUnit's AngleSharp evaluates no CSS, so this can only pin the class the
+    /// stylesheet and Bootstrap hang that behaviour off — the live consequence
+    /// (row height under a narrow viewport) is measured in a browser instead.
+    /// What it does catch is the regression that actually happened before the
+    /// ruling: the cluster carrying <c>flex-wrap</c>, which put the locator on
+    /// a second line at every width where the cube row was widest.
+    /// </remarks>
+    private static void AssertClusterCannotWrap(IElement tail)
     {
-        // XgidLabel renders nothing for an empty XGID, so the ms-auto that pushes
-        // the trailing cluster away from the answer controls cannot live on the
-        // badge — this is the state that would silently left-align the cluster if
-        // it did.
+        Assert.Contains("flex-nowrap", tail.ClassList);
+        Assert.DoesNotContain("flex-wrap", tail.ClassList);
+    }
+
+    [Fact]
+    public async Task Quiz_NoXgidAndNoLocator_TrailingClusterStillCannotWrap()
+    {
+        // BOTH of the cluster's leading components render nothing on a record
+        // that carries neither fact — XgidLabel for an empty XGID, and (since
+        // issue halheinrich/backgammon#115) ProblemLocator for a record that
+        // locates nothing. This is the emptiest the cluster ever gets, and its
+        // layout contract has to survive it.
+        //
+        // Re-keyed twice over from Quiz_NoXgid_TrailingClusterKeepsItsMsAuto.
+        // The fixture half: the old pin still passed, but on a record that had
+        // quietly acquired a SECOND nothing-rendering component, so it was no
+        // longer pinning the state it names. The claim half: there is no
+        // ms-auto to keep — §4's ruling (i) replaced the auto margin with
+        // "take the leftover width and right-align inside it", because an auto
+        // margin cannot stop a contents-sized cluster from deciding the row's
+        // line breaks. Keeping the old assertion would have pinned a utility
+        // class that no longer positions anything.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
         Assert.Empty(cut.FindAll(".xgid-label"));
-        Assert.Contains("ms-auto", cut.Find(".action-row-tail").ClassList);
+        Assert.Empty(cut.FindAll(".problem-locator"));
+        AssertClusterCannotWrap(cut.Find(".action-row-tail"));
     }
 
     [Fact]
@@ -5641,6 +5873,39 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Quiz_Maximized_Locator_KeepsItsBottomRowHome_AnsweringAndReview()
+    {
+        // The locator has ONE home in BOTH view modes (SPEC-quiz-view.md §4's
+        // 2026-08-21 amendment, issue halheinrich/backgammon#115), and this is
+        // the composition the amendment came out of: maximized answering, where
+        // the producer's title strip — the only surface that named the source
+        // file — is dropped by §4's own earlier ruling, leaving a money problem
+        // with nothing at all to locate it by. So "present in the maximized
+        // answering view" is this ruling's load-bearing half; the Submit below
+        // then pins that it does not teleport when the composition normalizes.
+        var c = WithController(TestFixtures.TwoChoiceDecision(
+            BestPlay(), AltPlay(), xgid: SampleXgid, location: SampleLocation));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await MaximizedViewAsync();
+
+        var cut = Render<QuizPage>();
+
+        Assert.Empty(cut.FindAll(".status-strip"));   // maximized, as staged
+        Assert.Equal(AspectPreset.BoardOnly, RenderedCanvas(cut));
+        AssertLocatorIsInTheBottomRowOnly(cut);
+        Assert.Equal(SampleLocatorName, cut.Find(".problem-locator-file").TextContent);
+        Assert.Equal(SampleLocatorWhere, cut.Find(".problem-locator-where").TextContent);
+
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.NotNull(c.Review);
+
+        Assert.NotEmpty(cut.FindAll(".status-strip"));  // normalized
+        AssertLocatorIsInTheBottomRowOnly(cut);
+        Assert.Equal(SampleLocatorName, cut.Find(".problem-locator-file").TextContent);
+        Assert.Equal(SampleLocatorWhere, cut.Find(".problem-locator-where").TextContent);
+    }
+
+    [Fact]
     public async Task Quiz_Maximized_RedoAndContinue_ReMaximize_WithNoSpecialCase()
     {
         // "One rule, no special cases" (§4): the composition is derived from the
@@ -5864,6 +6129,76 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public void AppCss_ActionRowTail_ShrinksAndNeverWraps()
+    {
+        // SPEC-quiz-view.md §4's ruling (i), issue halheinrich/backgammon#115 —
+        // the whole of the fixed-height contract now that the row carries two
+        // text chips. `flex: 1 1 0` and `min-width: 0` are ONE mechanism and
+        // both are load-bearing, which is why both are pinned:
+        //
+        //   * flex-basis 0 is what takes the cluster out of the row's
+        //     line-breaking decision (that decision reads each item's
+        //     hypothetical main size, which for basis `auto` is its max-content
+        //     width — an auto margin cannot reduce it, which is why the ms-auto
+        //     this replaced could not have worked);
+        //   * min-width 0 is what stops that hypothetical size being clamped
+        //     straight back up to the cluster's min-content, and a nowrap text
+        //     run's min-content is the WHOLE run — so with `auto` the cluster
+        //     wraps anyway.
+        //
+        // Measured: with `auto` the cube row at 1280x800 took a second line
+        // (38px -> 84px, board 655.7x680.4 -> 611.3x634.4); with `0` the row is
+        // 38px and the board unchanged at 1440x900 and 1280x800 alike, in both
+        // view modes and for both problem kinds. bUnit evaluates no CSS — this
+        // stops the pair being edited without a fresh measurement.
+        var css = File.ReadAllText(AppCssPath());
+        var rule = Regex.Match(css, @"\.action-row-tail\s*\{[^}]*\}", RegexOptions.Singleline);
+
+        Assert.True(rule.Success, ".action-row-tail rule present");
+        Assert.Contains("flex: 1 1 0", rule.Value);
+        Assert.Contains("min-width: 0", rule.Value);
+    }
+
+    [Fact]
+    public void AppCss_TailChips_ShrinkInTheRuledOrder()
+    {
+        // §4's ruling (i) again, this time the ORDER: the XGID text goes first,
+        // down to its copy button, and only then does the locator's file name
+        // narrow — the numbers never move at all.
+        //
+        // Flex shrinkage is shared in proportion to (flex-shrink x flex base
+        // size), so the badge's 1000 against the locator's 1 is the ordering
+        // itself and not emphasis; equal weights would take the file name apart
+        // while the XGID still read in full. The badge's floor is spelled as
+        // its own parts — the copy button's 1.75rem plus the 0.4rem gap — so it
+        // stays true if either is restyled; `auto` there would refuse to shrink
+        // at all and `0` would squeeze the button out, and the ruled target is
+        // copyability. The coordinates are `flex: none`, which is the only
+        // reason the file name is what gives when the chip is squeezed.
+        var css = File.ReadAllText(AppCssPath());
+        var badge = Regex.Match(css, @"\.xgid-label\s*\{.*?\}", RegexOptions.Singleline);
+        var chip = Regex.Match(css, @"\.problem-locator\s*\{[^}]*\}", RegexOptions.Singleline);
+        var name = Regex.Match(css, @"\.problem-locator-file\s*\{[^}]*\}", RegexOptions.Singleline);
+        var where = Regex.Match(css, @"\.problem-locator-where\s*\{[^}]*\}", RegexOptions.Singleline);
+
+        Assert.True(badge.Success, ".xgid-label rule present");
+        Assert.Contains("flex-shrink: 1000", badge.Value);
+        Assert.Contains("min-width: calc(1.75rem + 0.4rem)", badge.Value);
+
+        Assert.True(chip.Success, ".problem-locator rule present");
+        Assert.Contains("flex-shrink: 1", chip.Value);
+        Assert.Contains("min-width: 0", chip.Value);
+
+        Assert.True(name.Success, ".problem-locator-file rule present");
+        Assert.Contains("min-width: 0", name.Value);
+        Assert.Contains("text-overflow: ellipsis", name.Value);
+
+        Assert.True(where.Success, ".problem-locator-where rule present");
+        Assert.Contains("flex: none", where.Value);
+        Assert.Contains("white-space: nowrap", where.Value);
+    }
+
+    [Fact]
     public void AppCss_BoardRegion_TakesTheSmallerOfRemainderAndNaturalHeight()
     {
         // SPEC-quiz-view.md §2's vertical law as amended 2026-08-17 (issue
@@ -5882,13 +6217,25 @@ public class PageTests : BunitContext
         // literal old declaration returning beside it. bUnit has no CSS engine —
         // the geometry lives in the commit message and §2; this stops the
         // declaration being reverted without a fresh measurement.
+        //
+        // BOTH halves are scoped to the .board-container rules — EVERY one of
+        // them, since the declaration lives in a media-query copy rather than
+        // the bare rule — re-keyed from a whole-file match at
+        // halheinrich/backgammon#115. `flex: 1 1 0` is an ordinary declaration,
+        // not a forbidden string: the action row's trailing cluster now carries
+        // it deliberately, for an unrelated reason (§4's shrink-never-wrap
+        // ruling). A file-wide absence pin turned that into a false failure
+        // and, worse, would have kept failing for every future rule that ever
+        // wanted the same three values — which is not a claim §2 makes about
+        // anything but this one region.
         var css = File.ReadAllText(AppCssPath());
         var noComments = Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);
-        var rule = Regex.Match(noComments, @"\.board-container\s*\{[^}]*\}", RegexOptions.Singleline);
+        var rules = Regex.Matches(noComments, @"\.board-container\s*\{[^}]*\}", RegexOptions.Singleline);
+        var region = string.Join(Environment.NewLine, rules.Select(m => m.Value));
 
-        Assert.True(rule.Success, ".board-container rule present");
-        Assert.Contains("flex: 0 1 auto", noComments);
-        Assert.DoesNotContain("flex: 1 1 0", noComments);
+        Assert.NotEmpty(rules);
+        Assert.Contains("flex: 0 1 auto", region);
+        Assert.DoesNotContain("flex: 1 1 0", region);
     }
 
     [Fact]

@@ -320,12 +320,18 @@
                     </button>
                 }
 
-                @* The trailing cluster, pushed away from the answer controls by
-                   its own ms-auto rather than by the first button's — so the
-                   cluster stays right-aligned in the one state that renders no
-                   badge at all (a decision with no XGID: XgidLabel renders
-                   nothing, and an ms-auto living on the button would then be
-                   the wrong element's).
+                @* The trailing cluster. It is right-aligned by TAKING the width
+                   the answer instruments leave (flex-basis 0 + grow, app.css)
+                   rather than by an auto margin, and it never wraps inside
+                   itself: that is what makes §4's fixed-height contract hold by
+                   construction once the locator joined it — a contents-sized
+                   cluster decides the row's line breaks by its max-content
+                   width, so it would push itself onto a second line at exactly
+                   the widths where the widest problem kind needs the room. The
+                   cluster shrinks instead, in a ruled order (app.css). The
+                   earlier ms-auto is gone with the mechanism it named; nothing
+                   in here positions anything any more, which is also why no
+                   rule remains about which child may render nothing.
 
                    THE XGID'S ONE HOME (SPEC-quiz-view.md §4, issue
                    halheinrich/backgammon#98). It leads the cluster — present in
@@ -333,9 +339,33 @@
                    keeps this row — so it never obscures canvas content and never
                    teleports between modes. It leads rather than closes the
                    cluster so that End quiz keeps the far end of the row, which
-                   is #57's mitigation and not this badge's to spend. *@
-                <div class="action-row-tail d-flex flex-wrap gap-2 align-items-center ms-auto">
+                   is #57's mitigation and not this badge's to spend.
+
+                   THE LOCATOR HAS THE SAME ONE HOME (SPEC-quiz-view.md §4's
+                   2026-08-21 amendment, issue halheinrich/backgammon#115), and
+                   for the same reason the badge does: maximized answering drops
+                   the producer's title strip, which was the only surface naming
+                   the file, and a money problem carries no score to frame it by.
+                   It follows the XGID because the two together are the position's
+                   provenance, and precedes the buttons because End quiz still
+                   keeps the far end. Its three facts are bound one by one rather
+                   than by handing the component the whole Descriptive category:
+                   what this chip displays IS its contract, and a wider parameter
+                   would let it grow a fourth fact without a ruling. Display
+                   only — none of them reaches ProblemKey, the dedupe or the
+                   stats document (see ProblemLocator, and SPEC-stats-identity.md
+                   for why file position is deliberately not identity).
+
+                   Source is the record's identity, and only its KIND is read:
+                   a standalone .xgp position has no within-file coordinates to
+                   show, and the converter's synthetic ones would misdescribe it
+                   (§4's ruling (ii) — see ProblemLocator.SourceIsOnePosition). *@
+                <div class="action-row-tail d-flex flex-nowrap gap-2 align-items-center">
                     <XgidLabel Xgid="@current.Xgid" />
+                    <ProblemLocator SourceFile="@current.Descriptive.SourceFile"
+                                    Game="current.Descriptive.Game"
+                                    MoveNumber="current.Descriptive.MoveNumber"
+                                    Source="current.Id" />
                     <button class="btn btn-outline-secondary" @onclick="ShowStats">
                         Show stats
                     </button>

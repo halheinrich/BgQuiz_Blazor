@@ -198,6 +198,39 @@ public abstract class E2eTestBase : IAsyncLifetime
             [(FixturePath(fixtureFileName), fixtureFileName)]);
 
     /// <summary>
+    /// <see cref="PickFixtureAsync"/> with the staged file <b>renamed</b> —
+    /// same committed bytes, a different name on disk. For scenarios whose
+    /// subject is the name itself rather than the position: a folder of real
+    /// eXtreme Gammon exports holds names far longer than this suite's
+    /// fixtures, and the quiz page's own layout contract turns on that length
+    /// (<c>SPEC-quiz-view.md</c> §4). Committing a second copy of the same
+    /// position under a longer name would be the same staging with a
+    /// maintenance cost attached.
+    /// </summary>
+    /// <param name="fixtureFileName">The committed fixture supplying the bytes.</param>
+    /// <param name="stagedFileName">
+    /// The name to stage it under, extension included — it must be the same
+    /// extension, since that is what decides how the app parses the file.
+    /// </param>
+    protected Task PickFixtureUnderNameAsync(string fixtureFileName, string stagedFileName)
+    {
+        if (!string.Equals(
+                Path.GetExtension(fixtureFileName),
+                Path.GetExtension(stagedFileName),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                $"Staged name '{stagedFileName}' must keep '{fixtureFileName}'s extension — the " +
+                "extension is what selects the parse path, so changing it stages a different test.",
+                nameof(stagedFileName));
+        }
+
+        return StageAndPickAsync(
+            Path.GetFileNameWithoutExtension(stagedFileName),
+            [(FixturePath(fixtureFileName), stagedFileName)]);
+    }
+
+    /// <summary>
     /// The multi-problem form of <see cref="PickFixtureAsync"/>: stage
     /// <paramref name="problems"/> of the committed <see cref="CubeFixtures"/>,
     /// so the quiz has several problems to walk through.

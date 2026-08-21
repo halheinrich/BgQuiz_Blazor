@@ -80,6 +80,59 @@ public class TestFixtureContractTests
         Assert.NotEqual(TestFixtures.KeyOf(jacobyOn), TestFixtures.KeyOf(jacobyOff));
     }
 
+    [Fact]
+    public void FixturesDifferingOnlyInWhereTheyCameFrom_AreTheSameProblem()
+    {
+        // The locator's whole safety claim, proved rather than asserted
+        // (SPEC-quiz-view.md §4, issue halheinrich/backgammon#115): the file
+        // name and the game/move coordinates it displays are display facts, and
+        // display facts are not identity. Two records alike in every position
+        // and decision fact but drawn from different files, games and moves are
+        // ONE problem — which is what lets the chip name a file while
+        // SPEC-stats-identity.md goes on keying by content, and what makes the
+        // dedupe still collapse the same position met twice under two names.
+        //
+        // The counterpart above (MoneyFixtures_DifferingOnlyInTheJacobyRule…)
+        // is the same shape with the opposite verdict, so neither can pass by
+        // the key having stopped discriminating anything at all.
+        var here = TestFixtures.CubeDecision(
+            location: TestFixtures.SourceLocation.InMatch("first-match.xg", 1, 4));
+        var there = TestFixtures.CubeDecision(
+            location: TestFixtures.SourceLocation.InMatch("another-match.xg", 7, 31));
+
+        // The premise: they really do differ on all three, so the equality
+        // below is about the key ignoring them, not about them being alike.
+        Assert.NotEqual(here.Descriptive.SourceFile, there.Descriptive.SourceFile);
+        Assert.NotEqual(here.Descriptive.Game, there.Descriptive.Game);
+        Assert.NotEqual(here.Descriptive.MoveNumber, there.Descriptive.MoveNumber);
+
+        Assert.Equal(TestFixtures.KeyOf(here), TestFixtures.KeyOf(there));
+    }
+
+    [Fact]
+    public void AnXgpAndAnXgRecordOfTheSamePosition_AreTheSameProblem()
+    {
+        // The other axis of the same claim, and the one the locator's .xgp
+        // branch makes worth stating (SPEC-quiz-view.md §4 ruling (ii)): the
+        // chip now reads the record's IDENTITY KIND to decide what to display,
+        // so it is worth pinning that the kind reaches display and stops there.
+        // The same position exported as a standalone .xgp and met inside its
+        // match carries two different DecisionIds — that asymmetry is by design
+        // (see DecisionId) — and remains one problem to the stats document, so
+        // answering it in one form counts against the other.
+        var standalone = TestFixtures.CubeDecision(
+            location: TestFixtures.SourceLocation.OnePosition("position.xgp"));
+        var inMatch = TestFixtures.CubeDecision(
+            location: TestFixtures.SourceLocation.InMatch("match.xg", 2, 37));
+
+        // The premise, again asserted: the identities really are different
+        // shapes, so the equality below is the key ignoring the id entirely.
+        Assert.IsType<XgpDecisionId>(standalone.Id);
+        Assert.IsType<XgDecisionId>(inMatch.Id);
+
+        Assert.Equal(TestFixtures.KeyOf(standalone), TestFixtures.KeyOf(inMatch));
+    }
+
     private static BgDecisionData Unstamped(BgDecisionData decision) =>
         WithJacoby(decision, null);
 

@@ -195,6 +195,9 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
   Components/
     XgidLabel.razor / .razor.cs    — selectable+copyable XGID badge (in-flow;
                                       the quiz page's bottom row is its one home)
+    ProblemLocator.razor / .razor.cs — the problem's locator chip: source file
+                                      name (middle-truncated) + game/move, same
+                                      home, same row
     Pages/
       Home.razor / .razor.cs        — landing: pick + filters + mix + Start
       MixPanel.razor / .razor.cs    — mix builder (a view over MixDraft)
@@ -1811,20 +1814,18 @@ The asymmetry is pinned three times over: at the service seam
   on `_playEntry` being assigned (see the `@ref`-timing pitfall).
 
   **There is ONE action row (`.action-row`), shared by both states** — only the
-  leading answer instruments branch. Its trailing cluster (`.action-row-tail`,
-  which carries the `ms-auto`) is the XGID badge, then "Show stats", then
-  **"End quiz"** (issue #57 — § `QuizController` for what that transition does).
-  End quiz is one-click and immediate, ruled: the confirmation the issue first
-  sketched was dropped, so its placement at the far end of the row — as far from
-  Submit / Continue as the row allows — *is* the mitigation, and `PageTests` pins
-  it there; the badge therefore *opens* the cluster rather than closing it. The
-  shared row is what keeps the two states' row heights equal (and so the board's
-  flex remainder unchanged) **by construction** — the claim the old two-row
-  arrangement had to make by hand. The `ms-auto` lives on the cluster, not on its
-  first child: `XgidLabel` renders nothing for a decision with no XGID, so a
-  first-child `ms-auto` would be a different element per problem. The semantic
-  class names are the pins' hooks — the Bootstrap utilities beside them still do
-  the layout. **Review** (`Review`
+  leading answer instruments branch. Its trailing cluster (`.action-row-tail`)
+  holds, **in this order**, the XGID badge, the problem's locator, "Show stats",
+  then **"End quiz"** (issue #57 — § `QuizController` for what that transition
+  does). End quiz is one-click and immediate, ruled: the confirmation the issue
+  first sketched was dropped, so its placement at the far end of the row — as far
+  from Submit / Continue as the row allows — *is* the mitigation, and `PageTests`
+  pins the whole sequence; the two provenance chips therefore *open* the cluster
+  rather than closing it. The shared row is what keeps the two states' row
+  heights equal (and so the board's flex remainder unchanged) **by
+  construction** — the claim the old two-row arrangement had to make by hand. The
+  semantic class names are the pins' hooks — the Bootstrap utilities beside them
+  still do the layout. **Review** (`Review`
   set): a read-only `BackgammonDiagram` in `DiagramMode.Solution` plus
   Continue / Redo / Show stats, built with `DiagramRequest.Builder.From(...)`
   and then the user's marks overridden from `Review` — `UserPlayIndex` for a
@@ -1858,13 +1859,15 @@ The asymmetry is pinned three times over: at the service seam
   components bare.
   Consequences worth knowing before touching it: **one site, not three** (a
   per-branch badge is how one composition ends up rendering it differently);
-  the badge is **in-flow and positions nothing**, so the old `position:
+  and the badge is **in-flow and positions nothing**, so the old `position:
   relative` host requirement and the `container-type: inline-size` cqw anchor
   on `.board-container .bg-diagram` are both gone (pinned retired — see
-  Pitfalls); and it must never be the element carrying the cluster's `ms-auto`,
-  because it renders nothing for a decision with an empty `Xgid`. The
-  producer's `Overlay` slot and the exporters' baked corner label are
-  untouched — this is the quiz page's placement choice only.
+  Pitfalls). The producer's `Overlay` slot and the exporters' baked corner label
+  are untouched — this is the quiz page's placement choice only. Nothing in the
+  cluster may be load-bearing for its layout, because either of its two leading
+  components can render nothing at all (an empty `Xgid`; a record that locates
+  nothing) — which is why the cluster right-aligns itself rather than being
+  pushed by an `ms-auto` on a first child that varies per problem.
 
   **The visible text is capped at `2.5rem`, and the cap is a board-size
   contract** (`AppCss_XgidLabelText_StaysCapped`). Uncapped, the badge wraps the
@@ -1883,10 +1886,57 @@ The asymmetry is pinned three times over: at the service seam
   string, `title` reveals it on hover, and the complete text is in the DOM for a
   screen reader. A horizontal-scroll affordance was considered and **declined**
   by the umbrella — tooltip plus copy covers the read path.
-  **Not this rule's to fix:** the row's own wrapping below ~1270px (cube) /
-  ~900px (checker) predates the badge and is `halheinrich/backgammon#99`. The
-  badge adds a uniform ~80px to both thresholds (cube 1350, checker 980), so a
-  cube-only divergence band survives between ~1280 and ~1350.
+  **Not this rule's to fix:** the row's own wrapping at narrow widths predates
+  the badge and is `halheinrich/backgammon#99`. Since the cluster stopped taking
+  part in the row's line-breaking (below), the *leading* segment is the only
+  thing that decides it: measured 2026-08-21 with the cluster at full width, the
+  row is one line down to ~900px (cube) / ~640px (checker) of viewport with the
+  nav panel showing, where it used to be ~1350 / ~980.
+
+  **The problem's locator shares that home, and the cluster now shrinks rather
+  than wraps** (`SPEC-quiz-view.md` §4's 2026-08-21 amendment and its two
+  build-time rulings, issue `halheinrich/backgammon#115`). `ProblemLocator`
+  renders at **one** site, immediately after the badge, present in both view
+  modes and both states — read §4 for why the tail and not the producer's title
+  strip, and for what the chip may and may not show. What lives here is only
+  what a reader of this code needs:
+
+  - **The cluster is `flex: 1 1 0` + `min-width: 0` + `flex-nowrap`, and all
+    three are the fixed-height contract** (`AppCss_ActionRowTail_ShrinksAndNeverWraps`).
+    Flexbox breaks lines on each item's *hypothetical* main size, which for
+    `flex-basis: auto` is max-content — so a contents-sized cluster puts itself
+    on a second line, and an auto margin cannot prevent it. That is why the
+    `ms-auto` this replaced had to go rather than be kept beside the new rules.
+  - **The shrink order is weights, not breakpoints**
+    (`AppCss_TailChips_ShrinkInTheRuledOrder`): the badge's `flex-shrink: 1000`
+    against the locator's `1` empties the XGID text — down to a floor spelled as
+    the copy button plus its gap — before the file name loses a character, and
+    the game/move numbers are `flex: none` and never move. §4 ruling (i) is what
+    ordered them that way.
+  - **Measured 2026-08-21** on the widest row there is (a cube problem from a
+    long-named `.xg` match): row height **38px, unchanged**, and board size
+    unchanged to the pixel, at 1440×900 and 1280×800, in both view modes. The
+    ruled fallback of a second row for cube rows only was **not needed**. Below
+    the desktop band the two text chips run out of width and the cluster
+    overflows its line rather than wrapping — the deliberate price of "never
+    grows", and no page-level horizontal scrollbar appears at any width down to
+    400px.
+  - **An `.xgp` source shows its file name and no numbers** (§4 ruling (ii)).
+    The discriminant is the record's `DecisionId` *kind* — `XgpDecisionId` keys
+    on a bare filename precisely because there are no within-file coordinates —
+    read as a type, never sniffed from the extension and never parsed out of the
+    id's canonical string. The converter's synthetic `Game 1 · Move 1` on such
+    records is a producer wart, booked separately; do not work around it here.
+  - **The move number was verified against XG, not against the converter.** XG
+    exports a single position as `<match>_<game>_<move>.xgp`; reading the parent
+    `.xg` through the converter, the only decision whose XGID matches
+    `match35253054_2_37.xgp` is stamped game 2, move 37, and the same holds for
+    the play in `MTCH4064_1_22.xgp`. So the cube stamp (`ctx.MoveNumber + 1` —
+    the number of the play it precedes) **is** XG's own number, for cube and
+    play alike. Re-check this way if the stamping ever changes.
+  - **None of it is identity.** The three facts reach display and stop
+    (`TestFixtureContractTests`), which is what lets `SPEC-stats-identity.md` go
+    on keying by content while the chip names a file.
 
   **The maximize-board mode** (issue #41 / `SPEC-quiz-view.md` §4). With the
   user's `QuizSettings.MaximizeBoardWhileAnswering` on, the *answering*

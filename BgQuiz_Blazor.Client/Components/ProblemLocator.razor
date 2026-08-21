@@ -1,0 +1,24 @@
+@* The problem's locator, rendered in normal flow wherever the host places it —
+   sibling of XgidLabel, bound at the same one site (SPEC-quiz-view.md §4). The
+   file name is middle-truncated to a capped width, because the row it sits in
+   is board budget; the untruncated name is what a screen reader is given and
+   what a hover reveals. Renders nothing when the record locates nothing (see
+   the code-behind). *@
+@if (HasFileName || HasCoordinates)
+{
+    <div class="problem-locator" role="group" aria-label="@LocatorLabel">
+        @if (HasFileName)
+        {
+            @* The accessible name is the record's file name verbatim, extension
+               and all — the thing the reader goes looking for on disk. The
+               visible twin beside it is the shortened form, hidden from the
+               accessibility tree so the name is not announced twice. *@
+            <span class="visually-hidden">@SourceFile</span>
+            <span class="problem-locator-file" aria-hidden="true" title="@SourceFile">@DisplayFileName</span>
+        }
+        @if (HasCoordinates)
+        {
+            <span class="problem-locator-where">@WhereText</span>
+        }
+    </div>
+}

@@ -13,6 +13,87 @@ namespace BgQuiz_Blazor.Tests;
 /// </summary>
 internal static class TestFixtures
 {
+    /// <summary>
+    /// Where a fixture's decision sits in its source, as the converter stamps
+    /// it: the file name (with extension, no directory), the 1-based game
+    /// number, and the 1-based move number. The three travel together because
+    /// they are one fact — a file name with no coordinates locates a file, not
+    /// a problem — and they are passed as one parameter so a caller cannot set
+    /// two of them and forget the third.
+    ///
+    /// <para>
+    /// <b>It also fixes the record's identity shape</b>, through
+    /// <see cref="ToId"/>, and that is the point of the two factories rather
+    /// than a constructor. A real record's <c>DecisionId</c> and its
+    /// <c>DescriptiveData</c> cannot disagree about where it came from —
+    /// <c>SPEC-quiz-view.md</c> §4's ruling (ii) reads the <i>identity's</i>
+    /// kind to decide whether the coordinates mean anything — so a fixture that
+    /// let a caller pair an <c>.xgp</c> identity with match coordinates would be
+    /// staging a record the app cannot produce, and any pin standing on it
+    /// would be proving something about nothing.
+    /// </para>
+    ///
+    /// <para>
+    /// Nothing here is content identity: <c>ProblemKey</c> derives from the
+    /// position and the decision alone, which
+    /// <c>TestFixtureContractTests.FixturesDifferingOnlyInWhereTheyCameFrom_AreTheSameProblem</c>
+    /// pins across both shapes. These values exist so a test can drive
+    /// <c>ProblemLocator</c> through the real page; leaving the parameter unset
+    /// leaves the record exactly as every fixture had it before the locator
+    /// existed, so a test that says nothing about provenance still renders no
+    /// chip.
+    /// </para>
+    /// </summary>
+    internal sealed record SourceLocation
+    {
+        private SourceLocation(string sourceFile, int game, int moveNumber, bool onePosition)
+        {
+            SourceFile = sourceFile;
+            Game = game;
+            MoveNumber = moveNumber;
+            IsOnePosition = onePosition;
+        }
+
+        /// <summary>
+        /// A decision inside a multi-game <c>.xg</c> match — the shape that has
+        /// real within-file coordinates, and the one whose numbers agree with
+        /// what eXtreme Gammon shows for the position.
+        /// </summary>
+        public static SourceLocation InMatch(string sourceFile, int game, int moveNumber) =>
+            new(sourceFile, game, moveNumber, onePosition: false);
+
+        /// <summary>
+        /// A standalone <c>.xgp</c> position file. The coordinates are fixed at
+        /// <c>1, 1</c> because that is what the converter really stamps on every
+        /// such record — off a synthetic single-game header — and a fixture that
+        /// invented different ones would let a pin pass on a value the wire
+        /// never produces.
+        /// </summary>
+        public static SourceLocation OnePosition(string sourceFile) =>
+            new(sourceFile, 1, 1, onePosition: true);
+
+        /// <summary>Originating file name, with extension and no directory.</summary>
+        public string SourceFile { get; }
+
+        /// <summary>1-based game number within the source.</summary>
+        public int Game { get; }
+
+        /// <summary>1-based move number within the game.</summary>
+        public int MoveNumber { get; }
+
+        /// <summary>Whether the source file holds this one position and no more.</summary>
+        public bool IsOnePosition { get; }
+
+        /// <summary>
+        /// The identity a real record drawn from here would carry — the
+        /// producer's own two shapes, chosen by this location's own kind.
+        /// </summary>
+        public DecisionId ToId(bool isCube) =>
+            IsOnePosition
+                ? new XgpDecisionId(SourceFile)
+                : new XgDecisionId(SourceFile, Game, MoveNumber, isCube);
+    }
+
     /// <summary>Standard backgammon starting position (Mop array, 26 entries).</summary>
     public static int[] StandardMop()
     {
@@ -66,6 +147,25 @@ internal static class TestFixtures
                 "Fixture has no derivable ProblemKey — its facts are malformed or degenerate.");
 
     /// <summary>
+    /// The provenance category the general factories stamp: the player names
+    /// they were always given, plus <paramref name="location"/> when the caller
+    /// supplied one. One helper rather than two initializers, so the play and
+    /// cube fixtures cannot come to disagree about what an unset location
+    /// means — and the answer is the record's own defaults (no file name,
+    /// game 0, move 0), which <c>ProblemLocator</c> reads as "locates nothing".
+    /// </summary>
+    private static DescriptiveData Describe(
+        string onRoll, string opp, SourceLocation? location) =>
+        new()
+        {
+            OnRollName = onRoll,
+            OpponentName = opp,
+            SourceFile = location?.SourceFile,
+            Game = location?.Game ?? 0,
+            MoveNumber = location?.MoveNumber ?? 0,
+        };
+
+    /// <summary>
     /// Deterministic two-candidate decision: <c>play1</c> at zero loss (best),
     /// <c>play2</c> at <paramref name="play2Loss"/>. Standard Mop, dice (3,1)
     /// for the pass-detection step (not pass — standard start has many plays
@@ -74,6 +174,9 @@ internal static class TestFixtures
     /// play) so existing callers are unaffected. <paramref name="id"/> overrides the
     /// decision's stable identity for tests that pin how <c>BgDecisionData.Id</c>
     /// flows through submissions; defaults to a shared placeholder.
+    /// <paramref name="location"/> stamps where the decision came from (see
+    /// <see cref="SourceLocation"/>); unset leaves the record locating nothing,
+    /// which is what every fixture said before <c>ProblemLocator</c> existed.
     /// <paramref name="away"/> sets both sides' away score (0 = money game) —
     /// the discriminator for tests needing <i>content-distinct</i> problems.
     /// Away scores participate in <see cref="ProblemKey"/> identity, and unlike
@@ -94,11 +197,11 @@ internal static class TestFixtures
     public static BgDecisionData TwoChoiceDecision(
         Play play1, Play play2, double play2Loss = 0.05, string onRoll = "Alice",
         string opp = "Bob", string xgid = "", int recordedPlayIndex = -1,
-        DecisionId? id = null, int away = 0)
+        DecisionId? id = null, int away = 0, SourceLocation? location = null)
     {
         return new BgDecisionData
         {
-            Id = id ?? new XgpDecisionId("test.xgp"),
+            Id = id ?? location?.ToId(isCube: false) ?? new XgpDecisionId("test.xgp"),
             Xgid = xgid,
             Position = new PositionData
             {
@@ -118,7 +221,7 @@ internal static class TestFixtures
                 BestPlayIndex = 0,
                 UserPlayIndex = recordedPlayIndex,
             },
-            Descriptive = new DescriptiveData { OnRollName = onRoll, OpponentName = opp },
+            Descriptive = Describe(onRoll, opp, location),
         };
     }
 
@@ -133,16 +236,17 @@ internal static class TestFixtures
     /// decision's stable identity for tests that pin how <c>BgDecisionData.Id</c>
     /// flows through submissions; defaults to a shared placeholder.
     /// <paramref name="away"/> discriminates content identity exactly as on
-    /// <see cref="TwoChoiceDecision"/>.
+    /// <see cref="TwoChoiceDecision"/>, and <paramref name="location"/> is
+    /// display-only — and supplies the matching identity — exactly as there.
     /// </summary>
     public static BgDecisionData CubeDecision(
         double noDoubleEquity = 0.5, double doubleTakeEquity = 0.7,
         string onRoll = "Alice", string opp = "Bob", string xgid = "",
-        DecisionId? id = null, int away = 0)
+        DecisionId? id = null, int away = 0, SourceLocation? location = null)
     {
         return new BgDecisionData
         {
-            Id = id ?? new XgpDecisionId("test.xgp"),
+            Id = id ?? location?.ToId(isCube: true) ?? new XgpDecisionId("test.xgp"),
             Xgid = xgid,
             Position = new PositionData
             {
@@ -157,7 +261,7 @@ internal static class TestFixtures
                 NoDoubleEquity = noDoubleEquity,
                 DoubleTakeEquity = doubleTakeEquity,
             },
-            Descriptive = new DescriptiveData { OnRollName = onRoll, OpponentName = opp },
+            Descriptive = Describe(onRoll, opp, location),
         };
     }
 

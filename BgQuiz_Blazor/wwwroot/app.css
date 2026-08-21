@@ -259,6 +259,48 @@ h1:focus {
     line-height: 1.35;
 }
 
+/* The action row's trailing cluster — the XGID badge, the problem locator, then
+   Show stats and End quiz (SPEC-quiz-view.md §4). Its one job here is the
+   fixed-height contract: THE ROW SHRINKS, IT NEVER GROWS (§4's build-time
+   ruling (i), issue halheinrich/backgammon#115).
+
+   Why the cluster grows into the free space instead of being pushed there by an
+   auto margin. Flexbox decides line breaks on each item's *hypothetical* main
+   size — for `flex-basis: auto` that is the item's max-content width, which an
+   auto margin does nothing to reduce. So a cluster sized by its contents wraps
+   to a second line the moment those contents outgrow the leftover width, and the
+   row's height becomes a function of the widest problem kind — exactly what §2
+   forbids. `flex-basis: 0` takes the cluster out of that calculation: it is
+   never the item that breaks the line, it takes whatever the answer instruments
+   leave, and its own contents shrink to fit inside it. `justify-content:
+   flex-end` keeps it right-aligned, which is what the `ms-auto` this replaced
+   used to do — that utility is gone from the markup rather than left behind as
+   decoration that no longer positions anything.
+
+   `min-width: 0` is the other half of that and is not optional: `auto` would
+   clamp the hypothetical size back up to the cluster's min-content — which is
+   its FULL content, since a nowrap text run's min-content is the whole run —
+   and the line break returns at exactly the widths the ruling is about
+   (measured: the cube row at 1280x800 wrapped with `auto` and does not with
+   `0`).
+
+   The buttons never shrink: a control narrowed until its label clips is a worse
+   outcome than a shortened file name, and Bootstrap's own sizing is what keeps
+   them tappable. Below the desktop band the two text chips run out of width to
+   give and the cluster overflows its line rather than wrapping — the deliberate
+   price of "never grows", and the reason the shrink order puts the two
+   recoverable things (a copied XGID, a hovered file name) ahead of the two that
+   are not (the numbers, the controls). */
+.action-row-tail {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: flex-end;
+}
+
+.action-row-tail > .btn {
+    flex: none;
+}
+
 /* XGID badge — an in-flow badge in the quiz page's action row, never on the
    canvas (SPEC-quiz-view.md §4's one-home ruling, issue
    halheinrich/backgammon#98). It was previously absolutely positioned in the
@@ -274,6 +316,23 @@ h1:focus {
     max-width: 100%;
     font-size: 0.85rem;
     line-height: 1.2;
+    /* FIRST to give up width when the row runs short (SPEC-quiz-view.md §4's
+       ruling (i)). The weight is what orders the two text chips: shrinkage is
+       shared in proportion to flex-shrink x flex base size, so 1000 against the
+       locator's 1 means this badge is emptied before the locator loses a
+       character.
+
+       It stops at the copy button plus its gap, which is what the min-width
+       spells: `auto` would refuse to shrink at all (a nowrap text run's
+       min-content is the whole run), and `0` would let the button itself be
+       squeezed out. That floor is the ruled one, because the badge's target has
+       been COPYABILITY rather than visibility since 2026-08-13: a copy button
+       with no visible caption still hands over the whole XGID, and `title`, the
+       select-all and the screen-reader text are all indifferent to a used
+       width. Nothing else about the badge changes; the 2.5rem cap below is
+       still the widest it ever draws. */
+    flex-shrink: 1000;
+    min-width: calc(1.75rem + 0.4rem);
     /* No pill: the padded, bordered, drop-shadowed chip was how the badge held
        its own against the *board* it used to overlay. In a row of buttons it is
        decoration — and decoration priced in board pixels, since every pixel of
@@ -351,6 +410,64 @@ h1:focus {
 
 .xgid-label-copy.is-copied {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23198754' viewBox='0 0 16 16'%3E%3Cpath d='M10.854 7.146a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 1 1 .708-.708L7.5 9.793l2.646-2.647a.5.5 0 0 1 .708 0z'/%3E%3Cpath d='M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z'/%3E%3Cpath d='M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z'/%3E%3C/svg%3E");
+}
+
+/* The problem's locator — the chip beside the XGID badge naming the file the
+   position came from and where it sits inside it (SPEC-quiz-view.md §4's
+   2026-08-21 amendment, issue halheinrich/backgammon#115). Same in-flow badge
+   posture as .xgid-label next door, and sized to match it, so the two read as
+   one cluster of provenance rather than two competing chips: no pill, no border,
+   plain rem sizing in ordinary chrome.
+
+   SECOND to give up width, and only after the badge has given up all of its
+   text (§4's ruling (i) — the weights are on .xgid-label above). It shrinks by
+   narrowing its file name, never by wrapping: the cluster is nowrap, so there is
+   no second line for anything here to fall onto.
+
+   `min-width: 0` is what lets it shrink at all (see .action-row-tail for why
+   `auto` refuses). What keeps the ruled floor is that only the file name is
+   shrinkable inside it: the coordinates are `flex: none` and nowrap, so every
+   pixel this chip gives up comes off the name, and the numbers are the last
+   thing standing. Measured at 1280x800 on the widest row there is — a cube
+   problem from a long-named .xg match — the chip lands on the numbers plus a
+   sliver of name, and the row is still one line. */
+.problem-locator {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    min-width: 0;
+    font-size: 0.85rem;
+    line-height: 1.2;
+    color: #212529;
+    flex-shrink: 1;
+}
+
+/* The file name is middle-truncated in C# first (ProblemLocator's
+   MaxVisibleNameLength — CSS can only elide an end, and the end of a match file
+   name is usually the half that tells two of them apart). This max-width caps
+   how wide that already-shortened name may draw when the row has room to spare;
+   the end-ellipsis below it is what takes over when the row has not, trimming
+   the truncated name further from its tail. Both are visual only: `title` and
+   the accessible name carry the untruncated file name whatever the width. No
+   `user-select: all` here, unlike .xgid-label-text — one-click-selecting an
+   elided string hands the reader an ellipsis to paste. */
+.problem-locator-file {
+    display: block;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Never shrinks and never wraps — the ruled floor of the whole cluster. Muted
+   against the file name because the coordinates refine the file rather than
+   competing with it for the eye scanning the row for a name. */
+.problem-locator-where {
+    flex: none;
+    white-space: nowrap;
+    color: #6c757d;
 }
 
 /* Dismissible notices (Quiz's board-space set, SPEC-quiz-view.md §4; Home's
