@@ -79,6 +79,17 @@ internal static class TestFixtures
     /// Away scores participate in <see cref="ProblemKey"/> identity, and unlike
     /// the board or the dice they leave move generation untouched, so a fixture
     /// varied this way stays exactly as playable as the default one.
+    ///
+    /// <para>
+    /// At the default <c>0</c> the fixture is a <b>money</b> position, and money
+    /// is the one score whose key spells the Jacoby rule — an unstamped money
+    /// record has no key at all (the no-key rung) — so the fixture says which
+    /// rule it means. It means Jacoby on; the value is arbitrary here, the stamp
+    /// is not. Off money the fact is meaningless, so match fixtures stay
+    /// unstamped rather than carrying noise, and the stamp is derived from
+    /// <paramref name="away"/> rather than passed in so two fixtures with the
+    /// same score cannot disagree about it.
+    /// </para>
     /// </summary>
     public static BgDecisionData TwoChoiceDecision(
         Play play1, Play play2, double play2Loss = 0.05, string onRoll = "Alice",
@@ -94,6 +105,7 @@ internal static class TestFixtures
                 Mop = StandardMop(),
                 OnRollNeeds = away,
                 OpponentNeeds = away,
+                IsJacoby = away == 0 ? true : null,
             },
             Decision = new DecisionData
             {
@@ -137,6 +149,7 @@ internal static class TestFixtures
                 Mop = StandardMop(),
                 OnRollNeeds = away,
                 OpponentNeeds = away,
+                IsJacoby = away == 0 ? true : null,
             },
             Decision = new DecisionData
             {
@@ -155,6 +168,10 @@ internal static class TestFixtures
     /// <c>BackgammonPlayEntry</c> without hand-picking ambiguous click orderings.
     /// The lone candidate is that play at zero loss, so a completed submit scores
     /// as correct — used to exercise the dice-click → submit wire end-to-end.
+    /// Money, like every unscored fixture here, so it stamps the Jacoby rule for
+    /// the reason <see cref="TwoChoiceDecision"/> does: this file's fixtures are
+    /// real positions, and a real money position with no stamp would silently be
+    /// the no-key rung instead.
     /// </summary>
     public static BgDecisionData BearOffOneDecision(
         string onRoll = "Alice", string opp = "Bob")
@@ -164,7 +181,7 @@ internal static class TestFixtures
         return new BgDecisionData
         {
             Id = new XgpDecisionId("test.xgp"),
-            Position = new PositionData { Mop = m },
+            Position = new PositionData { Mop = m, IsJacoby = true },
             Decision = new DecisionData
             {
                 Dice = [1, 1],
@@ -180,13 +197,18 @@ internal static class TestFixtures
         };
     }
 
-    /// <summary>Pass-position decision — controller must auto-skip silently.</summary>
+    /// <summary>
+    /// Pass-position decision — controller must auto-skip silently. Money, and
+    /// stamped for the same reason <see cref="BearOffOneDecision"/> is: nothing
+    /// asks this fixture for its key today, and an unstamped one would quietly
+    /// stop having one.
+    /// </summary>
     public static BgDecisionData PassDecision()
     {
         return new BgDecisionData
         {
             Id = new XgpDecisionId("test.xgp"),
-            Position = new PositionData { Mop = ClosedOutMop() },
+            Position = new PositionData { Mop = ClosedOutMop(), IsJacoby = true },
             Decision = new DecisionData
             {
                 Dice = [1, 2],
