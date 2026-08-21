@@ -1,4 +1,5 @@
 using Microsoft.Playwright;
+using Xunit.Abstractions;
 using static Microsoft.Playwright.Assertions;
 
 namespace BgQuiz_Blazor.E2eTests;
@@ -41,8 +42,20 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class ProblemLocatorTests : E2eTestBase
 {
-    public ProblemLocatorTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    /// <summary>
+    /// xUnit's per-test output sink, for <see cref="ReportRowGeometryAsync"/>
+    /// alone. First use of it in this suite: every other scenario says what it
+    /// means in assertions, and this one still does — the output is for a
+    /// machine this session cannot run on.
+    /// </summary>
+    private readonly ITestOutputHelper _output;
+
+    public ProblemLocatorTests(
+        PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright)
+    {
+        _output = output;
+    }
 
     /// <summary>
     /// The tight desktop viewport §4's ruling (i) was measured at, fixed here
@@ -73,6 +86,34 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// </summary>
     private const string ExpectedFileName = "long-mon…26-04-12";
 
+    /// <summary>
+    /// The one evaluation behind <see cref="ReportRowGeometryAsync"/> — every
+    /// box read in a single frame, so the four of them cannot describe two
+    /// different layouts.
+    /// </summary>
+    private const string GeometryReportScript = """
+        () => {
+          const r1 = n => Math.round(n * 10) / 10;
+          const box = (label, e) => {
+            if (!e) return '  ' + label.padEnd(20) + '(absent)';
+            const r = e.getBoundingClientRect();
+            return '  ' + label.padEnd(20)
+              + 'x=' + r1(r.x) + '  y=' + r1(r.y)
+              + '  w=' + r1(r.width) + '  h=' + r1(r.height);
+          };
+          const q = sel => document.querySelector(sel);
+          return [
+            box('.action-row', q('.action-row')),
+            box('.bg-cube-actions', q('.bg-cube-actions')),
+            box('last instrument', q('.action-row > :nth-last-child(2)')),
+            box('.action-row-tail', q('.action-row-tail')),
+            '  body font-family:   ' + getComputedStyle(document.body).fontFamily,
+            '  fonts.check Arial:     ' + document.fonts.check('12px Arial'),
+            '  fonts.check Helvetica: ' + document.fonts.check('12px Helvetica'),
+          ].join(String.fromCharCode(10));
+        }
+        """;
+
     /// <summary>The locator, in the one home §4 gives it.</summary>
     private ILocator Chip => Page.Locator(".action-row-tail .problem-locator");
 
@@ -98,6 +139,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await AssertChipReadsTheFixtureAsync();
         await AssertChipSitsBelowTheBoardAsync();
         await AssertClusterSharesTheLastInstrumentsLineAsync();
+        await ReportRowGeometryAsync("answering (maximized)");
 
         await AnswerCubeNoDoubleAsync();
 
@@ -107,6 +149,43 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await AssertChipReadsTheFixtureAsync();
         await AssertChipSitsBelowTheBoardAsync();
         await AssertClusterSharesTheLastInstrumentsLineAsync();
+        await ReportRowGeometryAsync("review (normalized)");
+    }
+
+    /// <summary>
+    /// <b>Diagnostic only — asserts nothing.</b> Writes the action row's
+    /// geometry and the browser's resolved font situation to the test output,
+    /// once per state.
+    ///
+    /// <para>
+    /// It exists for one environment this session cannot reach. The condition
+    /// that turned umbrella CI red lives on Linux Chromium, whose font
+    /// fallbacks are not Windows', and the assertions above can only report
+    /// whether the contract held — not which of the several mechanisms that can
+    /// make this row taller was in play. These four boxes tell them apart: a
+    /// <c>.bg-cube-actions</c> box taller than one control is the producer's
+    /// pill block wrapping, and the row's <c>align-items: center</c> then moves
+    /// every short item down past that block's top with nothing having wrapped;
+    /// a last instrument sitting below the row's own top is the instruments
+    /// wrapping onto a second flex line; and a cluster below the last
+    /// instrument, or taller than it, is the cluster's own CSS not in effect —
+    /// the one mechanism that would be a defect here rather than a consequence
+    /// of something upstream.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Where it shows up.</b> <c>dotnet test</c>'s console logger prints
+    /// captured output for <i>failed</i> tests, which is the case this is for.
+    /// A passing run keeps it in the TRX only; <c>--logger
+    /// "console;verbosity=detailed"</c> surfaces it there too.
+    /// </para>
+    /// </summary>
+    private async Task ReportRowGeometryAsync(string state)
+    {
+        var report = await Page.EvaluateAsync<string>(GeometryReportScript);
+
+        _output.WriteLine($"[locator row geometry] {state}");
+        _output.WriteLine(report);
     }
 
     /// <summary>
