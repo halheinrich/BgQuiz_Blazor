@@ -38,8 +38,9 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   model `ProblemStats` / `ProblemStatsDocument` (immutable, keyed by
   `ProblemKey`; `doc = doc.Plus(submission, TimeProvider)`; bundled type-level
   JSON converter — deserializes with no registration, any bad load throws
-  `JsonException`, and a genuine schema-v1 document throws the
-  `RetiredStatsSchemaException` subtype the store retires on).
+  `JsonException`, and a genuine document in **any** schema below the current
+  one throws the `RetiredStatsSchemaException` subtype the store retires on,
+  carrying the version it declared).
   The controller talks to the source through `IProblemSetSource` and scores
   via `QuizScore.Plus`; the stats store folds finalized submissions via the
   document's `Plus`. Producer behavior — the per-enumeration reshuffle, the
@@ -48,7 +49,11 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `PlayCandidate`, `BoardState`, `CubeDecisionPair`, `CubeAction`,
   `ProblemKey` (content identity; `TryDerive` is the one factory — the
   controller stamps every submission through it, and `false` is the no-key
-  rung, never a guess). The matcher
+  rung, never a guess). **A money record (`0`-away/`0`-away) with no
+  `PositionData.IsJacoby` is on that rung** — the money key spells the rule —
+  and the rung is *silent*, so a fixture or corpus that stops being keyed just
+  stops being recorded; `TestFixtureContractTests` is why that cannot happen
+  here unnoticed. The matcher
   compares the submitted `Play` against each `PlayCandidate.Play` by canonical
   `Play` equality; cube scoring reads `DecisionData`'s `BestDoublerAction` /
   `BestTakerAction` / `DoublerActionError` / `TakerActionError`.
@@ -209,7 +214,9 @@ BgQuiz_Blazor.Tests/
   FakeFolderAccess.cs               — scriptable IFolderAccess double
   FakeProblemStatsSink.cs           — recording sink double + RecordGate
   RetiredStatsFixture.cs            — stats files this build cannot write:
-                                      the retired v1 doc + its near misses
+                                      the retired v1 and v2 docs + near misses
+  TestFixtureContractTests.cs       — every TestFixtures factory yields a
+                                      key-derivable position (the silent rung)
   QuizControllerTests.cs
   QuizControllerOverlapTests.cs     — the transition-gate overlap suite
   CachedProblemSetSourceTests.cs    — parse-once / invalidation / equivalence
@@ -223,7 +230,8 @@ BgQuiz_Blazor.Tests/
   MixDraftTests.cs                  — build/write-through matrix + hydration
   QuizSettingsTests.cs              — the settings seam + the pinned wire bytes
   QuizStatsStoreTests.cs            — bind / fold / write-back / degrade,
-                                      the v1 retirement, the pre-write guard
+                                      the retirements (v1 + v2, each under its
+                                      own name), the pre-write guard
   WasmUploadedProblemSetSourceTests.cs
   PickedProblemFolderTests.cs
   PageTests.cs
@@ -726,12 +734,16 @@ picked slot so it never requires a promote and never touches a running quiz's
 active handle.
 
 **`QuizStatsFile`** — the persistence SSOT: `FileName`
-(`bgquiz-stats.json`), `RetiredFileName` (`bgquiz-stats.v1.json` — the
-set-aside name, bare and path-free), and the one fixed `JsonSerializerOptions`
-(`WriteIndented = true` — whitespace is the only options-controlled aspect;
-the bundled converter pins names and ordering). The filename is passed *into*
-the lib's name-parameterized active-slot calls per call and rendered by `Help`
-from the constant — neither restates it.
+(`bgquiz-stats.json`), `RetiredNameFor(schemaVersion)`
+(`bgquiz-stats.v{n}.json` — the set-aside name, bare and path-free), and the
+one fixed `JsonSerializerOptions` (`WriteIndented = true` — whitespace is the
+only options-controlled aspect; the bundled converter pins names and
+ordering). Every name is passed *into* the lib's name-parameterized
+active-slot calls per call and rendered by `Help` and the notices from this
+type — nothing restates one. **The set-aside name is a function of the retired
+version, not a constant**: every schema below the current one retires, so a
+folder can see two retirements in sequence (a tester who skipped a release),
+and one fixed name would put the second copy over the first.
 
 **`QuizStatsStore`** (scoped; aliased as `IProblemStatsSink` so the
 controller's sink and the pages' status notices observe one instance; deps:
@@ -743,19 +755,21 @@ controller's sink and the pages' status notices observe one instance; deps:
   handle ⇒ `Disabled`; `null` read ⇒ `Ready` over `Empty` (fresh corpus);
   `JsonException` / read `JSException` ⇒ **`LoadFailed`** — records nothing,
   never writes (see Pitfalls; recovery is user-side, no overwrite offer).
-- **The v1 retirement** (SPEC-stats-identity.md §3) is the one exception to
+- **The retirement** (SPEC-stats-identity.md §3) is the one exception to
   that never-writes rule, and it is caught *before* the general
-  `JsonException`: a `RetiredStatsSchemaException` means a genuine v1 document,
-  so the store copies its bytes aside under `RetiredFileName` **unparsed and
-  first**, then puts a fresh `Empty` under `FileName`, then mints
-  `StatsRetiredOccurrence` and lands `Ready`. Order is the data-safety
-  guarantee — a file that could not be preserved is never replaced — so a
-  `JSException` from either write reports `LoadFailed` with `FileName` still
-  holding v1, which the next bind recognises and retries over identical bytes.
-  Newer-than-supported is **not** retired: it keeps the untouched `LoadFailed`
-  posture, as does a document claiming v1 without v1's shape. No rename API was
-  lifted into BgFolderAccess_Razor for this; a second consumer would be the
-  trigger.
+  `JsonException`: a `RetiredStatsSchemaException` means a genuine document in
+  a retired schema, so the store copies its bytes aside under
+  `RetiredNameFor(ex.SchemaVersion)` **unparsed and first**, then puts a fresh
+  `Empty` under `FileName`, then mints `StatsRetiredOccurrence` — a
+  `StatsRetirement` carrying that set-aside name, so "a retirement happened"
+  and "this is the file it wrote" cannot come apart — and lands `Ready`. Order
+  is the data-safety guarantee — a file that could not be preserved is never
+  replaced — so a `JSException` from either write reports `LoadFailed` with
+  `FileName` still holding the retired document, which the next bind recognises
+  and retries over identical bytes. Newer-than-supported is **not** retired: it
+  keeps the untouched `LoadFailed` posture, as does a document claiming a
+  retired version without that version's shape. No rename API was lifted into
+  BgFolderAccess_Razor for this; a second consumer would be the trigger.
 - `RecordAsync` (from `ContinueAsync`, only while `Ready`): fold then **write
   back immediately** — per-fold write-back is the crash-safety choice (small
   file; a lost tab loses no answered problem). The fold's base is a **fresh
@@ -787,7 +801,7 @@ controller's sink and the pages' status notices observe one instance; deps:
   (`ReadPickedFileAsync(QuizStatsFile.FileName)`), deserialize, `Count > 0`.
   Degrade-tolerant *because that is the ruling*, not as a defensive extra:
   missing, empty, corrupt, foreign-schema, and browser-read-failure all leave
-  it false, with no status, no notice, and nothing thrown. **A retired v1 file
+  it false, with no status, no notice, and nothing thrown. **A retired file
   reads as "no stats to weight by" too**, and stays that way until the first
   quiz performs the set-aside: the probe never binds, so it never retires. That
   is the ruling working, not a gap to close (SPEC-stats-identity.md §3). It **promotes
@@ -1289,7 +1303,11 @@ exist at all:
   (the context is re-derived) and in `SetStatus` on a real transition.
 - **StatsRetired** → `QuizStatsStore.StatsRetiredOccurrence`, the same kind of
   token but **nullable — the token is the flag**, non-null only on a run that
-  actually set a v1 file aside, so no companion boolean can disagree with it.
+  actually set a retired file aside, so no companion boolean can disagree with
+  it. A `StatsRetirement` rather than a bare `object`, because the notice needs
+  the name that run wrote (which follows the retired version) and two nullable
+  members could come apart; a **class, not a record**, so the holder's
+  reference-identity comparison still means one occurrence.
   Its own slot rather than a share of `StatusOccurrence`, because it can be
   showing *beside* a degrade notice: a later `Ready → WriteFailed` mints a
   fresh status token, which must not resurrect a retirement report already
@@ -2375,16 +2393,19 @@ key on one shared `SilentPickGestureCopy.Account` fragment, because an absence
 pin written against its own literal goes vacuously green the moment the notice
 is reworded.
 `StatsPersistenceTests` pins: one fold ⇒ one captured write with
-`schemaVersion` 2, one `problems` record whose key carries no filename, a
+`schemaVersion` 3, one `problems` record whose key carries no filename, a
 cube-as-two-decisions tally, indented; a **retired v1 file** ⇒ the set-aside
 report (not the "couldn't be read" degrade), its bytes captured verbatim under
 `bgquiz-stats.v1.json`, and two writes to the standard name (the empty seed,
 then the fold); corrupt file ⇒ polite notice + **zero writes**; denied ⇒
 denied notice + zero writes; and the fallback pick's "can't save stats" notice.
-The stats filenames, the retired document's own bytes, and the wire property
-names are deliberately hardcoded there — the consumer-side pin of those
-contracts (the e2e project references no app assembly by design), and the v1
-literal has no other possible source: the format has no writer left anywhere.
+One retired version here, not both: what crossing the real `folderAccess.js`
+adds is the act, and *which name each version earns* is the store suite's pin,
+over v1 and v2 together. The stats filenames, the retired document's own bytes,
+and the wire property names are deliberately hardcoded there — the
+consumer-side pin of those contracts (the e2e project references no app
+assembly by design), and the v1 literal has no other possible source: the
+format has no writer left anywhere.
 The fake's set-aside slot is **write-only by construction** (no `getFile`), so
 an app that read it back would fail the gesture loudly. `MixWeightingTests` drives the weighted path to Done and pins #87's gating
 smoke — a folder with **no stats history** offers no mix and the quiz runs

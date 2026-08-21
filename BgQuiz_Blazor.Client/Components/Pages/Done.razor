@@ -25,12 +25,12 @@
        reading their results wants to know, and "your lifetime record restarted"
        is the most consequential thing that can have happened to it. Not
        dismissible here, like its neighbours — this page is read once. *@
-    @if (StatsStore.StatsRetiredOccurrence is not null)
+    @if (StatsStore.StatsRetiredOccurrence is { } retired)
     {
         <div class="alert alert-info" role="status">
             Your stats file was written by an earlier version of BgQuiz and can't be
             carried forward. It has been set aside as
-            <strong>@QuizStatsFile.RetiredFileName</strong> and a new
+            <strong>@retired.SetAsideFileName</strong> and a new
             <strong>@QuizStatsFile.FileName</strong> started, so your lifetime stats
             began again with this quiz.
         </div>

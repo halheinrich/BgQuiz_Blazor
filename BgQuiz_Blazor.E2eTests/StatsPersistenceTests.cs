@@ -36,14 +36,14 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 
         // Exactly one fold (one answered problem), one write-back — captured by
         // the fake writable. Pin the wire contract from the consumer side:
-        // schemaVersion 2, one problem record keyed by content, a fully-correct
+        // schemaVersion 3, one problem record keyed by content, a fully-correct
         // cube submission tallied as TWO decisions (one per half), indented.
         var writes = await CapturedWritesAsync();
         var payload = Assert.Single(writes);
         Assert.Contains('\n', payload);
 
         using var doc = JsonDocument.Parse(payload);
-        Assert.Equal(2, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(3, doc.RootElement.GetProperty("schemaVersion").GetInt32());
         var problems = doc.RootElement.GetProperty("problems");
         var record = Assert.Single(problems.EnumerateObject());
         var tally = record.Value.GetProperty("tally");
@@ -64,8 +64,11 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         // folderAccess.js (SPEC-stats-identity.md §3): a genuine v1 file must
         // not surface as the polite "couldn't be read" degrade, which would
         // strand an existing tester with stats silently dead. Its bytes go to
-        // the sidecar name, a fresh v2 document takes the standard name, and
-        // the run says so and records normally.
+        // the sidecar name its own version earns, a fresh current-version
+        // document takes the standard name, and the run says so and records
+        // normally. Which set-aside name each retired version gets is pinned by
+        // the store suite, over both of them; what this scenario adds is that
+        // the whole act crosses the real folderAccess.js.
         await Page.AddInitScriptAsync(
             $"window.__statsFake.statsJson = {JsonSerializer.Serialize(V1StatsJson)};");
 
@@ -94,7 +97,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         var writes = await CapturedWritesAsync();
         Assert.Equal(2, writes.Length);
         using var seeded = JsonDocument.Parse(writes[0]);
-        Assert.Equal(2, seeded.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(3, seeded.RootElement.GetProperty("schemaVersion").GetInt32());
         Assert.Empty(seeded.RootElement.GetProperty("problems").EnumerateObject());
         using var folded = JsonDocument.Parse(writes[1]);
         Assert.Single(folded.RootElement.GetProperty("problems").EnumerateObject());

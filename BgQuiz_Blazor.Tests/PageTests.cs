@@ -3309,14 +3309,24 @@ public class PageTests : BunitContext
     }
 
     /// <summary>
-    /// Register a real <see cref="QuizStatsStore"/> that has just retired a v1
-    /// stats file, driven through its own bind against one — the only way to
-    /// reach the state, since the retirement is a consequence of what the folder
-    /// held and not a setting.
+    /// Register a real <see cref="QuizStatsStore"/> that has just retired a
+    /// stats file of schema version <paramref name="retiredSchemaVersion"/>,
+    /// driven through its own bind against one — the only way to reach the
+    /// state, since the retirement is a consequence of what the folder held and
+    /// not a setting. The version is a parameter because the notices name the
+    /// file the run set aside, and that name follows it.
     /// </summary>
-    private async Task<QuizStatsStore> WithRetiredStatsStoreAsync()
+    private async Task<QuizStatsStore> WithRetiredStatsStoreAsync(int retiredSchemaVersion = 1)
     {
-        var access = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V1Json };
+        var access = new FakeFolderAccess
+        {
+            StatsJson = retiredSchemaVersion switch
+            {
+                1 => RetiredStatsFixture.V1Json,
+                2 => RetiredStatsFixture.V2Json,
+                _ => throw new ArgumentOutOfRangeException(nameof(retiredSchemaVersion)),
+            },
+        };
         var folder = new PickedProblemFolder();
         folder.Set("Corpus", [new PickedFile("a.xgp", [1])], FolderWriteCapability.Enabled, []);
         var store = new QuizStatsStore(access, TimeProvider.System, folder);
@@ -3376,23 +3386,32 @@ public class PageTests : BunitContext
         Assert.DoesNotContain("couldn't be read", cut.Markup);
         Assert.DoesNotContain("could not be saved", cut.Markup);
         Assert.DoesNotContain("set aside", cut.Markup);
-        Assert.DoesNotContain(QuizStatsFile.RetiredFileName, cut.Markup);
+        Assert.DoesNotContain(QuizStatsFile.RetiredNameFor(1), cut.Markup);
     }
 
-    [Fact]
-    public async Task Quiz_StatsRetired_ShowsPoliteRestartNotice()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Quiz_StatsRetired_ShowsPoliteRestartNotice(int retiredSchemaVersion)
     {
-        // The retirement report: both file names from their constants (so the
-        // prose cannot drift from what was written), the polite idiom because
-        // this is an outcome and not a failure, and the quiz running normally
-        // beneath it — the new file records from this quiz on.
+        // The retirement report: the standard file name from its constant and
+        // the set-aside name from the run that wrote it (so the prose cannot
+        // drift from what was written), the polite idiom because this is an
+        // outcome and not a failure, and the quiz running normally beneath it —
+        // the new file records from this quiz on.
+        //
+        // Both retired versions, because the two names differ and a notice
+        // spelling one constant would pass for exactly one of them. The prose
+        // around the name is version-agnostic by construction — "an earlier
+        // version … set aside as X" says nothing about which — so only X varies.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        await WithRetiredStatsStoreAsync();
+        await WithRetiredStatsStoreAsync(retiredSchemaVersion);
 
         var cut = Render<QuizPage>();
 
-        Assert.Contains(QuizStatsFile.RetiredFileName, cut.Markup);
+        Assert.Contains(QuizStatsFile.RetiredNameFor(retiredSchemaVersion), cut.Markup);
+        Assert.DoesNotContain(QuizStatsFile.RetiredNameFor(retiredSchemaVersion == 1 ? 2 : 1), cut.Markup);
         Assert.Contains(QuizStatsFile.FileName, cut.Markup);
         Assert.Contains("set aside", cut.Markup);
         Assert.Contains("begin again", cut.Markup);
@@ -3451,21 +3470,26 @@ public class PageTests : BunitContext
         Assert.Contains("role=\"status\"", cut.Markup);
     }
 
-    [Fact]
-    public async Task Done_StatsRetired_ShowsTheRestartNotice()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Done_StatsRetired_ShowsTheRestartNotice(int retiredSchemaVersion)
     {
         // Mirrored from Quiz: what happened to the stats context is exactly what
         // someone reading their results wants to know, and a restarted lifetime
         // record is the most consequential thing that can have happened to it.
+        // Mirrored across both retired versions too — the two pages must not be
+        // able to disagree about which file this run set aside.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
-        await WithRetiredStatsStoreAsync();
+        await WithRetiredStatsStoreAsync(retiredSchemaVersion);
 
         var cut = Render<DonePage>();
 
-        Assert.Contains(QuizStatsFile.RetiredFileName, cut.Markup);
+        Assert.Contains(QuizStatsFile.RetiredNameFor(retiredSchemaVersion), cut.Markup);
+        Assert.DoesNotContain(QuizStatsFile.RetiredNameFor(retiredSchemaVersion == 1 ? 2 : 1), cut.Markup);
         Assert.Contains("set aside", cut.Markup);
         Assert.Contains("role=\"status\"", cut.Markup);
         // A retirement is not a recording failure, so the page's "nothing needs
@@ -3485,7 +3509,7 @@ public class PageTests : BunitContext
         var cut = Render<DonePage>();
 
         Assert.DoesNotContain("set aside", cut.Markup);
-        Assert.DoesNotContain(QuizStatsFile.RetiredFileName, cut.Markup);
+        Assert.DoesNotContain(QuizStatsFile.RetiredNameFor(1), cut.Markup);
     }
 
     [Fact]
@@ -5021,16 +5045,24 @@ public class PageTests : BunitContext
     public void Help_ExplainsThatEarlierVersionStatsStartOver()
     {
         // The clean break's user-facing half (SPEC-stats-identity.md §3). Both
-        // names come from their constants, for the same no-drift reason; the
-        // "nothing is deleted" claim is the one a tester needs, and is exactly
-        // what the store's set-aside guarantees.
+        // names come from the app's own naming, for the same no-drift reason;
+        // the "nothing is deleted" claim is the one a tester needs, and is
+        // exactly what the store's set-aside guarantees.
+        //
+        // Help cannot name the actual set-aside file: which one it is depends on
+        // the version of the document in the folder, which this page never sees.
+        // So it states the rule and shows the rule applied to a version — the
+        // worked example still coming from the same derivation the store writes
+        // through — and points at the notice for the name that was really used.
         WithController();
 
         var cut = Render<HelpPage>();
 
         var text = Normalize(cut.Find("div.container").TextContent);
         Assert.Contains("start over", text);
-        Assert.Contains($"sets the old file aside as {QuizStatsFile.RetiredFileName}", text);
+        Assert.Contains("sets the old file aside", text);
+        Assert.Contains($"records the version it came from, such as {QuizStatsFile.RetiredNameFor(1)}", text);
+        Assert.Contains("The quiz tells you the name it used", text);
         Assert.Contains("nothing is deleted", text);
     }
 

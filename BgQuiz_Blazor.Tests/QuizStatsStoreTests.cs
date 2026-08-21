@@ -206,8 +206,8 @@ public class QuizStatsStoreTests
     }
 
     // -----------------------------------------------------------------------
-    //  The v1 retirement — clean break with deliberate recognition
-    //  (SPEC-stats-identity.md §3; halheinrich/backgammon#95)
+    //  Retirement — clean break with deliberate recognition
+    //  (SPEC-stats-identity.md §3; halheinrich/backgammon#95, #120)
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -225,7 +225,7 @@ public class QuizStatsStoreTests
 
         Assert.Equal(QuizStatsStatus.Ready, store.Status);
         Assert.NotNull(store.StatsRetiredOccurrence);       // the run has something to say
-        Assert.Equal(RetiredStatsFixture.V1Json, fake.RetiredStatsJson); // bytes, unparsed
+        Assert.Equal(RetiredStatsFixture.V1Json, fake.RetiredStatsJson(1)); // bytes, unparsed
         Assert.Equal(0, JsonSerializer.Deserialize<ProblemStatsDocument>(fake.StatsJson!)!.Count);
 
         await store.RecordAsync(PlaySubmission());
@@ -251,7 +251,7 @@ public class QuizStatsStoreTests
             .Skip(1)   // the bind's read of the standard name
             .ToList();
         Assert.Equal(
-            [QuizStatsFile.RetiredFileName, QuizStatsFile.FileName],
+            [QuizStatsFile.RetiredNameFor(1), QuizStatsFile.FileName],
             writeNames);
     }
 
@@ -313,7 +313,64 @@ public class QuizStatsStoreTests
 
         Assert.Equal(QuizStatsStatus.Ready, store.Status);
         Assert.NotNull(store.StatsRetiredOccurrence);
-        Assert.Equal(RetiredStatsFixture.V1Json, fake.RetiredStatsJson);
+        Assert.Equal(RetiredStatsFixture.V1Json, fake.RetiredStatsJson(1));
+    }
+
+    [Fact]
+    public async Task BeginQuiz_RetiredV2File_SetsItAsideUnderTheV2Name()
+    {
+        // The second retired version, and the whole reason the set-aside name is
+        // derived rather than fixed: what the folder gains is named for the
+        // version that left, so nothing has to guess which format the preserved
+        // bytes are in. A name baked to v1 would put a v2 document under a v1
+        // label — and, in a folder that already held one, over it.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V2Json };
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.Ready, store.Status);
+        Assert.Equal(RetiredStatsFixture.V2Json, fake.RetiredStatsJson(2));
+        Assert.Null(fake.RetiredStatsJson(1));
+        Assert.Equal(0, JsonSerializer.Deserialize<ProblemStatsDocument>(fake.StatsJson!)!.Count);
+    }
+
+    [Fact]
+    public async Task BeginQuiz_RetiredFile_ReportsTheNameItActuallyWrote()
+    {
+        // The report and the write are one fact, per version: the name the run
+        // offers the user has to be a name the run actually put in the folder.
+        // Both versions, because a hardcoded name would satisfy exactly one.
+        foreach (var (json, version) in
+                 new[] { (RetiredStatsFixture.V1Json, 1), (RetiredStatsFixture.V2Json, 2) })
+        {
+            var fake = new FakeFolderAccess { StatsJson = json };
+            var store = MakeStore(fake);
+
+            await store.BeginQuizAsync();
+
+            var retirement = Assert.IsType<StatsRetirement>(store.StatsRetiredOccurrence);
+            Assert.Equal(QuizStatsFile.RetiredNameFor(version), retirement.SetAsideFileName);
+            Assert.Contains(retirement.SetAsideFileName, fake.ActiveFileNames);
+        }
+    }
+
+    [Fact]
+    public async Task BeginQuiz_SecondRetirement_LeavesTheFirstSetAsideAlone()
+    {
+        // The defect the derivation exists to prevent, staged as the folder a
+        // tester who skipped a release actually holds: an earlier release
+        // already set their v1 document aside and wrote a v2 one, and this build
+        // retires that v2. Under one fixed name the second copy would land on
+        // the first and destroy the only surviving v1 bytes.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V2Json };
+        fake.SetRetiredStatsJson(1, RetiredStatsFixture.V1Json);
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(RetiredStatsFixture.V1Json, fake.RetiredStatsJson(1)); // untouched
+        Assert.Equal(RetiredStatsFixture.V2Json, fake.RetiredStatsJson(2)); // and preserved
     }
 
     [Fact]

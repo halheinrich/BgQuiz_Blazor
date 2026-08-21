@@ -38,9 +38,12 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     protected const string StatsFileName = "bgquiz-stats.json";
 
     /// <summary>
-    /// The name a retired schema-v1 stats document must be set aside under —
-    /// the consumer-side pin of the clean break's preservation promise
-    /// (SPEC-stats-identity.md §3).
+    /// The name a retired schema-<b>v1</b> stats document must be set aside
+    /// under — the consumer-side pin of the clean break's preservation promise
+    /// (SPEC-stats-identity.md §3). Every version below the current one retires,
+    /// each under a name carrying its own version, so this is the one v1 earns
+    /// and not a name every retirement shares; the fake serves this name alone,
+    /// which is what makes it a pin rather than a wildcard.
     /// </summary>
     protected const string RetiredStatsFileName = "bgquiz-stats.v1.json";
 

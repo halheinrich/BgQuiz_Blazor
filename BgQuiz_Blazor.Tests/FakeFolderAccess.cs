@@ -73,9 +73,10 @@ internal sealed class FakeFolderAccess : IFolderAccess
     /// The active slot's files by name — the real slot's shape, which the app
     /// now needs of it in two places: the store re-reads the stats document
     /// before every fold (the pre-write guard), so a write has to be readable
-    /// back, and the v1 retirement writes a <i>second</i> name into the same
-    /// folder, so the slot has to tell its files apart. Both were invisible to
-    /// the single-blob-for-every-name fake this replaced.
+    /// back, and a retirement writes a <i>second</i> name into the same folder —
+    /// one derived from the retired version, so a folder can hold more than one
+    /// — and the slot has to tell its files apart. Both were invisible to the
+    /// single-blob-for-every-name fake this replaced.
     /// </summary>
     private readonly Dictionary<string, string> _activeFiles = [];
 
@@ -91,16 +92,24 @@ internal sealed class FakeFolderAccess : IFolderAccess
     }
 
     /// <summary>
-    /// Content of the set-aside retired stats document
-    /// (<see cref="QuizStatsFile.RetiredFileName"/>); null = no such file. The
+    /// Content of the document set aside for retired schema version
+    /// <paramref name="schemaVersion"/>
+    /// (<see cref="QuizStatsFile.RetiredNameFor"/>); null = no such file. The
     /// retirement's whole promise is that these bytes are the old file's, so a
-    /// test reads them here and compares.
+    /// test reads them here and compares — and asking per version is how a test
+    /// can tell a set-aside that landed under the right name from one that
+    /// landed under some other.
     /// </summary>
-    public string? RetiredStatsJson
-    {
-        get => _activeFiles.GetValueOrDefault(QuizStatsFile.RetiredFileName);
-        set => SetActiveFile(QuizStatsFile.RetiredFileName, value);
-    }
+    public string? RetiredStatsJson(int schemaVersion) =>
+        _activeFiles.GetValueOrDefault(QuizStatsFile.RetiredNameFor(schemaVersion));
+
+    /// <summary>
+    /// Stage a set-aside file for retired schema version
+    /// <paramref name="schemaVersion"/> — an earlier release's retirement,
+    /// already sitting in the folder before this run binds. Null removes it.
+    /// </summary>
+    public void SetRetiredStatsJson(int schemaVersion, string? content) =>
+        SetActiveFile(QuizStatsFile.RetiredNameFor(schemaVersion), content);
 
     private void SetActiveFile(string fileName, string? content)
     {

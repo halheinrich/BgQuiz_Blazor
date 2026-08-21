@@ -236,6 +236,13 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// anyone having to remember to reset anything.
     ///
     /// <para>
+    /// The token carries what the report has to say — the name the old document
+    /// went to, which varies by the version it declared. One object rather than
+    /// a token beside a nullable name, so "there is a report" and "this is what
+    /// it says" cannot come apart.
+    /// </para>
+    ///
+    /// <para>
     /// Deliberately <b>not</b> a <see cref="QuizStatsStatus"/> value. After a
     /// retirement the context is <see cref="QuizStatsStatus.Ready"/> and can
     /// still fail its next write — retired-ness is a fact about how this run
@@ -251,7 +258,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// resurrect a retirement report the user has already read and dismissed.
     /// </para>
     /// </summary>
-    public object? StatsRetiredOccurrence { get; private set; }
+    public StatsRetirement? StatsRetiredOccurrence { get; private set; }
 
     /// <summary>
     /// Whether the picked folder can hold a stats document at all — the write-
@@ -389,13 +396,15 @@ internal sealed class QuizStatsStore : IProblemStatsSink
                 : JsonSerializer.Deserialize<ProblemStatsDocument>(json)
                   ?? throw new JsonException("Stats document deserialized to null.");
         }
-        catch (RetiredStatsSchemaException)
+        catch (RetiredStatsSchemaException retired)
         {
             // The producer's deliberate recognition signal: a genuine document
-            // in the retired v1 format. Caught BEFORE the general JsonException
-            // below — an existing tester's file must not surface as a hard load
-            // error with their stats silently dead.
-            await RetirePreviousStatsAsync(json!);
+            // in one of the retired formats. Caught BEFORE the general
+            // JsonException below — an existing tester's file must not surface
+            // as a hard load error with their stats silently dead. The version
+            // it declared travels with it: the set-aside name is derived from
+            // it, so two retirements in the same folder cannot collide.
+            await RetirePreviousStatsAsync(json!, retired.SchemaVersion);
             return;
         }
         catch (JsonException)
@@ -411,11 +420,22 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     }
 
     /// <summary>
-    /// Retire a stats file in the retired schema version (SPEC-stats-identity.md
-    /// §3): copy its bytes aside under <see cref="QuizStatsFile.RetiredFileName"/>
-    /// unparsed, put a fresh current-version document under the standard name,
-    /// and mint <see cref="StatsRetiredOccurrence"/> so the run says so. There is
-    /// no migration — the retired content is never read, only preserved.
+    /// Retire a stats file in a retired schema version (SPEC-stats-identity.md
+    /// §3): copy its bytes aside under
+    /// <see cref="QuizStatsFile.RetiredNameFor"/> unparsed, put a fresh
+    /// current-version document under the standard name, and mint
+    /// <see cref="StatsRetiredOccurrence"/> so the run says so. There is no
+    /// migration — the retired content is never read, only preserved.
+    ///
+    /// <para>
+    /// <b>The set-aside name is derived from the version the document declared,
+    /// never fixed.</b> Every schema below the current one retires, so a folder
+    /// can see two retirements in sequence — a tester who skipped a release
+    /// holds a v1 file, meets one release that sets it aside, then a later one
+    /// that retires what that release wrote. One name for both would put the
+    /// second copy over the first and destroy the file the first set-aside
+    /// existed to preserve.
+    /// </para>
     ///
     /// <para>
     /// <b>Set aside first, replace second, and never the other way round.</b> A
@@ -434,11 +454,13 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// BgFolderAccess_Razor's surface. A second one would.
     /// </para>
     /// </summary>
-    private async Task RetirePreviousStatsAsync(string retiredJson)
+    private async Task RetirePreviousStatsAsync(string retiredJson, int retiredSchemaVersion)
     {
+        string setAsideName = QuizStatsFile.RetiredNameFor(retiredSchemaVersion);
+
         try
         {
-            await _folderAccess.WriteActiveFileAsync(QuizStatsFile.RetiredFileName, retiredJson);
+            await _folderAccess.WriteActiveFileAsync(setAsideName, retiredJson);
             await _folderAccess.WriteActiveFileAsync(
                 QuizStatsFile.FileName,
                 JsonSerializer.Serialize(ProblemStatsDocument.Empty, QuizStatsFile.SerializerOptions));
@@ -450,7 +472,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
         }
 
         _doc = ProblemStatsDocument.Empty;
-        StatsRetiredOccurrence = new object();
+        StatsRetiredOccurrence = new StatsRetirement(setAsideName);
         SetStatus(QuizStatsStatus.Ready);
     }
 

@@ -35,6 +35,28 @@ internal static class RetiredStatsFixture
         """;
 
     /// <summary>
+    /// A genuine version-2 document: the <see cref="BgDataTypes_Lib.ProblemKey"/>-keyed
+    /// <c>problems</c> map from before the Jacoby rule entered money keys, retired
+    /// in turn by the v3 break (SPEC-stats-identity.md §3, amended for
+    /// halheinrich/backgammon#120). The second retired version, and the reason
+    /// the set-aside name is derived rather than fixed — a tester who skipped a
+    /// release meets this retirement <i>after</i> the v1 one, in the same folder.
+    /// Its money key carries no Jacoby token, which is precisely what v3 keys
+    /// spell and why the format could not be carried forward.
+    /// </summary>
+    public const string V2Json = """
+        {
+          "schemaVersion": 2,
+          "problems": {
+            "0,0,0,0,0,0,5,0,3,0,0,0,-5,5,0,0,0,-3,0,-5,0,0,0,0,2,0/0a0/1c": {
+              "tally": { "submitted": 4, "correct": 1, "totalEquityLoss": 0.250 },
+              "lastQuizzed": "2026-08-19T11:22:33+00:00"
+            }
+          }
+        }
+        """;
+
+    /// <summary>
     /// Claims version 1 but is not shaped like one. Corrupt, not retired: it
     /// must take the untouched-file path, never the set-aside one — a file
     /// nobody can identify is a file nobody may rewrite.
