@@ -1893,6 +1893,22 @@ The asymmetry is pinned three times over: at the service seam
   row is one line down to ~900px (cube) / ~640px (checker) of viewport with the
   nav panel showing, where it used to be ~1350 / ~980.
 
+  **Every one of those widths is font-stack-dependent, and any claim of the form
+  "one line at width W" must name the stack it was measured under.** The row's
+  budget is text: the cube instruments' 836px (banked 2026-08-18) is Windows
+  Helvetica/Arial. CI's Linux Chromium and Android devices have neither and fall
+  back wider — enough that a row measured with slack here can be a taller row
+  there. A local re-measure at 1280 with the nav panel showing puts the cube
+  instruments at 544.9px against 922px available under Windows metrics and
+  589.7px under Verdana (a genuinely wider real font), so the slack is large;
+  but the producer's cube-pill block is the part that wraps first when it goes,
+  and when it does the row's `align-items: center` moves every *short* item down
+  past that block's top without anything having wrapped in the row itself. A
+  test that reads geometry off `.action-row > :first-child` will see that as a
+  wrap and fail — which is how umbrella CI run 32520062178 went red on Linux
+  against a commit green on Windows (`ProblemLocatorTests`, since re-keyed to
+  the *last* instrument; its remarks carry the measured signatures).
+
   **The problem's locator shares that home, and the cluster now shrinks rather
   than wraps** (`SPEC-quiz-view.md` §4's 2026-08-21 amendment and its two
   build-time rulings, issue `halheinrich/backgammon#115`). `ProblemLocator`

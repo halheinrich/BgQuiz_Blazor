@@ -14,7 +14,7 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <para>
 /// <b>Two things only a browser can judge, and they are why this scenario
 /// exists.</b> The bUnit pins assert the render tree; they cannot see that the
-/// cluster shares a line with the answer instruments (§4's ruling (i) —
+/// cluster shares a line with the instrument before it (§4's ruling (i) —
 /// shrink, never wrap), because AngleSharp evaluates no CSS and the whole
 /// mechanism is flex sizing. And they cannot see that the chip sits below the
 /// board rather than over it. Both are asserted here as geometry.
@@ -97,7 +97,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await Expect(Page.Locator(".status-strip")).ToHaveCountAsync(0);
         await AssertChipReadsTheFixtureAsync();
         await AssertChipSitsBelowTheBoardAsync();
-        await AssertClusterSharesTheRowsFirstLineAsync();
+        await AssertClusterSharesTheLastInstrumentsLineAsync();
 
         await AnswerCubeNoDoubleAsync();
 
@@ -106,7 +106,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await Expect(Page.Locator(".status-strip")).ToHaveCountAsync(1);
         await AssertChipReadsTheFixtureAsync();
         await AssertChipSitsBelowTheBoardAsync();
-        await AssertClusterSharesTheRowsFirstLineAsync();
+        await AssertClusterSharesTheLastInstrumentsLineAsync();
     }
 
     /// <summary>
@@ -146,42 +146,89 @@ public sealed class ProblemLocatorTests : E2eTestBase
 
     /// <summary>
     /// §4's ruling (i), as the only observation that can actually catch it: the
-    /// trailing cluster sits on the action row's FIRST line, level with the
-    /// answer instruments. A cluster that wrapped would still render every
-    /// element the DOM pins look for — it would simply have doubled the row's
-    /// height and taken the difference out of the board, which is the one thing
-    /// the fixed-height contract forbids.
+    /// trailing cluster shares a line with the <b>last answer instrument before
+    /// it</b>. A cluster that opened a line of its own would still render every
+    /// element the DOM pins look for — it would simply have added a row and
+    /// taken the difference out of the board, which is the one thing the
+    /// fixed-height contract forbids.
     ///
     /// <para>
-    /// <b>What it does and does not discriminate</b>, checked by mutation
-    /// rather than assumed. Take the cluster's <c>flex-basis: 0</c> away and
-    /// this fails on this fixture at this viewport, which is the mechanism's
-    /// load-bearing half. Take its <c>min-width: 0</c> away and it still
-    /// passes — a standalone position's chip is a file name and nothing else,
-    /// so it can shrink to nothing and the cluster's floor never binds. That
-    /// half of the ruling only bites where the chip also carries coordinates,
-    /// i.e. on a multi-game <c>.xg</c> match, which this suite has no fixture
-    /// for; it is held instead by the stylesheet pin in <c>PageTests</c> and by
-    /// the measurement recorded against it.
+    /// <b>Why the LAST instrument and not the first</b> (re-keyed after umbrella
+    /// CI run 32520062178 went red on Linux while the same commit passed on
+    /// Windows: <c>cluster.Y=779.98, first control.Y=742.80</c>). Measured
+    /// locally across every way the row can grow taller, the cluster's top
+    /// tracks the last instrument's and nothing else:
+    /// </para>
+    ///
+    /// <list type="bullet">
+    ///   <item><description>instruments wrapped onto a second flex line (forced
+    ///     with Verdana + 8px letter-spacing, so they needed 981.7px against
+    ///     922px): cluster +46px below the first instrument, <b>0 below the
+    ///     last</b>;</description></item>
+    ///   <item><description>the producer's cube-pill block wrapped internally
+    ///     and grew tall (forced by capping its width), so the row's
+    ///     <c>align-items: center</c> pushed every short item down past that
+    ///     block's top: cluster +20px (two pill lines) or +62px (three) below
+    ///     the first instrument, <b>0 below the last</b> in both;</description></item>
+    ///   <item><description>and only with the cluster's own
+    ///     <c>flex: 1 1 0; min-width: 0</c> removed did it fall below the last
+    ///     instrument too (+46px on both counts).</description></item>
+    /// </list>
+    ///
+    /// <para>
+    /// So the last-instrument form is the arc's contract stated exactly: it
+    /// holds however tall the row gets for reasons upstream of this chip, and
+    /// the one thing that breaks it is the cluster being contents-sized again.
+    /// That also makes it <b>diagnostic</b> — if CI ever fails this line, the
+    /// cause is the cluster's own CSS and not the instruments ahead of it.
     /// </para>
     ///
     /// <para>
-    /// Asserted as a relationship between two boxes rather than as a row height
-    /// in pixels: a height literal would pin the fonts, the fixture and the
-    /// viewport all at once and fail for any of them, while "same line as the
-    /// first control" is true at every width where the row has not wrapped for
-    /// reasons of its own.
+    /// <b>What this deliberately does not claim.</b> Not that the row is one
+    /// line: that the answer instruments hold one line at a given width is
+    /// <c>SPEC-quiz-view.md</c> §2's invariance floor, measured under Windows
+    /// font metrics, and it is not this arc's to guarantee — the locator's
+    /// contract is that the cluster costs the row no height, which is what the
+    /// last-instrument form says. A row-height assertion here was measured and
+    /// declined: under a genuinely wider real font (Verdana) the cube
+    /// instruments still need only 589.7px of the 922px available at 1280 with
+    /// the nav panel showing — 332px of slack — so whatever made CI's row taller
+    /// was not instrument width, and a height pin would be pinning the
+    /// producer's cube-pill block and the CI image's fonts rather than anything
+    /// this arc controls.
     /// </para>
     /// </summary>
-    private async Task AssertClusterSharesTheRowsFirstLineAsync()
+    private async Task AssertClusterSharesTheLastInstrumentsLineAsync()
     {
-        var firstControl = await Page.Locator(".action-row > :first-child").BoundingBoxAsync();
+        // The cluster closes the row, which is what makes ":nth-last-child(2)"
+        // the instrument immediately before it. Asserted rather than assumed —
+        // otherwise a future control appended after the cluster would silently
+        // re-point the handle at the cluster's new neighbour and leave this
+        // comparing the wrong two boxes.
+        await Expect(Page.Locator(".action-row > .action-row-tail:last-child")).ToHaveCountAsync(1);
+
+        var lastInstrument = await Page.Locator(".action-row > :nth-last-child(2)").BoundingBoxAsync();
         var cluster = await Page.Locator(".action-row-tail").BoundingBoxAsync();
 
-        Assert.NotNull(firstControl);
+        Assert.NotNull(lastInstrument);
         Assert.NotNull(cluster);
+
+        // Level with it — the cluster did not open a line of its own.
         Assert.True(
-            Math.Abs(cluster!.Y - firstControl!.Y) < cluster.Height,
-            $"Trailing cluster should share the action row's first line; cluster.Y={cluster.Y}, first control.Y={firstControl.Y}.");
+            Math.Abs(cluster!.Y - lastInstrument!.Y) < lastInstrument.Height,
+            "Trailing cluster should share a line with the instrument before it; "
+            + $"cluster.Y={cluster.Y}, last instrument.Y={lastInstrument.Y}.");
+
+        // …and no taller than it, which is the other half and not a
+        // restatement: a cluster that wrapped INSIDE itself keeps its top on
+        // this line and grows downwards, so the levelness above still holds
+        // while the row's height has doubled anyway. Measured against a control
+        // in the same row rather than a pixel literal, so it says nothing about
+        // fonts, viewport or fixture — only that the cluster costs the row no
+        // more height than the buttons it sits beside.
+        Assert.True(
+            cluster.Height <= lastInstrument.Height + 1,
+            "Trailing cluster should be one line tall, like the controls beside it; "
+            + $"cluster.Height={cluster.Height}, last instrument.Height={lastInstrument.Height}.");
     }
 }
