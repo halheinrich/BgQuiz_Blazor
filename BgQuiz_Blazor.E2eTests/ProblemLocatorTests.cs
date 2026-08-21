@@ -87,6 +87,23 @@ public sealed class ProblemLocatorTests : E2eTestBase
     private const string ExpectedFileName = "long-mon…26-04-12";
 
     /// <summary>
+    /// The control the cluster follows while <b>answering</b> a cube problem —
+    /// the row is the cube radios, Submit, Skip, then the cluster. Named by the
+    /// label a user reads, per this suite's independent-literal posture, and
+    /// because a name is the thing a failure message can be honest about; the
+    /// page needs no new handle for it.
+    /// </summary>
+    private const string SkipButton = "Skip";
+
+    /// <summary>
+    /// And the control it follows at <b>review</b>, where the row is Continue,
+    /// Redo, then the cluster. Two names rather than one selector because the
+    /// row genuinely has two compositions — pretending otherwise is what a
+    /// positional selector does.
+    /// </summary>
+    private const string RedoButton = "Redo";
+
+    /// <summary>
     /// The one evaluation behind <see cref="ReportRowGeometryAsync"/> — every
     /// box read in a single frame, so the four of them cannot describe two
     /// different layouts.
@@ -94,23 +111,45 @@ public sealed class ProblemLocatorTests : E2eTestBase
     private const string GeometryReportScript = """
         () => {
           const r1 = n => Math.round(n * 10) / 10;
-          const box = (label, e) => {
-            if (!e) return '  ' + label.padEnd(20) + '(absent)';
+          const geom = e => {
             const r = e.getBoundingClientRect();
-            return '  ' + label.padEnd(20)
-              + 'x=' + r1(r.x) + '  y=' + r1(r.y)
+            return 'x=' + r1(r.x) + '  y=' + r1(r.y)
               + '  w=' + r1(r.width) + '  h=' + r1(r.height);
           };
+          const box = (label, e) =>
+            '  ' + label.padEnd(20) + (e ? geom(e) : '(absent)');
+
+          // Every child in order, with what it IS as well as where it is —
+          // the log has to be able to say which element a positional selector
+          // would have picked, not just that the numbers disagreed.
+          const children = (label, parent) => {
+            if (!parent) return ['  ' + label + ': (absent)'];
+            const kids = [...parent.children];
+            if (!kids.length) return ['  ' + label + ': (no element children)'];
+            return ['  ' + label + ' (' + kids.length + ' children, in order):']
+              .concat(kids.map((k, i) =>
+                '    [' + i + '] <' + k.tagName.toLowerCase() + '>'
+                  + ' display=' + getComputedStyle(k).display
+                  + '  ' + geom(k)
+                  + '  text="' + (k.textContent || '').trim().slice(0, 24) + '"'
+                  + '  class="' + (k.className || '') + '"'));
+          };
+
           const q = sel => document.querySelector(sel);
-          return [
-            box('.action-row', q('.action-row')),
-            box('.bg-cube-actions', q('.bg-cube-actions')),
-            box('last instrument', q('.action-row > :nth-last-child(2)')),
-            box('.action-row-tail', q('.action-row-tail')),
-            '  body font-family:   ' + getComputedStyle(document.body).fontFamily,
-            '  fonts.check Arial:     ' + document.fonts.check('12px Arial'),
-            '  fonts.check Helvetica: ' + document.fonts.check('12px Helvetica'),
-          ].join(String.fromCharCode(10));
+          return []
+            .concat([
+              '  viewport:            ' + window.innerWidth + 'x' + window.innerHeight
+                + '  devicePixelRatio=' + window.devicePixelRatio,
+              '  body font-family:    ' + getComputedStyle(document.body).fontFamily,
+              '  fonts.check Arial:     ' + document.fonts.check('12px Arial'),
+              '  fonts.check Helvetica: ' + document.fonts.check('12px Helvetica'),
+              box('.action-row', q('.action-row')),
+              box('.bg-cube-actions', q('.bg-cube-actions')),
+              box('.action-row-tail', q('.action-row-tail')),
+            ])
+            .concat(children('.action-row', q('.action-row')))
+            .concat(children('.bg-cube-actions', q('.bg-cube-actions')))
+            .join(String.fromCharCode(10));
         }
         """;
 
@@ -136,20 +175,39 @@ public sealed class ProblemLocatorTests : E2eTestBase
         // be framed by — so the chip is the only thing on the page that says
         // where this position came from.
         await Expect(Page.Locator(".status-strip")).ToHaveCountAsync(0);
-        await AssertChipReadsTheFixtureAsync();
-        await AssertChipSitsBelowTheBoardAsync();
-        await AssertClusterSharesTheLastInstrumentsLineAsync();
-        await ReportRowGeometryAsync("answering (maximized)");
+
+        // The geometry is read BEFORE anything can throw and written in a
+        // finally, so a failing assertion cannot swallow the one piece of
+        // evidence that explains it. See ReportRowGeometryAsync.
+        string answeringGeometry = await CaptureRowGeometryAsync();
+        try
+        {
+            await AssertChipReadsTheFixtureAsync();
+            await AssertChipSitsBelowTheBoardAsync();
+            await AssertClusterSharesTheLineOfAsync(SkipButton);
+        }
+        finally
+        {
+            ReportRowGeometry("answering (maximized)", answeringGeometry);
+        }
 
         await AnswerCubeNoDoubleAsync();
 
         // Review, normalized: the chip did not move and did not change, which
         // is the "one home, both states" half of the ruling.
         await Expect(Page.Locator(".status-strip")).ToHaveCountAsync(1);
-        await AssertChipReadsTheFixtureAsync();
-        await AssertChipSitsBelowTheBoardAsync();
-        await AssertClusterSharesTheLastInstrumentsLineAsync();
-        await ReportRowGeometryAsync("review (normalized)");
+
+        string reviewGeometry = await CaptureRowGeometryAsync();
+        try
+        {
+            await AssertChipReadsTheFixtureAsync();
+            await AssertChipSitsBelowTheBoardAsync();
+            await AssertClusterSharesTheLineOfAsync(RedoButton);
+        }
+        finally
+        {
+            ReportRowGeometry("review (normalized)", reviewGeometry);
+        }
     }
 
     /// <summary>
@@ -180,10 +238,11 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// "console;verbosity=detailed"</c> surfaces it there too.
     /// </para>
     /// </summary>
-    private async Task ReportRowGeometryAsync(string state)
-    {
-        var report = await Page.EvaluateAsync<string>(GeometryReportScript);
+    private Task<string> CaptureRowGeometryAsync() =>
+        Page.EvaluateAsync<string>(GeometryReportScript);
 
+    private void ReportRowGeometry(string state, string report)
+    {
         _output.WriteLine($"[locator row geometry] {state}");
         _output.WriteLine(report);
     }
@@ -225,18 +284,18 @@ public sealed class ProblemLocatorTests : E2eTestBase
 
     /// <summary>
     /// §4's ruling (i), as the only observation that can actually catch it: the
-    /// trailing cluster shares a line with the <b>last answer instrument before
-    /// it</b>. A cluster that opened a line of its own would still render every
-    /// element the DOM pins look for — it would simply have added a row and
-    /// taken the difference out of the board, which is the one thing the
-    /// fixed-height contract forbids.
+    /// trailing cluster shares a line with <b>the named control immediately
+    /// before it</b> — Skip while answering, Redo at review. A cluster that
+    /// opened a line of its own would still render every element the DOM pins
+    /// look for; it would simply have added a row and taken the difference out
+    /// of the board, which is the one thing the fixed-height contract forbids.
     ///
     /// <para>
-    /// <b>Why the LAST instrument and not the first</b> (re-keyed after umbrella
-    /// CI run 32520062178 went red on Linux while the same commit passed on
-    /// Windows: <c>cluster.Y=779.98, first control.Y=742.80</c>). Measured
-    /// locally across every way the row can grow taller, the cluster's top
-    /// tracks the last instrument's and nothing else:
+    /// <b>Why the control before it and not the first in the row</b> (re-keyed
+    /// after umbrella CI run 32520062178 went red on Linux while the same commit
+    /// passed on Windows: <c>cluster.Y=779.98, first control.Y=742.80</c>).
+    /// Measured locally across every way the row can grow taller, the cluster's
+    /// top tracks its immediate predecessor's and nothing else:
     /// </para>
     ///
     /// <list type="bullet">
@@ -255,9 +314,20 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// </list>
     ///
     /// <para>
-    /// So the last-instrument form is the arc's contract stated exactly: it
-    /// holds however tall the row gets for reasons upstream of this chip, and
-    /// the one thing that breaks it is the cluster being contents-sized again.
+    /// <b>And why the control is named rather than counted</b> (the second red,
+    /// run 32530552576: <c>cluster.Y=779.98, last instrument.Y=751.80</c>).
+    /// The positional form said the two boxes disagreed but not what it had
+    /// measured, and on Linux <c>:nth-last-child(2)</c> resolved to something
+    /// under 28px tall — which is not the 38px Skip this machine sees. A named
+    /// control fails on its own identity first, and the geometry block emitted
+    /// ahead of these assertions carries the row's whole child list, so the log
+    /// says which element it was.
+    /// </para>
+    ///
+    /// <para>
+    /// So this form is the arc's contract stated exactly: it holds however tall
+    /// the row gets for reasons upstream of this chip, and the one thing that
+    /// breaks it is the cluster being contents-sized again.
     /// That also makes it <b>diagnostic</b> — if CI ever fails this line, the
     /// cause is the cluster's own CSS and not the instruments ahead of it.
     /// </para>
@@ -277,26 +347,30 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// this arc controls.
     /// </para>
     /// </summary>
-    private async Task AssertClusterSharesTheLastInstrumentsLineAsync()
+    private async Task AssertClusterSharesTheLineOfAsync(string controlName)
     {
-        // The cluster closes the row, which is what makes ":nth-last-child(2)"
-        // the instrument immediately before it. Asserted rather than assumed —
-        // otherwise a future control appended after the cluster would silently
-        // re-point the handle at the cluster's new neighbour and leave this
-        // comparing the wrong two boxes.
+        // The control is NAMED, and then confirmed to be the one the cluster
+        // actually follows. Both steps matter, and the second is the lesson of
+        // the second CI red: this used to read `.action-row > :nth-last-child(2)`
+        // and trust it, so when that resolved to something unexpected on Linux
+        // the only symptom was two boxes failing to line up, with nothing in
+        // the message saying what had been measured. Now a wrong element fails
+        // here, naming itself, and the geometry block above says what it was.
         await Expect(Page.Locator(".action-row > .action-row-tail:last-child")).ToHaveCountAsync(1);
+        await Expect(Page.Locator(".action-row > :nth-last-child(2)")).ToHaveTextAsync(controlName);
 
-        var lastInstrument = await Page.Locator(".action-row > :nth-last-child(2)").BoundingBoxAsync();
+        var control = await Page.GetByRole(AriaRole.Button, new() { Name = controlName })
+            .BoundingBoxAsync();
         var cluster = await Page.Locator(".action-row-tail").BoundingBoxAsync();
 
-        Assert.NotNull(lastInstrument);
+        Assert.NotNull(control);
         Assert.NotNull(cluster);
 
         // Level with it — the cluster did not open a line of its own.
         Assert.True(
-            Math.Abs(cluster!.Y - lastInstrument!.Y) < lastInstrument.Height,
-            "Trailing cluster should share a line with the instrument before it; "
-            + $"cluster.Y={cluster.Y}, last instrument.Y={lastInstrument.Y}.");
+            Math.Abs(cluster!.Y - control!.Y) < control.Height,
+            $"Trailing cluster should share a line with {controlName}; cluster.Y={cluster.Y}, "
+            + $"{controlName}.Y={control.Y}, {controlName}.Height={control.Height}.");
 
         // …and no taller than it, which is the other half and not a
         // restatement: a cluster that wrapped INSIDE itself keeps its top on
@@ -304,10 +378,10 @@ public sealed class ProblemLocatorTests : E2eTestBase
         // while the row's height has doubled anyway. Measured against a control
         // in the same row rather than a pixel literal, so it says nothing about
         // fonts, viewport or fixture — only that the cluster costs the row no
-        // more height than the buttons it sits beside.
+        // more height than the button it sits beside.
         Assert.True(
-            cluster.Height <= lastInstrument.Height + 1,
-            "Trailing cluster should be one line tall, like the controls beside it; "
-            + $"cluster.Height={cluster.Height}, last instrument.Height={lastInstrument.Height}.");
+            cluster.Height <= control.Height + 1,
+            $"Trailing cluster should be one line tall, like {controlName} beside it; "
+            + $"cluster.Height={cluster.Height}, {controlName}.Height={control.Height}.");
     }
 }
