@@ -151,6 +151,8 @@ BgQuiz_Blazor/                      — thin ASP.NET Core WASM host (server)
       NotFound.razor
   wwwroot/                          — static assets (favicon, app.css, Bootstrap)
     js/navFold.js                   — 2nd authored JS; re-applies the nav fold
+    lib/bootstrap/dist/css/         — VENDORED: bootstrap.min.css (5.3.3) is the
+      bootstrap.min.css               one tracked file under lib/ (see Pitfalls)
     robots.txt                      — Disallow: / (see Pitfalls: two wwwroots)
 
 BgQuiz_Blazor.Client/              — WASM client (the whole interactive surface)
@@ -3268,6 +3270,26 @@ public (see Pitfalls). The externally visible surface is the route map:
   content negotiation on the `Accept` header; a path-prefix or extension sniff
   duplicates routing knowledge inside middleware and still misses cases like
   `/no-such.json`.
+- **`wwwroot/lib/` is ignored except one file, and that is deliberate.**
+  `.gitignore` excludes `**/wwwroot/lib/` and then re-includes exactly
+  `BgQuiz_Blazor/wwwroot/lib/bootstrap/dist/css/bootstrap.min.css` — the single
+  file `App.razor` links (Bootstrap 5.3.3; the version is pinned in a comment
+  beside that link, because that link is the only place naming the file).
+  Nothing here restores `lib/`: no `libman.json`, no npm step, no MSBuild
+  target. So while the folder was ignored it existed on one machine, and
+  **umbrella CI and every fresh clone built and served the app unstyled for
+  months** without a test noticing — behaviour survives a missing stylesheet, so
+  behaviour tests do (issue `halheinrich/backgammon#126`; found only because the
+  locator's geometry pin, `halheinrich/backgammon#115`, reported a `.btn` 21px
+  tall and was at first read as a layout bug rather than as the messenger).
+  Committing the file rather than adding a restore step was ruled: a clone must
+  be styled with no network at all, and LibMan would put network weather in the
+  build. Re-including a file inside an excluded directory needs the
+  level-by-level negation ladder git requires — a bare `!path/to/file` cannot
+  match, because git never descends into an excluded directory. **The guard is
+  `StylesheetTests`**, one e2e scenario asserting a computed value only
+  Bootstrap produces; if `lib/` is ever re-lost, that fails instead of the
+  layout quietly going missing.
 - **A served static file belongs to the host's `wwwroot` — the only one there
   is.** `BgQuiz_Blazor/wwwroot` is what the host serves (`app.css`,
   `favicon.png`, `lib/`, `robots.txt`, `js/navFold.js`); the `.Client` project

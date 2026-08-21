@@ -481,7 +481,31 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 
+# Client-side libraries are restored by tooling and stay out of the tree...
 **/wwwroot/lib/
+
+# ...except the ONE file the app actually links, which is vendored and tracked
+# on purpose (BgQuiz_Blazor/Components/App.razor names it, and pins the version
+# beside the link). Nothing in this repo restores wwwroot/lib: there is no
+# libman.json, no npm step and no MSBuild target, so an ignored stylesheet is a
+# stylesheet that exists on one machine. CI and every fresh clone built the app
+# unstyled for months without a single test noticing, because every test asked
+# about behaviour (issue halheinrich/backgammon#126).
+#
+# The ladder is what gitignore requires, not belt-and-braces: git does not
+# descend into an excluded DIRECTORY, so a negation naming a file inside one can
+# never match. Each level is re-included, then its contents re-excluded, until
+# the one file is named. Adding a second vendored file means extending the last
+# two lines, not loosening the ones above.
+!BgQuiz_Blazor/wwwroot/lib/
+BgQuiz_Blazor/wwwroot/lib/*
+!BgQuiz_Blazor/wwwroot/lib/bootstrap/
+BgQuiz_Blazor/wwwroot/lib/bootstrap/*
+!BgQuiz_Blazor/wwwroot/lib/bootstrap/dist/
+BgQuiz_Blazor/wwwroot/lib/bootstrap/dist/*
+!BgQuiz_Blazor/wwwroot/lib/bootstrap/dist/css/
+BgQuiz_Blazor/wwwroot/lib/bootstrap/dist/css/*
+!BgQuiz_Blazor/wwwroot/lib/bootstrap/dist/css/bootstrap.min.css
 
 # Claude Code session state
 .claude/

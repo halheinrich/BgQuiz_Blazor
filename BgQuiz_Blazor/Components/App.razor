@@ -6,6 +6,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
     <ResourcePreloader />
+    @* Bootstrap 5.3.3, VENDORED AND TRACKED — the one file under wwwroot/lib that
+       .gitignore re-includes (issue halheinrich/backgammon#126). Nothing in this
+       repo restores wwwroot/lib: no libman.json, no npm step, no MSBuild target,
+       so an ignored copy is a copy that exists on one machine, and CI and every
+       fresh clone build the app unstyled. Committing the file is what makes a
+       clone styled with no network at all; LibMan was rejected for the opposite
+       reason (a restore step is one more thing that can be offline at build
+       time). Upgrading means replacing the file AND this line together — the
+       version lives here because this is the only place that names the file. An
+       e2e pin (StylesheetTests) fails if the stylesheet stops being applied. *@
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["BgQuiz_Blazor.styles.css"]" />
