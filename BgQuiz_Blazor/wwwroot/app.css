@@ -16,8 +16,30 @@ a, .btn-link {
     box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
 }
 
+/* The layout's content area, and — since SPEC-help.md §5 was amended — a NAMED
+   inline-size query container. /help's contents block is a rail only where the
+   document and the rail both fit, and "fit" is a property of this box: it is
+   what the navigation panel's width, the collapse rail, the page padding and
+   the window have already been subtracted from. A viewport media query cannot
+   see any of that, which is why one is ruled out for that rule.
+
+   Named rather than anonymous so the @container rule below names what it is
+   asking about, and cannot be answered by some nearer container a future
+   component introduces between here and the page.
+
+   Containment is real layout, not a comment (the retired badge anchor below
+   records the same discipline in the other direction), so this was measured
+   before it landed rather than after: with it on, the quiz board box is
+   identical at 1440x900 and 1280x800 in both view modes, and Home's layout is
+   unchanged at both. inline-size containment is a no-op for this element's own
+   width — an article in a flex main is sized by its parent, never by its
+   contents — and the layout containment it implies changes nothing here: the
+   only position:fixed in the app (#blazor-error-ui) is outside .page entirely,
+   and the one sticky descendant is /help's own rail, which sticks to the
+   viewport's scrollport regardless. */
 .content {
     padding-top: 1.1rem;
+    container: app-content / inline-size;
 }
 
 h1:focus {
@@ -361,17 +383,40 @@ h1:focus {
    nav exactly once, immediately after the intro; which of the spec's two
    placements a reader gets is decided here and nowhere else.
 
-   Below lg the three are ordinary blocks in source order, which IS the narrow
-   case: the contents block sits under the h1 and its lead as a plain list, and
-   there is no rail. The reading width below is the same 800px the container
-   used to carry as an inline max-width — moved onto the columns because the
-   container itself has to be free to be wider than the document once the rail
-   sits beside it.
+   Where the rail does not fit (see THE FIT CONDITION below) the three are
+   ordinary blocks in source order, and that IS the spec's other case: the
+   contents block sits under the h1 and its lead as a plain list, and no rail
+   exists. Nothing is hidden or duplicated to achieve it — there is one <nav>,
+   and it is either a grid item in the second column or a block in the flow.
+
+   The reading width below is the same 800px the container used to carry as an
+   inline max-width, moved onto the columns because the container itself has to
+   be free to be wider than the document once the rail sits beside it.
    --------------------------------------------------------------------------- */
+/* The three numbers the layout is made of, declared once and read by both the
+   grid below and — via the arithmetic in the @container condition — the test
+   that the condition still agrees with them. */
+.help-page {
+    --help-doc-width: 800px;
+    --help-rail-width: 13rem;
+    --help-rail-gap: 2rem;
+
+    /* Bootstrap's .container tier cap is cancelled deliberately. The fit
+       condition is asked of the CONTENT AREA while the grid is laid out inside
+       this element, so a cap between the two would let them disagree: at a
+       1199px window with the navigation panel folded the content area is 1139px
+       (the query says the rail fits) while the lg-tier cap is 960px (the grid
+       has 936px and would squeeze the document to 696px). The reading width is
+       invariant by construction — SPEC-help.md §5 — so the cap goes and the
+       grid's own tracks, centred, decide the width. The container's gutters
+       stay: they are the term the threshold adds back. */
+    max-width: none;
+}
+
 .help-intro,
 .help-doc,
 .help-contents {
-    max-width: 800px;
+    max-width: var(--help-doc-width);
 }
 
 .help-contents {
@@ -409,24 +454,42 @@ h1:focus {
     text-decoration: underline;
 }
 
-@media (min-width: 992px) {
-    /* Bootstrap lg and up: the contents block becomes a sticky rail beside the
-       document. Two tracks, centred as a pair, so the document keeps its 800px
-       reading width wherever the content area is wide enough to hold both —
-       from roughly 1400px of viewport with the navigation panel showing, less
-       once it is folded. Below that the tracks share what there is and the
-       document narrows; the rail's own track is capped low (13rem) so it takes
-       as little of the squeeze as it can.
+/* THE FIT CONDITION (SPEC-help.md §5, amended 2026-08-21). The rail appears
+   where the document at its FULL reading width, the rail's track and the gap
+   between them all fit; where they do not, there is no rail and the contents
+   block stays the ordinary list above. The document column is never narrowed to
+   make room — that is the whole of the amendment, and it is why this is a
+   threshold rather than a Bootstrap tier.
 
-       The rail spans both rows so its grid area is the height of the whole
-       document — that, plus align-self: start, is what gives position: sticky
-       something to travel through; a rail placed in the intro's row alone would
-       have nowhere to stick to. max-height keeps the nineteen entries scrollable
-       on a short window rather than clipped by the viewport. */
+   1064px is those same three numbers plus this element's own gutters, and
+   nothing else:
+
+       800px  --help-doc-width      the reading width, invariant
+     + 208px  --help-rail-width     13rem, the rail track's cap
+     +  32px  --help-rail-gap       2rem, the column gap
+     +  24px                        .container's padding-inline (0.75rem a side)
+     = 1064px
+
+   The gutters are in the sum because the condition is asked of the content
+   area — .help-page's margin box — while the grid is laid out in .help-page's
+   own content box. A container query condition cannot substitute var(), so the
+   literal cannot be spelled from the properties above; the arithmetic is
+   enforced instead by AppCss_HelpRailThreshold_IsTheGridsOwnNumbers, which
+   fails if either side moves without the other.
+
+   Two tracks, centred as a pair. The rail spans both rows so its grid area is
+   the height of the whole document — that, plus align-self: start, is what
+   gives position: sticky something to travel through; a rail placed in the
+   intro's row alone would have nowhere to stick to. max-height keeps the
+   nineteen entries scrollable on a short window rather than clipped by the
+   viewport. */
+@container app-content (min-width: 1064px) {
     .help-page {
         display: grid;
-        grid-template-columns: minmax(0, 800px) minmax(9rem, 13rem);
-        column-gap: 2rem;
+        grid-template-columns:
+            minmax(0, var(--help-doc-width))
+            minmax(9rem, var(--help-rail-width));
+        column-gap: var(--help-rail-gap);
         justify-content: center;
         align-items: start;
     }

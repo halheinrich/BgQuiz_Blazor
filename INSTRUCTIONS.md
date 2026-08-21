@@ -1983,14 +1983,50 @@ The asymmetry is pinned three times over: at the service seam
   The **contents block** is a `<nav>` named *Contents* listing two levels, parts
   and sections; `FilterHelp`'s own sections are not listed. It is rendered
   **once**, directly after the `<h1>` and its lead, and `app.css` decides where
-  it lands: a sticky rail beside the document at Bootstrap `lg` and up, an
-  ordinary list in the flow below that, with no rail (spec §5 — no scroll-spy,
-  no back-to-top). A second CSS-hidden copy would put two navigations named
+  it lands. Placement is a **fit condition, not a breakpoint**
+  (`../SPEC-help.md` §5, amended 2026-08-21): the block is a sticky rail beside
+  the document wherever the **content area** can hold the document at its full
+  800 px reading width plus the rail's track and the gap, and an ordinary list
+  in the flow otherwise. **The document column is never narrowed to make room
+  for the rail** — that is the amendment, ruled after the `lg` breakpoint was
+  measured squeezing the reading column to 667 px at 1280 and 473 px at 992. So
+  a 1280 px window has no rail with the navigation panel showing and gains one
+  when it is folded, and no viewport number describes that.
+
+  Mechanically: `article.content` is a **named inline-size container**
+  (`app-content`), and the rule is `@container app-content (min-width: 1064px)`.
+  A media query is ruled out by name in §5 — it cannot see the panel's state.
+  The threshold is the grid's own three numbers (`--help-doc-width` +
+  `--help-rail-width` + `--help-rail-gap`) plus `.container`'s gutters, since
+  the query asks about the content area while the grid is laid out inside
+  `.help-page`; a container query condition cannot substitute `var()`, so
+  `AppCss_HelpRailThreshold_IsTheGridsOwnNumbers` is what keeps the literal and
+  the properties from drifting. `.help-page` cancels Bootstrap's tier
+  `max-width` for the same reason — a cap between the queried box and the grid
+  would let them disagree (at 1199 px folded the content area says the rail fits
+  while the lg cap leaves the grid 936 px).
+
+  Two consequences worth knowing before editing `app.css`. **The board-area
+  pins are selector-scoped, deliberately.** The two retired-glue pins
+  (`…BadgeContainerQueryAnchor_StaysGone`, `…BoundedHeightGlue_StaysGone`)
+  assert `container-type` / `max-height` absent from **the rules that name the
+  board**,
+  not from the whole file: what each retired is a declaration *on the board*,
+  and the file-wide form only said that while `app.css` described nothing else
+  that could legitimately carry one. It now also lays out `/help`, whose content
+  area is a query container and whose rail bounds its own height. And
+  **containment is real layout** — measured before landing, not after: with
+  `article.content` contained, the board box is identical at 1440×900 and
+  1280×800 in both view modes, and so is Home.
+
+  A second CSS-hidden copy of the block would put two navigations named
   *Contents* in the accessibility tree, so placement is CSS's job alone; bUnit
-  cannot evaluate a media query, so `AppCss_HelpContents_IsARailOnlyAtBootstrapLgAndUp`
-  is what holds the rule and the live check at both widths is the measurement.
-  Every in-page link on this page goes through `AnchorHref`: a bare
-  `#fragment` resolves against `<base href="/">` and lands the reader on Home.
+  can evaluate no query at all, so
+  `AppCss_HelpContents_IsARailOnlyWhereTheDocumentAndRailBothFit` is what holds
+  the rule, and the live re-measure across widths **and both panel states** is
+  the measurement. Every in-page link on
+  this page goes through `AnchorHref`: a bare `#fragment` resolves against
+  `<base href="/">` and lands the reader on Home.
 
   The section order is the journey, unchanged by the grouping: a **What you
   need** prerequisites lead (a
@@ -3093,7 +3129,11 @@ public (see Pitfalls). The externally visible surface is the route map:
   anchor, and went with the badge (issue `halheinrich/backgammon#98`) —
   containment is layout, not decoration, so it was measured (board box
   identical on and off) and then removed rather than left behind.
-  `AppCss_RetiredBadgeContainerQueryAnchor_StaysGone` pins both halves.
+  `AppCss_RetiredBadgeContainerQueryAnchor_StaysGone` pins both halves —
+  `container-type` scoped to **the rules that name the board**, since `/help`'s
+  fit condition makes the layout's content area a legitimate query container
+  (§ `Help.razor`); `cqw` stays file-wide, because nothing in this app sizes in
+  container units.
   The cube-answering and review boards are a bare `.bg-diagram`
   directly under `.board-container` — the cube radios live in the action row —
   so all three states size identically under the fold cap *within a mode*;

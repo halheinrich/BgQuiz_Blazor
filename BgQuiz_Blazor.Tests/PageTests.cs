@@ -5814,11 +5814,24 @@ public class PageTests : BunitContext
         // so it was removed rather than left as decoration (measured first: the
         // board box is identical with it on and off). Both halves are pinned,
         // since re-adding either one alone is how it would creep back.
+        //
+        // The containment half is scoped to the rules that name the board, not
+        // to the whole file, and that is the claim rather than a concession —
+        // the same move `AppCss_RetiredBoundedHeightGlue_StaysGone` needed for
+        // the same reason. What was retired is a query container ON THE BOARD;
+        // a file-wide absence said that only while app.css contained nothing
+        // else that could legitimately be one. SPEC-help.md §5's amendment made
+        // the layout's content area exactly that (the fit condition is a
+        // property of that box and of nothing the viewport can report), which
+        // would have failed the file-wide form while having no bearing on this
+        // contract at all. `cqw` stays file-wide: nothing in this app sizes in
+        // container units, and the badge's did not survive its anchor.
         var css = File.ReadAllText(AppCssPath());
         var noComments = Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);
 
-        Assert.DoesNotContain("container-type", noComments);
         Assert.DoesNotContain("cqw", noComments);
+        Assert.DoesNotContain("container-type", BoardRules(noComments));
+        Assert.DoesNotContain("container:", BoardRules(noComments));
     }
 
     [Fact]
@@ -5879,33 +5892,43 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public void AppCss_HelpContents_IsARailOnlyAtBootstrapLgAndUp()
+    public void AppCss_HelpContents_IsARailOnlyWhereTheDocumentAndRailBothFit()
     {
-        // SPEC-help.md §5's responsive ruling, which is a CSS-only fact: the
-        // markup renders ONE <nav>, always directly after the h1 and its lead,
-        // and which of the spec's two placements a reader gets is decided
-        // entirely here. bUnit renders the DOM and cannot evaluate a media
-        // query, so nothing else in either suite can see this — the live check
-        // at both widths is the measurement, and this is what stops the ruling
-        // being edited away without one.
+        // SPEC-help.md §5 as amended: the rail is a FIT CONDITION on the
+        // layout's content area, not a viewport tier. The markup renders ONE
+        // <nav>, always directly after the h1 and its lead, and which of the
+        // spec's two placements a reader gets is decided entirely here. bUnit
+        // renders the DOM and cannot evaluate a query of any kind, so nothing
+        // else in either suite can see this — the live re-measure across widths
+        // and both panel states is the measurement, and this is what stops the
+        // ruling being edited away without one.
         //
-        // Three declarations, and each is a separate way to lose the rule.
-        // Outside any media query the block must NOT be positioned: a sticky
-        // rail that leaked out of the query would follow a narrow reader down
-        // the page, which is the failure the ruling names. Inside the lg query
-        // the grid is what puts it beside the document, and `position: sticky`
-        // is what makes it a rail rather than a column that scrolls away.
+        // Four declarations, each a separate way to lose the rule. The
+        // condition must be a CONTAINER query on the named content-area
+        // container: a media query is ruled out by name in §5 because it cannot
+        // see the navigation panel's state — and swapping one for the other is
+        // invisible until someone folds the panel. Inside it, the grid is what
+        // puts the block beside the document and `position: sticky` is what
+        // makes it a rail rather than a column that scrolls away. Outside it,
+        // the block must NOT be positioned: a sticky rail that leaked out would
+        // follow a reader who has no rail down the page.
         var css = File.ReadAllText(AppCssPath());
         var noComments = Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);
 
-        var lgQuery = Regex.Match(
-            noComments,
-            @"@media\s*\(min-width:\s*992px\)\s*\{(?:[^{}]|\{[^{}]*\})*\}",
-            RegexOptions.Singleline);
-        Assert.True(lgQuery.Success, "lg media query present");
+        var lgQuery = ContentAreaFitQuery(noComments);
+        Assert.True(lgQuery.Success, "content-area container query present");
         Assert.Contains(".help-page", lgQuery.Value);
         Assert.Contains("display: grid", lgQuery.Value);
         Assert.Contains("position: sticky", lgQuery.Value);
+
+        // ...and the container it names is really established, on the content
+        // area. A query naming a container nothing declares never matches, so
+        // every reader would silently get the list — the failure a present-only
+        // assertion on the query itself cannot see.
+        var contentRule = RulesWhoseSelector(
+            noComments, s => s.Trim().Equals(".content", StringComparison.Ordinal));
+        Assert.Contains("app-content", contentRule);
+        Assert.Contains("inline-size", contentRule);
 
         // EVERY unconditional rule naming the block, not the first one found:
         // the block is styled by several (a shared reading-width rule, its own,
@@ -5918,6 +5941,78 @@ public class PageTests : BunitContext
             narrow, s => s.Contains(".help-contents", StringComparison.Ordinal));
         Assert.NotEmpty(narrowRules);
         Assert.DoesNotContain("position:", narrowRules);
+    }
+
+    [Fact]
+    public void AppCss_HelpRailThreshold_IsTheGridsOwnNumbers()
+    {
+        // The single-source half of §5's mechanism. The threshold is derived —
+        // the reading width, the rail track's cap, the column gap, and
+        // .container's own gutters, which are in the sum because the condition
+        // is asked of the content area while the grid is laid out inside
+        // .help-page's content box.
+        //
+        // It has to be derived HERE rather than in the stylesheet: a container
+        // query condition cannot substitute var(), so the literal cannot be
+        // spelled from the custom properties the grid reads. Without this the
+        // two are free to drift, and the symptom is silent — a threshold 40px
+        // low simply squeezes the reading column §5 exists to keep, which is
+        // the defect the amendment was written against.
+        var css = File.ReadAllText(AppCssPath());
+        var noComments = Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);
+
+        var declared =
+            Pixels(CustomProperty(noComments, "--help-doc-width"))
+            + Pixels(CustomProperty(noComments, "--help-rail-width"))
+            + Pixels(CustomProperty(noComments, "--help-rail-gap"))
+            + BootstrapContainerGutters;
+
+        var threshold = double.Parse(
+            ContentAreaFitQuery(noComments).Groups["px"].Value,
+            System.Globalization.CultureInfo.InvariantCulture);
+
+        Assert.Equal(declared, threshold);
+    }
+
+    /// <summary>
+    /// <c>.container</c>'s own horizontal padding in px — Bootstrap's
+    /// <c>--bs-gutter-x</c> (1.5rem), half a side and counted twice. The term
+    /// that separates the content area (what the fit condition asks about) from
+    /// the grid's own box (what the tracks are laid out in).
+    /// </summary>
+    private const double BootstrapContainerGutters = 24;
+
+    /// <summary>
+    /// The <c>@container</c> rule carrying /help's fit condition, with the
+    /// threshold captured as <c>px</c>. Matched on the <b>named</b> container,
+    /// so a media query — ruled out by SPEC-help.md §5 — cannot satisfy it.
+    /// </summary>
+    private static Match ContentAreaFitQuery(string noComments) =>
+        Regex.Match(
+            noComments,
+            @"@container\s+app-content\s*\(min-width:\s*(?<px>\d+(?:\.\d+)?)px\)\s*\{(?:[^{}]|\{[^{}]*\})*\}",
+            RegexOptions.Singleline);
+
+    /// <summary>The declared value of a custom property, e.g. <c>13rem</c>.</summary>
+    private static string CustomProperty(string noComments, string name)
+    {
+        var match = Regex.Match(noComments, Regex.Escape(name) + @":\s*(?<value>[^;]+);");
+        Assert.True(match.Success, $"{name} declared");
+        return match.Groups["value"].Value.Trim();
+    }
+
+    /// <summary>
+    /// A CSS length in px. Only <c>px</c> and <c>rem</c> occur here, and rem
+    /// resolves against the 16px root this app never overrides — measuring that
+    /// rather than assuming it would need a browser, which is the layer this
+    /// pin stands in for.
+    /// </summary>
+    private static double Pixels(string length)
+    {
+        var match = Regex.Match(length, @"^(?<n>\d+(?:\.\d+)?)(?<unit>px|rem)$");
+        Assert.True(match.Success, $"length in px or rem: '{length}'");
+        var n = double.Parse(match.Groups["n"].Value, System.Globalization.CultureInfo.InvariantCulture);
+        return match.Groups["unit"].Value == "rem" ? n * 16 : n;
     }
 
     /// <summary>
