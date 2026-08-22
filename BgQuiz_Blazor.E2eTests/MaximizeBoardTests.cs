@@ -135,18 +135,29 @@ public sealed class MaximizeBoardTests : E2eTestBase
     /// its box starts below the board region's. Only a browser can judge this —
     /// the bUnit pins assert the tree, which is not the same claim once the
     /// producer's own CSS is laying the board out.
+    ///
+    /// <para>
+    /// <b>Retried, and the board checked for being a board first</b>
+    /// (<c>halheinrich/backgammon#127</c>). Both halves close a way this could
+    /// have read green without meaning anything. It is called straight after a
+    /// composition change — the review render replaces the whole chrome block —
+    /// so a single read is a bet on the runner having finished laying that out,
+    /// which umbrella CI is slower to do than any machine here. And the
+    /// comparison is arithmetic against the board's box: a board that failed to
+    /// render at all has height 0, and <c>badge.Y >= board.Y + 0</c> is then
+    /// true of every page ever served. <see cref="E2eTestBase.LaidOutBoxAsync"/>
+    /// makes that case say so.
+    /// </para>
     /// </summary>
-    private async Task AssertBadgeSitsBelowTheBoardAsync()
+    private Task AssertBadgeSitsBelowTheBoardAsync() => ExpectToPassAsync(async () =>
     {
-        var boardBox = await Page.Locator(".board-container").BoundingBoxAsync();
-        var badgeBox = await XgidBadge.BoundingBoxAsync();
+        var boardBox = await LaidOutBoxAsync(Page.Locator(".board-container"), "the board region");
+        var badgeBox = await LaidOutBoxAsync(XgidBadge, "the XGID badge");
 
-        Assert.NotNull(boardBox);
-        Assert.NotNull(badgeBox);
-        Assert.True(badgeBox!.Y >= boardBox!.Y + boardBox.Height,
+        Assert.True(badgeBox.Y >= boardBox.Y + boardBox.Height,
             $"the XGID badge (y={badgeBox.Y}) must sit below the board region " +
             $"(y={boardBox.Y}, height={boardBox.Height})");
-    }
+    });
 
     [Fact]
     public async Task WithTheSettingOff_AnsweringKeepsItsChrome()
@@ -209,14 +220,20 @@ public sealed class MaximizeBoardTests : E2eTestBase
         await AnswerCubeNoDoubleAsync();
 
         await Expect(ScorePanel).ToBeVisibleAsync();
-        var actionRow = Page.Locator(".board-chrome .action-row");
-        var rowBox = await actionRow.BoundingBoxAsync();
-        var panelBox = await ScorePanel.BoundingBoxAsync();
 
-        Assert.NotNull(rowBox);
-        Assert.NotNull(panelBox);
-        Assert.True(panelBox!.Y >= rowBox!.Y + rowBox.Height,
-            $"the score panel (y={panelBox.Y}) must sit below the action row " +
-            $"(y={rowBox.Y}, height={rowBox.Height})");
+        // Retried, and both boxes required to be real ones, for the reasons
+        // AssertBadgeSitsBelowTheBoardAsync spells out: this runs on the render
+        // that follows a Submit, and an action row of height 0 would satisfy the
+        // comparison below without the rider holding at all.
+        var actionRow = Page.Locator(".board-chrome .action-row");
+        await ExpectToPassAsync(async () =>
+        {
+            var rowBox = await LaidOutBoxAsync(actionRow, "the action row");
+            var panelBox = await LaidOutBoxAsync(ScorePanel, "the score panel");
+
+            Assert.True(panelBox.Y >= rowBox.Y + rowBox.Height,
+                $"the score panel (y={panelBox.Y}) must sit below the action row " +
+                $"(y={rowBox.Y}, height={rowBox.Height})");
+        });
     }
 }

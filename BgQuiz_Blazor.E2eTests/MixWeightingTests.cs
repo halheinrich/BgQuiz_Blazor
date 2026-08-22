@@ -124,6 +124,11 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         // re-runs the context init script, which resets the fake's state (a
         // real folder's bgquiz-stats.json would survive; the fake's must be
         // re-staged).
+        //
+        // Both reads here are single ones and race nothing: the value being
+        // moved is the one this test staged itself, through
+        // StageFirstWriteAsTheFoldersStatsFileAsync, and the app is not writing
+        // to the slot at either moment.
         var statsJson = await Page.EvaluateAsync<string?>("() => window.__statsFake.statsJson");
         await Page.ReloadAsync();
         await Expect(PickFolderButton).ToBeVisibleAsync(); // WASM re-booted
@@ -163,8 +168,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
 
-        await Page.EvaluateAsync(
-            "() => { window.__statsFake.statsJson = window.__statsFake.writes[0]; }");
+        await StageFirstWriteAsTheFoldersStatsFileAsync();
 
         await Page.GetByRole(AriaRole.Button, new() { Name = "Back to setup" }).ClickAsync();
         await ExpectUrlAsync("/");
@@ -211,6 +215,8 @@ public sealed class MixRefusalTests : FsAccessFakeTestBase
         // Now the file turns unreadable underneath the active mix — the user
         // edited it, or another tool rewrote it, between setup and Start. The
         // pick-time probe is long past and cannot know.
+        // Pure setup, not a read: the corrupt content is put in place before the
+        // bind that will choke on it, and nothing is being observed here.
         await Page.EvaluateAsync("() => { window.__statsFake.statsJson = 'not json at all'; }");
 
         // Nothing warns in advance — there is nothing to warn from — so the

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
 
@@ -454,6 +455,92 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </summary>
     protected Task ExpectUrlAsync(string path) =>
         Expect(Page).ToHaveURLAsync(BaseUrl + path);
+
+    // -----------------------------------------------------------------------
+    //  Retrying measurement — the form the smoke gate owes its geometry pins
+    // -----------------------------------------------------------------------
+
+    /// <summary>How long <see cref="ExpectToPassAsync"/> keeps retrying.</summary>
+    private static readonly TimeSpan RetryWindow =
+        TimeSpan.FromMilliseconds(PlaywrightFixture.DefaultTimeoutMs);
+
+    /// <summary>
+    /// Gap between attempts inside <see cref="ExpectToPassAsync"/> — Playwright's
+    /// own polling interval, so a retried assertion costs what one of its
+    /// <c>Expect</c>s costs.
+    /// </summary>
+    private static readonly TimeSpan RetryPollInterval = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>
+    /// Run <paramref name="assertion"/> until it stops throwing, or
+    /// <see cref="RetryWindow"/> elapses — at which point the last attempt's
+    /// exception propagates, so the failure message is the assertion's own.
+    ///
+    /// <para>
+    /// <b>Why this exists.</b> A single read taken straight after an action is a
+    /// timing assertion in disguise (<c>halheinrich/backgammon#126</c>): it
+    /// passes or fails on how fast the runner happened to be, and umbrella CI is
+    /// slower than any developer machine. Playwright's <c>Expect</c> family
+    /// solves that for claims about ONE element, but a claim relating TWO boxes —
+    /// this suite's geometry pins — has no such assertion, and the .NET binding
+    /// has no <c>ToPass</c> to wrap one in. This is that missing form, and it is
+    /// deliberately the only retry primitive here: the claim stays written once,
+    /// in C#, as an ordinary xunit assertion.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>And why the delay below is not the sleep the suite forbids.</b> The
+    /// determinism rule bans waiting out a transition blindly — a sleep chosen to
+    /// be "long enough", which pins the host's speed exactly as the one-shot read
+    /// does. This delay waits out nothing: the assertion is re-evaluated
+    /// immediately and the loop ends the moment it holds, so a fast machine pays
+    /// nothing and a slow one is simply given the time it needs. It is the same
+    /// interval, for the same reason, that Playwright's own assertions poll on.
+    /// </para>
+    /// </summary>
+    protected static async Task ExpectToPassAsync(Func<Task> assertion)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (true)
+        {
+            try
+            {
+                await assertion();
+                return;
+            }
+            catch (Exception) when (elapsed.Elapsed < RetryWindow)
+            {
+                await Task.Delay(RetryPollInterval);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The element's box, once it is on the page with a real size — the guard a
+    /// geometry pin needs before it can mean anything.
+    ///
+    /// <para>
+    /// <b>The vacuity it closes.</b> Every "A sits below B" pin in this suite is
+    /// arithmetic over two boxes, and a box that is absent or zero-sized makes
+    /// that arithmetic trivially true: <c>a.Y >= b.Y + 0</c> holds for a board
+    /// that failed to render at all. So the yardstick is checked for being a
+    /// yardstick first, and the failure names which element was degenerate rather
+    /// than reporting a comparison nobody can read.
+    /// </para>
+    /// </summary>
+    /// <param name="locator">The element to measure.</param>
+    /// <param name="what">How the failure message should name it.</param>
+    protected static async Task<LocatorBoundingBoxResult> LaidOutBoxAsync(
+        ILocator locator, string what)
+    {
+        var box = await locator.BoundingBoxAsync();
+        Assert.True(box is not null, $"{what} is not laid out at all — it has no box.");
+        Assert.True(
+            box!.Width > 0 && box.Height > 0,
+            $"{what} has a degenerate box ({box.Width}x{box.Height}); any geometry "
+            + "compared against it would pass for that reason alone.");
+        return box;
+    }
 
     /// <summary>Absolute path of a committed fixture in the test output; fails loudly when absent.</summary>
     protected static string FixturePath(string fixtureFileName)

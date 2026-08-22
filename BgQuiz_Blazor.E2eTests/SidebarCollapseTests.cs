@@ -51,6 +51,14 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// <summary>
     /// The XGID of the problem on screen, once it is there — the value a later
     /// step compares against to prove the run moved on.
+    ///
+    /// <para>
+    /// One read, after a retrying <c>Expect</c> on the badge, and correct as one
+    /// (<c>halheinrich/backgammon#127</c>): every caller has already waited for
+    /// the badge to say something <i>other</i> than the previous problem's XGID,
+    /// so the value being read is the one the app has settled on. The guard
+    /// below covers the remaining case — a badge that is visible and empty.
+    /// </para>
     /// </summary>
     private async Task<string> CurrentProblemXgidAsync()
     {
@@ -109,6 +117,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
         await ApplyFilterAsync();
 
         await CollapseRail.ClickAsync();
+        await Expect(CollapseRail).ToBeCheckedAsync();
         Assert.Equal(0d, await PanelWidthAsync());
 
         await StartQuizAsync();
@@ -118,6 +127,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
             "in-app navigation brings the panel back — Help tells the reader so");
 
         await CollapseRail.ClickAsync();
+        await Expect(CollapseRail).ToBeCheckedAsync();
         Assert.Equal(0d, await PanelWidthAsync());
 
         await Page.ReloadAsync();
@@ -177,6 +187,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
         await WaitForTheEnhancedNavSettleAsync();
 
         await CollapseRail.ClickAsync();
+        await Expect(CollapseRail).ToBeCheckedAsync();
         Assert.Equal(0d, await PanelWidthAsync());
         string firstProblem = await CurrentProblemXgidAsync();
 
@@ -240,6 +251,24 @@ public sealed class SidebarCollapseTests : E2eTestBase
     private Task WaitForTheEnhancedNavSettleAsync() =>
         Expect(CollapseRail).Not.ToBeCheckedAsync();
 
+    /// <summary>
+    /// The panel's rendered width. A single read, deliberately, and every caller
+    /// takes one only after a retrying <c>Expect</c> on the checkbox has already
+    /// landed (<c>halheinrich/backgammon#127</c>): the fold is a
+    /// <c>:checked ~ .sidebar</c> rule with no transition on it, so once the
+    /// control's state is settled the width is settled with it, in the same
+    /// frame. Nothing here can still be in flight.
+    ///
+    /// <para>
+    /// <b>And why <c>&gt; 0</c> is the whole of the open half.</b> That the
+    /// panel is 250px wide rather than merely wider than nothing is a fact about
+    /// the layout stylesheet, pinned once by <c>EnvironmentFidelityTests</c> and
+    /// deliberately not restated here — a second statement of it is a second
+    /// source, and this scenario's subject is the toggle, not the panel's size.
+    /// What the toggle owes is that folding takes the panel to zero and
+    /// unfolding brings it back, and zero-versus-not-zero says exactly that.
+    /// </para>
+    /// </summary>
     private Task<double> PanelWidthAsync() =>
         NavigationPanel.EvaluateAsync<double>("el => el.getBoundingClientRect().width");
 
@@ -247,6 +276,14 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// The rail's chevron as the browser resolves it. Computed style, not the
     /// markup: the state signal is drawn entirely by CSS, so nothing in the DOM
     /// would show a stuck glyph.
+    ///
+    /// <para>
+    /// Read once, for <see cref="PanelWidthAsync"/>'s reason: both calls follow
+    /// a settled <c>Expect</c> on the checkbox, and the swap is a
+    /// <c>:checked</c> rule over <c>background-image</c> — the rail's only
+    /// transition is on <c>background-color</c>, so there is no animation for a
+    /// read to arrive in the middle of.
+    /// </para>
     /// </summary>
     private Task<string> RailChevronAsync() =>
         CollapseRail.EvaluateAsync<string>("el => getComputedStyle(el).backgroundImage");

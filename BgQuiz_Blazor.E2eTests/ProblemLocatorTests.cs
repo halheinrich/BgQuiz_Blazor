@@ -269,18 +269,26 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// box starts below the board region's. The same claim the XGID badge's own
     /// smoke makes, and for the same reason — §4 homes both in the bottom row
     /// precisely so neither obscures board content.
+    ///
+    /// <para>
+    /// Retried, and the board required to have a real box before it is used as
+    /// one: the comparison is arithmetic against that box, so a board that
+    /// failed to render measures zero high and satisfies it trivially. Both
+    /// halves, and the argument for them, are
+    /// <c>MaximizeBoardTests.AssertBadgeSitsBelowTheBoardAsync</c>'s
+    /// (<c>halheinrich/backgammon#127</c>) — the two pins make the same claim
+    /// about two chips and would have gone quiet in the same way.
+    /// </para>
     /// </summary>
-    private async Task AssertChipSitsBelowTheBoardAsync()
+    private Task AssertChipSitsBelowTheBoardAsync() => ExpectToPassAsync(async () =>
     {
-        var board = await Page.Locator(".board-container").BoundingBoxAsync();
-        var chip = await Chip.BoundingBoxAsync();
+        var board = await LaidOutBoxAsync(Page.Locator(".board-container"), "the board region");
+        var chip = await LaidOutBoxAsync(Chip, "the locator chip");
 
-        Assert.NotNull(board);
-        Assert.NotNull(chip);
         Assert.True(
-            chip!.Y >= board!.Y + board.Height,
+            chip.Y >= board.Y + board.Height,
             $"Locator chip should start below the board region; chip.Y={chip.Y}, board bottom={board.Y + board.Height}.");
-    }
+    });
 
     /// <summary>
     /// §4's ruling (i), as the only observation that can actually catch it: the
@@ -359,29 +367,39 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await Expect(Page.Locator(".action-row > .action-row-tail:last-child")).ToHaveCountAsync(1);
         await Expect(Page.Locator(".action-row > :nth-last-child(2)")).ToHaveTextAsync(controlName);
 
-        var control = await Page.GetByRole(AriaRole.Button, new() { Name = controlName })
-            .BoundingBoxAsync();
-        var cluster = await Page.Locator(".action-row-tail").BoundingBoxAsync();
+        // Retried, and both boxes required to be real ones
+        // (halheinrich/backgammon#127). The two Expects above prove the row's
+        // SHAPE has landed, which is not yet a statement about its geometry —
+        // this runs on the render that follows a Start or a Submit, and the two
+        // reds this pin has already had were both about a slower machine's
+        // layout. The control is also the yardstick for both assertions: one
+        // measuring zero would turn the first into a demand for exact equality,
+        // and one measuring the whole row would make the second true of a
+        // cluster that had wrapped three times.
+        await ExpectToPassAsync(async () =>
+        {
+            var control = await LaidOutBoxAsync(
+                Page.GetByRole(AriaRole.Button, new() { Name = controlName }), controlName);
+            var cluster = await LaidOutBoxAsync(
+                Page.Locator(".action-row-tail"), "the trailing cluster");
 
-        Assert.NotNull(control);
-        Assert.NotNull(cluster);
+            // Level with it — the cluster did not open a line of its own.
+            Assert.True(
+                Math.Abs(cluster.Y - control.Y) < control.Height,
+                $"Trailing cluster should share a line with {controlName}; cluster.Y={cluster.Y}, "
+                + $"{controlName}.Y={control.Y}, {controlName}.Height={control.Height}.");
 
-        // Level with it — the cluster did not open a line of its own.
-        Assert.True(
-            Math.Abs(cluster!.Y - control!.Y) < control.Height,
-            $"Trailing cluster should share a line with {controlName}; cluster.Y={cluster.Y}, "
-            + $"{controlName}.Y={control.Y}, {controlName}.Height={control.Height}.");
-
-        // …and no taller than it, which is the other half and not a
-        // restatement: a cluster that wrapped INSIDE itself keeps its top on
-        // this line and grows downwards, so the levelness above still holds
-        // while the row's height has doubled anyway. Measured against a control
-        // in the same row rather than a pixel literal, so it says nothing about
-        // fonts, viewport or fixture — only that the cluster costs the row no
-        // more height than the button it sits beside.
-        Assert.True(
-            cluster.Height <= control.Height + 1,
-            $"Trailing cluster should be one line tall, like {controlName} beside it; "
-            + $"cluster.Height={cluster.Height}, {controlName}.Height={control.Height}.");
+            // …and no taller than it, which is the other half and not a
+            // restatement: a cluster that wrapped INSIDE itself keeps its top on
+            // this line and grows downwards, so the levelness above still holds
+            // while the row's height has doubled anyway. Measured against a
+            // control in the same row rather than a pixel literal, so it says
+            // nothing about fonts, viewport or fixture — only that the cluster
+            // costs the row no more height than the button it sits beside.
+            Assert.True(
+                cluster.Height <= control.Height + 1,
+                $"Trailing cluster should be one line tall, like {controlName} beside it; "
+                + $"cluster.Height={cluster.Height}, {controlName}.Height={control.Height}.");
+        });
     }
 }

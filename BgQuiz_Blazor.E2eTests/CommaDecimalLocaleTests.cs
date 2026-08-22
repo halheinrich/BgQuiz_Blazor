@@ -71,6 +71,13 @@ public sealed class CommaDecimalLocaleTests : E2eTestBase
         await StartQuizAsync();
 
         // The overlay only exists once the play-entry board has rendered.
+        //
+        // Every read below is a single one, and each is correct as one
+        // (halheinrich/backgammon#127): they are reads of MARKUP, not of layout,
+        // and the markup they read is emitted by the same render this gate waits
+        // for. Nothing in this scenario can change an attribute after the
+        // overlay is on screen — there is no second render, no animation, and no
+        // asynchronously-loaded font to reflow anything.
         await Expect(HitOverlaySvg).ToBeVisibleAsync();
 
         // viewBox — the diagram's coordinate system, itself fractional.
@@ -122,6 +129,13 @@ public sealed class CommaDecimalLocaleTests : E2eTestBase
         // explicit bounding-box floor is belt-and-suspenders with a clearer
         // message; it is deliberately loose (nonzero, not pinned to the 30.8
         // viewBox width) so it survives viewport-scale and layout changes.
+        //
+        // A single read, and correct as one: it follows the overlay's own
+        // visibility gate, and the rect is laid out by the render that gate
+        // waits for. The bug it exists for makes the rect zero-wide from the
+        // first frame — there is no state in which the correct geometry arrives
+        // late, so a retrying form would only give a broken build 30 seconds to
+        // report the same number (halheinrich/backgammon#127).
         var barBox = await BarHitRect.BoundingBoxAsync();
         Assert.NotNull(barBox);
         Assert.True(barBox!.Width > 5,

@@ -253,8 +253,7 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
 
-        await Page.EvaluateAsync(
-            "() => { window.__statsFake.statsJson = window.__statsFake.writes[0]; }");
+        await StageFirstWriteAsTheFoldersStatsFileAsync();
 
         await Page.GetByRole(AriaRole.Button, new() { Name = "Back to setup" }).ClickAsync();
         await ExpectUrlAsync("/");
@@ -262,6 +261,30 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
         await PickFolderButton.ClickAsync();
         await Expect(Page.GetByText("the mix draws its problems from the filtered pool"))
             .ToBeVisibleAsync();
+    }
+
+    /// <summary>
+    /// Make the quiz just finished the folder's <i>pre-existing</i> stats file:
+    /// the app's own first write-back becomes what the next bind reads. The one
+    /// honest way to seed a history — no scenario hand-writes the wire format —
+    /// and the reason every mix scenario runs a throwaway quiz first.
+    ///
+    /// <para>
+    /// <b>It waits for that write.</b> Reading <c>writes[0]</c> straight after
+    /// the run reaches Done is a one-shot read of something the app does on its
+    /// own schedule (<c>halheinrich/backgammon#127</c>): if the write has not
+    /// landed yet the seed is silently <c>undefined</c>, and what fails is a mix
+    /// assertion several steps later, saying nothing about why. The wait is on
+    /// the fake's captured write — the observable consequence of the act being
+    /// waited for — in the same spirit as <c>SettingsTests</c>' wait on the
+    /// stored settings entry.
+    /// </para>
+    /// </summary>
+    protected async Task StageFirstWriteAsTheFoldersStatsFileAsync()
+    {
+        await Page.WaitForFunctionAsync("() => window.__statsFake.writes.length > 0");
+        await Page.EvaluateAsync(
+            "() => { window.__statsFake.statsJson = window.__statsFake.writes[0]; }");
     }
 
     /// <summary>
@@ -276,7 +299,22 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     protected Task ReleaseScanAsync() => Page.EvaluateAsync(
         "() => { window.__statsFake.scanGate = null; window.__releaseScan(); }");
 
-    /// <summary>Every stats write-back the fake writable captured, in order.</summary>
+    /// <summary>
+    /// Every stats write-back the fake writable captured, in order.
+    ///
+    /// <para>
+    /// A single read, and correct as one at every call site
+    /// (<c>halheinrich/backgammon#127</c>): each waits first on the app's own
+    /// account of what it did — the Done page's total, the stats notice, the
+    /// set-aside report — and the write precedes the state that produces those.
+    /// The counting assertions are exact (<c>Single</c>, <c>Equal(2, …)</c>) and
+    /// the rest are <c>Empty</c>, so an early read cannot make one of them
+    /// quietly true: too few writes fails the first kind, and the second kind is
+    /// a negative that a retrying form could not strengthen. The one place that
+    /// genuinely raced is <see cref="StageFirstWriteAsTheFoldersStatsFileAsync"/>,
+    /// which waits.
+    /// </para>
+    /// </summary>
     protected Task<string[]> CapturedWritesAsync() =>
         Page.EvaluateAsync<string[]>("() => window.__statsFake.writes");
 

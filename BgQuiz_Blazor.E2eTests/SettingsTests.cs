@@ -95,7 +95,7 @@ public sealed class SettingsTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        Assert.True(await PointOneIsRightOfTheBarAsync(),
+        await ExpectPointOneAsync(onTheRight: true,
             "the default setting puts the home board — points 1-6 — on the right");
 
         await GoToSettingsAsync();
@@ -111,7 +111,7 @@ public sealed class SettingsTests : E2eTestBase
         // closer gate anyway.
         await Expect(HitOverlaySvg).ToBeVisibleAsync();
 
-        Assert.False(await PointOneIsRightOfTheBarAsync(),
+        await ExpectPointOneAsync(onTheRight: false,
             "with the home board on the left, point 1 must render left of the bar");
     }
 
@@ -208,6 +208,17 @@ public sealed class SettingsTests : E2eTestBase
     /// Assert the panel is folded — both halves, because they can fail apart: the
     /// checkbox is what the applier writes, and the width is what the CSS does
     /// with it.
+    ///
+    /// <para>
+    /// The width is a single read and correct as one
+    /// (<c>halheinrich/backgammon#127</c>): it follows the retrying checkbox
+    /// assertion above, and the fold is a <c>:checked ~ .sidebar</c> rule with no
+    /// transition, so the settled control is the settled width. The mirror below
+    /// reads <c>&gt; 0</c> rather than the panel's designed width for
+    /// <c>SidebarCollapseTests.PanelWidthAsync</c>'s reason — that the layout
+    /// stylesheet applied is <c>EnvironmentFidelityTests</c>' pin, and stating it
+    /// again here would be a second source for it.
+    /// </para>
     /// </summary>
     private async Task ExpectFoldedAsync()
     {
@@ -256,8 +267,8 @@ public sealed class SettingsTests : E2eTestBase
         NavigationPanel.EvaluateAsync<double>("el => el.getBoundingClientRect().width");
 
     /// <summary>
-    /// Whether the board's point-1 region sits right of the bar — i.e. whether
-    /// the on-roll player's home board (points 1-6) is drawn on the right.
+    /// Which side of the bar the board's point-1 region sits on — i.e. which side
+    /// the on-roll player's home board (points 1-6) is drawn on.
     ///
     /// <para>
     /// Measured against the <b>bar</b>, not the diagram's midline: the rendered
@@ -267,14 +278,30 @@ public sealed class SettingsTests : E2eTestBase
     /// (the geometry a user's clicks actually land on) via the render-order
     /// contract <c>E2eTestBase</c> already documents.
     /// </para>
+    ///
+    /// <para>
+    /// <b>Retried, and both rects required to be laid out</b>
+    /// (<c>halheinrich/backgammon#127</c>). This used to be a single read taken
+    /// straight after landing back on the quiz page, which is the shape #126
+    /// caught elsewhere in this suite: the overlay being visible says the board
+    /// rendered, not that this render is the one carrying the new setting. And
+    /// the comparison is between two rect centres, so a rect that measured
+    /// nothing would still produce a confident true or false — the box guard
+    /// makes that case name itself instead.
+    /// </para>
     /// </summary>
-    private async Task<bool> PointOneIsRightOfTheBarAsync()
-    {
-        var bar = await BarHitRect.BoundingBoxAsync()
-            ?? throw new InvalidOperationException("the bar's hit region is not laid out");
-        var pointOne = await HitRects.Nth(0).BoundingBoxAsync()
-            ?? throw new InvalidOperationException("point 1's hit region is not laid out");
+    /// <param name="onTheRight">The side point 1 must be on.</param>
+    /// <param name="because">What that side means, for the failure message.</param>
+    private Task ExpectPointOneAsync(bool onTheRight, string because) =>
+        ExpectToPassAsync(async () =>
+        {
+            var bar = await LaidOutBoxAsync(BarHitRect, "the bar's hit region");
+            var pointOne = await LaidOutBoxAsync(HitRects.Nth(0), "point 1's hit region");
 
-        return pointOne.X + (pointOne.Width / 2) > bar.X + (bar.Width / 2);
-    }
+            bool isRight = pointOne.X + (pointOne.Width / 2) > bar.X + (bar.Width / 2);
+            Assert.True(
+                isRight == onTheRight,
+                $"{because} (point 1 centre x={pointOne.X + (pointOne.Width / 2)}, "
+                + $"bar centre x={bar.X + (bar.Width / 2)}).");
+        });
 }

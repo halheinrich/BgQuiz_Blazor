@@ -2622,8 +2622,8 @@ ever referencing an app assembly.
 fixture, publish, port-bind) fails the suite with an actionable message —
 the never-skip ruling lives in Pitfalls.
 
-**Determinism.** No `Task.Delay` sleeps anywhere — Playwright auto-wait and
-explicit `Expect` assertions only. Every flow helper ends by awaiting the
+**Determinism.** No sleeps — Playwright auto-wait and explicit `Expect`
+assertions only. Every flow helper ends by awaiting the
 user-visible consequence of the transition it triggered. Every committed
 fixture is a single-decision `.xgp` file (the `.xgp` emission policy yields at
 most one decision per file), so a one-fixture quiz is exactly one problem long
@@ -2636,6 +2636,29 @@ real rather than arranged. In-app navigation is asserted with polling URL assert
 `pushState` (same-document), and the navigation-event wait can lose the race
 when the push lands between the triggering click and the wait's registration
 (observed as a rare timeout with the app already on the target URL).
+
+**One-shot reads after an action are timing assertions in disguise** (issues
+`#126`, `#127`). A value read straight after a click, a navigation or a
+re-render passes or fails on how fast the runner happened to be, and umbrella
+CI is slower than any machine here — that is how Help's anchor pins stayed
+green on an unstyled page that jumped instead of smooth-scrolling, and how two
+of the locator's geometry reds were first misread as layout bugs. So: use a
+retrying `Expect` form; where the claim relates **two** elements and no such
+assertion exists (the .NET binding has no `ToPass`), wrap the measurement in
+`E2eTestBase.ExpectToPassAsync`, which re-runs an ordinary xunit assertion
+until it holds, so the claim stays written once and in C#. Its poll interval is
+the suite's only delay and is not the sleep ruled out above — it waits out
+nothing, ends the moment the assertion holds, and is the interval Playwright's
+own assertions poll on. A single read stays correct only where it follows an
+`Expect` that already proved the settled state **and** nothing can still be
+moving, and every such site says so in a remark
+(`SidebarCollapseTests.PanelWidthAsync`, `CommaDecimalLocaleTests`).
+
+**A geometry pin checks its yardstick first.** Every "A sits below B" claim
+here is arithmetic over two boxes, and a box that is absent or zero-sized makes
+it trivially true — `a.Y >= b.Y + 0` holds for a board that never rendered at
+all. `E2eTestBase.LaidOutBoxAsync` is the guard, and it names the degenerate
+element rather than reporting a comparison nobody can read.
 
 **Fixtures are safe to publish.** None carries a player name, verified on each
 addition — anything sliced out of the corpus is exported with **anonymize ON**,

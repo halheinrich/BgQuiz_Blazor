@@ -103,7 +103,12 @@ public sealed class SavedFiltersPersistenceTests : FsAccessFakeTestBase
         await Expect(Page.GetByText("Mine")).ToBeVisibleAsync();
 
         // Re-home the document under the legacy name, exactly as a tester's
-        // folder from before the rename holds it.
+        // folder from before the rename holds it — once the save it re-homes has
+        // actually reached the fake. The chip appearing says the app accepted the
+        // save; only the captured document says the write crossed
+        // folderAccess.js, and moving a null would set this scenario up to test
+        // nothing (halheinrich/backgammon#127).
+        await Page.WaitForFunctionAsync("() => window.__statsFake.filtersJson !== null");
         await Page.EvaluateAsync(
             "() => { const c = window.__statsFake; c.legacyFiltersJson = c.filtersJson; c.filtersJson = null; }");
 
@@ -120,6 +125,15 @@ public sealed class SavedFiltersPersistenceTests : FsAccessFakeTestBase
         await SaveNameInput.FillAsync("Second");
         await SaveFilterButton.ClickAsync();
         await Expect(Page.GetByText("Second")).ToBeVisibleAsync();
+
+        // Both writes captured before anything is read off the fake: the counting
+        // assertion below is the one that would go quiet on a slow runner, since
+        // a second write still in flight reads as "one write" rather than as a
+        // failure to write (halheinrich/backgammon#127). The wait is on "at
+        // least", never on the exact number the assertion makes — a wait
+        // spelling out the count itself would leave Assert.Equal nothing to
+        // catch, and a third write is exactly what it is there to catch.
+        await Page.WaitForFunctionAsync("() => window.__statsFake.filtersWrites.length >= 2");
 
         var state = await Page.EvaluateAsync<System.Text.Json.JsonElement>(
             "() => ({ canonical: window.__statsFake.filtersJson, legacy: window.__statsFake.legacyFiltersJson })");
