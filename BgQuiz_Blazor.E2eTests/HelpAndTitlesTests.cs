@@ -93,12 +93,18 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         // href names an id the page renders; only a browser can show that
         // clicking it scrolls, because a same-document link goes through
         // Blazor's navigation interception on the way.
+        //
+        // RETRYING assertions, not one-shot reads: Bootstrap's reboot sets
+        // `scroll-behavior: smooth` under prefers-reduced-motion:
+        // no-preference, so the jump is an animation and a rect measured the
+        // instant the click returns catches the page mid-flight. See the
+        // remark on the sibling scenario below for what that cost.
         var target = Page.Locator("#help-scoring");
-        Assert.False(await IsInViewportAsync(target));
+        await Expect(target).Not.ToBeInViewportAsync();
 
         await contents.GetByRole(AriaRole.Link, new() { Name = "Scoring", Exact = true }).ClickAsync();
 
-        Assert.True(await IsInViewportAsync(target));
+        await Expect(target).ToBeInViewportAsync();
         Assert.EndsWith("#help-scoring", Page.Url);
     }
 
@@ -268,27 +274,23 @@ public sealed class HelpAndTitlesTests : E2eTestBase
 
         // The target sits far below the fold on load; proving the click moved the
         // page means proving it was NOT in view first.
-        Assert.False(await IsInViewportAsync(target));
+        //
+        // RETRYING assertions, not one-shot reads. Bootstrap's reboot sets
+        // `scroll-behavior: smooth` under prefers-reduced-motion:
+        // no-preference, so a same-document anchor click ANIMATES, and a
+        // `getBoundingClientRect` taken the moment the click returns reads the
+        // page in mid-scroll. That is not hypothetical: this scenario and the
+        // contents-block one above were the two failures on the first CI run
+        // that served a stylesheet at all (halheinrich/backgammon#126) — the
+        // 2-core runner had not finished animating, while this machine had.
+        // The fix is to observe the settled state rather than to suppress the
+        // behaviour: emulating ReducedMotion.Reduce would make the tests pass
+        // by testing a page no user gets.
+        await Expect(target).Not.ToBeInViewportAsync();
 
         await Page.GetByRole(AriaRole.Link, new() { Name = "What the panel remembers" }).ClickAsync();
 
-        await Expect(target).ToBeVisibleAsync();
-        Assert.True(await IsInViewportAsync(target));
+        await Expect(target).ToBeInViewportAsync();
         Assert.EndsWith("#fh-what-is-remembered", Page.Url);
     }
-
-    /// <summary>
-    /// Whether the element's box currently intersects the viewport. Playwright's
-    /// <c>IsVisibleAsync</c> answers "rendered and not hidden", which is true for
-    /// a heading ten screens down — it cannot distinguish "the anchor worked"
-    /// from "the anchor did nothing", which is exactly the question here.
-    /// </summary>
-    private static async Task<bool> IsInViewportAsync(ILocator locator) =>
-        await locator.EvaluateAsync<bool>(
-            """
-            el => {
-                const r = el.getBoundingClientRect();
-                return r.top < window.innerHeight && r.bottom > 0;
-            }
-            """);
 }
