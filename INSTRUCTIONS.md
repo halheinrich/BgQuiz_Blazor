@@ -261,6 +261,9 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
   E2eCollection.cs                  — the single (sequential) test collection
   E2eTestBase.cs                    — per-test context + shared flow helpers
   FsAccessFakeTestBase.cs           — the fake showDirectoryPicker seam
+  EnvironmentFidelityTests.cs       — the gate's first line: every route serves
+                                      what it asks for and logs nothing; the
+                                      three linked stylesheets applied
   QuizFlowTests.cs                  — cube + checker primary paths, pick → Done
   EmptyFilterBannerTests.cs         — known-zero pool darkens Start + recovery
   ReloadNoticeTests.cs              — reload-reset notice, Start and Restart
@@ -2463,6 +2466,33 @@ two structurally cannot: bUnit renders components in isolation and the
 browser, so only the published artifact booting a real WASM runtime in a real
 browser sees this class of defect.
 
+**Environment fidelity is the gate's first line** (issues `#126`, `#127`).
+Before any behavioural scenario is worth reading, `EnvironmentFidelityTests`
+asks whether the app under it is the one that ships. On each route reachable
+cold (`/`, `/help`, `/settings`) and on `/quiz` at the end of the pick → apply
+→ start flow, it records the page's **own** requests and requires every one to
+have arrived and nothing to have been logged as an error. The page is the
+inventory: the test names no asset and no producer `_content/` path, so an
+asset added tomorrow is covered the day it is linked and no second list can
+drift out of step with the shell. **An empty 200 counts as unserved**, and that
+is the load-bearing part — `MapStaticAssets` serves from a manifest built at
+publish time, so an asset the manifest names but the disk lacks comes back
+`200 OK` with `Content-Length: 0`, which a status check alone would wave
+through (measured 2026-08-21; it is the same shape a wrong `--contentRoot`
+produces). Three applied pins survive that, one per linked stylesheet, because
+a 200 cannot say the browser understood the bytes: Bootstrap's `--bs-primary`
+and the `xl` container width, `app.css`'s named `app-content` query container,
+and `MainLayout.razor.css`'s `.sidebar` gradient reaching the page through the
+generated `BgQuiz_Blazor.styles.css` bundle.
+
+**Pin the fact once.** Those three pins are the *only* place this suite proves
+a stylesheet applied. No other scenario may tighten an assertion merely so that
+it would fail on an unstyled page — that is a second source for a fact already
+stated, and it costs the scenario its own subject. `SidebarCollapseTests` is
+the worked example: its open-panel assertion reads `> 0` rather than the
+panel's designed 250px, because what the fold owes is zero-versus-not-zero and
+the 250px belongs to `EnvironmentFidelityTests`.
+
 **Layer under test = the publish output.** A collection fixture
 (`PublishedAppFixture`) runs `dotnet publish` (Release) once per test run,
 spawns `dotnet BgQuiz_Blazor.dll --urls http://127.0.0.1:0 --contentRoot
@@ -3287,9 +3317,11 @@ public (see Pitfalls). The externally visible surface is the route map:
   build. Re-including a file inside an excluded directory needs the
   level-by-level negation ladder git requires — a bare `!path/to/file` cannot
   match, because git never descends into an excluded directory. **The guard is
-  `StylesheetTests`**, one e2e scenario asserting a computed value only
-  Bootstrap produces; if `lib/` is ever re-lost, that fails instead of the
-  layout quietly going missing.
+  `EnvironmentFidelityTests`** (§ The e2e smoke gate): the cold-load scenarios
+  catch the file failing to arrive — including as the `200`-but-empty response
+  `MapStaticAssets` actually returns — and one applied pin asserts a computed
+  value only Bootstrap produces. If `lib/` is ever re-lost, those fail instead
+  of the layout quietly going missing.
 - **A served static file belongs to the host's `wwwroot` — the only one there
   is.** `BgQuiz_Blazor/wwwroot` is what the host serves (`app.css`,
   `favicon.png`, `lib/`, `robots.txt`, `js/navFold.js`); the `.Client` project
