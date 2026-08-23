@@ -2689,9 +2689,29 @@ BGQUIZ_E2E_BASE_URL=https://bgquiz-gobetzu.azurewebsites.net \
 
 The fast unit suite stays browser-free: run it via
 `dotnet test BgQuiz_Blazor.Tests/BgQuiz_Blazor.Tests.csproj`. A solution-level
-`dotnet test` now runs both. Expect the gate's *first-ever* Release publish of
-the WASM closure to take several minutes (IL trimming, cold); incremental
-republishes take seconds.
+`dotnet test` now runs both.
+
+**The publish is AOT.** `RunAOTCompilation=true` in
+`BgQuiz_Blazor.Client.csproj` (beside `InvariantGlobalization`) is the single
+switch every publish inherits — the deploy recipe, this fixture, CI — so the
+gate always tests the artifact that ships. Nothing else in this repo sets or
+passes the flag. A cold publish (no `obj/`, no `bin/`) takes ≈ 2.5 min on the
+dev machine (130 s measured 2026-08-23), so the fixture's cold run is that
+plus ≈ 1 min of tests — *provided MSBuild node reuse is off*. With it on, the
+reused worker nodes outlive the publish holding the fixture's redirected
+pipe, and `PublishHost`'s `ReadToEnd` waits out their ~15 min idle timeout
+(measured: 1162 s with reuse on vs 190 s with `MSBUILDDISABLENODEREUSE=1`,
+same 61/61). That stall predates AOT and belongs to the fixture, not the
+switch. Incremental republishes take seconds. For a twin non-AOT build to compare
+against, override on the command line only — never in a file:
+
+```
+dotnet publish BgQuiz_Blazor/BgQuiz_Blazor.csproj -c Release -p:RunAOTCompilation=false
+```
+
+`WasmStripILAfterAOT` is implied by AOT in .NET 10 and is not set. Trim
+analysis stays silenced, unchanged by AOT — that is
+halheinrich/backgammon#129, a pre-existing debt outside this switch.
 
 **Every test failing at once with a ~5-minute wait and a 25 ms duration is a
 publish failure, not a suite's worth of defects.** The fixture publishes
@@ -3404,11 +3424,6 @@ public (see Pitfalls). The externally visible surface is the route map:
   individual problems after finishing. A scrollable list of the `History` /
   `CubeHistory` entries (each re-rendering its solution diagram) would close
   the loop.
-- **Evaluate `RunAOTCompilation` for the Client publish.** The deployed WASM
-  runs the Mono interpreter — measured ~8× native on the start-path parse
-  (2026-07-20) — and AOT would cut the residual *first*-Start parse cost.
-  Costs to measure before committing: publish time, payload size, and the
-  umbrella `infra/` zip-deploy recipe re-verified.
 - **e2e Too-Good coverage gap.** No e2e exercises a Too-Good cube answer end
   to end — no committed cube fixture is one (`E2eTestBase.CubeFixtures` names
   what each is); a bUnit case

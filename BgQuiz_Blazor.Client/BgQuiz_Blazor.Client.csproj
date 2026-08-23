@@ -41,6 +41,20 @@
          nothing culture-sensitive, so pinning it would imply work it does not do.
          Covered end-to-end by the nb-NO E2E scenario (CommaDecimalLocaleTests). -->
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Compile the WASM closure ahead of time (beta-launch program Step 4,
+         ruled 2026-08-23). This is the single switch every publish inherits —
+         the deploy recipe, the e2e fixture's publish, CI — so the gate always
+         tests the artifact that ships; it lives nowhere else on purpose.
+         Measured 2026-08-22 on 51bb24c: publish 146 s vs 53 s, cold-load
+         transfer 4.43 MiB vs 2.15, parse of the 50 largest corpus .xg files
+         1.5 s vs 5.4 s (identical output), e2e 61/61 both ways. The download
+         is paid once per version per device (fingerprinted, cached assets);
+         every CPU-bound path (parse, move generation, dedupe, filtering,
+         rendering) then runs native. A one-off -p:RunAOTCompilation=false on
+         the command line overrides it for a comparison publish without a code
+         change. WasmStripILAfterAOT is implied under AOT in .NET 10 — do not
+         set it here. -->
+    <RunAOTCompilation>true</RunAOTCompilation>
   </PropertyGroup>
 
   <ItemGroup>
