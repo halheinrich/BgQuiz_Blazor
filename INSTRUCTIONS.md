@@ -58,7 +58,7 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `Play` equality; cube scoring reads `DecisionData`'s `BestDoublerAction` /
   `BestTakerAction` / `DoublerActionError` / `TakerActionError`.
 - **BgMoveGen** — `MoveGenerator.GeneratePlays`, used by the controller's
-  pass-position auto-skip detection.
+  no-play-choice auto-skip detection.
 - **BgDiag_Razor** — `BackgammonPlayEntry` (click-driven play assembly),
   `BackgammonCubeActions` (a board-free four-radio group for the cube answer,
   on the `@bind-Value` convention) + the underlying `BackgammonDiagram`
@@ -256,6 +256,9 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
                                       (the three cube fixtures are mutually
                                       distinct positions — the supply a
                                       multi-problem run is staged from)
+    ForcedPlay.xgp                  — forced checker play (both checkers on
+                                      the bar, one entry per die); the quiz
+                                      must never show it
   PublishedAppFixture.cs            — publish + spawn once; BGQUIZ_E2E_BASE_URL
   PlaywrightFixture.cs              — Chromium lifecycle; fail-loud
   E2eCollection.cs                  — the single (sequential) test collection
@@ -278,6 +281,9 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
   DeduplicatedCountTests.cs         — the count as a deduplicated count (#104):
                                       duplicated files collapse, magnitude says
                                       how many
+  ForcedPlaySkipTests.cs            — a forced play never reaches the user
+                                      (halheinrich/backgammon#140): two
+                                      decisions match, one shows
   SidebarCollapseTests.cs           — fold, chevron state, how long it lasts
   SettingsTests.cs                  — board side by geometry; the fold setting
   MaximizeBoardTests.cs             — chrome absent answering, back at review;
@@ -512,13 +518,13 @@ bound its percentages to a requested `QuizLength` (false for passthrough, the
 ignore-mix override, and capless mixes) — committed past the refusal checks so
 a refused start leaves it untouched; intent over structure, no `QuizMix`
 leaks. `ProblemNumber` / `ProblemCount` drive the "Problem N of M" indicator:
-N is the 1-based **consumed stream slot** of `Current` (auto-skipped pass
-positions included; reset by Start/Restart, untouched by Redo) and M is the
+N is the 1-based **consumed stream slot** of `Current` (auto-skipped
+no-choice positions included; reset by Start/Restart, untouched by Redo) and M is the
 composition's `DrawnCount` (weighted) or the source's declared `Count`
 (passthrough; null when streaming — the page then shows "Problem N" alone).
 Slot-counting is the settled convention: both numbers count the stream, so N
 never exceeds M and lands exactly on M at exhaustion; the accepted trade-off —
-an auto-skip shows as a rare gap — is documented on `ProblemNumber`.
+an auto-skip shows as a gap — is documented on `ProblemNumber`.
 
 **Lifetime-stats sink is ctor-injected.** The controller's second dependency
 is the `IProblemStatsSink` (production: `QuizStatsStore`), driven at exactly
@@ -593,10 +599,30 @@ per-half correctness against `BestDoublerAction` / `BestTakerAction`,
 folded into the score's `DoubleDecisions` and `TakeDecisions` segments via
 `QuizScore.Plus(SubmittedCubeAction)`.
 
-**Pass-position auto-skip.** Each `AdvanceAsync` step pulls the next
-decision and tests it with `MoveGenerator.GeneratePlays(board, d1, d2)`; the
-no-legal-play sentinel (see Pitfalls) marks a pass position, which is
-silently skipped — never shown, never counted toward `SkippedCount`.
+**No-play-choice auto-skip.** Each `AdvanceAsync` step pulls the next
+decision and tests it with `HasNoPlayChoice`, which runs
+`MoveGenerator.GeneratePlays(board, d1, d2)` over the record's own board and
+dice. **One rule, both cases** (`halheinrich/backgammon#140`): the roll admits
+exactly one legal play, whether that play moves nothing (a pass — the
+no-legal-play sentinel, see Pitfalls) or moves something (a forced checker
+play). Either way the position poses no question, so it is silently skipped —
+never shown, never counted toward `SkippedCount`, nothing folded to stats.
+Cube decisions are excluded by the guard on the rule's first line (Pitfalls).
+
+Distinctness is **canonical**, not list length. `GeneratePlays` aims to dedup
+its candidates by final board state but does not manage it in every shape —
+two checkers borne off by two different dice come back twice, because a
+bear-off move encodes as `(point, 0)` whichever die paid — so
+`legal.Count == 1` is *not* the forced test and would leave exactly those
+positions quizzed. Each entry is compared against the first instead (`Play`
+equality is `CanonicalPlay` equality). The producer-side observation is booked
+with the umbrella; BgMoveGen is unchanged. `CanonicalPlayEquivalenceTests`
+holds the three facts this stands on, `TestFixtures` the boards.
+
+Not a rounding error: **about one checker decision in eleven** across the
+umbrella's corpus is forced or a pass, so the pre-Start match count ("decisions
+that match") and the number of problems a run actually shows genuinely
+diverge.
 
 **Off-list submission.** `SubmitPlay(Play)` matches the user's play against
 `Current.Decision.Plays` by canonical `Play` equality (order- and
@@ -1779,7 +1805,7 @@ The asymmetry is pinned three times over: at the service seam
   bounce — a post-Start check, not a pre-flight enumeration: `StartAsync`
   already advances to the first showable problem, so `IsFinished` immediately
   after it *is* the empty-result signal. Two indistinguishable causes flip it
-  (zero filter matches; every match auto-skipped as a pass position), so the
+  (zero filter matches; every match auto-skipped for offering no play choice), so the
   wording claims neither. `_noMatchNotice` is a sibling field to
   `_startError`, distinct because it reports an *outcome*, not a *failure*:
   `alert-warning` + polite `role="status"`, not `alert-danger` + assertive
@@ -2114,7 +2140,7 @@ The asymmetry is pinned three times over: at the service seam
   stats** section, and then the semantics a user cannot discover by clicking
   around — each owned by the section that implements it, and stated here in
   user terms only: what the match count counts and that a mix draws from that
-  pool, the breakdown's exhaustiveness and what a zero means, pass-position
+  pool, the breakdown's exhaustiveness and what a zero means, no-play-choice
   auto-skip, off-list-as-skip, cube-as-two-decisions, the dice click
   advancing, the side panel's fold (§ The host layout — and see Pitfalls for
   what that note may say), and the reload reset. It closes with **Send
@@ -2901,7 +2927,7 @@ public (see Pitfalls). The externally visible surface is the route map:
   `Home.OnInitializedAsync` is the complementary defence, suppressing the
   notice on in-app navigation back mid-quiz.
 - **Cube decisions carry `Dice == [0, 0]` — never auto-skip them.**
-  `IsPassPosition` runs `MoveGenerator.GeneratePlays` on the dice, and a cube
+  `HasNoPlayChoice` runs `MoveGenerator.GeneratePlays` on the dice, and a cube
   decision's `[0, 0]` produces the no-legal-play sentinel — so without the
   `if (data.Decision.IsCube) return false;` guard at the top, every cube
   decision is silently auto-skipped and the whole cube feature is invisible.
@@ -2947,7 +2973,9 @@ public (see Pitfalls). The externally visible surface is the route map:
 - **Pass-position sentinel is not empty-list.** `MoveGenerator.GeneratePlays`
   signals "no legal play" with `count == 1 && plays[0].Count == 0`
   (a single zero-move Play, dice forfeited). Code that gates on
-  `legal.Count == 0` will silently miss every pass position.
+  `legal.Count == 0` will silently miss every pass position. The auto-skip rule
+  needs no case for it: one entry is one distinct play, which is what the rule
+  already counts.
 - **`Quiz` is both a namespace (`BgQuiz_Blazor.Client.Quiz`) and the page
   type (`BgQuiz_Blazor.Client.Components.Pages.Quiz`).** Test code that does
   `Render<Quiz>()` after `using BgQuiz_Blazor.Client.Quiz;` hits a CS0118
@@ -2974,7 +3002,7 @@ public (see Pitfalls). The externally visible surface is the route map:
   keeping — **every answer visible on Done has reached the lifetime record**, an
   invariant that held for free while Continue was the only route to Done, and
   which Done's own "nothing here needs saving" line states to the user. A third
-  fold site needs that same argument; a *silent* one would break the line. Skips, off-list plays, and auto-skipped pass positions
+  fold site needs that same argument; a *silent* one would break the line. Skips, off-list plays, and auto-skipped no-choice positions
   never reach the sink at all (producer contract).
 - **Never clear or rewrite the stored `QuizMix` outside the write-through.**
   The persisted mix (`xg_quizMix`) outlives any session that can't honor it: a

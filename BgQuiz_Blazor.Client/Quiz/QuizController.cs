@@ -142,8 +142,8 @@ internal sealed class QuizController : IAsyncDisposable
     ///
     /// <para>
     /// <b>Rolled unconditionally</b>, at the one place <see cref="Current"/> is
-    /// assigned — so it reads as per-shown-problem (auto-skipped pass positions
-    /// take no roll, exactly as they take no board) and so the controller needs
+    /// assigned — so it reads as per-shown-problem (auto-skipped no-choice
+    /// positions take no roll, exactly as they take no board) and so the controller needs
     /// no knowledge of whether the user asked for randomization at all. Whether
     /// this value is used is settings policy, composed in exactly one place
     /// outside the controller (<c>QuizSettings.EffectiveHomeBoardOnRight</c>).
@@ -180,8 +180,9 @@ internal sealed class QuizController : IAsyncDisposable
 
     /// <summary>
     /// Count of user-driven non-scoring outcomes: explicit Skip-button clicks
-    /// plus off-list submissions. Auto-skipped pass positions (the user never
-    /// saw them) are excluded.
+    /// plus off-list submissions. Auto-skipped no-choice positions (the user
+    /// never saw them) are excluded — see
+    /// <see cref="HasNoPlayChoice"/>.
     /// </summary>
     public int SkippedCount { get; private set; }
 
@@ -227,22 +228,22 @@ internal sealed class QuizController : IAsyncDisposable
     /// <summary>
     /// The 1-based position of <see cref="Current"/> within the quiz stream:
     /// how many decisions have been consumed from the source so far,
-    /// auto-skipped pass positions included. Zero before the first advance;
-    /// reset by Start / Restart; untouched by Redo (same problem).
+    /// auto-skipped no-choice positions included. Zero before the first
+    /// advance; reset by Start / Restart; untouched by Redo (same problem).
     ///
     /// <para>
     /// <b>Counts consumed stream slots, not presentations — deliberately.</b>
     /// Every total a page can show against it (<see cref="ProblemCount"/>)
     /// counts the stream — a composition's
     /// <see cref="MixComposition.DrawnCount"/> or a source's
-    /// <see cref="IProblemSetSource.Count"/> — and a pass position occupies a
-    /// stream slot even though <see cref="AdvanceAsync"/> resolves it without
-    /// presenting. Counting consumed slots keeps the two commensurable:
-    /// "problem N of M" never exceeds M, and N lands exactly on M when the
-    /// stream ends. The accepted trade-off is that an auto-skip shows as a
-    /// gap in the presented sequence (problem 3 follows problem 1 when slot 2
-    /// was a pass position) — rare, and honest about the slot having been in
-    /// the quiz — rather than a presented-only N that ends below M.
+    /// <see cref="IProblemSetSource.Count"/> — and a no-choice position
+    /// occupies a stream slot even though <see cref="AdvanceAsync"/> resolves
+    /// it without presenting. Counting consumed slots keeps the two
+    /// commensurable: "problem N of M" never exceeds M, and N lands exactly on
+    /// M when the stream ends. The accepted trade-off is that an auto-skip
+    /// shows as a gap in the presented sequence (problem 3 follows problem 1
+    /// when slot 2 offered no play choice) — honest about the slot having been
+    /// in the quiz — rather than a presented-only N that ends below M.
     /// </para>
     /// </summary>
     public int ProblemNumber { get; private set; }
@@ -253,8 +254,8 @@ internal sealed class QuizController : IAsyncDisposable
     /// weighted quiz, the source's declared
     /// <see cref="IProblemSetSource.Count"/> for a passthrough run. Null
     /// before start, or when a passthrough source streams without a count.
-    /// Auto-skipped pass positions are included — the stream-slot convention
-    /// shared with <see cref="ProblemNumber"/>.
+    /// Auto-skipped no-choice positions are included — the stream-slot
+    /// convention shared with <see cref="ProblemNumber"/>.
     /// </summary>
     public int? ProblemCount => LastComposition?.DrawnCount ?? _source?.Count;
 
@@ -366,9 +367,11 @@ internal sealed class QuizController : IAsyncDisposable
     ///
     /// <para>
     /// <b>Counts matches, not presentations.</b> Every matching decision is
-    /// counted, forced-move pass positions included — a few may auto-skip at
-    /// quiz time (<see cref="AdvanceAsync"/>), so the numbers are "decisions
-    /// that match", not "problems you'll be shown". An active mix composes from
+    /// counted, positions offering no play choice included — those auto-skip at
+    /// quiz time (<see cref="HasNoPlayChoice"/>), so the numbers are "decisions
+    /// that match", not "problems you'll be shown". Not a rounding error: about
+    /// one checker decision in eleven is forced or a pass across the umbrella's
+    /// own corpus, so the two numbers genuinely differ. An active mix composes from
     /// this pool at Start, so this is the pre-mix pool. The passed
     /// <see cref="QuizMix.Empty"/> keeps the factory from wiring a composition
     /// layer for the throwaway pass; the controller's own composition wiring is
@@ -986,15 +989,15 @@ internal sealed class QuizController : IAsyncDisposable
             ProblemNumber++;
 
             var next = _enumerator.Current;
-            if (IsPassPosition(next))
+            if (HasNoPlayChoice(next))
             {
                 // Auto-skip silently — the user never saw this position.
                 continue;
             }
 
             Current = next;
-            // Beside the assignment, and after the pass-skip continue above:
-            // one roll per problem the user actually sees. See the property.
+            // Beside the assignment, and after the no-choice skip above: one
+            // roll per problem the user actually sees. See the property.
             RandomHomeBoardOnRight = Random.Shared.Next(2) == 0;
             break;
         }
@@ -1011,7 +1014,49 @@ internal sealed class QuizController : IAsyncDisposable
         }
     }
 
-    private static bool IsPassPosition(BgDecisionData data)
+    /// <summary>
+    /// Whether <paramref name="data"/> offers the user no play choice — the one
+    /// rule the advance path auto-skips on. True when the record's board and
+    /// dice admit exactly one legal play, in either of its two shapes: the play
+    /// moves <i>nothing</i> (a dance or a closed-out bar — the position the app
+    /// has always skipped), or it moves something and is simply the only one
+    /// (a forced checker play, halheinrich/backgammon#140).
+    ///
+    /// <para>
+    /// <b>The two are one fact, not two rules.</b> A pass is the degenerate
+    /// case of "exactly one legal play" — the case where that play is empty.
+    /// Either way the position poses no question, so quizzing it presents a
+    /// decision the dice never offered; both skip, silently and identically.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Derived from the board and the dice, never from the record's
+    /// candidate list.</b> That list is an XG analysis artefact — truncated,
+    /// analysis-depth-dependent, and absent altogether on an unanalysed
+    /// record — so a one-entry list is no evidence of one legal play.
+    /// <see cref="MoveGenerator.GeneratePlays"/> over the position is the only
+    /// honest source.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Counted under canonical-play equivalence, not by list length.</b>
+    /// <see cref="MoveGenerator.GeneratePlays"/> aims to dedup its candidates
+    /// by final board state, but does not achieve it in every shape: two
+    /// checkers borne off by two different dice (say the 5- and 4-points on a
+    /// 6-5) come back <i>twice</i> as the same play, because a bear-off move
+    /// encodes as <c>(point, 0)</c> whichever die pays for it. So
+    /// <c>legal.Count == 1</c> is <b>not</b> the forced test — it would leave
+    /// exactly those positions quizzed. Every entry is compared against the
+    /// first instead: <see cref="Play"/> equality is
+    /// <see cref="CanonicalPlay"/> equality, BgDataTypes_Lib's
+    /// play-equivalence SSOT, so the rule counts distinct <i>plays</i> rather
+    /// than distinct encodings. (The producer-side observation is booked with
+    /// the umbrella; BgMoveGen is unchanged.) The no-legal-play sentinel — a
+    /// one-element list holding the empty <see cref="Play"/> — needs no case of
+    /// its own: one entry is one distinct play.
+    /// </para>
+    /// </summary>
+    private static bool HasNoPlayChoice(BgDecisionData data)
     {
         // Cube decisions are always shown — never auto-skipped. They carry no
         // dice ([0, 0] by the data-layer invariant), which would otherwise hit
@@ -1022,9 +1067,9 @@ internal sealed class QuizController : IAsyncDisposable
         var board = BoardState.FromMop(data.Position.Mop);
         var dice = data.Decision.Dice;
         var legal = MoveGenerator.GeneratePlays(board, dice[0], dice[1]);
-        // BgMoveGen's no-legal-play sentinel: a single Play with zero moves
-        // (the dice are forfeited). Empty `legal` is not used.
-        return legal.Count == 1 && legal[0].Count == 0;
+        for (int i = 1; i < legal.Count; i++)
+            if (legal[i] != legal[0]) return false;
+        return true;
     }
 }
 

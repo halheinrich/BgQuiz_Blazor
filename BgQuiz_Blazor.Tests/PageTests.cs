@@ -3894,13 +3894,13 @@ public class PageTests : BunitContext
     {
         // The checker-play analog of Quiz_CubeComplete_ThenSubmit: the parent →
         // child → handler wire for a dice-click submit. Driving the inner
-        // BackgammonPlayEntry to completion (1/off) and clicking the dice hit-rect
+        // BackgammonPlayEntry to completion (12/6) and clicking the dice hit-rect
         // fires OnSubmitRequested, which Quiz.razor binds to its Submit handler —
         // routing HandleDiceClick → OnSubmitRequested → Submit and scoring exactly
         // as the Submit button would. Without that binding the dice click is a
         // silent no-op: Review stays null and the page never leaves the answering
         // view, so this test fails.
-        var decision = TestFixtures.BearOffOneDecision();
+        var decision = TestFixtures.OneClickPlayDecision();
         var c = WithController(decision);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
@@ -3911,13 +3911,13 @@ public class PageTests : BunitContext
         // Answering state — not yet in review.
         Assert.Null(c.Review);
 
-        // One-click completion: clicking the 1-pt advances its lone checker, whose
-        // only move bears off (ToPt 0); with no checker left the play completes in
-        // a single click — no separate tray step.
-        await ClickRectAsync(cut, RectIndexForPoint(request, 1));
+        // One-click completion: clicking the 12-pt advances its checker by the 6
+        // (the 5 is blocked there), and nothing can follow, so the play completes
+        // in a single click. See the fixture for why it is not a bear-off any more.
+        await ClickRectAsync(cut, RectIndexForPoint(request, 12));
 
-        // The completing move re-rendered the board (the borne-off checker is
-        // gone), so the dice hit-rect must be re-queried against the new render —
+        // The completing move re-rendered the board (the checker sits on the 6-pt
+        // now), so the dice hit-rect must be re-queried against the new render —
         // a stale pre-move index would land on a now-handler-less rect and throw
         // MissingEventHandlerException. ClickDiceAsync re-finds the rects, then the
         // complete-play dice click signals submit intent → bound Submit runs.
@@ -4095,7 +4095,7 @@ public class PageTests : BunitContext
         // reset-suppression path is never reached. A distinct component
         // instance post-Redo pins the guarantee that the branch swap alone
         // produces a genuinely fresh entry.
-        var decision = TestFixtures.BearOffOneDecision();
+        var decision = TestFixtures.OneClickPlayDecision();
         var c = WithController(decision);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
@@ -4103,7 +4103,7 @@ public class PageTests : BunitContext
         var request = DiagramRequest.FromDecisionData(decision, DiagramMode.Problem);
         var firstEntry = cut.FindComponent<BackgammonPlayEntry>().Instance;
 
-        await ClickRectAsync(cut, RectIndexForPoint(request, 1)); // completes the play
+        await ClickRectAsync(cut, RectIndexForPoint(request, 12)); // completes the play
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
         Assert.NotNull(c.Review);
@@ -4127,7 +4127,7 @@ public class PageTests : BunitContext
         // whole entry and enabled only at completion — when Undo is no longer
         // the thing you want. This asserts the state at the first render, which
         // is the start of assembly and the exact moment that failed.
-        var decision = TestFixtures.BearOffOneDecision();
+        var decision = TestFixtures.OneClickPlayDecision();
         var c = WithController(decision);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();

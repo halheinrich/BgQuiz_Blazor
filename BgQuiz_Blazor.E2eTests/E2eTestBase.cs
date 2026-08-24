@@ -36,6 +36,24 @@ public abstract class E2eTestBase : IAsyncLifetime
     protected const string CheckerFixture = "Opening 32 65 64 31 65.xgp";
 
     /// <summary>
+    /// Committed <b>forced-play</b> checker fixture — one problem, both
+    /// checkers on the bar against a board where each die has exactly one open
+    /// entry point, so <c>bar/24* bar/20</c> is the only legal play. The whole
+    /// point of it is that the quiz must never show it
+    /// (<c>halheinrich/backgammon#140</c>); a scenario pairs it with a real
+    /// decision and asserts which one the user is asked.
+    ///
+    /// <para>
+    /// Sliced out of the umbrella's own <c>Make20Pt.xg</c> with
+    /// <c>XgpExporter</c>, analysis carried through, so it is a record XG could
+    /// have written and the parser has nothing special to do with it. Forced
+    /// positions are not exotic: about one checker decision in eleven across
+    /// the umbrella's corpus is forced or a pass.
+    /// </para>
+    /// </summary>
+    protected const string ForcedFixture = "ForcedPlay.xgp";
+
+    /// <summary>
     /// The committed cube fixtures, each a <b>different position</b> — the pool a
     /// multi-problem scenario is staged from (see
     /// <see cref="PickCubeProblemsAsync"/>). Order here is the order they are

@@ -146,9 +146,12 @@ public class QuizControllerTests
     public async Task StartAsync_CubeDecision_IsSurfacedNotAutoSkipped()
     {
         // A cube decision carries Dice [0, 0]; without the IsCube guard in
-        // IsPassPosition that hits the no-legal-play sentinel and is silently
+        // HasNoPlayChoice that hits the no-legal-play sentinel and is silently
         // auto-skipped, making the whole cube feature invisible. The guard must
-        // surface the cube decision as the current problem.
+        // surface the cube decision as the current problem. Unchanged by
+        // halheinrich/backgammon#140: widening the rule from "no legal play" to
+        // "no play choice" widens what the guard has to hold back, so the pin
+        // matters more, not less.
         var cube = TestFixtures.CubeDecision();
         var c = Make(cube);
 
@@ -190,6 +193,102 @@ public class QuizControllerTests
         // Pass auto-skipped silently — counts on user-driven skips only.
         Assert.Equal(0, c.SkippedCount);
         Assert.Same(d, c.Current);
+    }
+
+    // -----------------------------------------------------------------------
+    //  No play choice: the widened auto-skip rule (halheinrich/backgammon#140)
+    //
+    //  The rule the advance path skips on is "this record offers no play
+    //  choice" — exactly one legal play under canonical-play equivalence. A
+    //  pass is its degenerate case (the one play moves nothing); a forced
+    //  checker play is the case beta feedback found being quizzed. Both are
+    //  driven here at the layer that decides, and each fixture is paired with a
+    //  scoring decision so "skipped" reads as "the next problem is showing"
+    //  rather than "the quiz ended".
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task StartAsync_ForcedPlay_AutoSkipped()
+    {
+        // The finding: the dice admit one legal play and it moves something, so
+        // there is no decision to make. Same treatment as a pass — silent, not
+        // counted as a user skip, and the user lands on the next real problem.
+        var forced = TestFixtures.ForcedPlayDecision();
+        var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = Make(forced, d);
+
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        Assert.Same(d, c.Current);
+        Assert.Equal(0, c.SkippedCount);
+        // The slot was consumed, per ProblemNumber's stream-slot convention.
+        Assert.Equal(2, c.ProblemNumber);
+    }
+
+    [Fact]
+    public async Task StartAsync_ForcedDouble_AutoSkipped()
+    {
+        // Doubles reach BgMoveGen through GenerateDoubles rather than
+        // GenerateNonDoubles, so a forced double is a separate path to the same
+        // one-play answer — and the only one where a play can be forced with
+        // dice left unplayed.
+        var forced = TestFixtures.ForcedDoubleDecision();
+        var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = Make(forced, d);
+
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        Assert.Same(d, c.Current);
+        Assert.Equal(0, c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task StartAsync_CanonicallyForcedBearOff_AutoSkipped()
+    {
+        // The reason the rule counts canonical plays instead of list entries.
+        // GeneratePlays hands back two entries for this position and they are
+        // the same play — see the fixture — so `legal.Count == 1` reads it as a
+        // choice and quizzes it. This is the pin that fails under that rule and
+        // passes under the one that compares entries for equality.
+        var forced = TestFixtures.CanonicallyForcedBearOffDecision();
+        var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = Make(forced, d);
+
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        Assert.Same(d, c.Current);
+        Assert.Equal(0, c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task StartAsync_TwoLegalPlays_IsShownNotSkipped()
+    {
+        // The near miss, and the half of the rule that keeps it honest: this
+        // board is the forced fixture's with one blocker removed, so it offers
+        // two legal plays — 12/6 and 9/3 — and a two-way choice is a decision
+        // however short. A rule that over-skipped (say, keying on the record's
+        // one-entry candidate list) would swallow it.
+        var choice = TestFixtures.OneClickPlayDecision();
+        var c = Make(choice);
+
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        Assert.Same(choice, c.Current);
+        Assert.False(c.IsFinished);
+    }
+
+    [Fact]
+    public async Task AutoSkippedForcedPlay_FoldsNothing()
+    {
+        // The pass precedent's stats half, extended: a position the user never
+        // saw must not touch the lifetime record, whatever made it skippable.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.ForcedPlayDecision(),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        Assert.Equal(0, sink.TotalFolds);
     }
 
     [Fact]
@@ -1434,7 +1533,8 @@ public class QuizControllerTests
     public async Task AutoSkippedPassPosition_FoldsNothing()
     {
         // Auto-skipped pass positions were never shown to the user — they
-        // must not touch lifetime stats.
+        // must not touch lifetime stats. The forced-play half of the same rule
+        // is pinned by AutoSkippedForcedPlay_FoldsNothing.
         var c = MakeWithSink(out var sink,
             TestFixtures.PassDecision(),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));

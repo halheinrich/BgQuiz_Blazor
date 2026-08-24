@@ -7,9 +7,12 @@ namespace BgQuiz_Blazor.Tests;
 /// <summary>
 /// Hand-crafted <see cref="BgDecisionData"/> values for controller and page
 /// tests. Controller tests don't need physically legal plays — only the play's
-/// canonical shape matters for the equality matcher. Pass-position fixtures must
-/// produce zero legal plays from <c>MoveGenerator.GeneratePlays</c> so the
-/// controller's auto-skip path is exercised.
+/// canonical shape matters for the equality matcher. The <i>boards</i> of the
+/// auto-skip fixtures are the exception and are exact: what
+/// <c>MoveGenerator.GeneratePlays</c> derives from the Mop and the dice is the
+/// whole fact <c>QuizController.HasNoPlayChoice</c> reads, so a fixture meant to
+/// skip (or meant not to) is only staging that scenario if its board really
+/// admits the play count it claims.
 /// </summary>
 internal static class TestFixtures
 {
@@ -266,34 +269,47 @@ internal static class TestFixtures
     }
 
     /// <summary>
-    /// Bear-off-one decision: a single on-roll checker on the 1-pt with dice
-    /// (1,1), whose only legal play is 1/off. Drives a deterministic completion
-    /// sequence (select the 1-pt, then bear off to the tray) through
-    /// <c>BackgammonPlayEntry</c> without hand-picking ambiguous click orderings.
-    /// The lone candidate is that play at zero loss, so a completed submit scores
-    /// as correct — used to exercise the dice-click → submit wire end-to-end.
+    /// One-click checker decision: on-roll checkers on the 12- and 9-points with
+    /// dice (6,5), against opponent points on 7, 4 and 1. The 5 plays nowhere
+    /// (12/7 and 9/4 are both blocked) and neither 6 leaves a 5 to follow, so
+    /// must-use-the-larger-die leaves exactly <b>two</b> legal plays, each one
+    /// move long: 12/6 and 9/3. Clicking the 12-pt therefore completes a whole
+    /// play in a single click — a deterministic completion through
+    /// <c>BackgammonPlayEntry</c> with no ambiguous click ordering to hand-pick.
+    /// The lone candidate is 12/6 at zero loss, so a completed submit scores as
+    /// correct — used to exercise the dice-click → submit wire end-to-end.
+    ///
+    /// <para>
+    /// <b>Two legal plays is the load-bearing property, not a detail.</b> A
+    /// position offering one is auto-skipped before it can reach a page
+    /// (<c>QuizController.HasNoPlayChoice</c>, halheinrich/backgammon#140), so
+    /// the obvious one-click fixture — a lone checker on the 1-pt bearing off —
+    /// can no longer be shown at all. Anything staged here to drive the play
+    /// entry <i>through the controller</i> must offer a choice.
+    /// </para>
+    ///
+    /// <para>
     /// Money, like every unscored fixture here, so it stamps the Jacoby rule for
     /// the reason <see cref="TwoChoiceDecision"/> does: this file's fixtures are
     /// real positions, and a real money position with no stamp would silently be
     /// the no-key rung instead.
+    /// </para>
     /// </summary>
-    public static BgDecisionData BearOffOneDecision(
+    public static BgDecisionData OneClickPlayDecision(
         string onRoll = "Alice", string opp = "Bob")
     {
-        var m = new int[26];
-        m[1] = 1;
         return new BgDecisionData
         {
             Id = new XgpDecisionId("test.xgp"),
-            Position = new PositionData { Mop = m, IsJacoby = true },
+            Position = new PositionData { Mop = TwoLegalPlaysMop(), IsJacoby = true },
             Decision = new DecisionData
             {
-                Dice = [1, 1],
+                Dice = [6, 5],
                 Plays =
                 [
-                    // ToPt 0 = bear off; the entry's completed 1/off play matches
-                    // this candidate by canonical Play equality ((1, 0)).
-                    new PlayCandidate { Play = MakePlay((1, 0)), EquityLoss = 0.0, MoveNotation = "1/off" },
+                    // The entry's completed 12/6 play matches this candidate by
+                    // canonical Play equality ((12, 6)).
+                    new PlayCandidate { Play = MakePlay((12, 6)), EquityLoss = 0.0, MoveNotation = "12/6" },
                 ],
                 BestPlayIndex = 0,
             },
@@ -302,8 +318,106 @@ internal static class TestFixtures
     }
 
     /// <summary>
+    /// The <see cref="OneClickPlayDecision"/> board: two legal plays, 12/6 and
+    /// 9/3. Shared with <see cref="ForcedPlayDecision"/>, which blocks the 3-pt
+    /// to take the second away — one board, one blocker apart, so the pair
+    /// differs in exactly the fact the skip rule reads.
+    /// </summary>
+    private static int[] TwoLegalPlaysMop()
+    {
+        var m = new int[26];
+        m[12] = 1; m[9] = 1;
+        m[7] = -2; m[4] = -2; m[1] = -2;
+        return m;
+    }
+
+    /// <summary>
+    /// Forced non-double: <see cref="TwoLegalPlaysMop"/> with the 3-pt blocked
+    /// too, so 9/3 is gone and 12/6 is the only legal play on a (6,5). The play
+    /// <i>moves something</i> — the case halheinrich/backgammon#140 is about,
+    /// and the one <see cref="PassDecision"/> does not cover. The controller
+    /// must auto-skip it exactly as it skips a pass.
+    /// </summary>
+    public static BgDecisionData ForcedPlayDecision()
+    {
+        var m = TwoLegalPlaysMop();
+        m[3] = -2;
+        return new BgDecisionData
+        {
+            Id = new XgpDecisionId("forced.xgp"),
+            Position = new PositionData { Mop = m, IsJacoby = true },
+            Decision = new DecisionData
+            {
+                Dice = [6, 5],
+                Plays = [new PlayCandidate { Play = MakePlay((12, 6)), EquityLoss = 0.0, MoveNotation = "12/6" }],
+                BestPlayIndex = 0,
+            },
+            Descriptive = new DescriptiveData { OnRollName = "Alice", OpponentName = "Bob" },
+        };
+    }
+
+    /// <summary>
+    /// Forced double: a lone on-roll checker on the 24-pt with dice (6,6), the
+    /// 12-pt blocked. 24/18 is the only move and nothing follows it, so the roll
+    /// admits one play even though three of its four dice go unplayed. Doubles
+    /// take a different generation path through BgMoveGen than the non-double
+    /// <see cref="ForcedPlayDecision"/> exercises, which is why both are staged.
+    /// </summary>
+    public static BgDecisionData ForcedDoubleDecision()
+    {
+        var m = new int[26];
+        m[24] = 1;
+        m[12] = -2;
+        return new BgDecisionData
+        {
+            Id = new XgpDecisionId("forced-double.xgp"),
+            Position = new PositionData { Mop = m, IsJacoby = true },
+            Decision = new DecisionData
+            {
+                Dice = [6, 6],
+                Plays = [new PlayCandidate { Play = MakePlay((24, 18)), EquityLoss = 0.0, MoveNotation = "24/18" }],
+                BestPlayIndex = 0,
+            },
+            Descriptive = new DescriptiveData { OnRollName = "Alice", OpponentName = "Bob" },
+        };
+    }
+
+    /// <summary>
+    /// Forced, but only under canonical-play equivalence: on-roll checkers on
+    /// the 5- and 4-points and nothing else, dice (6,5). Both come off whichever
+    /// die pays for which, and a bear-off move encodes as <c>(point, 0)</c>
+    /// either way — so <c>MoveGenerator.GeneratePlays</c> returns that one play
+    /// <b>twice</b>. The position offers no choice and must auto-skip; a rule
+    /// keyed on <c>legal.Count == 1</c> would quiz it. This is that rule's
+    /// counterexample, staged where the controller can be driven over it.
+    /// </summary>
+    public static BgDecisionData CanonicallyForcedBearOffDecision()
+    {
+        var m = new int[26];
+        m[5] = 1; m[4] = 1;
+        return new BgDecisionData
+        {
+            Id = new XgpDecisionId("forced-bearoff.xgp"),
+            Position = new PositionData { Mop = m, IsJacoby = true },
+            Decision = new DecisionData
+            {
+                Dice = [6, 5],
+                Plays =
+                [
+                    new PlayCandidate
+                    {
+                        Play = MakePlay((5, 0), (4, 0)), EquityLoss = 0.0, MoveNotation = "5/off 4/off",
+                    },
+                ],
+                BestPlayIndex = 0,
+            },
+            Descriptive = new DescriptiveData { OnRollName = "Alice", OpponentName = "Bob" },
+        };
+    }
+
+    /// <summary>
     /// Pass-position decision — controller must auto-skip silently. Money, and
-    /// stamped for the same reason <see cref="BearOffOneDecision"/> is: nothing
+    /// stamped for the same reason <see cref="OneClickPlayDecision"/> is: nothing
     /// asks this fixture for its key today, and an unstamped one would quietly
     /// stop having one.
     /// </summary>

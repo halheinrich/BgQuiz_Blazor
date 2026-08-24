@@ -27,7 +27,7 @@ public class TestFixtureContractTests
         { "match play", TestFixtures.TwoChoiceDecision(TestFixtures.MakePlay((8, 5)), TestFixtures.MakePlay((13, 10)), away: 3) },
         { "money cube", TestFixtures.CubeDecision() },
         { "match cube", TestFixtures.CubeDecision(away: 3) },
-        { "bear-off one", TestFixtures.BearOffOneDecision() },
+        { "one-click play", TestFixtures.OneClickPlayDecision() },
         { "pass position", TestFixtures.PassDecision() },
     };
 

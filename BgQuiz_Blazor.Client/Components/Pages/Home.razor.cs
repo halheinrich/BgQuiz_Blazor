@@ -335,8 +335,8 @@ public partial class Home : ComponentBase, IDisposable
     /// nothing is shown (before an Apply, after a filter edit, or after a
     /// new/cleared pick). A per-visit affordance, so a component field. Set from
     /// <see cref="QuizController.SummarizeMatchesAsync"/> on Apply — the pre-mix
-    /// pool, "decisions that match", not "problems you'll see" (a few
-    /// forced-move passes auto-skip at quiz time).
+    /// pool, "decisions that match", not "problems you'll see" (positions
+    /// offering no play choice auto-skip at quiz time).
     ///
     /// <para>
     /// <b>One value carries every half of the display.</b> The count line
@@ -1235,7 +1235,7 @@ public partial class Home : ComponentBase, IDisposable
             // the quiz could present. With an active mix the telemetry says
             // whether the composition itself came up empty; otherwise two
             // indistinguishable causes flip this — zero filter matches, or
-            // every match auto-skipped as a pass position — so stay on / and
+            // every match auto-skipped for offering no play choice — so stay on / and
             // surface a neutral outcome notice rather than navigating into a
             // 0/0 /quiz → /done bounce with no hint of why.
             if (Controller.IsFinished)

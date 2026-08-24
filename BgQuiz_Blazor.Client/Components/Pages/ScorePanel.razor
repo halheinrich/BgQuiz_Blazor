@@ -10,7 +10,7 @@
     // only when ProblemNumber is supplied — the Quiz page passes the
     // controller's stream position and total; the end-of-quiz (Done) and
     // mid-quiz stats surfaces omit it. Both numbers count stream slots
-    // (auto-skipped pass positions included) — see
+    // (auto-skipped no-choice positions included) — see
     // QuizController.ProblemNumber for the convention and its trade-off.
     [Parameter] public int? ProblemNumber { get; set; }
     [Parameter] public int? ProblemCount { get; set; }
