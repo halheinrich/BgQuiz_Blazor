@@ -2726,6 +2726,59 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_StartClick_UnstampedMoneyRecord_ShowsFolderLoadErrorNamingTheFile()
+    {
+        // The pool-composition guard's one user-facing surface
+        // (SPEC-stats-identity.md §2, amended 2026-08-24; issue
+        // halheinrich/backgammon#142): a money record that doesn't state its
+        // Jacoby rule fails the folder load. It fails by throwing, and the
+        // EXISTING start-error banner is where that lands — no new notice class
+        // — so what the user reads is the exception message verbatim, naming
+        // the file. This is the pin that the copy travels the whole way; the
+        // guard's own behaviour is JacobyStampedProblemSetSourceTests'.
+        //
+        // The malformed record is built right here, per the rule
+        // TestFixtureContractTests states: a keyless fixture must never live in
+        // the shared TestFixtures library.
+        var unstamped = new BgDecisionData
+        {
+            Id = new XgDecisionId("money-session.xg", Game: 1, MoveNumber: 4, IsCube: true),
+            Position = new PositionData
+            {
+                Mop = TestFixtures.StandardMop(),
+                OnRollNeeds = 0,
+                OpponentNeeds = 0,
+            },
+            Decision = new DecisionData
+            {
+                IsCube = true,
+                NoDoubleEquity = 0.5,
+                DoubleTakeEquity = 0.7,
+            },
+        };
+        var controller = new QuizController(
+            (_, _) => TestFixtures.Composed(
+                new JacobyStampedProblemSetSource(new FakeProblemSetSource([unstamped]))),
+            new FakeProblemStatsSink(), TimeProvider.System);
+        Services.AddSingleton(controller);
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+        await StartButton(cut).ClickAsync(new());
+
+        var banner = cut.FindAll(".alert-danger")
+                        .Single(e => e.TextContent.Contains("Could not start quiz"));
+        Assert.Contains("money-session.xg", banner.TextContent);
+        Assert.Contains("Jacoby", banner.TextContent);
+        Assert.EndsWith("/", nav.Uri);   // stayed on Home; no quiz to navigate to
+        Assert.Null(controller.Current); // and nothing from the folder was served
+    }
+
+    [Fact]
     public async Task Home_StartClick_AllMatchesAutoSkippedPasses_ShowsSameBanner()
     {
         // The second, indistinguishable cause of an immediately-finished

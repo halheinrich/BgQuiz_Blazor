@@ -50,10 +50,17 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `ProblemKey` (content identity; `TryDerive` is the one factory — the
   controller stamps every submission through it, and `false` is the no-key
   rung, never a guess). **A money record (`0`-away/`0`-away) with no
-  `PositionData.IsJacoby` is on that rung** — the money key spells the rule —
-  and the rung is *silent*, so a fixture or corpus that stops being keyed just
-  stops being recorded; `TestFixtureContractTests` is why that cannot happen
-  here unnoticed. The matcher
+  `PositionData.IsJacoby` is on that rung** — the money key spells the rule.
+  The rung itself is *silent* by design, so a fixture or corpus that stops
+  being keyed just stops being recorded, and `TestFixtureContractTests` is why
+  that cannot happen to a fixture here unnoticed. **This one rung case no
+  longer reaches a quiz silently, though**: since
+  `halheinrich/backgammon#142` a money record without the fact fails the
+  folder load at pool composition, naming the file
+  (`JacobyStampedProblemSetSource`, § Source construction —
+  `../SPEC-stats-identity.md` §2, amended 2026-08-24). Every *other* rung case
+  (unstamped dice, empty board, missing `Xgid`) is unchanged: no key,
+  pass-through unmerged, not recorded, nothing said. The matcher
   compares the submitted `Play` against each `PlayCandidate.Play` by canonical
   `Play` equality; cube scoring reads `DecisionData`'s `BestDoublerAction` /
   `BestTakerAction` / `DoublerActionError` / `TakerActionError`.
@@ -173,7 +180,9 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
                                       registered FolderPickLimits
     PickedFolderFilterStorage.cs    — IFilterDocumentStorage over the picked
                                       slot (the two-producer adapter glue)
-    FolderPickDisplay.cs            — folder-pick wording SSOT
+    FolderPickDisplay.cs            — folder-pick wording SSOT (+ the
+                                      folder-load refusal copy, composed in
+                                      the source stack, read on the page)
     QuizStatsFile.cs                — stats filenames (live + retired sidecar) +
                                       JsonSerializerOptions SSOT
     QuizStatsStore.cs               — IProblemStatsSink + document lifecycle
@@ -189,8 +198,11 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     QuizLiveMarker.cs               — sessionStorage was-a-quiz-live marker
     WasmUploadedProblemSetSource.cs — in-browser stream-backed source (parser)
     CachedProblemSetSource.cs       — parse-once layer over the holder's cache
-    PickedFolderSourceFactory.cs    — the source composition (cache → dedupe →
-                                      shuffle?), the one layer-order statement
+    JacobyStampedProblemSetSource.cs — pool-composition guard: an unstamped
+                                      money record fails the load, named
+    PickedFolderSourceFactory.cs    — the source composition (cache → Jacoby
+                                      guard → dedupe → shuffle?), the one
+                                      layer-order statement
     ComposedProblemSource.cs        — the factory's product: stack + collapse
                                       magnitude reader
     MatchSummary.cs                 — pre-Start pool + what it deduped away
@@ -229,6 +241,10 @@ BgQuiz_Blazor.Tests/
   CachedProblemSetSourceTests.cs    — parse-once / invalidation / equivalence
   PickedFolderSourceFactoryTests.cs — the real composition: layer wire, shuffle
                                       arbitration (corpus-level, skips if empty)
+  JacobyStampedProblemSetSourceTests.cs — the pool-composition guard: the
+                                      throw, the file naming, the multi-file
+                                      count, pass-through, and the guard's
+                                      presence in the real stack
   PositionDedupeTests.cs            — the #84 repro: one fixture under two names
                                       (fixture absent ⇒ FAIL, never skip)
   CubeActionDisplayTests.cs
@@ -438,8 +454,9 @@ innermost first:
 
 1. `CachedProblemSetSource` over the pick — the parse-once layer (see its
    section).
-2. `DistinctPositionProblemSetSource` — content-identity dedupe, always on.
-3. `ShuffledProblemSetSource` — only when `mix.IsPassthrough &&
+2. `JacobyStampedProblemSetSource` — the pool-composition guard (below).
+3. `DistinctPositionProblemSetSource` — content-identity dedupe, always on.
+4. `ShuffledProblemSetSource` — only when `mix.IsPassthrough &&
    shuffle.Enabled`. The mix parameter exists for exactly that one rule —
    **shuffle arbitration** (see Pitfalls). The factory never wires the
    composition layer itself (that is the controller's — below).
@@ -459,6 +476,45 @@ one exception is deliberate and documented in place: pinning that a *shuffled*
 source reorders needs `ShuffledProblemSetSource`'s seeded ctor, which
 production deliberately does not use, so that test keeps a hand-built stack
 rather than a permutation that flakes on the identity.
+
+**The pool-composition guard: a money record must state its Jacoby rule**
+(`JacobyStampedProblemSetSource`; issue `halheinrich/backgammon#142`,
+ratifying `../SPEC-stats-identity.md` §2's 2026-08-24 amendment). A money
+record (`0`-away/`0`-away) carrying no `PositionData.IsJacoby` has no
+`ProblemKey` — the money key spells that rule — so it would quiz normally and
+be recorded nowhere. The guard drains the pool once, before anything is
+yielded, and throws when it finds one; Home's existing start-error banner
+renders the message, which is `FolderPickDisplay.MalformedForQuizzing` over
+the offending file.
+
+- **Why this rung alone fails loud.** Its siblings (unstamped dice, empty
+  board, missing `Xgid`) describe data a producer can plausibly emit, so
+  silence there is robustness. The in-tree converter cannot write *this* shape
+  at all, so silence tolerated exactly one thing — a converter defect — while
+  the user lost lifetime stats for every money position and was never told.
+- **Boundary-only.** The wire stays tolerant (`PositionData.IsJacoby` is
+  still `bool?`; a data type cannot name a file), `ProblemKey.TryDerive`,
+  dedupe and the stats fold keep their degrade rungs beneath this boundary,
+  and report-only tools keep fail-open-and-count. A folder that loads composes
+  exactly the pool it composed before.
+- **Beneath the dedupe on purpose.** The layer above collapses content-equal
+  copies to one survivor, which would hide the other files those copies came
+  from — and naming files is the whole product here.
+- **It names the first file and counts the rest** (`"…and 3 other files"`),
+  not a list: reaching this state means a converting parser wrote a whole
+  folder that way, and a banner-length list of names says nothing the first
+  name and the count do not. The name comes from the record's `DecisionId`,
+  not `Descriptive.SourceFile` — the id is `required` with a validated
+  non-null `Filename`, and an error whose job is to name a file must never be
+  the one with no name to give.
+- **Testing it needs a synthesized record**, because no producer emits this
+  shape and `TestFixtureContractTests` forbids keyless fixtures living in
+  `TestFixtures` — so `JacobyStampedProblemSetSourceTests` builds its own, and
+  drives the *real* composition by seeding the holder's parse cache
+  (`PickedProblemFolder.StoreParsed`) so the parse-once layer adopts records
+  instead of reading picked bytes. There is deliberately no e2e scenario: the
+  e2e corpus is committed `.xg`/`.xgp` bytes, and no bytes the converter reads
+  produce this.
 
 **Position dedupe sits beneath shuffle and mix** (issue
 `halheinrich/backgammon#84`). A quiz could serve the same position twice:

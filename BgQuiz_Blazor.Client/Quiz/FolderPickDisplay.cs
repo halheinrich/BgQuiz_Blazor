@@ -1,5 +1,6 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using System.Globalization;
 using BgFolderAccess_Razor;
 
 /// <summary>
@@ -17,6 +18,17 @@ using BgFolderAccess_Razor;
 /// start" lead renders <i>verbatim</i> rather than restating: it is a single
 /// sentence of fact, not an explanation, and the two surfaces must agree
 /// exactly — see its own remarks.
+/// </para>
+///
+/// <para>
+/// <b>The folder-<i>load</i> refusal lives here too</b>, on a second rule the
+/// two-surface one does not cover:
+/// <see cref="MalformedForQuizzing(string, int)"/> is composed deep inside the
+/// source stack — where no user-facing wording otherwise lives — and travels to
+/// the page as an exception message. Left at its throw site the copy would sit
+/// inside a decorator, and the test that pins it could only re-type it. One
+/// surface renders it; the reason it is here is the distance between where it
+/// is written and where it is read.
 /// </para>
 ///
 /// <para>
@@ -154,4 +166,64 @@ internal static class FolderPickDisplay
     /// </summary>
     internal const string DeadPickVerdict =
         "this browser can't hand BgQuiz a folder of files";
+
+    /// <summary>
+    /// Why a picked folder will not load: it holds a money-game position whose
+    /// file does not say which Jacoby rule was in force, so BgQuiz cannot tell
+    /// that problem apart from the one played under the other rule
+    /// (<c>../SPEC-stats-identity.md</c> §2, amended 2026-08-24; issue
+    /// <c>halheinrich/backgammon#142</c>). Composed by
+    /// <see cref="JacobyStampedProblemSetSource"/> as its exception message and
+    /// rendered verbatim by Home's start-error banner, which supplies its own
+    /// "Could not start quiz:" lead — so this reads as the cause and the
+    /// remedy, never as a second headline.
+    ///
+    /// <para>
+    /// <b>It names one file and counts the rest.</b> The alternative — listing
+    /// every offending file — was rejected: the shape is emittable by no
+    /// producer in the ecosystem, so reaching it at all means a converting
+    /// parser wrote a whole folder's money records without the fact, and a list
+    /// would then be hundreds of names long inside a one-paragraph banner while
+    /// saying nothing the first name and the count do not. One name is what
+    /// makes the report actionable (open that file, quote it); the count is
+    /// what tells the reader whether removing one file will do.
+    /// </para>
+    ///
+    /// <para>
+    /// The wording says <i>malformed for quizzing</i> rather than blaming the
+    /// user's files in general: they are perfectly good XG records, and the
+    /// only recourse the reader has from here is to take the file out of the
+    /// folder — so that is the only instruction given.
+    /// </para>
+    /// </summary>
+    /// <param name="sourceFile">
+    /// Bare name of the first offending file, as the record's
+    /// <c>DecisionId.Filename</c> spells it.
+    /// </param>
+    /// <param name="otherFileCount">
+    /// How many <i>further</i> distinct files hold the same defect; zero when
+    /// <paramref name="sourceFile"/> is the only one.
+    /// </param>
+    /// <exception cref="ArgumentException"><paramref name="sourceFile"/> is null, empty or whitespace.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="otherFileCount"/> is negative.</exception>
+    internal static string MalformedForQuizzing(string sourceFile, int otherFileCount)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceFile);
+        ArgumentOutOfRangeException.ThrowIfNegative(otherFileCount);
+
+        if (otherFileCount == 0)
+        {
+            return $"“{sourceFile}” holds a money-game position that doesn't state "
+                + "whether the Jacoby rule is in force, so that file is malformed "
+                + "for quizzing. Remove it from the folder, then pick the folder again.";
+        }
+
+        var others = otherFileCount == 1
+            ? "1 other file"
+            : $"{otherFileCount.ToString(CultureInfo.InvariantCulture)} other files";
+        return $"“{sourceFile}” and {others} hold money-game positions that don't "
+            + "state whether the Jacoby rule is in force, so those files are "
+            + "malformed for quizzing. Remove them from the folder, then pick the "
+            + "folder again.";
+    }
 }

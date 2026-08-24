@@ -29,6 +29,12 @@ using Microsoft.Extensions.Logging;
 /// every later Start/Restart by filtering the cached decisions (the cache slot
 /// rides <see cref="PickedProblemFolder"/>, so a re-pick or Clear invalidates
 /// it by construction). See its own section in INSTRUCTIONS.md.</item>
+/// <item><see cref="JacobyStampedProblemSetSource"/> — the pool-composition
+/// guard: a money record that does not state its Jacoby rule fails the folder
+/// load, naming the file, instead of quizzing unkeyed and uncounted
+/// (<c>../SPEC-stats-identity.md</c> §2, amended 2026-08-24; issue
+/// <c>halheinrich/backgammon#142</c>). Beneath the dedupe on purpose — see that
+/// type for why, and for why this rung alone fails loud.</item>
 /// <item><see cref="DistinctPositionProblemSetSource"/> — one item per distinct
 /// position, always. See the placement rule below.</item>
 /// <item><see cref="ShuffledProblemSetSource"/>, conditionally — see the
@@ -129,7 +135,8 @@ internal static class PickedFolderSourceFactory
         return (filters, mix) =>
         {
             var deduped = new DistinctPositionProblemSetSource(
-                new CachedProblemSetSource(picked, filters, loggerFactory, clock));
+                new JacobyStampedProblemSetSource(
+                    new CachedProblemSetSource(picked, filters, loggerFactory, clock)));
             IProblemSetSource composed = mix.IsPassthrough && shuffle.Enabled
                 ? new ShuffledProblemSetSource(deduped)
                 : deduped;
