@@ -2379,6 +2379,14 @@ middleware ran on the request that reaches it. `NotFoundPipelineTests`
 exercises it through the real pipeline with `WebApplicationFactory` (see
 Pitfalls).
 
+It also maps **`/healthz`** — `AddHealthChecks()` + `MapHealthChecks()`, shared
+framework, no registered checks — the liveness endpoint the Azure App Service
+probe pings once a minute per instance (`halheinrich/backgammon#24`), pinned in
+`EnvironmentFidelityTests`. **Deploy-ordering trap**: the Bicep
+`healthCheckPath` apply must follow the zip deploy that ships this endpoint, or
+the probe reads a 404 and the site is marked unhealthy; the umbrella runbook
+owns the sequence.
+
 Each routable page (`Home`, `Quiz`, `Stats`, `Done`, `Settings`, `Help`)
 carries its own
 `@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))`

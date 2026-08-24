@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
@@ -47,6 +48,15 @@ namespace BgQuiz_Blazor.E2eTests;
 /// than that: every other scenario in this suite may then take the styled page as
 /// given rather than re-proving it (see <c>SidebarCollapseTests</c>).
 /// </para>
+///
+/// <para>
+/// <b>And one thing no visitor ever asks for.</b> The health endpoint Azure App
+/// Service's probe will hit (<c>halheinrich/backgammon#24</c>) is a claim of the
+/// same kind as the stylesheets — what the <i>artifact</i> serves, not how the
+/// app behaves — so it is pinned here. It is the one thing in this class the
+/// request sweep cannot reach, because the sweep is an inventory of what a page
+/// fetched and nothing the app serves links it; it gets its own request.
+/// </para>
 /// </summary>
 public sealed class EnvironmentFidelityTests : E2eTestBase
 {
@@ -83,6 +93,22 @@ public sealed class EnvironmentFidelityTests : E2eTestBase
     /// </summary>
     private const string SidebarGradient =
         "linear-gradient(rgb(5, 39, 103) 0%, rgb(58, 6, 71) 70%)";
+
+    /// <summary>
+    /// The path <c>Program.cs</c> maps the health endpoint at. It is also half of
+    /// a contract with the deploy: the App Service site's <c>healthCheckPath</c>
+    /// must name this same path, and the umbrella owns that half.
+    /// </summary>
+    private const string HealthPath = "/healthz";
+
+    /// <summary>
+    /// The entire body ASP.NET Core's default response writer emits for a passing
+    /// <c>HealthCheckService</c> — the <c>HealthStatus</c> name, nothing around
+    /// it, no trailing newline (measured against this app's own publish output on
+    /// 2026-08-24). Spelled out rather than derived, so a host that starts
+    /// formatting a response of its own has to come here and say so.
+    /// </summary>
+    private const string HealthyPayload = "Healthy";
 
     /// <summary>
     /// The routed page's content, which exists only once the WASM runtime has
@@ -183,6 +209,38 @@ public sealed class EnvironmentFidelityTests : E2eTestBase
         // per build, and the fact worth pinning is that the rule took effect.
         await Expect(Page.Locator(".sidebar"))
             .ToHaveCSSAsync("background-image", SidebarGradient);
+    }
+
+    /// <summary>
+    /// The liveness endpoint, asked the way its consumer asks it: a cold,
+    /// browser-free <c>GET</c> against the published artifact
+    /// (<c>halheinrich/backgammon#24</c>). Deliberately <see cref="HttpClient"/>
+    /// and not <see cref="Page"/> — the consumer is App Service's prober, roughly
+    /// once a minute per instance, and driving it through a browser would test a
+    /// client this endpoint never has, carrying headers and a cookie jar the
+    /// probe does not send.
+    ///
+    /// <para>
+    /// <b>Both halves are load-bearing.</b> The status code is what App Service
+    /// grades on, and it is the half that fails if the mapping goes: an unmatched
+    /// path is re-executed to the not-found page, so a missing endpoint reports
+    /// as <c>404</c> rather than as a connection error (mutation-checked by
+    /// pointing this at a path the host does not map). The body is what says a
+    /// real health-checks endpoint answered rather than something else that
+    /// happens to return 200 there — a static file dropped into <c>wwwroot</c>,
+    /// or some future catch-all — which is the whole of the ruling behind #24's
+    /// app half.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task TheHealthEndpoint_AnswersAColdProbeWith200Healthy()
+    {
+        using var probe = new HttpClient();
+
+        using var response = await probe.GetAsync(BaseUrl + HealthPath);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HealthyPayload, await response.Content.ReadAsStringAsync());
     }
 
     /// <summary>
