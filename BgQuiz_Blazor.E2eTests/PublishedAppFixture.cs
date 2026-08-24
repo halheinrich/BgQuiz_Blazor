@@ -38,9 +38,9 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </para>
 ///
 /// <para>
-/// <b>Fail loud, never skip.</b> A publish failure, a missing entry-point dll,
-/// a dead process, or a failed readiness probe each throw with the captured
-/// process output. Nothing here (or anywhere in this suite) turns a broken
+/// <b>Fail loud, never skip.</b> A publish failure, a publish that overruns its
+/// ceiling, a missing entry-point dll, a dead process, or a failed readiness
+/// probe each throw with the captured process output. Nothing here (or anywhere in this suite) turns a broken
 /// precondition into a skipped-but-green run — a smoke gate that can silently
 /// skip is the exact defect class it exists to kill.
 /// </para>
@@ -55,8 +55,29 @@ public sealed class PublishedAppFixture : IAsyncLifetime
     /// </summary>
     public const string BaseUrlVariable = "BGQUIZ_E2E_BASE_URL";
 
+    /// <summary>
+    /// Environment variable that switches MSBuild's worker-node reuse off. The
+    /// fixture sets it on its own publish and nowhere else — see
+    /// <see cref="PublishHostAsync"/>.
+    /// </summary>
+    private const string DisableNodeReuseVariable = "MSBUILDDISABLENODEREUSE";
+
     private const string HostDllName = "BgQuiz_Blazor.dll";
     private static readonly TimeSpan StartupTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Ceiling on the fixture's own <c>dotnet publish</c> — generous by design.
+    /// A first-ever cold AOT publish measures a couple of minutes on the dev
+    /// machine and a few on a two-core CI runner, so this fires only on a
+    /// genuinely wedged build, where a named failure beats an unbounded wait.
+    /// </summary>
+    private static readonly TimeSpan PublishTimeout = TimeSpan.FromMinutes(20);
+
+    /// <summary>
+    /// Grace allowed for the tail of the publish log to arrive after the process
+    /// has exited. Bounded on purpose — see <see cref="PublishHostAsync"/>.
+    /// </summary>
+    private static readonly TimeSpan LogFlushGrace = TimeSpan.FromSeconds(5);
 
     private Process? _app;
     private readonly StringBuilder _appOutput = new();
@@ -75,7 +96,7 @@ public sealed class PublishedAppFixture : IAsyncLifetime
         }
 
         string publishDir = Path.Combine(AppContext.BaseDirectory, "host-publish");
-        PublishHost(publishDir);
+        await PublishHostAsync(publishDir);
         SpawnHost(publishDir);
         BaseUrl = await ResolveBoundUrlAsync();
         await ProbeReadinessAsync();
@@ -96,7 +117,36 @@ public sealed class PublishedAppFixture : IAsyncLifetime
     //  Publish
     // -----------------------------------------------------------------------
 
-    private static void PublishHost(string publishDir)
+    /// <summary>
+    /// Publishes the host into <paramref name="publishDir"/>, capturing the whole
+    /// build log for the failure paths.
+    ///
+    /// <para>
+    /// <b>Completion is the process exiting, never end-of-stream</b> — and the
+    /// publish runs with node reuse off. MSBuild's worker nodes inherit the
+    /// redirected pipe of the build they serve, and with reuse on they outlive
+    /// that build; a <c>ReadToEnd</c> on the pipe therefore returns only when the
+    /// last node times out idle, roughly fifteen minutes after the publish has
+    /// finished. Measured cold on the dev machine (2026-08-24): 903 s of dead
+    /// time between the publish's last write and the first test, 1104 s for the
+    /// run — against 2 s and 195 s for the same run made this way, same 61/61.
+    /// </para>
+    ///
+    /// <para>
+    /// Both guards are here because each closes a different hole.
+    /// <see cref="DisableNodeReuseVariable"/> in the child's own environment
+    /// removes the cause — and puts it where no caller has to know about it, so
+    /// a run costs the same locally, under umbrella verification and on CI.
+    /// Draining the pipes asynchronously and waiting on
+    /// <see cref="Process.Exited"/> removes the <i>dependency</i> on that cause:
+    /// any other tool that outlives the build still holding the pipe (a compiler
+    /// server, some future SDK helper) costs this fixture a bounded
+    /// <see cref="LogFlushGrace"/>, not a run. The trade is what node reuse buys
+    /// on a warm republish, measured at about a second, against the fifteen
+    /// minutes at stake.
+    /// </para>
+    /// </summary>
+    private static async Task PublishHostAsync(string publishDir)
     {
         string hostProject = Path.Combine(
             FindSolutionRoot(), "BgQuiz_Blazor", "BgQuiz_Blazor.csproj");
@@ -111,24 +161,62 @@ public sealed class PublishedAppFixture : IAsyncLifetime
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+        psi.Environment[DisableNodeReuseVariable] = "1";
 
-        using var publish = Process.Start(psi)
-            ?? throw new InvalidOperationException("Failed to start 'dotnet publish'.");
-        // Drain both pipes before waiting, or a full pipe buffer deadlocks the build.
-        string output = publish.StandardOutput.ReadToEnd();
-        string errors = publish.StandardError.ReadToEnd();
-        publish.WaitForExit();
+        using var publish = new Process { StartInfo = psi, EnableRaisingEvents = true };
+
+        var log = new StringBuilder();
+        var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var flushed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int openPipes = 2;
+
+        void OnPublishOutput(object? _, DataReceivedEventArgs e)
+        {
+            // A null line is that pipe reaching end-of-stream — bookkeeping for the
+            // log's tail here, never the signal that the publish is done.
+            if (e.Data is null)
+            {
+                if (Interlocked.Decrement(ref openPipes) == 0) flushed.TrySetResult();
+                return;
+            }
+            lock (log) log.AppendLine(e.Data);
+        }
+
+        publish.OutputDataReceived += OnPublishOutput;
+        publish.ErrorDataReceived += OnPublishOutput;
+        publish.Exited += (_, _) => exited.TrySetResult();
+
+        if (!publish.Start())
+            throw new InvalidOperationException("Failed to start 'dotnet publish'.");
+        publish.BeginOutputReadLine();
+        publish.BeginErrorReadLine();
+
+        if (await Task.WhenAny(exited.Task, Task.Delay(PublishTimeout)) != exited.Task)
+        {
+            try { publish.Kill(entireProcessTree: true); }
+            catch (InvalidOperationException) { /* It won the race with its own exit. */ }
+            throw new InvalidOperationException(
+                "'dotnet publish' of the host did not finish within " +
+                $"{PublishTimeout.TotalMinutes:0} minutes and was killed. " +
+                $"The suite tests the publish output, so it cannot proceed.\n{PublishLog(log)}");
+        }
+        await Task.WhenAny(flushed.Task, Task.Delay(LogFlushGrace));
 
         if (publish.ExitCode != 0)
             throw new InvalidOperationException(
                 $"'dotnet publish' of the host failed (exit {publish.ExitCode}). " +
-                $"The suite tests the publish output, so it cannot proceed.\n{output}\n{errors}");
+                $"The suite tests the publish output, so it cannot proceed.\n{PublishLog(log)}");
 
         string hostDll = Path.Combine(publishDir, HostDllName);
         if (!File.Exists(hostDll))
             throw new InvalidOperationException(
                 $"Publish succeeded but the entry point '{hostDll}' is missing — " +
                 "the publish layout is not what this fixture expects.");
+    }
+
+    private static string PublishLog(StringBuilder log)
+    {
+        lock (log) return log.ToString();
     }
 
     /// <summary>

@@ -2697,13 +2697,12 @@ switch every publish inherits — the deploy recipe, this fixture, CI — so the
 gate always tests the artifact that ships. Nothing else in this repo sets or
 passes the flag. A cold publish (no `obj/`, no `bin/`) takes ≈ 2.5 min on the
 dev machine (130 s measured 2026-08-23), so the fixture's cold run is that
-plus ≈ 1 min of tests — *provided MSBuild node reuse is off*. With it on, the
-reused worker nodes outlive the publish holding the fixture's redirected
-pipe, and `PublishHost`'s `ReadToEnd` waits out their ~15 min idle timeout
-(measured: 1162 s with reuse on vs 190 s with `MSBUILDDISABLENODEREUSE=1`,
-same 61/61). That stall predates AOT and belongs to the fixture, not the
-switch. Incremental republishes take seconds. For a twin non-AOT build to compare
-against, override on the command line only — never in a file:
+plus ≈ 1 min of tests — no longer plus the ~15 min of dead time MSBuild's
+reused worker nodes used to add: `PublishedAppFixture.PublishHostAsync`
+enforces that itself, and its doc comment carries the mechanism
+(halheinrich/backgammon#130). Incremental republishes take seconds. For a twin
+non-AOT build to compare against, override on the command line only — never in
+a file:
 
 ```
 dotnet publish BgQuiz_Blazor/BgQuiz_Blazor.csproj -c Release -p:RunAOTCompilation=false
@@ -2719,8 +2718,8 @@ before any test runs, so a broken publish fails every test identically through
 `PublishedAppFixture.InitializeAsync`; read the exception text, which carries
 the whole `dotnet publish` log. One cause seen locally is `MSB4216` (*could
 not create or connect to a task host*) — kill stale `MSBuild` / `dotnet` nodes
-and re-run with `MSBUILDDISABLENODEREUSE=1`. Don't go looking for an app
-regression until the publish itself succeeds.
+and re-run. Don't go looking for an app regression until the publish itself
+succeeds.
 
 ## Public API
 
