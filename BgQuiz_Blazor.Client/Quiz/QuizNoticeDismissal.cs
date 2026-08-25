@@ -56,6 +56,18 @@ internal enum QuizNotice
     /// side and dismiss independently.
     /// </summary>
     PickStatsCapability,
+
+    /// <summary>
+    /// <c>Home</c>'s stats-retirement <i>forecast</i> (issue
+    /// <c>halheinrich/backgammon#146</c>): the picked folder holds a stats file
+    /// in a retired format, so the next quiz will set it aside — said before
+    /// the pick is acted on, where <see cref="StatsRetired"/> is the same
+    /// event's report afterwards. Occurrence:
+    /// <see cref="PickedProblemFolder.PickOccurrence"/>, like its two pick-band
+    /// neighbours; its own slot beside them because it renders alongside the
+    /// capability notice and dismisses independently.
+    /// </summary>
+    PickStatsRetirementForecast,
 }
 
 /// <summary>

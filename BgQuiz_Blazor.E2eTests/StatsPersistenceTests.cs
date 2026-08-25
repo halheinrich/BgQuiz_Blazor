@@ -74,10 +74,21 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 
         await BootHomeAsync();
         await PickFakeFolderAsync();
+
+        // Forecast first, on Home, before the pick has been acted on
+        // (halheinrich/backgammon#146): the same event in future tense, naming
+        // the same file, while the old stats are still there — which is what
+        // makes "nothing is deleted" worth saying. The act has not happened
+        // yet, so the report's past tense must not be on this page.
+        await Expect(Page.GetByText("will be set aside as").First).ToBeVisibleAsync();
+        await Expect(Page.GetByText(RetiredStatsFileName).First).ToBeVisibleAsync();
+        await Expect(Page.GetByText("nothing is deleted").First).ToBeVisibleAsync();
+        await Expect(Page.GetByText("has been set aside as")).ToBeHiddenAsync();
+
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        await Expect(Page.GetByText("set aside as").First).ToBeVisibleAsync();
+        await Expect(Page.GetByText("has been set aside as").First).ToBeVisibleAsync();
         await Expect(Page.GetByText(RetiredStatsFileName).First).ToBeVisibleAsync();
         await Expect(Page.GetByText("couldn't be read")).ToBeHiddenAsync();
 
@@ -130,6 +141,10 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await BootHomeAsync();
         await PickFakeFolderAsync();
         await Expect(Page.GetByText("stats will be saved")).ToBeVisibleAsync();
+        // The other half of the retirement forecast's pin
+        // (halheinrich/backgammon#146): an unreadable file is not a retired one.
+        // It will never be set aside, so nothing on Home may promise that.
+        await Expect(Page.GetByText("will be set aside as")).ToBeHiddenAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();

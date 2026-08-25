@@ -165,6 +165,24 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     private bool _pickedHasStats;
 
     /// <summary>
+    /// The retired schema version the picked folder's stats document declared,
+    /// or <see langword="null"/> when the probe found no document, a current-
+    /// version one, or one it could not identify. Written only by
+    /// <see cref="RefreshPickedStatsAsync"/> and read only through
+    /// <see cref="ForecastStatsSetAsideName"/>.
+    ///
+    /// <para>
+    /// <b>A second fact out of the same read, never a second answer to the mix
+    /// question.</b> A retired document is "no stats to weight by" exactly as
+    /// before (<see cref="_pickedHasStats"/> stays false on this path), and the
+    /// probe still writes nothing and retires nothing — the version is simply
+    /// no longer thrown away, so <c>Home</c> can say at pick time what the next
+    /// bind will do (issue <c>halheinrich/backgammon#146</c>).
+    /// </para>
+    /// </summary>
+    private int? _pickedRetiredSchemaVersion;
+
+    /// <summary>
     /// The <see cref="PickedProblemFolder.PickGeneration"/> the probe above was
     /// taken against, so <see cref="CanWeightMix"/> <b>expires by
     /// construction</b> rather than by anyone remembering to reset it: every
@@ -268,14 +286,65 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// </summary>
     private bool FolderCanHoldStats => _folder.Capability == FolderWriteCapability.Enabled;
 
+    /// <summary>
+    /// Whether the last probe still describes the folder currently held — the
+    /// expires-by-construction rule of <see cref="_statsProbeGeneration"/>, in
+    /// one spelling, so every fact the probe surfaces expires on the same
+    /// terms rather than on its own copy of the comparison.
+    /// </summary>
+    private bool ProbeDescribesTheCurrentPick => _statsProbeGeneration == _folder.PickGeneration;
+
     /// <inheritdoc/>
     public bool CanWeightMix =>
-        FolderCanHoldStats && _pickedHasStats && _statsProbeGeneration == _folder.PickGeneration;
+        FolderCanHoldStats && _pickedHasStats && ProbeDescribesTheCurrentPick;
+
+    /// <summary>
+    /// <b>The name the picked folder's stats document would be set aside under
+    /// when a quiz next binds against it</b> — the pick-time <i>forecast</i> of
+    /// the retirement <see cref="StatsRetiredOccurrence"/> reports afterwards
+    /// (issue <c>halheinrich/backgammon#146</c>) — or <see langword="null"/>
+    /// when no retirement is in prospect for the folder in hand.
+    ///
+    /// <para>
+    /// <b>The nullable name is the flag</b>, the same discipline as
+    /// <see cref="StatsRetiredOccurrence"/>: there is no companion boolean to
+    /// disagree with it. And it is derived through the same
+    /// <see cref="QuizStatsFile.RetiredNameFor"/> the act itself calls, from the
+    /// version the document declared — so the forecast and the report are two
+    /// tenses of one event that cannot name two different files, and a holder of
+    /// a v1 document is told about <c>.v1.json</c> rather than about whatever
+    /// version happens to retire most often.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>A forecast, not a promise, and above all not an act.</b> The probe
+    /// that feeds this reads and never writes — a pick must not mutate the
+    /// folder (SPEC-stats-identity.md §3: the set-aside is the bind's, where
+    /// write permission is settled), so between this notice and the next Start
+    /// the file can still change under it. That is the same standing of the
+    /// stats-location notice beside it, which also says what a later quiz will
+    /// write.
+    /// </para>
+    ///
+    /// <para>
+    /// Expires with the pick that produced it
+    /// (<see cref="ProbeDescribesTheCurrentPick"/>), so a verdict about the
+    /// previous folder can never be read as one about this one — and a
+    /// non-<see langword="null"/> value therefore implies a held pick whose
+    /// capability let the probe read at all.
+    /// </para>
+    /// </summary>
+    public string? ForecastStatsSetAsideName =>
+        _pickedRetiredSchemaVersion is { } version && ProbeDescribesTheCurrentPick
+            ? QuizStatsFile.RetiredNameFor(version)
+            : null;
 
     /// <summary>
     /// Take the pick-time probe <see cref="CanWeightMix"/> reads: does the
     /// folder currently picked already hold a stats document with something in
-    /// it? Driven by <c>Home</c> at the two moments the answer can change
+    /// it — and, if what it holds is a document of a retired schema version,
+    /// which version (<see cref="ForecastStatsSetAsideName"/>)? Driven by
+    /// <c>Home</c> at the two moments the answer can change
     /// without this store hearing about it — its own first render (a folder may
     /// already be held, and a quiz since the last probe may have created the
     /// very record this asks about) and the landing of each successful pick.
@@ -288,6 +357,20 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// by". So there is no status, no notice, and nothing thrown: every path
     /// out of here leaves <see cref="_pickedHasStats"/> false and the mix simply
     /// isn't offered.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The retired-version rung is told apart for what it says, not for what
+    /// it answers</b> (issue <c>halheinrich/backgammon#146</c>). It is still
+    /// "no stats to weight by" — the producer's recognition signal derives from
+    /// <see cref="JsonException"/>, so before this it simply fell into the
+    /// swallow below with the corrupt files. Catching it first keeps the mix
+    /// answer identical (nothing sets <see cref="_pickedHasStats"/> on this
+    /// path) and keeps the read read-only, while remembering the one fact
+    /// <c>Home</c>'s forecast notice needs: the version, from which the
+    /// set-aside name derives. A corrupt file, a foreign one, and a
+    /// newer-schema one keep the swallow — none of them will be retired at the
+    /// next bind, so none of them has a forecast to make.
     /// </para>
     ///
     /// <para>
@@ -315,6 +398,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
         // concludes expires instead of describing the wrong folder.
         _statsProbeGeneration = _folder.PickGeneration;
         _pickedHasStats = false;
+        _pickedRetiredSchemaVersion = null;
 
         if (!FolderCanHoldStats) return;
 
@@ -323,6 +407,16 @@ internal sealed class QuizStatsStore : IProblemStatsSink
             var json = await _folderAccess.ReadPickedFileAsync(QuizStatsFile.FileName);
             _pickedHasStats = json is not null
                 && JsonSerializer.Deserialize<ProblemStatsDocument>(json) is { Count: > 0 };
+        }
+        catch (RetiredStatsSchemaException retired)
+        {
+            // A document the next bind will set aside. Remembered — the version
+            // only — so Home can forecast that act before the user commits to
+            // it; caught ahead of the swallow below because the signal derives
+            // from JsonException. Nothing is written and nothing is retired
+            // here: this is a read of the picked slot, and the act is the
+            // bind's alone.
+            _pickedRetiredSchemaVersion = retired.SchemaVersion;
         }
         catch (Exception ex) when (ex is JsonException or JSException)
         {

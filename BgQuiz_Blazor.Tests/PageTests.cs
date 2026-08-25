@@ -1492,6 +1492,161 @@ public class PageTests : BunitContext
         Assert.Contains("will be saved to", cut.Markup);
     }
 
+    // -----------------------------------------------------------------------
+    //  The stats-retirement forecast (halheinrich/backgammon#146). The pick
+    //  band's third holder-backed notice: the folder holds a stats file in a
+    //  retired format, so the next quiz will set it aside — said here, before
+    //  the pick is acted on, where the Quiz page's notice reports the same
+    //  event afterwards. The act itself is untouched; a pick never writes.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The forecast notice's text as a reader sees it — addressed by its id,
+    /// like the truncation notice, and whitespace-collapsed because the razor
+    /// source's own line breaks ride into the rendered text.
+    /// </summary>
+    private static string ForecastNoticeText(IRenderedComponent<HomePage> cut) =>
+        Normalize(cut.Find("#statsRetirementForecastNotice").TextContent);
+
+    [Theory]
+    [InlineData(RetiredStatsFixture.V1Json, 1)]
+    [InlineData(RetiredStatsFixture.V2Json, 2)]
+    public void Home_PickedFolderHoldsARetiredStatsFile_ForecastsTheSetAside(
+        string statsJson, int schemaVersion)
+    {
+        // Both names come from the app's own derivations — the set-aside from
+        // QuizStatsFile.RetiredNameFor over the version the *file* declared, so
+        // a v1 holder is told about the v1 name and the forecast can never name
+        // a file the act would not write. Forecast tense throughout, and
+        // "nothing is deleted" said out loud: this notice arrives while the old
+        // stats still exist, which is exactly when that reassurance means
+        // something.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.PickedStatsJson = statsJson;
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
+
+        var cut = Render<HomePage>();
+
+        Assert.Equal(
+            "Your stats file was written by an earlier version of BgQuiz and can't be "
+            + "carried forward. When you start a quiz it will be set aside as "
+            + $"{QuizStatsFile.RetiredNameFor(schemaVersion)} — nothing is deleted — and a new "
+            + $"{QuizStatsFile.FileName} started, so your lifetime stats will begin again.",
+            ForecastNoticeText(cut));
+        // An outcome to understand before starting, not a failure.
+        Assert.DoesNotContain("alert-danger", cut.Markup);
+        Assert.Contains("role=\"status\"", cut.Markup);
+    }
+
+    [Fact]
+    public void Home_PickedFolderHoldsARetiredStatsFile_ForecastOnly_NothingIsWritten()
+    {
+        // The leg's load-bearing restraint: the fact is *read* at pick time and
+        // the act stays at the quiz bind (SPEC-stats-identity.md §3). Rendering
+        // Home over a retired file must therefore leave the folder exactly as
+        // it was — no set-aside, no seed, no promote.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.PickedStatsJson = RetiredStatsFixture.V1Json;
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
+
+        var cut = Render<HomePage>();
+
+        Assert.Contains("will be set aside", ForecastNoticeText(cut)); // positive precondition
+        Assert.Equal(RetiredStatsFixture.V1Json, _folderAccess.PickedStatsJson);
+        Assert.Empty(_folderAccess.Writes);
+        Assert.Empty(_folderAccess.ActiveFileNames);
+        Assert.Equal(0, _folderAccess.PromoteCallCount);
+    }
+
+    [Theory]
+    [InlineData(null)]                                         // no stats file yet
+    [InlineData("not json at all")]                            // unreadable — the LoadFailed family's
+    [InlineData(RetiredStatsFixture.ClaimsV1ButMalformedJson)] // claims a retired version, isn't one
+    [InlineData(RetiredStatsFixture.NewerSchemaJson)]          // written by a later BgQuiz
+    public void Home_PickedFolderWithNoRetiredStatsFile_ShowsNoForecast(string? statsJson)
+    {
+        // The distinction the notice is drawn on. A file the bind will refuse
+        // to touch is *not* a file it will set aside: that story is the quiz
+        // page's polite "couldn't be read", told after the bind, and
+        // forecasting a set-aside here would promise an act that never comes.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.PickedStatsJson = statsJson;
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
+
+        var cut = Render<HomePage>();
+
+        Assert.Empty(cut.FindAll("#statsRetirementForecastNotice"));
+        Assert.Contains("will be saved to", cut.Markup); // …the capability line still stands
+    }
+
+    [Fact]
+    public void Home_PickedFolderWithCurrentVersionStatsFile_ShowsNoForecast()
+    {
+        // The current-version case, staged through the app's own writer rather
+        // than a literal — nothing to retire, nothing to forecast.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
+
+        var cut = Render<HomePage>();
+
+        Assert.Empty(cut.FindAll("#statsRetirementForecastNotice"));
+    }
+
+    [Fact]
+    public async Task Home_ForecastNotice_ClickDismisses_LeavingItsNeighborsStanding()
+    {
+        // Its own slot: reading past the forecast must not take the capability
+        // line or the truncation report with it.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.PickedStatsJson = RetiredStatsFixture.V1Json;
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
+
+        var cut = Render<HomePage>();
+        var close = CloseButton(cut.Find("#statsRetirementForecastNotice"));
+        Assert.Equal("Dismiss this message", close.GetAttribute("aria-label"));
+
+        await cut.Find("#statsRetirementForecastNotice").ClickAsync(new());
+
+        Assert.Empty(cut.FindAll("#statsRetirementForecastNotice"));
+        Assert.Contains("will be saved to", cut.Markup);
+        Assert.Contains("files chosen at random", Normalize(cut.Markup));
+    }
+
+    [Fact]
+    public async Task Home_ForecastNoticeDismissal_SurvivesNavigation_AndANewPickShowsItFresh()
+    {
+        // The neighbours' occurrence-token contract, on this slot: keyed on the
+        // pick, so navigating away and back finds the same token and stays
+        // dismissed, while the next pick is a new thing to say and says it —
+        // with no reset call site anywhere.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.PickedStatsJson = RetiredStatsFixture.V1Json;
+        WithPickedFolder(capability: FolderWriteCapability.Enabled);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#statsRetirementForecastNotice").ClickAsync(new());
+
+        var back = Render<HomePage>();
+        Assert.Empty(back.FindAll("#statsRetirementForecastNotice"));
+
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
+        await back.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Contains("will be set aside", ForecastNoticeText(back));
+    }
+
     [Fact]
     public async Task Home_CancelledPickNotice_ClickDismissesIt()
     {

@@ -696,16 +696,41 @@ public class QuizStatsStoreTests
     }
 
     [Theory]
-    [InlineData(null)]                                            // no file at all
-    [InlineData("""{"schemaVersion":1,"decisions":[]}""")]         // present, but empty
-    [InlineData("not json at all")]                                // unreadable
-    [InlineData("""{"schemaVersion":99,"decisions":[]}""")]        // foreign / newer schema
-    public async Task CanWeightMix_MissingEmptyOrUnreadable_AllReadFalse(string? pickedStatsJson)
+    [InlineData(null)]                                     // no file at all
+    [InlineData("not json at all")]                        // unreadable
+    [InlineData(RetiredStatsFixture.NewerSchemaJson)]      // written by a later BgQuiz
+    [InlineData(RetiredStatsFixture.ClaimsV1ButMalformedJson)] // corrupt, not retired
+    [InlineData(RetiredStatsFixture.V1Json)]               // retired version…
+    [InlineData(RetiredStatsFixture.V2Json)]               // …either of them
+    public async Task CanWeightMix_MissingOrUnusable_AllReadFalse(string? pickedStatsJson)
     {
-        // #87's ruling in one place: an empty stats document is treated exactly
-        // as no stats document — and so is one that cannot be read. Three
-        // situations, one answer, no rungs to tell apart.
+        // #87's ruling in one place: a document that cannot be read is treated
+        // exactly as no document. Several situations, one answer, no rungs to
+        // tell apart — the retired-version pair included, which the forecast
+        // section below surfaces as a *fact* without moving this answer
+        // (halheinrich/backgammon#146).
         var fake = new FakeFolderAccess { PickedStatsJson = pickedStatsJson };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.False(store.CanWeightMix);
+    }
+
+    [Fact]
+    public async Task CanWeightMix_EmptyCurrentVersionDocument_IsFalse()
+    {
+        // The other half of the same ruling, and the one the retired fixtures
+        // cannot stand in for: a perfectly readable current-version document
+        // with nothing in it. Weighting composes *from* the record, so an empty
+        // record can express no weighting anybody asked for. Serialized through
+        // the app's own writer rather than hand-built, so the next schema bump
+        // reaches this fixture instead of passing it by.
+        var fake = new FakeFolderAccess
+        {
+            PickedStatsJson =
+                JsonSerializer.Serialize(ProblemStatsDocument.Empty, QuizStatsFile.SerializerOptions),
+        };
         var store = MakeStore(fake);
 
         await store.RefreshPickedStatsAsync();
@@ -802,5 +827,169 @@ public class QuizStatsStoreTests
         await store.RecordAsync(PlaySubmission());
 
         Assert.Single(fake.Writes);
+    }
+
+    // -----------------------------------------------------------------------
+    //  ForecastStatsSetAsideName — the retirement, said before it happens
+    //  (halheinrich/backgammon#146). The same pick-time probe, surfacing the
+    //  one fact it used to swallow: the version a retired document declared.
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(RetiredStatsFixture.V1Json, 1)]
+    [InlineData(RetiredStatsFixture.V2Json, 2)]
+    public async Task Forecast_RetiredFile_NamesTheFileThatVersionWouldBeSetAsideUnder(
+        string pickedStatsJson, int schemaVersion)
+    {
+        // The forecast follows the version the file itself declared, through
+        // the same derivation the act calls — so a v1 holder is told about the
+        // v1 name, and the two tenses of one event cannot name two files.
+        var fake = new FakeFolderAccess { PickedStatsJson = pickedStatsJson };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.Equal(QuizStatsFile.RetiredNameFor(schemaVersion), store.ForecastStatsSetAsideName);
+    }
+
+    [Fact]
+    public async Task Forecast_RetiredFile_LeavesTheMixAnswerAndTheFolderExactlyAsTheyWere()
+    {
+        // The whole point of surfacing the fact: nothing else moves. A retired
+        // folder still offers no mix (there is no record to weight by either
+        // way), and the probe is still a read — no promote, no write, the
+        // user's file untouched. A pick must never mutate the folder; the
+        // set-aside belongs to the bind (SPEC-stats-identity.md §3).
+        var fake = new FakeFolderAccess { PickedStatsJson = RetiredStatsFixture.V1Json };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.NotNull(store.ForecastStatsSetAsideName);      // positive precondition
+        Assert.False(store.CanWeightMix);
+        Assert.Equal(0, fake.PromoteCallCount);
+        Assert.Empty(fake.Writes);
+        Assert.Empty(fake.ActiveFileNames);
+        Assert.Equal(RetiredStatsFixture.V1Json, fake.PickedStatsJson);
+        Assert.Equal(QuizStatsStatus.Disabled, store.Status); // no status side effect
+    }
+
+    [Fact]
+    public void Forecast_BeforeAnyProbe_IsNull()
+    {
+        var store = MakeStore(new FakeFolderAccess { PickedStatsJson = RetiredStatsFixture.V1Json });
+
+        Assert.Null(store.ForecastStatsSetAsideName);
+    }
+
+    [Fact]
+    public async Task Forecast_CurrentVersionFile_IsNull()
+    {
+        // Nothing to retire, nothing to forecast — for a document with records
+        // in it and for an empty one alike, since neither is set aside.
+        var fake = new FakeFolderAccess { PickedStatsJson = StatsDocumentJson() };
+        var store = MakeStore(fake);
+        await store.RefreshPickedStatsAsync();
+        Assert.Null(store.ForecastStatsSetAsideName);
+
+        fake.PickedStatsJson =
+            JsonSerializer.Serialize(ProblemStatsDocument.Empty, QuizStatsFile.SerializerOptions);
+        await store.RefreshPickedStatsAsync();
+
+        Assert.Null(store.ForecastStatsSetAsideName);
+    }
+
+    [Fact]
+    public async Task Forecast_NoFile_IsNull()
+    {
+        var store = MakeStore(new FakeFolderAccess()); // no stats file in the folder
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.Null(store.ForecastStatsSetAsideName);
+    }
+
+    [Theory]
+    [InlineData("not json at all")]                            // unreadable
+    [InlineData(RetiredStatsFixture.ClaimsV1ButMalformedJson)] // claims a retired version, isn't one
+    [InlineData(RetiredStatsFixture.NewerSchemaJson)]          // written by a later BgQuiz
+    public async Task Forecast_UnreadableOrNewerFile_IsNull(string pickedStatsJson)
+    {
+        // The distinction this notice is drawn on: only the producer's
+        // deliberate recognition signal forecasts a set-aside. Everything else
+        // the bind refuses to touch is the LoadFailed family's story, told on
+        // the quiz page after the bind — promising a set-aside here would
+        // promise an act that never comes.
+        var fake = new FakeFolderAccess { PickedStatsJson = pickedStatsJson };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.Null(store.ForecastStatsSetAsideName);
+    }
+
+    [Theory]
+    [InlineData(FolderWriteCapability.BrowserUnsupported)]
+    [InlineData(FolderWriteCapability.PermissionDenied)]
+    public async Task Forecast_WithoutWriteCapability_IsNull(FolderWriteCapability capability)
+    {
+        // No capability, no bind, so no retirement to forecast — and the probe
+        // skips the read entirely on these rungs, so there is nothing to
+        // recognise in the first place.
+        var folder = new PickedProblemFolder();
+        folder.Set("Corpus", [new PickedFile("a.xg", [1])], capability, []);
+        var store = MakeStore(
+            new FakeFolderAccess { PickedStatsJson = RetiredStatsFixture.V1Json }, folder);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.Null(store.ForecastStatsSetAsideName);
+    }
+
+    [Fact]
+    public async Task Forecast_ExpiresWhenTheFolderChanges_WithNoResetCall()
+    {
+        // The same expires-by-construction stamp CanWeightMix rides, and for
+        // the same reason: a forecast about the *previous* folder must never be
+        // read as one about this one.
+        var folder = EnabledFolder();
+        var store = MakeStore(new FakeFolderAccess { PickedStatsJson = RetiredStatsFixture.V1Json }, folder);
+        await store.RefreshPickedStatsAsync();
+        Assert.NotNull(store.ForecastStatsSetAsideName);
+
+        folder.Set("Other", [new PickedFile("b.xg", [1])], FolderWriteCapability.Enabled, []);
+
+        Assert.Null(store.ForecastStatsSetAsideName);
+    }
+
+    [Fact]
+    public async Task Forecast_AfterTheQuizPerformsTheRetirement_TheNextProbeHasNothingToForecast()
+    {
+        // Forecast then report, in the one order they can happen: the bind sets
+        // the file aside and seeds a fresh one, so re-probing the same folder —
+        // which Home does on the way back from the quiz — finds a current
+        // document and stops promising an act that has already happened.
+        // One v1 file in the folder — staged into both of the fake's slots,
+        // which a real directory has as one file under one name.
+        var fake = new FakeFolderAccess
+        {
+            PickedStatsJson = RetiredStatsFixture.V1Json,
+            StatsJson = RetiredStatsFixture.V1Json,
+        };
+        var store = MakeStore(fake);
+        await store.RefreshPickedStatsAsync();
+        Assert.Equal(QuizStatsFile.RetiredNameFor(1), store.ForecastStatsSetAsideName);
+
+        await store.BeginQuizAsync();
+        var retirement = Assert.IsType<StatsRetirement>(store.StatsRetiredOccurrence);
+        // The report names exactly what the forecast promised.
+        Assert.Equal(QuizStatsFile.RetiredNameFor(1), retirement.SetAsideFileName);
+
+        // Same mirroring the other way: what the bind wrote under the standard
+        // name is what the next picked-slot read finds.
+        fake.PickedStatsJson = fake.StatsJson;
+        await store.RefreshPickedStatsAsync();
+
+        Assert.Null(store.ForecastStatsSetAsideName);
     }
 }

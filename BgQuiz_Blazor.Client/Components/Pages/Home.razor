@@ -297,6 +297,38 @@
                     break;
             }
         }
+        @* Stats-retirement forecast (issue #146): this folder's stats file was
+           written by an earlier version, so the next quiz will set it aside and
+           start fresh. The act itself stays at the quiz bind — a pick must not
+           mutate the folder (SPEC-stats-identity.md §3) — and the Quiz page's
+           notice stays as its report; this is the same event in forecast tense,
+           moved to where the consequence-bearing information belongs: before
+           the action, like the "your data stays yours" line above the pick.
+
+           Both tenses render the name from QuizStatsFile.RetiredNameFor over
+           the version the file itself declared (surfaced by the pick-time
+           probe), so the forecast and the report cannot name two different
+           files, and a v1 holder is told about the v1 name.
+
+           Reads below the capability notice, which it qualifies: that line says
+           where stats will be saved, this one says what happens to what is
+           already there. Polite role="status" — an outcome, not a failure — and
+           dismissible on a click keyed on the pick's occurrence token, exactly
+           like the two notices above it. *@
+        @if (StatsStore.ForecastStatsSetAsideName is { } forecastSetAsideName
+             && !Notices.IsDismissed(QuizNotice.PickStatsRetirementForecast, Folder.PickOccurrence))
+        {
+            <div id="statsRetirementForecastNotice" class="alert alert-info alert-dismissible quiz-notice mt-2"
+                 role="status" @onclick="DismissStatsRetirementForecast">
+                Your stats file was written by an earlier version of BgQuiz and can't be
+                carried forward. When you start a quiz it will be set aside as
+                <strong>@forecastSetAsideName</strong> — nothing is deleted — and a new
+                <strong>@QuizStatsFile.FileName</strong> started, so your lifetime stats
+                will begin again.
+                <button type="button" class="btn-close" aria-label="Dismiss this message"
+                        @onclick="DismissStatsRetirementForecast" @onclick:stopPropagation="true"></button>
+            </div>
+        }
         @* Cancelled-pick outcome (not a failure): the pick ended holding no
            folder. Three causes reach here — the picker was dismissed, the
            required view-files permission was declined, or a present-but-inert

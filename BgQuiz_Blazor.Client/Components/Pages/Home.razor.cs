@@ -45,6 +45,16 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
+/// That same probe carries the pick band's second stats fact: whether the
+/// document it read is one a quiz would retire
+/// (<see cref="QuizStatsStore.ForecastStatsSetAsideName"/>, issue
+/// <c>halheinrich/backgammon#146</c>). The notice it feeds is a <i>forecast</i>
+/// — the set-aside itself stays at the quiz bind, where write permission is
+/// settled and where the Quiz page reports it — so this page states a
+/// consequence before the action it belongs to, and mutates nothing.
+/// </para>
+///
+/// <para>
 /// The user picks a local folder with one "Choose folder…" gesture, served by
 /// whichever mechanism the browser offers (probed at pick time through
 /// <see cref="IFolderAccess"/>): the File System Access directory picker where
@@ -1166,6 +1176,15 @@ public partial class Home : ComponentBase, IDisposable
     /// </summary>
     private void DismissStatsCapability() =>
         Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.PickOccurrence);
+
+    /// <summary>
+    /// Dismiss the stats-retirement forecast for the pick on screen (issue
+    /// <c>halheinrich/backgammon#146</c>). Same token discipline as
+    /// <see cref="DismissTruncations"/> — and its own slot, so reading past the
+    /// forecast leaves the capability line beside it standing.
+    /// </summary>
+    private void DismissStatsRetirementForecast() =>
+        Notices.Dismiss(QuizNotice.PickStatsRetirementForecast, Folder.PickOccurrence);
 
     /// <summary>
     /// Dismiss the cancelled-pick notice by clearing its own per-visit field —

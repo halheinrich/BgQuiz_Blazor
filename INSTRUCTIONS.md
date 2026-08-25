@@ -896,9 +896,16 @@ controller's sink and the pages' status notices observe one instance; deps:
   it false, with no status, no notice, and nothing thrown. **A retired file
   reads as "no stats to weight by" too**, and stays that way until the first
   quiz performs the set-aside: the probe never binds, so it never retires. That
-  is the ruling working, not a gap to close (SPEC-stats-identity.md §3). It **promotes
-  nothing** and never assigns the active document or `Status`, so a probe
-  during a running quiz cannot disturb what that quiz records. Under a
+  is the ruling working, not a gap to close (SPEC-stats-identity.md §3). What it
+  *does* now do with that file is **remember the version it declared**
+  (`ForecastStatsSetAsideName`, halheinrich/backgammon#146): the producer's
+  recognition signal derives from `JsonException`, so it used to fall into the
+  swallow with the corrupt files and the fact was lost. Caught ahead of that
+  swallow, the mix answer is byte-identical (nothing sets `_pickedHasStats` on
+  that path) and the read stays read-only — the one fact Home's forecast notice
+  needs is simply no longer thrown away. It **promotes nothing** and never
+  assigns the active document or `Status`, so a probe during a running quiz
+  cannot disturb what that quiz records. Under a
   non-`Enabled` capability the interop is skipped through the same private
   half the predicate uses, so the two can't drift.
 - **Two reading points, both `Home`'s**: each successful pick's landing
@@ -926,10 +933,11 @@ the policy over it.**
 all polite `role="status"`): stats-will-be-saved (`Enabled`, naming
 `QuizStatsFile.FileName`) / browser-can't-save / declined-write, plus the
 empty-folder outcome, the truncated-pick notice (one line per kind the count
-caps cut short — § `PickedFileLimits`), and the `role="alert"` pick-failure
-banner. Quiz-context
-(Quiz **and** Done — a failure on the final Continue lands on Done without
-ever showing Quiz's notice): `LoadFailed` polite, `WriteFailed` assertive;
+caps cut short — § `PickedFileLimits`), the stats-retirement **forecast**
+(§ Dismissible notices), and the `role="alert"` pick-failure banner.
+Quiz-context (Quiz **and** Done — a failure on the final Continue lands on
+Done without ever showing Quiz's notice): `LoadFailed` polite, `WriteFailed`
+assertive;
 both scope to the active context and reset at the next Start's re-bind.
 
 **Saved named filters — composite-owned now.** A per-directory saved-filters
@@ -1371,11 +1379,12 @@ ruling and its reasoning are the spec's.
 
 **So does every outcome/status notice in Home's pick band** (issue #107, the
 ruling "a colored info message should go away when clicked"). The
-holder-backed pair — the truncation alert and the stats-capability notice
+holder-backed trio — the truncation alert, the stats-capability notice
 (its three branches share one slot: mutually exclusive renderings of one
-per-pick verdict) — key on `PickedProblemFolder.PickOccurrence`, so a re-pick
-shows fresh and navigate-back stays dismissed. The per-visit pair — cancelled
-pick, empty folder — get the same click affordance but clear their own page
+per-pick verdict) and the stats-retirement forecast — key on
+`PickedProblemFolder.PickOccurrence`, so a re-pick shows fresh and
+navigate-back stays dismissed. The per-visit pair — cancelled pick, empty
+folder — get the same click affordance but clear their own page
 fields: their transience already scopes the dismissal, so a token would have
 nothing to outlive. **Not dismissible, deliberately**: the red pick-error
 banner (a failure report, `role="alert"`, a different claim class) and the
@@ -1408,6 +1417,9 @@ exist at all:
   orthogonal to the condition `Status` reports; folding it in would make every
   `== Ready` site grow an "or retired" clause. `Done` mirrors it
   non-dismissibly, as it mirrors the degrade notices.
+- **PickTruncations / PickStatsCapability / PickStatsRetirementForecast** →
+  `PickedProblemFolder.PickOccurrence`, the same opaque token for all three of
+  Home's pick-band slots (they render side by side and dismiss independently).
 
 Keying the stats notice on the `Status` *value* gets two real cases wrong: a
 mid-run `Ready → WriteFailed` is a new thing to say, and **a second quiz bound
@@ -1417,6 +1429,25 @@ the bind-side replacement, not just the transition-side one). A generation
 `int` would work for the store but would force the holder to compare two kinds
 of token by two rules, and value equality is exactly the trap `MixComposition`
 documents avoiding.
+
+**The retirement is said twice, in two tenses** (halheinrich/backgammon#146).
+The *act* stays at the quiz bind — set-aside-before-replace is the data-safety
+ordering and a pick must never mutate the folder, write permission not being
+settled until then (**SPEC-stats-identity.md §3**, which this leg does not
+move) — and `StatsRetired` on Quiz/Done stays its **report**, also the only
+surface a straight-to-quiz navigation sees. What #146 adds is the
+**forecast**: Home's pick band says, *before* the pick is acted on, that this
+folder's stats file will be set aside, because the fact is knowable at pick
+(the mix-gating probe opens the file then) and the page's own ordering
+standard — "Your data stays yours" precedes the pick — puts
+consequence-bearing information before the action. Both tenses render the
+name through `QuizStatsFile.RetiredNameFor` over the version the *file*
+declared, so they cannot name two different files; the forecast reads
+`QuizStatsStore.ForecastStatsSetAsideName`, whose **nullable name is the
+flag**, expiring with the pick generation like `CanWeightMix`. Only the
+producer's retired-schema signal forecasts: a corrupt, foreign or
+newer-schema file is the `LoadFailed` family's story, told after the bind,
+and promising a set-aside for one would promise an act that never comes.
 
 **The affordance is deliberately two things**: the whole alert is the click
 target (large, low-vision-friendly — this arc's reason for existing) *and* a
