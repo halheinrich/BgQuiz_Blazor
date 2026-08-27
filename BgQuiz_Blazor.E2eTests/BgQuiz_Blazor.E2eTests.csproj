@@ -24,7 +24,26 @@
     <!-- Deliberately NO ProjectReference to the app: this suite tests the
          published artifact over HTTP in a real browser — the one layer bUnit
          (components in isolation) and the WebApplicationFactory wire tests
-         (host pipeline in-process) are both structurally blind to. -->
+         (host pipeline in-process) are both structurally blind to. Every
+         expectation here is an independent literal for that same reason.
+
+         The two references below are FIXTURE PRODUCERS, and that is the whole
+         of their licence (halheinrich/backgammon#125). A real .xg match file
+         carries real players' names and so cannot be committed to a public
+         repo; SyntheticXgMatch builds one in memory instead, from
+         XgFileBuilder / XgFileWriter in ConvertXgToJson_Lib and the Play /
+         Move / DiceRoll / CubeAction vocabulary those take from
+         BgDataTypes_Lib. Both are upstream libraries the app already depends
+         on, so the dependency graph gains nothing new — and neither may ever
+         supply an expectation: no scenario reads a displayed string, a
+         selector, or a derived value from them.
+
+         BgDataTypes_Lib is declared even though ConvertXgToJson_Lib would
+         supply it transitively, per the rule Directory.Packages.props states
+         for AngleSharp: a compile-time dependency arriving only transitively
+         is a latent break. -->
+    <ProjectReference Include="..\..\BgDataTypes_Lib\BgDataTypes_Lib\BgDataTypes_Lib.csproj" />
+    <ProjectReference Include="..\..\ConvertXgToJson_Lib\ConvertXgToJson_Lib\ConvertXgToJson_Lib.csproj" />
   </ItemGroup>
 
   <ItemGroup>

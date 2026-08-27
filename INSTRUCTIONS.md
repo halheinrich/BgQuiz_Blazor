@@ -281,6 +281,7 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
   PlaywrightFixture.cs              — Chromium lifecycle; fail-loud
   E2eCollection.cs                  — the single (sequential) test collection
   E2eTestBase.cs                    — per-test context + shared flow helpers
+  SyntheticXgMatch.cs               — the .xg match fixture, built at run time
   FsAccessFakeTestBase.cs           — the fake showDirectoryPicker seam
   EnvironmentFidelityTests.cs       — the gate's first line: every route serves
                                       what it asks for and logs nothing; the
@@ -515,8 +516,8 @@ the offending file.
   drives the *real* composition by seeding the holder's parse cache
   (`PickedProblemFolder.StoreParsed`) so the parse-once layer adopts records
   instead of reading picked bytes. There is deliberately no e2e scenario: the
-  e2e corpus is committed `.xg`/`.xgp` bytes, and no bytes the converter reads
-  produce this.
+  e2e corpus is real XG bytes (committed `.xgp` files, a synthesized `.xg`
+  match), and no bytes the converter reads produce this.
 
 **Position dedupe sits beneath shuffle and mix** (issue
 `halheinrich/backgammon#84`). A quiz could serve the same position twice:
@@ -2070,6 +2071,16 @@ The asymmetry is pinned three times over: at the service seam
     the play in `MTCH4064_1_22.xgp`. So the cube stamp (`ctx.MoveNumber + 1` —
     the number of the play it precedes) **is** XG's own number, for cube and
     play alike. Re-check this way if the stamping ever changes.
+  - **Both branches are smoked in a browser** (`ProblemLocatorTests`,
+    `halheinrich/backgammon#125`). The committed money `.xgp` carries the
+    file-name-only branch and the truncation derivation; a synthesized `.xg`
+    match carries the coordinates branch and, at the tail's widest state — a
+    name past the visible cap *plus* `Game n · Move m` — ruling (i)'s two
+    halves at once: the numbers read in full and the cluster still costs the
+    row no line. Mutation-checked both ways (2026-08-27): breaking the
+    derivation by one reddens the text pin against the app's real
+    `Game 2 · Move 4`, and contents-sizing the cluster drops it 46px below
+    Skip.
   - **None of it is identity.** The three facts reach display and stop
     (`TestFixtureContractTests`), which is what lets `SPEC-stats-identity.md` go
     on keying by content while the chip names a file.
@@ -2675,6 +2686,30 @@ distinct `CubeFixtures` (every problem the same kind, so a scenario walking a
 run needs no knowledge of source ordering), while `PickFixturesAsync` stages
 one copy of each named fixture — the heterogeneous folder a scenario about what
 a pool *contains* needs.
+
+**The one `.xg` fixture is synthesized, not committed**
+(halheinrich/backgammon#125). Every committed fixture is an `.xgp`, and
+`SPEC-quiz-view.md` §4 ruling (ii) forks the locator on exactly that
+distinction — so the branch that shows `Game n · Move m`, and the tail's
+shrink order at its widest, had shipped without ever being smoked. Real `.xg`
+exports cannot fill the gap: the ones on this machine carry real players'
+names, and they live under gitignored `TestData/`, which CI has never seen.
+`SyntheticXgMatch` builds a short match in memory instead — `XgFileBuilder` +
+`XgFileWriter` from ConvertXgToJson_Lib, whose output is byte-deterministic by
+that builder's own contract — with invented player names and exactly one
+analysed decision (the plays around it are unanalysed, so the file is as
+single-problem as an `.xgp`). Those two libraries are this project's only
+project references and they are **fixture producers only**: no scenario may
+take an expectation from them, which is what keeps the independent-literal
+posture intact. The pins' coordinates are derived from the builder's own
+parameters — the games staged before the cube's game, the plays staged before
+the cube within it — so a change in what the builder emits fails at a stated
+expectation instead of quietly redefining one.
+
+**Staging is by content, not by path.** `StageAndPickAsync` takes
+`(name, bytes)` pairs, so a committed fixture (`FixtureBytes`) and a
+synthesized one (`PickSynthesizedFileAsync`) reach the browser through the one
+stager; what the fallback input is handed is a directory either way.
 
 **A multi-problem run must be staged from distinct positions.** Staging N
 *copies* of one fixture manufactures nothing — the position-dedupe layer

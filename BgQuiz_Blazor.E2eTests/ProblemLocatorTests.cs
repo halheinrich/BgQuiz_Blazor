@@ -5,12 +5,12 @@ using static Microsoft.Playwright.Assertions;
 namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
-/// The problem's locator in a real browser (issue
-/// <c>halheinrich/backgammon#115</c>, conforming to <c>SPEC-quiz-view.md</c>
-/// §4): the chip that names the file a position came from, on the one fixture
-/// the ruling was written for — a <b>money</b> decision, which no match score
-/// frames and which, while answering maximized, nothing else on the page names
-/// at all.
+/// The problem's locator in a real browser (issues
+/// <c>halheinrich/backgammon#115</c> and <c>halheinrich/backgammon#125</c>,
+/// conforming to <c>SPEC-quiz-view.md</c> §4): the chip that says where a
+/// position came from, over <b>both</b> branches of the ruling — a committed
+/// <c>.xgp</c>, which the file name alone locates, and a synthesized
+/// <c>.xg</c> match, which needs <c>Game n · Move m</c> beside it.
 ///
 /// <para>
 /// <b>Two things only a browser can judge, and they are why this scenario
@@ -27,17 +27,22 @@ namespace BgQuiz_Blazor.E2eTests;
 /// it a pin on the derivation rather than a restatement of it: the file is
 /// staged as <c>long-money-session-2026-04-12.xgp</c> and the chip must turn
 /// that into <c>long-mon…26-04-12</c> — extension dropped, middle elided — all
-/// on its own.
+/// on its own. The match scenario keeps the same posture: its labels and
+/// separator are literals here, and its numbers come from what
+/// <see cref="SyntheticXgMatch"/> was told to build.
 /// </para>
 ///
 /// <para>
-/// <b>Why the coordinates are absent here, and where that branch is covered.</b>
-/// An <c>.xgp</c> is a standalone position, so §4's ruling (ii) gives it the
-/// file name alone — the file <i>is</i> the locator. Every committed fixture in
-/// this suite is an <c>.xgp</c> (deliberately: single-decision files are what
-/// make each scenario one problem long), and a real multi-game <c>.xg</c> match
-/// carries real players' names, so the <c>Game n · Move m</c> branch is pinned
-/// in the unit suite against hand-built records rather than smoked here.
+/// <b>Why the money fixture carries the ruling, and the match fixture the
+/// fork.</b> The money decision is what §4's ruling was written for: no score
+/// frames it, and while answering maximized the title strip — the only other
+/// surface naming the file — is gone. An <c>.xgp</c> is a standalone position,
+/// so ruling (ii) gives it the file name alone. The match half was the gap
+/// (<c>halheinrich/backgammon#125</c>): every committed fixture is an
+/// <c>.xgp</c>, real <c>.xg</c> exports carry real players' names and live
+/// where CI cannot see them, so the branch that shows coordinates — and the
+/// shrink order at the tail's widest — had never been smoked at all.
+/// <see cref="SyntheticXgMatch"/> closes it with a match built at run time.
 /// </para>
 /// </summary>
 public sealed class ProblemLocatorTests : E2eTestBase
@@ -211,6 +216,62 @@ public sealed class ProblemLocatorTests : E2eTestBase
     }
 
     /// <summary>
+    /// The other branch of §4's ruling (ii), on the fixture that only exists at
+    /// run time: a decision from a real <b>match</b> file is located by its file
+    /// name <i>and</i> its coordinates within that file
+    /// (<c>halheinrich/backgammon#125</c>).
+    ///
+    /// <para>
+    /// <b>The coordinates are the subject, and they are asserted as text.</b>
+    /// The numbers come from <see cref="SyntheticXgMatch"/>'s construction
+    /// parameters, the labels and separator are this suite's own literals, and
+    /// the two are joined here — so the pin fails at a stated expectation if the
+    /// builder's emission ever moves, and it cannot be satisfied by whatever the
+    /// app rendered. Both halves being present is also the discriminant: this
+    /// same page shows the file name <i>alone</i> for the committed
+    /// <c>.xgp</c> above, so the pair of scenarios is what proves the fork is a
+    /// fork and not a constant.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>And it smokes the shrink ruling, which nothing else did.</b> §4 ruling
+    /// (i) orders the tail's give: the XGID's text goes first, down to its copy
+    /// button, then the locator's file name — <i>the numbers never</i>. This is
+    /// the widest the tail ever gets (a name past the visible cap, plus
+    /// coordinates), and the two assertions below are that ruling's two halves
+    /// at that width: the coordinates read in full, and the cluster still costs
+    /// the row no line. A shrink order that gave the numbers away would fail the
+    /// first; one that gave nothing away would fail the second.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task MatchProblem_IsLocatedByGameAndMove_WhileAnswering()
+    {
+        await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
+        await BootHomeAsync();
+        await PickSynthesizedFileAsync(
+            SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
+        await ApplyFilterAsync();
+        await StartQuizAsync();
+
+        // The maximized answering composition, as above: no status strip, no
+        // title strip, nothing but this chip saying where the problem came from.
+        await Expect(Page.Locator(".status-strip")).ToHaveCountAsync(0);
+
+        string geometry = await CaptureRowGeometryAsync();
+        try
+        {
+            await AssertChipLocatesTheMatchDecisionAsync();
+            await AssertChipSitsBelowTheBoardAsync();
+            await AssertClusterSharesTheLineOfAsync(SkipButton);
+        }
+        finally
+        {
+            ReportRowGeometry("answering (maximized), synthesized .xg", geometry);
+        }
+    }
+
+    /// <summary>
     /// <b>Diagnostic only — asserts nothing.</b> Writes the action row's
     /// geometry and the browser's resolved font situation to the test output,
     /// once per state.
@@ -262,6 +323,31 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await Expect(ChipCoordinates).ToHaveCountAsync(0);
         await Expect(Page.Locator(".problem-locator .visually-hidden"))
             .ToHaveTextAsync(StagedFileName);
+    }
+
+    /// <summary>
+    /// The chip on a match decision: the file name half present, and beside it
+    /// the coordinates in full — <c>Game n · Move m</c>, neither number elided.
+    /// The expected string is assembled from
+    /// <see cref="SyntheticXgMatch.CubeGameNumber"/> and
+    /// <see cref="SyntheticXgMatch.CubeMoveNumber"/>, which the fixture derives
+    /// from what it was told to build, and from the labels and separator spelled
+    /// out here per this suite's independent-literal posture.
+    ///
+    /// <para>
+    /// The file-name half is asserted <b>present</b> rather than re-derived: the
+    /// middle-truncation rule is the money scenario's pin above, and restating
+    /// it here would be a second source for one fact.
+    /// </para>
+    /// </summary>
+    private async Task AssertChipLocatesTheMatchDecisionAsync()
+    {
+        await Expect(Chip).ToBeVisibleAsync();
+        await Expect(ChipFileName).ToBeVisibleAsync();
+        await Expect(ChipCoordinates).ToHaveTextAsync(
+            $"Game {SyntheticXgMatch.CubeGameNumber} · Move {SyntheticXgMatch.CubeMoveNumber}");
+        await Expect(Page.Locator(".problem-locator .visually-hidden"))
+            .ToHaveTextAsync(SyntheticXgMatch.StagedFileName);
     }
 
     /// <summary>

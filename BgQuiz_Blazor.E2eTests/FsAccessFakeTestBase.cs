@@ -205,7 +205,7 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
         """;
 
     private static string FixtureBase64(string fixtureFileName) =>
-        Convert.ToBase64String(File.ReadAllBytes(FixturePath(fixtureFileName)));
+        Convert.ToBase64String(FixtureBytes(fixtureFileName));
 
     /// <summary>
     /// Click "Choose folder…" (the fake picker resolves instantly, no native

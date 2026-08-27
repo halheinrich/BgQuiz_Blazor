@@ -214,7 +214,7 @@ public abstract class E2eTestBase : IAsyncLifetime
     protected Task PickFixtureAsync(string fixtureFileName) =>
         StageAndPickAsync(
             Path.GetFileNameWithoutExtension(fixtureFileName),
-            [(FixturePath(fixtureFileName), fixtureFileName)]);
+            [(fixtureFileName, FixtureBytes(fixtureFileName))]);
 
     /// <summary>
     /// <see cref="PickFixtureAsync"/> with the staged file <b>renamed</b> —
@@ -246,7 +246,7 @@ public abstract class E2eTestBase : IAsyncLifetime
 
         return StageAndPickAsync(
             Path.GetFileNameWithoutExtension(stagedFileName),
-            [(FixturePath(fixtureFileName), stagedFileName)]);
+            [(stagedFileName, FixtureBytes(fixtureFileName))]);
     }
 
     /// <summary>
@@ -280,7 +280,7 @@ public abstract class E2eTestBase : IAsyncLifetime
 
         var staged = CubeFixtures
             .Take(problems)
-            .Select(name => (Source: FixturePath(name), DestName: name))
+            .Select(name => (DestName: name, Bytes: FixtureBytes(name)))
             .ToList();
 
         return StageAndPickAsync("cubes", staged);
@@ -298,10 +298,41 @@ public abstract class E2eTestBase : IAsyncLifetime
     protected Task PickFixturesAsync(params string[] fixtureFileNames)
     {
         var staged = fixtureFileNames
-            .Select(name => (Source: FixturePath(name), DestName: name))
+            .Select(name => (DestName: name, Bytes: FixtureBytes(name)))
             .ToList();
 
         return StageAndPickAsync("mixed", staged);
+    }
+
+    /// <summary>
+    /// Pick a single-problem folder whose one file is <b>synthesized in this
+    /// run</b> rather than committed — same staging, same real fallback upload,
+    /// content that exists only in memory until it is written.
+    ///
+    /// <para>
+    /// It exists for the one fixture this suite cannot commit or fake by
+    /// renaming: a real <c>.xg</c> match. Every committed fixture is an
+    /// <c>.xgp</c>, and the two branches of the locator's ruling turn on which
+    /// of the two a decision came from (<c>SPEC-quiz-view.md</c> §4 ruling
+    /// (ii)), so the <c>.xg</c> branch had no fixture at all. Real <c>.xg</c>
+    /// exports carry real players' names and cannot enter a public repository;
+    /// <see cref="SyntheticXgMatch"/> builds one instead, with names that are
+    /// fake by construction.
+    /// </para>
+    /// </summary>
+    /// <param name="stagedFileName">The name to stage the bytes under, extension included.</param>
+    /// <param name="bytes">The file's content.</param>
+    protected Task PickSynthesizedFileAsync(string stagedFileName, byte[] bytes)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        if (bytes.Length == 0)
+            throw new ArgumentException(
+                "A synthesized fixture must have content — staging an empty file would put an " +
+                "unparseable folder under test and say nothing about the scenario.",
+                nameof(bytes));
+
+        return StageAndPickAsync(
+            Path.GetFileNameWithoutExtension(stagedFileName), [(stagedFileName, bytes)]);
     }
 
     /// <summary>
@@ -323,33 +354,43 @@ public abstract class E2eTestBase : IAsyncLifetime
 
         string stem = Path.GetFileNameWithoutExtension(fixtureFileName);
         string extension = Path.GetExtension(fixtureFileName);
+        byte[] bytes = FixtureBytes(fixtureFileName);
         var staged = Enumerable.Range(0, copies)
             .Select(i => (
-                Source: FixturePath(fixtureFileName),
-                DestName: i == 0 ? fixtureFileName : $"{stem} ({i}){extension}"))
+                DestName: i == 0 ? fixtureFileName : $"{stem} ({i}){extension}",
+                Bytes: bytes))
             .ToList();
 
         return StageAndPickAsync("duplicates", staged);
     }
 
     /// <summary>
-    /// Copy the given fixtures into a fresh staged temp directory (named after
-    /// the scenario, so runs stay distinguishable in failure output) and hand
-    /// that directory to the hidden <c>webkitdirectory</c> input — a genuine
+    /// Copy the given files into a fresh staged temp directory (named after the
+    /// scenario, so runs stay distinguishable in failure output) and hand that
+    /// directory to the hidden <c>webkitdirectory</c> input — a genuine
     /// directory upload, driving the app's real fallback collection path
     /// (top-level filter, buffering, holder). Waits for the holder-derived folder
     /// summary, which also proves the pick round-trip completed.
+    ///
+    /// <para>
+    /// A staged file is a <b>name and its content</b>, not a path to copy. That
+    /// is what the browser is handed either way, and modelling it that way is
+    /// what lets a fixture synthesized in memory
+    /// (<see cref="PickSynthesizedFileAsync"/>) and a committed one
+    /// (<see cref="FixtureBytes"/>) reach the app through this one stager
+    /// instead of two.
+    /// </para>
     /// </summary>
     private async Task StageAndPickAsync(
-        string dirName, IReadOnlyList<(string Source, string DestName)> files)
+        string dirName, IReadOnlyList<(string DestName, byte[] Bytes)> files)
     {
         string stagedDir = Path.Combine(
             Path.GetTempPath(), "bgquiz-e2e", $"{dirName}-{Guid.NewGuid():N}", dirName);
         Directory.CreateDirectory(stagedDir);
         _stagedDirs.Add(Path.GetDirectoryName(stagedDir)!);
 
-        foreach (var (source, destName) in files)
-            File.Copy(source, Path.Combine(stagedDir, destName));
+        foreach (var (destName, bytes) in files)
+            File.WriteAllBytes(Path.Combine(stagedDir, destName), bytes);
 
         await FallbackFolderInput.SetInputFilesAsync(stagedDir);
         await Expect(Page.GetByText(files.Count == 1 ? "1 problem file" : $"{files.Count} problem files"))
@@ -571,4 +612,8 @@ public abstract class E2eTestBase : IAsyncLifetime
                 "Fixtures/ content items in BgQuiz_Blazor.E2eTests.csproj.");
         return path;
     }
+
+    /// <summary>Content of a committed fixture, read from the test output.</summary>
+    protected static byte[] FixtureBytes(string fixtureFileName) =>
+        File.ReadAllBytes(FixturePath(fixtureFileName));
 }
