@@ -95,6 +95,15 @@ public sealed class PublishedAppFixture : IAsyncLifetime
     /// <summary>Target of every test in the run, without a trailing slash.</summary>
     public string BaseUrl { get; private set; } = null!;
 
+    /// <summary>
+    /// The directory this run published into, or <see langword="null"/> when
+    /// <see cref="BaseUrlVariable"/> aimed the suite at an external URL and no
+    /// publish happened. Assembly-internal and read-only from outside: the
+    /// suite's one consumer is <see cref="PublishOutputHygieneTests"/>, which
+    /// reads the finished publish to prove the clean-publish rule held.
+    /// </summary>
+    internal string? PublishDirectory { get; private set; }
+
     public async Task InitializeAsync()
     {
         if (Environment.GetEnvironmentVariable(BaseUrlVariable) is { Length: > 0 } external)
@@ -104,6 +113,7 @@ public sealed class PublishedAppFixture : IAsyncLifetime
         }
 
         string publishDir = Path.Combine(AppContext.BaseDirectory, PublishDirectoryName);
+        PublishDirectory = publishDir;
         await PublishHostAsync(publishDir);
         SpawnHost(publishDir);
         BaseUrl = await ResolveBoundUrlAsync();
@@ -234,16 +244,21 @@ public sealed class PublishedAppFixture : IAsyncLifetime
     /// <para>
     /// <b>Why.</b> <c>dotnet publish -o</c> copies into its output directory; it
     /// never removes what an earlier publish left there. Blazor's assets are
-    /// content-fingerprinted, so a rebuilt assembly is written under a <i>new</i>
-    /// name rather than over the old one, and the generations pile up: measured
-    /// 2026-08-27 in this fixture's own Debug output, thirteen distinct
-    /// <c>BgQuiz_Blazor.Client.&lt;hash&gt;.wasm</c> trios from earlier runs. The
-    /// manifest names only the current generation, so the pile is silent — right
-    /// up until a scenario reads the directory rather than the manifest, or a
-    /// stale asset outlives the change that should have retired it and the gate
-    /// green-lights an artifact that no longer matches its sources. The suite's
-    /// whole claim is that the thing under test is the thing that ships, and that
-    /// claim is only as good as the directory it publishes into.
+    /// content-fingerprinted and the build is deterministic, so republishing
+    /// unchanged sources overwrites in place and looks harmless — but the client
+    /// stamps the short git sha into its <c>InformationalVersion</c>, so
+    /// <i>every commit</i> gives the client assembly (and the AOT runtime linked
+    /// against it) a new fingerprint, written beside the old one rather than over
+    /// it. In an ordinary edit-commit-test loop that is a fresh generation per
+    /// run: measured 2026-08-27 in this fixture's own Debug output, thirteen
+    /// distinct <c>BgQuiz_Blazor.Client.&lt;hash&gt;.wasm</c> trios from earlier
+    /// runs. The manifest names only the current generation, so the pile is
+    /// silent — right up until a scenario reads the directory rather than the
+    /// manifest, or a stale asset outlives the change that should have retired
+    /// it and the gate green-lights an artifact that no longer matches its
+    /// sources. The suite's whole claim is that the thing under test is the
+    /// thing that ships, and that claim is only as good as the directory it
+    /// publishes into.
     /// </para>
     ///
     /// <para>
@@ -252,6 +267,13 @@ public sealed class PublishedAppFixture : IAsyncLifetime
     /// location. The parameter exists so the reset can be exercised against a
     /// scratch directory instead of the live one; the guard is what keeps that
     /// parameter from ever aiming the delete at a source tree.
+    /// </para>
+    ///
+    /// <para>
+    /// Pinned in two places: <see cref="PublishDirectoryResetTests"/> on this
+    /// method, over scratch directories; <see cref="PublishOutputHygieneTests"/>
+    /// on the finished publish, where a directory that accumulated anyway goes
+    /// red no matter how it got that way.
     /// </para>
     /// </summary>
     /// <exception cref="ArgumentException">

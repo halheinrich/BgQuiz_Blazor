@@ -277,6 +277,7 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
                                       must never show it
   PublishedAppFixture.cs            — publish + spawn once; BGQUIZ_E2E_BASE_URL
   PublishDirectoryResetTests.cs     — the clean-publish rule and its guard
+  PublishOutputHygieneTests.cs      — one generation per asset in the publish
   PlaywrightFixture.cs              — Chromium lifecycle; fail-loud
   E2eCollection.cs                  — the single (sequential) test collection
   E2eTestBase.cs                    — per-test context + shared flow helpers
@@ -2627,21 +2628,33 @@ The host's `BgQuiz_Blazor.dll` is the entry point.
 
 **A publish never lands in a directory a previous run filled**
 (halheinrich/backgammon#145). `dotnet publish -o` only copies in — it removes
-nothing — and Blazor's assets are content-fingerprinted, so a rebuilt assembly
-is written under a *new* name instead of over the old one. Reusing the output
-directory therefore accumulates every generation ever published there (measured
-2026-08-27: thirteen `BgQuiz_Blazor.Client.<hash>.wasm` trios in the fixture's
-Debug output — 492 files where a clean publish writes 375). The manifest names
-only the current generation, so nothing complains — until a scenario reads the
-directory rather than the manifest, or a stale asset outlives the change that
-should have retired it and the gate green-lights an artifact that no longer
-matches its sources. `ResetPublishDirectory` deletes and recreates the
-directory before each publish; because that is a recursive delete it refuses
-any path not named `host-publish`, and `PublishDirectoryResetTests` pins both
-the clearing and the refusal (the spared directory, not just the throw). It is
-the suite's one non-app subject and the one class outside the collection — it
-must never be handed the live publish directory, which the spawned host is
-running out of.
+nothing. The build is deterministic and the assets are content-fingerprinted,
+so republishing unchanged sources overwrites in place and looks harmless; but
+the client stamps the short git sha into its `InformationalVersion`, so *every
+commit* gives the client assembly — and the AOT runtime linked against it — a
+new fingerprint, written beside the old one rather than over it. In an ordinary
+edit-commit-test loop that is a fresh generation per run (measured 2026-08-27:
+thirteen `BgQuiz_Blazor.Client.<hash>.wasm` trios in the fixture's Debug output
+— 492 files where a clean publish writes 375). The manifest names only the
+current generation, so nothing complains — until a scenario reads the directory
+rather than the manifest, or a stale asset outlives the change that should have
+retired it and the gate green-lights an artifact that no longer matches its
+sources.
+
+`ResetPublishDirectory` deletes and recreates the directory as the publish's
+first act; because that is a recursive delete it refuses any path not named
+`host-publish`. Both halves are pinned. `PublishDirectoryResetTests` covers the
+method over scratch directories — the clearing, the first-ever run, and the
+refusal *sparing* the foreign directory rather than merely throwing; it is the
+one class outside the collection, because it neither publishes nor drives a
+browser and must never be handed the live publish directory the spawned host is
+running out of. `PublishOutputHygieneTests` covers the outcome: it reads the
+publish the collection fixture already produced (no second publish, no browser)
+and requires no logical asset to appear under two fingerprints. That one is
+trivially green on a fresh runner and bites exactly where accumulation happens
+— a reused directory, i.e. every local run. Proven to bite: with the reset call
+neutered, one run after a commit turned it red naming six assets under two
+hashes each; restored, green.
 
 **Base-URL seam.** `BGQUIZ_E2E_BASE_URL` overrides the target: when set, the
 suite skips publish/spawn and drives that URL — the same scenarios can
