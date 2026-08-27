@@ -63,6 +63,14 @@ public sealed class PublishedAppFixture : IAsyncLifetime
     private const string DisableNodeReuseVariable = "MSBUILDDISABLENODEREUSE";
 
     private const string HostDllName = "BgQuiz_Blazor.dll";
+
+    /// <summary>
+    /// Name of the fixture-owned directory the artifact is published into, under
+    /// the test assembly's output folder. It doubles as the guard
+    /// <see cref="ResetPublishDirectory"/> checks before it deletes anything.
+    /// </summary>
+    private const string PublishDirectoryName = "host-publish";
+
     private static readonly TimeSpan StartupTimeout = TimeSpan.FromSeconds(60);
 
     /// <summary>
@@ -95,7 +103,7 @@ public sealed class PublishedAppFixture : IAsyncLifetime
             return;
         }
 
-        string publishDir = Path.Combine(AppContext.BaseDirectory, "host-publish");
+        string publishDir = Path.Combine(AppContext.BaseDirectory, PublishDirectoryName);
         await PublishHostAsync(publishDir);
         SpawnHost(publishDir);
         BaseUrl = await ResolveBoundUrlAsync();
@@ -153,6 +161,10 @@ public sealed class PublishedAppFixture : IAsyncLifetime
         if (!File.Exists(hostProject))
             throw new InvalidOperationException(
                 $"Host project not found at '{hostProject}' — cannot publish the artifact under test.");
+
+        // Never publish into a directory an earlier run filled — see
+        // ResetPublishDirectory for what accumulates there and why it is silent.
+        ResetPublishDirectory(publishDir);
 
         var psi = new ProcessStartInfo("dotnet")
         {
@@ -212,6 +224,66 @@ public sealed class PublishedAppFixture : IAsyncLifetime
             throw new InvalidOperationException(
                 $"Publish succeeded but the entry point '{hostDll}' is missing — " +
                 "the publish layout is not what this fixture expects.");
+    }
+
+    /// <summary>
+    /// Empties <paramref name="publishDir"/> — deleting it outright, then creating
+    /// it fresh — so the publish that follows lands in a directory holding nothing
+    /// but its own output.
+    ///
+    /// <para>
+    /// <b>Why.</b> <c>dotnet publish -o</c> copies into its output directory; it
+    /// never removes what an earlier publish left there. Blazor's assets are
+    /// content-fingerprinted, so a rebuilt assembly is written under a <i>new</i>
+    /// name rather than over the old one, and the generations pile up: measured
+    /// 2026-08-27 in this fixture's own Debug output, thirteen distinct
+    /// <c>BgQuiz_Blazor.Client.&lt;hash&gt;.wasm</c> trios from earlier runs. The
+    /// manifest names only the current generation, so the pile is silent — right
+    /// up until a scenario reads the directory rather than the manifest, or a
+    /// stale asset outlives the change that should have retired it and the gate
+    /// green-lights an artifact that no longer matches its sources. The suite's
+    /// whole claim is that the thing under test is the thing that ships, and that
+    /// claim is only as good as the directory it publishes into.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The guard.</b> This is a recursive delete, so it refuses any path not
+    /// named <see cref="PublishDirectoryName"/> — the fixture's own publish
+    /// location. The parameter exists so the reset can be exercised against a
+    /// scratch directory instead of the live one; the guard is what keeps that
+    /// parameter from ever aiming the delete at a source tree.
+    /// </para>
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="publishDir"/> is not the fixture's publish directory.
+    /// </exception>
+    internal static void ResetPublishDirectory(string publishDir)
+    {
+        string full = Path.GetFullPath(publishDir);
+        if (!string.Equals(
+                Path.GetFileName(Path.TrimEndingDirectorySeparator(full)),
+                PublishDirectoryName,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                $"Refusing to recursively delete '{full}': only the fixture's own " +
+                $"'{PublishDirectoryName}' directory may be reset.",
+                nameof(publishDir));
+        }
+
+        try
+        {
+            if (Directory.Exists(full)) Directory.Delete(full, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"Could not clear the publish directory '{full}' — most likely a host " +
+                "process from an earlier run is still holding files open there. The " +
+                "suite publishes into a clean directory, so it cannot proceed.", ex);
+        }
+
+        Directory.CreateDirectory(full);
     }
 
     private static string PublishLog(StringBuilder log)

@@ -276,6 +276,7 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
                                       the bar, one entry per die); the quiz
                                       must never show it
   PublishedAppFixture.cs            — publish + spawn once; BGQUIZ_E2E_BASE_URL
+  PublishDirectoryResetTests.cs     — the clean-publish rule and its guard
   PlaywrightFixture.cs              — Chromium lifecycle; fail-loud
   E2eCollection.cs                  — the single (sequential) test collection
   E2eTestBase.cs                    — per-test context + shared flow helpers
@@ -2623,6 +2624,24 @@ probes readiness, and tears down on dispose. Not `dotnet run` and not
 is load-bearing: without it `MapStaticAssets` resolves against the wrong web
 root and serves 0-byte framework assets (unstyled page, WASM never boots).
 The host's `BgQuiz_Blazor.dll` is the entry point.
+
+**A publish never lands in a directory a previous run filled**
+(halheinrich/backgammon#145). `dotnet publish -o` only copies in — it removes
+nothing — and Blazor's assets are content-fingerprinted, so a rebuilt assembly
+is written under a *new* name instead of over the old one. Reusing the output
+directory therefore accumulates every generation ever published there (measured
+2026-08-27: thirteen `BgQuiz_Blazor.Client.<hash>.wasm` trios in the fixture's
+Debug output — 492 files where a clean publish writes 375). The manifest names
+only the current generation, so nothing complains — until a scenario reads the
+directory rather than the manifest, or a stale asset outlives the change that
+should have retired it and the gate green-lights an artifact that no longer
+matches its sources. `ResetPublishDirectory` deletes and recreates the
+directory before each publish; because that is a recursive delete it refuses
+any path not named `host-publish`, and `PublishDirectoryResetTests` pins both
+the clearing and the refusal (the spared directory, not just the throw). It is
+the suite's one non-app subject and the one class outside the collection — it
+must never be handed the live publish directory, which the spawned host is
+running out of.
 
 **Base-URL seam.** `BGQUIZ_E2E_BASE_URL` overrides the target: when set, the
 suite skips publish/spawn and drives that URL — the same scenarios can
