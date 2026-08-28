@@ -173,6 +173,17 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
+/// <b>The solution's depth treatment</b> (issues
+/// <c>halheinrich/backgammon#150</c> and <c>halheinrich/backgammon#66</c>). Two
+/// user settings choose how the review's candidate list is ordered and whether
+/// its shallowly analyzed plays are shown at all. Both are producer options that
+/// <see cref="BuildSolutionRequest"/> passes through from
+/// <see cref="QuizSettings"/>; neither is a page concern beyond that, and
+/// neither reaches the answering board, which is
+/// <see cref="DiagramMode.Problem"/> and has no candidate list to treat.
+/// </para>
+///
+/// <para>
 /// <b>IsFinished transition.</b> Subscribed to
 /// <see cref="QuizController.StateChanged"/>. When the controller's
 /// <see cref="QuizController.IsFinished"/> flips true (source exhausted on
@@ -379,6 +390,13 @@ public partial class Quiz : ComponentBase, IDisposable
     /// For a cube decision the two per-half equity losses drive the "Actual"
     /// banner row instead.
     /// </para>
+    /// <para>
+    /// Both answer kinds then carry the user's depth treatment — the candidate
+    /// ordering and the analysis-depth floor. This is the only request that
+    /// does: <see cref="BuildRenderRequest"/> builds a
+    /// <see cref="DiagramMode.Problem"/> request, whose panel is blank because
+    /// the candidate list is the answer being graded.
+    /// </para>
     /// </summary>
     private DiagramRequest BuildSolutionRequest(
         BgDataTypes_Lib.BgDecisionData current, ProblemReview review)
@@ -402,6 +420,16 @@ public partial class Quiz : ComponentBase, IDisposable
                 builder.UserTakeError = cube.TakerEquityLoss;
                 break;
         }
+
+        // The depth treatment, assigned unconditionally rather than behind a
+        // branch: with either setting off its projection is the producer's own
+        // default (Equity / null), which the producer defines as the untouched
+        // rendering — so passing the default IS passing nothing, and there is no
+        // "leave it alone" path that could drift from the "set it" one. What
+        // each checkbox means stays in QuizSettings, which is the only type here
+        // that knows the level "4-ply and below" translates to.
+        builder.CandidateOrdering = Settings.EffectiveCandidateOrdering;
+        builder.MinimumCandidateAnalysisLevel = Settings.EffectiveMinimumCandidateAnalysisLevel;
 
         return builder.Build();
     }

@@ -1,3 +1,5 @@
+using BackgammonDiagram_Lib;
+using BgDataTypes_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
 
@@ -5,13 +7,15 @@ namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
 /// Tests for <see cref="QuizSettings"/> — the app-scoped user settings and the
-/// one localStorage entry behind them. Three things are pinned here: the
+/// one localStorage entry behind them. Four things are pinned here: the
 /// defaults (the product's own answers, no longer a reproduction of the
 /// pre-settings app — see <see cref="FreshSettings_AreTheProductsOwnAnswers"/>),
-/// the <b>serialized wire format</b> byte-for-byte (a durable payload
-/// with a second reader in another language — see
-/// <see cref="Persist_WritesThePinnedWireFormat"/>), and the tolerance rules a
-/// format that later legs will extend has to hold. Extends
+/// the <b>producer-shaped projections</b> the request is actually built from
+/// (see <see cref="HideShallowSetting_ProjectsToAFloorOfFivePly_BecauseTheFloorIsInclusive"/>
+/// for the off-by-one they exist to hold in one place), the <b>serialized wire
+/// format</b> byte-for-byte (a durable payload with a second reader in another
+/// language — see <see cref="Persist_WritesThePinnedWireFormat"/>), and the
+/// tolerance rules a format that later legs will extend has to hold. Extends
 /// <see cref="BunitContext"/> only for the JSInterop double behind the storage
 /// reads/writes and the fold applier.
 /// </summary>
@@ -40,11 +44,16 @@ public class QuizSettingsTests : BunitContext
     [Fact]
     public void FreshSettings_AreTheProductsOwnAnswers()
     {
-        // What a user who never opens the Settings page gets. Three of the four
-        // are still the pre-settings app — home board on the right (the
-        // producer's own DiagramRequest default), no randomization, navigation
-        // panel unfolded. The fourth deliberately is not: the board is maximized
-        // while answering (SPEC-quiz-view.md §3, amended 2026-08-19 by issue
+        // What a user who never opens the Settings page gets. All but one are
+        // still the pre-settings app — home board on the right (the producer's
+        // own DiagramRequest default), no randomization, navigation panel
+        // unfolded, and the solution's candidate list untreated (issues
+        // halheinrich/backgammon#150 and halheinrich/backgammon#66 both ship
+        // off, which is the only default either could take: the producer pins
+        // options-unset as byte-identical to today's rendering, so off is what
+        // leaves every existing user's review exactly where they left it).
+        // The exception is deliberate: the board is maximized while answering
+        // (SPEC-quiz-view.md §3, amended 2026-08-19 by issue
         // halheinrich/backgammon#113). This test used to assert that the defaults
         // REPRODUCED the pre-settings app, which was a migration-safety claim
         // about an installed base that does not exist pre-beta; the default now
@@ -55,6 +64,8 @@ public class QuizSettingsTests : BunitContext
         Assert.False(settings.RandomizeSidePerProblem);
         Assert.False(settings.KeepNavigationPanelFolded);
         Assert.True(settings.MaximizeBoardWhileAnswering);
+        Assert.False(settings.SortAnalysisByDepthFirst);
+        Assert.False(settings.HideShallowCandidates);
     }
 
     [Fact]
@@ -70,6 +81,8 @@ public class QuizSettingsTests : BunitContext
         Assert.False(settings.RandomizeSidePerProblem);
         Assert.False(settings.KeepNavigationPanelFolded);
         Assert.True(settings.MaximizeBoardWhileAnswering);
+        Assert.False(settings.SortAnalysisByDepthFirst);
+        Assert.False(settings.HideShallowCandidates);
     }
 
     // -----------------------------------------------------------------------
@@ -105,6 +118,73 @@ public class QuizSettingsTests : BunitContext
     }
 
     // -----------------------------------------------------------------------
+    //  The depth treatment's projections — the OTHER derivation this service
+    //  owns (issues halheinrich/backgammon#150 and halheinrich/backgammon#66).
+    //  Each is a checkbox whose two answers are a producer value, so the
+    //  mapping is the thing worth pinning: it is what a call site would
+    //  otherwise restate, and what a level picker would later re-point.
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(false, CandidateOrdering.Equity)]
+    [InlineData(true, CandidateOrdering.DepthFirst)]
+    public async Task DepthFirstSetting_ProjectsToTheRequestsCandidateOrdering(
+        bool depthFirst, CandidateOrdering expected)
+    {
+        // Off is the producer's Equity — its OWN default, which it defines as
+        // the caller's list order rendered unchanged. That equality is what
+        // lets the call site assign this unconditionally instead of branching
+        // on the setting; if off ever stopped meaning Equity, the "passing the
+        // default is passing nothing" claim in Quiz.BuildSolutionRequest would
+        // become false and this is where it fails.
+        var settings = NewSettings();
+
+        await settings.SetSortAnalysisByDepthFirstAsync(depthFirst);
+
+        Assert.Equal(expected, settings.EffectiveCandidateOrdering);
+    }
+
+    [Fact]
+    public async Task HideShallowSetting_ProjectsToAFloorOfFivePly_BecauseTheFloorIsInclusive()
+    {
+        // The off-by-one, pinned where it is decided rather than trusted.
+        // The checkbox says "4-ply and below" and the request carries Ply5,
+        // because the producer's floor is INCLUSIVE — a candidate evaluated AT
+        // the floor still renders, so the lowest level that must survive is
+        // 5-ply. The label and this constant are two halves of one claim; a
+        // reworded label without a re-reasoned floor (or the reverse) is the
+        // exact drift this asserts against.
+        var settings = NewSettings();
+
+        Assert.Null(settings.EffectiveMinimumCandidateAnalysisLevel); // off: show all
+
+        await settings.SetHideShallowCandidatesAsync(true);
+
+        Assert.Equal(AnalysisLevel.Ply5, settings.EffectiveMinimumCandidateAnalysisLevel);
+
+        // And back off again — a floor that latched would quietly outlive the
+        // choice that set it.
+        await settings.SetHideShallowCandidatesAsync(false);
+
+        Assert.Null(settings.EffectiveMinimumCandidateAnalysisLevel);
+    }
+
+    [Fact]
+    public void FreshSettings_AskTheProducerForNothing()
+    {
+        // The defaults restated as what the RENDERER is asked for, which is the
+        // form the no-visual-change promise actually takes: a user who never
+        // opens the Settings page produces a request carrying the producer's own
+        // Equity/null, i.e. one indistinguishable from a request built before
+        // either option existed. Deliberately separate from the bool defaults
+        // above — those would stay green if a projection were inverted.
+        var settings = NewSettings();
+
+        Assert.Equal(CandidateOrdering.Equity, settings.EffectiveCandidateOrdering);
+        Assert.Null(settings.EffectiveMinimumCandidateAnalysisLevel);
+    }
+
+    // -----------------------------------------------------------------------
     //  Immediate apply + persistence
     // -----------------------------------------------------------------------
 
@@ -113,7 +193,7 @@ public class QuizSettingsTests : BunitContext
     {
         // No Apply button, no draft: the property is the new value the moment
         // the setter returns, and the write has already gone out. This is the
-        // half that IS uniform across the three — when a change becomes visible
+        // half that IS uniform across every one of them — when a change becomes
         // is the fold's own question, pinned in
         // SettingTheFold_ReachesTheApplier_ToUnfoldOnly.
         var settings = NewSettings();
@@ -133,6 +213,14 @@ public class QuizSettingsTests : BunitContext
         await settings.SetMaximizeBoardWhileAnsweringAsync(true);
         Assert.True(settings.MaximizeBoardWhileAnswering);
         Assert.Contains("\"maximizeBoardWhileAnswering\":true", LastPersisted());
+
+        await settings.SetSortAnalysisByDepthFirstAsync(true);
+        Assert.True(settings.SortAnalysisByDepthFirst);
+        Assert.Contains("\"sortAnalysisByDepthFirst\":true", LastPersisted());
+
+        await settings.SetHideShallowCandidatesAsync(true);
+        Assert.True(settings.HideShallowCandidates);
+        Assert.Contains("\"hideShallowCandidates\":true", LastPersisted());
     }
 
     [Fact]
@@ -147,15 +235,16 @@ public class QuizSettingsTests : BunitContext
         // "absent" from "false".
         //
         // Field order is append-only (see ToJson): maximizeBoardWhileAnswering
-        // joined at the END, after the fold field, however the properties are
-        // grouped on the C# side. That is what makes this literal's diff read as
-        // "a field was added" rather than "the format moved under the applier".
+        // joined at the END, after the fold field, and the depth-treatment pair
+        // after it in turn, however the properties are grouped on the C# side.
+        // That is what makes this literal's diff read as "fields were added"
+        // rather than "the format moved under the applier".
         var settings = NewSettings();
 
         await settings.SetRandomizeSidePerProblemAsync(true);
 
         Assert.Equal(
-            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true}""",
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"hideShallowCandidates":false}""",
             LastPersisted());
     }
 
@@ -174,6 +263,8 @@ public class QuizSettingsTests : BunitContext
         await writer.SetRandomizeSidePerProblemAsync(true);
         await writer.SetKeepNavigationPanelFoldedAsync(true);
         await writer.SetMaximizeBoardWhileAnsweringAsync(false);
+        await writer.SetSortAnalysisByDepthFirstAsync(true);
+        await writer.SetHideShallowCandidatesAsync(true);
 
         StageStored(LastPersisted());
         var reader = NewSettings();
@@ -183,6 +274,8 @@ public class QuizSettingsTests : BunitContext
         Assert.True(reader.RandomizeSidePerProblem);
         Assert.True(reader.KeepNavigationPanelFolded);
         Assert.False(reader.MaximizeBoardWhileAnswering);
+        Assert.True(reader.SortAnalysisByDepthFirst);
+        Assert.True(reader.HideShallowCandidates);
     }
 
     [Fact]
@@ -252,6 +345,8 @@ public class QuizSettingsTests : BunitContext
         Assert.True(settings.HomeBoardOnRight);          // default, not false
         Assert.False(settings.KeepNavigationPanelFolded);
         Assert.True(settings.MaximizeBoardWhileAnswering);
+        Assert.False(settings.SortAnalysisByDepthFirst);
+        Assert.False(settings.HideShallowCandidates);
     }
 
     [Fact]
@@ -277,6 +372,55 @@ public class QuizSettingsTests : BunitContext
         Assert.False(settings.HomeBoardOnRight);
         Assert.True(settings.RandomizeSidePerProblem);
         Assert.True(settings.KeepNavigationPanelFolded);
+    }
+
+    [Fact]
+    public async Task Hydrate_PayloadPredatingTheDepthTreatment_RendersExactlyAsBefore()
+    {
+        // The exact bytes every build before this leg wrote. Both new fields are
+        // absent, both take their defaults, and — the part that matters — the
+        // projections come out at the producer's own values, so an existing
+        // user's stored settings produce a request identical to the one they
+        // were already getting. That is the whole no-migration argument, and it
+        // holds only because both defaults are off; the maximize field's flip
+        // (#113) is the counter-example showing an absent field CAN change what
+        // a user sees, which is why this is asserted rather than assumed.
+        //
+        // The other four must come back as written, so this cannot pass by the
+        // payload being ignored wholesale.
+        StageStored(
+            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false}""");
+        var settings = NewSettings();
+
+        await settings.EnsureHydratedAsync();
+
+        Assert.False(settings.SortAnalysisByDepthFirst);
+        Assert.False(settings.HideShallowCandidates);
+        Assert.Equal(CandidateOrdering.Equity, settings.EffectiveCandidateOrdering);
+        Assert.Null(settings.EffectiveMinimumCandidateAnalysisLevel);
+
+        Assert.False(settings.HomeBoardOnRight);
+        Assert.True(settings.RandomizeSidePerProblem);
+        Assert.True(settings.KeepNavigationPanelFolded);
+        Assert.False(settings.MaximizeBoardWhileAnswering);
+    }
+
+    [Fact]
+    public async Task Hydrate_StoredDepthTreatment_SurvivesIntoTheProjections()
+    {
+        // The round trip that matters to the user: the choice they made last
+        // session is what the renderer is asked for this session. Pinned through
+        // the projections rather than the bools, because the bools round-tripping
+        // is already asserted above and would stay green if a projection stopped
+        // reading them.
+        StageStored(
+            """{"sortAnalysisByDepthFirst":true,"hideShallowCandidates":true}""");
+        var settings = NewSettings();
+
+        await settings.EnsureHydratedAsync();
+
+        Assert.Equal(CandidateOrdering.DepthFirst, settings.EffectiveCandidateOrdering);
+        Assert.Equal(AnalysisLevel.Ply5, settings.EffectiveMinimumCandidateAnalysisLevel);
     }
 
     [Fact]
@@ -337,13 +481,15 @@ public class QuizSettingsTests : BunitContext
         Assert.False(settings.RandomizeSidePerProblem);
         Assert.False(settings.KeepNavigationPanelFolded);
         Assert.True(settings.MaximizeBoardWhileAnswering);
+        Assert.False(settings.SortAnalysisByDepthFirst);
+        Assert.False(settings.HideShallowCandidates);
     }
 
     [Fact]
     public async Task Hydrate_NonBooleanFieldValues_TakeTheirDefaults()
     {
         // Per-field tolerance rather than whole-payload rejection: one field
-        // written as the wrong type must not cost the user the other three.
+        // written as the wrong type must not cost the user the others.
         // Every unreadable value is the OPPOSITE of its field's default, so
         // falling back is distinguishable from parsing it loosely: the maximize
         // field is staged as the string "false" against a default of true,
@@ -353,7 +499,8 @@ public class QuizSettingsTests : BunitContext
         StageStored(
             """
             {"homeBoardOnRight":"yes","randomizeSidePerProblem":1,
-             "keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":"false"}
+             "keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":"false",
+             "sortAnalysisByDepthFirst":"true","hideShallowCandidates":1}
             """);
         var settings = NewSettings();
 
@@ -362,6 +509,8 @@ public class QuizSettingsTests : BunitContext
         Assert.True(settings.HomeBoardOnRight);            // default
         Assert.False(settings.RandomizeSidePerProblem);    // default
         Assert.True(settings.MaximizeBoardWhileAnswering); // default — "false" is a string
+        Assert.False(settings.SortAnalysisByDepthFirst);   // default — "true" is a string
+        Assert.False(settings.HideShallowCandidates);      // default — 1 is not a bool
         Assert.True(settings.KeepNavigationPanelFolded);   // the readable one survives
     }
 }

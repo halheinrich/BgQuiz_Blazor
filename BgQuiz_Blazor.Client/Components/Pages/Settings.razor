@@ -15,7 +15,7 @@
        deliberately shows itself on the next page rather than on this one (the
        fold — see its own fine print), so a blanket "takes effect immediately"
        would be a claim the page then breaks. "Kept as you make it" is the part
-       that is true of all three, and it is also the part a reader is looking
+       that is true of every one of them, and it is also the part a reader is looking
        for when they wonder where the Save button is. *@
     <p class="lead">
         Every change here is kept as you make it and remembered in this
@@ -89,6 +89,66 @@
                 analysis panel needs — so it fills the screen. Everything comes
                 back when you submit and read the solution, so the board changes
                 size between answering and reading.
+            </div>
+        </fieldset>
+
+        @* The depth treatment (issues halheinrich/backgammon#150 and
+           halheinrich/backgammon#66). Its OWN fieldset rather than the board's:
+           both settings change the analysis panel the solution view puts beside
+           the board, and neither touches the board itself. The page groups by
+           the thing that moves — which is the whole reason the maximize row's
+           placement is worth pinning — so filing these under "The board" would
+           cost that grouping its meaning.
+
+           Two checkboxes and not one grouped control: they are independent
+           (either, both, or neither is a real choice) and nothing composes them.
+
+           The floor is a checkbox rather than a level picker, as ruled. The
+           producer's floor is general, so a picker stays open to a later leg;
+           what the words here must carry meanwhile is which level "shallow"
+           means, since the control itself cannot say it. *@
+        <fieldset class="mb-4">
+            <legend class="h5">The analysis panel</legend>
+
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="settingsDepthFirst"
+                       checked="@QuizSettings.SortAnalysisByDepthFirst"
+                       @onchange="@(e => SetSortAnalysisByDepthFirstAsync((bool)e.Value!))" />
+                <label class="form-check-label" for="settingsDepthFirst">
+                    Sort the analysis by depth first
+                </label>
+            </div>
+            @* Leads with what changes, then rules out the two misreadings the
+               change invites: that equity order is gone (it still breaks ties),
+               and that the numbers move with the rows (they do not — a play
+               keeps its own rank and markers wherever it lands). *@
+            <div class="form-text">
+                In the solution, the plays are listed most deeply analyzed first
+                instead of best equity first — so a play you rolled out sits at the
+                top rather than wherever its equity leaves it. Plays analyzed to the
+                same depth keep their equity order, and every play keeps its own
+                rank number and markers as it moves.
+            </div>
+
+            <div class="form-check mt-3">
+                <input class="form-check-input" type="checkbox" id="settingsHideShallow"
+                       checked="@QuizSettings.HideShallowCandidates"
+                       @onchange="@(e => SetHideShallowCandidatesAsync((bool)e.Value!))" />
+                <label class="form-check-label" for="settingsHideShallow">
+                    Hide plays analyzed at 4-ply and below
+                </label>
+            </div>
+            @* The exemptions are stated, not left to be discovered: a setting
+               whose name is "hide" has to say what it will never hide, or a user
+               cannot tell a thinned list from a list that lost the row they were
+               looking for. They are the producer's contract, which is why the
+               words can promise them. *@
+            <div class="form-text">
+                A shallow look at a play is not the analysis you came to read, and a
+                long list of them buries the analysis that is. The best play and your
+                own answer are always listed whatever their depth, along with the
+                play that was actually made; rolled-out plays are always listed too,
+                and so is any play whose depth was never recorded.
             </div>
         </fieldset>
 

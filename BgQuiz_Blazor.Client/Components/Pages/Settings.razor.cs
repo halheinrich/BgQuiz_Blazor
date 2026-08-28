@@ -11,7 +11,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// Recording immediately is not the same as showing immediately, and the fold
-/// setting deliberately parts company with the other three: it takes hold on the
+/// setting deliberately parts company with every other one: it takes hold on the
 /// next navigation rather than folding the panel the user is standing in
 /// (finding #50, reasoned in <c>QuizSettings.SetKeepNavigationPanelFoldedAsync</c>).
 /// The page's job in that split is the words — the fold's fine print states the
@@ -66,6 +66,12 @@ public partial class Settings : ComponentBase
 
     private Task SetMaximizeBoardWhileAnsweringAsync(bool value) =>
         QuizSettings.SetMaximizeBoardWhileAnsweringAsync(value);
+
+    private Task SetSortAnalysisByDepthFirstAsync(bool value) =>
+        QuizSettings.SetSortAnalysisByDepthFirstAsync(value);
+
+    private Task SetHideShallowCandidatesAsync(bool value) =>
+        QuizSettings.SetHideShallowCandidatesAsync(value);
 
     private Task SetKeepNavigationPanelFoldedAsync(bool value) =>
         QuizSettings.SetKeepNavigationPanelFoldedAsync(value);

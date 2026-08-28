@@ -3,6 +3,8 @@ namespace BgQuiz_Blazor.Client.Quiz;
 using System.Buffers;
 using System.Text;
 using System.Text.Json;
+using BackgammonDiagram_Lib;
+using BgDataTypes_Lib;
 using Microsoft.JSInterop;
 using XgFilter_Razor;
 
@@ -10,10 +12,12 @@ using XgFilter_Razor;
 /// The per-app (Scoped, one-per-tab in WASM) <b>user settings</b> the
 /// <c>Settings</c> page edits: which side the home board renders on, whether
 /// that side is re-rolled per problem, whether the board is maximized while the
-/// user answers, and whether the navigation panel stays folded. Every setting is
-/// recorded and persisted the moment it is changed — there is no Apply gesture
-/// anywhere in this service. When each becomes <i>visible</i> is a separate
-/// question, and the fold answers it differently from the other three: see
+/// user answers, how the solution's candidate list is ordered and how shallowly
+/// analyzed a candidate may be and still appear in it, and whether the
+/// navigation panel stays folded. Every setting is recorded and persisted the
+/// moment it is changed — there is no Apply gesture anywhere in this service.
+/// When each becomes <i>visible</i> is a separate question, and the fold answers
+/// it differently from every other setting here: see
 /// <see cref="SetKeepNavigationPanelFoldedAsync"/>.
 ///
 /// <para>
@@ -35,6 +39,23 @@ using XgFilter_Razor;
 /// </para>
 ///
 /// <para>
+/// <b>The producer's vocabulary is spoken here, never at a call site.</b> Two of
+/// these settings are checkboxes whose meaning is a producer type: the review
+/// diagram's candidate ordering and its analysis-depth floor (issues
+/// <c>halheinrich/backgammon#150</c> and <c>halheinrich/backgammon#66</c>). Each
+/// is therefore exposed twice — the stored <c>bool</c> the checkbox binds to,
+/// and the <see cref="DiagramRequest"/>-shaped projection the request is built
+/// from (<see cref="EffectiveCandidateOrdering"/>,
+/// <see cref="EffectiveMinimumCandidateAnalysisLevel"/>) — for the reason
+/// <see cref="EffectiveHomeBoardOnRight"/> exists: the rule that turns a choice
+/// into what the renderer is asked for belongs in exactly one place. It earns
+/// its keep immediately on the floor, where "4-ply and below" is
+/// <see cref="AnalysisLevel.Ply5"/>: the producer's floor is inclusive, so the
+/// label a user reads and the constant the request carries are deliberately one
+/// apart, and that is not an arithmetic a call site should be repeating.
+/// </para>
+///
+/// <para>
 /// <b>Defaults are the product's own answers, not a migration.</b> The home
 /// board on the right (the producer's own <c>DiagramRequest.HomeBoardOnRight</c>
 /// default), no per-problem randomization, the navigation panel unfolded — and
@@ -47,7 +68,7 @@ using XgFilter_Razor;
 ///
 /// <para>
 /// <b>Persistence.</b> One localStorage key (<see cref="StorageKey"/>) holding
-/// all four settings as one JSON object — see <see cref="ToJson"/> for the wire
+/// every setting as one JSON object — see <see cref="ToJson"/> for the wire
 /// format and why it is pinned by a test. <see cref="EnsureHydratedAsync"/> is
 /// idempotent (the <see cref="MixDraft.EnsureHydratedAsync"/> pattern) but needs
 /// no stale-read generation guard: settings have no per-setup lifecycle, so
@@ -86,6 +107,8 @@ internal sealed class QuizSettings(IJSRuntime js)
     private const string RandomizeSidePerProblemField = "randomizeSidePerProblem";
     private const string KeepNavigationPanelFoldedField = "keepNavigationPanelFolded";
     private const string MaximizeBoardWhileAnsweringField = "maximizeBoardWhileAnswering";
+    private const string SortAnalysisByDepthFirstField = "sortAnalysisByDepthFirst";
+    private const string HideShallowCandidatesField = "hideShallowCandidates";
 
     // The defaults, named once so the property initializers and the
     // missing-field fallbacks in Restore cannot disagree.
@@ -93,6 +116,19 @@ internal sealed class QuizSettings(IJSRuntime js)
     private const bool DefaultRandomizeSidePerProblem = false;
     private const bool DefaultKeepNavigationPanelFolded = false;
     private const bool DefaultMaximizeBoardWhileAnswering = true;
+    private const bool DefaultSortAnalysisByDepthFirst = false;
+    private const bool DefaultHideShallowCandidates = false;
+
+    /// <summary>
+    /// The level <see cref="HideShallowCandidates"/> means, and the single place
+    /// the checkbox's words and the producer's floor are reconciled. The
+    /// producer's floor is <b>inclusive</b> — a candidate evaluated <i>at</i> the
+    /// floor still renders — so "hide 4-ply and below" is
+    /// <see cref="AnalysisLevel.Ply5"/>, not <c>Ply4</c>. Naming it once is also
+    /// what leaves a level picker open to a later leg without touching anything
+    /// but this line.
+    /// </summary>
+    private const AnalysisLevel ShallowCandidateFloor = AnalysisLevel.Ply5;
 
     /// <summary>
     /// The global the <c>navFold.js</c> applier publishes — the only way to move
@@ -163,6 +199,52 @@ internal sealed class QuizSettings(IJSRuntime js)
         DefaultMaximizeBoardWhileAnswering;
 
     /// <summary>
+    /// True when the user wants the solution's candidate list ordered by how
+    /// deeply each play was analyzed rather than by equity — the reviewer's ask
+    /// behind issue <c>halheinrich/backgammon#150</c>. Someone who rolls out the
+    /// best play of each thematic category then has to hunt those rollouts back
+    /// out of an equity order that scatters them; depth-first puts the analysis
+    /// they came to read at the top.
+    ///
+    /// <para>
+    /// The stored choice only. What the request carries is
+    /// <see cref="EffectiveCandidateOrdering"/>, and no call site maps between
+    /// the two.
+    /// </para>
+    /// </summary>
+    public bool SortAnalysisByDepthFirst { get; private set; } =
+        DefaultSortAnalysisByDepthFirst;
+
+    /// <summary>
+    /// True when the user wants shallowly evaluated plays left out of the
+    /// solution's candidate list — "4-ply and below", the ask behind issue
+    /// <c>halheinrich/backgammon#66</c>. The stored choice only; the level it
+    /// means is <see cref="ShallowCandidateFloor"/> and what the request carries
+    /// is <see cref="EffectiveMinimumCandidateAnalysisLevel"/>.
+    ///
+    /// <para>
+    /// <b>A checkbox, not a level picker</b> — ruled that way, and cheap to
+    /// revisit. The producer's floor is general (any
+    /// <see cref="AnalysisLevel"/>), so a picker stays available to a later leg;
+    /// what makes it cheap is that the level lives in one constant rather than
+    /// in the label, the projection, and a test each. One checkbox is what was
+    /// asked for, and it is the choice a user can make without first learning
+    /// the level axis.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>What it can never hide is the producer's contract, not this
+    /// service's.</b> The best play, the play actually recorded, and the user's
+    /// own answer stay visible whatever their depth, as do rollout-family and
+    /// unstamped candidates — so this setting can thin the list but cannot cost
+    /// the user the rows a review exists to show. Nothing here re-states that;
+    /// the fine print on the Settings page tells the user, and the producer
+    /// enforces it.
+    /// </para>
+    /// </summary>
+    public bool HideShallowCandidates { get; private set; } = DefaultHideShallowCandidates;
+
+    /// <summary>
     /// True when the user wants the navigation panel to stay folded. This service
     /// owns and persists the value; it cannot restore the fold itself — that is
     /// <c>navFold.js</c>'s job, for the reasons in <see cref="NavFoldApplyFunction"/>.
@@ -185,6 +267,34 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// </param>
     public bool EffectiveHomeBoardOnRight(bool randomSide) =>
         RandomizeSidePerProblem ? randomSide : HomeBoardOnRight;
+
+    /// <summary>
+    /// <see cref="SortAnalysisByDepthFirst"/> as the review request's
+    /// <see cref="DiagramRequest.CandidateOrdering"/> — the
+    /// <see cref="EffectiveHomeBoardOnRight"/> discipline applied to a setting
+    /// whose two answers are a producer enum.
+    ///
+    /// <para>
+    /// Off is <see cref="CandidateOrdering.Equity"/>, which the producer defines
+    /// as the caller's list order rendered unchanged. So a request built from
+    /// this with the setting off is byte-identical to one that never mentioned
+    /// ordering, and the call site needs no "leave it alone" branch — passing
+    /// the default <i>is</i> passing nothing.
+    /// </para>
+    /// </summary>
+    public CandidateOrdering EffectiveCandidateOrdering =>
+        SortAnalysisByDepthFirst ? CandidateOrdering.DepthFirst : CandidateOrdering.Equity;
+
+    /// <summary>
+    /// <see cref="HideShallowCandidates"/> as the review request's
+    /// <see cref="DiagramRequest.MinimumCandidateAnalysisLevel"/>:
+    /// <see cref="ShallowCandidateFloor"/> when the user asked to hide the
+    /// shallow plays, and <c>null</c> — the producer's "show every candidate" —
+    /// when they did not. Null is the request's own default, so the off case
+    /// again passes nothing by passing the default.
+    /// </summary>
+    public AnalysisLevel? EffectiveMinimumCandidateAnalysisLevel =>
+        HideShallowCandidates ? ShallowCandidateFloor : null;
 
     /// <summary>
     /// The completed (or in-flight) hydration, so <see cref="EnsureHydratedAsync"/>
@@ -231,6 +341,28 @@ internal sealed class QuizSettings(IJSRuntime js)
     public Task SetMaximizeBoardWhileAnsweringAsync(bool value)
     {
         MaximizeBoardWhileAnswering = value;
+        return PersistAsync();
+    }
+
+    /// <summary>
+    /// Record the depth-first ordering choice, applying and persisting
+    /// immediately. Like every setting but the fold there is nothing to defer:
+    /// the next solution the user reads is built from the new value.
+    /// </summary>
+    public Task SetSortAnalysisByDepthFirstAsync(bool value)
+    {
+        SortAnalysisByDepthFirst = value;
+        return PersistAsync();
+    }
+
+    /// <summary>
+    /// Record the hide-shallow-plays choice, applying and persisting
+    /// immediately — the same non-deferral as
+    /// <see cref="SetSortAnalysisByDepthFirstAsync"/>.
+    /// </summary>
+    public Task SetHideShallowCandidatesAsync(bool value)
+    {
+        HideShallowCandidates = value;
         return PersistAsync();
     }
 
@@ -316,6 +448,8 @@ internal sealed class QuizSettings(IJSRuntime js)
             writer.WriteBoolean(RandomizeSidePerProblemField, RandomizeSidePerProblem);
             writer.WriteBoolean(KeepNavigationPanelFoldedField, KeepNavigationPanelFolded);
             writer.WriteBoolean(MaximizeBoardWhileAnsweringField, MaximizeBoardWhileAnswering);
+            writer.WriteBoolean(SortAnalysisByDepthFirstField, SortAnalysisByDepthFirst);
+            writer.WriteBoolean(HideShallowCandidatesField, HideShallowCandidates);
             writer.WriteEndObject();
         }
         return Encoding.UTF8.GetString(buffer.WrittenSpan);
@@ -341,6 +475,8 @@ internal sealed class QuizSettings(IJSRuntime js)
         bool randomizeSidePerProblem;
         bool keepNavigationPanelFolded;
         bool maximizeBoardWhileAnswering;
+        bool sortAnalysisByDepthFirst;
+        bool hideShallowCandidates;
         try
         {
             using var document = JsonDocument.Parse(json);
@@ -360,6 +496,14 @@ internal sealed class QuizSettings(IJSRuntime js)
             // while an explicit stored false keeps winning.
             maximizeBoardWhileAnswering =
                 ReadBool(root, MaximizeBoardWhileAnsweringField, DefaultMaximizeBoardWhileAnswering);
+            // Both absent from every payload written before the depth treatment,
+            // and both defaulting to off — so an entry from an older build
+            // restores to exactly today's rendering, which is what lets these
+            // ship with no migration and no version stamp.
+            sortAnalysisByDepthFirst =
+                ReadBool(root, SortAnalysisByDepthFirstField, DefaultSortAnalysisByDepthFirst);
+            hideShallowCandidates =
+                ReadBool(root, HideShallowCandidatesField, DefaultHideShallowCandidates);
         }
         catch (JsonException)
         {
@@ -370,6 +514,8 @@ internal sealed class QuizSettings(IJSRuntime js)
         RandomizeSidePerProblem = randomizeSidePerProblem;
         KeepNavigationPanelFolded = keepNavigationPanelFolded;
         MaximizeBoardWhileAnswering = maximizeBoardWhileAnswering;
+        SortAnalysisByDepthFirst = sortAnalysisByDepthFirst;
+        HideShallowCandidates = hideShallowCandidates;
     }
 
     private static bool ReadBool(JsonElement root, string name, bool fallback) =>

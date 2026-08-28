@@ -8180,12 +8180,14 @@ public class PageTests : BunitContext
         // would agree with a page that read nothing. The maximize field is stored
         // false for that reason since #113 flipped its default to true — stored
         // true would now be indistinguishable from the page-local default this
-        // test exists to rule out.
+        // test exists to rule out. The two depth-treatment boxes default off, so
+        // for them the opposite is stored true.
         WithController();
         JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey).SetResult(
             """
             {"homeBoardOnRight":false,"randomizeSidePerProblem":true,
-             "keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false}
+             "keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false,
+             "sortAnalysisByDepthFirst":true,"hideShallowCandidates":true}
             """);
 
         var cut = Render<SettingsPage>();
@@ -8195,6 +8197,8 @@ public class PageTests : BunitContext
         Assert.True(cut.Find("#settingsRandomizeSide").HasAttribute("checked"));
         Assert.True(cut.Find("#settingsKeepNavFolded").HasAttribute("checked"));
         Assert.False(cut.Find("#settingsMaximizeBoard").HasAttribute("checked"));
+        Assert.True(cut.Find("#settingsDepthFirst").HasAttribute("checked"));
+        Assert.True(cut.Find("#settingsHideShallow").HasAttribute("checked"));
     }
 
     [Fact]
@@ -8279,11 +8283,18 @@ public class PageTests : BunitContext
         await cut.Find("#settingsMaximizeBoard").ChangeAsync(new() { Value = false });
         Assert.False(Settings().MaximizeBoardWhileAnswering);
 
+        // The depth-treatment pair default off, so away from the default is on.
+        await cut.Find("#settingsDepthFirst").ChangeAsync(new() { Value = true });
+        Assert.True(Settings().SortAnalysisByDepthFirst);
+
+        await cut.Find("#settingsHideShallow").ChangeAsync(new() { Value = true });
+        Assert.True(Settings().HideShallowCandidates);
+
         // …and each landed in the one storage entry, with no further gesture.
         var stored = JSInterop.Invocations["localStorage.setItem"]
             .Last(i => (string?)i.Arguments[0] == QuizSettings.StorageKey).Arguments[1] as string;
         Assert.Equal(
-            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false}""",
+            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false,"sortAnalysisByDepthFirst":true,"hideShallowCandidates":true}""",
             stored);
     }
 
@@ -8487,5 +8498,246 @@ public class PageTests : BunitContext
         await cut.InvokeAsync(() => c.RedoAsync());
         Assert.Null(c.Review);
         Assert.Equal(answering, RenderedBoardSide(cut));   // back to answering
+    }
+    // -----------------------------------------------------------------------
+    //  The solution's depth treatment (issues halheinrich/backgammon#150 and
+    //  halheinrich/backgammon#66). Two settings, and one thing to prove on this
+    //  side of the seam: that the user's choice reaches the request the review
+    //  diagram is built from, at every site that renders a candidate list and at
+    //  no site that does not. WHAT the producer then does with those options —
+    //  the stable depth sort, the inclusive floor, the never-hidden best / played
+    //  / answered rows — is pinned in BackgammonDiagram_Lib and deliberately not
+    //  duplicated here; re-asserting it would make this suite fail for the
+    //  producer's reasons rather than for ours.
+    //
+    //  "Every site" is two: the play review and the cube review. They reach
+    //  BuildSolutionRequest through the same method but different branches of
+    //  it, which is the shape that has produced honored-in-one-view bugs before
+    //  (see Quiz_BoardSide_* for the same argument about the board side).
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The solution request the review branch is currently rendering — the one
+    /// request in the app that carries a candidate list.
+    /// </summary>
+    private static DiagramRequest SolutionRequest(IRenderedComponent<QuizPage> cut) =>
+        cut.FindComponent<BackgammonDiagram>().Instance.Request!;
+
+    [Fact]
+    public async Task Quiz_Solution_DepthSettingsOff_AsksTheProducerForNothing()
+    {
+        // The default state, stated as what the producer is asked for. Both
+        // options carry their own default value, which the producer defines as
+        // the untouched rendering — so a user who never opens Settings gets the
+        // review they got before this leg existed, byte for byte.
+        //
+        // This is also the pin that makes the unconditional assignment in
+        // BuildSolutionRequest safe: it asserts that "assigned from a settings
+        // projection" and "never mentioned" are the same request.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.NotNull(c.Review);
+
+        Assert.Equal(CandidateOrdering.Equity, SolutionRequest(cut).CandidateOrdering);
+        Assert.Null(SolutionRequest(cut).MinimumCandidateAnalysisLevel);
+    }
+
+    [Fact]
+    public async Task Quiz_Solution_DepthFirstOn_AsksForDepthFirstOrdering()
+    {
+        // Setting → request, for the ordering half. The floor is asserted to
+        // stay null in the same breath: the two settings are independent, and a
+        // wiring that fed one checkbox to both options would otherwise pass a
+        // test that only looked at the option it was meant to move.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await Settings().SetSortAnalysisByDepthFirstAsync(true);
+
+        var cut = Render<QuizPage>();
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+
+        Assert.Equal(CandidateOrdering.DepthFirst, SolutionRequest(cut).CandidateOrdering);
+        Assert.Null(SolutionRequest(cut).MinimumCandidateAnalysisLevel);
+    }
+
+    [Fact]
+    public async Task Quiz_Solution_HideShallowOn_AsksForAFivePlyFloor()
+    {
+        // Setting → request, for the floor half — and the level itself, because
+        // the label a user reads says "4-ply and below" while the request says
+        // Ply5 (the producer's floor is inclusive). QuizSettings owns that
+        // arithmetic and pins it directly; this is the end-to-end half, proving
+        // the value that reaches the producer is the one QuizSettings computed
+        // and not something the page re-derived.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await Settings().SetHideShallowCandidatesAsync(true);
+
+        var cut = Render<QuizPage>();
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+
+        Assert.Equal(AnalysisLevel.Ply5, SolutionRequest(cut).MinimumCandidateAnalysisLevel);
+        Assert.Equal(CandidateOrdering.Equity, SolutionRequest(cut).CandidateOrdering);
+    }
+
+    [Fact]
+    public async Task Quiz_Solution_CubeReview_CarriesTheDepthTreatmentToo()
+    {
+        // The second quiz mode. A cube review runs the other branch of
+        // BuildSolutionRequest (the two equity losses instead of the secondary
+        // play index), and a treatment applied inside that switch rather than
+        // after it would reach plays only — honored in one view and not the
+        // other, exactly the failure Quiz_BoardSide_CubeAnsweringBranch guards
+        // against for the board side.
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await Settings().SetSortAnalysisByDepthFirstAsync(true);
+        await Settings().SetHideShallowCandidatesAsync(true);
+
+        var cut = Render<QuizPage>();
+        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeDecisionPair.TooGood));
+        Assert.NotNull(c.Review);
+
+        Assert.Equal(CandidateOrdering.DepthFirst, SolutionRequest(cut).CandidateOrdering);
+        Assert.Equal(AnalysisLevel.Ply5, SolutionRequest(cut).MinimumCandidateAnalysisLevel);
+    }
+
+    [Fact]
+    public async Task Quiz_AnsweringBoard_NeverCarriesTheDepthTreatment()
+    {
+        // The site the treatment must NOT reach, asserted with both settings on
+        // so it cannot pass by their being off. The answering board is a
+        // DiagramMode.Problem request: its panel is blank because the candidate
+        // list is the answer being graded, so ordering or filtering a list that
+        // is not drawn is meaningless — and a floor stamped on the problem view
+        // would be a standing invitation to leak it into the panel later.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await Settings().SetSortAnalysisByDepthFirstAsync(true);
+        await Settings().SetHideShallowCandidatesAsync(true);
+
+        var cut = Render<QuizPage>();
+        Assert.Null(c.Review); // answering
+
+        var request = cut.FindComponent<BackgammonPlayEntry>().Instance.Request!;
+        Assert.Equal(DiagramMode.Problem, request.Mode);
+        Assert.Equal(CandidateOrdering.Equity, request.CandidateOrdering);
+        Assert.Null(request.MinimumCandidateAnalysisLevel);
+    }
+
+    [Fact]
+    public async Task Quiz_Solution_DepthTreatment_TakesHoldOnTheSettingsRoundTrip()
+    {
+        // Changed mid-quiz, in force on return — the round trip the Settings
+        // page's own "Back to quiz" affordance exists for, and the only way a
+        // user can reach these controls without ending the run.
+        //
+        // Re-rendered rather than asserted in place, deliberately: QuizSettings
+        // publishes no Changed event (its contract defers that until a real
+        // second consumer exists), so nothing pushes a settings change into a
+        // Quiz page already on screen. Nothing has to — reaching Settings is a
+        // navigation, and in-app navigation re-instantiates this page against
+        // the same app-scoped controller and settings. That is exactly what a
+        // second Render is here, and it is how every Quiz_BoardSide_* scenario
+        // observes the same contract.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        Assert.NotNull(c.Review);
+        Assert.Equal(CandidateOrdering.Equity, SolutionRequest(cut).CandidateOrdering);
+
+        // Off to Settings, tick the box, and back — the review is still the one
+        // the user left, because the controller outlives the page.
+        await Settings().SetSortAnalysisByDepthFirstAsync(true);
+
+        var returned = Render<QuizPage>();
+        Assert.NotNull(c.Review);
+        Assert.Equal(CandidateOrdering.DepthFirst, SolutionRequest(returned).CandidateOrdering);
+    }
+
+    [Fact]
+    public void Settings_DepthTreatment_SitsInItsOwnFieldset_ApartFromTheBoard()
+    {
+        // Placement, pinned the way the maximize row's is. These two settings
+        // change the analysis panel the solution puts BESIDE the board and never
+        // the board itself, so they get their own fieldset — the page groups by
+        // the thing that moves, and filing them under "The board" would cost
+        // that grouping (and the maximize pin that leans on it) its meaning.
+        WithController();
+
+        var cut = Render<SettingsPage>();
+
+        var depthFirst = cut.Find("#settingsDepthFirst");
+        var hideShallow = cut.Find("#settingsHideShallow");
+        var fieldset = depthFirst.Closest("fieldset")!;
+
+        // Together…
+        Assert.Same(fieldset, hideShallow.Closest("fieldset"));
+        // …and apart from the board's, which owns the side and maximize rows.
+        Assert.NotSame(fieldset, cut.Find("#settingsRandomizeSide").Closest("fieldset"));
+        Assert.NotSame(fieldset, cut.Find("#settingsMaximizeBoard").Closest("fieldset"));
+        // …and apart from the navigation panel's.
+        Assert.NotSame(fieldset, cut.Find("#settingsKeepNavFolded").Closest("fieldset"));
+
+        Assert.Contains("The analysis panel", Normalize(fieldset.TextContent));
+
+        // Both ship off: the only default that leaves an existing user's review
+        // exactly as they left it. This is where a fresh visit's state is
+        // pinned, the counterpart to the stored-true pin in
+        // Settings_RendersEveryControl_ReflectingTheStoredValues.
+        Assert.False(depthFirst.HasAttribute("checked"));
+        Assert.False(hideShallow.HasAttribute("checked"));
+    }
+
+    [Fact]
+    public void Settings_DepthFirst_SaysWhatMoves_AndWhatDoesNot()
+    {
+        // The label, plus the two misreadings the fine print exists to rule out:
+        // that equity order is gone (it still breaks ties within a depth), and
+        // that the rank numbers travel with the rows (they do not — a play keeps
+        // its own rank and markers wherever it lands). Keyed on the fieldset's
+        // text so a rewording that drops either claim fails here rather than
+        // going vacuously green.
+        WithController();
+
+        var cut = Render<SettingsPage>();
+
+        var fieldset = Normalize(cut.Find("#settingsDepthFirst").Closest("fieldset")!.TextContent);
+        Assert.Contains("Sort the analysis by depth first", fieldset);
+        Assert.Contains("keep their equity order", fieldset);
+        Assert.Contains("keeps its own rank number and markers", fieldset);
+    }
+
+    [Fact]
+    public void Settings_HideShallow_NamesTheLevel_AndWhatIsNeverHidden()
+    {
+        // The label carries the level, because the control cannot: a checkbox
+        // called "hide shallow plays" leaves the user guessing where shallow
+        // stops, and the level is the one fact they need to decide. "4-ply and
+        // below" is the tester's own wording, and its companion constant is
+        // AnalysisLevel.Ply5 — the producer's floor is inclusive, and
+        // HideShallowSetting_ProjectsToAFloorOfFivePly_BecauseTheFloorIsInclusive
+        // is the other half of that claim.
+        //
+        // The exemptions are the rest: a setting whose name is "hide" has to say
+        // what it will never hide, or a thinned list is indistinguishable from a
+        // list that lost the row the user was looking for. They are the
+        // producer's contract, which is why the words are allowed to promise
+        // them.
+        WithController();
+
+        var cut = Render<SettingsPage>();
+
+        var fieldset = Normalize(cut.Find("#settingsHideShallow").Closest("fieldset")!.TextContent);
+        Assert.Contains("Hide plays analyzed at 4-ply and below", fieldset);
+        Assert.Contains("The best play and your own answer are always listed", fieldset);
+        Assert.Contains("the play that was actually made", fieldset);
+        Assert.Contains("rolled-out plays are always listed too", fieldset);
+        Assert.Contains("any play whose depth was never recorded", fieldset);
     }
 }
