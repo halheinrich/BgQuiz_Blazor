@@ -1039,21 +1039,26 @@ internal sealed class QuizController : IAsyncDisposable
     /// </para>
     ///
     /// <para>
-    /// <b>Counted under canonical-play equivalence, not by list length.</b>
-    /// <see cref="MoveGenerator.GeneratePlays"/> aims to dedup its candidates
-    /// by final board state, but does not achieve it in every shape: two
-    /// checkers borne off by two different dice (say the 5- and 4-points on a
-    /// 6-5) come back <i>twice</i> as the same play, because a bear-off move
-    /// encodes as <c>(point, 0)</c> whichever die pays for it. So
-    /// <c>legal.Count == 1</c> is <b>not</b> the forced test — it would leave
-    /// exactly those positions quizzed. Every entry is compared against the
-    /// first instead: <see cref="Play"/> equality is
-    /// <see cref="CanonicalPlay"/> equality, BgDataTypes_Lib's
-    /// play-equivalence SSOT, so the rule counts distinct <i>plays</i> rather
-    /// than distinct encodings. (The producer-side observation is booked with
-    /// the umbrella; BgMoveGen is unchanged.) The no-legal-play sentinel — a
-    /// one-element list holding the empty <see cref="Play"/> — needs no case of
-    /// its own: one entry is one distinct play.
+    /// <b>Counted by list length, on the producer's distinctness contract.</b>
+    /// <see cref="MoveGenerator.GeneratePlays"/> emits each legal play exactly
+    /// once, distinct under <see cref="CanonicalPlay"/> equivalence —
+    /// BgDataTypes_Lib's play-equivalence SSOT — so <c>legal.Count == 1</c>
+    /// <i>is</i> the forced test. The list is also never empty: the
+    /// no-legal-play sentinel is a one-element list holding the empty
+    /// <see cref="Play"/>, so the pass case needs no branch of its own.
+    /// </para>
+    ///
+    /// <para>
+    /// The rule once compared every entry against the first instead, because
+    /// the generator emitted a two-die bear-off twice — one play, two
+    /// candidates, since a bear-off move encodes as <c>(point, 0)</c> whichever
+    /// die paid for it. That was a consumer-side workaround for a producer
+    /// defect (halheinrich/backgammon#140's verdict), and it is retired now the
+    /// producer is fixed (halheinrich/backgammon#141). Since the count is only
+    /// as honest as that contract, <c>CanonicalPlayEquivalenceTests</c> pins it
+    /// from this side: a producer regression is caught at the layer where the
+    /// miscount would silently happen, not left to be inferred from an
+    /// over-quizzed run.
     /// </para>
     /// </summary>
     private static bool HasNoPlayChoice(BgDecisionData data)
@@ -1066,10 +1071,7 @@ internal sealed class QuizController : IAsyncDisposable
 
         var board = BoardState.FromMop(data.Position.Mop);
         var dice = data.Decision.Dice;
-        var legal = MoveGenerator.GeneratePlays(board, dice[0], dice[1]);
-        for (int i = 1; i < legal.Count; i++)
-            if (legal[i] != legal[0]) return false;
-        return true;
+        return MoveGenerator.GeneratePlays(board, dice[0], dice[1]).Count == 1;
     }
 }
 

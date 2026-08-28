@@ -243,14 +243,15 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task StartAsync_CanonicallyForcedBearOff_AutoSkipped()
+    public async Task StartAsync_ForcedBearOff_AutoSkipped()
     {
-        // The reason the rule counts canonical plays instead of list entries.
-        // GeneratePlays hands back two entries for this position and they are
-        // the same play — see the fixture — so `legal.Count == 1` reads it as a
-        // choice and quizzes it. This is the pin that fails under that rule and
-        // passes under the one that compares entries for equality.
-        var forced = TestFixtures.CanonicallyForcedBearOffDecision();
+        // A bear-off admitting one legal play is as forced as any other
+        // position and must never reach the user. The board is chosen, not
+        // arbitrary: GeneratePlays returned its single play twice until
+        // halheinrich/backgammon#141, so driving the controller over it pins
+        // the skip end-to-end on the shape whose candidate count has actually
+        // moved. See the fixture.
+        var forced = TestFixtures.ForcedBearOffDecision();
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(forced, d);
 

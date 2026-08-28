@@ -668,15 +668,19 @@ play). Either way the position poses no question, so it is silently skipped —
 never shown, never counted toward `SkippedCount`, nothing folded to stats.
 Cube decisions are excluded by the guard on the rule's first line (Pitfalls).
 
-Distinctness is **canonical**, not list length. `GeneratePlays` aims to dedup
-its candidates by final board state but does not manage it in every shape —
-two checkers borne off by two different dice come back twice, because a
-bear-off move encodes as `(point, 0)` whichever die paid — so
-`legal.Count == 1` is *not* the forced test and would leave exactly those
-positions quizzed. Each entry is compared against the first instead (`Play`
-equality is `CanonicalPlay` equality). The producer-side observation is booked
-with the umbrella; BgMoveGen is unchanged. `CanonicalPlayEquivalenceTests`
-holds the three facts this stands on, `TestFixtures` the boards.
+Distinctness is the **producer's** contract, so list length is the test.
+`GeneratePlays` emits each legal play exactly once, canonically distinct, and
+never returns an empty list — so `legal.Count == 1` *is* the forced test, and
+the pass case needs no branch of its own (the no-legal-play sentinel is one
+entry, see Pitfalls). The rule once compared every entry against the first,
+because a two-die bear-off came back twice — one play, two candidates, since a
+bear-off move encodes as `(point, 0)` whichever die paid. That was a
+consumer-side workaround for a producer defect
+(`halheinrich/backgammon#140`'s verdict), retired once the producer was fixed
+(`halheinrich/backgammon#141`). Since the count is only as honest as that
+contract, `CanonicalPlayEquivalenceTests` pins it from this side — a producer
+regression is caught where the miscount would silently happen, rather than
+inferred from an over-quizzed run — and `TestFixtures` holds the boards.
 
 Not a rounding error: **about one checker decision in eleven** across the
 umbrella's corpus is forced or a pass, so the pre-Start match count ("decisions
@@ -3136,8 +3140,8 @@ public (see Pitfalls). The externally visible surface is the route map:
   signals "no legal play" with `count == 1 && plays[0].Count == 0`
   (a single zero-move Play, dice forfeited). Code that gates on
   `legal.Count == 0` will silently miss every pass position. The auto-skip rule
-  needs no case for it: one entry is one distinct play, which is what the rule
-  already counts.
+  needs no case for it: the sentinel *is* one entry, which is exactly what
+  `legal.Count == 1` already reads as "no choice".
 - **`Quiz` is both a namespace (`BgQuiz_Blazor.Client.Quiz`) and the page
   type (`BgQuiz_Blazor.Client.Components.Pages.Quiz`).** Test code that does
   `Render<Quiz>()` after `using BgQuiz_Blazor.Client.Quiz;` hits a CS0118

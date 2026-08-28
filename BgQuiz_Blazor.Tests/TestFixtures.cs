@@ -383,15 +383,23 @@ internal static class TestFixtures
     }
 
     /// <summary>
-    /// Forced, but only under canonical-play equivalence: on-roll checkers on
-    /// the 5- and 4-points and nothing else, dice (6,5). Both come off whichever
-    /// die pays for which, and a bear-off move encodes as <c>(point, 0)</c>
-    /// either way — so <c>MoveGenerator.GeneratePlays</c> returns that one play
-    /// <b>twice</b>. The position offers no choice and must auto-skip; a rule
-    /// keyed on <c>legal.Count == 1</c> would quiz it. This is that rule's
-    /// counterexample, staged where the controller can be driven over it.
+    /// A forced bear-off: on-roll checkers on the 5- and 4-points and nothing
+    /// else, dice (6,5). Both come off whichever die pays for which, and a
+    /// bear-off move encodes as <c>(point, 0)</c> either way, so the roll admits
+    /// one legal play — the position offers no choice and must auto-skip.
+    ///
+    /// <para>
+    /// Not an arbitrary forced position. It is the one board whose candidate
+    /// <i>count</i> has actually moved: <c>MoveGenerator.GeneratePlays</c>
+    /// returned this single play <b>twice</b> until
+    /// halheinrich/backgammon#141 fixed it, which is why the skip rule spent a
+    /// while counting canonical plays rather than list entries
+    /// (halheinrich/backgammon#140). Kept staged where the controller can be
+    /// driven over it, so the skip is pinned end-to-end on the shape most
+    /// likely to regress.
+    /// </para>
     /// </summary>
-    public static BgDecisionData CanonicallyForcedBearOffDecision()
+    public static BgDecisionData ForcedBearOffDecision()
     {
         var m = new int[26];
         m[5] = 1; m[4] = 1;

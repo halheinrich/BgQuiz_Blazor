@@ -9,13 +9,15 @@ namespace BgQuiz_Blazor.Tests;
 /// <see cref="CanonicalPlay"/>, BgDataTypes_Lib's play-equivalence SSOT.
 ///
 /// <para>
-/// The rule reads "exactly one legal play", and the cheap way to ask that is
-/// <c>legal.Count == 1</c>. That is only correct if the generated list is
-/// already distinct under canonical equivalence. <b>It is not</b> — the
-/// bear-off case below is the counterexample — so the rule compares entries
-/// instead, and these are the three facts that make that the right shape:
-/// die orderings of one play do collapse, hits do keep plays apart, and one
-/// play can still arrive twice.
+/// The rule reads "exactly one legal play", and asks it the cheap way, as
+/// <c>legal.Count == 1</c>. That is correct only while the generated list is
+/// already distinct under canonical equivalence — which is <b>BgMoveGen's
+/// contract</b>, not this app's assumption. These are consumer-side pins on
+/// that contract, three facts wide: die orderings of one play collapse, hits
+/// keep plays apart, and the one shape that ever broke distinctness now
+/// arrives once. A producer regression would not throw here — it would
+/// quietly quiz a position that offers no decision — so the wire is worth
+/// pinning at the layer that reads it.
 /// </para>
 ///
 /// <para>
@@ -69,31 +71,33 @@ public class CanonicalPlayEquivalenceTests
     }
 
     [Fact]
-    public void OneCanonicalPlay_CanStillArriveTwice_TheBearOffCounterexample()
+    public void TwoDieBearOff_EmitsTheOnePlayOnce()
     {
-        // The fact that decides the rule's shape. On-roll checkers on the 5- and
-        // the 4-point and nothing else, roll 6-5: each die bears one checker off,
-        // and a bear-off move encodes as (point, 0) whichever die paid for it —
-        // so the two die orders are the same move list, and the generator's
-        // order-duplicate avoidance (which keys on the moves, not on the dice)
-        // does not fire. Two entries, one play.
+        // The shape that decides whether `legal.Count == 1` can be the rule at
+        // all. On-roll checkers on the 5- and the 4-point and nothing else,
+        // roll 6-5: each die bears one checker off, and a bear-off move encodes
+        // as (point, 0) whichever die paid for it — so the two die orders build
+        // the same move list, and duplicate avoidance keyed on the moves rather
+        // than on the dice has to reason about that case explicitly or emit the
+        // play twice. It did emit it twice, which is why this rule spent a
+        // while counting canonical plays instead of entries
+        // (halheinrich/backgammon#140's workaround); the producer was fixed on
+        // halheinrich/backgammon#141 and the workaround is retired.
         //
-        // Hence `legal.Count == 1` is not the forced test: it would leave this
-        // position quizzed as a decision it does not offer.
-        //
-        // The observation belongs to BgMoveGen and is booked with the umbrella;
-        // BgMoveGen is unchanged here. If this ever goes red because the
-        // generator started collapsing the pair, the rule can be simplified —
-        // but only after re-establishing that no other shape does the same, and
-        // this test going red is the signal to go and do that.
+        // Deliberately the same assertion BgMoveGen's own suite makes, kept
+        // here too: this is the consumer whose correctness now rests on it, and
+        // a regression would be wrong *silently* — an extra entry throws
+        // nothing, it just quizzes a position that offers no decision.
         var mop = new int[26];
         mop[5] = 1;
         mop[4] = 1;
 
         var plays = PlaysFor(mop, 6, 5);
 
-        Assert.Equal(2, plays.Count);
-        Assert.Equal(plays[0], plays[1]);
+        var only = Assert.Single(plays);
+        // Single alone would also pass if the generator dropped both entries
+        // and emitted some other play; naming the play rules that out.
+        Assert.Equal(TestFixtures.MakePlay((5, 0), (4, 0)), only);
     }
 
     /// <summary>
