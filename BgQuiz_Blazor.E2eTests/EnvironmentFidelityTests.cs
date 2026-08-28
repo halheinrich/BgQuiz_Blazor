@@ -50,6 +50,16 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </para>
 ///
 /// <para>
+/// <b>A fourth pin, asking a different question.</b> The three above ask
+/// whether the page is styled <i>at all</i>; the checkbox border below asks
+/// whether one particular rule of app.css took effect. It earns its own
+/// scenario because it is the rule whose entire purpose is that something be
+/// visible (issue <c>halheinrich/backgammon#154</c>) — the one kind of rule
+/// whose absence changes no behaviour, breaks no layout, and so would be
+/// reported by nothing else in this suite.
+/// </para>
+///
+/// <para>
 /// <b>And one thing no visitor ever asks for.</b> The health endpoint Azure App
 /// Service's probe will hit (<c>halheinrich/backgammon#24</c>) is a claim of the
 /// same kind as the stylesheets — what the <i>artifact</i> serves, not how the
@@ -93,6 +103,23 @@ public sealed class EnvironmentFidelityTests : E2eTestBase
     /// </summary>
     private const string SidebarGradient =
         "linear-gradient(rgb(5, 39, 103) 0%, rgb(58, 6, 71) 70%)";
+
+    /// <summary>
+    /// The resting border <c>app.css</c> gives every <c>.form-check-input</c>
+    /// (Bootstrap's gray-600), as Chromium reports it. Bootstrap's own value for
+    /// that element is <c>#dee2e6</c> — 1.30:1 against this app's white page,
+    /// where WCAG 2.1 SC 1.4.11 asks 3:1 of a control's boundary — so this string
+    /// is that rule's fingerprint: no other sheet the app loads, and no user
+    /// agent, borders a checkbox in it.
+    /// </summary>
+    private const string CheckboxRestingBorder = "rgb(108, 117, 125)";
+
+    /// <summary>
+    /// Bootstrap's <c>--bs-primary</c>, which fills a checked box and draws its
+    /// border. The ruling on <c>halheinrich/backgammon#154</c> was that only the
+    /// <i>empty</i> box changes, so this is the half that must stay Bootstrap's.
+    /// </summary>
+    private const string CheckboxCheckedFill = "rgb(13, 110, 253)";
 
     /// <summary>
     /// The path <c>Program.cs</c> maps the health endpoint at. It is also half of
@@ -209,6 +236,45 @@ public sealed class EnvironmentFidelityTests : E2eTestBase
         // per build, and the fact worth pinning is that the rule took effect.
         await Expect(Page.Locator(".sidebar"))
             .ToHaveCSSAsync("background-image", SidebarGradient);
+    }
+
+    /// <summary>
+    /// The darkened checkbox border, read back where a user meets it (tester
+    /// report, issue <c>halheinrich/backgammon#154</c>: the box outlining the
+    /// check was hard to see). Gated rather than assumed for the reason the rest
+    /// of this class exists — a rule that only makes something visible is
+    /// invisible to every test that asks about behaviour.
+    ///
+    /// <para>
+    /// <b>Both states, because the fix is as much about what it left alone.</b>
+    /// The complaint was the empty box and the ruling was that the filled one
+    /// keeps Bootstrap's styling. app.css's rule is <c>.form-check-input</c> at
+    /// (0,1,0) and Bootstrap's is <c>.form-check-input:checked</c> at (0,2,0), so
+    /// the checked half holds by specificity alone — a claim about a cascade,
+    /// which a computed value can settle and reading either file cannot.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why each state is selected rather than named.</b> <c>/settings</c>
+    /// renders a two-way radio group, so exactly one control on it is checked and
+    /// at least one is not, whatever the stored preferences happen to be — both
+    /// locators are non-empty by construction. Naming a particular toggle would
+    /// instead pin this style claim to that toggle's default value, and fail here
+    /// on the day a product decision moved it.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task TheCheckboxBorder_IsAppliedOnASettingsPage()
+    {
+        await Page.GotoAsync(BaseUrl + "/settings");
+        await Expect(RoutedPageContent).ToBeVisibleAsync();
+
+        await Expect(Page.Locator(".form-check-input:not(:checked)").First)
+            .ToHaveCSSAsync("border-color", CheckboxRestingBorder);
+
+        var filled = Page.Locator(".form-check-input:checked").First;
+        await Expect(filled).ToHaveCSSAsync("border-color", CheckboxCheckedFill);
+        await Expect(filled).ToHaveCSSAsync("background-color", CheckboxCheckedFill);
     }
 
     /// <summary>

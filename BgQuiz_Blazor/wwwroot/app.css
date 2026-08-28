@@ -68,8 +68,41 @@ h1:focus {
         content: "An error has occurred."
     }
 
-.darker-border-checkbox.form-check-input {
-    border-color: #929292;
+/* The unchecked box, made legible (tester report, issue
+   halheinrich/backgammon#154). Bootstrap 5.3 borders .form-check-input with
+   `var(--bs-border-width) solid var(--bs-border-color)` — 1px of #dee2e6, which
+   against this app's white page is a contrast ratio of 1.30:1. WCAG 2.1
+   SC 1.4.11 asks 3:1 of a control's visual boundary, so the faint box was not a
+   matter of taste. #6c757d is 4.69:1 on white and 4.45:1 on Bootstrap's lightest
+   surface, clearing the floor with margin on either.
+
+   Global on the class, because the complaint is about a widget and not about a
+   page: the same element is the settings toggles and radios, the mix panel's
+   checkboxes, and XgFilter_Razor's filter checkboxes — that producer ships no
+   stylesheet of its own, so this file is the one home that reaches all of them.
+
+   #6c757d is Bootstrap's own gray-600, the neutral its .text-secondary and
+   .btn-secondary are drawn in, so the darker box reads as the same chrome rather
+   than as a foreign accent. Spelled as a literal to match every other colour in
+   this file, and because Bootstrap's gray ramp is an internal scale rather than a
+   semantic token — var(--bs-gray-600) would couple this rule to a name Bootstrap
+   is free to re-map.
+
+   Colour only, and 1px kept, deliberately: this is a 3.6x increase in the
+   boundary's contrast, and adding width on top would make the checkbox heavier
+   than every other bordered control in the app (.form-control and .form-select
+   stay at 1px) — the foreign design language this fix exists to avoid. Both other
+   states are left to win on specificity rather than by arrangement, this rule
+   being (0,1,0): .form-check-input:checked keeps Bootstrap's filled styling
+   untouched, and the focus rule at the top of this file still reads as focus,
+   turning the border Bootstrap's #86b7fe under the white-then-blue double ring.
+
+   Replaces `.darker-border-checkbox.form-check-input { border-color: #929292 }`,
+   the Blazor template's answer to this exact complaint, which no markup anywhere
+   in the umbrella ever wore (measured 2026-08-28) — and which at 3.11:1 barely
+   cleared the floor in any case. Pinned applied by EnvironmentFidelityTests. */
+.form-check-input {
+    border-color: #6c757d;
 }
 
 .form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
