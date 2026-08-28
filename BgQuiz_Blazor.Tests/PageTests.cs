@@ -4175,8 +4175,8 @@ public class PageTests : BunitContext
     public async Task Quiz_RedoClick_ReturnsToAnsweringState_SameProblem()
     {
         // Wire test for the Redo button itself: clicking it during review must
-        // reverse the just-submitted cube answer and fall back to the answering
-        // view on the exact same problem.
+        // re-open the exact same problem for practice — back to the answering
+        // view, with the answer of record left standing (SPEC-scoring.md §2).
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
@@ -4192,7 +4192,7 @@ public class PageTests : BunitContext
 
         Assert.Null(c.Review);
         Assert.Same(current, c.Current);
-        Assert.Empty(c.CubeHistory);
+        Assert.Single(c.CubeHistory); // the record stands — it was never popped
 
         var buttons = cut.FindAll("button").Select(b => b.TextContent.Trim()).ToList();
         Assert.Contains("Submit", buttons);
@@ -4201,14 +4201,15 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_Redo_CubeActions_ClearsSelection_AndSecondAnswerScoresCleanly()
+    public async Task Quiz_Redo_CubeActions_ClearsSelection_AndTheRetryIsPractice()
     {
         // Redo's answer-freshness for the cube kind. BackgammonCubeActions is
         // strictly controlled off _completedCube — it holds no selection state of
         // its own — and HandleStateChanged nulls _completedCube on the Redo
         // transition, so the radios render unselected on the way back regardless
-        // of remounting. This pins that: after Redo no radio is checked, and a
-        // second (different) answer scores cleanly as the only CubeHistory entry.
+        // of remounting. This pins that: after Redo no radio is checked, and the
+        // retry that follows is practice — reviewed, but leaving the answer of
+        // record (the FIRST answer) alone in CubeHistory and in the score.
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
@@ -4218,6 +4219,7 @@ public class PageTests : BunitContext
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
         Assert.NotNull(c.Review);
+        var recorded = c.CubeHistory[0];
 
         var redo = cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo");
         await redo.ClickAsync(new());
@@ -4227,20 +4229,55 @@ public class PageTests : BunitContext
         // first answer's pill.
         Assert.Empty(cut.FindAll("input[checked]"));
 
-        // Re-answer differently and confirm clean scoring: exactly one
-        // CubeHistory entry, reflecting only the second answer.
+        // Re-answer differently: scored and reviewed, and recorded nowhere.
         await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
         var submit2 = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit2.ClickAsync(new());
 
-        Assert.Single(c.CubeHistory);
-        var sub = c.CubeHistory[0];
-        Assert.False(sub.DoublerCorrect);
-        Assert.False(sub.TakerCorrect);
+        var practice = Assert.IsType<ProblemReview.Cube>(c.Review);
+        Assert.True(practice.IsPractice);
+        Assert.Equal(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass), practice.Submitted);
+
+        Assert.Same(recorded, Assert.Single(c.CubeHistory));
+        Assert.Equal(new CubeDecisionPair(CubeAction.Double, CubeAction.Take), recorded.UserDecision);
         Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
-        Assert.Equal(0, c.Score.DoubleDecisions.Correct);
         Assert.Equal(1, c.Score.TakeDecisions.Submitted);
-        Assert.Equal(0, c.Score.TakeDecisions.Correct);
+    }
+
+    [Fact]
+    public async Task Quiz_PracticeReview_VerdictBandNamesThePractice()
+    {
+        // This arc's SPEC-scoring.md §2 design call, at the pixel it lands on:
+        // a practice verdict is scored and coloured like any other, and leads
+        // with one clause saying the first answer is the one that stands. The
+        // answer of record's own review carries no such clause — which is what
+        // makes the marking mean something.
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
+
+        var ofRecordText = cut.Find(".status-verdict-text").TextContent;
+        Assert.DoesNotContain("Practice", ofRecordText);
+
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo").ClickAsync(new());
+        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
+
+        var practiceText = cut.Find(".status-verdict-text").TextContent;
+        Assert.Contains("Practice retry", practiceText);
+        Assert.Contains("your first answer stands", practiceText);
+
+        // The scored verdict itself still renders — the clause is a prefix, not
+        // a replacement — and the outcome colouring is untouched.
+        Assert.Contains("No Double: ", practiceText);
+        Assert.Contains("Pass: ", practiceText);
+        Assert.NotNull(cut.Find(".status-verdict.alert-danger, .status-verdict.alert-success"));
+
+        // And Redo is still offered: practice cycles are unbounded.
+        Assert.Contains("Redo", cut.FindAll("button").Select(b => b.TextContent.Trim()));
     }
 
     [Fact]

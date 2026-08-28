@@ -814,8 +814,11 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task RedoAsync_AfterCorrectPlay_RevertsHistoryScoreAndReview()
+    public async Task RedoAsync_AfterCorrectPlay_LeavesTheAnswerOfRecordStanding()
     {
+        // SPEC-scoring.md §2: redo re-opens the problem, never the record. Only
+        // Review clears — History, Score and SkippedCount are exactly as the
+        // first submission left them.
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var current = c.Current;
@@ -824,11 +827,13 @@ public class QuizControllerTests
         Assert.Single(c.History);
         Assert.Equal(1, c.Score.Total.Submitted);
         Assert.NotNull(c.Review);
+        var recorded = c.History[0];
 
         await c.RedoAsync();
 
-        Assert.Empty(c.History);
-        Assert.Equal(QuizScore.Empty, c.Score);
+        Assert.Same(recorded, Assert.Single(c.History));
+        Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.Equal(1, c.Score.Total.Correct);
         Assert.Equal(0, c.SkippedCount);
         Assert.Null(c.Review);
         Assert.Same(current, c.Current); // unchanged — same problem, answering state
@@ -836,8 +841,9 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task RedoAsync_AfterIncorrectPlay_RevertsHistoryScoreAndReview()
+    public async Task RedoAsync_AfterIncorrectPlay_LeavesTheEquityLossStanding()
     {
+        // The equity a wrong first answer lost is not refundable by redoing.
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var current = c.Current;
@@ -848,17 +854,18 @@ public class QuizControllerTests
 
         await c.RedoAsync();
 
-        Assert.Empty(c.History);
-        Assert.Equal(QuizScore.Empty, c.Score);
+        Assert.Single(c.History);
+        Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.Equal(0.05, c.Score.Total.TotalEquityLoss, 6);
         Assert.Null(c.Review);
         Assert.Same(current, c.Current);
     }
 
     [Fact]
-    public async Task RedoAsync_AfterOffListPlay_RevertsSkippedCountAndReview()
+    public async Task RedoAsync_AfterOffListPlay_LeavesTheSkipStanding()
     {
-        // Off-list submissions never add a History entry — Redo's inverse is
-        // decrementing SkippedCount instead of popping History.
+        // §2: a skip is of record too — an off-list submission counts as one
+        // and redoing does not un-count it. (The prior model decremented here.)
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var current = c.Current;
@@ -871,15 +878,34 @@ public class QuizControllerTests
 
         await c.RedoAsync();
 
-        Assert.Equal(0, c.SkippedCount);
+        Assert.Equal(1, c.SkippedCount);
         Assert.Empty(c.History);
-        Assert.Equal(QuizScore.Empty, c.Score);
+        Assert.Equal(QuizScore.Empty, c.Score); // an off-list play never scored
         Assert.Null(c.Review);
         Assert.Same(current, c.Current);
     }
 
     [Fact]
-    public async Task RedoAsync_AfterCubeSubmission_RevertsCubeHistoryScoreAndReview()
+    public async Task RedoAsync_AfterOffListPlay_ThenAnOnListPractice_ScoresNothing()
+    {
+        // The skip stands AND the retry is recordless — the two halves of
+        // redo-after-skip together. An on-list retry is the strongest form:
+        // under the prior model it replaced the skip with a scored answer.
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitPlay(UnknownPlay()); // of record: a skip
+        await c.RedoAsync();
+        c.SubmitPlay(BestPlay());    // practice: on-list, correct, and discarded
+
+        Assert.Equal(1, c.SkippedCount);
+        Assert.Empty(c.History);
+        Assert.Equal(QuizScore.Empty, c.Score);
+        Assert.True(Assert.IsType<ProblemReview.Play>(c.Review).IsCorrect); // still reviewed
+    }
+
+    [Fact]
+    public async Task RedoAsync_AfterCubeSubmission_LeavesTheAnswerOfRecordStanding()
     {
         var c = Make(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
@@ -888,11 +914,12 @@ public class QuizControllerTests
         c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
         Assert.Single(c.CubeHistory);
         Assert.Equal(2, c.Score.Total.Submitted); // one Double + one Take
+        var recorded = c.CubeHistory[0];
 
         await c.RedoAsync();
 
-        Assert.Empty(c.CubeHistory);
-        Assert.Equal(QuizScore.Empty, c.Score);
+        Assert.Same(recorded, Assert.Single(c.CubeHistory));
+        Assert.Equal(2, c.Score.Total.Submitted);
         Assert.Null(c.Review);
         Assert.Same(current, c.Current);
     }
@@ -900,9 +927,10 @@ public class QuizControllerTests
     [Fact]
     public async Task RedoAsync_AfterCubeSubmission_LeavesEarlierPlaySegmentIntact()
     {
-        // Interleaved history: a play submitted first, then a cube position
-        // reversed via Redo. Refolding must not disturb the play segment folded
-        // in earlier — the edge case the refold-from-Empty approach depends on.
+        // Interleaved history across a redo: neither segment moves. The play
+        // answered and continued past stays folded into PlayDecisions, and the
+        // cube problem's own answer of record stays in DoubleDecisions /
+        // TakeDecisions — redo touches no score segment at all.
         var play = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05);
         var cube = TestFixtures.CubeDecision();
         var c = Make(play, cube);
@@ -917,34 +945,140 @@ public class QuizControllerTests
 
         await c.RedoAsync();
 
-        Assert.Empty(c.CubeHistory);
+        Assert.Single(c.CubeHistory);
         Assert.Single(c.History); // play segment untouched
         Assert.Equal(1, c.Score.PlayDecisions.Submitted);
         Assert.Equal(0.05, c.Score.PlayDecisions.TotalEquityLoss, 6);
-        Assert.Equal(0, c.Score.DoubleDecisions.Submitted);
-        Assert.Equal(0, c.Score.TakeDecisions.Submitted);
+        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
+        Assert.Equal(1, c.Score.TakeDecisions.Submitted);
         Assert.Same(cube, c.Current); // still on the cube problem, answering state
         Assert.Null(c.Review);
     }
 
     [Fact]
-    public async Task RedoAsync_ThenResubmitDifferentAnswer_ScoresOnlyTheNewAnswer()
+    public async Task RedoAsync_ThenResubmitDifferentAnswer_ScoresOnlyTheFirstAnswer()
     {
-        // The controller-level half of the "no contamination" guarantee: after
-        // Redo, submitting a different answer to the same problem must not
-        // leave any trace of the reversed attempt.
+        // The headline reversal (§2): the first submission is the answer of
+        // record and no later gesture amends it. Under the prior model this
+        // scored the SECOND answer — one correct, zero loss.
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
-        c.SubmitPlay(AltPlay()); // first attempt: incorrect
+        c.SubmitPlay(AltPlay());  // of record: incorrect, 0.05 lost
         await c.RedoAsync();
-        c.SubmitPlay(BestPlay()); // second attempt: correct
+        c.SubmitPlay(BestPlay()); // practice: correct, and discarded
 
-        Assert.Single(c.History);
-        Assert.True(c.History[0].IsCorrect);
+        var recorded = Assert.Single(c.History);
+        Assert.False(recorded.IsCorrect);
         Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.Equal(0, c.Score.Total.Correct);
+        Assert.Equal(0.05, c.Score.Total.TotalEquityLoss, 6);
+    }
+
+    [Fact]
+    public async Task RedoAsync_ManyPracticeCycles_AreEquallyRecordless()
+    {
+        // "Practice cycles are unbounded; each is equally recordless" (§2) —
+        // the record is written once and never again, however many times the
+        // user goes round.
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitPlay(AltPlay()); // of record
+        var recorded = c.History[0];
+
+        for (var cycle = 0; cycle < 5; cycle++)
+        {
+            await c.RedoAsync();
+            c.SubmitPlay(cycle % 2 == 0 ? BestPlay() : AltPlay());
+            Assert.Same(recorded, Assert.Single(c.History));
+            Assert.Equal(1, c.Score.Total.Submitted);
+            Assert.Equal(0, c.Score.Total.Correct);
+            Assert.Equal(0.05, c.Score.Total.TotalEquityLoss, 6);
+            Assert.Equal(0, c.SkippedCount);
+        }
+    }
+
+    [Fact]
+    public async Task RedoAsync_ThenPracticeOffList_AddsNoSecondSkip()
+    {
+        // The off-list branch is recordless in the practice direction too: a
+        // practice submission that misses the candidate list must not mint a
+        // skip on a problem that is already answered.
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitPlay(BestPlay()); // of record: on-list, correct
+        await c.RedoAsync();
+        c.SubmitPlay(UnknownPlay()); // practice: off-list
+
+        Assert.Equal(0, c.SkippedCount);
+        Assert.Single(c.History);
         Assert.Equal(1, c.Score.Total.Correct);
-        Assert.Equal(0.0, c.Score.Total.TotalEquityLoss, 6);
+        Assert.True(Assert.IsType<ProblemReview.Play>(c.Review).OffList); // still reviewed
+    }
+
+    [Fact]
+    public async Task RedoAsync_ThenPracticeCube_LeavesTheCubeScoreAtTheOriginal()
+    {
+        // The cube kind's own practice pin: both halves of the of-record pair
+        // stand, and the practice pair scores neither half.
+        var c = Make(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass)); // of record
+        var recordedDoubleCorrect = c.Score.DoubleDecisions.Correct;
+        var recordedTakeCorrect = c.Score.TakeDecisions.Correct;
+
+        await c.RedoAsync();
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take)); // practice
+
+        Assert.Single(c.CubeHistory);
+        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
+        Assert.Equal(1, c.Score.TakeDecisions.Submitted);
+        Assert.Equal(recordedDoubleCorrect, c.Score.DoubleDecisions.Correct);
+        Assert.Equal(recordedTakeCorrect, c.Score.TakeDecisions.Correct);
+    }
+
+    [Fact]
+    public async Task PracticeSubmission_IsReviewedAndMarkedPractice()
+    {
+        // §2's "practice still reviews", plus this arc's design call on how it
+        // shows: the practice submission gets the normal scored review, flagged
+        // IsPractice; the answer of record's review is not flagged.
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitPlay(AltPlay());
+        var ofRecord = Assert.IsType<ProblemReview.Play>(c.Review);
+        Assert.False(ofRecord.IsPractice);
+        Assert.False(ofRecord.IsCorrect);
+
+        await c.RedoAsync();
+        c.SubmitPlay(BestPlay());
+
+        var practice = Assert.IsType<ProblemReview.Play>(c.Review);
+        Assert.True(practice.IsPractice);
+        Assert.True(practice.IsCorrect); // scored on its own merits, not the record's
+        Assert.Equal(0.0, practice.EquityLoss, 6);
+    }
+
+    [Fact]
+    public async Task PracticeCubeSubmission_IsReviewedAndMarkedPractice()
+    {
+        var c = Make(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
+        Assert.False(Assert.IsType<ProblemReview.Cube>(c.Review).IsPractice);
+
+        await c.RedoAsync();
+        var practiceAnswer = new CubeDecisionPair(CubeAction.Double, CubeAction.Take);
+        c.SubmitCubeAction(practiceAnswer);
+
+        var practice = Assert.IsType<ProblemReview.Cube>(c.Review);
+        Assert.True(practice.IsPractice);
+        Assert.Equal(practiceAnswer, practice.Submitted); // the practice pair, not the record's
     }
 
     [Fact]
@@ -1484,22 +1618,225 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task SubmitRedoResubmitContinue_FoldsOnlyTheSecondSubmission()
+    public async Task SubmitRedoResubmitContinue_FoldsTheAnswerOfRecord()
     {
-        // The reason folding lives on Continue: Redo pops the last submission
-        // while Review is set, and the stats document has no Minus. A redone
-        // answer must leave no trace — only the final answer folds.
+        // What folds is the answer of record, not the displayed review — the
+        // split SPEC-scoring.md §2 names. Here they differ: the review on screen
+        // at Continue is the correct practice answer; what reaches the lifetime
+        // record is the incorrect first one. Under the prior model this folded
+        // the second submission.
         var c = MakeWithSink(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
-        c.SubmitPlay(AltPlay());  // first attempt: incorrect
+        c.SubmitPlay(AltPlay());  // of record: incorrect
+        var recorded = c.History[^1];
         await c.RedoAsync();
-        c.SubmitPlay(BestPlay()); // second attempt: correct
+        c.SubmitPlay(BestPlay()); // practice: correct
+        Assert.True(Assert.IsType<ProblemReview.Play>(c.Review).IsCorrect); // what is displayed
+
         await c.ContinueAsync();
 
         var folded = Assert.Single(sink.Plays);
-        Assert.True(folded.IsCorrect);
+        Assert.Same(recorded, folded);
+        Assert.False(folded.IsCorrect);
+    }
+
+    [Fact]
+    public async Task ManyPracticeCyclesThenContinue_FoldTheAnswerOfRecordExactlyOnce()
+    {
+        // Practice cycles are invisible to the fold however many there are —
+        // not merely "the last one wins", but "none of them reach the sink".
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitPlay(AltPlay());
+        var recorded = c.History[^1];
+        for (var cycle = 0; cycle < 4; cycle++)
+        {
+            await c.RedoAsync();
+            c.SubmitPlay(BestPlay());
+            Assert.Equal(0, sink.TotalFolds); // no practice submission ever folds
+        }
+
+        await c.ContinueAsync();
+
+        Assert.Equal(1, sink.TotalFolds);
+        Assert.Same(recorded, Assert.Single(sink.Plays));
+    }
+
+    [Fact]
+    public async Task PracticeCubeCycleThenContinue_FoldsTheAnswerOfRecord()
+    {
+        // The cube half of the same split.
+        var c = MakeWithSink(out var sink, TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
+        var recorded = c.CubeHistory[^1];
+        await c.RedoAsync();
+        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+
+        await c.ContinueAsync();
+
+        Assert.Same(recorded, Assert.Single(sink.Cubes));
+        Assert.Empty(sink.Plays);
+    }
+
+    [Fact]
+    public async Task PracticeCycleThenEndQuizFromReview_FoldsTheAnswerOfRecord()
+    {
+        // End quiz is the other advance-past-the-problem exit, and it folds the
+        // same thing Continue would — the record, not the practice submission
+        // whose review is on screen.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitPlay(AltPlay());  // of record: incorrect
+        var recorded = c.History[^1];
+        await c.RedoAsync();
+        c.SubmitPlay(BestPlay()); // practice: correct
+
+        await c.EndQuizAsync();
+
+        Assert.Same(recorded, Assert.Single(sink.Plays));
+        Assert.False(sink.Plays[0].IsCorrect);
+        Assert.Equal(0, c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task EndQuizMidPracticeCycle_FoldsTheAnswerOfRecordAndCountsNoSkip()
+    {
+        // Ending while a redo has re-opened the problem and nothing has been
+        // re-answered: no review is showing, but the problem IS answered. The
+        // branch keys on the record, so the answer folds and the problem is not
+        // also counted as abandoned — which is what keeps "every answer visible
+        // on Done has reached the lifetime record" true through a redo.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitPlay(BestPlay());
+        var recorded = c.History[^1];
+        await c.RedoAsync();
+        Assert.Null(c.Review); // answering again, nothing submitted this cycle
+
+        await c.EndQuizAsync();
+
+        Assert.Same(recorded, Assert.Single(sink.Plays));
+        Assert.Equal(0, c.SkippedCount);
+        Assert.Single(c.History);
+    }
+
+    [Fact]
+    public async Task SkipMidPracticeCycle_FoldsTheAnswerOfRecordAndCountsNoSkip()
+    {
+        // Skip is reachable from the practice-answering state, and it advances
+        // the run past an answered problem — so it folds the record and counts
+        // no skip. Counting one would double-count an answered problem; not
+        // folding would strand an answer the score still shows.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var first = c.Current;
+
+        c.SubmitPlay(BestPlay());
+        var recorded = c.History[^1];
+        await c.RedoAsync();
+
+        await c.SkipCurrentAsync();
+
+        Assert.Same(recorded, Assert.Single(sink.Plays));
+        Assert.Equal(0, c.SkippedCount);
+        Assert.NotSame(first, c.Current); // and the run did advance
+    }
+
+    [Fact]
+    public async Task OffListThenOnListPracticeThenContinue_FoldsNothing()
+    {
+        // The fold must select by the answer of RECORD, not by the shape of the
+        // displayed review. Here the two disagree hardest: the record is a skip
+        // (no history entry at all) while the review on screen is an on-list
+        // scored play. A fold keyed on the review would reach for a history
+        // entry this problem never made — folding the previous problem's, or
+        // throwing on an empty list.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitPlay(UnknownPlay()); // of record: a skip
+        await c.RedoAsync();
+        c.SubmitPlay(BestPlay());    // practice: on-list
+        Assert.False(Assert.IsType<ProblemReview.Play>(c.Review).OffList);
+
+        await c.ContinueAsync();
+
+        Assert.Equal(0, sink.TotalFolds);
+        Assert.Equal(1, c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task PracticeSubmissionAlone_FoldsNothing()
+    {
+        // The fold trigger is the advance, not the submission — stated against
+        // the practice cycle specifically.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitPlay(BestPlay());
+        await c.RedoAsync();
+        c.SubmitPlay(AltPlay());
+
+        Assert.Equal(0, sink.TotalFolds);
+    }
+
+    [Fact]
+    public async Task AnswerAbandonedInReview_ByRestart_NeverFolds()
+    {
+        // §2's flip side, restated against the new mechanism: the fold happens
+        // when the run advances PAST the problem, and a Restart does not — it
+        // resets. The model before halheinrich/backgammon#152 reached the same
+        // verdict by a different route (an answer was final only once continued
+        // past), so this pin has to be re-argued rather than inherited.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitPlay(BestPlay());
+        Assert.NotNull(c.Review);
+
+        await c.RestartAsync();
+
+        Assert.Equal(0, sink.TotalFolds);
+        Assert.Empty(c.History); // and the run genuinely restarted
+    }
+
+    [Fact]
+    public async Task AnswerAbandonedMidPracticeCycle_ByRestart_NeverFolds()
+    {
+        // The same rule where the new model makes it newly reachable: a redo
+        // leaves the record standing with no review showing, and a Restart from
+        // there still advances past nothing.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitPlay(BestPlay());
+        await c.RedoAsync();
+
+        await c.RestartAsync();
+
+        Assert.Equal(0, sink.TotalFolds);
+        Assert.Empty(c.History);
     }
 
     [Fact]

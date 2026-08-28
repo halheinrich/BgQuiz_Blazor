@@ -3,12 +3,22 @@ namespace BgQuiz_Blazor.Client.Quiz;
 using BgDataTypes_Lib;
 
 /// <summary>
-/// The scored outcome of a just-submitted problem, held by
-/// <see cref="QuizController.Review"/> between Submit and Continue. It carries
-/// exactly the values the solution diagram needs to mark the user's answer:
-/// for a checker play, the matched candidate index that drives the
-/// <c>UserPlayIndex</c> marker; for a cube decision, the two per-half equity
-/// losses that drive the renderer's "Actual" banner.
+/// The scored outcome of a just-submitted problem — the <i>displayed
+/// review</i>, held by <see cref="QuizController.Review"/> between Submit and
+/// Continue. It carries exactly the values the solution diagram needs to mark
+/// the user's answer: for a checker play, the matched candidate index that
+/// drives the <c>UserPlayIndex</c> marker; for a cube decision, the two
+/// per-half equity losses that drive the renderer's "Actual" banner.
+///
+/// <para>
+/// <b>Displayed, not of record.</b> Every submission produces one of these,
+/// including the practice submissions of a redo cycle (SPEC-scoring.md §2:
+/// practice still reviews — "discarded" governs the record, not the pixels).
+/// What <i>counts</i> is the answer of record, which the controller holds
+/// privately and apart from this; <see cref="IsPractice"/> is the one bit of
+/// that split this type carries, so a review and its practice status can never
+/// be assigned separately and drift.
+/// </para>
 ///
 /// <para>
 /// Closed hierarchy — the private constructor permits only the two nested
@@ -22,6 +32,24 @@ using BgDataTypes_Lib;
 internal abstract record ProblemReview
 {
     private ProblemReview() { }
+
+    /// <summary>
+    /// True when this review shows a <i>practice</i> submission — one made
+    /// after <see cref="QuizController.RedoAsync"/> re-opened a problem that
+    /// already holds an answer of record (SPEC-scoring.md §2). Such a
+    /// submission is discarded as if it never happened: no session score, no
+    /// history entry, no lifetime fold. It is still scored and shown, because
+    /// seeing how the retry scored is the point of the gesture; this flag is
+    /// what lets the page say so.
+    ///
+    /// <para>
+    /// <c>init</c>-only and defaulted false: the fact is known exactly where a
+    /// review is constructed (the controller's submit paths), and nothing may
+    /// re-badge a review afterwards. It participates in record equality, so a
+    /// practice review never compares equal to the answer of record's.
+    /// </para>
+    /// </summary>
+    public bool IsPractice { get; init; }
 
     /// <summary>
     /// A submitted checker play, scored against the position's candidate list.

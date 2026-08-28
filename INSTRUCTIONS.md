@@ -345,6 +345,7 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
                             (Solution mode, user's answer marked, dice click
                             bound to Continue) + verdict + Continue / Redo
                           Redo → RedoAsync(), back to answering, same problem
+                                 (practice — the first answer stays of record)
                           "End quiz" (both states) → EndQuizAsync() → Nav→/done
                           IsFinished (on Continue / Skip / End quiz) → Nav→/done
 
@@ -410,42 +411,51 @@ the fake sink's `RecordGate`.
   (guarding against double-scoring).
 - **`Review`** — a closed `ProblemReview` record (`Play` / `Cube`) carrying
   exactly the marks the solution diagram needs. Non-null marks the state.
-- **`RedoAsync`** — the inverse of Submit: pops the just-added entry from
-  `History` / `CubeHistory` (or decrements `SkippedCount` for an off-list
-  play, which never added one), recomputes `Score` by refolding both histories
-  from `QuizScore.Empty`, and clears `Review` — back to *answering* on the
-  same `Current`. Enumerator and `IsFinished` untouched. No-op outside review.
-- **`ContinueAsync`** — the only *forward* exit from review: folds the
-  just-reviewed submission into the `IProblemStatsSink` (see Pitfalls: on
-  Continue, never at Submit), clears `Review`, and advances. Exhausting the
-  source here flips `IsFinished` — after the fold, so the final answer
-  records. No-op outside review.
+- **`RedoAsync`** — **not** the inverse of Submit: it re-opens the problem for
+  *practice* and clears `Review`, back to *answering* on the same `Current`,
+  changing nothing that was recorded. `History` / `CubeHistory`, `Score`,
+  `SkippedCount`, the enumerator and `IsFinished` are all untouched. The
+  submission that follows is practice — scored and reviewed, then discarded
+  (SPEC-scoring.md §2). No-op outside review.
+- **`ContinueAsync`** — the forward exit from review: folds the **answer of
+  record** into the `IProblemStatsSink` (see Pitfalls: as the run advances past
+  the problem, never at Submit), clears `Review`, and advances. Exhausting the
+  source here flips `IsFinished` — after the fold, so the final answer records.
+  No-op outside review.
 - **`SkipCurrentAsync`** — bypasses review and advances immediately, but only
-  from answering (no-op while a `Review` is showing).
+  from answering (no-op while a `Review` is showing). Which answering state
+  matters: on an unanswered problem the skip is the answer of record
+  (`SkippedCount++`, nothing folds); mid-practice-cycle the problem is already
+  answered, so this is the run advancing past it — the answer of record folds
+  and no skip is counted.
 - **`EndQuizAsync`** — the user's own exit from the run (issue #57), and the one
   path that leaves the three-state flow rather than moving through it: it
   finishes where it stands, with problems still unread. `IsFinished` flips,
   `Current` and `Review` clear, and the live enumerator is released early (safe
   because the gate guarantees no `MoveNextAsync` is in flight). No-op before
-  start and after finish. **Two settled semantics, no new scoring path:** from
-  *answering* the problem showing is **abandoned** — any in-progress input is
-  discarded, it records no answer, and it takes the same non-scoring outcome an
-  explicit Skip records (`SkippedCount++`), so Done's "problems shown" still
-  counts a problem the user saw; from *review* the answer **stands and folds**,
-  because it was submitted, scored, and read. Ending from review is a forward
-  exit, so it goes through the same `RecordReviewedSubmissionAsync` Continue uses
-  — which is what preserves the standing invariant that **every answer visible on
-  Done has reached the lifetime record** (Done states it to the user; see
-  Pitfalls). The run is a **completed quiz**, ruled: `/done` is unchanged, with no
-  ended-early wording and no controller flag for one — the partial score is simply
-  the score of the problems answered.
+  start and after finish. **Two settled semantics, no new scoring path,** parting
+  on the *answer of record* rather than on `Review`: with **no** record the
+  problem showing is **abandoned** — any in-progress input is discarded, it
+  records no answer, and it takes the same non-scoring outcome an explicit Skip
+  records (`SkippedCount++`), so Done's "problems shown" still counts a problem
+  the user saw; **with** one the answer **stands and folds**, because it was
+  submitted, scored, and read — whether the review is still showing or a redo
+  re-opened the problem for practice. Folding goes through the same
+  `FoldAnswerOfRecordAsync` Continue uses — which is what preserves the standing
+  invariant that **every answer visible on Done has reached the lifetime record**
+  (Done states it to the user; see Pitfalls). The run is a **completed quiz**,
+  ruled: `/done` is unchanged, with no ended-early wording and no controller flag
+  for one — the partial score is simply the score of the problems answered.
 
 `ProblemReview` lives in `BgQuiz_Blazor.Client` (not BgGame_Lib): it is
 per-app UI state, and adding it to the submodule would cross the boundary. Its
 `Play` carries the matched candidate index (`-1` off-list), its `Cube` the two
 per-half equity losses; the Quiz page maps these onto `UserPlayIndex` /
 `UserDoubleError` + `UserTakeError` so the diagram marks the *quiz user's*
-answer, not the .xg-recorded player's.
+answer, not the .xg-recorded player's. It is the **displayed** review, which
+after a redo is not the answer of record — `IsPractice` (init-only, defaulted
+false) rides on the record type itself rather than beside it in the controller,
+so a review and its practice status cannot be assigned apart and drift.
 
 **Source construction is factory-injected.** The controller takes a
 `ProblemSetSourceFactory` delegate (`(DecisionFilterSet, QuizMix) →
@@ -589,10 +599,11 @@ an auto-skip shows as a gap — is documented on `ProblemNumber`.
 is the `IProblemStatsSink` (production: `QuizStatsStore`), driven at exactly
 two points: `ResetAndAdvanceAsync` calls `BeginQuizAsync()` — the one shared
 path under Start *and* Restart, so the stats context binds there and nowhere
-else — and the **forward exits from review** fold via `RecordAsync`, through the
-one shared `RecordReviewedSubmissionAsync` (`ContinueAsync` and `EndQuizAsync`;
-there is one encoding of which history entry a review finalizes, not two). The sink never throws for
-stats trouble, so quiz flow is independent of whether stats are recording.
+else — and **the exits that advance the run past a problem** fold via
+`RecordAsync`, through the one shared `FoldAnswerOfRecordAsync` (`ContinueAsync`,
+`SkipCurrentAsync` and `EndQuizAsync`; there is one encoding of what folds, not
+three). The sink never throws for stats trouble, so quiz flow is independent of
+whether stats are recording.
 
 **Filter ownership.** `StartAsync` takes a `FilterConfig` (the wire DTO
 emitted through `FilterSurface.OnFilterConfigChanged`), not a runtime
@@ -1959,7 +1970,13 @@ The asymmetry is pinned three times over: at the service seam
   from the .xg-recorded player, not the quiz user. The review diagram's
   `OnDiceClicked` is bound to the same `ContinueAsync` handler as Continue
   (safe under the transition gate). Redo falls back to the answering branch on
-  the same problem; no explicit reset or `@key` is needed (see Pitfalls).
+  the same problem; no explicit reset or `@key` is needed (see Pitfalls). A
+  practice review — `Review.IsPractice`, i.e. any submission after a Redo — is
+  rendered identically but for one clause the verdict band leads with
+  ("Practice retry — your first answer stands."): SPEC-scoring.md §2 leaves the
+  treatment to this app, and an unbadged "Correct" beside a score panel that
+  does not move reads as a bug. It rides in the band's text, not as a badge or a
+  third strip line, because the strip is a fixed-height contract.
   Above either action row sits a **fixed-height status strip**
   (`.status-strip`, `app.css`): a one-line legend slot and a two-line-clamped
   verdict band — a neutral prompt while answering; the legend
@@ -3156,20 +3173,26 @@ public (see Pitfalls). The externally visible surface is the route map:
   BgFolderAccess_Razor contract, pinned producer-side).
   Start-time exceptions (this, plus `FilterConfig.Build()` validation) surface
   on `Controller.StartAsync` and `Home.razor` banners them.
-- **Lifetime stats fold on the forward exits from review, never at Submit.**
-  `RedoAsync` pops the last submission *while `Review` is set*, and
-  `ProblemStatsDocument` has no `Minus` — folding at Submit would let a redone
-  answer fold twice with no way back. An answer is final only when the user moves
-  forward past it, and the deliberate flip side is that an answer abandoned in
-  review (tab close, Start/Restart without Continue) never folds — don't "fix"
-  that into a double-fold hazard. There are **two** forward exits, not one:
-  `ContinueAsync` and `EndQuizAsync` (issue #57), sharing one
-  `RecordReviewedSubmissionAsync`. Ending the run folds for a reason worth
-  keeping — **every answer visible on Done has reached the lifetime record**, an
-  invariant that held for free while Continue was the only route to Done, and
-  which Done's own "nothing here needs saving" line states to the user. A third
-  fold site needs that same argument; a *silent* one would break the line. Skips, off-list plays, and auto-skipped no-choice positions
-  never reach the sink at all (producer contract).
+- **Lifetime stats fold as the run advances past a problem, never at Submit,
+  and what folds is the answer of record.** The model is SPEC-scoring.md §2
+  (ratified 2026-08-26) — read it there. What it means here: the *first*
+  submission against a problem is final for `Score` and for the fold the moment
+  it is made; `RedoAsync` re-opens the problem for practice, and the practice
+  submissions are discarded as if they never happened, so `Review` (the
+  displayed review) and `_answerOfRecord` (what folds) genuinely differ after a
+  redo. Folding at Submit would still be wrong, for a new reason: `Score` and
+  `ProblemStatsDocument` are per-problem-once, and the fold's *trigger* is the
+  run advancing past the problem. The deliberate flip side is unchanged — an
+  answer of record the run never advances past (tab close, Start/Restart without
+  continuing) never folds. There are **three** fold sites, not one: `ContinueAsync`,
+  `SkipCurrentAsync` (reachable mid-practice-cycle) and `EndQuizAsync`
+  (halheinrich/backgammon#57), sharing one `FoldAnswerOfRecordAsync`. Each folds
+  for a reason worth keeping — **every answer visible on Done has reached the
+  lifetime record**, an invariant that held for free while Continue was the only
+  route to Done, and which Done's own "nothing here needs saving" line states to
+  the user. A fourth fold site needs that same argument; a *silent* one would
+  break the line. Skips, off-list plays, practice submissions, and auto-skipped
+  no-choice positions never reach the sink at all (producer contract, plus §2).
 - **Never clear or rewrite the stored `QuizMix` outside the write-through.**
   The persisted mix (`xg_quizMix`) outlives any session that can't honor it: a
   refused weighted start, the per-run "Start/Restart without mix" override, a

@@ -216,7 +216,13 @@ public class QuizControllerOverlapTests
     public async Task RedoAsync_DuringPendingFold_NoOps()
     {
         // A Continue suspended in the fold still has Review set; a Redo there
-        // would pop the entry the fold is recording. The busy gate refuses it.
+        // would re-open a problem the run is already leaving — the fold would
+        // complete, the advance would land, and the user would be answering the
+        // NEXT problem with no visible break. The busy gate refuses it.
+        //
+        // Review is the observable, not History: since halheinrich/backgammon#152
+        // a Redo pops nothing, so asserting History alone would pass with the
+        // gate deleted.
         var c = MakeGated(out var source, out var sink, out _, Decision(), Decision());
         source.ReleaseNext();
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
@@ -229,13 +235,15 @@ public class QuizControllerOverlapTests
 
         await c.RedoAsync();             // must no-op
 
-        Assert.Single(c.History);        // not popped
+        Assert.NotNull(c.Review);        // not re-opened — the pending Continue owns the flow
+        Assert.Single(c.History);
 
         foldGate.SetResult();
         source.ReleaseNext();
         await pending;
         Assert.Equal(1, sink.TotalFolds);
         Assert.Single(c.History);
+        Assert.Null(c.Review);
     }
 
     [Fact]

@@ -32,10 +32,13 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// <b>Redo &amp; answer freshness.</b> Redo (review-state only) calls
-/// <see cref="QuizController.RedoAsync"/>, which reverses the just-submitted
-/// answer and clears <see cref="QuizController.Review"/> — the page falls back
+/// <see cref="QuizController.RedoAsync"/>, which re-opens the problem for
+/// practice and clears <see cref="QuizController.Review"/> — the page falls back
 /// to the answering branch on the <i>same</i> <see cref="QuizController.Current"/>
-/// problem, with a clean answer slate. The two answer kinds get there
+/// problem, with a clean answer slate. Clean on the page only: the answer of
+/// record stands, and the submission that follows is practice (SPEC-scoring.md
+/// §2), which the verdict band says in as many words — see
+/// <see cref="VerdictText"/>. The two answer kinds reach the clean slate
 /// differently:
 /// <list type="bullet">
 ///   <item><b>Cube</b> — the answer lives in <see cref="_completedCube"/>, which
@@ -96,9 +99,9 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// button (issue #57) — see <see cref="EndQuizAsync"/> for why it sits at the far
 /// end of the row and carries no confirmation. It is the only control here that
 /// finishes a run the source has not exhausted; everything about what that leaves
-/// behind (the abandoned problem counted as a skip, a reviewed answer kept and
-/// folded) belongs to <see cref="QuizController.EndQuizAsync"/>, which this page
-/// merely calls.
+/// behind (an unanswered problem counted as a skip, an answered one kept and
+/// folded — the answer of record, not whatever review is on screen) belongs to
+/// <see cref="QuizController.EndQuizAsync"/>, which this page merely calls.
 /// </para>
 ///
 /// <para>
@@ -403,8 +406,38 @@ public partial class Quiz : ComponentBase, IDisposable
         return builder.Build();
     }
 
-    /// <summary>Compact verdict line summarizing the just-scored answer.</summary>
-    private static string VerdictText(ProblemReview review) => review switch
+    /// <summary>
+    /// Compact verdict line summarizing the just-scored answer, prefixed when
+    /// the submission was practice.
+    ///
+    /// <para>
+    /// <b>Why practice is named here.</b> SPEC-scoring.md §2 leaves the review
+    /// pane's treatment of a practice verdict to this arc. A practice
+    /// submission is scored and shown like any other but changes nothing — not
+    /// the score panel a few lines below on this same page, not Done, not the
+    /// lifetime record — so an unbadged "Correct" beside a score that does not
+    /// move reads as a bug rather than as the model working. One clause fixes
+    /// that, and says which answer <i>did</i> count rather than only which one
+    /// did not. Everything else about the review is untouched: the verdict
+    /// wording, <see cref="StatusVerdictColor"/>'s outcome colouring, the
+    /// diagram's markers and the Continue / Redo pair are the same, because the
+    /// retry's score is what the user redid to see.
+    /// </para>
+    ///
+    /// <para>
+    /// It rides in the band's existing text rather than as a badge or a third
+    /// strip line: <c>.status-strip</c> is a fixed-height contract (board size
+    /// depends on it), and text clamps inside that where a new element would
+    /// have to be argued not to grow it.
+    /// </para>
+    /// </summary>
+    private static string VerdictText(ProblemReview review) =>
+        review.IsPractice
+            ? $"Practice retry — your first answer stands. {ScoredVerdict(review)}"
+            : ScoredVerdict(review);
+
+    /// <summary>The scored half of <see cref="VerdictText"/>, per answer kind.</summary>
+    private static string ScoredVerdict(ProblemReview review) => review switch
     {
         ProblemReview.Play { OffList: true } =>
             "Off list — your play wasn't among the analyzed candidates. The best play is shown above.",
