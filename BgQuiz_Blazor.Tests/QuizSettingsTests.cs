@@ -10,9 +10,10 @@ namespace BgQuiz_Blazor.Tests;
 /// one localStorage entry behind them. Four things are pinned here: the
 /// defaults (the product's own answers, no longer a reproduction of the
 /// pre-settings app — see <see cref="FreshSettings_AreTheProductsOwnAnswers"/>),
-/// the <b>producer-shaped projections</b> the request is actually built from
-/// (see <see cref="HideShallowSetting_ProjectsToAFloorOfFivePly_BecauseTheFloorIsInclusive"/>
-/// for the off-by-one they exist to hold in one place), the <b>serialized wire
+/// the <b>producer-shaped values</b> the request is actually built from (see
+/// <see cref="FreshSettings_AskTheProducerForNothing"/>, and
+/// <see cref="HideableLevels_AreTheLevelLadder_WithoutUnknown"/> for the one set
+/// this type decides rather than stores), the <b>serialized wire
 /// format</b> byte-for-byte (a durable payload with a second reader in another
 /// language — see <see cref="Persist_WritesThePinnedWireFormat"/>), and the
 /// tolerance rules a format that later legs will extend has to hold. Extends
@@ -65,7 +66,7 @@ public class QuizSettingsTests : BunitContext
         Assert.False(settings.KeepNavigationPanelFolded);
         Assert.True(settings.MaximizeBoardWhileAnswering);
         Assert.False(settings.SortAnalysisByDepthFirst);
-        Assert.False(settings.HideShallowCandidates);
+        Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
     }
 
     [Fact]
@@ -82,7 +83,7 @@ public class QuizSettingsTests : BunitContext
         Assert.False(settings.KeepNavigationPanelFolded);
         Assert.True(settings.MaximizeBoardWhileAnswering);
         Assert.False(settings.SortAnalysisByDepthFirst);
-        Assert.False(settings.HideShallowCandidates);
+        Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
     }
 
     // -----------------------------------------------------------------------
@@ -118,11 +119,23 @@ public class QuizSettingsTests : BunitContext
     }
 
     // -----------------------------------------------------------------------
-    //  The depth treatment's projections — the OTHER derivation this service
-    //  owns (issues halheinrich/backgammon#150 and halheinrich/backgammon#66).
-    //  Each is a checkbox whose two answers are a producer value, so the
-    //  mapping is the thing worth pinning: it is what a call site would
-    //  otherwise restate, and what a level picker would later re-point.
+    //  The depth treatment (issues halheinrich/backgammon#150 and
+    //  halheinrich/backgammon#66). The two settings are deliberately different
+    //  shapes and are pinned differently because of it.
+    //
+    //  The ordering is a checkbox whose two answers are a producer value, so
+    //  the MAPPING is the thing worth pinning — it is what a call site would
+    //  otherwise restate.
+    //
+    //  The hide ceiling has no mapping left to pin. It was a checkbox meaning a
+    //  fixed AnalysisLevel.Ply5 ("4-ply and below", inclusive-show floor), and
+    //  the off-by-one that arithmetic carried was this section's headline
+    //  assertion. The producer flip (BackgammonDiagram_Lib 6f41585) replaced the
+    //  floor with an inclusive-hide ceiling so the ruled dropdown selection IS
+    //  the producer value, and the arithmetic went away rather than moving. What
+    //  is left to pin is therefore what this type still decides: WHICH levels it
+    //  offers (and that Unknown is not among them), and that a selection reaches
+    //  the request and the next session unchanged.
     // -----------------------------------------------------------------------
 
     [Theory]
@@ -145,28 +158,153 @@ public class QuizSettingsTests : BunitContext
     }
 
     [Fact]
-    public async Task HideShallowSetting_ProjectsToAFloorOfFivePly_BecauseTheFloorIsInclusive()
+    public void HideableLevels_AreTheLevelLadder_WithoutUnknown()
     {
-        // The off-by-one, pinned where it is decided rather than trusted.
-        // The checkbox says "4-ply and below" and the request carries Ply5,
-        // because the producer's floor is INCLUSIVE — a candidate evaluated AT
-        // the floor still renders, so the lowest level that must survive is
-        // 5-ply. The label and this constant are two halves of one claim; a
-        // reworded label without a re-reasoned floor (or the reverse) is the
-        // exact drift this asserts against.
+        // WHAT the dropdown may offer, which is the one thing about the ceiling
+        // this type still decides. Written out rather than re-derived from
+        // Enum.GetValues, because a test that re-ran the production expression
+        // would agree with any expression at all — including one that let
+        // Unknown through.
+        //
+        // The ORDER is asserted with the membership and is not cosmetic:
+        // AnalysisLevel's declaration order is contractual (XG's own menu), the
+        // ply and XG Roller families interleave rather than forming two blocks,
+        // and the user reads this list as a rigor ladder. A reorder upstream
+        // would silently relabel every ceiling's meaning, and this is where it
+        // fails.
+        //
+        // Unknown's absence is the producer's rule, not a UI preference: clause
+        // (a) of the level contract puts it outside the rigor scale, and
+        // DiagramRequest.Builder.Build throws on it. "Hide nothing" is null.
+        Assert.Equal(
+            new[]
+            {
+                AnalysisLevel.Ply1,
+                AnalysisLevel.Ply2,
+                AnalysisLevel.Ply3Red,
+                AnalysisLevel.Ply3,
+                AnalysisLevel.XgRoller,
+                AnalysisLevel.Ply4,
+                AnalysisLevel.XgRollerPlus,
+                AnalysisLevel.Ply5,
+                AnalysisLevel.Ply6,
+                AnalysisLevel.Ply7,
+                AnalysisLevel.XgRollerPlusPlus,
+            },
+            QuizSettings.HideableLevels);
+
+        Assert.DoesNotContain(AnalysisLevel.Unknown, QuizSettings.HideableLevels);
+    }
+
+    /// <summary>Every level the dropdown offers, for the theories below.</summary>
+    public static TheoryData<AnalysisLevel> EveryHideableLevel() =>
+        new(QuizSettings.HideableLevels);
+
+    [Theory]
+    [MemberData(nameof(EveryHideableLevel))]
+    public async Task EveryOfferedLevel_IsRecordedVerbatim_AndClearsBackToNull(AnalysisLevel level)
+    {
+        // Verbatim, for every level the dropdown offers — the claim the producer
+        // flip was made to support. There is no mapping left between what the
+        // user picks and what the request carries, and this is the assertion
+        // that would fail the day someone re-introduced one (a successor lookup,
+        // an "and below means one up" adjustment of the kind the retired
+        // ShallowCandidateFloor constant was).
+        //
+        // XG Roller++ is in this set and is the case that drove the flip: "show
+        // only rollouts" is a real selection, and it is only expressible because
+        // the producer's option is an inclusive-HIDE ceiling — an inclusive-show
+        // floor would need a member above the top of the ladder to say it.
         var settings = NewSettings();
 
-        Assert.Null(settings.EffectiveMinimumCandidateAnalysisLevel); // off: show all
+        await settings.SetMaximumHiddenCandidateAnalysisLevelAsync(level);
 
-        await settings.SetHideShallowCandidatesAsync(true);
+        Assert.Equal(level, settings.MaximumHiddenCandidateAnalysisLevel);
 
-        Assert.Equal(AnalysisLevel.Ply5, settings.EffectiveMinimumCandidateAnalysisLevel);
-
-        // And back off again — a floor that latched would quietly outlive the
+        // And back to none — a ceiling that latched would quietly outlive the
         // choice that set it.
-        await settings.SetHideShallowCandidatesAsync(false);
+        await settings.SetMaximumHiddenCandidateAnalysisLevelAsync(null);
 
-        Assert.Null(settings.EffectiveMinimumCandidateAnalysisLevel);
+        Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
+    }
+
+    [Theory]
+    [InlineData(AnalysisLevel.Unknown)]
+    [InlineData((AnalysisLevel)999)]
+    public async Task SettingAnUnusableLevel_IsRefused_RatherThanStored(AnalysisLevel bad)
+    {
+        // The one setter here that can be handed an invalid argument, and the
+        // guard that keeps the stored value inside what the producer accepts:
+        // DiagramRequest.Builder.Build throws on both of these, so storing
+        // either would turn a settings write into a crash one review later,
+        // somewhere else entirely.
+        //
+        // Unknown is not "the shallowest level" — it means the depth was never
+        // recorded (clause (a)), so hiding "through not recorded" is nonsense
+        // and null is how you hide nothing.
+        var settings = NewSettings();
+        await settings.SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.Ply4);
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => settings.SetMaximumHiddenCandidateAnalysisLevelAsync(bad));
+
+        // Refused, not half-applied: the previous choice is untouched and
+        // nothing was persisted over it.
+        Assert.Equal(AnalysisLevel.Ply4, settings.MaximumHiddenCandidateAnalysisLevel);
+        Assert.Contains("\"maximumHiddenCandidateAnalysisLevel\":\"Ply4\"", LastPersisted());
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", null)]
+    [InlineData("Unknown", null)]          // outside the rigor scale — never a threshold
+    [InlineData("Ply42", null)]            // not a member
+    [InlineData("4-ply", null)]            // the LABEL, not the member name
+    [InlineData("6", null)]                // an ordinal — and "6" IS Ply4's number
+    [InlineData("ply4", null)]             // the right name, the wrong case
+    [InlineData("Ply4", AnalysisLevel.Ply4)]
+    [InlineData("XgRollerPlusPlus", AnalysisLevel.XgRollerPlusPlus)]
+    public void LevelToken_ReadsMemberNamesOnly_AndFailsToHideNothing(
+        string? token, AnalysisLevel? expected)
+    {
+        // The one token vocabulary, and the only way a string becomes a level.
+        // Both its callers read text this app does not control — a devtools-
+        // edited storage entry and a browser-posted form value — so every
+        // unusable spelling has to land on "hide nothing" rather than throwing
+        // or, worse, on a value the producer rejects.
+        //
+        // The ordinal row is the one worth the ink, and it caught the first cut
+        // of this method: Enum.TryParse accepts a number, and "6" is Ply4's —
+        // a DEFINED, OFFERED level, so no membership test rejects it. Honouring
+        // it would tie this durable payload to enum numbering the ladder's own
+        // contract lets move (Ply3Red's insertion moved all of it). Reading the
+        // token as the inverse of ToLevelToken rather than as a parse is what
+        // closes it, and the case row is the same closure seen from the other
+        // side — TryParse is case-insensitive by default, ToLevelToken is not.
+        //
+        // The label row pins that the token is the member NAME; the label is the
+        // producer's UI text and may be reworded without this format moving.
+        Assert.Equal(expected, QuizSettings.LevelFromToken(token));
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryHideableLevel))]
+    public void LevelToken_RoundTrips_ForEveryOfferedLevel(AnalysisLevel level)
+    {
+        // The write half and the read half are one vocabulary, asserted over the
+        // whole offered set rather than a sample: the option values the Settings
+        // page renders and the payload ToJson writes are both ToLevelToken, and
+        // LevelFromToken is the only thing that reads either back.
+        Assert.Equal(level, QuizSettings.LevelFromToken(QuizSettings.ToLevelToken(level)));
+    }
+
+    [Fact]
+    public void LevelToken_HideNothing_IsTheEmptyToken()
+    {
+        // The empty string, not "null" and not the word Unknown: it is what an
+        // HTML <option value=""> posts back, which is why the page can render
+        // the "Hide nothing" option without spelling the null itself.
+        Assert.Equal(string.Empty, QuizSettings.ToLevelToken(null));
     }
 
     [Fact]
@@ -181,7 +319,7 @@ public class QuizSettingsTests : BunitContext
         var settings = NewSettings();
 
         Assert.Equal(CandidateOrdering.Equity, settings.EffectiveCandidateOrdering);
-        Assert.Null(settings.EffectiveMinimumCandidateAnalysisLevel);
+        Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
     }
 
     // -----------------------------------------------------------------------
@@ -218,9 +356,10 @@ public class QuizSettingsTests : BunitContext
         Assert.True(settings.SortAnalysisByDepthFirst);
         Assert.Contains("\"sortAnalysisByDepthFirst\":true", LastPersisted());
 
-        await settings.SetHideShallowCandidatesAsync(true);
-        Assert.True(settings.HideShallowCandidates);
-        Assert.Contains("\"hideShallowCandidates\":true", LastPersisted());
+        await settings.SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.XgRollerPlusPlus);
+        Assert.Equal(AnalysisLevel.XgRollerPlusPlus, settings.MaximumHiddenCandidateAnalysisLevel);
+        Assert.Contains(
+            "\"maximumHiddenCandidateAnalysisLevel\":\"XgRollerPlusPlus\"", LastPersisted());
     }
 
     [Fact]
@@ -239,17 +378,44 @@ public class QuizSettingsTests : BunitContext
         // after it in turn, however the properties are grouped on the C# side.
         // That is what makes this literal's diff read as "fields were added"
         // rather than "the format moved under the applier".
+        //
+        // The ceiling is the one field that is not a boolean, and the one
+        // position ever reused: hideShallowCandidates was last, so retiring that
+        // checkbox for the level dropdown left every other field where it was.
+        // Unset is a JSON null — the setting's own default and the producer's,
+        // spelled the way JSON spells "no value" rather than as an empty string
+        // or the word Unknown.
         var settings = NewSettings();
 
         await settings.SetRandomizeSidePerProblemAsync(true);
 
         Assert.Equal(
-            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"hideShallowCandidates":false}""",
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":null}""",
             LastPersisted());
     }
 
     [Fact]
-    public async Task PersistedPayload_RoundTripsThroughHydration()
+    public async Task Persist_WritesTheChosenLevelAsItsMemberName()
+    {
+        // The other half of the wire pin: the SET case, which the fresh-settings
+        // literal above cannot show. The token is the enum member name — the
+        // same spelling the enum's own JsonStringEnumConverter writes — and not
+        // its label ("XG Roller++") or its ordinal, either of which would make
+        // this entry unreadable after a relabel or a level insertion. Ply3Red's
+        // insertion into the middle of the ladder is the precedent: it moved
+        // every later ordinal and no token.
+        var settings = NewSettings();
+
+        await settings.SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.XgRollerPlusPlus);
+
+        Assert.Equal(
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":false,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":"XgRollerPlusPlus"}""",
+            LastPersisted());
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryHideableLevel))]
+    public async Task PersistedPayload_RoundTripsThroughHydration(AnalysisLevel level)
     {
         // The whole point of the entry: what one app writes, the next app boot
         // reads back identically. Every field is driven AWAY from its own
@@ -258,13 +424,21 @@ public class QuizSettingsTests : BunitContext
         // The maximize field was that exception until #113 flipped its default;
         // it now writes false for the same reason the other three write what they
         // write.
+        //
+        // Run once per offered level rather than on a sample, because the
+        // ceiling is the only field whose value space is bigger than a bool: a
+        // token written and read through the wrong half of the vocabulary could
+        // survive one level and lose another (a case fold, a label, an ordinal),
+        // and "the level the user picked last session is the level in force this
+        // session" has to hold for all eleven — XG Roller++, the top of the
+        // ladder, included.
         var writer = NewSettings();
         await writer.SetHomeBoardOnRightAsync(false);
         await writer.SetRandomizeSidePerProblemAsync(true);
         await writer.SetKeepNavigationPanelFoldedAsync(true);
         await writer.SetMaximizeBoardWhileAnsweringAsync(false);
         await writer.SetSortAnalysisByDepthFirstAsync(true);
-        await writer.SetHideShallowCandidatesAsync(true);
+        await writer.SetMaximumHiddenCandidateAnalysisLevelAsync(level);
 
         StageStored(LastPersisted());
         var reader = NewSettings();
@@ -275,7 +449,7 @@ public class QuizSettingsTests : BunitContext
         Assert.True(reader.KeepNavigationPanelFolded);
         Assert.False(reader.MaximizeBoardWhileAnswering);
         Assert.True(reader.SortAnalysisByDepthFirst);
-        Assert.True(reader.HideShallowCandidates);
+        Assert.Equal(level, reader.MaximumHiddenCandidateAnalysisLevel);
     }
 
     [Fact]
@@ -346,7 +520,7 @@ public class QuizSettingsTests : BunitContext
         Assert.False(settings.KeepNavigationPanelFolded);
         Assert.True(settings.MaximizeBoardWhileAnswering);
         Assert.False(settings.SortAnalysisByDepthFirst);
-        Assert.False(settings.HideShallowCandidates);
+        Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
     }
 
     [Fact]
@@ -395,9 +569,8 @@ public class QuizSettingsTests : BunitContext
         await settings.EnsureHydratedAsync();
 
         Assert.False(settings.SortAnalysisByDepthFirst);
-        Assert.False(settings.HideShallowCandidates);
         Assert.Equal(CandidateOrdering.Equity, settings.EffectiveCandidateOrdering);
-        Assert.Null(settings.EffectiveMinimumCandidateAnalysisLevel);
+        Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
 
         Assert.False(settings.HomeBoardOnRight);
         Assert.True(settings.RandomizeSidePerProblem);
@@ -406,21 +579,82 @@ public class QuizSettingsTests : BunitContext
     }
 
     [Fact]
-    public async Task Hydrate_StoredDepthTreatment_SurvivesIntoTheProjections()
+    public async Task Hydrate_StoredDepthTreatment_SurvivesIntoWhatTheProducerIsAsked()
     {
         // The round trip that matters to the user: the choice they made last
-        // session is what the renderer is asked for this session. Pinned through
-        // the projections rather than the bools, because the bools round-tripping
-        // is already asserted above and would stay green if a projection stopped
-        // reading them.
+        // session is what the renderer is asked for this session. The ordering is
+        // pinned through its projection rather than its bool, because the bool
+        // round-tripping is already asserted above and would stay green if the
+        // projection stopped reading it. The ceiling has no projection to go
+        // stale — it IS what the producer is asked for.
+        StageStored(
+            """
+            {"sortAnalysisByDepthFirst":true,"maximumHiddenCandidateAnalysisLevel":"XgRoller"}
+            """);
+        var settings = NewSettings();
+
+        await settings.EnsureHydratedAsync();
+
+        Assert.Equal(CandidateOrdering.DepthFirst, settings.EffectiveCandidateOrdering);
+        Assert.Equal(AnalysisLevel.XgRoller, settings.MaximumHiddenCandidateAnalysisLevel);
+    }
+
+    [Fact]
+    public async Task Hydrate_TheRetiredHideShallowField_IsIgnored()
+    {
+        // The wire evolution, in the one case that can actually occur: a
+        // developer's browser holding an entry this build's predecessor wrote,
+        // with the retired hideShallowCandidates checkbox set. It is now just an
+        // unknown field — ignored, exactly as any newer build's field would be —
+        // so the ceiling comes back at its default and hides nothing.
+        //
+        // Nothing translates the old true into a Ply5 ceiling, and nothing
+        // should: the bool never shipped in a release, so there is no installed
+        // base whose choice would be lost, and inventing a migration for one
+        // would mean carrying the retired constant's arithmetic forever to serve
+        // nobody. The neighbouring field is set to a non-default so this cannot
+        // pass by the payload being dropped wholesale.
         StageStored(
             """{"sortAnalysisByDepthFirst":true,"hideShallowCandidates":true}""");
         var settings = NewSettings();
 
         await settings.EnsureHydratedAsync();
 
-        Assert.Equal(CandidateOrdering.DepthFirst, settings.EffectiveCandidateOrdering);
-        Assert.Equal(AnalysisLevel.Ply5, settings.EffectiveMinimumCandidateAnalysisLevel);
+        Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
+        Assert.True(settings.SortAnalysisByDepthFirst);
+    }
+
+    [Theory]
+    [InlineData("null")]                    // explicit "hide nothing", as this build writes it
+    [InlineData("\"Unknown\"")]             // outside the rigor scale — never a threshold
+    [InlineData("\"Ply42\"")]               // not a member
+    [InlineData("\"4-ply\"")]               // the label, not the member name
+    [InlineData("6")]                       // an ordinal, and not even a string
+    [InlineData("true")]                    // the retired checkbox's type
+    [InlineData("{\"level\":\"Ply4\"}")]    // a shape from some imagined later leg
+    public async Task Hydrate_UnusableCeilingValue_HidesNothing(string storedValue)
+    {
+        // Per-field tolerance for the one non-boolean field. Every one of these
+        // has to land on "hide nothing" rather than throwing or — the failure
+        // that would matter — reaching DiagramRequest.Builder.Build as a value
+        // it rejects, which would take out the review pane rather than this
+        // setting.
+        //
+        // The "null" row is not a failure but the format's own spelling of an
+        // explicit hide-nothing choice; it is here so the tolerant path and the
+        // deliberate path are seen to agree while the default is null. The
+        // neighbouring field is stored non-default throughout, so none of these
+        // can pass by the payload being rejected wholesale.
+        StageStored(
+            $$"""
+            {"sortAnalysisByDepthFirst":true,"maximumHiddenCandidateAnalysisLevel":{{storedValue}}}
+            """);
+        var settings = NewSettings();
+
+        await settings.EnsureHydratedAsync();
+
+        Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
+        Assert.True(settings.SortAnalysisByDepthFirst);
     }
 
     [Fact]
@@ -482,7 +716,7 @@ public class QuizSettingsTests : BunitContext
         Assert.False(settings.KeepNavigationPanelFolded);
         Assert.True(settings.MaximizeBoardWhileAnswering);
         Assert.False(settings.SortAnalysisByDepthFirst);
-        Assert.False(settings.HideShallowCandidates);
+        Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
     }
 
     [Fact]
@@ -496,11 +730,16 @@ public class QuizSettingsTests : BunitContext
         // exactly as randomizeSidePerProblem is staged as 1 against a default of
         // false. (It was staged as "true" until #113 flipped that default, at
         // which point the assertion below would have passed either way.)
+        //
+        // The ceiling's own wrong-type rows are a theory of their own
+        // (Hydrate_UnusableCeilingValue_HidesNothing), because it is the one
+        // field where "the wrong type" is a whole vocabulary rather than
+        // not-a-bool; the row here is the bare kind check.
         StageStored(
             """
             {"homeBoardOnRight":"yes","randomizeSidePerProblem":1,
              "keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":"false",
-             "sortAnalysisByDepthFirst":"true","hideShallowCandidates":1}
+             "sortAnalysisByDepthFirst":"true","maximumHiddenCandidateAnalysisLevel":4}
             """);
         var settings = NewSettings();
 
@@ -510,7 +749,7 @@ public class QuizSettingsTests : BunitContext
         Assert.False(settings.RandomizeSidePerProblem);    // default
         Assert.True(settings.MaximizeBoardWhileAnswering); // default — "false" is a string
         Assert.False(settings.SortAnalysisByDepthFirst);   // default — "true" is a string
-        Assert.False(settings.HideShallowCandidates);      // default — 1 is not a bool
+        Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel); // default — 4 is not a token
         Assert.True(settings.KeepNavigationPanelFolded);   // the readable one survives
     }
 }

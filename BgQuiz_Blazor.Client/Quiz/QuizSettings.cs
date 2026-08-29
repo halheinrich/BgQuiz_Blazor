@@ -12,8 +12,8 @@ using XgFilter_Razor;
 /// The per-app (Scoped, one-per-tab in WASM) <b>user settings</b> the
 /// <c>Settings</c> page edits: which side the home board renders on, whether
 /// that side is re-rolled per problem, whether the board is maximized while the
-/// user answers, how the solution's candidate list is ordered and how shallowly
-/// analyzed a candidate may be and still appear in it, and whether the
+/// user answers, how the solution's candidate list is ordered and which shallow
+/// evaluations are left out of it, and whether the
 /// navigation panel stays folded. Every setting is recorded and persisted the
 /// moment it is changed — there is no Apply gesture anywhere in this service.
 /// When each becomes <i>visible</i> is a separate question, and the fold answers
@@ -40,19 +40,33 @@ using XgFilter_Razor;
 ///
 /// <para>
 /// <b>The producer's vocabulary is spoken here, never at a call site.</b> Two of
-/// these settings are checkboxes whose meaning is a producer type: the review
-/// diagram's candidate ordering and its analysis-depth floor (issues
-/// <c>halheinrich/backgammon#150</c> and <c>halheinrich/backgammon#66</c>). Each
-/// is therefore exposed twice — the stored <c>bool</c> the checkbox binds to,
-/// and the <see cref="DiagramRequest"/>-shaped projection the request is built
-/// from (<see cref="EffectiveCandidateOrdering"/>,
-/// <see cref="EffectiveMinimumCandidateAnalysisLevel"/>) — for the reason
+/// these settings mean a producer type: the review diagram's candidate ordering
+/// and the depth ceiling below which candidates are hidden (issues
+/// <c>halheinrich/backgammon#150</c> and <c>halheinrich/backgammon#66</c>). They
+/// are deliberately shaped differently, and the difference is the whole lesson.
+/// The ordering is a <b>checkbox</b>, so it is exposed twice — the stored
+/// <c>bool</c> the control binds to, and the <see cref="DiagramRequest"/>-shaped
+/// projection the request is built from
+/// (<see cref="EffectiveCandidateOrdering"/>) — for the reason
 /// <see cref="EffectiveHomeBoardOnRight"/> exists: the rule that turns a choice
-/// into what the renderer is asked for belongs in exactly one place. It earns
-/// its keep immediately on the floor, where "4-ply and below" is
-/// <see cref="AnalysisLevel.Ply5"/>: the producer's floor is inclusive, so the
-/// label a user reads and the constant the request carries are deliberately one
-/// apart, and that is not an arithmetic a call site should be repeating.
+/// into what the renderer is asked for belongs in exactly one place.
+/// </para>
+///
+/// <para>
+/// The depth ceiling has <b>no such projection, on purpose</b>. It was a
+/// checkbox too, storing a <c>bool</c> that a <c>ShallowCandidateFloor</c>
+/// constant turned into the producer's old inclusive-show floor — "4-ply and
+/// below" meaning <c>AnalysisLevel.Ply5</c>, an off-by-one this type existed to
+/// hold in one place. The 2026-08-29 ruling on
+/// <c>halheinrich/backgammon#66</c> replaced the checkbox with a dropdown over
+/// the level ladder itself, and the producer was re-cut to match
+/// (<see cref="DiagramRequest.MaximumHiddenCandidateAnalysisLevel"/>, an
+/// <i>inclusive-hide</i> ceiling): the level the user names is exactly the level
+/// the request carries, "show only rollouts" included. So the arithmetic is not
+/// centralized here — it is <b>gone</b>, and
+/// <see cref="MaximumHiddenCandidateAnalysisLevel"/> is a single member that
+/// both the control and the request read. Re-introducing a projection over it
+/// would be re-introducing the drift the flip removed.
 /// </para>
 ///
 /// <para>
@@ -108,7 +122,8 @@ internal sealed class QuizSettings(IJSRuntime js)
     private const string KeepNavigationPanelFoldedField = "keepNavigationPanelFolded";
     private const string MaximizeBoardWhileAnsweringField = "maximizeBoardWhileAnswering";
     private const string SortAnalysisByDepthFirstField = "sortAnalysisByDepthFirst";
-    private const string HideShallowCandidatesField = "hideShallowCandidates";
+    private const string MaximumHiddenCandidateAnalysisLevelField =
+        "maximumHiddenCandidateAnalysisLevel";
 
     // The defaults, named once so the property initializers and the
     // missing-field fallbacks in Restore cannot disagree.
@@ -117,18 +132,36 @@ internal sealed class QuizSettings(IJSRuntime js)
     private const bool DefaultKeepNavigationPanelFolded = false;
     private const bool DefaultMaximizeBoardWhileAnswering = true;
     private const bool DefaultSortAnalysisByDepthFirst = false;
-    private const bool DefaultHideShallowCandidates = false;
+
+    // static readonly rather than const only because a nullable enum cannot be
+    // const; it is named for the same reason its five neighbours are.
+    private static readonly AnalysisLevel? DefaultMaximumHiddenCandidateAnalysisLevel = null;
 
     /// <summary>
-    /// The level <see cref="HideShallowCandidates"/> means, and the single place
-    /// the checkbox's words and the producer's floor are reconciled. The
-    /// producer's floor is <b>inclusive</b> — a candidate evaluated <i>at</i> the
-    /// floor still renders — so "hide 4-ply and below" is
-    /// <see cref="AnalysisLevel.Ply5"/>, not <c>Ply4</c>. Naming it once is also
-    /// what leaves a level picker open to a later leg without touching anything
-    /// but this line.
+    /// Every level a user may name as the hide ceiling, in the
+    /// <see cref="AnalysisLevel"/> declaration order — which that enum makes
+    /// <b>contractual</b>, so this is XG's own rigor ladder with the ply and XG
+    /// Roller families interleaved (…3-ply, XG Roller, 4-ply, XG Roller+,
+    /// 5-ply…) rather than two blocks. Enumerated from the enum rather than
+    /// listed, so a level added to the ladder is offered here the day it lands.
+    ///
+    /// <para>
+    /// <see cref="AnalysisLevel.Unknown"/> is the one exclusion, and it is the
+    /// producer's rule rather than a UI preference: clause (a) of the level
+    /// contract puts Unknown <i>outside</i> the rigor scale — it means "level
+    /// not recorded", so it is never a threshold, and
+    /// <see cref="DiagramRequest.Builder.Build"/> rejects it outright. "Hide
+    /// nothing" is spelled <c>null</c>, never Unknown.
+    /// </para>
+    ///
+    /// <para>
+    /// This is the dropdown's whole content and the only place the offered set
+    /// is decided: the page renders it and <see cref="LevelFromToken"/> is bound
+    /// by it, so neither can drift from the other or from the enum.
+    /// </para>
     /// </summary>
-    private const AnalysisLevel ShallowCandidateFloor = AnalysisLevel.Ply5;
+    public static IReadOnlyList<AnalysisLevel> HideableLevels { get; } =
+        Enum.GetValues<AnalysisLevel>().Where(l => l != AnalysisLevel.Unknown).ToArray();
 
     /// <summary>
     /// The global the <c>navFold.js</c> applier publishes — the only way to move
@@ -216,20 +249,36 @@ internal sealed class QuizSettings(IJSRuntime js)
         DefaultSortAnalysisByDepthFirst;
 
     /// <summary>
-    /// True when the user wants shallowly evaluated plays left out of the
-    /// solution's candidate list — "4-ply and below", the ask behind issue
-    /// <c>halheinrich/backgammon#66</c>. The stored choice only; the level it
-    /// means is <see cref="ShallowCandidateFloor"/> and what the request carries
-    /// is <see cref="EffectiveMinimumCandidateAnalysisLevel"/>.
+    /// The deepest evaluation the user wants left out of the solution's
+    /// candidate list — the ask behind issue <c>halheinrich/backgammon#66</c>,
+    /// and <b>verbatim</b> the review request's
+    /// <see cref="DiagramRequest.MaximumHiddenCandidateAnalysisLevel"/>. The
+    /// producer's ceiling is <i>inclusive</i>: the named level and every lesser
+    /// one on the rigor ladder are hidden. <c>null</c> — the default and the
+    /// producer's own — hides nothing.
     ///
     /// <para>
-    /// <b>A checkbox, not a level picker</b> — ruled that way, and cheap to
-    /// revisit. The producer's floor is general (any
-    /// <see cref="AnalysisLevel"/>), so a picker stays available to a later leg;
-    /// what makes it cheap is that the level lives in one constant rather than
-    /// in the label, the projection, and a test each. One checkbox is what was
-    /// asked for, and it is the choice a user can make without first learning
-    /// the level axis.
+    /// <b>A dropdown, not a checkbox</b> (ruled 2026-08-28/29). It shipped as a
+    /// checkbox meaning a fixed "4-ply and below", and the level ladder is the
+    /// choice the ask was actually about: <i>show only rollouts</i> — the top of
+    /// the ladder, <see cref="AnalysisLevel.XgRollerPlusPlus"/> — is a selection
+    /// a checkbox cannot offer at all. It is also the selection that decided the
+    /// producer's shape: an inclusive-hide ceiling can express it, an
+    /// inclusive-show floor cannot (there is no member above XG Roller++ to
+    /// stand as the floor). The offered set is
+    /// <see cref="HideableLevels"/>.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>No projection, and none wanted.</b> The producer flip is what makes
+    /// the ruled UI semantics <i>be</i> the producer semantics, so this is the
+    /// stored choice and the request value at once — see the type's own docs for
+    /// why re-introducing an <c>Effective…</c> member here would put back the
+    /// drift the flip removed. Nothing but <c>null</c> and a member of
+    /// <see cref="HideableLevels"/> can ever be in here:
+    /// <see cref="SetMaximumHiddenCandidateAnalysisLevelAsync"/> refuses
+    /// anything else, so a stored value can never be one the producer would
+    /// throw on.
     /// </para>
     ///
     /// <para>
@@ -237,12 +286,13 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// service's.</b> The best play, the play actually recorded, and the user's
     /// own answer stay visible whatever their depth, as do rollout-family and
     /// unstamped candidates — so this setting can thin the list but cannot cost
-    /// the user the rows a review exists to show. Nothing here re-states that;
-    /// the fine print on the Settings page tells the user, and the producer
-    /// enforces it.
+    /// the user the rows a review exists to show, at the top of the ladder
+    /// included. Nothing here re-states that; the fine print on the Settings
+    /// page tells the user, and the producer enforces it.
     /// </para>
     /// </summary>
-    public bool HideShallowCandidates { get; private set; } = DefaultHideShallowCandidates;
+    public AnalysisLevel? MaximumHiddenCandidateAnalysisLevel { get; private set; } =
+        DefaultMaximumHiddenCandidateAnalysisLevel;
 
     /// <summary>
     /// True when the user wants the navigation panel to stay folded. This service
@@ -286,15 +336,50 @@ internal sealed class QuizSettings(IJSRuntime js)
         SortAnalysisByDepthFirst ? CandidateOrdering.DepthFirst : CandidateOrdering.Equity;
 
     /// <summary>
-    /// <see cref="HideShallowCandidates"/> as the review request's
-    /// <see cref="DiagramRequest.MinimumCandidateAnalysisLevel"/>:
-    /// <see cref="ShallowCandidateFloor"/> when the user asked to hide the
-    /// shallow plays, and <c>null</c> — the producer's "show every candidate" —
-    /// when they did not. Null is the request's own default, so the off case
-    /// again passes nothing by passing the default.
+    /// The <see cref="MaximumHiddenCandidateAnalysisLevel"/> token vocabulary's
+    /// write half: a level as its <b>member name</b>, and "hide nothing" as the
+    /// empty string. Two readers share it — the <c>&lt;select&gt;</c> on the
+    /// Settings page (option values and the current selection) and
+    /// <see cref="ToJson"/> (which spells the empty case as JSON <c>null</c>,
+    /// the idiom of its own medium) — so the spelling is decided here once and
+    /// read back by <see cref="LevelFromToken"/> alone.
+    ///
+    /// <para>
+    /// The member name, deliberately, and not the label or the ordinal. The
+    /// label is UI text the producer may reword; the ordinal moves whenever a
+    /// level is inserted into the ladder (as <see cref="AnalysisLevel.Ply3Red"/>
+    /// was). The name is the same token the enum's own
+    /// <c>JsonStringEnumConverter</c> writes, and it is stable across both.
+    /// </para>
     /// </summary>
-    public AnalysisLevel? EffectiveMinimumCandidateAnalysisLevel =>
-        HideShallowCandidates ? ShallowCandidateFloor : null;
+    internal static string ToLevelToken(AnalysisLevel? level) =>
+        level?.ToString() ?? string.Empty;
+
+    /// <summary>
+    /// The read half of <see cref="ToLevelToken"/>, and the <b>only</b> way a
+    /// token becomes a level. Tolerant by contract, because both its callers
+    /// read text this app does not control: a stored payload a devtools session
+    /// may have edited, and a form value a browser may post. Anything that is
+    /// not a token <see cref="ToLevelToken"/> itself would have written — the
+    /// empty string, <c>null</c>, an unrecognized word, a numeric ordinal, a
+    /// display label, a differently-cased name, or <c>"Unknown"</c> — reads as
+    /// "hide nothing" rather than throwing.
+    ///
+    /// <para>
+    /// <b>Defined as the inverse of the write half</b>, by searching the offered
+    /// levels for the one whose token this is, rather than by parsing. That is
+    /// what makes the two halves one vocabulary instead of two that agree by
+    /// inspection, and it closes what parsing leaves open:
+    /// <see cref="Enum.TryParse{TEnum}(string, out TEnum)"/> accepts a numeric
+    /// ordinal and is case-insensitive by default, so <c>"6"</c> parses as
+    /// <see cref="AnalysisLevel.Ply4"/> — a <i>defined, offered</i> level, which
+    /// no membership test would reject. Silently honouring an ordinal would
+    /// re-couple this durable payload to enum numbering that the ladder's own
+    /// contract lets move (<see cref="AnalysisLevel.Ply3Red"/> moved all of it).
+    /// </para>
+    /// </summary>
+    internal static AnalysisLevel? LevelFromToken(string? token) =>
+        HideableLevels.Cast<AnalysisLevel?>().FirstOrDefault(l => ToLevelToken(l) == token);
 
     /// <summary>
     /// The completed (or in-flight) hydration, so <see cref="EnsureHydratedAsync"/>
@@ -356,13 +441,34 @@ internal sealed class QuizSettings(IJSRuntime js)
     }
 
     /// <summary>
-    /// Record the hide-shallow-plays choice, applying and persisting
-    /// immediately — the same non-deferral as
-    /// <see cref="SetSortAnalysisByDepthFirstAsync"/>.
+    /// Record the hide ceiling, applying and persisting immediately — the same
+    /// non-deferral as <see cref="SetSortAnalysisByDepthFirstAsync"/>.
     /// </summary>
-    public Task SetHideShallowCandidatesAsync(bool value)
+    /// <param name="value">
+    /// A member of <see cref="HideableLevels"/>, or <c>null</c> to hide nothing.
+    /// </param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="value"/> is <see cref="AnalysisLevel.Unknown"/> or an
+    /// undefined enum value. This is the one setter here that can be handed an
+    /// unusable argument — the others take a <c>bool</c>, which has no invalid
+    /// value — and refusing it is what keeps
+    /// <see cref="MaximumHiddenCandidateAnalysisLevel"/> unable to hold anything
+    /// <see cref="DiagramRequest.Builder.Build"/> would throw on. Unreachable
+    /// from the Settings page, whose every option comes from
+    /// <see cref="HideableLevels"/> and is read back through
+    /// <see cref="LevelFromToken"/>; that is what a guard should look like.
+    /// </exception>
+    public Task SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel? value)
     {
-        HideShallowCandidates = value;
+        if (value is AnalysisLevel level && !HideableLevels.Contains(level))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                value,
+                "Not a level a candidate list can be thinned to; use null to hide nothing.");
+        }
+
+        MaximumHiddenCandidateAnalysisLevel = value;
         return PersistAsync();
     }
 
@@ -437,6 +543,20 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// literal, and keeping it stable is what makes that pin's diff say
     /// "a field was added" rather than "the format changed".)
     /// </para>
+    ///
+    /// <para>
+    /// <b>The one field ever retired</b> is <c>hideShallowCandidates</c>, the
+    /// checkbox <see cref="MaximumHiddenCandidateAnalysisLevel"/> replaced. It
+    /// was the last field written, so every other field kept its position and
+    /// the nullable level took its place at the end. Retiring it cost no
+    /// migration for two independent reasons: it never shipped in a release, so
+    /// no user's browser holds one; and <see cref="Restore"/> ignores fields it
+    /// does not know, so a developer's leftover entry restores to the current
+    /// default — hide nothing — exactly as an absent field would. A field with
+    /// an installed base would need the opposite treatment (read the old name,
+    /// write the new), and this note is here so the next retirement asks that
+    /// question rather than copying this one.
+    /// </para>
     /// </summary>
     private string ToJson()
     {
@@ -449,7 +569,20 @@ internal sealed class QuizSettings(IJSRuntime js)
             writer.WriteBoolean(KeepNavigationPanelFoldedField, KeepNavigationPanelFolded);
             writer.WriteBoolean(MaximizeBoardWhileAnsweringField, MaximizeBoardWhileAnswering);
             writer.WriteBoolean(SortAnalysisByDepthFirstField, SortAnalysisByDepthFirst);
-            writer.WriteBoolean(HideShallowCandidatesField, HideShallowCandidates);
+            // The only non-boolean field, and the only one whose "unset" is a
+            // JSON null rather than a false: the setting's own default is the
+            // producer's null, and "hide nothing" has no level to name. Written
+            // as the level's member name (ToLevelToken), never its label or its
+            // ordinal.
+            if (MaximumHiddenCandidateAnalysisLevel is AnalysisLevel ceiling)
+            {
+                writer.WriteString(
+                    MaximumHiddenCandidateAnalysisLevelField, ToLevelToken(ceiling));
+            }
+            else
+            {
+                writer.WriteNull(MaximumHiddenCandidateAnalysisLevelField);
+            }
             writer.WriteEndObject();
         }
         return Encoding.UTF8.GetString(buffer.WrittenSpan);
@@ -461,11 +594,12 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// extend cannot afford a fail-loud restore: a payload written by a newer
     /// build (extra fields), an older one (missing fields), or a hand-edited
     /// devtools session must all leave the app usable. So a missing or
-    /// non-boolean field falls back to that setting's default, an unknown field
-    /// is ignored, and anything that is not a JSON object — including outright
-    /// malformed text — leaves every default standing. Values are read into
-    /// locals first so a partial read can never assign a mix of stored and
-    /// default state.
+    /// wrongly-typed field falls back to that setting's default, an unknown
+    /// field is ignored — including <c>hideShallowCandidates</c>, the one field
+    /// this format has retired (see <see cref="ToJson"/>) — and anything that is
+    /// not a JSON object, including outright malformed text, leaves every
+    /// default standing. Values are read into locals first so a partial read can
+    /// never assign a mix of stored and default state.
     /// </summary>
     private void Restore(string? json)
     {
@@ -476,7 +610,7 @@ internal sealed class QuizSettings(IJSRuntime js)
         bool keepNavigationPanelFolded;
         bool maximizeBoardWhileAnswering;
         bool sortAnalysisByDepthFirst;
-        bool hideShallowCandidates;
+        AnalysisLevel? maximumHiddenCandidateAnalysisLevel;
         try
         {
             using var document = JsonDocument.Parse(json);
@@ -497,13 +631,15 @@ internal sealed class QuizSettings(IJSRuntime js)
             maximizeBoardWhileAnswering =
                 ReadBool(root, MaximizeBoardWhileAnsweringField, DefaultMaximizeBoardWhileAnswering);
             // Both absent from every payload written before the depth treatment,
-            // and both defaulting to off — so an entry from an older build
-            // restores to exactly today's rendering, which is what lets these
-            // ship with no migration and no version stamp.
+            // and both defaulting to "untreated" — so an entry from an older
+            // build restores to exactly today's rendering, which is what lets
+            // these ship with no migration and no version stamp.
             sortAnalysisByDepthFirst =
                 ReadBool(root, SortAnalysisByDepthFirstField, DefaultSortAnalysisByDepthFirst);
-            hideShallowCandidates =
-                ReadBool(root, HideShallowCandidatesField, DefaultHideShallowCandidates);
+            maximumHiddenCandidateAnalysisLevel = ReadLevel(
+                root,
+                MaximumHiddenCandidateAnalysisLevelField,
+                DefaultMaximumHiddenCandidateAnalysisLevel);
         }
         catch (JsonException)
         {
@@ -515,7 +651,7 @@ internal sealed class QuizSettings(IJSRuntime js)
         KeepNavigationPanelFolded = keepNavigationPanelFolded;
         MaximizeBoardWhileAnswering = maximizeBoardWhileAnswering;
         SortAnalysisByDepthFirst = sortAnalysisByDepthFirst;
-        HideShallowCandidates = hideShallowCandidates;
+        MaximumHiddenCandidateAnalysisLevel = maximumHiddenCandidateAnalysisLevel;
     }
 
     private static bool ReadBool(JsonElement root, string name, bool fallback) =>
@@ -523,4 +659,28 @@ internal sealed class QuizSettings(IJSRuntime js)
         && value.ValueKind is JsonValueKind.True or JsonValueKind.False
             ? value.GetBoolean()
             : fallback;
+
+    /// <summary>
+    /// <see cref="ReadBool"/>'s counterpart for the one non-boolean field,
+    /// holding the same two rules — an unusable value falls back to the
+    /// setting's default, and an explicit stored choice outranks that default.
+    /// The second rule is what makes the JSON-null case its own branch rather
+    /// than another failure: <c>null</c> is how this format spells the user's
+    /// explicit "hide nothing", and it has to keep winning if the default ever
+    /// stops being null, exactly as an explicit stored <c>false</c> does for the
+    /// maximize field. Everything else unusable — absent, a non-string, or a
+    /// string <see cref="LevelFromToken"/> does not recognize — is the default.
+    /// </summary>
+    private static AnalysisLevel? ReadLevel(
+        JsonElement root, string name, AnalysisLevel? fallback)
+    {
+        if (!root.TryGetProperty(name, out var value)) return fallback;
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Null => null,
+            JsonValueKind.String => LevelFromToken(value.GetString()) ?? fallback,
+            _ => fallback,
+        };
+    }
 }

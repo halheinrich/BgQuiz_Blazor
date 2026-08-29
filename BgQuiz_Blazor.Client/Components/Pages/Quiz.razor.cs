@@ -392,7 +392,7 @@ public partial class Quiz : ComponentBase, IDisposable
     /// </para>
     /// <para>
     /// Both answer kinds then carry the user's depth treatment — the candidate
-    /// ordering and the analysis-depth floor. This is the only request that
+    /// ordering and the hidden-depth ceiling. This is the only request that
     /// does: <see cref="BuildRenderRequest"/> builds a
     /// <see cref="DiagramMode.Problem"/> request, whose panel is blank because
     /// the candidate list is the answer being graded.
@@ -422,14 +422,17 @@ public partial class Quiz : ComponentBase, IDisposable
         }
 
         // The depth treatment, assigned unconditionally rather than behind a
-        // branch: with either setting off its projection is the producer's own
+        // branch: with either setting untouched its value is the producer's own
         // default (Equity / null), which the producer defines as the untouched
         // rendering — so passing the default IS passing nothing, and there is no
-        // "leave it alone" path that could drift from the "set it" one. What
-        // each checkbox means stays in QuizSettings, which is the only type here
-        // that knows the level "4-ply and below" translates to.
+        // "leave it alone" path that could drift from the "set it" one. What the
+        // ordering checkbox means stays in QuizSettings; the hide ceiling means
+        // itself — the user picks a level off the producer's own ladder and it
+        // travels here unchanged, which is the point of the producer's
+        // inclusive-hide shape (halheinrich/backgammon#66).
         builder.CandidateOrdering = Settings.EffectiveCandidateOrdering;
-        builder.MinimumCandidateAnalysisLevel = Settings.EffectiveMinimumCandidateAnalysisLevel;
+        builder.MaximumHiddenCandidateAnalysisLevel =
+            Settings.MaximumHiddenCandidateAnalysisLevel;
 
         return builder.Build();
     }

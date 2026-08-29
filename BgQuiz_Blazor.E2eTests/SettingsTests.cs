@@ -44,6 +44,13 @@ public sealed class SettingsTests : E2eTestBase
     private ILocator BackToQuizButton =>
         Page.GetByRole(AriaRole.Button, new() { Name = "Back to quiz" });
 
+    /// <summary>
+    /// The analysis-depth ceiling dropdown (<c>halheinrich/backgammon#66</c>).
+    /// By id rather than by its accessible name, deliberately: the name is the
+    /// setting's own prose and this suite already keys enough on copy.
+    /// </summary>
+    private ILocator HiddenLevelSelect => Page.Locator("#settingsHiddenLevel");
+
     private async Task GoToSettingsAsync()
     {
         await Page.GetByRole(AriaRole.Link, new() { Name = "Settings" }).ClickAsync();
@@ -67,6 +74,63 @@ public sealed class SettingsTests : E2eTestBase
         await Expect(HomeBoardRightRadio).ToBeCheckedAsync();
         await Expect(HomeBoardLeftRadio).Not.ToBeCheckedAsync();
         await Expect(KeepFoldedCheckbox).Not.ToBeCheckedAsync();
+    }
+
+    /// <summary>
+    /// The depth-ceiling dropdown's selection survives a reload — the third
+    /// thing about this page only a real browser can show
+    /// (<c>halheinrich/backgammon#66</c>).
+    ///
+    /// <para>
+    /// bUnit can pin the <c>value</c> attribute the page renders, and does; it
+    /// cannot show that the attribute actually selects an option. Blazor does
+    /// not apply <c>value</c> to a <c>&lt;select&gt;</c> the way it applies an
+    /// attribute to an input — the options have to exist first, so the runtime
+    /// defers it — and a rendered-but-unapplied value is a live-only failure
+    /// mode: the user's stored choice would silently show as "Hide nothing"
+    /// while the request still carried it. That is the shape the maximize and
+    /// fold scenarios above exist for, applied to the one control on this page
+    /// that is not a checkbox.
+    /// </para>
+    ///
+    /// <para>
+    /// The reload, not just the round trip, is the point: it discards the WASM
+    /// runtime and re-hydrates from localStorage, so the selection shown
+    /// afterwards came back through the storage format rather than from state
+    /// the page never let go of.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task DepthCeilingChoice_IsShownSelected_AfterAReload()
+    {
+        await BootHomeAsync();
+        await GoToSettingsAsync();
+
+        // A fresh visitor hides nothing, and the control says so rather than
+        // sitting blank.
+        await Expect(HiddenLevelSelect).ToHaveValueAsync(string.Empty);
+        await Expect(HiddenLevelSelect).ToContainTextAsync("Hide nothing");
+
+        // The ruling's own selection ("show only rollouts"), chosen by the LABEL
+        // a user reads — which also proves the label and the value token belong
+        // to the same option.
+        await HiddenLevelSelect.SelectOptionAsync(new SelectOptionValue { Label = "XG Roller++" });
+        await ExpectStoredCeilingAsync("XgRollerPlusPlus");
+
+        await Page.ReloadAsync();
+        await Expect(KeepFoldedCheckbox).ToBeVisibleAsync();  // hydration landed
+
+        await Expect(HiddenLevelSelect).ToHaveValueAsync("XgRollerPlusPlus");
+
+        // And cleared the way a user clears it, which is a real gesture and not
+        // just the absence of one.
+        await HiddenLevelSelect.SelectOptionAsync(new SelectOptionValue { Value = string.Empty });
+        await ExpectStoredCeilingAsync(null);
+
+        await Page.ReloadAsync();
+        await Expect(KeepFoldedCheckbox).ToBeVisibleAsync();
+
+        await Expect(HiddenLevelSelect).ToHaveValueAsync(string.Empty);
     }
 
     /// <summary>
@@ -262,6 +326,37 @@ public sealed class SettingsTests : E2eTestBase
             }
             """,
             folded);
+
+    /// <summary>
+    /// Wait until the stored settings entry carries the given depth ceiling —
+    /// the same "the handler ran to completion" evidence
+    /// <see cref="ExpectStoredFoldAsync"/> provides, and needed for the same
+    /// reason: the assertions that follow are taken after a reload, which would
+    /// happily race a write that had not gone out yet and then prove nothing.
+    ///
+    /// <para>
+    /// Key and field are literals per this suite's independent-literal
+    /// convention, and so is the token: it is the wire spelling of the level, so
+    /// reading it here rather than the label is what makes this a check on the
+    /// stored format rather than on the control.
+    /// </para>
+    /// </summary>
+    /// <param name="token">The stored level's member name, or null for none.</param>
+    private Task ExpectStoredCeilingAsync(string? token) =>
+        Page.WaitForFunctionAsync(
+            """
+            expected => {
+                try {
+                    const raw = localStorage.getItem('xg_quizSettings');
+                    if (raw === null) return false;
+                    const stored = JSON.parse(raw).maximumHiddenCandidateAnalysisLevel;
+                    return (stored ?? null) === expected;
+                } catch (e) {
+                    return false;
+                }
+            }
+            """,
+            token);
 
     private Task<double> PanelWidthAsync() =>
         NavigationPanel.EvaluateAsync<double>("el => el.getBoundingClientRect().width");

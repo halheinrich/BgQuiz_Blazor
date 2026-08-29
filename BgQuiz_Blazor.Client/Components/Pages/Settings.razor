@@ -2,8 +2,9 @@
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
 
 @using BgQuiz_Blazor.Client.Quiz
+@using XgFilter_Lib.Enums
 
-@inject QuizSettings QuizSettings
+@inject QuizSettings UserSettings
 @inject QuizController Controller
 @inject NavigationManager Nav
 
@@ -35,14 +36,14 @@
                 <div class="form-check">
                     <input class="form-check-input" type="radio" name="homeBoardSide"
                            id="settingsSideRight"
-                           checked="@QuizSettings.HomeBoardOnRight"
+                           checked="@UserSettings.HomeBoardOnRight"
                            @onchange="@(() => SetHomeBoardOnRightAsync(true))" />
                     <label class="form-check-label" for="settingsSideRight">Right</label>
                 </div>
                 <div class="form-check">
                     <input class="form-check-input" type="radio" name="homeBoardSide"
                            id="settingsSideLeft"
-                           checked="@(!QuizSettings.HomeBoardOnRight)"
+                           checked="@(!UserSettings.HomeBoardOnRight)"
                            @onchange="@(() => SetHomeBoardOnRightAsync(false))" />
                     <label class="form-check-label" for="settingsSideLeft">Left</label>
                 </div>
@@ -50,7 +51,7 @@
 
             <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="settingsRandomizeSide"
-                       checked="@QuizSettings.RandomizeSidePerProblem"
+                       checked="@UserSettings.RandomizeSidePerProblem"
                        @onchange="@(e => SetRandomizeSidePerProblemAsync((bool)e.Value!))" />
                 <label class="form-check-label" for="settingsRandomizeSide">
                     Use a random side for each problem
@@ -77,7 +78,7 @@
                row below, which states its deferral for the same reason. *@
             <div class="form-check mt-3">
                 <input class="form-check-input" type="checkbox" id="settingsMaximizeBoard"
-                       checked="@QuizSettings.MaximizeBoardWhileAnswering"
+                       checked="@UserSettings.MaximizeBoardWhileAnswering"
                        @onchange="@(e => SetMaximizeBoardWhileAnsweringAsync((bool)e.Value!))" />
                 <label class="form-check-label" for="settingsMaximizeBoard">
                     Make the board as large as possible while you answer
@@ -100,19 +101,22 @@
            placement is worth pinning — so filing these under "The board" would
            cost that grouping its meaning.
 
-           Two checkboxes and not one grouped control: they are independent
+           Two controls and not one grouped control: they are independent
            (either, both, or neither is a real choice) and nothing composes them.
 
-           The floor is a checkbox rather than a level picker, as ruled. The
-           producer's floor is general, so a picker stays open to a later leg;
-           what the words here must carry meanwhile is which level "shallow"
-           means, since the control itself cannot say it. *@
+           The ceiling is a dropdown over the producer's own level ladder (ruled
+           2026-08-28/29), not the checkbox it shipped as. A checkbox could not
+           offer "show only rollouts" — the top of the ladder — which is the
+           selection the ask was about, and it forced the words to carry a level
+           the control could not say. The options come from QuizSettings, which
+           enumerates them from the producer's enum in its contractual order;
+           this page states no level of its own. *@
         <fieldset class="mb-4">
             <legend class="h5">The analysis panel</legend>
 
             <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="settingsDepthFirst"
-                       checked="@QuizSettings.SortAnalysisByDepthFirst"
+                       checked="@UserSettings.SortAnalysisByDepthFirst"
                        @onchange="@(e => SetSortAnalysisByDepthFirstAsync((bool)e.Value!))" />
                 <label class="form-check-label" for="settingsDepthFirst">
                     Sort the analysis by depth first
@@ -130,21 +134,42 @@
                 rank number and markers as it moves.
             </div>
 
-            <div class="form-check mt-3">
-                <input class="form-check-input" type="checkbox" id="settingsHideShallow"
-                       checked="@QuizSettings.HideShallowCandidates"
-                       @onchange="@(e => SetHideShallowCandidatesAsync((bool)e.Value!))" />
-                <label class="form-check-label" for="settingsHideShallow">
-                    Hide plays analyzed at 4-ply and below
+            @* The empty option is the default and says what it does ("Hide
+               nothing") rather than sitting blank: an unselected dropdown is
+               otherwise indistinguishable from one whose value failed to load.
+               Its value is the empty token, which is what LevelFromToken reads
+               back as null — the page never spells the null itself. *@
+            <div class="mt-3">
+                <label class="form-label mb-1" for="settingsHiddenLevel">
+                    Hide plays analyzed at this level and below
                 </label>
+                <select class="form-select" id="settingsHiddenLevel"
+                        value="@QuizSettings.ToLevelToken(UserSettings.MaximumHiddenCandidateAnalysisLevel)"
+                        @onchange="@(e => SetMaximumHiddenLevelAsync(e.Value as string))">
+                    <option value="">Hide nothing</option>
+                    @foreach (var level in QuizSettings.HideableLevels)
+                    {
+                        <option value="@QuizSettings.ToLevelToken(level)">@level.ToLabel()</option>
+                    }
+                </select>
             </div>
-            @* The exemptions are stated, not left to be discovered: a setting
+            @* Leads with the reach of the choice, because "and below" is the one
+               thing a ladder of levels does not show: the list is a rigor order
+               in which the ply and XG Roller families interleave, so 4-ply also
+               takes XG Roller with it. The two ends are named because they are
+               the selections a reader is least sure of.
+
+               The exemptions are stated, not left to be discovered: a setting
                whose name is "hide" has to say what it will never hide, or a user
                cannot tell a thinned list from a list that lost the row they were
                looking for. They are the producer's contract, which is why the
-               words can promise them. *@
+               words can promise them — and they hold at the top of the ladder
+               too, which is what makes "show only rollouts" safe to offer. *@
             <div class="form-text">
-                A shallow look at a play is not the analysis you came to read, and a
+                The level you pick is hidden along with every level below it, so
+                4-ply also hides XG Roller, 3-ply and everything shallower, and
+                XG Roller++ leaves only the plays you rolled out. A shallow look
+                at a play is not the analysis you came to read, and a
                 long list of them buries the analysis that is. The best play and your
                 own answer are always listed whatever their depth, along with the
                 play that was actually made; rolled-out plays are always listed too,
@@ -156,7 +181,7 @@
             <legend class="h5">The navigation panel</legend>
             <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="settingsKeepNavFolded"
-                       checked="@QuizSettings.KeepNavigationPanelFolded"
+                       checked="@UserSettings.KeepNavigationPanelFolded"
                        @onchange="@(e => SetKeepNavigationPanelFoldedAsync((bool)e.Value!))" />
                 <label class="form-check-label" for="settingsKeepNavFolded">
                     Keep the navigation panel folded

@@ -8180,14 +8180,17 @@ public class PageTests : BunitContext
         // would agree with a page that read nothing. The maximize field is stored
         // false for that reason since #113 flipped its default to true — stored
         // true would now be indistinguishable from the page-local default this
-        // test exists to rule out. The two depth-treatment boxes default off, so
-        // for them the opposite is stored true.
+        // test exists to rule out. The depth-first box defaults off, so for it
+        // the opposite is stored true; the hide ceiling defaults to none, so the
+        // opposite is any level at all — and XG Roller++ is the one worth
+        // spending it on, being the selection a checkbox could never have made.
         WithController();
         JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey).SetResult(
             """
             {"homeBoardOnRight":false,"randomizeSidePerProblem":true,
              "keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false,
-             "sortAnalysisByDepthFirst":true,"hideShallowCandidates":true}
+             "sortAnalysisByDepthFirst":true,
+             "maximumHiddenCandidateAnalysisLevel":"XgRollerPlusPlus"}
             """);
 
         var cut = Render<SettingsPage>();
@@ -8198,7 +8201,8 @@ public class PageTests : BunitContext
         Assert.True(cut.Find("#settingsKeepNavFolded").HasAttribute("checked"));
         Assert.False(cut.Find("#settingsMaximizeBoard").HasAttribute("checked"));
         Assert.True(cut.Find("#settingsDepthFirst").HasAttribute("checked"));
-        Assert.True(cut.Find("#settingsHideShallow").HasAttribute("checked"));
+        Assert.Equal(
+            "XgRollerPlusPlus", cut.Find("#settingsHiddenLevel").GetAttribute("value"));
     }
 
     [Fact]
@@ -8283,19 +8287,28 @@ public class PageTests : BunitContext
         await cut.Find("#settingsMaximizeBoard").ChangeAsync(new() { Value = false });
         Assert.False(Settings().MaximizeBoardWhileAnswering);
 
-        // The depth-treatment pair default off, so away from the default is on.
+        // The depth-first box defaults off, so away from the default is on.
         await cut.Find("#settingsDepthFirst").ChangeAsync(new() { Value = true });
         Assert.True(Settings().SortAnalysisByDepthFirst);
 
-        await cut.Find("#settingsHideShallow").ChangeAsync(new() { Value = true });
-        Assert.True(Settings().HideShallowCandidates);
+        // The dropdown's away-from-default is any level; the change carries the
+        // OPTION VALUE a browser would post, which is the member-name token —
+        // proving the page's handler reads the same vocabulary its options are
+        // written in, rather than the label the user clicked.
+        await cut.Find("#settingsHiddenLevel").ChangeAsync(new() { Value = "Ply4" });
+        Assert.Equal(AnalysisLevel.Ply4, Settings().MaximumHiddenCandidateAnalysisLevel);
 
         // …and each landed in the one storage entry, with no further gesture.
         var stored = JSInterop.Invocations["localStorage.setItem"]
             .Last(i => (string?)i.Arguments[0] == QuizSettings.StorageKey).Arguments[1] as string;
         Assert.Equal(
-            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false,"sortAnalysisByDepthFirst":true,"hideShallowCandidates":true}""",
+            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false,"sortAnalysisByDepthFirst":true,"maximumHiddenCandidateAnalysisLevel":"Ply4"}""",
             stored);
+
+        // And back to none the way a user clears it: the empty option, which is
+        // the only thing on the page that means "hide nothing".
+        await cut.Find("#settingsHiddenLevel").ChangeAsync(new() { Value = "" });
+        Assert.Null(Settings().MaximumHiddenCandidateAnalysisLevel);
     }
 
     [Fact]
@@ -8542,7 +8555,7 @@ public class PageTests : BunitContext
         Assert.NotNull(c.Review);
 
         Assert.Equal(CandidateOrdering.Equity, SolutionRequest(cut).CandidateOrdering);
-        Assert.Null(SolutionRequest(cut).MinimumCandidateAnalysisLevel);
+        Assert.Null(SolutionRequest(cut).MaximumHiddenCandidateAnalysisLevel);
     }
 
     [Fact]
@@ -8560,26 +8573,42 @@ public class PageTests : BunitContext
         await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
 
         Assert.Equal(CandidateOrdering.DepthFirst, SolutionRequest(cut).CandidateOrdering);
-        Assert.Null(SolutionRequest(cut).MinimumCandidateAnalysisLevel);
+        Assert.Null(SolutionRequest(cut).MaximumHiddenCandidateAnalysisLevel);
     }
 
-    [Fact]
-    public async Task Quiz_Solution_HideShallowOn_AsksForAFivePlyFloor()
+    /// <summary>Every level the Settings dropdown offers.</summary>
+    public static TheoryData<AnalysisLevel> EveryHideableLevel() =>
+        new(QuizSettings.HideableLevels);
+
+    [Theory]
+    [MemberData(nameof(EveryHideableLevel))]
+    public async Task Quiz_Solution_HiddenLevel_ReachesTheRequestVerbatim(AnalysisLevel level)
     {
-        // Setting → request, for the floor half — and the level itself, because
-        // the label a user reads says "4-ply and below" while the request says
-        // Ply5 (the producer's floor is inclusive). QuizSettings owns that
-        // arithmetic and pins it directly; this is the end-to-end half, proving
-        // the value that reaches the producer is the one QuizSettings computed
-        // and not something the page re-derived.
+        // Setting → request for the ceiling half, over every level the dropdown
+        // offers rather than one of them. Verbatim is the whole claim: the
+        // producer was re-cut to an inclusive-HIDE ceiling precisely so the
+        // ruled UI selection IS the producer value, and nothing between the two
+        // adjusts it. This is the end-to-end half of that — a page that
+        // re-derived the level (a successor lookup, the retired
+        // ShallowCandidateFloor's off-by-one) would fail here on ten of the
+        // eleven rows.
+        //
+        // The XG Roller++ row is the one that could not exist before the flip:
+        // "show only rollouts" needs a ceiling at the TOP of the ladder, which
+        // an inclusive-show floor has no member to express.
+        //
+        // The ordering is asserted to stay put in the same breath: the two
+        // settings are independent, and a wiring that fed the dropdown to both
+        // options would otherwise pass a test that only looked at the one it was
+        // meant to move.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        await Settings().SetHideShallowCandidatesAsync(true);
+        await Settings().SetMaximumHiddenCandidateAnalysisLevelAsync(level);
 
         var cut = Render<QuizPage>();
         await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
 
-        Assert.Equal(AnalysisLevel.Ply5, SolutionRequest(cut).MinimumCandidateAnalysisLevel);
+        Assert.Equal(level, SolutionRequest(cut).MaximumHiddenCandidateAnalysisLevel);
         Assert.Equal(CandidateOrdering.Equity, SolutionRequest(cut).CandidateOrdering);
     }
 
@@ -8595,14 +8624,16 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         await Settings().SetSortAnalysisByDepthFirstAsync(true);
-        await Settings().SetHideShallowCandidatesAsync(true);
+        await Settings().SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.XgRollerPlusPlus);
 
         var cut = Render<QuizPage>();
         await cut.InvokeAsync(() => c.SubmitCubeAction(CubeDecisionPair.TooGood));
         Assert.NotNull(c.Review);
 
         Assert.Equal(CandidateOrdering.DepthFirst, SolutionRequest(cut).CandidateOrdering);
-        Assert.Equal(AnalysisLevel.Ply5, SolutionRequest(cut).MinimumCandidateAnalysisLevel);
+        Assert.Equal(
+            AnalysisLevel.XgRollerPlusPlus,
+            SolutionRequest(cut).MaximumHiddenCandidateAnalysisLevel);
     }
 
     [Fact]
@@ -8612,12 +8643,12 @@ public class PageTests : BunitContext
         // so it cannot pass by their being off. The answering board is a
         // DiagramMode.Problem request: its panel is blank because the candidate
         // list is the answer being graded, so ordering or filtering a list that
-        // is not drawn is meaningless — and a floor stamped on the problem view
+        // is not drawn is meaningless — and a ceiling stamped on the problem view
         // would be a standing invitation to leak it into the panel later.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         await Settings().SetSortAnalysisByDepthFirstAsync(true);
-        await Settings().SetHideShallowCandidatesAsync(true);
+        await Settings().SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.XgRollerPlusPlus);
 
         var cut = Render<QuizPage>();
         Assert.Null(c.Review); // answering
@@ -8625,7 +8656,7 @@ public class PageTests : BunitContext
         var request = cut.FindComponent<BackgammonPlayEntry>().Instance.Request!;
         Assert.Equal(DiagramMode.Problem, request.Mode);
         Assert.Equal(CandidateOrdering.Equity, request.CandidateOrdering);
-        Assert.Null(request.MinimumCandidateAnalysisLevel);
+        Assert.Null(request.MaximumHiddenCandidateAnalysisLevel);
     }
 
     [Fact]
@@ -8673,11 +8704,11 @@ public class PageTests : BunitContext
         var cut = Render<SettingsPage>();
 
         var depthFirst = cut.Find("#settingsDepthFirst");
-        var hideShallow = cut.Find("#settingsHideShallow");
+        var hiddenLevel = cut.Find("#settingsHiddenLevel");
         var fieldset = depthFirst.Closest("fieldset")!;
 
         // Together…
-        Assert.Same(fieldset, hideShallow.Closest("fieldset"));
+        Assert.Same(fieldset, hiddenLevel.Closest("fieldset"));
         // …and apart from the board's, which owns the side and maximize rows.
         Assert.NotSame(fieldset, cut.Find("#settingsRandomizeSide").Closest("fieldset"));
         Assert.NotSame(fieldset, cut.Find("#settingsMaximizeBoard").Closest("fieldset"));
@@ -8686,12 +8717,15 @@ public class PageTests : BunitContext
 
         Assert.Contains("The analysis panel", Normalize(fieldset.TextContent));
 
-        // Both ship off: the only default that leaves an existing user's review
-        // exactly as they left it. This is where a fresh visit's state is
-        // pinned, the counterpart to the stored-true pin in
-        // Settings_RendersEveryControl_ReflectingTheStoredValues.
+        // Both ship untreated: the only default that leaves an existing user's
+        // review exactly as they left it. This is where a fresh visit's state is
+        // pinned, the counterpart to the stored-value pin in
+        // Settings_RendersEveryControl_ReflectingTheStoredValues. For the
+        // dropdown that is the empty token — the "Hide nothing" option — not an
+        // absent value attribute, because a blank select would be
+        // indistinguishable from one whose value failed to render.
         Assert.False(depthFirst.HasAttribute("checked"));
-        Assert.False(hideShallow.HasAttribute("checked"));
+        Assert.Equal(string.Empty, hiddenLevel.GetAttribute("value"));
     }
 
     [Fact]
@@ -8714,27 +8748,73 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public void Settings_HideShallow_NamesTheLevel_AndWhatIsNeverHidden()
+    public void Settings_HiddenLevel_OffersTheLadder_AndNothingElse()
     {
-        // The label carries the level, because the control cannot: a checkbox
-        // called "hide shallow plays" leaves the user guessing where shallow
-        // stops, and the level is the one fact they need to decide. "4-ply and
-        // below" is the tester's own wording, and its companion constant is
-        // AnalysisLevel.Ply5 — the producer's floor is inclusive, and
-        // HideShallowSetting_ProjectsToAFloorOfFivePly_BecauseTheFloorIsInclusive
-        // is the other half of that claim.
+        // WHAT the user may pick, read off the rendered control: the empty
+        // "Hide nothing" option first, then the eleven levels in the ladder's
+        // contractual order.
+        //
+        // The option VALUES are asserted exhaustively, because which levels this
+        // app offers and in what order is this repo's claim. Two LABELS are then
+        // spot-checked and no more: the labels are the producer's own
+        // [Description] text reached through ToLabel, so restating all eleven
+        // here would make this suite fail for a producer relabel — the thing the
+        // depth-treatment section deliberately refuses to do. Two are enough to
+        // prove ToLabel is what renders them, which is the only label claim this
+        // page makes; a hand-rolled map or a bare ToString fails on both.
+        //
+        // Unknown must not appear at any price. It is outside the rigor scale
+        // (clause (a)), and DiagramRequest.Builder.Build throws on it, so an
+        // Unknown option would be a selectable crash.
+        WithController();
+
+        var cut = Render<SettingsPage>();
+
+        var options = cut.FindAll("#settingsHiddenLevel option");
+
+        Assert.Equal(
+            new[]
+            {
+                "", "Ply1", "Ply2", "Ply3Red", "Ply3", "XgRoller", "Ply4",
+                "XgRollerPlus", "Ply5", "Ply6", "Ply7", "XgRollerPlusPlus",
+            },
+            options.Select(o => o.GetAttribute("value")));
+
+        Assert.Equal("Hide nothing", Normalize(options[0].TextContent));
+        Assert.Equal("4-ply", Normalize(options[6].TextContent));
+        Assert.Equal("XG Roller++", Normalize(options[^1].TextContent));
+        Assert.DoesNotContain("Unknown", Normalize(cut.Find("#settingsHiddenLevel").TextContent));
+    }
+
+    [Fact]
+    public void Settings_HiddenLevel_SaysHowFarItReaches_AndWhatIsNeverHidden()
+    {
+        // The reach, because it is the one thing a ladder of options cannot
+        // show: picking a level takes every level below it too, and "below" runs
+        // along a rigor order in which the ply and XG Roller families
+        // interleave — so 4-ply silently takes XG Roller with it. The two worked
+        // examples are the ends a reader is least sure of, and the XG Roller++
+        // one is the ruling that drove the producer's shape.
         //
         // The exemptions are the rest: a setting whose name is "hide" has to say
         // what it will never hide, or a thinned list is indistinguishable from a
         // list that lost the row the user was looking for. They are the
         // producer's contract, which is why the words are allowed to promise
-        // them.
+        // them — and they hold at the top of the ladder too, which is what makes
+        // "leaves only the plays you rolled out" a safe thing to print.
+        //
+        // Keyed on the fieldset's own text, so a rewording that drops any of
+        // these claims fails here rather than going vacuously green.
         WithController();
 
         var cut = Render<SettingsPage>();
 
-        var fieldset = Normalize(cut.Find("#settingsHideShallow").Closest("fieldset")!.TextContent);
-        Assert.Contains("Hide plays analyzed at 4-ply and below", fieldset);
+        var fieldset = Normalize(
+            cut.Find("#settingsHiddenLevel").Closest("fieldset")!.TextContent);
+        Assert.Contains("Hide plays analyzed at this level and below", fieldset);
+        Assert.Contains("hidden along with every level below it", fieldset);
+        Assert.Contains("4-ply also hides XG Roller", fieldset);
+        Assert.Contains("XG Roller++ leaves only the plays you rolled out", fieldset);
         Assert.Contains("The best play and your own answer are always listed", fieldset);
         Assert.Contains("the play that was actually made", fieldset);
         Assert.Contains("rolled-out plays are always listed too", fieldset);

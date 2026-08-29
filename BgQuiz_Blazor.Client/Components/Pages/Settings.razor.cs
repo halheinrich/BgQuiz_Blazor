@@ -1,3 +1,4 @@
+using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
 
 namespace BgQuiz_Blazor.Client.Components.Pages;
@@ -54,27 +55,34 @@ public partial class Settings : ComponentBase
     /// <summary>Hydrate the settings, then let the controls render against them.</summary>
     protected override async Task OnInitializedAsync()
     {
-        await QuizSettings.EnsureHydratedAsync();
+        await UserSettings.EnsureHydratedAsync();
         _hydrated = true;
     }
 
     private Task SetHomeBoardOnRightAsync(bool value) =>
-        QuizSettings.SetHomeBoardOnRightAsync(value);
+        UserSettings.SetHomeBoardOnRightAsync(value);
 
     private Task SetRandomizeSidePerProblemAsync(bool value) =>
-        QuizSettings.SetRandomizeSidePerProblemAsync(value);
+        UserSettings.SetRandomizeSidePerProblemAsync(value);
 
     private Task SetMaximizeBoardWhileAnsweringAsync(bool value) =>
-        QuizSettings.SetMaximizeBoardWhileAnsweringAsync(value);
+        UserSettings.SetMaximizeBoardWhileAnsweringAsync(value);
 
     private Task SetSortAnalysisByDepthFirstAsync(bool value) =>
-        QuizSettings.SetSortAnalysisByDepthFirstAsync(value);
+        UserSettings.SetSortAnalysisByDepthFirstAsync(value);
 
-    private Task SetHideShallowCandidatesAsync(bool value) =>
-        QuizSettings.SetHideShallowCandidatesAsync(value);
+    /// <summary>
+    /// The hide ceiling, from the <c>&lt;select&gt;</c>'s posted token. The
+    /// token vocabulary is <c>QuizSettings</c>'s — the same pair of members the
+    /// option values are written with and the stored payload is read with — so
+    /// the page maps nothing and cannot spell "hide nothing" a second way.
+    /// </summary>
+    private Task SetMaximumHiddenLevelAsync(string? token) =>
+        UserSettings.SetMaximumHiddenCandidateAnalysisLevelAsync(
+            QuizSettings.LevelFromToken(token));
 
     private Task SetKeepNavigationPanelFoldedAsync(bool value) =>
-        QuizSettings.SetKeepNavigationPanelFoldedAsync(value);
+        UserSettings.SetKeepNavigationPanelFoldedAsync(value);
 
     private void BackToQuiz()
     {
