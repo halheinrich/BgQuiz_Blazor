@@ -17,6 +17,31 @@ public sealed class ApplyMixGatingTests : FsAccessFakeTestBase
 
     private ILocator MixApplies => Page.Locator("#mixApplies");
 
+    /// <summary>
+    /// The filter panel's equity-error lower bound — the field these scenarios
+    /// dirty the filter with (<c>halheinrich/backgammon#157</c>).
+    ///
+    /// <para>
+    /// By <b>id</b>, which the panel carries for exactly this. Both of its range
+    /// facets — equity error and move number — label their boxes "Min" and
+    /// "Max", so a placeholder match names a pair of fields and not a field;
+    /// this was <c>GetByPlaceholder("Min").First</c>, which resolved by whichever
+    /// section renders first rather than by which facet was meant. It happened to
+    /// land here, and would have moved to the move-number box the day the panel
+    /// reordered its sections or the collapsed half opened — silently, since
+    /// these tests only ever assert on the gate the edit trips, never on the
+    /// value that tripped it.
+    /// </para>
+    ///
+    /// <para>
+    /// Which facet is meant is not arbitrary: the value filled below is
+    /// <c>0.05</c>, an equity in a field whose step is 0.001. The move-number
+    /// box is <c>step="1" min="1"</c>, where the same string is not a bound at
+    /// all.
+    /// </para>
+    /// </summary>
+    private ILocator ErrorMinField => Page.Locator("#errorMin");
+
     [Fact]
     public async Task MixActivation_IsGatedUntilApplyFilter_AndRevokedByALaterFilterEdit()
     {
@@ -41,7 +66,7 @@ public sealed class ApplyMixGatingTests : FsAccessFakeTestBase
         // together — Fork A strict: activation reads the filter in effect
         // *now*, the same fact Start reads, so there is no browser state in
         // which the two disagree.
-        await Page.GetByPlaceholder("Min").First.FillAsync("0.05");
+        await ErrorMinField.FillAsync("0.05");
         await Expect(StartButton).ToBeDisabledAsync();
         await Expect(MixApplies).ToBeDisabledAsync();
         await Expect(Page.GetByText("the mix draws its problems from the filtered pool"))
@@ -51,7 +76,7 @@ public sealed class ApplyMixGatingTests : FsAccessFakeTestBase
         // in effect, and the gate reopens — one gesture, no wedge. (The
         // re-apply recovery path is pinned at the bUnit layer, where the
         // corpus is fake and the pool cannot empty underneath the assertion.)
-        await Page.GetByPlaceholder("Min").First.FillAsync("");
+        await ErrorMinField.FillAsync("");
         await Expect(MixApplies).ToBeEnabledAsync();
         await Expect(Page.GetByText("the mix draws its problems from the filtered pool"))
             .ToHaveCountAsync(0);
@@ -83,7 +108,7 @@ public sealed class ApplyMixGatingTests : FsAccessFakeTestBase
         // asymmetric — it gates checking only).
         await ApplyFilterAsync();
         await ActivateMixAsync();
-        await Page.GetByPlaceholder("Min").First.FillAsync("0.05");
+        await ErrorMinField.FillAsync("0.05");
         await Expect(StartButton).ToBeDisabledAsync(); // the filter's own gate
         await Expect(MixApplies).ToBeEnabledAsync();   // but uncheck is still live
 
