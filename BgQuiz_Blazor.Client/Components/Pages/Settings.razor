@@ -143,15 +143,24 @@
                 <label class="form-label mb-1" for="settingsHiddenLevel">
                     Hide plays analyzed at this level and below
                 </label>
-                <select class="form-select" id="settingsHiddenLevel"
-                        value="@QuizSettings.ToLevelToken(UserSettings.MaximumHiddenCandidateAnalysisLevel)"
-                        @onchange="@(e => SetMaximumHiddenLevelAsync(e.Value as string))">
-                    <option value="">Hide nothing</option>
-                    @foreach (var level in QuizSettings.HideableLevels)
-                    {
-                        <option value="@QuizSettings.ToLevelToken(level)">@level.ToLabel()</option>
-                    }
-                </select>
+                @* The wrapper is the ruler and the select reads it back at 115%
+                   (halheinrich/backgammon#170) — the two classes are one
+                   mechanism and app.css carries the whole of the reasoning. It
+                   is here rather than as a width beside the markup because the
+                   options are the producer's, listed by HideableLevels and
+                   worded by ToLabel(), so this page cannot know how wide they
+                   are; it can only ask for them to be measured. *@
+                <div class="hidden-level-field">
+                    <select class="form-select hidden-level-select" id="settingsHiddenLevel"
+                            value="@QuizSettings.ToLevelToken(UserSettings.MaximumHiddenCandidateAnalysisLevel)"
+                            @onchange="@(e => SetMaximumHiddenLevelAsync(e.Value as string))">
+                        <option value="">Hide nothing</option>
+                        @foreach (var level in QuizSettings.HideableLevels)
+                        {
+                            <option value="@QuizSettings.ToLevelToken(level)">@level.ToLabel()</option>
+                        }
+                    </select>
+                </div>
             </div>
             @* Leads with the reach of the choice, because "and below" is the one
                thing a ladder of levels does not show: the list is a rigor order

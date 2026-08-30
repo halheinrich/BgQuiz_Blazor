@@ -8820,4 +8820,71 @@ public class PageTests : BunitContext
         Assert.Contains("rolled-out plays are always listed too", fieldset);
         Assert.Contains("any play whose depth was never recorded", fieldset);
     }
+
+    /// <summary>
+    /// The dropdown is sized from its own options rather than from the page
+    /// (<c>halheinrich/backgammon#170</c>): Bootstrap's <c>.form-select</c> is
+    /// <c>width:100%</c>, which stretched this control across the whole 800px of
+    /// the Settings container to say a word as short as "XG Roller++".
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Both halves, in one test, because either alone is a vacuous green.</b>
+    /// The classes without the rules are two words that do nothing; the rules
+    /// without the classes are a block of CSS nothing wears. What makes the
+    /// control narrow is the pair, so the pair is what is pinned — and the
+    /// scoping with it, since the percentage is only correct inside the wrapper
+    /// that measures.
+    /// </para>
+    /// <para>
+    /// bUnit's AngleSharp evaluates no CSS, so this is as far as this layer
+    /// reaches. The live consequence — that a browser honours the pair and the
+    /// control really does come out a fraction of its container — is measured in
+    /// <c>SettingsTests.DepthCeilingDropdown_IsSizedFromItsOptions_NotFromThePage</c>.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Settings_HiddenLevel_IsSizedFromItsOptions_ByTheWrapperAndItsRule()
+    {
+        WithController();
+
+        var cut = Render<SettingsPage>();
+
+        // The markup half: the select wears the sizing class and sits directly
+        // inside the wrapper that wears the measuring one. Direct child, not
+        // merely a descendant — the rule is written with the child combinator,
+        // so a box slipped in between would leave both classes in place and the
+        // width back at 100%.
+        var select = cut.Find("#settingsHiddenLevel");
+        Assert.Contains("hidden-level-select", select.ClassList);
+        Assert.Contains("hidden-level-field", select.ParentElement!.ClassList);
+
+        // …and no inline width beside them, which would outrank the stylesheet
+        // and kill the mechanism while leaving every class above intact.
+        Assert.DoesNotContain("width", select.GetAttribute("style") ?? "");
+
+        // The stylesheet half. Comments are stripped so only real declarations
+        // are read.
+        var noComments = Regex.Replace(
+            File.ReadAllText(AppCssPath()), @"/\*.*?\*/", "", RegexOptions.Singleline);
+
+        // The ruler: shrink-to-fit, so it lands on the select's intrinsic width
+        // — what the WIDEST option needs. Nothing else about it is asserted;
+        // its only job is to be a width worth measuring against.
+        Assert.Contains(
+            "fit-content",
+            RulesWhoseSelector(
+                noComments,
+                s => s.Contains(".hidden-level-field")
+                    && !s.Contains(".hidden-level-select")));
+
+        // The reading: 115% of that measurement, scoped to the ruler, and stated
+        // as a ratio rather than as a count of pixels or characters. The options
+        // come from QuizSettings.HideableLevels and are worded by ToLabel(), so
+        // a count here would be a copy of the producer's vocabulary that rots
+        // the next time a level is added or reworded; a ratio does not.
+        var reading = RulesWhoseSelector(noComments, s => s.Contains(".hidden-level-select"));
+        Assert.Contains(".hidden-level-field > .hidden-level-select", reading);
+        Assert.Contains("115%", reading);
+    }
 }

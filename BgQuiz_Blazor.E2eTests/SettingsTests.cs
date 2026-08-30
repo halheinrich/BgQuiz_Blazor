@@ -51,6 +51,21 @@ public sealed class SettingsTests : E2eTestBase
     /// </summary>
     private ILocator HiddenLevelSelect => Page.Locator("#settingsHiddenLevel");
 
+    /// <summary>
+    /// The shrink-to-fit box the dropdown is measured against
+    /// (<c>halheinrich/backgammon#170</c>) — see <c>app.css</c> for what the
+    /// pair of classes does.
+    /// </summary>
+    private ILocator HiddenLevelField => Page.Locator(".hidden-level-field");
+
+    /// <summary>
+    /// The block the dropdown used to fill edge to edge, and so the yardstick
+    /// for it no longer doing that. Reached through the dropdown rather than by
+    /// position, since this page has four fieldsets and two of them are nested.
+    /// </summary>
+    private ILocator HiddenLevelFieldset =>
+        Page.Locator("fieldset:has(#settingsHiddenLevel)");
+
     private async Task GoToSettingsAsync()
     {
         await Page.GetByRole(AriaRole.Link, new() { Name = "Settings" }).ClickAsync();
@@ -131,6 +146,74 @@ public sealed class SettingsTests : E2eTestBase
         await Expect(KeepFoldedCheckbox).ToBeVisibleAsync();
 
         await Expect(HiddenLevelSelect).ToHaveValueAsync(string.Empty);
+    }
+
+    /// <summary>
+    /// The depth-ceiling dropdown is as wide as its own options and no wider
+    /// (<c>halheinrich/backgammon#170</c>). Bootstrap's <c>.form-select</c> is
+    /// <c>width:100%</c>, so before the fix this control spanned the full width
+    /// of the settings column to say a word as short as "XG Roller++".
+    ///
+    /// <para>
+    /// Only a browser can show this. <c>PageTests</c> pins the two classes and
+    /// the two rules they name, which is everything bUnit can reach — AngleSharp
+    /// evaluates no CSS. What it cannot reach is whether a browser honours them:
+    /// a Bootstrap upgrade that marked <c>.form-select</c>'s width
+    /// <c>!important</c>, or a stylesheet that stopped being served, would leave
+    /// every one of those assertions green and the control back at full width.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Inequalities, not a ratio.</b> The rule the fix implements is 115%,
+    /// and the exact figure is deliberately not asserted here: it is the
+    /// stylesheet's to state, it is already pinned there as a literal, and a
+    /// geometric equality would turn every sub-pixel of platform font rounding
+    /// into a red suite. What is asserted instead are the three things that are
+    /// true at any font, zoom or window size and false the moment the mechanism
+    /// stops working — the ruler is narrower than the column, the select is
+    /// narrower than the column, and the select is wider than the ruler. That
+    /// last one is what separates this from a plain <c>width:auto</c>: with no
+    /// breathing room the two boxes would be identical.
+    /// </para>
+    ///
+    /// <para>
+    /// Retried and box-guarded like the point-1 geometry below: a rect read
+    /// before layout settles measures nothing, and "nothing is narrower than the
+    /// column" is a green for the wrong reason.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task DepthCeilingDropdown_IsSizedFromItsOptions_NotFromThePage()
+    {
+        await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
+        await BootHomeAsync();
+        await GoToSettingsAsync();
+
+        // The options are all present before anything is measured — the width is
+        // read off the widest of them, so a half-rendered list is a smaller
+        // control for a reason this test is not about.
+        await Expect(HiddenLevelSelect).ToContainTextAsync("Hide nothing");
+        await Expect(HiddenLevelSelect).ToContainTextAsync("XG Roller++");
+
+        await ExpectToPassAsync(async () =>
+        {
+            var fieldset = await LaidOutBoxAsync(HiddenLevelFieldset, "the analysis-panel fieldset");
+            var field = await LaidOutBoxAsync(HiddenLevelField, "the dropdown's sizing wrapper");
+            var select = await LaidOutBoxAsync(HiddenLevelSelect, "the depth-ceiling dropdown");
+
+            Assert.True(
+                field.Width < fieldset.Width / 2,
+                $"the sizing wrapper measured the page rather than the options "
+                + $"(wrapper {field.Width}, fieldset {fieldset.Width}).");
+            Assert.True(
+                select.Width < fieldset.Width / 2,
+                $"the dropdown is still sized from the page rather than from its "
+                + $"options (select {select.Width}, fieldset {fieldset.Width}).");
+            Assert.True(
+                select.Width > field.Width,
+                $"the dropdown got no breathing room past the width its options "
+                + $"need (select {select.Width}, wrapper {field.Width}).");
+        });
     }
 
     /// <summary>

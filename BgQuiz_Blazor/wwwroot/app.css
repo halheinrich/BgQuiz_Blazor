@@ -666,3 +666,41 @@ h1:focus {
         margin-bottom: 0;
     }
 }
+
+/* ---------------------------------------------------------------------------
+   /settings — the hide-ceiling dropdown's width (halheinrich/backgammon#170).
+
+   Bootstrap's .form-select is width:100%, which stretched this control across
+   the whole 800px of the Settings container to say a word as short as
+   "XG Roller++". The width it wants is the width its own options need, and that
+   width cannot be written down here: the options come from
+   QuizSettings.HideableLevels and are worded by AnalysisLevel.ToLabel(), so a
+   px or ch count in this file would be a copy of the producer's vocabulary that
+   rots the next time a level is added or reworded.
+
+   So the width is measured, in two steps. The wrapper is shrink-to-fit, and a
+   shrink-to-fit box treats a percentage width on its child as auto while it
+   measures its contents (CSS Sizing 3) — so the wrapper lands on the select's
+   own intrinsic width, which for a select is what its WIDEST option needs and
+   not what the selected one happens to need. The select's percentage then
+   resolves against that measurement. Both boxes are border-box (Bootstrap's
+   global reset), so the ratio is over the whole control, padding and dropdown
+   arrow included.
+
+   115% is the acceptance rule, stated once and in the units the rule is written
+   in: 15% of whatever the options turn out to need. Horizontal padding in px or
+   rem would have been a constant tuned to today's labels and would need
+   re-tuning with them; this does not.
+
+   Neither class does anything on its own — the child rule is scoped to the
+   wrapper — so the pair cannot be half-applied, and the select overflowing its
+   wrapper by that 15% is the mechanism working, not a layout escape: the
+   wrapper's only job is to be the ruler.
+   --------------------------------------------------------------------------- */
+.hidden-level-field {
+    width: fit-content;
+}
+
+.hidden-level-field > .hidden-level-select {
+    width: 115%;
+}
