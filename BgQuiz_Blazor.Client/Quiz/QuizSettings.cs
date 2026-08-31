@@ -349,7 +349,8 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// label is UI text the producer may reword; the ordinal moves whenever a
     /// level is inserted into the ladder (as <see cref="AnalysisLevel.Ply3Red"/>
     /// was). The name is the same token the enum's own
-    /// <c>JsonStringEnumConverter</c> writes, and it is stable across both.
+    /// <c>StrictJsonStringEnumConverter</c> writes, and it is stable across
+    /// both.
     /// </para>
     /// </summary>
     internal static string ToLevelToken(AnalysisLevel? level) =>

@@ -399,7 +399,8 @@ public class QuizSettingsTests : BunitContext
     {
         // The other half of the wire pin: the SET case, which the fresh-settings
         // literal above cannot show. The token is the enum member name — the
-        // same spelling the enum's own JsonStringEnumConverter writes — and not
+        // same spelling the enum's own StrictJsonStringEnumConverter writes — and
+        // not
         // its label ("XG Roller++") or its ordinal, either of which would make
         // this entry unreadable after a relabel or a level insertion. Ply3Red's
         // insertion into the middle of the ladder is the precedent: it moved

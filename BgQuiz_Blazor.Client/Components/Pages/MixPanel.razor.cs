@@ -131,11 +131,40 @@ public partial class MixPanel : ComponentBase
         _ => string.Empty,
     };
 
+    /// <summary>
+    /// The read half of the category <c>&lt;select&gt;</c>, defined as the
+    /// inverse of its write half: the options are rendered
+    /// <c>value="@kind"</c> over <see cref="MixDraft.CategoryKinds"/>, so a
+    /// token becomes a kind by searching that same offered list for the one
+    /// whose name it is — the shape <see cref="QuizSettings.LevelFromToken"/>
+    /// already uses for the hide-depth token.
+    ///
+    /// <para>Searching rather than parsing is what closes the ordinal hole:
+    /// <see cref="Enum.TryParse{TEnum}(string, out TEnum)"/> also accepts a
+    /// number, and this reader takes a value the browser posts, which the app
+    /// does not control. Measured before the change — <c>"5"</c> selected
+    /// <see cref="QuizCategoryKind.AvgEquityLossOver"/>, coupling a user-facing
+    /// control to member numbering (halheinrich/backgammon#164). Searching the
+    /// offered list also rejects a kind the picker never presented, which a
+    /// parse plus a membership test would take two steps to say.</para>
+    ///
+    /// <para>An unrecognized token is ignored, unchanged from the parse
+    /// spelling: a value the select never offered is not a gesture to honour,
+    /// and there is no user to show an error to.</para>
+    /// </summary>
     private Task HandleKindChangedAsync(int index, ChangeEventArgs e)
     {
-        if (!Enum.TryParse<QuizCategoryKind>(e.Value?.ToString(), out var kind))
-            return Task.CompletedTask;
-        return Draft.SetKindAsync(index, kind);
+        var token = e.Value?.ToString();
+
+        foreach (var kind in MixDraft.CategoryKinds)
+        {
+            if (string.Equals(token, kind.ToString(), StringComparison.Ordinal))
+            {
+                return Draft.SetKindAsync(index, kind);
+            }
+        }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>The gated checkbox's tooltip — the host's reason, or nothing while checking is available (or the box is checked).</summary>

@@ -418,6 +418,52 @@ public class MixPanelTests : BunitContext
     //  Kind selection and parameter defaults
     // -----------------------------------------------------------------------
 
+    /// <summary>
+    /// The category select's token vocabulary: its reader is the inverse of
+    /// its writer, which renders <c>value="@kind"</c> over
+    /// <see cref="MixDraft.CategoryKinds"/>. Only a name the picker actually
+    /// offered moves the row (halheinrich/backgammon#164).
+    /// </summary>
+    [Theory]
+    [InlineData("5")]                  // ordinal — selected AvgEquityLossOver before #164
+    [InlineData("1")]                  // ordinal — the row's own current kind, as a number
+    [InlineData("99")]                 // ordinal outside the declared range
+    [InlineData("avgEquityLossOver")]  // case variant
+    [InlineData("AVGEQUITYLOSSOVER")]  // case variant
+    [InlineData("NotAKind")]
+    [InlineData("")]
+    public async Task KindSelection_IgnoresAnythingThePickerNeverOffered(string token)
+    {
+        var cut = RenderPanel();
+        await ClickAsync(cut, "#mixAddRow");
+        var before = Kinds(cut);
+
+        await cut.FindAll(".mix-row")[0].QuerySelector("select")!
+            .ChangeAsync(new() { Value = token });
+
+        Assert.Equal(before, Kinds(cut));
+    }
+
+    /// <summary>
+    /// The other half: every kind the picker offers is still selectable by the
+    /// exact token it renders, so the strictness above costs no legitimate
+    /// gesture as kinds are added to the list.
+    /// </summary>
+    [Fact]
+    public async Task KindSelection_AcceptsEveryOfferedKind_ByTheTokenTheOptionRenders()
+    {
+        foreach (var kind in MixDraft.CategoryKinds)
+        {
+            var cut = RenderPanel();
+            await ClickAsync(cut, "#mixAddRow");
+
+            await cut.FindAll(".mix-row")[0].QuerySelector("select")!
+                .ChangeAsync(new() { Value = kind.ToString() });
+
+            Assert.Equal(kind.ToString(), Kinds(cut)[0]);
+        }
+    }
+
     [Theory]
     [InlineData("SeenFewerThan", "3")]
     [InlineData("NotSeenInDays", "30")]
