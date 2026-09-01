@@ -27,7 +27,11 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `DistinctPositionProblemSetSource` (the content-identity dedupe decorator at
   the bottom of the composition — one item per distinct `ProblemKey`, first
   occurrence surviving; keyless items pass through unmerged), `SubmittedPlay`,
-  `SubmittedCubeAction`, `QuizScore` (segmented: `PlayDecisions` /
+  `SubmittedCubeAction` (claim-typed since `halheinrich/backgammon#86`: the
+  user's and the derived-truth `CubeClaimPair`s plus the two per-half losses,
+  per-half correctness **derived** claim-vs-claim / action-vs-action — built
+  only through `SubmittedCubeAction.From(key, answer, decision)`, never by
+  hand), `QuizScore` (segmented: `PlayDecisions` /
   `DoubleDecisions` / `TakeDecisions` + derived `Total`), the stats-weighted
   composition surface — `QuizCategory`/`QuizCategoryKind`,
   `QuizMix`/`QuizMixEntry` (the versioned strict-JSON mix config;
@@ -46,7 +50,11 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   document's `Plus`. Producer behavior — the per-enumeration reshuffle, the
   fold contracts — lives in BgGame_Lib's own INSTRUCTIONS.md.
 - **BgDataTypes_Lib** — data types. `BgDecisionData`, `Play`,
-  `PlayCandidate`, `BoardState`, `CubeDecisionPair`, `CubeAction`,
+  `PlayCandidate`, `BoardState`, `CubeAction`, `CubeClaim` (the three-valued
+  doubler claim — No Double / Double / Too Good — SPEC-scoring §3),
+  `CubeClaimPair` (the two-part cube answer, claim × taker; six cells, the
+  incoherent `NoDoublePass` included and named by `IsIncoherent`),
+  `CubeClaimExtensions.ToCubeAction` (the one claim→action collapse),
   `ProblemKey` (content identity; `TryDerive` is the one factory — the
   controller stamps every submission through it, and `false` is the no-key
   rung, never a guess). **A money record (`0`-away/`0`-away) with no
@@ -62,13 +70,17 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   (unstamped dice, empty board, missing `Xgid`) is unchanged: no key,
   pass-through unmerged, not recorded, nothing said. The matcher
   compares the submitted `Play` against each `PlayCandidate.Play` by canonical
-  `Play` equality; cube scoring reads `DecisionData`'s `BestDoublerAction` /
-  `BestTakerAction` / `DoublerActionError` / `TakerActionError`.
+  `Play` equality; cube scoring never reads an equity here — the producer's
+  `SubmittedCubeAction.From` reads `DecisionData.BestClaimPair` (the one
+  derivation site of the truth claim) and `DoublerActionError` /
+  `TakerActionError` for it.
 - **BgMoveGen** — `MoveGenerator.GeneratePlays`, used by the controller's
   no-play-choice auto-skip detection.
 - **BgDiag_Razor** — `BackgammonPlayEntry` (click-driven play assembly),
-  `BackgammonCubeActions` (a board-free four-radio group for the cube answer,
-  on the `@bind-Value` convention) + the underlying `BackgammonDiagram`
+  `BackgammonCubeActions` (the board-free cube answer row: two radio groups,
+  claim × taker, on the `@bind-Value` convention over `CubeClaimPair?` —
+  **null while half-answered**, not only while untouched; see Pitfalls) + the
+  underlying `BackgammonDiagram`
   (read-only board view, used for both the review diagram and the
   cube-answering board).
 - **BackgammonDiagram_Lib** — `DiagramRequest` + `DiagramOptions`. The
@@ -190,8 +202,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     MixConsent.cs                   — the "Mix applies" bit (consent, not choice)
     MixDraft.cs                     — mix edit state + write-through xg_quizMix
     MixDisplay.cs                   — mix wording SSOT
-    CubeActionDisplay.cs            — cube-verdict wording SSOT
-    AnswerTypeDisplay.cs            — answer-type wording SSOT (always five)
+    CubeActionDisplay.cs            — cube-verdict wording SSOT (claims + actions)
+    AnswerTypeDisplay.cs            — answer-type wording SSOT (always six)
     QuizNoticeDismissal.cs          — occurrence-keyed dismissal, one slot per
                                       dismissible notice, Quiz page and Home's
                                       pick band (+ the QuizNotice enum)
@@ -234,7 +246,7 @@ BgQuiz_Blazor.Tests/
   FakeFolderAccess.cs               — scriptable IFolderAccess double
   FakeProblemStatsSink.cs           — recording sink double + RecordGate
   RetiredStatsFixture.cs            — stats files this build cannot write:
-                                      the retired v1 and v2 docs + near misses
+                                      the retired v1, v2 and v3 docs + near misses
   TestFixtureContractTests.cs       — every TestFixtures factory yields a
                                       key-derivable position (the silent rung)
   QuizControllerTests.cs
@@ -266,9 +278,10 @@ BgQuiz_Blazor.Tests/
 BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
   BgQuiz_Blazor.E2eTests.csproj     — xunit + Playwright; references no app project
   Fixtures/                         — committed single-decision .xgp files
-    BothAnalysis.xgp                — cube decision; best action "No Double"
+    BothAnalysis.xgp                — cube decision; best pair No Double / Take
     Opening 32 65 64 31 65.xgp      — 6-5 checker play; best play 24/13
-    TooGoodAndTake.xgp              — cube decision, a *different* board
+    TooGoodAndTake.xgp              — cube decision, a *different* board; best
+                                      pair Too Good / Take — the fifth verdict
     match35253054_2_37.xgp          — cube decision, Double / Pass
                                       (the three cube fixtures are mutually
                                       distinct positions — the supply a
@@ -405,7 +418,7 @@ the fake sink's `RecordGate`.
 **Three-state per-problem flow.** Each problem moves through *answering* →
 *review* → *advance*, surfaced via `Current` and the nullable `Review`:
 
-- **Submit** — `SubmitPlay(Play)` / `SubmitCubeAction(CubeDecisionPair)` are
+- **Submit** — `SubmitPlay(Play)` / `SubmitCubeAction(CubeClaimPair)` are
   **synchronous** (the only `await` was the advance, now deferred): they score
   the answer, set `Review`, and fire `StateChanged` **without advancing** —
   `Current` still points at the answered problem. No-ops outside answering
@@ -450,10 +463,13 @@ the fake sink's `RecordGate`.
 
 `ProblemReview` lives in `BgQuiz_Blazor.Client` (not BgGame_Lib): it is
 per-app UI state, and adding it to the submodule would cross the boundary. Its
-`Play` carries the matched candidate index (`-1` off-list), its `Cube` the two
-per-half equity losses; the Quiz page maps these onto `UserPlayIndex` /
-`UserDoubleError` + `UserTakeError` so the diagram marks the *quiz user's*
-answer, not the .xg-recorded player's. It is the **displayed** review, which
+`Play` carries the matched candidate index (`-1` off-list); its `Cube` wraps
+the scored `SubmittedCubeAction` whole (user pair, truth pair, both losses,
+derived correctness — copying the fields out would put a second spelling of
+the derived correctness beside the producer's). The Quiz page maps these onto
+`UserPlayIndex` / `UserDoubleError` + `UserTakeError` so the diagram marks the
+*quiz user's* answer, not the .xg-recorded player's. It is the **displayed**
+review, which
 after a redo is not the answer of record — `IsPractice` (init-only, defaulted
 false) rides on the record type itself rather than beside it in the controller,
 so a review and its practice status cannot be assigned apart and drift.
@@ -669,12 +685,26 @@ governs which decisions the quiz admits; `FilterConfig.Build()` adds a
 none of its own.
 
 **Cube scoring.** A cube position is two independent atomic decisions — the
-doubler's offer and the taker's response. `SubmitCubeAction(CubeDecisionPair)`
-always scores both halves (no off-list / skip path, unlike plays): per-half
-equity loss via `DecisionData.DoublerActionError` / `TakerActionError` and
-per-half correctness against `BestDoublerAction` / `BestTakerAction`,
-folded into the score's `DoubleDecisions` and `TakeDecisions` segments via
-`QuizScore.Plus(SubmittedCubeAction)`.
+doubler's three-valued *claim* (No Double / Double / Too Good) and the taker's
+response if doubled (SPEC-scoring §3, `halheinrich/backgammon#86`).
+`SubmitCubeAction(CubeClaimPair)` always scores both halves (no off-list /
+skip path, unlike plays; the incoherent (No Double, Pass) cell is submittable
+by ruling — never best, scored per half) through the producer's one factory,
+`SubmittedCubeAction.From(key, answer, decision)`: it reads the derived truth
+(`DecisionData.BestClaimPair`) and both per-half losses off the one decision,
+and the record derives correctness **claim vs. claim** on the doubler half —
+so No Double answered to a too-good position scores incorrect at +0.000, the
+ruled "right action, wrong reason" verdict. Nothing in this app reads an
+equity or compares an action for scoring. Folded into the score's
+`DoubleDecisions` and `TakeDecisions` segments via
+`QuizScore.Plus(SubmittedCubeAction)`. The review's verdict line names the
+doubler half by the claim submitted and, when wrong, the truth claim; the
+right-action-wrong-claim case is said in those words (decided on the board
+action behind each claim via `ToCubeAction`, not on the loss being zero); the
+incoherent cell gets a trailing explanation. The solution diagram's Best
+banner (BackgammonDiagram_Lib) still speaks board actions, so a Too Good /
+Take position reads "Best: No Double / Take" there — inventoried for the
+umbrella's label-consolidation question, not patched here.
 
 **No-play-choice auto-skip.** Each `AdvanceAsync` step pulls the next
 decision and tests it with `HasNoPlayChoice`, which runs
@@ -1952,9 +1982,13 @@ The asymmetry is pinned three times over: at the service seam
   a **board-only** `BackgammonDiagram` (the cube answer is not entered on the
   board). Submit is a synchronous handler gated on the relevant answer being
   held: a play via `OnPlayCompleted` → `_completedPlay`; a cube via the
-  `BackgammonCubeActions` radios in the action row, whose `@bind-Value` keeps
-  `_completedCube` current (re-fires on every change, so the user can revise
-  before Submit). Both fields reset on every transition. The action row varies
+  `BackgammonCubeActions` two-group row in the action row, whose
+  `@bind-Value` keeps `_completedCube` current — null until **both** halves
+  are chosen, so the Submit gate is "both halves answered"; re-fires on every
+  change thereafter, so the user can revise before Submit. Both fields reset
+  on every transition, and the cube row is additionally `@key`ed to the
+  current problem so every advance mounts a fresh row (see Pitfalls: nulling
+  the field cannot clear a half-answered row). The action row varies
   by kind: cube places the radios ahead of Submit / Skip and has no Undo (no
   partial-move state); checker keeps Undo last / Undo all (clearing the
   latched play, since the component does not notify on undo). **Both Undo
@@ -2026,7 +2060,8 @@ The asymmetry is pinned three times over: at the service seam
   **The visible text is capped at `2.5rem`, and the cap is a board-size
   contract** (`AppCss_XgidLabelText_StaysCapped`). Uncapped, the badge wraps the
   action row wherever the board is height-bound — and because a cube row is
-  wider than a checker row (four radios), the wrap width depends on the
+  wider than a checker row (five pills in two radio groups since
+  `halheinrich/backgammon#86`; four compound pills when measured), the wrap width depends on the
   **problem kind**, which is per-problem board jitter inside Normal view and
   exactly what `SPEC-quiz-view.md` §2 forbids. The visible text
   does not try to show the value: 40px is `XGID=` (32.7px in this font) plus the
@@ -2049,7 +2084,9 @@ The asymmetry is pinned three times over: at the service seam
 
   **Every one of those widths is font-stack-dependent, and any claim of the form
   "one line at width W" must name the stack it was measured under.** The row's
-  budget is text: the cube instruments' 836px (banked 2026-08-18) is Windows
+  budget is text: the cube instruments' 836px (banked 2026-08-18, against the
+  pre-`halheinrich/backgammon#86` four-compound-pill row — the two-group row
+  is unmeasured here; the producer reports it narrower) is Windows
   Helvetica/Arial. CI's Linux Chromium and Android devices have neither and fall
   back wider — enough that a row measured with slack here can be a taller row
   there. A local re-measure at 1280 with the nav panel showing puts the cube
@@ -2274,7 +2311,8 @@ The asymmetry is pinned three times over: at the service seam
   around — each owned by the section that implements it, and stated here in
   user terms only: what the match count counts and that a mix draws from that
   pool, the breakdown's exhaustiveness and what a zero means, no-play-choice
-  auto-skip, off-list-as-skip, cube-as-two-decisions, the dice click
+  auto-skip, off-list-as-skip, cube-as-two-decisions and the claim the
+  doubling half is judged on, the dice click
   advancing, the side panel's fold (§ The host layout — and see Pitfalls for
   what that note may say), and the reload reset. It closes with **Send
   feedback**.
@@ -2786,18 +2824,22 @@ key on one shared `SilentPickGestureCopy.Account` fragment, because an absence
 pin written against its own literal goes vacuously green the moment the notice
 is reworded.
 `StatsPersistenceTests` pins: one fold ⇒ one captured write with
-`schemaVersion` 3, one `problems` record whose key carries no filename, a
-cube-as-two-decisions tally, indented; a **retired v1 file** ⇒ the set-aside
-report (not the "couldn't be read" degrade), its bytes captured verbatim under
-`bgquiz-stats.v1.json`, and two writes to the standard name (the empty seed,
-then the fold); corrupt file ⇒ polite notice + **zero writes**; denied ⇒
-denied notice + zero writes; and the fallback pick's "can't save stats" notice.
-One retired version here, not both: what crossing the real `folderAccess.js`
-adds is the act, and *which name each version earns* is the store suite's pin,
-over v1 and v2 together. The stats filenames, the retired document's own bytes,
-and the wire property names are deliberately hardcoded there — the
-consumer-side pin of those contracts (the e2e project references no app
-assembly by design), and the v1 literal has no other possible source: the
+`schemaVersion` 4, one `problems` record whose key carries no filename,
+nested under its `cubePair` answer-kind token, a cube-as-two-decisions tally,
+indented; a **retired v3 file** ⇒ the set-aside report (not the "couldn't be
+read" degrade), its bytes captured verbatim under `bgquiz-stats.v3.json`, and
+two writes to the standard name (the empty v4 seed, then the fold in v4's
+shape); corrupt file ⇒ polite notice + **zero writes**; denied ⇒ denied
+notice + zero writes; and the fallback pick's "can't save stats" notice. One
+retired version here, not all: what crossing the real `folderAccess.js` adds
+is the act, and *which name each version earns* is the store suite's pin,
+over v1, v2 and v3 together. v3 is the one staged because it is the format
+every current tester holds (`halheinrich/backgammon#86`'s v4 break retires
+it), so the scenario meets the file the deploy will. The stats filenames, the
+retired document's own bytes, and the wire property names are deliberately
+hardcoded there — the consumer-side pin of those contracts (the e2e project
+references no app assembly by design), and the v3 literal has no other
+possible source: the
 format has no writer left anywhere.
 The fake's set-aside slot is **write-only by construction** (no `getFile`), so
 an app that read it back would fail the gesture loudly. `MixWeightingTests` drives the weighted path to Done and pins #87's gating
@@ -2851,8 +2893,10 @@ most one decision per file), so a one-fixture quiz is exactly one problem long
 with shuffle left off, and an N-fixture folder is N problems. Their *answer
 types* are a contract too: the breakdown suite stages `CheckerFixture` beside
 `CubeFixture`, whose best **pair** is No Double / Take, so that folder is a pool
-of exactly two answer types with three empty — which is what makes its zeros
-real rather than arranged. In-app navigation is asserted with polling URL assertions
+of exactly two answer types with four empty — which is what makes its zeros
+real rather than arranged — and beside `TooGoodTakeFixture`, whose best claim
+pair is Too Good / Take, to pin that the fifth verdict counts under its own
+row and not under No double / take. In-app navigation is asserted with polling URL assertions
 (`Expect(Page).ToHaveURLAsync`), **not** `WaitForURLAsync` — Blazor navigates by
 `pushState` (same-document), and the navigation-event wait can lose the race
 when the push lands between the triggering click and the wait's registration
@@ -2886,13 +2930,20 @@ addition — anything sliced out of the corpus is exported with **anonymize ON**
 because these commit to a public repo; the copies rule is in Pitfalls.
 
 **Board driving.** The checker scenario enters a real play by clicking the
-diagram's transparent SVG hit-region rects. Region identity is positional: the
-producer renders points 1–24 first (point order), then bar/cube/tray/dice, so
-rect index `point − 1` addresses a point. The rects carry no identifying
-attributes, so that render-order contract is the only test-side handle; if it
-ever changes, the play never assembles and the scenario fails loudly at its
-Submit-enabled gate. Making it contractual (a `data-point` attribute on the
-rects) is a BgDiag_Razor producer arc, not something to patch from here.
+diagram's transparent SVG hit-region rects. Point identity is contractual:
+the producer stamps every point rect with `data-point="N"` and no other rect
+carries the attribute (BgDiag_Razor's `BackgammonDiagram`), so
+`ClickBoardPointAsync` selects `rect[data-point='N']` — adopted here and in
+the bUnit `ClickPointAsync` helper at the `halheinrich/backgammon#86` leg,
+replacing the render-order convention (`HitRects.Nth(point − 1)`). The bar
+carries no attribute and `BarHitRect` still finds it by render order (index
+24, immediately after the 24 point rects); the bUnit dice click likewise.
+**The cube scenario answers with two clicks** — a claim radio and a taker
+radio — through `AnswerCubeAsync(claim, response)`; `AnswerCubeNoDoubleTakeAsync`
+is the No double / Take shorthand the `CubeFixture`-based scenarios rely on
+(fully correct against that fixture). One click is half an answer and Submit
+stays dark, so a helper that waited for Submit after one radio would time out
+at exactly that gate.
 
 **Running it.**
 
@@ -3135,8 +3186,19 @@ public (see Pitfalls). The externally visible surface is the route map:
 - **`BackgammonCubeActions.ValueChanged` is `[EditorRequired]`.** Omitting the
   `@bind-Value="_completedCube"` binding surfaces as `RZ2012` (→ error under
   `-warnaserror`), not a silent splat — unlike the play side's
-  `OnPlayCompleted`. Keep it present: the radios are strictly controlled, so
-  without the binding they are inert.
+  `OnPlayCompleted`. Keep it present: the row is controlled on the pair, so
+  without the binding its selections are never adopted.
+- **`BackgammonCubeActions.Value` is null while the row is half-answered, and
+  nulling it cannot clear that state.** The row holds its two
+  half-selections as its own state and re-seeds them from `Value` only when
+  the two *disagree*; a half-answered row composes to no pair, so it agrees
+  with the null the page already holds and `HandleStateChanged`'s
+  `_completedCube = null` is no change — the lit pill would carry into the
+  next problem after a Skip. The page's answer is `@key="current"` on the
+  row: a new problem mounts a new row. Keep the key; a test driven through
+  the real radios (`Quiz_CubeActions_HalfAnswered_ThenSkip_NextProblemStartsClean`)
+  fails without it. Gating Submit on `_completedCube is null` is correct as
+  is — that is "both halves answered", the intended flow.
 - **A binding to a parameter the component doesn't have is a *render*-time
   failure, not a build one.** `<FilterSurface OnFilterDirty="..."/>` against a
   composite that has since renamed it compiles clean and throws
@@ -3469,8 +3531,9 @@ public (see Pitfalls). The externally visible surface is the route map:
   Blazor constructs a **fresh instance unconditionally**. Don't add a
   defensive `@key`; re-examine only if a refactor keeps the entry mounted
   across review (e.g. overlaying the solution instead of swapping branches).
-  The cube answer needs none of this: `BackgammonCubeActions` is strictly
-  controlled off `_completedCube`, which nulls on every transition.
+  The cube answer reaches Redo's clean slate the same way (the review branch
+  unmounted the row), but it *does* carry a `@key` — for the advance-past-a-
+  half-answer case, not for Redo; see the half-answered pitfall above.
 - **The status strip must stay fixed-height *within a view mode*, and the
   board-sizing glue must stay retired.** The strip's purpose is mode-invariant
   chrome: equal chrome height ⇒ equal board flex remainder ⇒ no
@@ -3652,13 +3715,14 @@ public (see Pitfalls). The externally visible surface is the route map:
   individual problems after finishing. A scrollable list of the `History` /
   `CubeHistory` entries (each re-rendering its solution diagram) would close
   the loop.
-- **e2e Too-Good coverage gap.** No e2e exercises a Too-Good cube answer end
-  to end — no committed cube fixture is one (`E2eTestBase.CubeFixtures` names
-  what each is); a bUnit case
-  covers the verdict + scoring path meanwhile. Close by sourcing a Too-Good
-  single-decision `.xgp` (`nd ≥ 1.0 && dt ≥ 1.0`) from the corpus via
-  ExtractFromXgToCsv's slice export — **anonymize ON**, the fixture commits
-  to a public repo — into `E2eTests/Fixtures/`, plus a `QuizFlowTests` case
-  (banner "Too Good" + `No Double: … · Pass: …` verdict → Done). Synthesis
-  was rejected: the producer's clean writer surface is unanalyzed by design.
-  Surfaced 2026-07-22.
+- **e2e Too-Good coverage.** Closed at the `halheinrich/backgammon#86` leg
+  for the Too Good / *Take* verdict: `TooGoodAndTake.xgp` was always that
+  position (XG's own label), the claim vocabulary made it classifiable, and
+  `QuizFlowTests.TooGoodTakePath_…` runs it end to end (wrong claim named,
+  then the fifth verdict on a practice retry). Still open for Too Good /
+  *Pass*: no committed fixture has `nd > 1 && dt ≥ 1`. Close by sourcing one
+  from the corpus via ExtractFromXgToCsv's slice export — **anonymize ON**,
+  the fixture commits to a public repo — into `E2eTests/Fixtures/`, plus a
+  `QuizFlowTests` case (banner "Too Good" + `Too Good: … · Pass: …` verdict →
+  Done). Synthesis was rejected: the producer's clean writer surface is
+  unanalyzed by design. Surfaced 2026-07-22; narrowed 2026-09-01.
