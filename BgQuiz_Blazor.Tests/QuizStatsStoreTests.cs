@@ -207,7 +207,8 @@ public class QuizStatsStoreTests
 
     // -----------------------------------------------------------------------
     //  Retirement — clean break with deliberate recognition
-    //  (SPEC-stats-identity.md §3; halheinrich/backgammon#95, #120, and the
+    //  (SPEC-stats-identity.md §3; halheinrich/backgammon#95,
+    //  halheinrich/backgammon#120, and the
     //  v4 break of halheinrich/backgammon#86)
     // -----------------------------------------------------------------------
 
