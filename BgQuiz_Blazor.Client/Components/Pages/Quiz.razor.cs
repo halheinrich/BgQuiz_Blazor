@@ -230,7 +230,8 @@ public partial class Quiz : ComponentBase, IDisposable
     /// supply), or any entry's pool ran dry and its share was redistributed
     /// (possible even when the overall count was met). Drives the shortfall
     /// alert above the board — consulted only for a length-bound mix
-    /// (<see cref="QuizController.ActiveMixHasLength"/>): capless, per-entry
+    /// (the composition's own <see cref="BgGame_Lib.MixComposition.HasRequestedLength"/>):
+    /// capless, per-entry
     /// <c>Requested</c> is apportionment of the pool union rather than a user
     /// ask, so an outdrawn entry is not "short" and the page renders the
     /// composition-only status line instead.

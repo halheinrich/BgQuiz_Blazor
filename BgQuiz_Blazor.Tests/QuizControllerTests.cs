@@ -78,7 +78,7 @@ public class QuizControllerTests
         Assert.Equal(0, c.SkippedCount);
         Assert.Equal(0, c.ProblemNumber);
         Assert.Null(c.ProblemCount);
-        Assert.False(c.ActiveMixHasLength);
+        Assert.Null(c.LastComposition);
     }
 
     // -----------------------------------------------------------------------
@@ -2256,47 +2256,55 @@ public class QuizControllerTests
     }
 
     // -----------------------------------------------------------------------
-    //  ActiveMixHasLength — the length-bound fact the Quiz page frames by
+    //  LastComposition.HasRequestedLength — the length-bound fact the Quiz
+    //  page frames by, recorded by the producer (halheinrich/backgammon#12)
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task ActiveMixHasLength_TracksTheEffectiveMix()
+    public async Task LastComposition_HasRequestedLength_TracksTheEffectiveMix()
     {
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = MakeWeighable(out var sink, out _, d);
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
 
+        // Passthrough wires no composition layer at all, so the framing fact
+        // has no composition to live on — and the page's notice block, gated
+        // on the composition's existence, renders nothing to frame.
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        Assert.False(c.ActiveMixHasLength);                 // passthrough
+        Assert.Null(c.LastComposition);
 
         await c.StartAsync(new FilterConfig(), NeverSeenMix());
-        Assert.False(c.ActiveMixHasLength);                 // capless — no length to bind to
+        var capless = Assert.IsType<MixComposition>(c.LastComposition);
+        Assert.False(capless.HasRequestedLength);           // capless — no length to bind to
 
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 1));
-        Assert.True(c.ActiveMixHasLength);                  // length-bound
+        var capped = Assert.IsType<MixComposition>(c.LastComposition);
+        Assert.True(capped.HasRequestedLength);             // length-bound
 
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 1), ignoreMix: true);
-        Assert.False(c.ActiveMixHasLength);                 // override runs passthrough
+        Assert.Null(c.LastComposition);                     // override runs passthrough
     }
 
     [Fact]
-    public async Task ActiveMixHasLength_RefusedStart_LeavesPriorValue()
+    public async Task LastComposition_RefusedStart_LeavesPriorValue()
     {
-        // Refusals touch no active-run state — this flag included: a running
-        // length-bound quiz keeps its notice framing behind a refused start.
+        // Refusals touch no active-run state — the composition included: a
+        // running length-bound quiz keeps its telemetry, and with it the
+        // notice framing, behind a refused start.
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = MakeWeighable(out var sink, out _, d);
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 1));
-        Assert.True(c.ActiveMixHasLength);
+        var running = Assert.IsType<MixComposition>(c.LastComposition);
+        Assert.True(running.HasRequestedLength);
 
         sink.CanWeightMix = false;
         var outcome = await c.StartAsync(new FilterConfig(), NeverSeenMix());
 
         Assert.Equal(QuizStartOutcome.MixRequiresStats, outcome);
-        Assert.True(c.ActiveMixHasLength);
+        Assert.Same(running, c.LastComposition);
     }
 
     // -----------------------------------------------------------------------

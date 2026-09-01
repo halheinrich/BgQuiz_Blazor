@@ -582,12 +582,18 @@ state** (see Pitfalls). `RestartAsync(bool ignoreMix = false)` re-attempts the
 stored mix every time, so the mix re-applies whenever stats allow; the
 override is strictly per-run and the stored mix is never rewritten.
 
-**Presentation telemetry for the Quiz page.** `ActiveMixHasLength` exposes the
-one fact the mix-notice framing needs — whether the run's *effective* mix
-bound its percentages to a requested `QuizLength` (false for passthrough, the
-ignore-mix override, and capless mixes) — committed past the refusal checks so
-a refused start leaves it untouched; intent over structure, no `QuizMix`
-leaks. `ProblemNumber` / `ProblemCount` drive the "Problem N of M" indicator:
+**Presentation telemetry for the Quiz page.** The mix-notice framing fact —
+whether the run's *effective* mix bound its percentages to a requested
+`QuizLength` — is the composition's own `MixComposition.HasRequestedLength`,
+read off `LastComposition`: the producer records the capped/capless split
+precisely so no consumer re-derives it (the controller carried a local
+`ActiveMixHasLength` duplicate until halheinrich/backgammon#12's recording
+landed). Passthrough runs (blank mix, or the ignore-mix override) wire no
+composition at all, and the notice block is gated on the composition's
+existence, so the no-framing case falls out structurally. A refused start
+replaces no active-run state, `LastComposition` included, so a running quiz
+keeps its framing behind a refusal.
+`ProblemNumber` / `ProblemCount` drive the "Problem N of M" indicator:
 N is the 1-based **consumed stream slot** of `Current` (auto-skipped
 no-choice positions included; reset by Start/Restart, untouched by Redo) and M is the
 composition's `DrawnCount` (weighted) or the source's declared `Count`
@@ -1370,9 +1376,9 @@ composition-only `role="status"` info line instead and never says
 "requested": without a `QuizLength` the percentages bind to nothing —
 per-entry `Requested` is largest-remainder apportionment of the pool union,
 so an outdrawn entry is composition noise, not shortfall (the producer
-guarantees Drawn == Target capless). The page keys the split on
-`Controller.ActiveMixHasLength`; a length-bound mix that filled exactly
-shows no notice at all.
+guarantees Drawn == Target capless). The page keys the split on the
+composition's own `HasRequestedLength`; a length-bound mix that filled
+exactly shows no notice at all.
 
 **Both mix notices retire on the first submitted answer** — *or* on a click,
 like every notice on the page (§ Dismissible notices). They say how *this*

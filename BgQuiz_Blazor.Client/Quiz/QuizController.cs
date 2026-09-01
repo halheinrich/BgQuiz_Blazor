@@ -271,23 +271,16 @@ internal sealed class QuizController : IAsyncDisposable
     /// layer is wired — a blank/overridden mix — or before the composing
     /// enumeration begins. Assigned by the producer before the first yield,
     /// so it is readable the moment a weighted quiz shows its first problem;
-    /// the pages' shortfall and composed-to-zero notices render from it.
+    /// the pages' shortfall and composed-to-zero notices render from it, and
+    /// the Quiz page keys its capless-vs-length-bound notice framing on the
+    /// composition's own <see cref="MixComposition.HasRequestedLength"/> —
+    /// the producer records that split precisely so no consumer re-derives it
+    /// (a local duplicate lived here until halheinrich/backgammon#12's
+    /// recording landed). A refused Start/Restart replaces no active-run
+    /// state, this reference included, so a running quiz keeps its telemetry
+    /// — and its notice framing — behind a refusal.
     /// </summary>
     public MixComposition? LastComposition => _mixedSource?.LastComposition;
-
-    /// <summary>
-    /// Whether the active run's <i>effective</i> mix binds its percentages to
-    /// a requested <see cref="QuizMix.QuizLength"/>. False for a passthrough
-    /// run (blank mix, or the per-run ignore-mix override) and for a capless
-    /// mix. The Quiz page keys its notice framing on this: per-entry
-    /// <see cref="MixCompositionEntry.Requested"/> is a user ask only under a
-    /// requested length — capless, it is largest-remainder apportionment of
-    /// the pool union, so an entry outdrawn there is composition noise, not a
-    /// shortfall, and "requested" framing would misreport it. Committed in
-    /// <see cref="ResetAndAdvanceAsync"/> past the refusal checks, so a
-    /// refused start leaves it — like all active-run state — untouched.
-    /// </summary>
-    public bool ActiveMixHasLength { get; private set; }
 
     /// <summary>
     /// The 1-based position of <see cref="Current"/> within the quiz stream:
@@ -1040,7 +1033,6 @@ internal sealed class QuizController : IAsyncDisposable
 
         _filterPipeline = pipeline;
         _mix = mix;
-        ActiveMixHasLength = effectiveMix.QuizLength is not null;
 
         await DisposeEnumeratorAsync();
 

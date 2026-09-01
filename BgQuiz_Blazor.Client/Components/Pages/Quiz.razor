@@ -97,7 +97,7 @@
     @if (Controller.LastComposition is { } comp
          && !Notices.IsDismissed(QuizNotice.Composition, comp))
     {
-        @if (!Controller.ActiveMixHasLength)
+        @if (!comp.HasRequestedLength)
         {
             <div class="alert alert-info alert-dismissible quiz-notice" role="status"
                  @onclick="@(() => DismissComposition(comp))">
