@@ -625,7 +625,7 @@ public class QuizControllerTests
         var c = Make(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
 
         Assert.Single(c.CubeHistory);
         var sub = c.CubeHistory[0];
@@ -651,7 +651,7 @@ public class QuizControllerTests
         var c = Make(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
+        c.SubmitCubeAction(CubeClaimPair.NoDoublePass);
 
         var sub = c.CubeHistory[0];
         Assert.False(sub.DoublerCorrect);
@@ -675,7 +675,7 @@ public class QuizControllerTests
         var c = Make(problem);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
 
         Assert.Equal(TestFixtures.KeyOf(problem), c.CubeHistory[^1].ProblemKey);
     }
@@ -691,15 +691,97 @@ public class QuizControllerTests
         var c = Make(d1, d2);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
+        c.SubmitCubeAction(CubeClaimPair.NoDoublePass);
 
         Assert.Same(d1, c.Current); // unchanged — no advance
         Assert.False(c.IsFinished);
         var review = Assert.IsType<ProblemReview.Cube>(c.Review);
-        Assert.Equal(0.20, review.DoublerEquityLoss, 6);
-        Assert.Equal(0.30, review.TakerEquityLoss, 6);
-        Assert.False(review.DoublerCorrect);
-        Assert.False(review.TakerCorrect);
+        Assert.Equal(0.20, review.Submission.DoublerEquityLoss, 6);
+        Assert.Equal(0.30, review.Submission.TakerEquityLoss, 6);
+        Assert.False(review.Submission.DoublerCorrect);
+        Assert.False(review.Submission.TakerCorrect);
+        // The review carries the scored record itself — the same instance the
+        // history holds — so its per-half verdicts cannot drift from the record.
+        Assert.Same(c.CubeHistory[0], review.Submission);
+    }
+
+    [Fact]
+    public async Task SubmitCubeAction_WrongClaimOverTheRightAction_IsIncorrectAtZeroLoss()
+    {
+        // SPEC-scoring §3's ruled "right action, wrong reason" verdict
+        // (halheinrich/backgammon#86): on a too-good position, answering No
+        // double performs the identical board action, so no equity is lost —
+        // and the claim is still wrong. The doubler half scores incorrect at
+        // +0.000; the taker half is independent and scores on its own.
+        var c = Make(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 0.9));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitCubeAction(CubeClaimPair.NoDoubleTake);
+
+        var sub = Assert.Single(c.CubeHistory);
+        Assert.Equal(CubeClaimPair.TooGoodTake, sub.BestDecision);
+        Assert.False(sub.DoublerCorrect);
+        Assert.Equal(0.0, sub.DoublerEquityLoss, 6);
+        Assert.True(sub.TakerCorrect);
+
+        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
+        Assert.Equal(0, c.Score.DoubleDecisions.Correct);
+        Assert.Equal(0.0, c.Score.DoubleDecisions.TotalEquityLoss, 6);
+        Assert.Equal(1, c.Score.TakeDecisions.Correct);
+    }
+
+    [Fact]
+    public async Task SubmitCubeAction_TooGoodClaim_ScoresCorrectOnATooGoodPosition()
+    {
+        // The fifth verdict, expressible for the first time: Too good / Take
+        // answered as such scores both halves correct — the arc's motivating
+        // case, which the action-level 2×2 could not represent.
+        var c = Make(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 0.9));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitCubeAction(CubeClaimPair.TooGoodTake);
+
+        var sub = Assert.Single(c.CubeHistory);
+        Assert.True(sub.DoublerCorrect);
+        Assert.True(sub.TakerCorrect);
+        Assert.Equal(2, c.Score.Total.Correct);
+    }
+
+    [Fact]
+    public async Task SubmitCubeAction_BuildsTheRecordThroughTheProducerFactory()
+    {
+        // The submission is SubmittedCubeAction.From(key, answer, decision) —
+        // never reassembled by hand. The factory reads truth and both losses off
+        // the one decision, so this pins that the record the controller keeps
+        // equals what the factory builds for the same inputs, field for field.
+        var problem = TestFixtures.CubeDecision(noDoubleEquity: 0.8, doubleTakeEquity: 0.7, away: 5);
+        var c = Make(problem);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitCubeAction(CubeClaimPair.DoublePass);
+
+        var expected = SubmittedCubeAction.From(
+            TestFixtures.KeyOf(problem), CubeClaimPair.DoublePass, problem.Decision);
+        Assert.Equal(expected, Assert.Single(c.CubeHistory));
+    }
+
+    [Fact]
+    public async Task SubmitCubeAction_IncoherentCell_IsSubmittableAndScoredPerHalf()
+    {
+        // Ruling 3: (No double, Pass) is allowed, never best, scored per half
+        // like any answer. Against the default fixture (best Double / Take) both
+        // halves are wrong; the record names the cell for the review to explain.
+        var c = Make(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitCubeAction(CubeClaimPair.NoDoublePass);
+
+        var sub = Assert.Single(c.CubeHistory);
+        Assert.True(sub.UserDecision.IsIncoherent);
+        Assert.False(sub.DoublerCorrect);
+        Assert.False(sub.TakerCorrect);
+        Assert.Equal(2, c.Score.Total.Submitted);
+        Assert.Equal(0, c.Score.Total.Correct);
     }
 
     [Fact]
@@ -709,7 +791,7 @@ public class QuizControllerTests
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d1, d2);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
         Assert.Same(d1, c.Current);
 
         await c.ContinueAsync();
@@ -724,10 +806,10 @@ public class QuizControllerTests
     {
         var c = Make(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
         var reviewBefore = c.Review;
 
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
+        c.SubmitCubeAction(CubeClaimPair.NoDoublePass);
 
         Assert.Same(reviewBefore, c.Review);
         Assert.Single(c.CubeHistory);
@@ -739,7 +821,7 @@ public class QuizControllerTests
         var c = Make(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
         Assert.False(c.IsFinished); // review first
 
         await c.ContinueAsync();
@@ -753,7 +835,7 @@ public class QuizControllerTests
     {
         var c = Make();
 
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
 
         Assert.Empty(c.CubeHistory);
         Assert.Equal(QuizScore.Empty, c.Score);
@@ -765,12 +847,12 @@ public class QuizControllerTests
     {
         var c = Make(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
         await c.ContinueAsync(); // exhausts
         Assert.True(c.IsFinished);
 
         var countBefore = c.CubeHistory.Count;
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
 
         Assert.Equal(countBefore, c.CubeHistory.Count);
     }
@@ -782,7 +864,7 @@ public class QuizControllerTests
             TestFixtures.CubeDecision(),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
         Assert.Single(c.CubeHistory);
         Assert.NotNull(c.Review);
 
@@ -911,7 +993,7 @@ public class QuizControllerTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var current = c.Current;
 
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
         Assert.Single(c.CubeHistory);
         Assert.Equal(2, c.Score.Total.Submitted); // one Double + one Take
         var recorded = c.CubeHistory[0];
@@ -940,7 +1022,7 @@ public class QuizControllerTests
         await c.ContinueAsync();
         Assert.Same(cube, c.Current);
 
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass)); // wrong
+        c.SubmitCubeAction(CubeClaimPair.NoDoublePass); // wrong
         Assert.Single(c.CubeHistory);
 
         await c.RedoAsync();
@@ -1026,12 +1108,12 @@ public class QuizControllerTests
         var c = Make(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass)); // of record
+        c.SubmitCubeAction(CubeClaimPair.NoDoublePass); // of record
         var recordedDoubleCorrect = c.Score.DoubleDecisions.Correct;
         var recordedTakeCorrect = c.Score.TakeDecisions.Correct;
 
         await c.RedoAsync();
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take)); // practice
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake); // practice
 
         Assert.Single(c.CubeHistory);
         Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
@@ -1069,16 +1151,16 @@ public class QuizControllerTests
         var c = Make(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
+        c.SubmitCubeAction(CubeClaimPair.NoDoublePass);
         Assert.False(Assert.IsType<ProblemReview.Cube>(c.Review).IsPractice);
 
         await c.RedoAsync();
-        var practiceAnswer = new CubeDecisionPair(CubeAction.Double, CubeAction.Take);
+        var practiceAnswer = CubeClaimPair.DoubleTake;
         c.SubmitCubeAction(practiceAnswer);
 
         var practice = Assert.IsType<ProblemReview.Cube>(c.Review);
         Assert.True(practice.IsPractice);
-        Assert.Equal(practiceAnswer, practice.Submitted); // the practice pair, not the record's
+        Assert.Equal(practiceAnswer, practice.Submission.UserDecision); // the practice pair, not the record's
     }
 
     [Fact]
@@ -1457,21 +1539,23 @@ public class QuizControllerTests
         // DecisionData (BgDecisionData forwards IsCube but not the best-pair
         // halves — folding the composite would misbucket every cube decision).
         // One of each kind in, one in each bucket out. Cube best pairs come from
-        // the equities: Double iff min(DoubleTake, 1) > NoDouble; Take iff
-        // DoubleTake < 1.
+        // the equities, through the producer's claim derivation: Double iff
+        // min(DoubleTake, 1) > NoDouble; else Too good iff NoDouble > 1; Take
+        // iff DoubleTake < 1 (halheinrich/backgammon#86).
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),                     // checker
             TestFixtures.CubeDecision(noDoubleEquity: 0.8, doubleTakeEquity: 0.7),     // no double / take
-            TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5),     // too good
             TestFixtures.CubeDecision(noDoubleEquity: 0.5, doubleTakeEquity: 0.7),     // double / take
-            TestFixtures.CubeDecision(noDoubleEquity: 0.5, doubleTakeEquity: 1.5));    // double / pass
+            TestFixtures.CubeDecision(noDoubleEquity: 0.5, doubleTakeEquity: 1.5),     // double / pass
+            TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5),     // too good / pass
+            TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 0.9));    // too good / take
 
         var summary = await c.SummarizeMatchesAsync(new FilterConfig());
 
         Assert.Equal(new AnswerTypeDistribution(
-            CheckerPlays: 1, NoDoubleTake: 1, TooGood: 1, DoubleTake: 1, DoublePass: 1),
+            CheckerPlays: 1, NoDoubleTake: 1, DoubleTake: 1, DoublePass: 1, TooGoodPass: 1, TooGoodTake: 1),
             summary.AnswerTypes);
-        Assert.Equal(5, summary.AnswerTypes.Total);
+        Assert.Equal(6, summary.AnswerTypes.Total);
     }
 
     [Fact]
@@ -1607,7 +1691,7 @@ public class QuizControllerTests
         var c = MakeWithSink(out var sink, TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
         Assert.Equal(0, sink.TotalFolds);
         var submitted = c.CubeHistory[^1];
 
@@ -1673,10 +1757,10 @@ public class QuizControllerTests
         var c = MakeWithSink(out var sink, TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
+        c.SubmitCubeAction(CubeClaimPair.NoDoublePass);
         var recorded = c.CubeHistory[^1];
         await c.RedoAsync();
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
 
         await c.ContinueAsync();
 
@@ -1909,7 +1993,7 @@ public class QuizControllerTests
 
         c.SubmitPlay(AltPlay());
         await c.ContinueAsync();
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
         await c.ContinueAsync();
         await c.SkipCurrentAsync(); // third problem skipped — no fold
 

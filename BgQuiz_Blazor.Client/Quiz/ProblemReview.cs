@@ -1,14 +1,16 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
-using BgDataTypes_Lib;
+using BgGame_Lib;
 
 /// <summary>
 /// The scored outcome of a just-submitted problem — the <i>displayed
 /// review</i>, held by <see cref="QuizController.Review"/> between Submit and
-/// Continue. It carries exactly the values the solution diagram needs to mark
-/// the user's answer: for a checker play, the matched candidate index that
-/// drives the <c>UserPlayIndex</c> marker; for a cube decision, the two
-/// per-half equity losses that drive the renderer's "Actual" banner.
+/// Continue. It carries exactly what the review surfaces need to mark and
+/// name the user's answer: for a checker play, the matched candidate index
+/// that drives the <c>UserPlayIndex</c> marker; for a cube decision, the
+/// scored submission itself — the user's claim pair, the derived truth pair,
+/// and the two per-half equity losses that drive the renderer's "Actual"
+/// banner.
 ///
 /// <para>
 /// <b>Displayed, not of record.</b> Every submission produces one of these,
@@ -23,10 +25,17 @@ using BgDataTypes_Lib;
 /// <para>
 /// Closed hierarchy — the private constructor permits only the two nested
 /// variants (<see cref="Play"/>, <see cref="Cube"/>), mirroring the play /
-/// cube split already present in <c>SubmittedPlay</c> / <c>SubmittedCubeAction</c>.
-/// Those scored-result types live in <c>BgGame_Lib</c> and already carry these
-/// values, but this review type is BgQuiz_Blazor's own per-problem UI state —
-/// it does not cross the submodule boundary into <c>BgGame_Lib</c>.
+/// cube split already present in <see cref="SubmittedPlay"/> /
+/// <see cref="SubmittedCubeAction"/>. Those scored-result types live in
+/// <c>BgGame_Lib</c>; this review type is BgQuiz_Blazor's own per-problem UI
+/// state and does not cross the submodule boundary into <c>BgGame_Lib</c>.
+/// The two variants relate to their scored record differently, and on
+/// purpose: <see cref="Play"/> restates the values it needs because its
+/// off-list case has no <see cref="SubmittedPlay"/> at all, while
+/// <see cref="Cube"/> wraps the <see cref="SubmittedCubeAction"/> whole — a
+/// cube answer always scores to one, and copying its fields out would put a
+/// second spelling of its derived per-half correctness beside the producer's
+/// (halheinrich/backgammon#86).
 /// </para>
 /// </summary>
 internal abstract record ProblemReview
@@ -74,22 +83,23 @@ internal abstract record ProblemReview
 
     /// <summary>
     /// A submitted cube decision, scored as two independent halves — the
-    /// doubler's offer and the taker's response.
+    /// doubler's <i>claim</i> and the taker's response if doubled
+    /// (SPEC-scoring.md §3; halheinrich/backgammon#86).
     /// </summary>
-    /// <param name="Submitted">
-    /// The pair the user actually answered. Drives the per-half verdict-line
-    /// labels (each half named for the action submitted, not a generic
-    /// half-name) — see <c>CubeActionDisplay</c>. The losses / correctness
-    /// below remain the diagram-marking and outcome-colouring values.
+    /// <param name="Submission">
+    /// The scored submission, whole: the claim pair the user answered
+    /// (<see cref="SubmittedCubeAction.UserDecision"/> — drives the per-half
+    /// verdict-line labels, each half named for what was submitted rather
+    /// than a generic half-name), the position's derived truth
+    /// (<see cref="SubmittedCubeAction.BestDecision"/> — what the verdict
+    /// names when a claim is wrong, and what makes the incoherent cell
+    /// nameable), the two per-half equity losses that mark the diagram's
+    /// "Actual" banner, and the per-half correctness the outcome colouring
+    /// reads — derived on the record from the two pairs, so a review can
+    /// never state a result that disagrees with the answer it describes.
+    /// For a practice submission this record exists to be shown and is
+    /// recorded nowhere; for the answer of record it is the same instance
+    /// the controller keeps.
     /// </param>
-    /// <param name="DoublerEquityLoss">Equity loss of the user's doubler action vs. the best (0 if best).</param>
-    /// <param name="TakerEquityLoss">Equity loss of the user's taker action vs. the best (0 if best).</param>
-    /// <param name="DoublerCorrect">True iff the user's doubler action was best.</param>
-    /// <param name="TakerCorrect">True iff the user's taker action was best.</param>
-    public sealed record Cube(
-        CubeDecisionPair Submitted,
-        double DoublerEquityLoss,
-        double TakerEquityLoss,
-        bool DoublerCorrect,
-        bool TakerCorrect) : ProblemReview;
+    public sealed record Cube(SubmittedCubeAction Submission) : ProblemReview;
 }

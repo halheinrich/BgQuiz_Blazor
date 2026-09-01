@@ -1,6 +1,7 @@
 using BackgammonDiagram_Lib;
 using BgDataTypes_Lib;
 using BgDiag_Razor.Components;
+using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
 
@@ -43,9 +44,18 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <list type="bullet">
 ///   <item><b>Cube</b> — the answer lives in <see cref="_completedCube"/>, which
 ///   <see cref="HandleStateChanged"/> nulls on every controller transition (Redo
-///   included). <see cref="BackgammonCubeActions"/> is strictly controlled off
-///   that field, so its radios render unselected the moment it is cleared —
-///   remount or not; there is no internal selection state to reset.</item>
+///   included), and the <see cref="BackgammonCubeActions"/> row is
+///   <c>@key</c>ed to the current problem so every advance mounts a fresh one.
+///   Both are needed. The row is controlled on the <i>pair</i>: a complete
+///   answer snaps back to whatever the field says, so nulling the field
+///   clears it. But the row holds its two half-selections as its own state —
+///   a half-answered row has no <see cref="CubeClaimPair"/> to be, so the field
+///   is already <c>null</c> while one pill is lit, and "set it to null" is no
+///   change at all; the half would survive a Skip into the next problem. The
+///   key is the consumer's real signal for "this is a new problem": a remount
+///   starts both halves clean, which no value the pair can take expresses.
+///   Redo reaches the clean slate the way Play does — the review branch
+///   already unmounted the row.</item>
 ///   <item><b>Play</b> — <see cref="BackgammonPlayEntry"/> holds its own
 ///   in-progress click state and only resets it when the incoming request
 ///   describes a different problem (same Mop/Dice suppresses the reset). That
@@ -77,21 +87,36 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <c>UserPlayIndex</c> for a checker play (the matched candidate index, or
 /// <c>-1</c> off-list so no marker draws), or <c>UserDoubleError</c> /
 /// <c>UserTakeError</c> for a cube decision (the two per-half losses driving the
-/// "Actual" banner). <c>FromDecisionData</c> is not used here because it would
-/// default those marks from the <c>.xg</c>-recorded player rather than the quiz
-/// user.
+/// "Actual" banner, read off the scored submission the review carries).
+/// <c>FromDecisionData</c> is not used here because it would default those
+/// marks from the <c>.xg</c>-recorded player rather than the quiz user.
 /// </para>
 ///
 /// <para>
 /// <b>Submit gating.</b> Submit is enabled once the page holds a complete
 /// answer. For a play, <see cref="BackgammonPlayEntry"/>'s <c>OnPlayCompleted</c>
 /// fires once all dice are consumed legally, latching <see cref="_completedPlay"/>.
-/// For a cube, <see cref="BackgammonCubeActions"/> emits a complete
-/// <see cref="CubeDecisionPair"/> on every selection (one radio sets both halves
-/// atomically), which <c>@bind-Value</c> writes into <see cref="_completedCube"/>;
-/// switching radios re-fires, so the field always holds the latest answer. Both
-/// fields clear on any controller transition (submit / advance / redo / restart)
-/// via <see cref="HandleStateChanged"/>; the play latch also clears on undo.
+/// For a cube, <see cref="BackgammonCubeActions"/> is two radio groups — the
+/// doubler's claim and the taker's response if doubled (SPEC-scoring.md §3,
+/// halheinrich/backgammon#86) — and emits a complete
+/// <see cref="CubeClaimPair"/> only once both halves are chosen, which
+/// <c>@bind-Value</c> writes into <see cref="_completedCube"/>; from then on
+/// every change to either half re-fires, so the field always holds the latest
+/// answer. Gating Submit on the field being non-null is therefore gating it on
+/// <i>both halves answered</i>, which is the intended flow: a half-answered row
+/// cannot be submitted. Both fields clear on any controller transition
+/// (submit / advance / redo / restart) via <see cref="HandleStateChanged"/>; the
+/// play latch also clears on undo.
+/// </para>
+///
+/// <para>
+/// <b>The cube verdict speaks claims.</b> The review's verdict line names the
+/// doubler half by the claim the user submitted — No Double, Double, or Too
+/// Good — and, when that claim is wrong, names the truth claim; a no-double
+/// answer to a too-good position is called out as the right action with the
+/// wrong claim rather than as an equity loss of nothing. The incoherent (no
+/// double, pass) answer, selectable by ruling, is explained in a trailing
+/// clause. See <see cref="CubeVerdict"/>.
 /// </para>
 ///
 /// <para>
@@ -194,7 +219,7 @@ public partial class Quiz : ComponentBase, IDisposable
 {
     private BackgammonPlayEntry? _playEntry;
     private Play? _completedPlay;
-    private CubeDecisionPair? _completedCube;
+    private CubeClaimPair? _completedCube;
 
     /// <summary>
     /// The two canvases this page ever asks for, shared rather than rebuilt per
@@ -417,8 +442,8 @@ public partial class Quiz : ComponentBase, IDisposable
                 break;
             case ProblemReview.Cube cube:
                 // The two per-half equity losses drive the "Actual" banner row.
-                builder.UserDoubleError = cube.DoublerEquityLoss;
-                builder.UserTakeError = cube.TakerEquityLoss;
+                builder.UserDoubleError = cube.Submission.DoublerEquityLoss;
+                builder.UserTakeError = cube.Submission.TakerEquityLoss;
                 break;
         }
 
@@ -477,16 +502,75 @@ public partial class Quiz : ComponentBase, IDisposable
             "Correct — you found the best play.",
         ProblemReview.Play p =>
             $"Not best — your play lost {p.EquityLoss:0.0000} equity. The best play is shown above.",
-        ProblemReview.Cube c =>
-            $"{CubeActionDisplay.Label(c.Submitted.Doubler)}: "
-            + $"{CubeHalfVerdict(c.DoublerCorrect, c.DoublerEquityLoss)} · "
-            + $"{CubeActionDisplay.Label(c.Submitted.Taker)}: "
-            + $"{CubeHalfVerdict(c.TakerCorrect, c.TakerEquityLoss)}",
+        ProblemReview.Cube c => CubeVerdict(c.Submission),
         _ => string.Empty,
     };
 
-    private static string CubeHalfVerdict(bool correct, double loss) =>
-        correct ? "correct" : $"incorrect (lost {loss:0.0000})";
+    /// <summary>
+    /// The cube verdict: one segment per half, each named for what the user
+    /// submitted — the doubler half by its claim, the taker half by its
+    /// action — in the solution diagram's own wording
+    /// (<see cref="CubeActionDisplay"/>), plus a trailing explanation when the
+    /// submitted pair is the incoherent cell. SPEC-scoring.md §3
+    /// (halheinrich/backgammon#86) rules the shape: per-half, claim-wise on
+    /// the doubler side.
+    ///
+    /// <para>
+    /// <b>The doubler half names the truth claim when the user's is wrong,
+    /// and the taker half does not.</b> The claim axis has three values, so
+    /// "incorrect" alone leaves two candidates; the taker axis has two, so
+    /// "Take: incorrect" already says Pass. Naming it also covers the one
+    /// thing the diagram beside this line cannot yet say: the producer's
+    /// banner speaks board actions, and a too-good-and-take position reads
+    /// there as "Best: No Double / Take" — the very verdict the claim layer
+    /// exists to distinguish (the wording split is inventoried at this leg,
+    /// not patched here).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Right action, wrong claim is said in those words.</b> A no-double
+    /// answer to a too-good position (or the reverse) scores incorrect at
+    /// +0.000 by ruling — the two claims collapse to the same board action, so
+    /// no equity was lost. Printing "incorrect (lost 0.0000)" there would read
+    /// as a contradiction; the line instead says what actually happened. The
+    /// test is on the board action behind each claim
+    /// (<see cref="CubeClaimExtensions.ToCubeAction"/>, the producer's one
+    /// spelling of the collapse), not on the loss being zero — a zero loss can
+    /// also come from an equity tie between different actions, which is the
+    /// ordinary incorrect case.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The incoherent cell is explained, not just marked.</b> (No double,
+    /// pass) is selectable by ruling — the axes are deliberately not
+    /// cross-disabled — because choosing it reveals a misunderstanding a
+    /// review can name: if the opponent would pass, cashing beats playing on,
+    /// so "not good enough to double" cannot hold. The per-half verdicts
+    /// still score it like any answer; the clause is appended after them.
+    /// </para>
+    /// </summary>
+    private static string CubeVerdict(SubmittedCubeAction submission)
+    {
+        var answer = submission.UserDecision;
+        var best = submission.BestDecision;
+
+        string doubler = CubeActionDisplay.Label(answer.Claim) + ": " + (
+            submission.DoublerCorrect
+                ? "correct"
+                : answer.Claim.ToCubeAction() == best.Claim.ToCubeAction()
+                    ? $"wrong claim — it's {CubeActionDisplay.Label(best.Claim)} (right action, no equity lost)"
+                    : $"incorrect — best is {CubeActionDisplay.Label(best.Claim)} (lost {submission.DoublerEquityLoss:0.0000})");
+
+        string taker = CubeActionDisplay.Label(answer.Taker) + ": " + (
+            submission.TakerCorrect
+                ? "correct"
+                : $"incorrect (lost {submission.TakerEquityLoss:0.0000})");
+
+        string verdict = $"{doubler} · {taker}";
+        return answer.IsIncoherent
+            ? verdict + " · No double and pass can't both hold: if they'd pass, cashing beats playing on."
+            : verdict;
+    }
 
     /// <summary>
     /// Legend for the solution diagram's play markers, listing only the markers
@@ -524,7 +608,7 @@ public partial class Quiz : ComponentBase, IDisposable
         review is not null
             ? VerdictText(review)
             : decision.IsCube
-                ? "Pick the cube action, then Submit."
+                ? "Pick the cube action and the take-or-pass reply, then Submit."
                 : "Click the board to build your play, then Submit.";
 
     /// <summary>
@@ -537,7 +621,7 @@ public partial class Quiz : ComponentBase, IDisposable
         ProblemReview.Play { OffList: true } => "alert-warning",
         ProblemReview.Play { IsCorrect: true } => "alert-success",
         ProblemReview.Play => "alert-danger",
-        ProblemReview.Cube { DoublerCorrect: true, TakerCorrect: true } => "alert-success",
+        ProblemReview.Cube { Submission: { DoublerCorrect: true, TakerCorrect: true } } => "alert-success",
         ProblemReview.Cube => "alert-danger",
         _ => "alert-secondary",
     };

@@ -600,17 +600,25 @@ internal sealed class QuizController : IAsyncDisposable
     ///
     /// <para>
     /// A cube position is two independent atomic decisions — the doubler's
-    /// offer choice and the taker's response choice — so this always scores
-    /// both halves: the per-half equity loss
-    /// (<see cref="DecisionData.DoublerActionError"/> /
-    /// <see cref="DecisionData.TakerActionError"/>) and per-half correctness
-    /// (against <see cref="DecisionData.BestDoublerAction"/> /
-    /// <see cref="DecisionData.BestTakerAction"/>). Unlike
-    /// <see cref="SubmitPlay"/> there is no off-list / skip path — every
-    /// cube answer is a complete, scorable pair (the doubler and taker button
-    /// groups can only yield in-range actions). The two per-half losses are
-    /// carried on <see cref="ProblemReview.Cube"/> and drive the solution
-    /// diagram's "Actual" banner.
+    /// three-valued <i>claim</i> (no double / double / too good) and the
+    /// taker's response if doubled — so this always scores both halves
+    /// (SPEC-scoring.md §3; halheinrich/backgammon#86). The scoring is the
+    /// producer's, reached through its one factory:
+    /// <see cref="SubmittedCubeAction.From"/> reads the position's derived
+    /// truth (<see cref="DecisionData.BestClaimPair"/>) and both per-half
+    /// equity losses off the analysed decision together, and the record
+    /// derives per-half correctness from the two pairs — claim vs. claim on
+    /// the doubler half, so a no-double answer to a too-good position scores
+    /// incorrect at +0.000 (the ruled "right action, wrong reason" verdict).
+    /// Nothing here reads an equity or compares an action: assembling the
+    /// record by hand is how an answer, a truth and a loss from different
+    /// decisions once could mix. Unlike <see cref="SubmitPlay"/> there is no
+    /// off-list / skip path — every cube answer is a complete, scorable pair,
+    /// the incoherent (no double, pass) cell included: it is a selectable
+    /// answer by ruling, never best, and scored per half like any other. The
+    /// whole scored submission is carried on <see cref="ProblemReview.Cube"/>,
+    /// which drives the solution diagram's "Actual" banner and the verdict
+    /// line.
     /// </para>
     ///
     /// <para>
@@ -618,7 +626,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// already in the review state (<see cref="Review"/> set — Continue first).
     /// </para>
     /// </summary>
-    public void SubmitCubeAction(CubeDecisionPair answer)
+    public void SubmitCubeAction(CubeClaimPair answer)
     {
         // Same IsBusy rationale as SubmitPlay: mid-advance the state guards
         // read stale-pass, so the gate is the guard that actually holds.
@@ -627,26 +635,14 @@ internal sealed class QuizController : IAsyncDisposable
         // SPEC-scoring.md §2, as in SubmitPlay: of record only the first time.
         var practice = _answerOfRecord is not null;
 
-        var d = Current.Decision;
-        var submitted = new SubmittedCubeAction(
-            KeyFor(Current),
-            answer,
-            d.DoublerActionError(answer.Doubler),
-            d.TakerActionError(answer.Taker),
-            answer.Doubler == d.BestDoublerAction,
-            answer.Taker == d.BestTakerAction);
+        var submitted = SubmittedCubeAction.From(KeyFor(Current), answer, Current.Decision);
         if (!practice)
         {
             _cubeHistory.Add(submitted);
             Score = Score.Plus(submitted);
             _answerOfRecord = new AnswerOfRecord.Cube(submitted);
         }
-        Review = new ProblemReview.Cube(
-            answer,
-            submitted.DoublerEquityLoss,
-            submitted.TakerEquityLoss,
-            submitted.DoublerCorrect,
-            submitted.TakerCorrect)
+        Review = new ProblemReview.Cube(submitted)
         {
             IsPractice = practice,
         };

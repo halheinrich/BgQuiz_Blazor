@@ -723,10 +723,10 @@ public class PageTests : BunitContext
         var region = MatchSummaryRegion(cut);
         Assert.Contains("By answer type", region.TextContent);
 
-        // The two populated buckets, and — the point of the feature — the three
+        // The two populated buckets, and — the point of the feature — the four
         // empty ones, present and reading zero rather than quietly dropped.
         var expected = AnswerTypeDisplay.Buckets(new AnswerTypeDistribution(
-            CheckerPlays: 2, NoDoubleTake: 0, TooGood: 0, DoubleTake: 1, DoublePass: 0));
+            CheckerPlays: 2, NoDoubleTake: 0, DoubleTake: 1, DoublePass: 0, TooGoodPass: 0, TooGoodTake: 0));
         Assert.Equal(
             expected.Select(b => $"{b.Label}: {b.Count}"),
             region.QuerySelectorAll("li").Select(li => Normalize(li.TextContent)));
@@ -759,7 +759,7 @@ public class PageTests : BunitContext
                             .ToList();
 
         Assert.Equal(4, renderedCount);
-        Assert.Equal(5, buckets.Count);
+        Assert.Equal(6, buckets.Count);
         Assert.Equal(renderedCount, buckets.Sum());
         Assert.Contains("decisions match your filters", region.TextContent);
     }
@@ -3872,7 +3872,7 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
-        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
 
@@ -3947,7 +3947,7 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
-        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
 
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
@@ -4113,16 +4113,13 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
-        // Same request the page builds for the entry; drives the hit-rect indices.
-        var request = DiagramRequest.FromDecisionData(decision, DiagramMode.Problem);
-
         // Answering state — not yet in review.
         Assert.Null(c.Review);
 
         // One-click completion: clicking the 12-pt advances its checker by the 6
         // (the 5 is blocked there), and nothing can follow, so the play completes
         // in a single click. See the fixture for why it is not a bear-off any more.
-        await ClickRectAsync(cut, RectIndexForPoint(request, 12));
+        await ClickPointAsync(cut, 12);
 
         // The completing move re-rendered the board (the checker sits on the 6-pt
         // now), so the dice hit-rect must be re-queried against the new render —
@@ -4182,7 +4179,7 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
         var current = c.Current;
 
-        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
         Assert.NotNull(c.Review);
@@ -4214,7 +4211,7 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
-        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
         Assert.NotEmpty(cut.FindAll("input[checked]")); // first answer selected a radio
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
@@ -4230,16 +4227,16 @@ public class PageTests : BunitContext
         Assert.Empty(cut.FindAll("input[checked]"));
 
         // Re-answer differently: scored and reviewed, and recorded nowhere.
-        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
+        await AnswerCubeAsync(cut, CubeClaimPair.NoDoublePass);
         var submit2 = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit2.ClickAsync(new());
 
         var practice = Assert.IsType<ProblemReview.Cube>(c.Review);
         Assert.True(practice.IsPractice);
-        Assert.Equal(new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass), practice.Submitted);
+        Assert.Equal(CubeClaimPair.NoDoublePass, practice.Submission.UserDecision);
 
         Assert.Same(recorded, Assert.Single(c.CubeHistory));
-        Assert.Equal(new CubeDecisionPair(CubeAction.Double, CubeAction.Take), recorded.UserDecision);
+        Assert.Equal(CubeClaimPair.DoubleTake, recorded.UserDecision);
         Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
         Assert.Equal(1, c.Score.TakeDecisions.Submitted);
     }
@@ -4256,14 +4253,14 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
-        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
 
         var ofRecordText = cut.Find(".status-verdict-text").TextContent;
         Assert.DoesNotContain("Practice", ofRecordText);
 
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo").ClickAsync(new());
-        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.NoDouble, CubeAction.Pass));
+        await AnswerCubeAsync(cut, CubeClaimPair.NoDoublePass);
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
 
         var practiceText = cut.Find(".status-verdict-text").TextContent;
@@ -4281,6 +4278,152 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Quiz_CubeActions_HalfAnswered_SubmitStaysDisabled()
+    {
+        // The producer's Value is null while the row is half-answered — one
+        // group chosen, the other not — and that is not "nothing selected"
+        // (BgDiag_Razor's own pitfall). Gating Submit on the bound field being
+        // non-null is therefore gating it on both halves answered: a lit claim
+        // pill alone must leave Submit disabled, and choosing the taker half
+        // must light it. Driven through the real radios, because the callback
+        // never carries a half answer.
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        await SelectCubeRadioAsync(cut, "No double");
+
+        Assert.NotEmpty(cut.FindAll("input[checked]"));                  // visibly in progress…
+        Assert.True(cut.Find("button.btn-primary").HasAttribute("disabled")); // …but not submittable
+
+        await SelectCubeRadioAsync(cut, "Take");
+
+        Assert.False(cut.Find("button.btn-primary").HasAttribute("disabled"));
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
+        Assert.Equal(CubeClaimPair.NoDoubleTake, Assert.Single(c.CubeHistory).UserDecision);
+    }
+
+    [Fact]
+    public async Task Quiz_CubeActions_HalfAnswered_ThenSkip_NextProblemStartsClean()
+    {
+        // The trap the producer's value contract sets for a consumer: a
+        // half-answered row composes to no pair, so _completedCube is already
+        // null and HandleStateChanged's "null it" is no change — the producer
+        // re-seeds its halves only when Value disagrees with them, so the lit
+        // pill would survive a Skip into the next problem. The page's answer is
+        // the @key on the current problem: a new problem mounts a new row.
+        // Without the key this test fails on the checked-input assertion.
+        var c = WithController(TestFixtures.CubeDecision(), TestFixtures.CubeDecision(away: 3));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+        var firstRow = cut.FindComponent<BackgammonCubeActions>().Instance;
+
+        await SelectCubeRadioAsync(cut, "No double");
+        Assert.NotEmpty(cut.FindAll("input[checked]"));
+
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Skip").ClickAsync(new());
+
+        Assert.Equal(1, c.SkippedCount);
+        Assert.Empty(cut.FindAll("input[checked]"));
+        Assert.True(cut.Find("button.btn-primary").HasAttribute("disabled"));
+        Assert.NotSame(firstRow, cut.FindComponent<BackgammonCubeActions>().Instance);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_CubeVerdict_WrongClaimOverTheRightAction_SaysSo()
+    {
+        // SPEC-scoring §3's "right action, wrong reason" verdict, at the pixel
+        // it lands on (halheinrich/backgammon#86): No double answered to a
+        // too-good position is incorrect at +0.000. The band does not print a
+        // contradiction ("incorrect (lost 0.0000)"); it names the claim that
+        // was right and says no equity was lost. Coloured as a miss — the
+        // doubler half is wrong.
+        var c = WithController(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 0.9));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.NoDoubleTake));
+
+        var verdict = cut.Find(".status-strip").QuerySelector(".status-verdict")!;
+        Assert.Contains("alert-danger", verdict.ClassList);
+        Assert.Contains(
+            "No Double: wrong claim — it's Too Good (right action, no equity lost)",
+            verdict.TextContent);
+        Assert.Contains("Take: correct", verdict.TextContent);
+        Assert.DoesNotContain("0.0000", verdict.TextContent);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_CubeVerdict_TooGoodAndTake_IsTheFifthVerdict()
+    {
+        // The arc's motivating case: Too good / Take answered as such is
+        // correct on both halves and coloured as a hit. Unrepresentable before
+        // the claim vocabulary — the compound row had no pill for it.
+        var c = WithController(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 0.9));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.TooGoodTake));
+
+        var verdict = cut.Find(".status-strip").QuerySelector(".status-verdict")!;
+        Assert.Contains("alert-success", verdict.ClassList);
+        Assert.Equal("Too Good: correct · Take: correct", verdict.TextContent.Trim());
+    }
+
+    [Fact]
+    public async Task Quiz_Review_CubeVerdict_IncoherentCell_IsExplained()
+    {
+        // Ruling 3: (No double, Pass) is selectable and never best, and the
+        // review explains why rather than only marking it wrong. Both halves
+        // still get their per-half verdicts first; the explanation trails.
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.NoDoublePass));
+
+        var text = cut.Find(".status-verdict-text").TextContent;
+        Assert.Contains("No Double: incorrect — best is Double (lost 0.2000)", text);
+        Assert.Contains("Pass: incorrect (lost 0.3000)", text);
+        Assert.EndsWith(
+            "No double and pass can't both hold: if they'd pass, cashing beats playing on.",
+            text.Trim());
+    }
+
+    [Fact]
+    public async Task Quiz_Review_CubeVerdict_CoherentAnswers_CarryNoExplanation()
+    {
+        // The negative half: the incoherence clause is for the one cell, and a
+        // plainly wrong coherent answer (Double / Pass on a No double / Take
+        // position) gets its two per-half verdicts and nothing more.
+        var c = WithController(TestFixtures.CubeDecision(noDoubleEquity: 0.8, doubleTakeEquity: 0.7));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.DoublePass));
+
+        var text = cut.Find(".status-verdict-text").TextContent;
+        Assert.DoesNotContain("can't both hold", text);
+        Assert.Equal(2, text.Split(" · ").Length);
+    }
+
+    [Fact]
+    public async Task Quiz_CubeAnswering_PromptAsksForBothHalves()
+    {
+        // The neutral prompt names both picks now that the answer is two: a
+        // user who chooses a claim and sees Submit stay dark needs the prompt
+        // to have told them the second half is owed.
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await Settings().SetMaximizeBoardWhileAnsweringAsync(false);
+        var cut = Render<QuizPage>();
+
+        Assert.Equal(
+            "Pick the cube action and the take-or-pass reply, then Submit.",
+            cut.Find(".status-verdict-text").TextContent.Trim());
+    }
+
+    [Fact]
     public async Task Quiz_CubeActions_SelectEnablesSubmit_ThenSkipClearsForNextProblem()
     {
         // Submit-enable round-trip + clear-on-Skip. Selecting a cube action latches
@@ -4294,7 +4437,7 @@ public class PageTests : BunitContext
         // Disabled until an answer is selected.
         Assert.True(cut.Find("button.btn-primary").HasAttribute("disabled"));
 
-        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
         Assert.False(cut.Find("button.btn-primary").HasAttribute("disabled"));
         Assert.NotEmpty(cut.FindAll("input[checked]"));
 
@@ -4317,7 +4460,7 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
-        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
         Assert.NotNull(c.Review);
@@ -4345,10 +4488,9 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
-        var request = DiagramRequest.FromDecisionData(decision, DiagramMode.Problem);
         var firstEntry = cut.FindComponent<BackgammonPlayEntry>().Instance;
 
-        await ClickRectAsync(cut, RectIndexForPoint(request, 12)); // completes the play
+        await ClickPointAsync(cut, 12); // completes the play
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
         Assert.NotNull(c.Review);
@@ -4497,30 +4639,18 @@ public class PageTests : BunitContext
 
     // -----------------------------------------------------------------------
     //  Hit-rect click helpers (Quiz answering state renders only the entry's
-    //  board, so the page's transparent overlay rects are the entry's). Order
-    //  mirrors BackgammonDiagram's overlay emission: Points in iteration order,
-    //  then bar, optional cube, optional tray, dice last. Rects are re-found per
-    //  click so post-render handler IDs stay fresh — a stale index against a
+    //  board, so the page's transparent overlay rects are the entry's). A point
+    //  is addressed by the producer's contractual identity — every point rect
+    //  carries data-point="N" and no other rect does (BgDiag_Razor's
+    //  BackgammonDiagram) — so no positional index has to be reconstructed from
+    //  the hit-region enumeration. The dice rect carries no such attribute and
+    //  is still found by its render-order position. Rects are re-found per
+    //  click so post-render handler IDs stay fresh — a stale element against a
     //  re-rendered board throws MissingEventHandlerException.
     // -----------------------------------------------------------------------
 
-    private static int RectIndexForPoint(DiagramRequest req, int point)
-    {
-        var regions = DiagramRenderer.GetHitRegions(req, new DiagramOptions());
-        int i = 0;
-        foreach (var kvp in regions.Points)
-        {
-            if (kvp.Key == point) return i;
-            i++;
-        }
-        throw new ArgumentException($"Point {point} not present in regions.");
-    }
-
-    private static Task ClickRectAsync(IRenderedComponent<QuizPage> cut, int rectIndex)
-    {
-        var rects = cut.FindAll("rect[fill='transparent'][pointer-events='all']");
-        return rects[rectIndex].ClickAsync(new());
-    }
+    private static Task ClickPointAsync(IRenderedComponent<QuizPage> cut, int point) =>
+        cut.Find($"rect[data-point='{point}']").ClickAsync(new());
 
     private static Task ClickDiceAsync(IRenderedComponent<QuizPage> cut)
     {
@@ -4534,14 +4664,32 @@ public class PageTests : BunitContext
     /// Answers the rendered cube-answering page by invoking
     /// <see cref="BackgammonCubeActions"/>'s <c>ValueChanged</c> with the given
     /// pair — the parent-side half of the <c>@bind-Value</c> wire the page relies
-    /// on. Driving by the stable <see cref="CubeDecisionPair"/> data contract
+    /// on. Driving by the stable <see cref="CubeClaimPair"/> data contract
     /// (not the producer's radio-caption text) keeps the consumer test insulated
     /// from cosmetic label renames; a mis-named / dropped binding leaves
     /// <c>_completedCube</c> unset, so Submit stays disabled and the caller fails.
+    /// The callback only ever carries a complete pair (the producer never fires
+    /// for a half-answered row), so this cannot stage a half answer — see
+    /// <see cref="SelectCubeRadioAsync"/> for that.
     /// </summary>
-    private static Task AnswerCubeAsync(IRenderedComponent<QuizPage> cut, CubeDecisionPair answer) =>
+    private static Task AnswerCubeAsync(IRenderedComponent<QuizPage> cut, CubeClaimPair answer) =>
         cut.InvokeAsync(() =>
             cut.FindComponent<BackgammonCubeActions>().Instance.ValueChanged.InvokeAsync(answer));
+
+    /// <summary>
+    /// Clicks one radio of the rendered <see cref="BackgammonCubeActions"/> row
+    /// the way the user does — a change event on the input whose caption is
+    /// <paramref name="caption"/> — which is the only way to put the row into
+    /// its half-answered state (one group chosen, the other not). Addressed by
+    /// caption because a half answer has no data-contract spelling to drive by;
+    /// the two captions used here ("No double", "Take") are the producer's.
+    /// </summary>
+    private static Task SelectCubeRadioAsync(IRenderedComponent<QuizPage> cut, string caption)
+    {
+        var label = cut.FindAll(".bg-cube-actions label")
+            .First(l => l.TextContent.Trim() == caption);
+        return label.QuerySelector("input")!.ChangeAsync(new ChangeEventArgs());
+    }
 
     /// <summary>
     /// Answers the rendered play-answering page the way the user does: latch the
@@ -4690,7 +4838,7 @@ public class PageTests : BunitContext
             TestFixtures.CubeDecision(),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        c.SubmitCubeAction(new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
         await c.ContinueAsync();
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
@@ -5897,25 +6045,30 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_Review_CubeVerdict_LabelsHalvesByUsersSubmittedActions()
+    public async Task Quiz_Review_CubeVerdict_LabelsHalvesByUsersSubmittedClaimAndAction()
     {
-        // The verdict line names each half for the action the user actually
-        // submitted (not a generic half-name), matching the solution diagram's
-        // banner wording. Against the default cube fixture (best is Double/Take),
-        // a Too-Good answer — (NoDouble, Pass) — is incorrect on both halves, so
-        // the doubler half reads "No Double" and the taker half reads "Pass".
+        // The verdict line names each half for what the user actually submitted
+        // (not a generic half-name): the doubler half by its claim, the taker
+        // half by its action, in the solution diagram's banner wording. Against
+        // the default cube fixture (best is Double / Take), a Too good / Pass
+        // answer is incorrect on both halves, so the doubler half reads "Too
+        // Good" — a claim in its own words, no longer spelled as "No Double" —
+        // and the taker half reads "Pass". A wrong claim names the truth claim
+        // (three values, so "incorrect" alone leaves two); the taker half does
+        // not (two values, so it already implies the other).
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
-        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeDecisionPair.TooGood));
+        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.TooGoodPass));
         Assert.NotNull(c.Review);
 
         var verdict = cut.Find(".status-strip").QuerySelector(".status-verdict")!;
         Assert.Contains("alert-danger", verdict.ClassList);
-        Assert.Contains("No Double: incorrect", verdict.TextContent);
-        Assert.Contains("Pass: incorrect", verdict.TextContent);
-        // The taker half is now labeled by the submitted action ("Pass"), never
+        Assert.Contains("Too Good: incorrect — best is Double (lost 0.2000)", verdict.TextContent);
+        Assert.Contains("Pass: incorrect (lost 0.3000)", verdict.TextContent);
+        Assert.DoesNotContain("No Double", verdict.TextContent);
+        // The taker half is labeled by the submitted action ("Pass"), never
         // the old generic "Take" half-name.
         Assert.DoesNotContain("Take:", verdict.TextContent);
     }
@@ -7685,7 +7838,7 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
         Assert.NotNull(cut.Find("div.alert-info[role=status]"));
 
-        await AnswerCubeAsync(cut, new CubeDecisionPair(CubeAction.Double, CubeAction.Take));
+        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
 
         Assert.DoesNotContain("Your quiz has", cut.Markup);
@@ -8627,7 +8780,7 @@ public class PageTests : BunitContext
         await Settings().SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.XgRollerPlusPlus);
 
         var cut = Render<QuizPage>();
-        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeDecisionPair.TooGood));
+        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.TooGoodPass));
         Assert.NotNull(c.Review);
 
         Assert.Equal(CandidateOrdering.DepthFirst, SolutionRequest(cut).CandidateOrdering);

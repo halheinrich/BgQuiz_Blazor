@@ -272,11 +272,25 @@
                 {
                     @* The cube answer lives here in the chrome, beside its own
                        Submit / Skip — the board region above is board-only. The
-                       radios lead the row (form order: choose, then Submit lights
-                       up); @bind-Value keeps _completedCube current, which gates
-                       Submit. There is no automatic reset — HandleStateChanged
-                       nulls _completedCube on every advance, clearing the radios. *@
-                    <BackgammonCubeActions @bind-Value="_completedCube" />
+                       two radio groups (claim, then take-or-pass) lead the row
+                       (form order: choose both, then Submit lights up);
+                       @bind-Value keeps _completedCube current, which gates
+                       Submit — null until both halves are chosen, so a
+                       half-answered row cannot be submitted.
+
+                       Two clearing mechanisms, because the row has two kinds of
+                       state. HandleStateChanged nulls _completedCube on every
+                       transition, which clears a COMPLETE answer (the row is
+                       controlled on the pair and snaps back to it). The @key on
+                       the current problem remounts the row on every advance,
+                       which clears a HALF answer: one lit pill composes to no
+                       pair, so _completedCube is already null and nulling it
+                       again changes nothing — without the key, a half-answered
+                       row would carry its pill into the next problem after a
+                       Skip. Keyed on the problem, not on a counter: the object
+                       is what the row is answering, and a new one is exactly
+                       when a fresh row is owed. *@
+                    <BackgammonCubeActions @key="current" @bind-Value="_completedCube" />
                     <button class="btn btn-primary"
                             disabled="@(_completedCube is null || Controller.IsBusy)"
                             @onclick="Submit">

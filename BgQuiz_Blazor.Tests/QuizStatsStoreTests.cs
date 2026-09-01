@@ -55,8 +55,8 @@ public class QuizStatsStoreTests
             correct ? 0.0 : 0.05, correct);
 
     private static SubmittedCubeAction CubeSubmission(int problem = 0) =>
-        new(CubeKey(problem), new CubeDecisionPair(CubeAction.Double, CubeAction.Take),
-            0.0, 0.0, DoublerCorrect: true, TakerCorrect: true);
+        SubmittedCubeAction.From(
+            CubeKey(problem), CubeClaimPair.DoubleTake, TestFixtures.CubeDecision(away: problem).Decision);
 
     // -----------------------------------------------------------------------
     //  BeginQuizAsync — the Start-time bind
