@@ -48,9 +48,9 @@ public class CanonicalPlayEquivalenceTests
         var only = Assert.Single(plays);
         // Both encodings compare equal to what was generated: Play equality is
         // canonical equality, insensitive to which die went first.
-        Assert.Equal(TestFixtures.MakePlay((13, 11), (11, 8)), only);
-        Assert.Equal(TestFixtures.MakePlay((13, 10), (10, 8)), only);
-        Assert.Equal(TestFixtures.MakePlay((13, 8)), only);
+        Assert.Equal(Play.Create(new(13, 11), new(11, 8)), only);
+        Assert.Equal(Play.Create(new(13, 10), new(10, 8)), only);
+        Assert.Equal(Play.Create(new(13, 8)), only);
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public class CanonicalPlayEquivalenceTests
         var only = Assert.Single(plays);
         // Single alone would also pass if the generator dropped both entries
         // and emitted some other play; naming the play rules that out.
-        Assert.Equal(TestFixtures.MakePlay((5, 0), (4, 0)), only);
+        Assert.Equal(Play.Create(new(5, 0), new(4, 0)), only);
     }
 
     /// <summary>

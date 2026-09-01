@@ -43,9 +43,9 @@ public class QuizControllerTests
         return new QuizController((set, _) => { holder = set; return TestFixtures.Composed(fake); }, new FakeProblemStatsSink(), TimeProvider.System);
     }
 
-    private static Play BestPlay() => TestFixtures.MakePlay((8, 5), (8, 5));
-    private static Play AltPlay() => TestFixtures.MakePlay((13, 11), (11, 8));
-    private static Play UnknownPlay() => TestFixtures.MakePlay((24, 23), (24, 22));
+    private static Play BestPlay() => Play.Create(new(8, 5), new(8, 5));
+    private static Play AltPlay() => Play.Create(new(13, 11), new(11, 8));
+    private static Play UnknownPlay() => Play.Create(new(24, 23), new(24, 22));
 
     // -----------------------------------------------------------------------
     //  Construction
@@ -575,12 +575,12 @@ public class QuizControllerTests
         // so the decomposed submission matches the combined candidate and scores
         // as it rather than falling off-list (the bug this arc fixed: two-click
         // 13/8 was scored off-list even though 13/8 is on the candidate list).
-        var combined = TestFixtures.MakePlay((13, 8));                // candidate: 13/8
-        var other = TestFixtures.MakePlay((24, 22), (24, 23));
+        var combined = Play.Create(new(13, 8));                // candidate: 13/8
+        var other = Play.Create(new(24, 22), new(24, 23));
         var c = Make(TestFixtures.TwoChoiceDecision(combined, other, play2Loss: 0.05));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
-        c.SubmitPlay(TestFixtures.MakePlay((13, 10), (10, 8)));       // 13/10, 10/8
+        c.SubmitPlay(Play.Create(new(13, 10), new(10, 8)));       // 13/10, 10/8
 
         Assert.Single(c.History);
         Assert.Equal(0, c.History[0].MatchedCandidateIndex);         // matched the combined candidate
@@ -599,13 +599,13 @@ public class QuizControllerTests
         // is a genuinely different play from the non-hitting candidate 13/8 and
         // must stay off-list. Decomposition-insensitivity must not start
         // collapsing hitting and non-hitting plays together.
-        var nonHitting = TestFixtures.MakePlay((13, 8));             // candidate 13/8, no hit
-        var other = TestFixtures.MakePlay((24, 22), (24, 23));
+        var nonHitting = Play.Create(new(13, 8));             // candidate 13/8, no hit
+        var other = Play.Create(new(24, 22), new(24, 23));
         var c = Make(TestFixtures.TwoChoiceDecision(nonHitting, other));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         // 13/10*/8 — the intermediate 10-pt hit is the sign-encoded negative ToPt.
-        c.SubmitPlay(TestFixtures.MakePlay((13, -10), (10, 8)));
+        c.SubmitPlay(Play.Create(new(13, -10), new(10, 8)));
 
         Assert.Empty(c.History);
         Assert.Equal(1, c.SkippedCount);

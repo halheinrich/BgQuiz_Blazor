@@ -124,8 +124,8 @@ public class PageTests : BunitContext
     /// <summary>The sessionStorage key <see cref="QuizLiveMarker"/> reads/writes.</summary>
     private const string QuizLiveKey = "bgquiz.quizLive";
 
-    private static Play BestPlay() => TestFixtures.MakePlay((8, 5), (8, 5));
-    private static Play AltPlay() => TestFixtures.MakePlay((13, 11), (11, 8));
+    private static Play BestPlay() => Play.Create(new(8, 5), new(8, 5));
+    private static Play AltPlay() => Play.Create(new(13, 11), new(11, 8));
 
     /// <summary>
     /// A one-file <see cref="FolderPickOutcome"/> for scripting
@@ -3513,7 +3513,7 @@ public class PageTests : BunitContext
                 await store.BeginQuizAsync();
                 await store.RecordAsync(new SubmittedPlay(
                     TestFixtures.KeyOf(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())),
-                    TestFixtures.MakePlay((8, 5)), 0, 0.0, true));
+                    Play.Create(new(8, 5)), 0, 0.0, true));
                 break;
         }
 
@@ -4082,7 +4082,7 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
 
         // A play matching neither candidate → off-list.
-        await cut.InvokeAsync(() => c.SubmitPlay(TestFixtures.MakePlay((24, 23), (23, 21))));
+        await cut.InvokeAsync(() => c.SubmitPlay(Play.Create(new(24, 23), new(23, 21))));
         var review = Assert.IsType<ProblemReview.Play>(c.Review);
         Assert.True(review.OffList);
 

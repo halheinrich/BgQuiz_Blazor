@@ -44,14 +44,14 @@ public class QuizStatsStoreTests
     /// </summary>
     private static ProblemKey PlayKey(int problem = 0) =>
         TestFixtures.KeyOf(TestFixtures.TwoChoiceDecision(
-            TestFixtures.MakePlay((8, 5)), TestFixtures.MakePlay((13, 10)), away: problem));
+            Play.Create(new(8, 5)), Play.Create(new(13, 10)), away: problem));
 
     /// <summary>The cube analog of <see cref="PlayKey"/>; a cube key never collides with a play key (no dice field).</summary>
     private static ProblemKey CubeKey(int problem = 0) =>
         TestFixtures.KeyOf(TestFixtures.CubeDecision(away: problem));
 
     private static SubmittedPlay PlaySubmission(int problem = 0, bool correct = true) =>
-        new(PlayKey(problem), TestFixtures.MakePlay((8, 5)), 0,
+        new(PlayKey(problem), Play.Create(new(8, 5)), 0,
             correct ? 0.0 : 0.05, correct);
 
     private static SubmittedCubeAction CubeSubmission(int problem = 0) =>
@@ -549,7 +549,7 @@ public class QuizStatsStoreTests
         await store.BeginQuizAsync();
 
         await store.RecordAsync(new SubmittedPlay(
-            null, TestFixtures.MakePlay((8, 5)), 0, 0.0, IsCorrect: true));
+            null, Play.Create(new(8, 5)), 0, 0.0, IsCorrect: true));
 
         var afterNoKey = JsonSerializer.Deserialize<ProblemStatsDocument>(fake.Writes[^1]);
         Assert.NotNull(afterNoKey);

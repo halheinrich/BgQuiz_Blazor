@@ -23,8 +23,8 @@ public class TestFixtureContractTests
 {
     public static TheoryData<string, BgDecisionData> EveryDecisionFixture() => new()
     {
-        { "money play", TestFixtures.TwoChoiceDecision(TestFixtures.MakePlay((8, 5)), TestFixtures.MakePlay((13, 10))) },
-        { "match play", TestFixtures.TwoChoiceDecision(TestFixtures.MakePlay((8, 5)), TestFixtures.MakePlay((13, 10)), away: 3) },
+        { "money play", TestFixtures.TwoChoiceDecision(Play.Create(new(8, 5)), Play.Create(new(13, 10))) },
+        { "match play", TestFixtures.TwoChoiceDecision(Play.Create(new(8, 5)), Play.Create(new(13, 10)), away: 3) },
         { "money cube", TestFixtures.CubeDecision() },
         { "match cube", TestFixtures.CubeDecision(away: 3) },
         { "one-click play", TestFixtures.OneClickPlayDecision() },
@@ -63,7 +63,7 @@ public class TestFixtureContractTests
         // match fixture asserts no answer to a question its score never poses.
         Assert.Null(TestFixtures.CubeDecision(away: 3).Position.IsJacoby);
         Assert.Null(TestFixtures
-            .TwoChoiceDecision(TestFixtures.MakePlay((8, 5)), TestFixtures.MakePlay((13, 10)), away: 3)
+            .TwoChoiceDecision(Play.Create(new(8, 5)), Play.Create(new(13, 10)), away: 3)
             .Position.IsJacoby);
     }
 

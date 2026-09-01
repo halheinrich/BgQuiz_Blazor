@@ -181,7 +181,7 @@ public class JacobyStampedProblemSetSourceTests
             MoneyCube("money.xg", isJacoby: true),
             TestFixtures.CubeDecision(away: 3),
             TestFixtures.TwoChoiceDecision(
-                TestFixtures.MakePlay((8, 5)), TestFixtures.MakePlay((13, 10))),
+                Play.Create(new(8, 5)), Play.Create(new(13, 10))),
         };
         Assert.Null(pool[1].Position.IsJacoby); // the premise, asserted
         var source = Guarding(pool);

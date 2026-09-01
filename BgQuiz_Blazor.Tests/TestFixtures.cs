@@ -120,14 +120,6 @@ internal static class TestFixtures
         return m;
     }
 
-    public static Play MakePlay(params (int from, int to)[] moves)
-    {
-        var play = new Play();
-        foreach (var (from, to) in moves)
-            play.Add(new Move(from, to));
-        return play;
-    }
-
     /// <summary>
     /// The content identity of <paramref name="decision"/>, through the
     /// producer's single derivation factory — the only way a test may obtain a
@@ -309,7 +301,7 @@ internal static class TestFixtures
                 [
                     // The entry's completed 12/6 play matches this candidate by
                     // canonical Play equality ((12, 6)).
-                    new PlayCandidate { Play = MakePlay((12, 6)), EquityLoss = 0.0, MoveNotation = "12/6" },
+                    new PlayCandidate { Play = [new(12, 6)], EquityLoss = 0.0, MoveNotation = "12/6" },
                 ],
                 BestPlayIndex = 0,
             },
@@ -349,7 +341,7 @@ internal static class TestFixtures
             Decision = new DecisionData
             {
                 Dice = [6, 5],
-                Plays = [new PlayCandidate { Play = MakePlay((12, 6)), EquityLoss = 0.0, MoveNotation = "12/6" }],
+                Plays = [new PlayCandidate { Play = [new(12, 6)], EquityLoss = 0.0, MoveNotation = "12/6" }],
                 BestPlayIndex = 0,
             },
             Descriptive = new DescriptiveData { OnRollName = "Alice", OpponentName = "Bob" },
@@ -375,7 +367,7 @@ internal static class TestFixtures
             Decision = new DecisionData
             {
                 Dice = [6, 6],
-                Plays = [new PlayCandidate { Play = MakePlay((24, 18)), EquityLoss = 0.0, MoveNotation = "24/18" }],
+                Plays = [new PlayCandidate { Play = [new(24, 18)], EquityLoss = 0.0, MoveNotation = "24/18" }],
                 BestPlayIndex = 0,
             },
             Descriptive = new DescriptiveData { OnRollName = "Alice", OpponentName = "Bob" },
@@ -414,7 +406,7 @@ internal static class TestFixtures
                 [
                     new PlayCandidate
                     {
-                        Play = MakePlay((5, 0), (4, 0)), EquityLoss = 0.0, MoveNotation = "5/off 4/off",
+                        Play = [new(5, 0), new(4, 0)], EquityLoss = 0.0, MoveNotation = "5/off 4/off",
                     },
                 ],
                 BestPlayIndex = 0,

@@ -27,8 +27,8 @@ namespace BgQuiz_Blazor.Tests;
 /// </summary>
 public class QuizControllerOverlapTests
 {
-    private static Play BestPlay() => TestFixtures.MakePlay((8, 5), (8, 5));
-    private static Play AltPlay() => TestFixtures.MakePlay((13, 11), (11, 8));
+    private static Play BestPlay() => Play.Create(new(8, 5), new(8, 5));
+    private static Play AltPlay() => Play.Create(new(13, 11), new(11, 8));
 
     private static BgDecisionData Decision() => TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
 
