@@ -1,0 +1,86 @@
+<!-- The disposition of the six framework-origin trim warnings that remain
+     once this app's own wire surface is fully source-generated
+     (halheinrich/backgammon#129 leg 5). This file is ILLink "attribute
+     annotations" XML: each entry injects an UnconditionalSuppressMessage onto
+     the exact framework member a warning arises in, so the suppression is
+     member- and code-pinned — a NEW warning anywhere (an SDK bump changing
+     the framework set included) still fails the publish under
+     TreatWarningsAsErrors and gets its own disposition here or a fix.
+
+     Ground rules, from the issue: fix where real; suppress narrowly with a
+     written justification where framework-inherent; never a blanket
+     suppression (no NoWarn, no SuppressTrimAnalysisWarnings, no
+     TrimmerSingleWarn). None of the six is fixable from this repo: every one
+     originates in framework IL we don't compile, in the reflection Blazor's
+     own engine is built on — the same warnings the Blazor SDK's default
+     SuppressTrimAnalysisWarnings=true exists to hide wholesale.
+
+     Why they are safe in THIS app, member by member, is on each entry. The
+     common ground: the Blazor WebAssembly SDK roots the application
+     assemblies (only framework assemblies are trimmed), so every component
+     type these members reflect over survives with its members intact, and the
+     e2e suite runs against the trimmed, AOT-compiled publish — the behavioral
+     backstop for exactly the class of failure these warnings describe. -->
+<linker>
+  <assembly fullname="Microsoft.AspNetCore.Components">
+    <!-- IL2072 ×4, one engine, one story: Blazor resolves component types
+         from Object.GetType() at render time — property injection
+         (ComponentFactory), [Parameter] assignment (ComponentProperties, two
+         call sites in one member), and [CascadingParameter] discovery
+         (CascadingParameterState). The trimmer cannot carry
+         DynamicallyAccessedMembers through a GetType() flow, but the types in
+         question are this app's components, which live in rooted application
+         assemblies — nothing these members look up is trimmed. -->
+    <type fullname="Microsoft.AspNetCore.Components.ComponentFactory">
+      <method name="PerformPropertyInjection">
+        <attribute fullname="System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessageAttribute" assembly="System.Runtime">
+          <argument>Trimming</argument>
+          <argument>IL2072</argument>
+          <property name="Justification">Framework-inherent: Blazor injects component properties via GetType(); component types live in rooted app assemblies, so their members survive trimming. E2e-covered against the trimmed publish (halheinrich/backgammon#129).</property>
+        </attribute>
+      </method>
+    </type>
+    <type fullname="Microsoft.AspNetCore.Components.Reflection.ComponentProperties">
+      <method name="SetProperties">
+        <attribute fullname="System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessageAttribute" assembly="System.Runtime">
+          <argument>Trimming</argument>
+          <argument>IL2072</argument>
+          <property name="Justification">Framework-inherent: Blazor assigns [Parameter] properties via GetType() (two flows in this member); component types live in rooted app assemblies, so their members survive trimming. E2e-covered against the trimmed publish (halheinrich/backgammon#129).</property>
+        </attribute>
+      </method>
+    </type>
+    <type fullname="Microsoft.AspNetCore.Components.CascadingParameterState">
+      <method name="FindCascadingParameters">
+        <attribute fullname="System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessageAttribute" assembly="System.Runtime">
+          <argument>Trimming</argument>
+          <argument>IL2072</argument>
+          <property name="Justification">Framework-inherent: Blazor discovers [CascadingParameter] targets via GetType(); component types live in rooted app assemblies, so their members survive trimming. E2e-covered against the trimmed publish (halheinrich/backgammon#129).</property>
+        </attribute>
+      </method>
+    </type>
+  </assembly>
+  <assembly fullname="Microsoft.JSInterop">
+    <!-- IL2065 + IL2111: DotNetDispatcher reflects over [JSInvokable] methods
+         so JS can call into .NET. This app declares none — verified across
+         the whole closure (this repo and every referenced producer): all
+         interop is C#-to-JS through IJSRuntime — so the scan these members
+         perform has no app method a trimmed assembly could have cost it, and
+         app assemblies are rooted regardless. -->
+    <type fullname="Microsoft.JSInterop.Infrastructure.DotNetDispatcher">
+      <method name="ScanAssemblyForCallableMethods">
+        <attribute fullname="System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessageAttribute" assembly="System.Runtime">
+          <argument>Trimming</argument>
+          <argument>IL2065</argument>
+          <property name="Justification">Framework-inherent: reflection scan for [JSInvokable] methods. This app declares none (interop is C#-to-JS only) and app assemblies are rooted (halheinrich/backgammon#129).</property>
+        </attribute>
+      </method>
+      <method name="GetCachedMethodInfo">
+        <attribute fullname="System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessageAttribute" assembly="System.Runtime">
+          <argument>Trimming</argument>
+          <argument>IL2111</argument>
+          <property name="Justification">Framework-inherent: reflection lookup of [JSInvokable] methods (warning arises in this member's local scan function). This app declares none (interop is C#-to-JS only) and app assemblies are rooted (halheinrich/backgammon#129).</property>
+        </attribute>
+      </method>
+    </type>
+  </assembly>
+</linker>

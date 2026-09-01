@@ -55,10 +55,44 @@
          change. WasmStripILAfterAOT is implied under AOT in .NET 10 — do not
          set it here. -->
     <RunAOTCompilation>true</RunAOTCompilation>
+    <!-- Trim safety is gated, permanently (halheinrich/backgammon#129). The
+         Blazor WebAssembly SDK defaults SuppressTrimAnalysisWarnings=true and
+         EnableTrimAnalyzer=false, so the publish's "0 warnings" was vacuous:
+         trimming shipped to production with 43 reflection-serialization
+         warnings structurally silenced, held only by the e2e suite. With the
+         wire surface source-generated end to end (BgDataTypes → ConvertXgToJson
+         / BgGame / XgFilter → this app's QuizStatsFile.DocumentTypeInfo), the
+         warnings are un-silenced here and TreatWarningsAsErrors — which
+         ILLinkTreatWarningsAsErrors defaults from — now fails the publish on
+         any new trim-unsafe reflection. TrimmerSingleWarn=false keeps every
+         warning individual: a per-assembly rollup could absorb a new defect
+         into an already-known line. The six framework-inherent ILLink warnings
+         that remain are suppressed member-by-member, each with its
+         justification, in ILLink.LinkAttributes.xml below — never
+         project-wide. -->
+    <SuppressTrimAnalysisWarnings>false</SuppressTrimAnalysisWarnings>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The six known framework-origin trim warnings, suppressed at the exact
+         member each arises in (halheinrich/backgammon#129, dispositions in the
+         XML itself). ILLink's link-attributes XML is the one mechanism that
+         can carry an UnconditionalSuppressMessage into an assembly we don't
+         compile; _ILLinkSuppressions is the ILLink.targets extension point
+         that feeds it to the trimmer's link-attributes argument (nothing else
+         populates the item). The underscore prefix means private SDK surface —
+         if an SDK bump drops the seam, these warnings resurface as publish
+         ERRORS, which is the safe failure direction and the cue to re-wire,
+         never to blanket-suppress. -->
+    <!-- Absolute on purpose: the item's Identity is passed to the trimmer
+         verbatim, and the trimmer's working directory is not this project's. -->
+    <_ILLinkSuppressions Include="$(MSBuildProjectDirectory)\ILLink.LinkAttributes.xml" />
   </ItemGroup>
 
   <!-- Append "+g<shortsha>" to the informational version, mirroring the SDK's own
