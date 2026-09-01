@@ -1511,6 +1511,7 @@ public class PageTests : BunitContext
     [Theory]
     [InlineData(RetiredStatsFixture.V1Json, 1)]
     [InlineData(RetiredStatsFixture.V2Json, 2)]
+    [InlineData(RetiredStatsFixture.V3Json, 3)]
     public void Home_PickedFolderHoldsARetiredStatsFile_ForecastsTheSetAside(
         string statsJson, int schemaVersion)
     {
@@ -3523,6 +3524,21 @@ public class PageTests : BunitContext
     }
 
     /// <summary>
+    /// Every retired schema version — one per <see cref="RetiredStatsFixture"/>
+    /// document — and the one place that list is spelled in this suite, so a
+    /// notice pinned to name exactly one set-aside file is checked against
+    /// every other name it could have wrongly spelled.
+    /// </summary>
+    private static readonly int[] RetiredSchemaVersions = [1, 2, 3];
+
+    /// <summary>
+    /// The retired versions other than <paramref name="retiredSchemaVersion"/>
+    /// — whose set-aside names a notice about that version must not carry.
+    /// </summary>
+    private static IEnumerable<int> OtherRetiredVersions(int retiredSchemaVersion) =>
+        RetiredSchemaVersions.Where(v => v != retiredSchemaVersion);
+
+    /// <summary>
     /// Register a real <see cref="QuizStatsStore"/> that has just retired a
     /// stats file of schema version <paramref name="retiredSchemaVersion"/>,
     /// driven through its own bind against one — the only way to reach the
@@ -3538,6 +3554,7 @@ public class PageTests : BunitContext
             {
                 1 => RetiredStatsFixture.V1Json,
                 2 => RetiredStatsFixture.V2Json,
+                3 => RetiredStatsFixture.V3Json,
                 _ => throw new ArgumentOutOfRangeException(nameof(retiredSchemaVersion)),
             },
         };
@@ -3606,6 +3623,7 @@ public class PageTests : BunitContext
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
+    [InlineData(3)]
     public async Task Quiz_StatsRetired_ShowsPoliteRestartNotice(int retiredSchemaVersion)
     {
         // The retirement report: the standard file name from its constant and
@@ -3625,7 +3643,8 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
 
         Assert.Contains(QuizStatsFile.RetiredNameFor(retiredSchemaVersion), cut.Markup);
-        Assert.DoesNotContain(QuizStatsFile.RetiredNameFor(retiredSchemaVersion == 1 ? 2 : 1), cut.Markup);
+        Assert.All(OtherRetiredVersions(retiredSchemaVersion),
+            other => Assert.DoesNotContain(QuizStatsFile.RetiredNameFor(other), cut.Markup));
         Assert.Contains(QuizStatsFile.FileName, cut.Markup);
         Assert.Contains("set aside", cut.Markup);
         Assert.Contains("begin again", cut.Markup);
@@ -3687,6 +3706,7 @@ public class PageTests : BunitContext
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
+    [InlineData(3)]
     public async Task Done_StatsRetired_ShowsTheRestartNotice(int retiredSchemaVersion)
     {
         // Mirrored from Quiz: what happened to the stats context is exactly what
@@ -3703,7 +3723,8 @@ public class PageTests : BunitContext
         var cut = Render<DonePage>();
 
         Assert.Contains(QuizStatsFile.RetiredNameFor(retiredSchemaVersion), cut.Markup);
-        Assert.DoesNotContain(QuizStatsFile.RetiredNameFor(retiredSchemaVersion == 1 ? 2 : 1), cut.Markup);
+        Assert.All(OtherRetiredVersions(retiredSchemaVersion),
+            other => Assert.DoesNotContain(QuizStatsFile.RetiredNameFor(other), cut.Markup));
         Assert.Contains("set aside", cut.Markup);
         Assert.Contains("role=\"status\"", cut.Markup);
         // A retirement is not a recording failure, so the page's "nothing needs

@@ -57,6 +57,36 @@ internal static class RetiredStatsFixture
         """;
 
     /// <summary>
+    /// A genuine version-3 document: the <see cref="BgDataTypes_Lib.ProblemKey"/>-keyed
+    /// <c>problems</c> map with the Jacoby token in its money key, from before
+    /// answer kinds entered the per-problem records — retired by the v4 break
+    /// (SPEC-stats-identity.md §3, amended for halheinrich/backgammon#86). The
+    /// third retired version, and the one every current tester actually holds:
+    /// v3 was the shipping format from the Jacoby re-key through v1.9.x. Its
+    /// per-problem values are bare tally-plus-date objects, which is precisely
+    /// what v4 nests under an answer-kind token — and its cube tallies accrued
+    /// under action-vs-action scoring, which is why the content is set aside
+    /// rather than carried (BgGame_Lib's <c>CurrentSchemaVersion</c> remarks).
+    /// One play record (money, Jacoby on, dice on the key) and one cube record
+    /// (match, no dice), so the shape a tester's file has is the shape staged.
+    /// </summary>
+    public const string V3Json = """
+        {
+          "schemaVersion": 3,
+          "problems": {
+            "0,-2,0,0,0,0,5,0,3,0,0,0,-5,5,0,0,0,-3,0,-5,0,0,0,0,2,0/0a0j/1c/31": {
+              "tally": { "submitted": 1, "correct": 1, "totalEquityLoss": 0 },
+              "lastQuizzed": "2026-08-30T09:15:00+00:00"
+            },
+            "0,-2,0,0,0,0,5,0,3,0,0,0,-5,5,0,0,0,-3,0,-5,0,0,0,0,2,0/7a7/1c": {
+              "tally": { "submitted": 2, "correct": 1, "totalEquityLoss": 0.08 },
+              "lastQuizzed": "2026-08-30T09:15:00+00:00"
+            }
+          }
+        }
+        """;
+
+    /// <summary>
     /// Claims version 1 but is not shaped like one. Corrupt, not retired: it
     /// must take the untouched-file path, never the set-aside one — a file
     /// nobody can identify is a file nobody may rewrite.

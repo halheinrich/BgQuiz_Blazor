@@ -207,7 +207,8 @@ public class QuizStatsStoreTests
 
     // -----------------------------------------------------------------------
     //  Retirement — clean break with deliberate recognition
-    //  (SPEC-stats-identity.md §3; halheinrich/backgammon#95, #120)
+    //  (SPEC-stats-identity.md §3; halheinrich/backgammon#95, #120, and the
+    //  v4 break of halheinrich/backgammon#86)
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -340,9 +341,14 @@ public class QuizStatsStoreTests
     {
         // The report and the write are one fact, per version: the name the run
         // offers the user has to be a name the run actually put in the folder.
-        // Both versions, because a hardcoded name would satisfy exactly one.
+        // Every retired version, because a hardcoded name would satisfy exactly one.
         foreach (var (json, version) in
-                 new[] { (RetiredStatsFixture.V1Json, 1), (RetiredStatsFixture.V2Json, 2) })
+                 new[]
+                 {
+                     (RetiredStatsFixture.V1Json, 1),
+                     (RetiredStatsFixture.V2Json, 2),
+                     (RetiredStatsFixture.V3Json, 3),
+                 })
         {
             var fake = new FakeFolderAccess { StatsJson = json };
             var store = MakeStore(fake);
@@ -353,6 +359,55 @@ public class QuizStatsStoreTests
             Assert.Equal(QuizStatsFile.RetiredNameFor(version), retirement.SetAsideFileName);
             Assert.Contains(retirement.SetAsideFileName, fake.ActiveFileNames);
         }
+    }
+
+    [Fact]
+    public async Task BeginQuiz_RetiredV3File_SetsItAsideUnderTheV3Name_SeedsV4_AndRecordsInV4()
+    {
+        // The retirement the halheinrich/backgammon#86 arc owes every current
+        // tester, proved at this layer rather than trusted from the producer's
+        // report: a genuine v3 document (the shipping format through v1.9.x)
+        // is recognised as retired, its bytes preserved verbatim under the v3
+        // set-aside name and no other, the standard name reseeded with an
+        // empty document declaring the CURRENT version — 4, checked against
+        // the producer's own constant so this pin moves with the next bump —
+        // and the quiz then records into that seed in v4's shape, each record
+        // nested under its answer-kind token. The forecast probe and the bind
+        // consume the same RetiredStatsSchemaException, so both fire here.
+        var fake = new FakeFolderAccess
+        {
+            StatsJson = RetiredStatsFixture.V3Json,
+            PickedStatsJson = RetiredStatsFixture.V3Json,
+        };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+        Assert.Equal(QuizStatsFile.RetiredNameFor(3), store.ForecastStatsSetAsideName);
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.Ready, store.Status);
+        var retirement = Assert.IsType<StatsRetirement>(store.StatsRetiredOccurrence);
+        Assert.Equal(QuizStatsFile.RetiredNameFor(3), retirement.SetAsideFileName);
+        Assert.Equal("bgquiz-stats.v3.json", retirement.SetAsideFileName);
+        Assert.Equal(RetiredStatsFixture.V3Json, fake.RetiredStatsJson(3)); // bytes, unparsed
+        Assert.Null(fake.RetiredStatsJson(1));
+        Assert.Null(fake.RetiredStatsJson(2));
+
+        Assert.Equal(4, ProblemStatsDocument.CurrentSchemaVersion);
+        using (var seeded = JsonDocument.Parse(fake.StatsJson!))
+        {
+            Assert.Equal(4, seeded.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Empty(seeded.RootElement.GetProperty("problems").EnumerateObject());
+        }
+
+        await store.RecordAsync(CubeSubmission());
+
+        using var folded = JsonDocument.Parse(fake.Writes[^1]);
+        var record = Assert.Single(folded.RootElement.GetProperty("problems").EnumerateObject());
+        var kind = Assert.Single(record.Value.EnumerateObject());
+        Assert.Equal("cubePair", kind.Name);
+        Assert.Equal(2, kind.Value.GetProperty("tally").GetProperty("submitted").GetInt32());
     }
 
     [Fact]
@@ -701,7 +756,8 @@ public class QuizStatsStoreTests
     [InlineData(RetiredStatsFixture.NewerSchemaJson)]      // written by a later BgQuiz
     [InlineData(RetiredStatsFixture.ClaimsV1ButMalformedJson)] // corrupt, not retired
     [InlineData(RetiredStatsFixture.V1Json)]               // retired version…
-    [InlineData(RetiredStatsFixture.V2Json)]               // …either of them
+    [InlineData(RetiredStatsFixture.V2Json)]               // …any of them
+    [InlineData(RetiredStatsFixture.V3Json)]
     public async Task CanWeightMix_MissingOrUnusable_AllReadFalse(string? pickedStatsJson)
     {
         // #87's ruling in one place: a document that cannot be read is treated
@@ -838,6 +894,7 @@ public class QuizStatsStoreTests
     [Theory]
     [InlineData(RetiredStatsFixture.V1Json, 1)]
     [InlineData(RetiredStatsFixture.V2Json, 2)]
+    [InlineData(RetiredStatsFixture.V3Json, 3)]
     public async Task Forecast_RetiredFile_NamesTheFileThatVersionWouldBeSetAsideUnder(
         string pickedStatsJson, int schemaVersion)
     {
