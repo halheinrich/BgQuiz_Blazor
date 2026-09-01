@@ -38,14 +38,19 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     protected const string StatsFileName = "bgquiz-stats.json";
 
     /// <summary>
-    /// The name a retired schema-<b>v1</b> stats document must be set aside
+    /// The name a retired schema-<b>v3</b> stats document must be set aside
     /// under — the consumer-side pin of the clean break's preservation promise
     /// (SPEC-stats-identity.md §3). Every version below the current one retires,
-    /// each under a name carrying its own version, so this is the one v1 earns
+    /// each under a name carrying its own version, so this is the one v3 earns
     /// and not a name every retirement shares; the fake serves this name alone,
-    /// which is what makes it a pin rather than a wildcard.
+    /// which is what makes it a pin rather than a wildcard. v3 because it is
+    /// the format every current tester holds (the shipping format through
+    /// v1.9.x, retired by halheinrich/backgammon#86's v4 break): the scenario
+    /// that crosses the real <c>folderAccess.js</c> stages the file the deploy
+    /// will actually meet, and which name each other version earns is the
+    /// store suite's pin.
     /// </summary>
-    protected const string RetiredStatsFileName = "bgquiz-stats.v1.json";
+    protected const string RetiredStatsFileName = "bgquiz-stats.v3.json";
 
     /// <summary>
     /// The canonical on-disk saved-filters filename the app must read first and
@@ -250,7 +255,7 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
         await PickFakeFolderAsync();
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleAsync();
+        await AnswerCubeNoDoubleTakeAsync();
         await ContinueToDoneAsync();
 
         await StageFirstWriteAsTheFoldersStatsFileAsync();

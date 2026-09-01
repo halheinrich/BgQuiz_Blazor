@@ -73,9 +73,21 @@ public abstract class E2eTestBase : IAsyncLifetime
     private static readonly string[] CubeFixtures =
     [
         CubeFixture,                 // No Double / Take
-        "TooGoodAndTake.xgp",        // a different board, also No Double / Take
+        TooGoodTakeFixture,          // a different board, Too Good / Take
         "match35253054_2_37.xgp",    // a different board, Double / Pass
     ];
+
+    /// <summary>
+    /// Committed cube-decision fixture whose best claim pair is <b>Too Good /
+    /// Take</b> — playing on is worth more than the cashed point, and the
+    /// opponent would still take (halheinrich/backgammon#86's motivating case;
+    /// XG's own label on it is "Too good to double/Take"). Under the
+    /// action-level 2×2 it read as No Double / Take, indistinguishable from
+    /// <see cref="CubeFixture"/>; the claim vocabulary is what makes it the
+    /// fifth verdict, so this is the fixture the fifth verdict's primary path
+    /// runs on.
+    /// </summary>
+    protected const string TooGoodTakeFixture = "TooGoodAndTake.xgp";
 
     private readonly PublishedAppFixture _app;
     private readonly PlaywrightFixture _playwright;
@@ -469,33 +481,53 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// BgDiag_Razor's one-click play entry.
     ///
     /// <para>
-    /// Region identity is positional: the producer renders one <c>&lt;rect&gt;</c>
-    /// per region into the overlay, points 1–24 first (in point order — it
-    /// builds and enumerates the region dictionary 1..24) followed by
-    /// bar/cube/tray/dice, so index <c>point - 1</c> addresses the point's rect.
-    /// The rects carry no identifying attributes, so this render-order contract
-    /// is the only test-side handle; if it ever changes, clicks land on the
-    /// wrong regions, the play never assembles, and the scenario fails loudly at
-    /// its Submit-enabled gate — it cannot silently pass. (A producer-side
-    /// <c>data-point</c> attribute would make this contractual; that is a
-    /// BgDiag_Razor arc, deliberately not patched from here.)
+    /// Region identity is contractual: the producer stamps every point's
+    /// <c>&lt;rect&gt;</c> with <c>data-point="N"</c> (N = 1–24, the same index
+    /// its click callback reports) and no other region's rect carries the
+    /// attribute, so <c>rect[data-point="7"]</c> is point 7 by the producer's
+    /// own promise (BgDiag_Razor's <c>BackgammonDiagram</c>). This replaced the
+    /// render-order convention (<c>HitRects.Nth(point - 1)</c>) once the
+    /// attribute landed; the bar, which carries no attribute, is still found by
+    /// its render-order position — see <see cref="BarHitRect"/>.
     /// </para>
     /// </summary>
     protected Task ClickBoardPointAsync(int point) =>
-        HitRects.Nth(point - 1).ClickAsync();
+        Page.Locator($".board-container .bg-diagram > svg > rect[data-point='{point}']").ClickAsync();
 
     /// <summary>
-    /// Answer the current cube problem as "No double" and submit, landing in the
-    /// review state (Continue visible). The cube fixture's best action is
-    /// No Double, so this is the correct answer.
+    /// Answer the current cube problem with both halves of the two-part answer
+    /// — the doubler <paramref name="claim"/> and the taker
+    /// <paramref name="response"/>, each a radio caption as the producer spells
+    /// it ("No double" / "Double" / "Too good"; "Take" / "Pass") — and submit,
+    /// landing in the review state (Continue visible).
+    ///
+    /// <para>
+    /// Two clicks, deliberately, and the Submit-enabled wait sits between the
+    /// second and the click: since halheinrich/backgammon#86 the row is two
+    /// radio groups, a single selection is half an answer, and Submit stays
+    /// dark until both halves are chosen. A helper that checked one radio and
+    /// waited for Submit would time out at exactly that gate — which is the
+    /// gate working, not a flake.
+    /// </para>
     /// </summary>
-    protected async Task AnswerCubeNoDoubleAsync()
+    protected async Task AnswerCubeAsync(string claim, string response)
     {
-        await Page.GetByRole(AriaRole.Radio, new() { Name = "No double" }).CheckAsync();
+        await Page.GetByRole(AriaRole.Radio, new() { Name = claim }).CheckAsync();
+        await Page.GetByRole(AriaRole.Radio, new() { Name = response }).CheckAsync();
         await Expect(SubmitButton).ToBeEnabledAsync();
         await SubmitButton.ClickAsync();
         await Expect(Page.GetByRole(AriaRole.Button, new() { Name = "Continue" })).ToBeVisibleAsync();
     }
+
+    /// <summary>
+    /// Answer the current cube problem as No double / Take and submit, landing
+    /// in the review state. <see cref="CubeFixture"/>'s best claim pair is
+    /// No Double / Take, so against it this is the fully correct answer —
+    /// which is what the scenarios built on that fixture rely on. Named for
+    /// both halves because both are chosen: "No double" alone is half an
+    /// answer now.
+    /// </summary>
+    protected Task AnswerCubeNoDoubleTakeAsync() => AnswerCubeAsync("No double", "Take");
 
     /// <summary>Continue past the review of the (only) problem and land on Done.</summary>
     protected async Task ContinueToDoneAsync()

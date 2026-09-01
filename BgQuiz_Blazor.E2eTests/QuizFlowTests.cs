@@ -34,18 +34,54 @@ public sealed class QuizFlowTests : E2eTestBase
         await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "No double" })).ToBeVisibleAsync();
         await Expect(Page.Locator(".bg-diagram")).Not.ToContainTextAsync("Best:");
 
-        await AnswerCubeNoDoubleAsync();
+        await AnswerCubeNoDoubleTakeAsync();
 
         // Review state: the Solution-mode diagram fills the analysis panel. The
         // committed fixture's best action is No Double, so the panel's Best
         // banner is an exact, stable pin (the taker half is suppressed when the
         // best doubler action is No Double).
         await Expect(Page.Locator(".bg-diagram")).ToContainTextAsync("Best: No Double");
-        // "No double" answers both halves correctly against this fixture. The
-        // verdict line labels each half by the submitted action — the "No double"
-        // radio is (NoDouble, Take), so the halves read "No Double" and "Take".
+        // No double / Take answers both halves correctly against this fixture.
+        // The verdict line labels each half by what was submitted — the claim
+        // and the taker action — in the diagram's banner wording.
         await Expect(VerdictBand).ToContainTextAsync("No Double: correct · Take: correct");
 
+        await ContinueToDoneAsync();
+        await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
+    }
+
+    [Fact]
+    public async Task TooGoodTakePath_WrongClaimIsNamed_ThenTheFifthVerdictScoresOnRedo()
+    {
+        // The arc's motivating case end to end (halheinrich/backgammon#86): a
+        // real too-good-and-take position, answered first the way Carl did —
+        // No double, meaning too good — and then, as a practice retry, the way
+        // the claim vocabulary now lets a user say it. The first answer is the
+        // one of record and scores the doubler half wrong at no equity lost;
+        // the retry is practice and reads as the fifth verdict.
+        await BootHomeAsync();
+        await PickFixtureAsync(TooGoodTakeFixture);
+        await ApplyFilterAsync();
+        await StartQuizAsync();
+
+        // All three claims are offered, uniformly — Too good is never hidden.
+        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "Too good" })).ToBeVisibleAsync();
+
+        await AnswerCubeNoDoubleTakeAsync();
+
+        // Right action, wrong claim: said in those words, not as a zero loss.
+        await Expect(VerdictBand).ToContainTextAsync(
+            "No Double: wrong claim — it's Too Good (right action, no equity lost) · Take: correct");
+        await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-danger"));
+
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Redo" }).ClickAsync();
+        await AnswerCubeAsync("Too good", "Take");
+
+        await Expect(VerdictBand).ToContainTextAsync("Practice retry");
+        await Expect(VerdictBand).ToContainTextAsync("Too Good: correct · Take: correct");
+        await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-success"));
+
+        // The answer of record stands: one doubling decision, scored wrong.
         await ContinueToDoneAsync();
         await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
     }

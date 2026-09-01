@@ -20,7 +20,7 @@ namespace BgQuiz_Blazor.E2eTests;
 ///
 /// <para>
 /// The pool is two real committed fixtures — one checker play, one cube decision
-/// whose best pair is No Double / Take — so three of the five answer types are
+/// whose best pair is No Double / Take — so four of the six answer types are
 /// genuinely absent. That is the scenario the feature exists for: the zeros are
 /// the finding, and a breakdown that quietly listed only what it found would
 /// report a lopsided collection as a balanced one.
@@ -53,11 +53,32 @@ public sealed class AnswerTypeBreakdownTests : E2eTestBase
         await Expect(body).ToContainTextAsync("Checker plays: 1");
         await Expect(body).ToContainTextAsync("No double / take: 1");
 
-        // …and the three it holds none of, on screen and reading zero. Absent
+        // …and the four it holds none of, on screen and reading zero. Absent
         // rows would leave a collection of nothing but takes looking complete.
-        await Expect(body).ToContainTextAsync("Too good to double: 0");
+        // Too good is two rows since the claim vocabulary
+        // (halheinrich/backgammon#86): its take side was uncountable before.
         await Expect(body).ToContainTextAsync("Double / take: 0");
         await Expect(body).ToContainTextAsync("Double / pass: 0");
+        await Expect(body).ToContainTextAsync("Too good / pass: 0");
+        await Expect(body).ToContainTextAsync("Too good / take: 0");
+    }
+
+    [Fact]
+    public async Task ATooGoodTakePositionCountsUnderItsOwnRowNotUnderNoDoubleTake()
+    {
+        // The landing the split exists for, on a real file: before the claim
+        // vocabulary the too-good-and-take fixture read as No double / take
+        // (the identical board action), and a collection of such positions
+        // looked like a collection of takes. Now it is its own row, and the No
+        // double / take row reads zero.
+        await BootHomeAsync();
+        await PickFixturesAsync(CheckerFixture, TooGoodTakeFixture);
+        await ApplyFilterAsync();
+
+        var body = Page.Locator("body");
+        await Expect(body).ToContainTextAsync("2 decisions match your filters");
+        await Expect(body).ToContainTextAsync("Too good / take: 1");
+        await Expect(body).ToContainTextAsync("No double / take: 0");
     }
 
     /// <summary>

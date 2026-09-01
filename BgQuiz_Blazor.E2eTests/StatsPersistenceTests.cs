@@ -31,22 +31,26 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleAsync();
+        await AnswerCubeNoDoubleTakeAsync();
         await ContinueToDoneAsync();
 
         // Exactly one fold (one answered problem), one write-back — captured by
         // the fake writable. Pin the wire contract from the consumer side:
-        // schemaVersion 3, one problem record keyed by content, a fully-correct
-        // cube submission tallied as TWO decisions (one per half), indented.
+        // schemaVersion 4, one problem record keyed by content and nested
+        // under its answer-kind token ("cubePair" — the v4 shape,
+        // halheinrich/backgammon#86), a fully-correct cube submission tallied
+        // as TWO decisions (one per half), indented.
         var writes = await CapturedWritesAsync();
         var payload = Assert.Single(writes);
         Assert.Contains('\n', payload);
 
         using var doc = JsonDocument.Parse(payload);
-        Assert.Equal(3, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(4, doc.RootElement.GetProperty("schemaVersion").GetInt32());
         var problems = doc.RootElement.GetProperty("problems");
         var record = Assert.Single(problems.EnumerateObject());
-        var tally = record.Value.GetProperty("tally");
+        var kind = Assert.Single(record.Value.EnumerateObject());
+        Assert.Equal("cubePair", kind.Name);
+        var tally = kind.Value.GetProperty("tally");
         Assert.Equal(2, tally.GetProperty("submitted").GetInt32());
         Assert.Equal(2, tally.GetProperty("correct").GetInt32());
 
@@ -58,19 +62,21 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
     }
 
     [Fact]
-    public async Task FsAccessPick_RetiredV1StatsFile_SetsItAsideAndStartsFresh()
+    public async Task FsAccessPick_RetiredV3StatsFile_SetsItAsideAndStartsFresh()
     {
         // The clean break's one act of recognition, through the real
-        // folderAccess.js (SPEC-stats-identity.md §3): a genuine v1 file must
-        // not surface as the polite "couldn't be read" degrade, which would
-        // strand an existing tester with stats silently dead. Its bytes go to
-        // the sidecar name its own version earns, a fresh current-version
+        // folderAccess.js (SPEC-stats-identity.md §3): a genuine retired file
+        // must not surface as the polite "couldn't be read" degrade, which
+        // would strand an existing tester with stats silently dead. Its bytes
+        // go to the sidecar name its own version earns, a fresh current-version
         // document takes the standard name, and the run says so and records
-        // normally. Which set-aside name each retired version gets is pinned by
-        // the store suite, over both of them; what this scenario adds is that
-        // the whole act crosses the real folderAccess.js.
+        // normally. Staged as v3 — the format every current tester holds, which
+        // halheinrich/backgammon#86's v4 break retires — so the scenario meets
+        // the file the deploy will. Which set-aside name each retired version
+        // gets is pinned by the store suite, over all of them; what this
+        // scenario adds is that the whole act crosses the real folderAccess.js.
         await Page.AddInitScriptAsync(
-            $"window.__statsFake.statsJson = {JsonSerializer.Serialize(V1StatsJson)};");
+            $"window.__statsFake.statsJson = {JsonSerializer.Serialize(V3StatsJson)};");
 
         await BootHomeAsync();
         await PickFakeFolderAsync();
@@ -92,7 +98,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await Expect(Page.GetByText(RetiredStatsFileName).First).ToBeVisibleAsync();
         await Expect(Page.GetByText("couldn't be read")).ToBeHiddenAsync();
 
-        await AnswerCubeNoDoubleAsync();
+        await AnswerCubeNoDoubleTakeAsync();
         await ContinueToDoneAsync();
 
         // The old file preserved verbatim, unparsed. Line endings normalized on
@@ -100,34 +106,38 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         // the browser is whatever the fake's File gave back — the claim is about
         // the content, not about which newline a round trip settled on.
         Assert.Equal(
-            V1StatsJson.ReplaceLineEndings("\n"),
+            V3StatsJson.ReplaceLineEndings("\n"),
             Assert.Single(await CapturedRetiredWritesAsync()).ReplaceLineEndings("\n"));
 
-        // …and the standard name written twice: the fresh empty seed at bind,
-        // then the answered problem folded into it.
+        // …and the standard name written twice: the fresh empty v4 seed at
+        // bind, then the answered problem folded into it in v4's shape.
         var writes = await CapturedWritesAsync();
         Assert.Equal(2, writes.Length);
         using var seeded = JsonDocument.Parse(writes[0]);
-        Assert.Equal(3, seeded.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(4, seeded.RootElement.GetProperty("schemaVersion").GetInt32());
         Assert.Empty(seeded.RootElement.GetProperty("problems").EnumerateObject());
         using var folded = JsonDocument.Parse(writes[1]);
-        Assert.Single(folded.RootElement.GetProperty("problems").EnumerateObject());
+        var record = Assert.Single(folded.RootElement.GetProperty("problems").EnumerateObject());
+        Assert.Equal("cubePair", Assert.Single(record.Value.EnumerateObject()).Name);
     }
 
     /// <summary>
-    /// A genuine retired (schema v1) stats document. Hand-written because
+    /// A genuine retired (schema v3) stats document — the shipping format
+    /// through v1.9.x: a content-keyed <c>problems</c> map whose values are
+    /// bare tally-plus-date objects, no answer-kind token. Hand-written because
     /// nothing can produce one any more — the format has no writer left — and
     /// hardcoded here for the same reason the wire assertions above are: this
     /// suite is the consumer-side pin, and references no app assembly.
     /// </summary>
-    private const string V1StatsJson = """
+    private const string V3StatsJson = """
         {
-          "schemaVersion": 1,
-          "decisions": [
-            { "id": "legacy.xg:g3:m12:play",
+          "schemaVersion": 3,
+          "problems": {
+            "0,-2,0,0,0,0,5,0,3,0,0,0,-5,5,0,0,0,-3,0,-5,0,0,0,0,2,0/0a0j/1c/31": {
               "tally": { "submitted": 3, "correct": 2, "totalEquityLoss": 0.125 },
-              "lastQuizzed": "2026-07-18T19:04:11+00:00" }
-          ]
+              "lastQuizzed": "2026-08-30T09:15:00+00:00"
+            }
+          }
         }
         """;
 
@@ -153,7 +163,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         // quiz page (and Done), not on Home at pick time.
         await Expect(Page.GetByText("couldn't be read")).ToBeVisibleAsync();
 
-        await AnswerCubeNoDoubleAsync();
+        await AnswerCubeNoDoubleTakeAsync();
         await ContinueToDoneAsync();
         await Expect(Page.GetByText("couldn't be read")).ToBeVisibleAsync();
 
@@ -180,7 +190,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleAsync();
+        await AnswerCubeNoDoubleTakeAsync();
         await ContinueToDoneAsync();
 
         Assert.Empty(await CapturedWritesAsync());
@@ -212,7 +222,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleAsync();
+        await AnswerCubeNoDoubleTakeAsync();
         await ContinueToDoneAsync();
 
         Assert.Empty(await CapturedWritesAsync());
@@ -269,7 +279,7 @@ public sealed class FallbackPickNoticeTests : E2eTestBase
 
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleAsync();
+        await AnswerCubeNoDoubleTakeAsync();
         await ContinueToDoneAsync();
         await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
     }
