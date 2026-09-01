@@ -149,7 +149,7 @@ public class QuizStatsStoreTests
         var existing = ProblemStatsDocument.Empty.Plus(PlaySubmission(), clock);
         var fake = new FakeFolderAccess
         {
-            StatsJson = JsonSerializer.Serialize(existing, QuizStatsFile.SerializerOptions),
+            StatsJson = JsonSerializer.Serialize(existing, QuizStatsFile.DocumentTypeInfo),
         };
         var store = MakeStore(fake);
         await store.BeginQuizAsync();
@@ -494,7 +494,7 @@ public class QuizStatsStoreTests
 
         fake.StatsJson = JsonSerializer.Serialize(
             ProblemStatsDocument.Empty.Plus(PlaySubmission(1), new FixedTimeProvider()),
-            QuizStatsFile.SerializerOptions);
+            QuizStatsFile.DocumentTypeInfo);
 
         await store.RecordAsync(PlaySubmission(2));
 
@@ -669,7 +669,7 @@ public class QuizStatsStoreTests
     private static string StatsDocumentJson() =>
         JsonSerializer.Serialize(
             ProblemStatsDocument.Empty.Plus(PlaySubmission(), new FixedTimeProvider()),
-            QuizStatsFile.SerializerOptions);
+            QuizStatsFile.DocumentTypeInfo);
 
     [Fact]
     public void CanWeightMix_BeforeAnyProbe_IsFalse()
@@ -729,7 +729,7 @@ public class QuizStatsStoreTests
         var fake = new FakeFolderAccess
         {
             PickedStatsJson =
-                JsonSerializer.Serialize(ProblemStatsDocument.Empty, QuizStatsFile.SerializerOptions),
+                JsonSerializer.Serialize(ProblemStatsDocument.Empty, QuizStatsFile.DocumentTypeInfo),
         };
         var store = MakeStore(fake);
 
@@ -893,7 +893,7 @@ public class QuizStatsStoreTests
         Assert.Null(store.ForecastStatsSetAsideName);
 
         fake.PickedStatsJson =
-            JsonSerializer.Serialize(ProblemStatsDocument.Empty, QuizStatsFile.SerializerOptions);
+            JsonSerializer.Serialize(ProblemStatsDocument.Empty, QuizStatsFile.DocumentTypeInfo);
         await store.RefreshPickedStatsAsync();
 
         Assert.Null(store.ForecastStatsSetAsideName);
@@ -991,5 +991,38 @@ public class QuizStatsStoreTests
         await store.RefreshPickedStatsAsync();
 
         Assert.Null(store.ForecastStatsSetAsideName);
+    }
+
+    // -----------------------------------------------------------------------
+    //  DocumentTypeInfo — the one serializer contract (halheinrich/backgammon#129)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void DocumentTypeInfo_WritesByteIdenticalToTheReflectionPath()
+    {
+        // SPEC-stats-identity's standing constraint on the source-generation
+        // arc: the mechanism changes, the bytes do not. The app's contract
+        // (QuizStatsFile.DocumentTypeInfo, resolved by BgGameJsonContext) must
+        // write exactly what the pre-leg-5 reflection path wrote — the options
+        // spelled out here verbatim as they stood, default resolver included —
+        // or every stored v2 document just changed format underneath its
+        // readers. This is the pin that keeps the test fixtures minted through
+        // DocumentTypeInfo honest too: they claim to be "the real wire format",
+        // and this is what ties that format back to the shipped one.
+        //
+        // A non-trivial document on purpose — a play record and a cube record,
+        // so both submission arms and the converter's key ordering are in the
+        // compared bytes, not just an empty object.
+        var clock = new FixedTimeProvider();
+        var doc = ProblemStatsDocument.Empty
+            .Plus(PlaySubmission(1), clock)
+            .Plus(CubeSubmission(2), clock)
+            .Plus(PlaySubmission(1, correct: false), clock);
+
+        var reflection = JsonSerializer.Serialize(
+            doc, new JsonSerializerOptions { WriteIndented = true });
+        var sourceGenerated = JsonSerializer.Serialize(doc, QuizStatsFile.DocumentTypeInfo);
+
+        Assert.Equal(reflection, sourceGenerated);
     }
 }

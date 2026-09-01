@@ -406,7 +406,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
         {
             var json = await _folderAccess.ReadPickedFileAsync(QuizStatsFile.FileName);
             _pickedHasStats = json is not null
-                && JsonSerializer.Deserialize<ProblemStatsDocument>(json) is { Count: > 0 };
+                && JsonSerializer.Deserialize(json, QuizStatsFile.DocumentTypeInfo) is { Count: > 0 };
         }
         catch (RetiredStatsSchemaException retired)
         {
@@ -487,7 +487,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
         {
             _doc = json is null
                 ? ProblemStatsDocument.Empty                          // fresh corpus — first quiz here
-                : JsonSerializer.Deserialize<ProblemStatsDocument>(json)
+                : JsonSerializer.Deserialize(json, QuizStatsFile.DocumentTypeInfo)
                   ?? throw new JsonException("Stats document deserialized to null.");
         }
         catch (RetiredStatsSchemaException retired)
@@ -557,7 +557,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
             await _folderAccess.WriteActiveFileAsync(setAsideName, retiredJson);
             await _folderAccess.WriteActiveFileAsync(
                 QuizStatsFile.FileName,
-                JsonSerializer.Serialize(ProblemStatsDocument.Empty, QuizStatsFile.SerializerOptions));
+                JsonSerializer.Serialize(ProblemStatsDocument.Empty, QuizStatsFile.DocumentTypeInfo));
         }
         catch (JSException)
         {
@@ -617,7 +617,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
         {
             await _folderAccess.WriteActiveFileAsync(
                 QuizStatsFile.FileName,
-                JsonSerializer.Serialize(_doc, QuizStatsFile.SerializerOptions));
+                JsonSerializer.Serialize(_doc, QuizStatsFile.DocumentTypeInfo));
         }
         catch (JSException)
         {
@@ -646,7 +646,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
             var json = await _folderAccess.ReadActiveFileAsync(QuizStatsFile.FileName);
             return json is null
                 ? _doc
-                : JsonSerializer.Deserialize<ProblemStatsDocument>(json) ?? _doc;
+                : JsonSerializer.Deserialize(json, QuizStatsFile.DocumentTypeInfo) ?? _doc;
         }
         catch (Exception ex) when (ex is JsonException or JSException)
         {

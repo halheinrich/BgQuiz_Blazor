@@ -206,7 +206,7 @@ public class PageTests : BunitContext
 
     /// <summary>
     /// A real lifetime-stats document, serialized exactly as the app writes one
-    /// (<see cref="QuizStatsFile.SerializerOptions"/> over the producer's
+    /// (<see cref="QuizStatsFile.DocumentTypeInfo"/> over the producer's
     /// bundled converter) — never a hand-written blob, so a wire-format change
     /// reaches these fixtures instead of passing them by. One folded submission,
     /// which is all the predicate asks about: <c>Count &gt; 0</c>.
@@ -217,7 +217,7 @@ public class PageTests : BunitContext
         var doc = ProblemStatsDocument.Empty.Plus(
             new SubmittedPlay(TestFixtures.KeyOf(decision), play, 0, 0.0, IsCorrect: true),
             TimeProvider.System);
-        return JsonSerializer.Serialize(doc, QuizStatsFile.SerializerOptions);
+        return JsonSerializer.Serialize(doc, QuizStatsFile.DocumentTypeInfo);
     }
 
     /// <summary>
@@ -227,7 +227,7 @@ public class PageTests : BunitContext
     /// treat it as a third state.
     /// </summary>
     private static string EmptyStatsDocumentJson() =>
-        JsonSerializer.Serialize(ProblemStatsDocument.Empty, QuizStatsFile.SerializerOptions);
+        JsonSerializer.Serialize(ProblemStatsDocument.Empty, QuizStatsFile.DocumentTypeInfo);
 
     /// <summary>
     /// Register an <see cref="AppliedFilter"/> (XgFilter_Razor's holder) for the

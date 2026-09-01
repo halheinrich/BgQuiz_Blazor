@@ -184,7 +184,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
                                       folder-load refusal copy, composed in
                                       the source stack, read on the page)
     QuizStatsFile.cs                — stats filenames (live + retired sidecar) +
-                                      JsonSerializerOptions SSOT
+                                      the document's serializer contract
+                                      (DocumentTypeInfo) SSOT
     QuizStatsStore.cs               — IProblemStatsSink + document lifecycle
     MixConsent.cs                   — the "Mix applies" bit (consent, not choice)
     MixDraft.cs                     — mix edit state + write-through xg_quizMix
@@ -845,10 +846,15 @@ active handle.
 
 **`QuizStatsFile`** — the persistence SSOT: `FileName`
 (`bgquiz-stats.json`), `RetiredNameFor(schemaVersion)`
-(`bgquiz-stats.v{n}.json` — the set-aside name, bare and path-free), and the
-one fixed `JsonSerializerOptions` (`WriteIndented = true` — whitespace is the
-only options-controlled aspect; the bundled converter pins names and
-ordering). Every name is passed *into* the lib's name-parameterized
+(`bgquiz-stats.v{n}.json` — the set-aside name, bare and path-free), and
+`DocumentTypeInfo`, the one serializer contract every stats read and write
+names to `JsonSerializer`'s type-info overloads (`WriteIndented = true` —
+whitespace is the only options-controlled aspect; the bundled converter pins
+names and ordering, and the resolver is BgGame_Lib's source-generated
+`BgGameJsonContext`, which is what keeps the stats wire visible to the trim
+analyzer — halheinrich/backgammon#129; byte-identity to the old reflection
+path is pinned in `QuizStatsStoreTests`). Every name is passed *into* the
+lib's name-parameterized
 active-slot calls per call and rendered by `Help` and the notices from this
 type — nothing restates one. **The set-aside name is a function of the retired
 version, not a constant**: every schema below the current one retires, so a
