@@ -3009,8 +3009,14 @@ dotnet publish BgQuiz_Blazor/BgQuiz_Blazor.csproj -c Release -p:RunAOTCompilatio
 ```
 
 `WasmStripILAfterAOT` is implied by AOT in .NET 10 and is not set. Trim
-analysis stays silenced, unchanged by AOT — that is
-halheinrich/backgammon#129, a pre-existing debt outside this switch.
+analysis is a live gate on every publish (halheinrich/backgammon#129, closed
+2026-09-01): any new trim-unsafe reflection fails the publish, and the
+framework-inherent warnings that remain are suppressed member by member,
+each with its justification, in `ILLink.LinkAttributes.xml` — the
+`BgQuiz_Blazor.Client.csproj` comment beside the trim properties carries the
+mechanics. Evidence that the gate holds against real reflection: the
+standalone Release publish of 1ef5b22, the tree that added the app's first
+`[JSInvokable]` callback, exited 0 with no ILLink warning (2026-09-02).
 
 **Every test failing at once with a ~5-minute wait and a 25 ms duration is a
 publish failure, not a suite's worth of defects.** The fixture publishes
