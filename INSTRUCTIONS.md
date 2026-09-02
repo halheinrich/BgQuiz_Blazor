@@ -2023,12 +2023,18 @@ The asymmetry is pinned three times over: at the service seam
   treatment to this app, and an unbadged "Correct" beside a score panel that
   does not move reads as a bug. It rides in the band's text, not as a badge or a
   third strip line, because the strip is a fixed-height contract.
-  Above either action row sits a **fixed-height status strip**
+  **The action row leads the chrome** (halheinrich/backgammon#148): the
+  chrome reads board → action row → status strip → score panel, so the
+  controls reached for on every problem sit nearest the board. Its primary
+  button — Submit while answering, Continue at review — is `btn-lg fw-bold`;
+  nothing else in the row changes size, and the row's height is that button's
+  in every state, since each state's row carries exactly one primary.
+  Below the action row sits a **fixed-height status strip**
   (`.status-strip`, `app.css`): a one-line legend slot and a two-line-clamped
   verdict band — a neutral prompt while answering; the legend
   (`* played · † your answer`) and outcome-coloured verdict at review. Its
   fixed height, and the board sizing that rides on it, are in Pitfalls.
-  **Below the action row — the page's bottom chrome — sits the `ScorePanel`**
+  **Below the status strip — the page's bottom chrome — sits the `ScorePanel`**
   (`SPEC-quiz-view.md` §5, issue #41): reference material read between
   problems, not while deciding one, so it sits below the controls the user is
   reaching for and leaves the chrome nearest the board to the chrome that

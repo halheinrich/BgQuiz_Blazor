@@ -231,7 +231,8 @@ h1:focus {
     }
 }
 
-/* Status strip — mode-invariant chrome above the action row. Rendered at a
+/* Status strip — mode-invariant chrome between the action row and the score
+   panel (issue halheinrich/backgammon#148 moved the row above it). Rendered at a
    FIXED height so the chrome's total height, and therefore the board's flex
    remainder (its size under the fold cap), is identical across the answering
    and review states and across questions: while answering the legend line is

@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+﻿﻿using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -5995,8 +5995,10 @@ public class PageTests : BunitContext
     }
 
     // -----------------------------------------------------------------------
-    //  Status strip: state-invariant chrome between the score panel and the
-    //  action row. Within Normal view the strip is ALWAYS rendered — empty
+    //  Status strip: state-invariant chrome between the action row and the
+    //  score panel (halheinrich/backgammon#148 moved the row above it;
+    //  SPEC-quiz-view.md §5 put the panel last). Within Normal view the strip
+    //  is ALWAYS rendered — empty
     //  legend + neutral prompt while answering, legend + verdict at review — so
     //  chrome height (a fixed CSS constant) and therefore board size is equal
     //  across states. bUnit can't measure the CSS heights; these pin the
@@ -6095,13 +6097,17 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_Chrome_OrdersStatusStripThenActionRowThenScorePanel()
+    public async Task Quiz_Chrome_OrdersActionRowThenStatusStripThenScorePanel()
     {
-        // SPEC-quiz-view.md §5: the ongoing-stats strip moved to the BOTTOM of
-        // the page, below the action row. Both halves of this pin were re-keyed
-        // by that move — it used to assert score-panel FIRST (scoreIdx < stripIdx
-        // < rowIdx), and an assertion that merely dropped the score panel would
-        // have gone vacuously green while the panel sat anywhere at all.
+        // The chrome's source order, in full: action row, then status strip,
+        // then score panel. Two moves made it — SPEC-quiz-view.md §5 took the
+        // ongoing-stats strip to the BOTTOM of the page, and
+        // halheinrich/backgammon#148 then took the action row to the TOP of the
+        // chrome, nearest the board. Each move re-keyed a half of this pin: it
+        // used to assert score-panel FIRST (scoreIdx < stripIdx < rowIdx), then
+        // strip-then-row; an assertion that merely dropped a piece would have
+        // gone vacuously green while that piece sat anywhere at all, so all
+        // three are required present and both adjacent pairs are ordered.
         //
         // Pinned on the answering state in Normal view; the review branch shares
         // this strip and this score panel, which sit outside the per-state
@@ -6114,12 +6120,75 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
 
         var markup = cut.Markup;
-        var stripIdx = markup.IndexOf("status-strip", StringComparison.Ordinal);
         var rowIdx = markup.IndexOf("action-row", StringComparison.Ordinal);
+        var stripIdx = markup.IndexOf("status-strip", StringComparison.Ordinal);
         var scoreIdx = markup.IndexOf("score-panel", StringComparison.Ordinal);
-        Assert.True(stripIdx >= 0 && rowIdx >= 0 && scoreIdx >= 0, "all three chrome pieces present");
-        Assert.True(stripIdx < rowIdx, "the status strip renders before the action row");
-        Assert.True(rowIdx < scoreIdx, "the score panel renders after the action row — page bottom");
+        Assert.True(rowIdx >= 0 && stripIdx >= 0 && scoreIdx >= 0, "all three chrome pieces present");
+        Assert.True(rowIdx < stripIdx, "the action row renders before the status strip — nearest the board");
+        Assert.True(stripIdx < scoreIdx, "the score panel renders after the status strip — page bottom");
+    }
+
+    /// <summary>
+    /// Every button in the action row, keyed by its label with the classes it
+    /// carries — the shape <see cref="AssertOnlyThePrimaryIsLarge"/> reads.
+    /// </summary>
+    private static List<(string Label, string Classes)> ActionRowButtons(
+        IRenderedComponent<QuizPage> cut) =>
+        cut.FindAll(".action-row button")
+            .Select(b => (b.TextContent.Trim(), b.GetAttribute("class") ?? string.Empty))
+            .ToList();
+
+    // halheinrich/backgammon#148's ruling (2): large + bold on the PRIMARY
+    // button only — Submit while answering, Continue at review — with Skip,
+    // Redo, the Undo pair and the trailing cluster unchanged. Both halves are
+    // pinned, in all three row compositions (one context each: a bUnit context
+    // takes one controller), because each is a way the ruling can be lost: a
+    // tidy-up that drops the classes from one Submit, or a "consistency" pass
+    // that puts them on Skip too. The primary is found by its label, not by
+    // btn-primary — the ruling names the control, and a control restyled off
+    // btn-primary would still owe the size.
+
+    [Fact]
+    public async Task Quiz_CubeAnswering_SubmitIsTheOnlyLargeBoldButton()
+    {
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        AssertOnlyThePrimaryIsLarge(Render<QuizPage>(), "Submit");
+    }
+
+    [Fact]
+    public async Task Quiz_PlayAnswering_SubmitIsTheOnlyLargeBoldButton()
+    {
+        // Beside Skip and the two Undos — the widest set of non-primaries.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        AssertOnlyThePrimaryIsLarge(Render<QuizPage>(), "Submit");
+    }
+
+    [Fact]
+    public async Task Quiz_Review_ContinueIsTheOnlyLargeBoldButton()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        Assert.NotNull(c.Review);
+        AssertOnlyThePrimaryIsLarge(Render<QuizPage>(), "Continue");
+    }
+
+    private static void AssertOnlyThePrimaryIsLarge(
+        IRenderedComponent<QuizPage> cut, string primaryLabel)
+    {
+        var buttons = ActionRowButtons(cut);
+        Assert.Contains(buttons, b => b.Label == primaryLabel);
+        foreach (var (label, classes) in buttons)
+        {
+            var tokens = classes.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            bool isPrimary = label == primaryLabel;
+            Assert.True(tokens.Contains("btn-lg") == isPrimary,
+                $"'{label}' should {(isPrimary ? "" : "not ")}be large (classes: '{classes}')");
+            Assert.True(tokens.Contains("fw-bold") == isPrimary,
+                $"'{label}' should {(isPrimary ? "" : "not ")}be bold (classes: '{classes}')");
+        }
     }
 
     [Fact]

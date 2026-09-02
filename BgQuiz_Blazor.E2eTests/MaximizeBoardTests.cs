@@ -200,19 +200,23 @@ public sealed class MaximizeBoardTests : E2eTestBase
     }
 
     [Fact]
-    public async Task TheScoreStripRendersBelowTheActionRow()
+    public async Task TheChromeReadsActionRowThenStatusStripThenScorePanel()
     {
-        // SPEC-quiz-view.md §5's rider, where only a browser can judge it: the
-        // ongoing-stats strip is now the bottom-most chrome on the page. Asserted
-        // as real geometry (the panel's box starts below the action row's), not
-        // as source order — that is what the bUnit pin already covers, and it is
-        // not the same claim once CSS is in play.
+        // The chrome's order as real geometry, where only a browser can judge
+        // it: the action row's box sits above the status strip's, and the
+        // ongoing-stats strip is the bottom-most chrome on the page — below the
+        // status strip, and still below the action row. Two rulings, one
+        // scenario: SPEC-quiz-view.md §5 put the score panel last, and
+        // halheinrich/backgammon#148 then moved the action row to the top of the
+        // chrome, nearest the board. Geometry, not source order — the bUnit pin
+        // already covers the order, and it is not the same claim once CSS is in
+        // play.
         //
         // Judged at REVIEW rather than while answering, and not by turning the
         // maximize mode off: since #113 review is where a default visitor sees
-        // this panel at all, so it is where the geometry claim is worth making.
-        // The chrome block sits outside the per-state action-row branch, so the
-        // rider is the same rider in either state.
+        // the strip and the panel at all, so it is where the geometry claim is
+        // worth making. The chrome block sits outside the per-state action-row
+        // branch, so the order is the same order in either state.
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
         await ApplyFilterAsync();
@@ -221,16 +225,23 @@ public sealed class MaximizeBoardTests : E2eTestBase
 
         await Expect(ScorePanel).ToBeVisibleAsync();
 
-        // Retried, and both boxes required to be real ones, for the reasons
+        // Retried, and every box required to be a real one, for the reasons
         // AssertBadgeSitsBelowTheBoardAsync spells out: this runs on the render
         // that follows a Submit, and an action row of height 0 would satisfy the
-        // comparison below without the rider holding at all.
+        // comparisons below without the order holding at all.
         var actionRow = Page.Locator(".board-chrome .action-row");
         await ExpectToPassAsync(async () =>
         {
             var rowBox = await LaidOutBoxAsync(actionRow, "the action row");
+            var stripBox = await LaidOutBoxAsync(StatusStrip, "the status strip");
             var panelBox = await LaidOutBoxAsync(ScorePanel, "the score panel");
 
+            Assert.True(stripBox.Y >= rowBox.Y + rowBox.Height,
+                $"the status strip (y={stripBox.Y}) must sit below the action row " +
+                $"(y={rowBox.Y}, height={rowBox.Height})");
+            Assert.True(panelBox.Y >= stripBox.Y + stripBox.Height,
+                $"the score panel (y={panelBox.Y}) must sit below the status strip " +
+                $"(y={stripBox.Y}, height={stripBox.Height})");
             Assert.True(panelBox.Y >= rowBox.Y + rowBox.Height,
                 $"the score panel (y={panelBox.Y}) must sit below the action row " +
                 $"(y={rowBox.Y}, height={rowBox.Height})");

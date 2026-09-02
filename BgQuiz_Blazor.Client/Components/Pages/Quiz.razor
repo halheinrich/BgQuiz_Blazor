@@ -198,34 +198,31 @@
         </div>
 
         <div class="board-chrome">
-            @* Mode-invariant status strip: present in every composition EXCEPT
-               maximized answering, at a fixed height, so the chrome's total
-               height — and therefore the board's flex remainder, and therefore
-               the board size — is identical across the answering and review
-               states and across questions *within a view mode*. While answering
-               it carries a neutral prompt (legend line empty); at review the
-               legend line and the verdict band fill in. Content changes; the box
-               never does (long content clamps inside the fixed lines — see
-               app.css).
+            @* ONE action row for every state (.action-row), not one per state —
+               and the FIRST thing under the board (issue halheinrich/backgammon#148):
+               the chrome reads board → action row → status strip → score panel, so
+               the controls the user reaches for on every problem sit nearest the
+               board, with the strip's prompt or verdict beneath them and the
+               reference-only score panel last. Reordering inside the chrome block
+               leaves the block's measured height alone — the same argument that
+               moved the score panel to the bottom (SPEC-quiz-view.md §5) — so the
+               board's flex remainder, and with it board size, is untouched by the
+               move. Under maximized answering the strip and the panel are absent,
+               so this row is the whole of the chrome there either way.
 
-               Suppressed under MaximizedAnswering along with the score panel
-               below: SPEC-quiz-view.md §4's chrome-suppression leg. The user
-               accepted losing the neutral prompt (and the progress indicator)
-               for the answering half of each problem — review restores both,
-               every problem. *@
-            @if (!MaximizedAnswering)
-            {
-                <div class="status-strip">
-                    <div class="status-legend text-muted small">
-                        @(review is not null ? SolutionLegend(review, current.Decision) : null)
-                    </div>
-                    <div class="status-verdict alert @StatusVerdictColor(review)" role="status">
-                        <span class="status-verdict-text">@StatusText(review, current.Decision)</span>
-                    </div>
-                </div>
-            }
+               THE PRIMARY BUTTON IS LARGE AND BOLD — Submit in both answering
+               branches, Continue at review (btn-lg fw-bold;
+               halheinrich/backgammon#148's ruling (2)). It
+               is the one control clicked once per problem, every problem, and the
+               only one that changes size: Skip, Redo, the Undo pair and the whole
+               trailing cluster keep Bootstrap's default. The row's height is now
+               that button's, and it is the same in every state by construction,
+               because every state's row carries exactly one primary button — the
+               fixed-height contract below gains a new constant, not a per-state
+               variance. That growth is the move's one board cost, paid only where
+               the board is height-bound (the commit that landed it carries the
+               measurement).
 
-            @* ONE action row for every state (.action-row), not one per state.
                Only the leading segment — the answer instruments — branches; the
                trailing cluster (.action-row-tail) is shared, because it is the
                same three things in every state and a second copy of it is how
@@ -259,7 +256,7 @@
             <div class="action-row d-flex flex-wrap gap-2 align-items-center">
                 @if (review is not null)
                 {
-                    <button class="btn btn-primary" disabled="@Controller.IsBusy"
+                    <button class="btn btn-primary btn-lg fw-bold" disabled="@Controller.IsBusy"
                             @onclick="ContinueAsync">
                         Continue
                     </button>
@@ -291,7 +288,7 @@
                        is what the row is answering, and a new one is exactly
                        when a fresh row is owed. *@
                     <BackgammonCubeActions @key="current" @bind-Value="_completedCube" />
-                    <button class="btn btn-primary"
+                    <button class="btn btn-primary btn-lg fw-bold"
                             disabled="@(_completedCube is null || Controller.IsBusy)"
                             @onclick="Submit">
                         Submit
@@ -303,7 +300,7 @@
                 }
                 else
                 {
-                    <button class="btn btn-primary"
+                    <button class="btn btn-primary btn-lg fw-bold"
                             disabled="@(_completedPlay is null || Controller.IsBusy)"
                             @onclick="Submit">
                         Submit
@@ -390,9 +387,39 @@
                 </div>
             </div>
 
+            @* Mode-invariant status strip, below the action row (issue
+               halheinrich/backgammon#148 moved the row above it — its comment
+               carries the order): present in every composition EXCEPT
+               maximized answering, at a fixed height, so the chrome's total
+               height — and therefore the board's flex remainder, and therefore
+               the board size — is identical across the answering and review
+               states and across questions *within a view mode*. While answering
+               it carries a neutral prompt (legend line empty); at review the
+               legend line and the verdict band fill in. Content changes; the box
+               never does (long content clamps inside the fixed lines — see
+               app.css).
+
+               Suppressed under MaximizedAnswering along with the score panel
+               below: SPEC-quiz-view.md §4's chrome-suppression leg. The user
+               accepted losing the neutral prompt (and the progress indicator)
+               for the answering half of each problem — review restores both,
+               every problem. *@
+            @if (!MaximizedAnswering)
+            {
+                <div class="status-strip">
+                    <div class="status-legend text-muted small">
+                        @(review is not null ? SolutionLegend(review, current.Decision) : null)
+                    </div>
+                    <div class="status-verdict alert @StatusVerdictColor(review)" role="status">
+                        <span class="status-verdict-text">@StatusText(review, current.Decision)</span>
+                    </div>
+                </div>
+            }
+
             @* The ongoing-stats strip, at the BOTTOM of the page — below the
-               action row, not above the status strip where it used to sit
-               (SPEC-quiz-view.md §5). It is reference material read between
+               status strip, which since issue halheinrich/backgammon#148 is itself
+               below the action row (SPEC-quiz-view.md §5 put this panel last; it
+               used to sit above the strip). It is reference material read between
                problems, not while deciding one, so it belongs below the controls
                the user is actually reaching for; and the board wants the space
                nearest itself given to the chrome that speaks to the problem in
