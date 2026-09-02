@@ -3015,8 +3015,9 @@ framework-inherent warnings that remain are suppressed member by member,
 each with its justification, in `ILLink.LinkAttributes.xml` — the
 `BgQuiz_Blazor.Client.csproj` comment beside the trim properties carries the
 mechanics. Evidence that the gate holds against real reflection: the
-standalone Release publish of 1ef5b22, the tree that added the app's first
-`[JSInvokable]` callback, exited 0 with no ILLink warning (2026-09-02).
+standalone Release publish of the tree that added the app's first
+`[JSInvokable]` callback (halheinrich/backgammon#149, 2026-09-02) exited 0
+with no ILLink warning.
 
 **Every test failing at once with a ~5-minute wait and a 25 ms duration is a
 publish failure, not a suite's worth of defects.** The fixture publishes
