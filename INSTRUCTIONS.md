@@ -181,6 +181,9 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
                                       resolving PickedFolderSourceFactory.Create
   _Imports.razor
   AppInfo.cs                        — app-level identity SSOT (§ AppInfo)
+  wwwroot/js/quizKeys.js            — the quiz page's spacebar module (an ES
+                                      module the page imports; served at the
+                                      app root as a static web asset)
   Quiz/
     QuizSettings.cs                 — user settings + xg_quizSettings owner
     QuizController.cs               — + ProblemSetSourceFactory, QuizStartOutcome
@@ -2044,6 +2047,25 @@ The asymmetry is pinned three times over: at the service seam
   remainder, unchanged. `Done` and `Stats` render their own `ScorePanel` with
   their own parameters and are untouched.
 
+  **The spacebar performs the primary action** (halheinrich/backgammon#149;
+  always on, no setting). Continue at review, Submit while answering once a
+  complete answer has enabled it, nothing while the controller is busy —
+  the rule a dice click already follows. The page owns it twice over:
+  `CanSubmit` / `CanContinue` are the one expression each that both the
+  buttons' `disabled` and the `[JSInvokable]` `PerformPrimaryActionAsync`
+  read, so the keyboard cannot enable what the button shows disabled; and
+  `wwwroot/js/quizKeys.js` — imported as an `IJSObjectReference` on the
+  first render, detached and disposed with the page (`IAsyncDisposable`) —
+  decides *eligibility* in the browser, synchronously, from the event alone:
+  Space, unmodified, not a repeat, and focus on nothing that consumes space
+  (typing surfaces, buttons and links, checkboxes; radios only when already
+  checked, so a pill still selects). `preventDefault` only when it fires.
+  The callback's name travels with the reference (`nameof`), so it is
+  spelled once. It is the app's first `[JSInvokable]`, and the e2e suite
+  against the trimmed AOT publish is what proves it survives
+  (`KeyboardShortcutTests`); no trim warning arose. Help says so in one
+  sentence beside each dice-click sentence, never as an inventory.
+
   **The XGID has one home: the bottom row** (`SPEC-quiz-view.md` §4's
   2026-08-13 amendment, issue `halheinrich/backgammon#98`). `XgidLabel` — the
   selectable-text-plus-copy badge, the DOM counterpart of the label the
@@ -3662,14 +3684,18 @@ public (see Pitfalls). The externally visible surface is the route map:
   `MapStaticAssets` actually returns — and one applied pin asserts a computed
   value only Bootstrap produces. If `lib/` is ever re-lost, those fail instead
   of the layout quietly going missing.
-- **A served static file belongs to the host's `wwwroot` — the only one there
-  is.** `BgQuiz_Blazor/wwwroot` is what the host serves (`app.css`,
-  `favicon.png`, `lib/`, `robots.txt`, `js/navFold.js`); the `.Client` project
-  has no `wwwroot` at all since the BgFolderAccess_Razor adoption took the
-  folder module (it ships as that library's `_content` asset, and `navFold.js`
-  — the app's one remaining authored script — is a classic script the host
-  shell tags because it must run on static pages before any runtime boots).
-  A file that must
+- **A file that must answer at a fixed URL belongs to the host's `wwwroot`.**
+  `BgQuiz_Blazor/wwwroot` is what the host serves by name (`app.css`,
+  `favicon.png`, `lib/`, `robots.txt`, `js/navFold.js` — a classic script the
+  host shell tags because it must run on static pages before any runtime
+  boots). The `.Client` project has a `wwwroot` again since
+  halheinrich/backgammon#149 — `js/quizKeys.js`, the quiz page's ES module,
+  which the page imports by a document-relative path exactly as the folder
+  module was imported when it lived there (static web assets of the
+  referenced client serve at the app root; the folder module itself ships as
+  BgFolderAccess_Razor's `_content` asset now). That is the client-side rule:
+  a module a component imports may live beside the component's project. A
+  file that must
   answer at a fixed URL (`/robots.txt`, and anything else a crawler, browser,
   or platform probe asks for by name) goes in the host's, and the mistake is
   silent in every layer but one: it still builds, still publishes, and 404s at

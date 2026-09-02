@@ -50,6 +50,9 @@ public class PageTests : BunitContext
     /// </summary>
     private readonly FakeFolderAccess _folderAccess = new();
 
+    /// <summary>The planned <c>quizKeys.js</c> module — see the constructor.</summary>
+    private readonly BunitJSModuleInterop _quizKeys;
+
     public PageTests()
     {
         // Loose JSInterop, for the whole fixture and stated in exactly this one
@@ -60,6 +63,15 @@ public class PageTests : BunitContext
         // its own Setup, which takes precedence; no test in this fixture asserts
         // on an *unhandled* call.
         JSInterop.Mode = JSRuntimeMode.Loose;
+
+        // The Quiz page imports its keyboard module on first render
+        // (halheinrich/backgammon#149) and calls attach on it. Planned here,
+        // fixture-wide, as a module in the same Loose mode — every Quiz render
+        // pays the import, and planning it is what lets the tests that care
+        // observe it (VerifyInvoke on the module) while the rest of the fixture
+        // ignores it exactly as it ignores localStorage.
+        _quizKeys = JSInterop.SetupModule(QuizPage.KeysModulePath);
+        _quizKeys.Mode = JSRuntimeMode.Loose;
 
         // Home and Done inject the sessionStorage-backed QuizLiveMarker. It needs
         // only the framework IJSRuntime — which bUnit registers in Services — so
@@ -4160,6 +4172,144 @@ public class PageTests : BunitContext
         var buttons = cut.FindAll("button").Select(b => b.TextContent.Trim()).ToList();
         Assert.Contains("Continue", buttons);
         Assert.DoesNotContain("Submit", buttons);
+    }
+
+    // -----------------------------------------------------------------------
+    //  The spacebar's primary action (halheinrich/backgammon#149). The page's
+    //  [JSInvokable] callback applies the state rule over the same gates the
+    //  buttons render from. Driven by calling the callback: which presses reach
+    //  it — key, modifiers, focus — is the browser-side filter's business and
+    //  the e2e suite's (KeyboardShortcutTests); here the question is what the
+    //  page does once a press has reached it.
+    // -----------------------------------------------------------------------
+
+    /// <summary>The primary action as the keyboard module would invoke it, on the renderer's thread.</summary>
+    private static Task PressSpaceAsync(IRenderedComponent<QuizPage> cut) =>
+        cut.InvokeAsync(() => cut.Instance.PerformPrimaryActionAsync());
+
+    [Fact]
+    public async Task Quiz_PrimaryAction_AtReview_Continues()
+    {
+        var first = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var second = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = WithController(first, second);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        Assert.NotNull(c.Review);
+        var cut = Render<QuizPage>();
+        Assert.Contains("Continue", cut.Markup);
+
+        await PressSpaceAsync(cut);
+
+        // Exactly what Continue does: the review is left and the next problem
+        // is up for answering.
+        Assert.Null(c.Review);
+        Assert.Same(second, c.Current);
+        Assert.Contains("Submit", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_PrimaryAction_WhileAnsweringWithNoAnswer_DoesNothing()
+    {
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var problem = c.Current;
+        var cut = Render<QuizPage>();
+
+        // Positive precondition: the page is answering, and Submit is rendered
+        // dark — the same gate the callback is about to read.
+        var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
+        Assert.True(submit.HasAttribute("disabled"));
+
+        await PressSpaceAsync(cut);
+
+        // Nothing was submitted and nothing advanced: no review, same problem,
+        // Submit still dark.
+        Assert.Null(c.Review);
+        Assert.Same(problem, c.Current);
+        Assert.Empty(c.CubeHistory);
+        Assert.True(cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Quiz_PrimaryAction_WhileAnsweringWithACompleteAnswer_Submits()
+    {
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
+        Assert.False(cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").HasAttribute("disabled"));
+
+        await PressSpaceAsync(cut);
+
+        // Submitted as the Submit button would have: scored, and the page is
+        // at review with the answer of record.
+        Assert.NotNull(c.Review);
+        Assert.Single(c.CubeHistory);
+        Assert.Contains("Continue", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_PrimaryAction_WhileBusy_DoesNothing()
+    {
+        // The busy third of the rule, in the one window where it decides
+        // anything: a Continue whose stats fold is still pending. Every gated
+        // transition flips IsBusy and fires StateChanged before it does
+        // anything else, and the page clears its answer latches on every
+        // StateChanged — so during any other busy window the gates are already
+        // false for want of an answer, and the busy term is idle. Here the
+        // review is still on screen while the fold waits, so CanContinue's busy
+        // term is the only thing holding Continue dark, and both readers of
+        // the gate are pinned: the rendered button (the live half — drop the
+        // term and it lights up), and the callback, whose press inside the
+        // window must leave the run exactly one problem on after the release.
+        var c = WithGatedController(out var source, out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var start = c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        source.ReleaseNext();
+        await start;
+        c.SubmitPlay(BestPlay());
+        var cut = Render<QuizPage>();
+
+        var fold = new TaskCompletionSource();
+        sink.RecordGate = fold.Task;
+        var advance = cut.InvokeAsync(() => c.ContinueAsync());   // suspends in the fold
+        Assert.True(c.IsBusy);
+        Assert.NotNull(c.Review);
+        cut.Render();
+        Assert.True(cut.FindAll("button").First(b => b.TextContent.Trim() == "Continue").HasAttribute("disabled"));
+
+        await PressSpaceAsync(cut);
+
+        fold.SetResult();
+        source.ReleaseNext();
+        await advance;
+        Assert.False(c.IsBusy);
+        Assert.False(c.IsFinished);
+        Assert.Null(c.Review);
+        Assert.Equal(2, c.ProblemNumber);
+    }
+
+    [Fact]
+    public async Task Quiz_KeyboardModule_AttachesOnFirstRender_AndDetachesOnDispose()
+    {
+        // The wiring, at the seam the browser sees: the module is asked to
+        // attach once, with the page's reference and the callback's name, and
+        // to detach when the page goes — a listener left on the document
+        // would keep invoking a disposed page after every Show-stats round trip.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        var attach = _quizKeys.VerifyInvoke("attach");
+        Assert.IsType<DotNetObjectReference<QuizPage>>(attach.Arguments[0]);
+        Assert.Equal(nameof(QuizPage.PerformPrimaryActionAsync), attach.Arguments[1]);
+        _quizKeys.VerifyNotInvoke("detach");
+
+        await DisposeComponentsAsync();
+
+        _quizKeys.VerifyInvoke("detach");
     }
 
     [Fact]

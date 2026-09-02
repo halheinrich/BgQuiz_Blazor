@@ -4,6 +4,7 @@ using BgDiag_Razor.Components;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 
 namespace BgQuiz_Blazor.Client.Components.Pages;
 
@@ -106,7 +107,8 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <i>both halves answered</i>, which is the intended flow: a half-answered row
 /// cannot be submitted. Both fields clear on any controller transition
 /// (submit / advance / redo / restart) via <see cref="HandleStateChanged"/>; the
-/// play latch also clears on undo.
+/// play latch also clears on undo. The gate itself is <see cref="CanSubmit"/>,
+/// one member read by both Submit buttons and by the spacebar.
 /// </para>
 ///
 /// <para>
@@ -214,12 +216,47 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <see cref="QuizController.IsFinished"/> flips true (source exhausted on
 /// Continue / Skip), the page navigates to <c>/done</c>.
 /// </para>
+///
+/// <para>
+/// <b>The spacebar performs the primary action</b> (issue
+/// <c>halheinrich/backgammon#149</c>, ruled 2026-09-02: always on, no setting).
+/// Space does what clicking the dice already does — Continue at review, Submit
+/// while answering once a complete answer has enabled it, nothing while the
+/// controller is busy — so the shortcut is a second spelling of an existing
+/// unconditional rule, not a new one. The rule is
+/// <see cref="PerformPrimaryActionAsync"/>, and it reads the same two gates the
+/// buttons render from, <see cref="CanSubmit"/> and <see cref="CanContinue"/>:
+/// one expression each, so the keyboard can never enable what the button shows
+/// disabled. Which presses reach it is decided in the browser, by
+/// <c>wwwroot/js/quizKeys.js</c>, from the event alone (Space, unmodified, not a
+/// repeat, focus on nothing that consumes space — see the module's comment for
+/// the filter); this is the app's first JS-invokable callback, attached on the
+/// first render and detached on disposal, which is why the page is
+/// <see cref="IAsyncDisposable"/> now.
+/// </para>
 /// </summary>
-public partial class Quiz : ComponentBase, IDisposable
+public partial class Quiz : ComponentBase, IAsyncDisposable
 {
+    /// <summary>
+    /// The keyboard module, imported from this project's static web assets
+    /// (served at the app root). Relative to the document, as the folder
+    /// module's path was when it lived here. Internal so the bUnit fixture
+    /// plans the very import the page makes rather than restating the path.
+    /// </summary>
+    internal const string KeysModulePath = "./js/quizKeys.js";
+
     private BackgammonPlayEntry? _playEntry;
     private Play? _completedPlay;
     private CubeClaimPair? _completedCube;
+
+    /// <summary>The imported keyboard module; null until the first render's import lands.</summary>
+    private IJSObjectReference? _keys;
+
+    /// <summary>The reference the module calls back through; created with the attach, disposed with the page.</summary>
+    private DotNetObjectReference<Quiz>? _self;
+
+    /// <summary>Set by <see cref="DisposeAsync"/>, so an import still in flight at disposal releases rather than attaches.</summary>
+    private bool _disposed;
 
     /// <summary>
     /// The two canvases this page ever asks for, shared rather than rebuilt per
@@ -326,6 +363,86 @@ public partial class Quiz : ComponentBase, IDisposable
     {
         InvokeAsync(StateHasChanged);
     }
+
+    /// <summary>
+    /// Attach the spacebar shortcut once the page is in the DOM. First render
+    /// only: the module listens on the document, not on any element this page
+    /// re-renders, so there is nothing to re-attach. The import is awaited
+    /// before anything is created from it, and a disposal that lands during
+    /// that await is honoured by releasing the module instead of attaching —
+    /// the one ordering that could otherwise leave a listener holding a
+    /// disposed reference (a Show-stats round trip re-instantiates this page,
+    /// so the window is real).
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        var keys = await JS.InvokeAsync<IJSObjectReference>("import", KeysModulePath);
+        if (_disposed)
+        {
+            await keys.DisposeAsync();
+            return;
+        }
+
+        _keys = keys;
+        _self = DotNetObjectReference.Create(this);
+        // The callback's name travels with the reference so it is spelled
+        // exactly once, here; the module never restates it.
+        await _keys.InvokeVoidAsync("attach", _self, nameof(PerformPrimaryActionAsync));
+    }
+
+    /// <summary>
+    /// The primary action, as the spacebar asks for it
+    /// (<c>halheinrich/backgammon#149</c>): Continue at review, Submit while
+    /// answering once <see cref="CanSubmit"/> holds, nothing otherwise — the
+    /// same rule a dice click follows, spelled over the same two gates the
+    /// buttons render from. Public and <see cref="JSInvokableAttribute"/>
+    /// because the module invokes it by name through the
+    /// <see cref="DotNetObjectReference{TValue}"/> the attach handed over;
+    /// nothing else calls it. Eligibility of the press itself (key, modifiers,
+    /// focus) was settled in the browser before this runs.
+    /// </summary>
+    [JSInvokable]
+    public async Task PerformPrimaryActionAsync()
+    {
+        if (CanContinue)
+        {
+            await ContinueAsync();
+        }
+        else if (CanSubmit)
+        {
+            Submit();
+        }
+    }
+
+    /// <summary>
+    /// <b>The one gate on Submit</b>, read by both Submit buttons and by
+    /// <see cref="PerformPrimaryActionAsync"/>: the page is answering (no
+    /// review to read), the controller is not mid-transition, and a complete
+    /// answer is latched — the play from <see cref="HandlePlayCompleted"/> or
+    /// the cube pair from the radios' <c>@bind-Value</c>. The two latches are
+    /// mutually exclusive per problem (only one answer instrument renders, and
+    /// both clear on every transition), so "either is set" is "this problem's
+    /// answer is complete" without the gate needing to know the kind. It used
+    /// to be two inline expressions, one per button; the keyboard made a
+    /// second reader of the rule, and a second reader is what a single member
+    /// is for.
+    /// </summary>
+    private bool CanSubmit =>
+        Controller.Review is null
+        && !Controller.IsBusy
+        && (_completedCube is not null || _completedPlay is not null);
+
+    /// <summary>
+    /// The gate on Continue, beside <see cref="CanSubmit"/> for the same
+    /// reader: there is a review to leave and the controller is not busy.
+    /// The two are exclusive by construction — a review is either there or
+    /// not — which is what lets <see cref="PerformPrimaryActionAsync"/> pick
+    /// one action without a third case.
+    /// </summary>
+    private bool CanContinue =>
+        Controller.Review is not null && !Controller.IsBusy;
 
     /// <summary>
     /// The side this problem's board renders on, for <b>every</b> branch below.
@@ -790,13 +907,30 @@ public partial class Quiz : ComponentBase, IDisposable
     }
 
     /// <summary>
-    /// Unsubscribe from <see cref="QuizController.StateChanged"/> and
-    /// <see cref="QuizStatsStore.StatusChanged"/> when the page is torn down,
-    /// so a navigated-away instance stops re-rendering.
+    /// Tear-down, in the order the dependencies run: unsubscribe from
+    /// <see cref="QuizController.StateChanged"/> and
+    /// <see cref="QuizStatsStore.StatusChanged"/> so a navigated-away instance
+    /// stops re-rendering; then detach the keyboard listener and release the
+    /// module, and only then dispose the <see cref="DotNetObjectReference{TValue}"/>
+    /// it was calling back through — the reference must outlive the last thing
+    /// that could invoke it. <see cref="_disposed"/> covers an import still in
+    /// flight (see <see cref="OnAfterRenderAsync"/>). Nothing here can race an
+    /// attach: WebAssembly runs the JS of an interop call synchronously, so an
+    /// attach whose await is pending has already executed in the browser.
     /// </summary>
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        _disposed = true;
         Controller.StateChanged -= HandleStateChanged;
         StatsStore.StatusChanged -= HandleStatsStatusChanged;
+
+        if (_keys is not null)
+        {
+            await _keys.InvokeVoidAsync("detach");
+            await _keys.DisposeAsync();
+            _keys = null;
+        }
+        _self?.Dispose();
+        _self = null;
     }
 }

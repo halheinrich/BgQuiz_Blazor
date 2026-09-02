@@ -11,7 +11,8 @@
 @inject QuizNoticeDismissal Notices
 @inject QuizSettings Settings
 @inject NavigationManager Nav
-@implements IDisposable
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <PageTitle>BgQuiz — In progress</PageTitle>
 
@@ -236,7 +237,11 @@
 
                Transition-driving buttons disable while the controller is busy
                (the gate would no-op them anyway — this is the honest mirror);
-               Show stats stays enabled: it only navigates.
+               Show stats stays enabled: it only navigates. The primary button's
+               enablement is CanSubmit / CanContinue, the page-owned gates the
+               spacebar shortcut reads too (halheinrich/backgammon#149) — one
+               expression, so the keyboard can never enable what the button
+               shows disabled.
 
                "End quiz" (issue #57) closes the trailing cluster, after Show
                stats — the far end of the row, as far from the buttons a user
@@ -256,7 +261,7 @@
             <div class="action-row d-flex flex-wrap gap-2 align-items-center">
                 @if (review is not null)
                 {
-                    <button class="btn btn-primary btn-lg fw-bold" disabled="@Controller.IsBusy"
+                    <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanContinue)"
                             @onclick="ContinueAsync">
                         Continue
                     </button>
@@ -271,9 +276,10 @@
                        Submit / Skip — the board region above is board-only. The
                        two radio groups (claim, then take-or-pass) lead the row
                        (form order: choose both, then Submit lights up);
-                       @bind-Value keeps _completedCube current, which gates
-                       Submit — null until both halves are chosen, so a
-                       half-answered row cannot be submitted.
+                       @bind-Value keeps _completedCube current, which is what
+                       CanSubmit reads — null until both halves are chosen, so a
+                       half-answered row cannot be submitted, by button or by
+                       spacebar (the one gate, see Quiz.razor.cs).
 
                        Two clearing mechanisms, because the row has two kinds of
                        state. HandleStateChanged nulls _completedCube on every
@@ -288,8 +294,7 @@
                        is what the row is answering, and a new one is exactly
                        when a fresh row is owed. *@
                     <BackgammonCubeActions @key="current" @bind-Value="_completedCube" />
-                    <button class="btn btn-primary btn-lg fw-bold"
-                            disabled="@(_completedCube is null || Controller.IsBusy)"
+                    <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanSubmit)"
                             @onclick="Submit">
                         Submit
                     </button>
@@ -300,8 +305,7 @@
                 }
                 else
                 {
-                    <button class="btn btn-primary btn-lg fw-bold"
-                            disabled="@(_completedPlay is null || Controller.IsBusy)"
+                    <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanSubmit)"
                             @onclick="Submit">
                         Submit
                     </button>
