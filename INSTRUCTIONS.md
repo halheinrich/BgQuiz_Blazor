@@ -2930,7 +2930,7 @@ anywhere.
 The fake's set-aside slot serves content only when a scenario stages a v3
 sibling (`retiredV3Json`) — the fold's base — and is NotFound otherwise, so
 a retirement that read it back would still fail the gesture loudly; its
-merged slot is write-only. `MixWeightingTests` drives the weighted path to Done and pins #87's gating
+merged slot is write-only. `MixWeightingTests` drives the weighted path to Done and pins `halheinrich/backgammon#87`'s gating
 smoke — a folder with **no stats history** offers no mix and the quiz runs
 anyway, the state every first-time user of a folder is in. Every mix scenario
 now needs a seeded history first, which `SeedStatsHistoryAsync` supplies the

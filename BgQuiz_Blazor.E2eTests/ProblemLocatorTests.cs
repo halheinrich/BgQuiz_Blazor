@@ -165,6 +165,15 @@ public sealed class ProblemLocatorTests : E2eTestBase
 
     private ILocator ChipCoordinates => Page.Locator(".problem-locator-where");
 
+    /// <summary>
+    /// The desktop navigation-panel fold, by its accessible name — the same
+    /// locator <c>SidebarCollapseTests</c> drives. Folding it is what hands the
+    /// tail the width that brings the file name back (§4's 2026-09-03
+    /// amendment).
+    /// </summary>
+    private ILocator CollapseRail =>
+        Page.GetByRole(AriaRole.Checkbox, new() { Name = "Hide navigation panel" });
+
     [Fact]
     public async Task MoneyProblem_IsNamedByItsSourceFile_AnsweringAndReview()
     {
@@ -234,14 +243,29 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// </para>
     ///
     /// <para>
-    /// <b>And it smokes the shrink ruling, which nothing else did.</b> §4 ruling
-    /// (i) orders the tail's give: the XGID's text goes first, down to its copy
-    /// button, then the locator's file name — <i>the numbers never</i>. This is
-    /// the widest the tail ever gets (a name past the visible cap, plus
-    /// coordinates), and the two assertions below are that ruling's two halves
-    /// at that width: the coordinates read in full, and the cluster still costs
-    /// the row no line. A shrink order that gave the numbers away would fail the
-    /// first; one that gave nothing away would fail the second.
+    /// <b>And it pins the shrink order at its floor, which nothing else does.</b>
+    /// §4 ruling (i) orders the tail's give: the XGID's text goes first, down
+    /// to its copy button, then the locator's file name — <i>the numbers
+    /// never</i>. This is the widest the tail ever gets (a name past the
+    /// visible cap, plus coordinates) beside the widest answer row there is
+    /// (the four-pair cube row, 419 px at its widest selection since
+    /// <c>halheinrich/backgammon#187</c>), and at 1280×800 with the navigation
+    /// panel showing the tail reaches the <b>floor</b> of that order: the XGID
+    /// at its copy button alone and the file name truncated to nothing, the
+    /// coordinates intact — measured at 922 px of row, 319.8 px of tail,
+    /// 105.1 px of coordinates, one line. <b>§4's amendment of 2026-09-03
+    /// rules that floor accepted, not a defect</b> — the chip's target for its
+    /// text is copyability, the full name stays available on copy and as the
+    /// accessible name, and with the panel folded everything is visible again
+    /// — and that amendment is the rule this scenario enforces: with the panel
+    /// showing, the coordinates are laid out and readable, the accessible name
+    /// is the full file name, and the cluster costs the row no line; with the
+    /// panel folded, the file name is visible again. A shrink order that gave
+    /// the numbers away would fail the first; one that wrapped would fail the
+    /// third; one that never gave the name back would fail the last. The
+    /// name's visibility is deliberately <i>not</i> asserted with the panel
+    /// showing — that is the ruled floor, and a pin on it would pin the
+    /// producer's pill widths and the font stack rather than the contract.
     /// </para>
     /// </summary>
     [Fact]
@@ -257,17 +281,40 @@ public sealed class ProblemLocatorTests : E2eTestBase
         // The maximized answering composition, as above: no status strip, no
         // title strip, nothing but this chip saying where the problem came from.
         await Expect(Page.Locator(".status-strip")).ToHaveCountAsync(0);
+        // Positive precondition for the floor: this is a cube answering row —
+        // the widest row — and the panel is showing. The tail floor below is a
+        // consequence of exactly those two facts.
+        await Expect(Page.Locator(".bg-cube-actions")).ToHaveCountAsync(1);
+        await Expect(CollapseRail).Not.ToBeCheckedAsync();
 
         string geometry = await CaptureRowGeometryAsync();
         try
         {
-            await AssertChipLocatesTheMatchDecisionAsync();
+            await AssertChipLocatesTheMatchDecisionAtTheTailFloorAsync();
             await AssertChipSitsBelowTheBoardAsync();
             await AssertClusterSharesTheLineOfAsync(SkipButton);
         }
         finally
         {
-            ReportRowGeometry("answering (maximized), synthesized .xg", geometry);
+            ReportRowGeometry("answering (maximized), synthesized .xg, panel showing", geometry);
+        }
+
+        // The other half of the amendment: fold the panel, and the width it
+        // hands back reaches the tail — the file name is visible again, beside
+        // the same coordinates and under the same accessible name.
+        await CollapseRail.ClickAsync();
+        await Expect(CollapseRail).ToBeCheckedAsync();
+
+        string foldedGeometry = await CaptureRowGeometryAsync();
+        try
+        {
+            await Expect(ChipFileName).ToBeVisibleAsync();
+            await AssertChipLocatesTheMatchDecisionAtTheTailFloorAsync();
+            await AssertClusterSharesTheLineOfAsync(SkipButton);
+        }
+        finally
+        {
+            ReportRowGeometry("answering (maximized), synthesized .xg, panel folded", foldedGeometry);
         }
     }
 
@@ -326,26 +373,40 @@ public sealed class ProblemLocatorTests : E2eTestBase
     }
 
     /// <summary>
-    /// The chip on a match decision: the file name half present, and beside it
-    /// the coordinates in full — <c>Game n · Move m</c>, neither number elided.
-    /// The expected string is assembled from
+    /// The chip on a match decision, as §4's 2026-09-03 amendment contracts it
+    /// at the tail's floor: the coordinates <b>laid out and readable</b> —
+    /// <c>Game n · Move m</c> as text, neither number elided, in a box of real
+    /// width — and the chip's accessible name still the <b>full</b> file name.
+    /// The expected coordinates are assembled from
     /// <see cref="SyntheticXgMatch.CubeGameNumber"/> and
     /// <see cref="SyntheticXgMatch.CubeMoveNumber"/>, which the fixture derives
     /// from what it was told to build, and from the labels and separator spelled
     /// out here per this suite's independent-literal posture.
     ///
     /// <para>
-    /// The file-name half is asserted <b>present</b> rather than re-derived: the
-    /// middle-truncation rule is the money scenario's pin above, and restating
-    /// it here would be a second source for one fact.
+    /// Deliberately says nothing about the file-name span's visibility: at the
+    /// floor it is truncated to nothing by ruling, and the scenario asserts its
+    /// return separately, with the panel folded. The middle-truncation rule is
+    /// the money scenario's pin above, and restating it here would be a second
+    /// source for one fact. Retrying forms throughout — Playwright's
+    /// assertions poll, and the box read sits inside
+    /// <see cref="E2eTestBase.ExpectToPassAsync"/> — because this runs on the
+    /// render that follows a Start or a fold.
     /// </para>
     /// </summary>
-    private async Task AssertChipLocatesTheMatchDecisionAsync()
+    private async Task AssertChipLocatesTheMatchDecisionAtTheTailFloorAsync()
     {
         await Expect(Chip).ToBeVisibleAsync();
-        await Expect(ChipFileName).ToBeVisibleAsync();
+        await Expect(ChipCoordinates).ToBeVisibleAsync();
         await Expect(ChipCoordinates).ToHaveTextAsync(
             $"Game {SyntheticXgMatch.CubeGameNumber} · Move {SyntheticXgMatch.CubeMoveNumber}");
+        await ExpectToPassAsync(async () =>
+        {
+            // Readable means laid out at its own width, not merely present:
+            // the numbers are the one thing the shrink order may never take.
+            var coordinates = await LaidOutBoxAsync(ChipCoordinates, "the chip's coordinates");
+            Assert.True(coordinates.Width > 0, $"coordinates should have a laid-out width; got {coordinates.Width}");
+        });
         await Expect(Page.Locator(".problem-locator .visually-hidden"))
             .ToHaveTextAsync(SyntheticXgMatch.StagedFileName);
     }
