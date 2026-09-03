@@ -277,7 +277,9 @@ BgQuiz_Blazor.Tests/
   QuizSettingsTests.cs              — the settings seam + the pinned wire bytes
   QuizStatsStoreTests.cs            — bind / fold / write-back / degrade,
                                       the retirements (v1 + v2, each under its
-                                      own name), the pre-write guard
+                                      own name), the v4 fold (with and without
+                                      the v3 sibling; copy-before-replace; the
+                                      probe's verdict), the pre-write guard
   WasmUploadedProblemSetSourceTests.cs
   PickedProblemFolderTests.cs
   PageTests.cs
@@ -909,8 +911,11 @@ active handle.
 
 **`QuizStatsFile`** — the persistence SSOT: `FileName`
 (`bgquiz-stats.json`), `RetiredNameFor(schemaVersion)`
-(`bgquiz-stats.v{n}.json` — the set-aside name, bare and path-free), and
-`DocumentTypeInfo`, the one serializer contract every stats read and write
+(`bgquiz-stats.v{n}.json` — the set-aside name, bare and path-free),
+`MergedNameFor(schemaVersion)` (`bgquiz-stats.v{n}.merged.json` — the name
+a **folded** document is copied aside under; a distinct spelling from the
+retired name for the same number because it says the contents live on in
+the current file), and `DocumentTypeInfo`, the one serializer contract every stats read and write
 names to `JsonSerializer`'s type-info overloads (`WriteIndented = true` —
 whitespace is the only options-controlled aspect; the bundled converter pins
 names and ordering, and the resolver is BgGame_Lib's source-generated
@@ -976,6 +981,26 @@ controller's sink and the pages' status notices observe one instance; deps:
   `Set`/`Clear` bumps the generation, and a probe about the previous folder
   simply stops matching. It starts at `-1`, not `0`, so "never probed" cannot
   read as "probed and found nothing".
+- **The fold** (SPEC-stats-identity.md §3, amended 2026-09-02;
+  `halheinrich/backgammon#187`) is the other exception, caught the same way:
+  a `FoldableStatsSchemaException` — the producer's sibling signal for the
+  one version that folds instead of retiring, the interim **v4** that never
+  shipped — means a document whose tallies carry forward. The store reads it
+  through `ProblemStatsDocument.ReadFoldable`, reads the set-aside of the
+  version now current (`RetiredNameFor(CurrentSchemaVersion)`, the v3 file
+  the interim build wrote) as the base when that sibling exists and
+  `Merge`s the folded records into it — else the folded records stand alone
+  — then copies the v4 bytes aside under `MergedNameFor(4)` **first** and
+  writes the merge under `FileName` second, the same data-safety order as
+  the retirement, with the same retry-on-the-next-bind for a failed replace
+  (the merge is recomputed from the same two inputs, so the retry is
+  idempotent). Reads before any write: a v4 body the fold reader rejects,
+  or a sibling that will not parse, is `LoadFailed` with nothing written.
+  **No `StatsRetiredOccurrence`**: nothing restarts, so the Quiz and Done
+  restart note must not fire (`PageTests` pins both pages silent). One pass
+  — the folder then holds a current v3 file, and the next bind is the
+  ordinary read. The file dance is this consumer's; the read and combine
+  halves are the producer's (`ReadFoldable`, `Merge`), restated nowhere.
 - **`RefreshPickedStatsAsync()`** — the probe: a **picked**-slot read
   (`ReadPickedFileAsync(QuizStatsFile.FileName)`), deserialize, `Count > 0`.
   Degrade-tolerant *because that is the ruling*, not as a defensive extra:
@@ -983,7 +1008,11 @@ controller's sink and the pages' status notices observe one instance; deps:
   it false, with no status, no notice, and nothing thrown. **A retired file
   reads as "no stats to weight by" too**, and stays that way until the first
   quiz performs the set-aside: the probe never binds, so it never retires. That
-  is the ruling working, not a gap to close (SPEC-stats-identity.md §3). What it
+  is the ruling working, not a gap to close (SPEC-stats-identity.md §3). **A
+  foldable (v4) file reads as stats** — its records carry forward, so it is
+  read through `ReadFoldable` and counted like a current document, with no
+  forecast (nothing restarts); the v3 sibling the fold would merge in is
+  deliberately not consulted by the probe, which reads one file. What it
   *does* now do with that file is **remember the version it declared**
   (`ForecastStatsSetAsideName`, halheinrich/backgammon#146): the producer's
   recognition signal derives from `JsonException`, so it used to fall into the
@@ -2879,25 +2908,29 @@ key on one shared `SilentPickGestureCopy.Account` fragment, because an absence
 pin written against its own literal goes vacuously green the moment the notice
 is reworded.
 `StatsPersistenceTests` pins: one fold ⇒ one captured write with
-`schemaVersion` 4, one `problems` record whose key carries no filename,
-nested under its `cubePair` answer-kind token, a cube-as-two-decisions tally,
-indented; a **retired v3 file** ⇒ the set-aside report (not the "couldn't be
-read" degrade), its bytes captured verbatim under `bgquiz-stats.v3.json`, and
-two writes to the standard name (the empty v4 seed, then the fold in v4's
-shape); corrupt file ⇒ polite notice + **zero writes**; denied ⇒ denied
-notice + zero writes; and the fallback pick's "can't save stats" notice. One
-retired version here, not all: what crossing the real `folderAccess.js` adds
-is the act, and *which name each version earns* is the store suite's pin,
-over v1, v2 and v3 together. v3 is the one staged because it is the format
-every current tester holds (`halheinrich/backgammon#86`'s v4 break retires
-it), so the scenario meets the file the deploy will. The stats filenames, the
-retired document's own bytes, and the wire property names are deliberately
-hardcoded there — the consumer-side pin of those contracts (the e2e project
-references no app assembly by design), and the v3 literal has no other
-possible source: the
-format has no writer left anywhere.
-The fake's set-aside slot is **write-only by construction** (no `getFile`), so
-an app that read it back would fail the gesture loudly. `MixWeightingTests` drives the weighted path to Done and pins #87's gating
+`schemaVersion` 3, one `problems` record whose key carries no filename and
+whose value is the bare tally-plus-date record (no answer-kind token — the
+flat v3 record reinstated by SPEC-stats-identity §3's 2026-09-02
+amendment), a cube-as-two-decisions tally, indented; a **v3 file** ⇒ read
+as current: no forecast, no set-aside report, the mix offered off it, one
+write folding this quiz's problem in beside its record; a **v4 file beside
+its v3 sibling** ⇒ the fold across the real `folderAccess.js`: the v4 bytes
+captured verbatim under `bgquiz-stats.v4.merged.json`, nothing under a
+retired name, the bind's one write the merged current document (the shared
+record summed, its later date kept, the v4-only record through, no kind
+token), no restart note anywhere, and the quiz then recording into it;
+corrupt file ⇒ polite notice + **zero writes**; denied ⇒ denied notice +
+zero writes; and the fallback pick's "can't save stats" notice. Which
+set-aside name each *retired* version earns is the store suite's pin (v1,
+v2); the stats filenames, the staged documents' own bytes, and the wire
+property names are deliberately hardcoded here — the consumer-side pin of
+those contracts (the e2e project references no app assembly by design), and
+the v4 literal has no other possible source: the format has no writer left
+anywhere.
+The fake's set-aside slot serves content only when a scenario stages a v3
+sibling (`retiredV3Json`) — the fold's base — and is NotFound otherwise, so
+a retirement that read it back would still fail the gesture loudly; its
+merged slot is write-only. `MixWeightingTests` drives the weighted path to Done and pins #87's gating
 smoke — a folder with **no stats history** offers no mix and the quiz runs
 anyway, the state every first-time user of a folder is in. Every mix scenario
 now needs a seeded history first, which `SeedStatsHistoryAsync` supplies the

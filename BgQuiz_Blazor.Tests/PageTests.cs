@@ -1523,7 +1523,6 @@ public class PageTests : BunitContext
     [Theory]
     [InlineData(RetiredStatsFixture.V1Json, 1)]
     [InlineData(RetiredStatsFixture.V2Json, 2)]
-    [InlineData(RetiredStatsFixture.V3Json, 3)]
     public void Home_PickedFolderHoldsARetiredStatsFile_ForecastsTheSetAside(
         string statsJson, int schemaVersion)
     {
@@ -3539,9 +3538,11 @@ public class PageTests : BunitContext
     /// Every retired schema version — one per <see cref="RetiredStatsFixture"/>
     /// document — and the one place that list is spelled in this suite, so a
     /// notice pinned to name exactly one set-aside file is checked against
-    /// every other name it could have wrongly spelled.
+    /// every other name it could have wrongly spelled. v3 is not here: it is
+    /// the current version again, and v4 folds rather than retires
+    /// (SPEC-stats-identity.md §3, amended 2026-09-02).
     /// </summary>
-    private static readonly int[] RetiredSchemaVersions = [1, 2, 3];
+    private static readonly int[] RetiredSchemaVersions = [1, 2];
 
     /// <summary>
     /// The retired versions other than <paramref name="retiredSchemaVersion"/>
@@ -3566,7 +3567,6 @@ public class PageTests : BunitContext
             {
                 1 => RetiredStatsFixture.V1Json,
                 2 => RetiredStatsFixture.V2Json,
-                3 => RetiredStatsFixture.V3Json,
                 _ => throw new ArgumentOutOfRangeException(nameof(retiredSchemaVersion)),
             },
         };
@@ -3635,7 +3635,6 @@ public class PageTests : BunitContext
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
-    [InlineData(3)]
     public async Task Quiz_StatsRetired_ShowsPoliteRestartNotice(int retiredSchemaVersion)
     {
         // The retirement report: the standard file name from its constant and
@@ -3718,7 +3717,6 @@ public class PageTests : BunitContext
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
-    [InlineData(3)]
     public async Task Done_StatsRetired_ShowsTheRestartNotice(int retiredSchemaVersion)
     {
         // Mirrored from Quiz: what happened to the stats context is exactly what
@@ -3757,6 +3755,66 @@ public class PageTests : BunitContext
 
         Assert.DoesNotContain("set aside", cut.Markup);
         Assert.DoesNotContain(QuizStatsFile.RetiredNameFor(1), cut.Markup);
+    }
+
+    /// <summary>
+    /// Register a real <see cref="QuizStatsStore"/> that has just <b>folded</b>
+    /// the interim v4 stats file into its v3 sibling, driven through its own
+    /// bind — the state the Quiz and Done restart note must stay silent in
+    /// (SPEC-stats-identity.md §3, amended 2026-09-02: v4 never shipped, the
+    /// record is carried forward, so no lifetime stats restarted).
+    /// </summary>
+    private async Task<QuizStatsStore> WithFoldedStatsStoreAsync()
+    {
+        var access = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V4Json };
+        access.SetRetiredStatsJson(3, RetiredStatsFixture.V3Json);
+        var folder = new PickedProblemFolder();
+        folder.Set("Corpus", [new PickedFile("a.xgp", [1])], FolderWriteCapability.Enabled, []);
+        var store = new QuizStatsStore(access, TimeProvider.System, folder);
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.Ready, store.Status);           // helper sanity: the fold ran
+        Assert.NotNull(access.MergedStatsJson(4));
+        Services.AddSingleton(store);
+        return store;
+    }
+
+    [Fact]
+    public async Task Quiz_StatsFolded_ShowsNoRestartNotice()
+    {
+        // A fold is not a retirement: nothing was set aside unread and nothing
+        // begins again, so the restart note — present or forecast — must not
+        // fire, and neither may the merged file's name appear as if it were
+        // a set-aside. Keyed on the same wording the present half asserts.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await WithFoldedStatsStoreAsync();
+
+        var cut = Render<QuizPage>();
+
+        Assert.DoesNotContain("set aside", cut.Markup);
+        Assert.DoesNotContain("begin again", cut.Markup);
+        Assert.DoesNotContain(QuizStatsFile.MergedNameFor(4), cut.Markup);
+        Assert.DoesNotContain("couldn't be read", cut.Markup);
+        Assert.Contains("Submit", cut.Markup);                       // and the quiz runs
+    }
+
+    [Fact]
+    public async Task Done_StatsFolded_ShowsNoRestartNotice()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+        await WithFoldedStatsStoreAsync();
+
+        var cut = Render<DonePage>();
+
+        Assert.DoesNotContain("set aside", cut.Markup);
+        Assert.DoesNotContain("began again", cut.Markup);
+        Assert.DoesNotContain(QuizStatsFile.MergedNameFor(4), cut.Markup);
+        Assert.Contains("Nothing here needs saving", cut.Markup);
     }
 
     [Fact]
@@ -5837,6 +5895,13 @@ public class PageTests : BunitContext
         Assert.Contains($"records the version it came from, such as {QuizStatsFile.RetiredNameFor(1)}", text);
         Assert.Contains("The quiz tells you the name it used", text);
         Assert.Contains("nothing is deleted", text);
+        // The one format that folds rather than retires, named beside the
+        // set-aside names from the same derivation the store writes through
+        // (SPEC-stats-identity.md §3, amended 2026-09-02).
+        Assert.Contains(
+            $"folded into your record instead of set aside, and its file is kept as "
+            + QuizStatsFile.MergedNameFor(ProblemStatsDocument.FoldableSchemaVersion),
+            text);
     }
 
     [Fact]

@@ -402,9 +402,13 @@ internal sealed class QuizStatsStore : IProblemStatsSink
 
         if (!FolderCanHoldStats) return;
 
+        // Declared outside the try so the foldable catch can re-read the text
+        // it was thrown over: that signal comes from the deserialize, which
+        // runs only after the read assigned it.
+        string? json = null;
         try
         {
-            var json = await _folderAccess.ReadPickedFileAsync(QuizStatsFile.FileName);
+            json = await _folderAccess.ReadPickedFileAsync(QuizStatsFile.FileName);
             _pickedHasStats = json is not null
                 && JsonSerializer.Deserialize(json, QuizStatsFile.DocumentTypeInfo) is { Count: > 0 };
         }
@@ -417,6 +421,26 @@ internal sealed class QuizStatsStore : IProblemStatsSink
             // here: this is a read of the picked slot, and the act is the
             // bind's alone.
             _pickedRetiredSchemaVersion = retired.SchemaVersion;
+        }
+        catch (FoldableStatsSchemaException)
+        {
+            // A document the next bind will fold, not set aside: its records
+            // carry forward, so for the mix question it IS stats — read into
+            // the current shape through the producer's fold reader and
+            // counted like a current document. No forecast: nothing restarts.
+            // A v4 body the fold reader rejects lands in the swallow below
+            // like any other unreadable file. The set-aside v3 sibling the
+            // fold would merge in is deliberately not consulted here: the
+            // probe reads one file, and a v4 seeded beside a populated v3 —
+            // an interim build started and never answered — is a folder the
+            // fold makes weightable at the first bind either way.
+            try
+            {
+                _pickedHasStats = ProblemStatsDocument.ReadFoldable(json!).Count > 0;
+            }
+            catch (JsonException)
+            {
+            }
         }
         catch (Exception ex) when (ex is JsonException or JSException)
         {
@@ -501,6 +525,19 @@ internal sealed class QuizStatsStore : IProblemStatsSink
             await RetirePreviousStatsAsync(json!, retired.SchemaVersion);
             return;
         }
+        catch (FoldableStatsSchemaException foldable)
+        {
+            // The producer's other recognition signal: a genuine document in
+            // the one version that folds instead of retiring (the interim v4,
+            // SPEC-stats-identity.md §3 as amended 2026-09-02). A sibling
+            // type, not a flag on the retired signal, so this catch cannot be
+            // reached by a retired file and the retired catch cannot swallow a
+            // foldable one. Caught BEFORE the general JsonException for the
+            // same reason as the retired signal, and its version travels with
+            // it for the same reason: the rename-aside name derives from it.
+            await FoldPreviousStatsAsync(json!, foldable.SchemaVersion);
+            return;
+        }
         catch (JsonException)
         {
             // Corrupt, foreign, or a NEWER schema than this build reads. Newer
@@ -543,9 +580,15 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// </para>
     ///
     /// <para>
-    /// Built from the existing named-file primitives rather than a rename API,
-    /// deliberately: one consumer does not justify lifting a rename into
-    /// BgFolderAccess_Razor's surface. A second one would.
+    /// Built from the existing named-file primitives rather than a rename API.
+    /// This was "one consumer does not justify lifting a rename into
+    /// BgFolderAccess_Razor's surface; a second one would" — and
+    /// <see cref="FoldPreviousStatsAsync"/> is that second one. It reuses the
+    /// same copy-then-replace shape rather than lifting a rename now, because
+    /// both of them need the copy to land <i>before</i> the standard name is
+    /// replaced, which is exactly the ordering a rename does not give (a
+    /// rename removes the source); the lib-side arc that would add a rename
+    /// is booked for the umbrella, not taken here.
     /// </para>
     /// </summary>
     private async Task RetirePreviousStatsAsync(string retiredJson, int retiredSchemaVersion)
@@ -567,6 +610,95 @@ internal sealed class QuizStatsStore : IProblemStatsSink
 
         _doc = ProblemStatsDocument.Empty;
         StatsRetiredOccurrence = new StatsRetirement(setAsideName);
+        SetStatus(QuizStatsStatus.Ready);
+    }
+
+    /// <summary>
+    /// Fold a stats file in the foldable schema version — the interim v4 —
+    /// back into the current document (SPEC-stats-identity.md §3, amended
+    /// 2026-09-02; halheinrich/backgammon#187). The file dance is this
+    /// consumer's; the producer owns the two halves it composes:
+    /// <see cref="ProblemStatsDocument.ReadFoldable"/> reads the v4 text into
+    /// the current shape, and <see cref="ProblemStatsDocument.Merge"/> combines
+    /// documents. The base is the set-aside the interim build wrote when it
+    /// retired the then-current v3 — the file named for the version that is
+    /// current again, <c>RetiredNameFor(CurrentSchemaVersion)</c> — if that
+    /// sibling exists; else the folded records stand alone. One pass, after
+    /// which the folder holds a current document under the standard name and
+    /// the v4 bytes under <see cref="QuizStatsFile.MergedNameFor"/>, and the
+    /// next bind reads a current file with nothing left to fold.
+    ///
+    /// <para>
+    /// <b>No restart notice.</b> v4 never shipped (v1.9.1 ships v3), so there
+    /// is no tester whose lifetime record restarts here — the record is
+    /// carried forward, which is the whole point of folding rather than
+    /// retiring — and <see cref="StatsRetiredOccurrence"/> stays
+    /// <see langword="null"/>: the Quiz and Done pages' restart note must not
+    /// fire on a fold.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The same data-safety ordering as the retirement, for the same
+    /// reason.</b> The v4 bytes are copied aside first, unparsed, then the
+    /// merged document replaces the standard name. A failure on the copy
+    /// leaves the user's file exactly as it was and reports
+    /// <see cref="QuizStatsStatus.LoadFailed"/>; a failure on the replace is
+    /// the same answer, and the next bind recognises the still-v4 standard
+    /// file and retries — idempotently, because the merge is recomputed from
+    /// the same two inputs and the copy rewrites identical bytes. Reads come
+    /// before any write: a v4 body that <see cref="ProblemStatsDocument.ReadFoldable"/>
+    /// rejects (a malformed answer-kind layer, trailing content), a v3 sibling
+    /// that will not parse, or a browser read failure all report
+    /// <see cref="QuizStatsStatus.LoadFailed"/> with nothing written — a
+    /// folder this build cannot read whole is a folder it does not rewrite.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The sibling is read as a current document, deliberately, not through
+    /// the retired-version path.</b> v3 <i>is</i> the current version again;
+    /// the file the interim build set aside is byte-identical to what this
+    /// build writes, so the ordinary deserialize is its reader. Should a
+    /// sibling under that name ever be something else — a retired or foldable
+    /// signal, say — it is read trouble and lands on <c>LoadFailed</c> like
+    /// any other unparseable input, never a nested retirement.
+    /// </para>
+    /// </summary>
+    private async Task FoldPreviousStatsAsync(string foldableJson, int foldableSchemaVersion)
+    {
+        string mergedName = QuizStatsFile.MergedNameFor(foldableSchemaVersion);
+        string baseName = QuizStatsFile.RetiredNameFor(ProblemStatsDocument.CurrentSchemaVersion);
+
+        ProblemStatsDocument merged;
+        try
+        {
+            var folded = ProblemStatsDocument.ReadFoldable(foldableJson);
+            var baseJson = await _folderAccess.ReadActiveFileAsync(baseName);
+            merged = baseJson is null
+                ? folded
+                : (JsonSerializer.Deserialize(baseJson, QuizStatsFile.DocumentTypeInfo)
+                   ?? throw new JsonException("Stats base document deserialized to null."))
+                  .Merge(folded);
+        }
+        catch (Exception ex) when (ex is JsonException or JSException)
+        {
+            SetStatus(QuizStatsStatus.LoadFailed);
+            return;
+        }
+
+        try
+        {
+            await _folderAccess.WriteActiveFileAsync(mergedName, foldableJson);
+            await _folderAccess.WriteActiveFileAsync(
+                QuizStatsFile.FileName,
+                JsonSerializer.Serialize(merged, QuizStatsFile.DocumentTypeInfo));
+        }
+        catch (JSException)
+        {
+            SetStatus(QuizStatsStatus.LoadFailed);
+            return;
+        }
+
+        _doc = merged;
         SetStatus(QuizStatsStatus.Ready);
     }
 

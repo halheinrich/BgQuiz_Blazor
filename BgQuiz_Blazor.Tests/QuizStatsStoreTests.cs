@@ -348,7 +348,6 @@ public class QuizStatsStoreTests
                  {
                      (RetiredStatsFixture.V1Json, 1),
                      (RetiredStatsFixture.V2Json, 2),
-                     (RetiredStatsFixture.V3Json, 3),
                  })
         {
             var fake = new FakeFolderAccess { StatsJson = json };
@@ -363,18 +362,15 @@ public class QuizStatsStoreTests
     }
 
     [Fact]
-    public async Task BeginQuiz_RetiredV3File_SetsItAsideUnderTheV3Name_SeedsV4_AndRecordsInV4()
+    public async Task BeginQuiz_V3File_IsTheCurrentFormat_ReadsUntouchedAndForecastsNothing()
     {
-        // The retirement the halheinrich/backgammon#86 arc owes every current
-        // tester, proved at this layer rather than trusted from the producer's
-        // report: a genuine v3 document (the shipping format through v1.9.x)
-        // is recognised as retired, its bytes preserved verbatim under the v3
-        // set-aside name and no other, the standard name reseeded with an
-        // empty document declaring the CURRENT version — 4, checked against
-        // the producer's own constant so this pin moves with the next bump —
-        // and the quiz then records into that seed in v4's shape, each record
-        // nested under its answer-kind token. The forecast probe and the bind
-        // consume the same RetiredStatsSchemaException, so both fire here.
+        // v3 is the current format again (SPEC-stats-identity.md §3, amended
+        // 2026-09-02, halheinrich/backgammon#187): the file every tester holds
+        // reads as current — nothing set aside, nothing written, no
+        // retirement to report or forecast — and the probe counts its records
+        // as stats to weight by. Checked against the producer's own constant
+        // so this pin moves with the next bump rather than lying about it.
+        Assert.Equal(3, ProblemStatsDocument.CurrentSchemaVersion);
         var fake = new FakeFolderAccess
         {
             StatsJson = RetiredStatsFixture.V3Json,
@@ -383,32 +379,300 @@ public class QuizStatsStoreTests
         var store = MakeStore(fake);
 
         await store.RefreshPickedStatsAsync();
-        Assert.Equal(QuizStatsFile.RetiredNameFor(3), store.ForecastStatsSetAsideName);
+        Assert.True(store.CanWeightMix);
+        Assert.Null(store.ForecastStatsSetAsideName);
 
         await store.BeginQuizAsync();
 
         Assert.Equal(QuizStatsStatus.Ready, store.Status);
-        var retirement = Assert.IsType<StatsRetirement>(store.StatsRetiredOccurrence);
-        Assert.Equal(QuizStatsFile.RetiredNameFor(3), retirement.SetAsideFileName);
-        Assert.Equal("bgquiz-stats.v3.json", retirement.SetAsideFileName);
-        Assert.Equal(RetiredStatsFixture.V3Json, fake.RetiredStatsJson(3)); // bytes, unparsed
-        Assert.Null(fake.RetiredStatsJson(1));
-        Assert.Null(fake.RetiredStatsJson(2));
+        Assert.Null(store.StatsRetiredOccurrence);
+        Assert.Empty(fake.Writes);
+        Assert.Equal(RetiredStatsFixture.V3Json, fake.StatsJson);
+        Assert.Equal(2, store.CurrentDocument!.Count);
+    }
 
-        Assert.Equal(4, ProblemStatsDocument.CurrentSchemaVersion);
-        using (var seeded = JsonDocument.Parse(fake.StatsJson!))
-        {
-            Assert.Equal(4, seeded.RootElement.GetProperty("schemaVersion").GetInt32());
-            Assert.Empty(seeded.RootElement.GetProperty("problems").EnumerateObject());
-        }
+    // -----------------------------------------------------------------------
+    //  The fold — the interim v4 folds back into v3 (SPEC-stats-identity.md
+    //  §3, amended 2026-09-02; halheinrich/backgammon#187)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The merged document's records as the fold must produce them from
+    /// <see cref="RetiredStatsFixture.V4Json"/> over <see cref="RetiredStatsFixture.V3Json"/>:
+    /// the shared play key summed (1+2 submitted, 1+1 correct, 0+0.05 loss)
+    /// with the later date kept, the v3-only match cube and the v4-only money
+    /// cube each passing through. Asserted on the written JSON, field by
+    /// field, so the pin is on what lands in the folder, not on a document
+    /// this build reconstructs.
+    /// </summary>
+    private static void AssertMergedDocument(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(ProblemStatsDocument.CurrentSchemaVersion, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+        var problems = doc.RootElement.GetProperty("problems");
+        Assert.Equal(3, problems.EnumerateObject().Count());
+
+        var shared = problems.GetProperty(RetiredStatsFixture.SharedPlayKeyText);
+        Assert.Equal(3, shared.GetProperty("tally").GetProperty("submitted").GetInt32());
+        Assert.Equal(2, shared.GetProperty("tally").GetProperty("correct").GetInt32());
+        Assert.Equal(0.05, shared.GetProperty("tally").GetProperty("totalEquityLoss").GetDouble(), 9);
+        Assert.Equal("2026-09-01T18:30:00+00:00", shared.GetProperty("lastQuizzed").GetString());
+
+        var v3Only = problems.GetProperty(RetiredStatsFixture.V3OnlyCubeKeyText);
+        Assert.Equal(2, v3Only.GetProperty("tally").GetProperty("submitted").GetInt32());
+        Assert.Equal(0.08, v3Only.GetProperty("tally").GetProperty("totalEquityLoss").GetDouble(), 9);
+
+        var v4Only = problems.GetProperty(RetiredStatsFixture.V4OnlyCubeKeyText);
+        Assert.Equal(4, v4Only.GetProperty("tally").GetProperty("submitted").GetInt32());
+        Assert.Equal(2, v4Only.GetProperty("tally").GetProperty("correct").GetInt32());
+        // No answer-kind layer survives the fold: the value is the bare record.
+        Assert.Contains("tally", v4Only.EnumerateObject().Select(p => p.Name));
+    }
+
+    [Fact]
+    public async Task BeginQuiz_V4FileWithV3Sibling_FoldsIntoTheSibling_RenamesTheV4Aside_AndReportsNoRestart()
+    {
+        // The whole file dance on the folder the interim build leaves behind:
+        // a v4 standard file beside the v3 it set aside. The bind reads the v4
+        // through the producer's fold reader, merges it into the sibling as the
+        // base, writes the merge as the current document, and copies the v4
+        // bytes aside as merged — verbatim, unparsed, under the .merged name
+        // and no retired name. No restart occurrence: the record was carried
+        // forward, so the Quiz and Done restart note has nothing true to say.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V4Json };
+        fake.SetRetiredStatsJson(3, RetiredStatsFixture.V3Json);
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.Ready, store.Status);
+        Assert.Null(store.StatsRetiredOccurrence);
+        Assert.Equal(RetiredStatsFixture.V4Json, fake.MergedStatsJson(4));      // bytes, unparsed
+        Assert.Equal("bgquiz-stats.v4.merged.json", QuizStatsFile.MergedNameFor(4));
+        Assert.Null(fake.RetiredStatsJson(4));                                  // never a retired name
+        Assert.Equal(RetiredStatsFixture.V3Json, fake.RetiredStatsJson(3));     // the base is left as it was
+        AssertMergedDocument(fake.StatsJson!);
+        Assert.Equal(3, store.CurrentDocument!.Count);
+    }
+
+    [Fact]
+    public async Task BeginQuiz_V4FileWithV3Sibling_CopiesAsideBeforeReplacing()
+    {
+        // The write order is the data-safety guarantee, pinned on the fake's
+        // name log directly: the merged copy lands before the standard name is
+        // replaced. (The bind also reads the standard name and the sibling
+        // first; the log records reads too, so the pin is on the two writes'
+        // relative order.)
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V4Json };
+        fake.SetRetiredStatsJson(3, RetiredStatsFixture.V3Json);
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+
+        int mergedWrite = fake.ActiveFileNames.LastIndexOf(QuizStatsFile.MergedNameFor(4));
+        int replace = fake.ActiveFileNames.LastIndexOf(QuizStatsFile.FileName);
+        Assert.True(mergedWrite >= 0 && replace > mergedWrite,
+            $"expected the merged copy before the replace; log: {string.Join(", ", fake.ActiveFileNames)}");
+        Assert.Equal(2, fake.Writes.Count);
+    }
+
+    [Fact]
+    public async Task BeginQuiz_V4FileAlone_ConvertsToCurrent_AndRenamesTheV4Aside()
+    {
+        // No v3 sibling — the interim build's folder started fresh — so the
+        // folded records are the whole result: the same records, in the
+        // current shape, under the standard name, and the v4 bytes aside.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V4Json };
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.Ready, store.Status);
+        Assert.Null(store.StatsRetiredOccurrence);
+        Assert.Equal(RetiredStatsFixture.V4Json, fake.MergedStatsJson(4));
+        Assert.Null(fake.RetiredStatsJson(3));
+        using var doc = JsonDocument.Parse(fake.StatsJson!);
+        Assert.Equal(ProblemStatsDocument.CurrentSchemaVersion, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+        var problems = doc.RootElement.GetProperty("problems");
+        Assert.Equal(2, problems.EnumerateObject().Count());
+        Assert.Equal(2, problems.GetProperty(RetiredStatsFixture.SharedPlayKeyText).GetProperty("tally").GetProperty("submitted").GetInt32());
+        Assert.Equal(4, problems.GetProperty(RetiredStatsFixture.V4OnlyCubeKeyText).GetProperty("tally").GetProperty("submitted").GetInt32());
+        Assert.DoesNotContain("cubePair", fake.StatsJson);
+        Assert.DoesNotContain("checkerPlay", fake.StatsJson);
+    }
+
+    [Fact]
+    public async Task BeginQuiz_EmptyV4FileWithV3Sibling_TheSiblingIsTheWholeResult()
+    {
+        // The seed the interim build wrote and nobody answered into: the fold
+        // still runs, and the current document is the sibling's records.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V4EmptyJson };
+        fake.SetRetiredStatsJson(3, RetiredStatsFixture.V3Json);
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.Ready, store.Status);
+        Assert.Equal(RetiredStatsFixture.V4EmptyJson, fake.MergedStatsJson(4));
+        Assert.Equal(2, store.CurrentDocument!.Count);
+        using var doc = JsonDocument.Parse(fake.StatsJson!);
+        Assert.Equal(2, doc.RootElement.GetProperty("problems").EnumerateObject().Count());
+    }
+
+    [Fact]
+    public async Task BeginQuiz_AfterTheFold_TheNextBindReadsACurrentFile_AndFoldsNothing()
+    {
+        // One pass: the folder then holds a current v3 file under the standard
+        // name, so a second bind is the ordinary current read — no further
+        // write, no second merge (which would double-count the sibling).
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V4Json };
+        fake.SetRetiredStatsJson(3, RetiredStatsFixture.V3Json);
+        var store = MakeStore(fake);
+        await store.BeginQuizAsync();
+        int writesAfterFold = fake.Writes.Count;
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.Ready, store.Status);
+        Assert.Equal(writesAfterFold, fake.Writes.Count);
+        Assert.Equal(3, store.CurrentDocument!.Count);
+        AssertMergedDocument(fake.StatsJson!);
+    }
+
+    [Fact]
+    public async Task BeginQuiz_AfterTheFold_RecordsIntoTheMergedDocument()
+    {
+        // The folded record is live: a submission folds onto the merged
+        // document, and the written file carries the merge plus this quiz.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V4Json };
+        fake.SetRetiredStatsJson(3, RetiredStatsFixture.V3Json);
+        var store = MakeStore(fake);
+        await store.BeginQuizAsync();
 
         await store.RecordAsync(CubeSubmission());
 
-        using var folded = JsonDocument.Parse(fake.Writes[^1]);
-        var record = Assert.Single(folded.RootElement.GetProperty("problems").EnumerateObject());
-        var kind = Assert.Single(record.Value.EnumerateObject());
-        Assert.Equal("cubePair", kind.Name);
-        Assert.Equal(2, kind.Value.GetProperty("tally").GetProperty("submitted").GetInt32());
+        using var doc = JsonDocument.Parse(fake.Writes[^1]);
+        Assert.Equal(4, doc.RootElement.GetProperty("problems").EnumerateObject().Count());
+        Assert.Equal(3, doc.RootElement.GetProperty("problems").GetProperty(RetiredStatsFixture.SharedPlayKeyText)
+            .GetProperty("tally").GetProperty("submitted").GetInt32());
+    }
+
+    [Fact]
+    public async Task BeginQuiz_ClaimsV4ButMalformed_LoadFailedAndNothingWritten()
+    {
+        // The shallow shape check raises the foldable signal; the fold reader
+        // then rejects the body. A folder this build cannot read whole is a
+        // folder it does not rewrite: no merged copy, no replace, the file
+        // exactly as it was, and the sibling untouched.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.ClaimsV4ButMalformedJson };
+        fake.SetRetiredStatsJson(3, RetiredStatsFixture.V3Json);
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.LoadFailed, store.Status);
+        Assert.Null(store.StatsRetiredOccurrence);
+        Assert.Empty(fake.Writes);
+        Assert.Null(fake.MergedStatsJson(4));
+        Assert.Equal(RetiredStatsFixture.ClaimsV4ButMalformedJson, fake.StatsJson);
+    }
+
+    [Fact]
+    public async Task BeginQuiz_V4FileWithUnreadableV3Sibling_LoadFailedAndNothingWritten()
+    {
+        // The base must parse before anything is written: a sibling under the
+        // v3 name that is not a current document is read trouble, not a
+        // nested retirement, and the standard file stays v4 for a later bind.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V4Json };
+        fake.SetRetiredStatsJson(3, "not json at all");
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.LoadFailed, store.Status);
+        Assert.Empty(fake.Writes);
+        Assert.Equal(RetiredStatsFixture.V4Json, fake.StatsJson);
+        Assert.Null(fake.MergedStatsJson(4));
+    }
+
+    [Fact]
+    public async Task BeginQuiz_V4Fold_CopyAsideFails_LoadFailedAndFileUntouched()
+    {
+        // Same ordering guarantee as the retirement: a copy that cannot land
+        // leaves the standard file exactly as it was.
+        var fake = new FakeFolderAccess
+        {
+            StatsJson = RetiredStatsFixture.V4Json,
+            WriteException = new JSException("disk full"),
+        };
+        fake.SetRetiredStatsJson(3, RetiredStatsFixture.V3Json);
+        var store = MakeStore(fake);
+
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.LoadFailed, store.Status);
+        Assert.Empty(fake.Writes);
+        Assert.Equal(RetiredStatsFixture.V4Json, fake.StatsJson);
+        Assert.Null(store.CurrentDocument);
+    }
+
+    [Fact]
+    public async Task BeginQuiz_V4Fold_FailedReplaceIsRetriedOnTheNextBind()
+    {
+        // A copy that landed and a replace that did not: the standard name
+        // still holds the v4, so the next bind recognises it, recomputes the
+        // same merge from the same two inputs, rewrites identical bytes over
+        // the merged copy, and replaces — idempotent under the retry.
+        var fake = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V4Json };
+        fake.SetRetiredStatsJson(3, RetiredStatsFixture.V3Json);
+        var store = MakeStore(fake);
+        fake.OnWrite = name =>
+        {
+            if (name == QuizStatsFile.FileName) throw new JSException("transient");
+        };
+        await store.BeginQuizAsync();
+        Assert.Equal(QuizStatsStatus.LoadFailed, store.Status);
+        Assert.Equal(RetiredStatsFixture.V4Json, fake.StatsJson);        // still the v4
+        Assert.Equal(RetiredStatsFixture.V4Json, fake.MergedStatsJson(4)); // the copy landed
+
+        fake.OnWrite = null;
+        await store.BeginQuizAsync();
+
+        Assert.Equal(QuizStatsStatus.Ready, store.Status);
+        AssertMergedDocument(fake.StatsJson!);
+        Assert.Equal(RetiredStatsFixture.V4Json, fake.MergedStatsJson(4));
+    }
+
+    [Fact]
+    public async Task Probe_V4File_ReadsAsStatsToWeightBy_AndForecastsNoRestart()
+    {
+        // The probe's verdict on a foldable file: its records carry forward,
+        // so it is stats — the mix is offered — and there is no set-aside to
+        // forecast. Read-only, as every probe is: nothing promoted or written.
+        var fake = new FakeFolderAccess { PickedStatsJson = RetiredStatsFixture.V4Json };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.True(store.CanWeightMix);
+        Assert.Null(store.ForecastStatsSetAsideName);
+        Assert.Equal(0, fake.PromoteCallCount);
+        Assert.Empty(fake.Writes);
+    }
+
+    [Theory]
+    [InlineData(RetiredStatsFixture.V4EmptyJson)]             // foldable, nothing in it
+    [InlineData(RetiredStatsFixture.ClaimsV4ButMalformedJson)] // foldable signal, body rejected
+    public async Task Probe_V4FileWithNoReadableRecords_ReadsAsNoStats_AndForecastsNothing(string pickedStatsJson)
+    {
+        var fake = new FakeFolderAccess { PickedStatsJson = pickedStatsJson };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.False(store.CanWeightMix);
+        Assert.Null(store.ForecastStatsSetAsideName);
+        Assert.Empty(fake.Writes);
     }
 
     [Fact]
@@ -757,8 +1021,7 @@ public class QuizStatsStoreTests
     [InlineData(RetiredStatsFixture.NewerSchemaJson)]      // written by a later BgQuiz
     [InlineData(RetiredStatsFixture.ClaimsV1ButMalformedJson)] // corrupt, not retired
     [InlineData(RetiredStatsFixture.V1Json)]               // retired version…
-    [InlineData(RetiredStatsFixture.V2Json)]               // …any of them
-    [InlineData(RetiredStatsFixture.V3Json)]
+    [InlineData(RetiredStatsFixture.V2Json)]               // …either of them (v3 is current again, v4 folds — both read as stats)
     public async Task CanWeightMix_MissingOrUnusable_AllReadFalse(string? pickedStatsJson)
     {
         // #87's ruling in one place: a document that cannot be read is treated
@@ -895,7 +1158,6 @@ public class QuizStatsStoreTests
     [Theory]
     [InlineData(RetiredStatsFixture.V1Json, 1)]
     [InlineData(RetiredStatsFixture.V2Json, 2)]
-    [InlineData(RetiredStatsFixture.V3Json, 3)]
     public async Task Forecast_RetiredFile_NamesTheFileThatVersionWouldBeSetAsideUnder(
         string pickedStatsJson, int schemaVersion)
     {

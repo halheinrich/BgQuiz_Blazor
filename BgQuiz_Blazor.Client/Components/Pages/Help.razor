@@ -646,7 +646,9 @@
                 file aside — nothing is deleted — under a name that records the version it
                 came from, such as <code>@QuizStatsFile.RetiredNameFor(1)</code>, and starts
                 a fresh <code>@QuizStatsFile.FileName</code> beside it. The quiz tells you
-                the name it used.
+                the name it used. One interim format is folded into your record instead of
+                set aside, and its file is kept as
+                <code>@QuizStatsFile.MergedNameFor(BgGame_Lib.ProblemStatsDocument.FoldableSchemaVersion)</code>.
             </li>
         </ul>
 

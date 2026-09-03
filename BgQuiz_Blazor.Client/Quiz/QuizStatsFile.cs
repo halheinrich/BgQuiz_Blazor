@@ -39,9 +39,12 @@ internal static class QuizStatsFile
     /// Name a document of retired schema version <paramref name="schemaVersion"/>
     /// is set aside under when a quiz binds against one
     /// (SPEC-stats-identity.md §3): its bytes are copied there unparsed and a
-    /// fresh current-version document takes <see cref="FileName"/>. Nothing ever
-    /// reads a set-aside file — it exists so the clean break destroys nothing
-    /// the user had.
+    /// fresh current-version document takes <see cref="FileName"/>. It exists
+    /// so the clean break destroys nothing the user had, and nothing reads a
+    /// set-aside file back — with one ruled exception: the set-aside of the
+    /// version that is current again (<c>RetiredNameFor(3)</c>, written by the
+    /// interim v4 build) is the base the fold path reads, see
+    /// <see cref="MergedNameFor"/>.
     ///
     /// <para>
     /// <b>The name carries the version it came from, because more than one
@@ -75,6 +78,43 @@ internal static class QuizStatsFile
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(schemaVersion, 1);
         return $"bgquiz-stats.v{schemaVersion.ToString(CultureInfo.InvariantCulture)}.json";
+    }
+
+    /// <summary>
+    /// Name a document of <b>foldable</b> schema version
+    /// <paramref name="schemaVersion"/> is renamed aside under once its
+    /// records have been folded into the current document (SPEC-stats-identity.md
+    /// §3, amended 2026-09-02; halheinrich/backgammon#187): the one version —
+    /// the interim v4 that never shipped — whose tallies are carried forward
+    /// rather than set aside unread. The bytes are copied there unparsed, as a
+    /// retired document's are, so nothing the user had is destroyed; the
+    /// current document that replaces <see cref="FileName"/> is the merge of
+    /// the folded records into the set-aside base of the version now current
+    /// (<c>RetiredNameFor(3)</c>, if that sibling exists), else the folded
+    /// records alone.
+    ///
+    /// <para>
+    /// A distinct name from <see cref="RetiredNameFor"/> for the same version
+    /// number, on purpose: the two spell two different dispositions. A
+    /// <c>.v4.json</c> would read as "set aside, contents discarded" beside the
+    /// <c>.v1.json</c> / <c>.v2.json</c> it might share a folder with;
+    /// <c>.merged</c> says the contents live on in the current file. Derived
+    /// from the version rather than fixed for the same reason the retired name
+    /// is, and bare and path-free for the same reason.
+    /// </para>
+    /// </summary>
+    /// <param name="schemaVersion">
+    /// The schema version the folded document declared — the value
+    /// <c>FoldableStatsSchemaException.SchemaVersion</c> carries. Schema
+    /// versions start at 1.
+    /// </param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="schemaVersion"/> is below 1.
+    /// </exception>
+    internal static string MergedNameFor(int schemaVersion)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(schemaVersion, 1);
+        return $"bgquiz-stats.v{schemaVersion.ToString(CultureInfo.InvariantCulture)}.merged.json";
     }
 
     /// <summary>

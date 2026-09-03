@@ -53,6 +53,13 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     protected const string RetiredStatsFileName = "bgquiz-stats.v3.json";
 
     /// <summary>
+    /// The name the fold copies an interim v4 stats document aside under once
+    /// its records are merged into the current file (SPEC-stats-identity.md
+    /// §3, amended 2026-09-02) — the consumer-side pin of that name.
+    /// </summary>
+    protected const string MergedStatsFileName = "bgquiz-stats.v4.merged.json";
+
+    /// <summary>
     /// The canonical on-disk saved-filters filename the app must read first and
     /// write — the consumer-side pin of the producer's document identity.
     /// </summary>
@@ -91,10 +98,18 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
           // from a user who answers no (cfg.permission). Only the real
           // refusal name is meant to degrade; see the pair of scenarios in
           // StatsPersistenceTests.
+          // retiredV3Json: null by default. The set-aside slot is write-only
+          // in practice for a retirement — nothing reads a retired file back —
+          // but the fold path (SPEC-stats-identity.md §3, amended 2026-09-02)
+          // reads the v3 sibling as its base, so a scenario may stage one;
+          // unstaged, a read of that name is NotFound, which is what the app
+          // sees in a folder that never held one. mergedWrites captures what
+          // the fold copies aside under the .merged name.
           window.__statsFake = {
             permission: 'granted', permissionError: null, statsJson: null,
+            retiredV3Json: null,
             filtersJson: null, legacyFiltersJson: null,
-            writes: [], retiredWrites: [], filtersWrites: [], scanGate: null,
+            writes: [], retiredWrites: [], mergedWrites: [], filtersWrites: [], scanGate: null,
           };
           const cfg = window.__statsFake;
           const notFound = () => new DOMException('not found', 'NotFoundError');
@@ -122,17 +137,36 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
             },
           };
 
-          // The set-aside slot for a retired stats document. Write-only in
-          // practice — nothing in the app ever reads it back — so this captures
-          // writes and serves no content: a read attempt is a contract
-          // violation and fails the gesture loudly rather than passing.
+          // The set-aside slot for a retired stats document — and, since the
+          // interim v4 folds back into v3, the fold's base. A retirement never
+          // reads it back, so it serves content only when a scenario staged a
+          // v3 sibling (retiredV3Json); unstaged it is NotFound, exactly what
+          // a folder that never held one reports. Writes are captured either
+          // way.
           const retiredStatsHandle = {
             kind: 'file', name: '{{RetiredStatsFileName}}',
+            getFile: async () => {
+              if (cfg.retiredV3Json === null) throw notFound();
+              return new File([cfg.retiredV3Json], '{{RetiredStatsFileName}}');
+            },
             createWritable: async () => {
               let buf = '';
               return {
                 write: async d => { buf += d; },
                 close: async () => { cfg.retiredWrites.push(buf); },
+              };
+            },
+          };
+
+          // The merged-aside slot the fold copies a v4 document to. Write-only:
+          // nothing reads a merged copy back.
+          const mergedStatsHandle = {
+            kind: 'file', name: '{{MergedStatsFileName}}',
+            createWritable: async () => {
+              let buf = '';
+              return {
+                write: async d => { buf += d; },
+                close: async () => { cfg.mergedWrites.push(buf); },
               };
             },
           };
@@ -190,8 +224,12 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
                 return statsHandle;
               }
               if (name === '{{RetiredStatsFileName}}') {
-                if (!(opts && opts.create)) throw notFound();
+                if (cfg.retiredV3Json === null && !(opts && opts.create)) throw notFound();
                 return retiredStatsHandle;
+              }
+              if (name === '{{MergedStatsFileName}}') {
+                if (!(opts && opts.create)) throw notFound();
+                return mergedStatsHandle;
               }
               if (name === '{{CanonicalFiltersFileName}}') {
                 if (cfg.filtersJson === null && !(opts && opts.create)) throw notFound();
@@ -326,6 +364,9 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     /// <summary>Every write the fake made to the set-aside retired-stats name, in order.</summary>
     protected Task<string[]> CapturedRetiredWritesAsync() =>
         Page.EvaluateAsync<string[]>("() => window.__statsFake.retiredWrites");
+
+    protected Task<string[]> CapturedMergedWritesAsync() =>
+        Page.EvaluateAsync<string[]>("() => window.__statsFake.mergedWrites");
 
     /// <summary>Every saved-filters write-back the fake writable captured, in order.</summary>
     protected Task<string[]> CapturedFilterWritesAsync() =>

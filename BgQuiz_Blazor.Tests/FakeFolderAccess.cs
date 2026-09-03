@@ -111,6 +111,16 @@ internal sealed class FakeFolderAccess : IFolderAccess
     public void SetRetiredStatsJson(int schemaVersion, string? content) =>
         SetActiveFile(QuizStatsFile.RetiredNameFor(schemaVersion), content);
 
+    /// <summary>
+    /// Content of the document renamed aside as merged for foldable schema
+    /// version <paramref name="schemaVersion"/>
+    /// (<see cref="QuizStatsFile.MergedNameFor"/>); null = no such file. The
+    /// fold's promise about these bytes is the retirement's — the old file's,
+    /// unparsed — under the name that says its contents live on.
+    /// </summary>
+    public string? MergedStatsJson(int schemaVersion) =>
+        _activeFiles.GetValueOrDefault(QuizStatsFile.MergedNameFor(schemaVersion));
+
     private void SetActiveFile(string fileName, string? content)
     {
         if (content is null) _activeFiles.Remove(fileName);
@@ -122,6 +132,14 @@ internal sealed class FakeFolderAccess : IFolderAccess
 
     /// <summary>When set, <see cref="WriteActiveFileAsync"/> throws it (after recording nothing).</summary>
     public Exception? WriteException { get; set; }
+
+    /// <summary>
+    /// Called with the file name before each active-slot write lands, so a
+    /// test can fail one named write and let the others through — the
+    /// per-name half of <see cref="WriteException"/>, which fails them all.
+    /// Throw from it to fail that write.
+    /// </summary>
+    public Action<string>? OnWrite { get; set; }
 
     /// <summary>Every active-slot payload successfully written, in order.</summary>
     public List<string> Writes { get; } = [];
@@ -256,6 +274,7 @@ internal sealed class FakeFolderAccess : IFolderAccess
     public Task WriteActiveFileAsync(string fileName, string json)
     {
         if (WriteException is { } ex) return Task.FromException(ex);
+        OnWrite?.Invoke(fileName);
         ActiveFileNames.Add(fileName);
         Writes.Add(json);
         // Round-trip, as the real slot does: what was written is what a later

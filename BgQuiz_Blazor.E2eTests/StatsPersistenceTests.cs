@@ -36,21 +36,21 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 
         // Exactly one fold (one answered problem), one write-back — captured by
         // the fake writable. Pin the wire contract from the consumer side:
-        // schemaVersion 4, one problem record keyed by content and nested
-        // under its answer-kind token ("cubePair" — the v4 shape,
-        // halheinrich/backgammon#86), a fully-correct cube submission tallied
-        // as TWO decisions (one per half), indented.
+        // schemaVersion 3 — the flat record reinstated by SPEC-stats-identity
+        // §3's 2026-09-02 amendment (halheinrich/backgammon#187), no
+        // answer-kind token — one problem record keyed by content, a
+        // fully-correct cube submission tallied as TWO decisions (one per
+        // half), indented.
         var writes = await CapturedWritesAsync();
         var payload = Assert.Single(writes);
         Assert.Contains('\n', payload);
 
         using var doc = JsonDocument.Parse(payload);
-        Assert.Equal(4, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(3, doc.RootElement.GetProperty("schemaVersion").GetInt32());
         var problems = doc.RootElement.GetProperty("problems");
         var record = Assert.Single(problems.EnumerateObject());
-        var kind = Assert.Single(record.Value.EnumerateObject());
-        Assert.Equal("cubePair", kind.Name);
-        var tally = kind.Value.GetProperty("tally");
+        var tally = record.Value.GetProperty("tally");
+        Assert.DoesNotContain("cubePair", payload);
         Assert.Equal(2, tally.GetProperty("submitted").GetInt32());
         Assert.Equal(2, tally.GetProperty("correct").GetInt32());
 
@@ -62,72 +62,128 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
     }
 
     [Fact]
-    public async Task FsAccessPick_RetiredV3StatsFile_SetsItAsideAndStartsFresh()
+    public async Task FsAccessPick_V3StatsFile_IsCurrent_ReadsItAndRecordsIntoIt_NoSetAside()
     {
-        // The clean break's one act of recognition, through the real
-        // folderAccess.js (SPEC-stats-identity.md §3): a genuine retired file
-        // must not surface as the polite "couldn't be read" degrade, which
-        // would strand an existing tester with stats silently dead. Its bytes
-        // go to the sidecar name its own version earns, a fresh current-version
-        // document takes the standard name, and the run says so and records
-        // normally. Staged as v3 — the format every current tester holds, which
-        // halheinrich/backgammon#86's v4 break retires — so the scenario meets
-        // the file the deploy will. Which set-aside name each retired version
-        // gets is pinned by the store suite, over all of them; what this
-        // scenario adds is that the whole act crosses the real folderAccess.js.
+        // The file every tester holds, through the real folderAccess.js: v3 is
+        // the current format again (SPEC-stats-identity.md §3, amended
+        // 2026-09-02, halheinrich/backgammon#187), so it reads as current —
+        // no forecast on Home, no set-aside report at Start, no "couldn't be
+        // read" degrade — the mix is offered off its record, and the run's
+        // one write folds this quiz's problem in beside the record it held.
         await Page.AddInitScriptAsync(
             $"window.__statsFake.statsJson = {JsonSerializer.Serialize(V3StatsJson)};");
 
         await BootHomeAsync();
         await PickFakeFolderAsync();
 
-        // Forecast first, on Home, before the pick has been acted on
-        // (halheinrich/backgammon#146): the same event in future tense, naming
-        // the same file, while the old stats are still there — which is what
-        // makes "nothing is deleted" worth saying. The act has not happened
-        // yet, so the report's past tense must not be on this page.
-        await Expect(Page.GetByText("will be set aside as").First).ToBeVisibleAsync();
-        await Expect(Page.GetByText(RetiredStatsFileName).First).ToBeVisibleAsync();
-        await Expect(Page.GetByText("nothing is deleted").First).ToBeVisibleAsync();
-        await Expect(Page.GetByText("has been set aside as")).ToBeHiddenAsync();
+        await Expect(Page.GetByText("will be set aside as")).ToBeHiddenAsync();
+        await Expect(Page.GetByText("the mix draws its problems from the filtered pool")).ToBeVisibleAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        await Expect(Page.GetByText("has been set aside as").First).ToBeVisibleAsync();
-        await Expect(Page.GetByText(RetiredStatsFileName).First).ToBeVisibleAsync();
+        await Expect(Page.GetByText("has been set aside as")).ToBeHiddenAsync();
         await Expect(Page.GetByText("couldn't be read")).ToBeHiddenAsync();
 
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
 
-        // The old file preserved verbatim, unparsed. Line endings normalized on
-        // both sides: this literal carries the source file's, and what crossed
-        // the browser is whatever the fake's File gave back — the claim is about
-        // the content, not about which newline a round trip settled on.
-        Assert.Equal(
-            V3StatsJson.ReplaceLineEndings("\n"),
-            Assert.Single(await CapturedRetiredWritesAsync()).ReplaceLineEndings("\n"));
+        Assert.Empty(await CapturedRetiredWritesAsync());
+        Assert.Empty(await CapturedMergedWritesAsync());
+        var payload = Assert.Single(await CapturedWritesAsync());
+        using var doc = JsonDocument.Parse(payload);
+        Assert.Equal(3, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+        var problems = doc.RootElement.GetProperty("problems");
+        Assert.Equal(2, problems.EnumerateObject().Count());
+        Assert.Equal(3, problems.GetProperty(SharedPlayKey).GetProperty("tally").GetProperty("submitted").GetInt32());
+    }
 
-        // …and the standard name written twice: the fresh empty v4 seed at
-        // bind, then the answered problem folded into it in v4's shape.
+    [Fact]
+    public async Task FsAccessPick_V4StatsFileWithV3Sibling_FoldsIntoOneCurrentFile()
+    {
+        // The fold, through the real folderAccess.js (SPEC-stats-identity.md
+        // §3, amended 2026-09-02): the folder the interim v4 build left
+        // behind — a v4 standard file beside the v3 it set aside — binds to
+        // ONE current file. The v4's records fold into the sibling (the shared
+        // record's tallies summed, its later date kept), the merge is written
+        // under the standard name, the v4 bytes are copied aside verbatim as
+        // bgquiz-stats.v4.merged.json, and no restart note fires anywhere:
+        // nothing was set aside unread and nothing begins again. The probe
+        // reads the v4 as stats, so the mix is offered at pick.
+        await Page.AddInitScriptAsync(
+            $"window.__statsFake.statsJson = {JsonSerializer.Serialize(V4StatsJson)};"
+            + $"window.__statsFake.retiredV3Json = {JsonSerializer.Serialize(V3StatsJson)};");
+
+        await BootHomeAsync();
+        await PickFakeFolderAsync();
+
+        await Expect(Page.GetByText("will be set aside as")).ToBeHiddenAsync();
+        await Expect(Page.GetByText("the mix draws its problems from the filtered pool")).ToBeVisibleAsync();
+
+        await ApplyFilterAsync();
+        await StartQuizAsync();
+
+        await Expect(Page.GetByText("has been set aside as")).ToBeHiddenAsync();
+        await Expect(Page.GetByText("couldn't be read")).ToBeHiddenAsync();
+        await Expect(Page.GetByText(MergedStatsFileName)).ToHaveCountAsync(0);
+
+        // The v4 bytes preserved verbatim under the merged name (line endings
+        // normalized on both sides, as for any literal that crossed the fake's
+        // File), and nothing under the retired name.
+        Assert.Equal(
+            V4StatsJson.ReplaceLineEndings("\n"),
+            Assert.Single(await CapturedMergedWritesAsync()).ReplaceLineEndings("\n"));
+        Assert.Empty(await CapturedRetiredWritesAsync());
+
+        // The merged document at bind: schemaVersion 3, the shared record
+        // summed (3 + 2 submitted, 2 + 1 correct) with the v4's later date, the
+        // v4-only record passing through, no answer-kind token anywhere.
         var writes = await CapturedWritesAsync();
+        Assert.Single(writes);
+        using (var merged = JsonDocument.Parse(writes[0]))
+        {
+            Assert.Equal(3, merged.RootElement.GetProperty("schemaVersion").GetInt32());
+            var problems = merged.RootElement.GetProperty("problems");
+            Assert.Equal(2, problems.EnumerateObject().Count());
+            var shared = problems.GetProperty(SharedPlayKey);
+            Assert.Equal(5, shared.GetProperty("tally").GetProperty("submitted").GetInt32());
+            Assert.Equal(3, shared.GetProperty("tally").GetProperty("correct").GetInt32());
+            Assert.Equal("2026-09-01T18:30:00+00:00", shared.GetProperty("lastQuizzed").GetString());
+            Assert.Equal(4, problems.GetProperty(V4OnlyCubeKey).GetProperty("tally").GetProperty("submitted").GetInt32());
+            Assert.DoesNotContain("checkerPlay", writes[0]);
+            Assert.DoesNotContain("cubePair", writes[0]);
+        }
+
+        // …and the quiz records into the merged document: the fixture's own
+        // problem joins the two.
+        await AnswerCubeNoDoubleAsync();
+        await ContinueToDoneAsync();
+        await Expect(Page.GetByText("set aside")).ToHaveCountAsync(0);
+
+        writes = await CapturedWritesAsync();
         Assert.Equal(2, writes.Length);
-        using var seeded = JsonDocument.Parse(writes[0]);
-        Assert.Equal(4, seeded.RootElement.GetProperty("schemaVersion").GetInt32());
-        Assert.Empty(seeded.RootElement.GetProperty("problems").EnumerateObject());
         using var folded = JsonDocument.Parse(writes[1]);
-        var record = Assert.Single(folded.RootElement.GetProperty("problems").EnumerateObject());
-        Assert.Equal("cubePair", Assert.Single(record.Value.EnumerateObject()).Name);
+        Assert.Equal(3, folded.RootElement.GetProperty("problems").EnumerateObject().Count());
     }
 
     /// <summary>
-    /// A genuine retired (schema v3) stats document — the shipping format
-    /// through v1.9.x: a content-keyed <c>problems</c> map whose values are
-    /// bare tally-plus-date objects, no answer-kind token. Hand-written because
-    /// nothing can produce one any more — the format has no writer left — and
+    /// The play key <see cref="V3StatsJson"/> and <see cref="V4StatsJson"/>
+    /// share, spelled once; and the money cube key only the v4 holds.
+    /// </summary>
+    private const string SharedPlayKey =
+        "0,-2,0,0,0,0,5,0,3,0,0,0,-5,5,0,0,0,-3,0,-5,0,0,0,0,2,0/0a0j/1c/31";
+
+    private const string V4OnlyCubeKey =
+        "0,-2,0,0,0,0,5,0,3,0,0,0,-5,5,0,0,0,-3,0,-5,0,0,0,0,2,0/0a0j/1c";
+
+    /// <summary>
+    /// A genuine schema-v3 stats document — the current format, and the one
+    /// every tester holds: a content-keyed <c>problems</c> map whose values
+    /// are bare tally-plus-date objects, no answer-kind token. Hand-written and
     /// hardcoded here for the same reason the wire assertions above are: this
-    /// suite is the consumer-side pin, and references no app assembly.
+    /// suite is the consumer-side pin, and references no app assembly. Staged
+    /// as the standard file (current) and as the set-aside sibling the fold
+    /// merges into.
     /// </summary>
     private const string V3StatsJson = """
         {
@@ -136,6 +192,33 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
             "0,-2,0,0,0,0,5,0,3,0,0,0,-5,5,0,0,0,-3,0,-5,0,0,0,0,2,0/0a0j/1c/31": {
               "tally": { "submitted": 3, "correct": 2, "totalEquityLoss": 0.125 },
               "lastQuizzed": "2026-08-30T09:15:00+00:00"
+            }
+          }
+        }
+        """;
+
+    /// <summary>
+    /// A genuine schema-v4 stats document — the interim answer-kind format
+    /// (halheinrich/backgammon#86 leg 2, never shipped), each value wrapped in
+    /// its one kind record. The one version that folds rather than retires;
+    /// no writer left, so a literal. Shares <see cref="SharedPlayKey"/> with
+    /// <see cref="V3StatsJson"/> and adds a money cube record of its own.
+    /// </summary>
+    private const string V4StatsJson = """
+        {
+          "schemaVersion": 4,
+          "problems": {
+            "0,-2,0,0,0,0,5,0,3,0,0,0,-5,5,0,0,0,-3,0,-5,0,0,0,0,2,0/0a0j/1c/31": {
+              "checkerPlay": {
+                "tally": { "submitted": 2, "correct": 1, "totalEquityLoss": 0.05 },
+                "lastQuizzed": "2026-09-01T18:30:00+00:00"
+              }
+            },
+            "0,-2,0,0,0,0,5,0,3,0,0,0,-5,5,0,0,0,-3,0,-5,0,0,0,0,2,0/0a0j/1c": {
+              "cubePair": {
+                "tally": { "submitted": 4, "correct": 2, "totalEquityLoss": 0.2 },
+                "lastQuizzed": "2026-09-01T18:31:00+00:00"
+              }
             }
           }
         }
