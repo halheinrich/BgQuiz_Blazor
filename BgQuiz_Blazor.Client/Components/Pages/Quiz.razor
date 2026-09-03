@@ -273,27 +273,36 @@
                 else if (current.Decision.IsCube)
                 {
                     @* The cube answer lives here in the chrome, beside its own
-                       Submit / Skip — the board region above is board-only. The
-                       two radio groups (claim, then take-or-pass) lead the row
-                       (form order: choose both, then Submit lights up);
-                       @bind-Value keeps _completedCube current, which is what
-                       CanSubmit reads — null until both halves are chosen, so a
-                       half-answered row cannot be submitted, by button or by
-                       spacebar (the one gate, see Quiz.razor.cs).
+                       Submit / Skip — the board region above is board-only. One
+                       radio group leads the row: the four reachable verdict
+                       pairs of SPEC-scoring §3 as amended 2026-09-02
+                       (halheinrich/backgammon#187), each pill a complete
+                       (claim, taker) pair, so there is no half answer to gate
+                       against. @bind-Value keeps _completedCube current, which
+                       is what CanSubmit reads — null until a pill is chosen,
+                       lit from the first click (the one gate, see
+                       Quiz.razor.cs).
 
-                       Two clearing mechanisms, because the row has two kinds of
-                       state. HandleStateChanged nulls _completedCube on every
-                       transition, which clears a COMPLETE answer (the row is
-                       controlled on the pair and snaps back to it). The @key on
-                       the current problem remounts the row on every advance,
-                       which clears a HALF answer: one lit pill composes to no
-                       pair, so _completedCube is already null and nulling it
-                       again changes nothing — without the key, a half-answered
-                       row would carry its pill into the next problem after a
-                       Skip. Keyed on the problem, not on a counter: the object
-                       is what the row is answering, and a new one is exactly
-                       when a fresh row is owed. *@
-                    <BackgammonCubeActions @key="current" @bind-Value="_completedCube" />
+                       OfferTooGood passes the producer's offerability fact
+                       through (BgDecisionData.CanBeTooGood): whether Too good
+                       can be right at this position is derived once, on the
+                       record, from money / Jacoby / cube-centred together, and
+                       this page never re-derives it from those fields.
+
+                       One clearing mechanism, deliberately. The row holds no
+                       state the pair does not express — its checked pill IS
+                       Value, re-rendered from it — so HandleStateChanged nulling
+                       _completedCube on every transition clears the row
+                       outright, Skip included. The @key remount this row used to
+                       carry existed for the half-answered row of the two-group
+                       era, whose one lit pill composed to no pair and so
+                       survived a null; with every selection a complete pair
+                       that state is unrepresentable, and a key would be a
+                       defensive remount guarding nothing (the same reasoning
+                       that keeps a @key off the play entry — see the Redo
+                       remarks in Quiz.razor.cs). *@
+                    <BackgammonCubeActions @bind-Value="_completedCube"
+                                           OfferTooGood="current.CanBeTooGood" />
                     <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanSubmit)"
                             @onclick="Submit">
                         Submit

@@ -45,18 +45,16 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <list type="bullet">
 ///   <item><b>Cube</b> — the answer lives in <see cref="_completedCube"/>, which
 ///   <see cref="HandleStateChanged"/> nulls on every controller transition (Redo
-///   included), and the <see cref="BackgammonCubeActions"/> row is
-///   <c>@key</c>ed to the current problem so every advance mounts a fresh one.
-///   Both are needed. The row is controlled on the <i>pair</i>: a complete
-///   answer snaps back to whatever the field says, so nulling the field
-///   clears it. But the row holds its two half-selections as its own state —
-///   a half-answered row has no <see cref="CubeClaimPair"/> to be, so the field
-///   is already <c>null</c> while one pill is lit, and "set it to null" is no
-///   change at all; the half would survive a Skip into the next problem. The
-///   key is the consumer's real signal for "this is a new problem": a remount
-///   starts both halves clean, which no value the pair can take expresses.
-///   Redo reaches the clean slate the way Play does — the review branch
-///   already unmounted the row.</item>
+///   included), and that is the whole mechanism. The
+///   <see cref="BackgammonCubeActions"/> row is controlled on the <i>pair</i>
+///   and holds no state the pair does not express: every pill is a complete
+///   <see cref="CubeClaimPair"/> (the four reachable verdicts, SPEC-scoring §3
+///   as amended 2026-09-02, halheinrich/backgammon#187), so nulling the field
+///   clears whatever is lit. The row carried a <c>@key</c> on the current
+///   problem while it was two radio groups — a half-answered row composed to no
+///   pair, agreed with the null, and survived a Skip — and lost it with that
+///   state: a remount would guard nothing now. Redo reaches the clean slate the
+///   way Play does — the review branch already unmounted the row.</item>
 ///   <item><b>Play</b> — <see cref="BackgammonPlayEntry"/> holds its own
 ///   in-progress click state and only resets it when the incoming request
 ///   describes a different problem (same Mop/Dice suppresses the reset). That
@@ -97,28 +95,36 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <b>Submit gating.</b> Submit is enabled once the page holds a complete
 /// answer. For a play, <see cref="BackgammonPlayEntry"/>'s <c>OnPlayCompleted</c>
 /// fires once all dice are consumed legally, latching <see cref="_completedPlay"/>.
-/// For a cube, <see cref="BackgammonCubeActions"/> is two radio groups — the
-/// doubler's claim and the taker's response if doubled (SPEC-scoring.md §3,
-/// halheinrich/backgammon#86) — and emits a complete
-/// <see cref="CubeClaimPair"/> only once both halves are chosen, which
-/// <c>@bind-Value</c> writes into <see cref="_completedCube"/>; from then on
-/// every change to either half re-fires, so the field always holds the latest
-/// answer. Gating Submit on the field being non-null is therefore gating it on
-/// <i>both halves answered</i>, which is the intended flow: a half-answered row
-/// cannot be submitted. Both fields clear on any controller transition
-/// (submit / advance / redo / restart) via <see cref="HandleStateChanged"/>; the
-/// play latch also clears on undo. The gate itself is <see cref="CanSubmit"/>,
-/// one member read by both Submit buttons and by the spacebar.
+/// For a cube, <see cref="BackgammonCubeActions"/> is one radio group over the
+/// four reachable verdict pairs — No double, Double / Take, Double / Pass, Too
+/// good (SPEC-scoring.md §3 as amended 2026-09-02, halheinrich/backgammon#187;
+/// the model is still a (claim, taker) pair scored per half, only its
+/// presentation collapsed to the pairs) — and emits a complete
+/// <see cref="CubeClaimPair"/> on every click, which <c>@bind-Value</c> writes
+/// into <see cref="_completedCube"/>; a later click re-fires, so the field
+/// always holds the latest answer. Gating Submit on the field being non-null is
+/// therefore gating it on <i>a pill chosen</i>, lit from the first click. The
+/// Too good pill is offered exactly where the producer says the verdict can
+/// occur (<see cref="BgDecisionData.CanBeTooGood"/>, passed through as
+/// <c>OfferTooGood</c>; withheld at a money position under Jacoby with the cube
+/// centred) — this page reads that fact and never re-derives it. Both fields
+/// clear on any controller transition (submit / advance / redo / restart) via
+/// <see cref="HandleStateChanged"/>; the play latch also clears on undo. The
+/// gate itself is <see cref="CanSubmit"/>, one member read by both Submit
+/// buttons and by the spacebar.
 /// </para>
 ///
 /// <para>
 /// <b>The cube verdict speaks claims.</b> The review's verdict line names the
 /// doubler half by the claim the user submitted — No Double, Double, or Too
 /// Good — and, when that claim is wrong, names the truth claim; a no-double
-/// answer to a too-good position is called out as the right action with the
-/// wrong claim rather than as an equity loss of nothing. The incoherent (no
-/// double, pass) answer, selectable by ruling, is explained in a trailing
-/// clause. See <see cref="CubeVerdict"/>.
+/// answer to a too-good position, or a too-good answer to a no-double one (the
+/// XG "too good to double/Take" position, a No double by ruling), is called out
+/// as the right action with the wrong claim rather than as an equity loss of
+/// nothing. The incoherent (no double, pass) answer is no longer offered by the
+/// row, but the controller's <see cref="QuizController.SubmitCubeAction"/>
+/// still accepts any pair, so the trailing clause that explains it stands for
+/// an answer arriving that way. See <see cref="CubeVerdict"/>.
 /// </para>
 ///
 /// <para>
@@ -636,21 +642,25 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// <b>The doubler half names the truth claim when the user's is wrong,
     /// and the taker half does not.</b> The claim axis has three values, so
     /// "incorrect" alone leaves two candidates; the taker axis has two, so
-    /// "Take: incorrect" already says Pass. Naming it also covers the one
-    /// thing the diagram beside this line cannot yet say: the producer's
-    /// banner speaks board actions, and a too-good-and-take position reads
-    /// there as "Best: No Double / Take" — the very verdict the claim layer
-    /// exists to distinguish (the wording split is inventoried at this leg,
-    /// not patched here).
+    /// "Take: incorrect" already says Pass. Naming it also covers what the
+    /// diagram beside this line says at the action level: the producer's
+    /// banner speaks board actions, so a too-good position reads there as
+    /// "Best: No Double" while this line says Too Good (the label SSOT arc,
+    /// halheinrich/backgammon#185, recomposes the banner over claims and
+    /// re-sources these spellings; neither is patched here).
     /// </para>
     ///
     /// <para>
-    /// <b>Right action, wrong claim is said in those words.</b> A no-double
-    /// answer to a too-good position (or the reverse) scores incorrect at
-    /// +0.000 by ruling — the two claims collapse to the same board action, so
-    /// no equity was lost. Printing "incorrect (lost 0.0000)" there would read
-    /// as a contradiction; the line instead says what actually happened. The
-    /// test is on the board action behind each claim
+    /// <b>Right action, wrong claim is said in those words, in both
+    /// directions.</b> A no-double answer to a too-good position scores
+    /// incorrect at +0.000 by ruling — the two claims collapse to the same
+    /// board action, so no equity was lost — and so does a too-good answer to
+    /// a no-double one, which is the XG "too good to double/Take" position
+    /// since SPEC-scoring §3's 2026-09-02 amendment made it a No double by
+    /// ruling (halheinrich/backgammon#187: Too Good requires the pass).
+    /// Printing "incorrect (lost 0.0000)" there would read as a contradiction;
+    /// the line instead says what actually happened, naming the truth claim
+    /// either way round. The test is on the board action behind each claim
     /// (<see cref="CubeClaimExtensions.ToCubeAction"/>, the producer's one
     /// spelling of the collapse), not on the loss being zero — a zero loss can
     /// also come from an equity tie between different actions, which is the
@@ -659,11 +669,13 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     ///
     /// <para>
     /// <b>The incoherent cell is explained, not just marked.</b> (No double,
-    /// pass) is selectable by ruling — the axes are deliberately not
-    /// cross-disabled — because choosing it reveals a misunderstanding a
-    /// review can name: if the opponent would pass, cashing beats playing on,
-    /// so "not good enough to double" cannot hold. The per-half verdicts
-    /// still score it like any answer; the clause is appended after them.
+    /// pass) reveals a misunderstanding a review can name: if the opponent
+    /// would pass, cashing beats playing on, so "not good enough to double"
+    /// cannot hold. The row no longer offers the cell (the option set is the
+    /// four reachable pairs since the 2026-09-02 amendment), but
+    /// <see cref="QuizController.SubmitCubeAction"/> accepts any pair, so an
+    /// answer arriving that way is still scored per half like any other and
+    /// still gets the clause, appended after the two verdicts.
     /// </para>
     /// </summary>
     private static string CubeVerdict(SubmittedCubeAction submission)
@@ -725,7 +737,7 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
         review is not null
             ? VerdictText(review)
             : decision.IsCube
-                ? "Pick the cube action and the take-or-pass reply, then Submit."
+                ? "Pick the cube decision, then Submit."
                 : "Click the board to build your play, then Submit.";
 
     /// <summary>

@@ -255,7 +255,7 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
         await PickFakeFolderAsync();
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
 
         await StageFirstWriteAsTheFoldersStatsFileAsync();

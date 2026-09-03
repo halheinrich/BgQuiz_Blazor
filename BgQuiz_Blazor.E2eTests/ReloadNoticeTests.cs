@@ -47,7 +47,7 @@ public sealed class ReloadNoticeTests : E2eTestBase
         await PickFixtureAsync(CubeFixture);
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
 
         // Restart makes a quiz live again — reaching Done cleared the marker,

@@ -36,7 +36,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
     private ILocator ContinueButton => Page.GetByRole(AriaRole.Button, new() { Name = "Continue" });
     private ILocator RedoButton => Page.GetByRole(AriaRole.Button, new() { Name = "Redo" });
     private ILocator NoDoublePill => Page.GetByRole(AriaRole.Radio, new() { Name = "No double" });
-    private ILocator TakePill => Page.GetByRole(AriaRole.Radio, new() { Name = "Take" });
+    private ILocator DoubleTakePill => Page.GetByRole(AriaRole.Radio, new() { Name = "Double / Take" });
 
     /// <summary>The XGID badge's text — the identity of the problem on screen.</summary>
     private ILocator XgidBadgeText => Page.Locator(".action-row-tail .xgid-label-text");
@@ -73,7 +73,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
     public async Task AtReview_WithFocusOnThePage_SpaceContinues()
     {
         await StartCubeQuizAsync();
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
 
         // Focus is on the body, and that is the ordinary case, not staging: the
         // Submit click left focus on a button the review render then removed,
@@ -94,47 +94,47 @@ public sealed class KeyboardShortcutTests : E2eTestBase
     {
         await StartCubeQuizAsync();
 
-        // Both halves chosen by clicking, which leaves focus on the pill clicked
-        // last — a CHECKED radio, the one focus state the ruling carves out for
+        // The answer chosen by clicking — one pill is a complete pair since
+        // halheinrich/backgammon#187 — which leaves focus on the pill clicked:
+        // a CHECKED radio, the one focus state the ruling carves out for
         // firing: space on it does nothing natively, so the shortcut may have it.
         await NoDoublePill.CheckAsync();
-        await TakePill.CheckAsync();
         await Expect(SubmitButton).ToBeEnabledAsync();
         Assert.Equal("radio checked", await ActiveElementAsync());
 
         await Page.Keyboard.PressAsync("Space");
 
-        // Submitted, and scored as the two clicks answered it.
+        // Submitted, and scored as the click answered it.
         await Expect(ContinueButton).ToBeVisibleAsync();
         await Expect(VerdictBand).ToContainTextAsync("No Double: correct · Take: correct");
     }
 
     [Fact]
-    public async Task WhileAnsweringACube_SpaceWithHalfAnAnswer_DoesNothing_UntilTheAnswerIsComplete()
+    public async Task WhileAnsweringACube_SpaceWithNothingChosen_DoesNothing_UntilAPillIsChosen()
     {
         await StartCubeQuizAsync();
 
-        // Half an answer: one pill checked (and focused), Submit dark.
-        await NoDoublePill.CheckAsync();
-        await Expect(NoDoublePill).ToBeCheckedAsync();
+        // Nothing chosen, Submit dark, and focus on the body — where Start
+        // left it, the Start button having gone with the setup page. The body
+        // is the filter's "everything else fires" branch, so the press reaches
+        // the page, and the page's gate is what refuses it.
         await Expect(SubmitButton).ToBeDisabledAsync();
-        Assert.Equal("radio checked", await ActiveElementAsync());
+        Assert.Equal("body", await ActiveElementAsync());
         double scrollBefore = await ScrollYAsync();
 
         await Page.Keyboard.PressAsync("Space");
 
-        // Still answering: the pill is still checked (space on a checked radio
-        // changed nothing, and nothing un-chose it), Submit is still there and
-        // still dark, no review appeared, and the page did not scroll (the
-        // press was swallowed, not passed on as a page-down).
-        await Expect(NoDoublePill).ToBeCheckedAsync();
+        // Still answering: no pill lit, Submit is still there and still dark,
+        // no review appeared, and the page did not scroll (the press was
+        // swallowed, not passed on as a page-down).
+        await Expect(Page.Locator(".bg-cube-actions input:checked")).ToHaveCountAsync(0);
         await Expect(SubmitButton).ToBeDisabledAsync();
         await Expect(ContinueButton).ToHaveCountAsync(0);
         Assert.Equal(scrollBefore, await ScrollYAsync());
 
         // The positive half of the absence above: the same key, once the state
         // allows it, does the thing — so the listener was live when it refused.
-        await TakePill.CheckAsync();
+        await NoDoublePill.CheckAsync();
         await Expect(SubmitButton).ToBeEnabledAsync();
         Assert.Equal("radio checked", await ActiveElementAsync());
 
@@ -149,19 +149,21 @@ public sealed class KeyboardShortcutTests : E2eTestBase
         // The other side of the radio carve-out: space on an UNCHECKED focused
         // radio must still select it — the browser's own behaviour, which the
         // filter must not pre-empt. So the shortcut yields, and the selection
-        // completes the answer without submitting it; the next press, now from
+        // changes the answer without submitting it; the next press, now from
         // a checked pill, is the one that submits.
         await StartCubeQuizAsync();
         await NoDoublePill.CheckAsync();
-        await TakePill.FocusAsync();
-        await Expect(TakePill).Not.ToBeCheckedAsync();
+        await DoubleTakePill.FocusAsync();
+        await Expect(DoubleTakePill).Not.ToBeCheckedAsync();
         Assert.Equal("radio unchecked", await ActiveElementAsync());
 
         await Page.Keyboard.PressAsync("Space");
 
-        // Selected by the browser, not submitted by the shortcut: the answer is
-        // now complete (Submit lit) and the page is still answering.
-        await Expect(TakePill).ToBeCheckedAsync();
+        // Selected by the browser, not submitted by the shortcut: the answer
+        // moved to Double / Take (Submit still lit) and the page is still
+        // answering.
+        await Expect(DoubleTakePill).ToBeCheckedAsync();
+        await Expect(NoDoublePill).Not.ToBeCheckedAsync();
         await Expect(SubmitButton).ToBeEnabledAsync();
         await Expect(ContinueButton).ToHaveCountAsync(0);
         Assert.Equal("radio checked", await ActiveElementAsync());
@@ -175,7 +177,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
     public async Task OnAFocusedButton_SpaceIsThatButtonsOwnPress_NotTheShortcut()
     {
         await StartCubeQuizAsync();
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         string xgid = (await XgidBadgeText.TextContentAsync())!;
         Assert.False(string.IsNullOrWhiteSpace(xgid));
 

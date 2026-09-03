@@ -196,7 +196,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
             ReportRowGeometry("answering (maximized)", answeringGeometry);
         }
 
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
 
         // Review, normalized: the chip did not move and did not change, which
         // is the "one home, both states" half of the ruling.

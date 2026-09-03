@@ -39,7 +39,7 @@ public sealed class EndQuizEarlyTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         await Page.GetByRole(AriaRole.Button, new() { Name = "Continue" }).ClickAsync();
         // Past the review and answering again — the state the quit below has to
         // happen in for the abandoned problem to count as a skip. Keyed on the
@@ -83,7 +83,7 @@ public sealed class EndQuizEarlyTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        await AnswerCubeNoDoubleTakeAsync(); // lands in review, Continue showing
+        await AnswerCubeNoDoubleAsync(); // lands in review, Continue showing
 
         await EndQuizButton.ClickAsync();
         await ExpectUrlAsync("/done");

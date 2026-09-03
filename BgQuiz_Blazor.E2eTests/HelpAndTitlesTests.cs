@@ -224,7 +224,7 @@ public sealed class HelpAndTitlesTests : E2eTestBase
 
     /// <summary>
     /// Help's account of the answer-type breakdown. The zero reading is the part
-    /// that has to be in words: a user looking at "Too good / take: 0" can
+    /// that has to be in words: a user looking at "Too good / pass: 0" can
     /// read it as a category that failed to load unless the documentation says
     /// the list is exhaustive and a zero is a fact about their folder.
     /// Independent literals per the copy-pin split; that the paragraph does not

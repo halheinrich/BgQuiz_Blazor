@@ -34,7 +34,7 @@ public sealed class QuizFlowTests : E2eTestBase
         await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "No double" })).ToBeVisibleAsync();
         await Expect(Page.Locator(".bg-diagram")).Not.ToContainTextAsync("Best:");
 
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
 
         // Review state: the Solution-mode diagram fills the analysis panel. The
         // committed fixture's best action is No Double, so the panel's Best
@@ -51,39 +51,75 @@ public sealed class QuizFlowTests : E2eTestBase
     }
 
     [Fact]
-    public async Task TooGoodTakePath_WrongClaimIsNamed_ThenTheFifthVerdictScoresOnRedo()
+    public async Task TooGoodToDoubleTakePath_TooGoodIsTheWrongClaim_ThenNoDoubleScoresOnRedo()
     {
-        // The arc's motivating case end to end (halheinrich/backgammon#86): a
-        // real too-good-and-take position, answered first the way Carl did —
-        // No double, meaning too good — and then, as a practice retry, the way
-        // the claim vocabulary now lets a user say it. The first answer is the
-        // one of record and scores the doubler half wrong at no equity lost;
-        // the retry is practice and reads as the fifth verdict.
+        // The position that decided SPEC-scoring §3's 2026-09-02 amendment
+        // (halheinrich/backgammon#187), end to end: XG labels it "Too good to
+        // double/Take" (no double +1.1711, double/take +0.6004), and it is a
+        // No double / Take here BY RULING — Too Good requires the pass, and
+        // the opponent takes. Answered first the way a reader of XG's label
+        // would — Too good — which is the wrong claim over the right action,
+        // scored wrong at no equity lost; then, as a practice retry, No double,
+        // which is fully correct. The first answer is the one of record.
         await BootHomeAsync();
         await PickFixtureAsync(TooGoodTakeFixture);
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        // All three claims are offered, uniformly — Too good is never hidden.
+        // A match position: Too good is offered (the withheld case is money
+        // under Jacoby with the cube centred — see the scenario below), so
+        // the wrong claim is a pill a user can actually press.
         await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "Too good" })).ToBeVisibleAsync();
 
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeAsync("Too good");
 
-        // Right action, wrong claim: said in those words, not as a zero loss.
+        // Right action, wrong claim, in this direction too: the line names the
+        // truth claim rather than printing a zero loss. The taker half is the
+        // Too good pill's implied Pass, wrong against a take.
         await Expect(VerdictBand).ToContainTextAsync(
-            "No Double: wrong claim — it's Too Good (right action, no equity lost) · Take: correct");
+            "Too Good: wrong claim — it's No Double (right action, no equity lost) · Pass: incorrect");
         await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-danger"));
 
         await Page.GetByRole(AriaRole.Button, new() { Name = "Redo" }).ClickAsync();
-        await AnswerCubeAsync("Too good", "Take");
+        await AnswerCubeNoDoubleAsync();
 
         await Expect(VerdictBand).ToContainTextAsync("Practice retry");
-        await Expect(VerdictBand).ToContainTextAsync("Too Good: correct · Take: correct");
+        await Expect(VerdictBand).ToContainTextAsync("No Double: correct · Take: correct");
         await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-success"));
 
         // The answer of record stands: one doubling decision, scored wrong.
         await ContinueToDoneAsync();
         await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
+    }
+
+    [Fact]
+    public async Task MoneyJacobyCentredCube_WithholdsTooGood_AndOffersTheOtherThree()
+    {
+        // SPEC-scoring §3's 2026-09-02 amendment, consequence (v), on a real
+        // file (halheinrich/backgammon#187): at a money position under the
+        // Jacoby rule with the cube in the middle, gammons do not count until
+        // the cube turns, so the no-double equity never exceeds the cash and
+        // Too Good cannot occur — the pill is withheld. The committed cube
+        // fixture is exactly that position (money, Jacoby on, cube centred),
+        // so the absence is pinned on the file the primary path already runs
+        // on, beside the positive precondition that the other three pairs are
+        // there: a row that failed to render at all would pass an absence pin
+        // for free.
+        await BootHomeAsync();
+        await PickFixtureAsync(CubeFixture);
+        await ApplyFilterAsync();
+        await StartQuizAsync();
+
+        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "No double" })).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "Double / Take" })).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "Double / Pass" })).ToBeVisibleAsync();
+        await Expect(Page.Locator(".bg-cube-actions").GetByRole(AriaRole.Radio)).ToHaveCountAsync(3);
+        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "Too good" })).ToHaveCountAsync(0);
+
+        // And the three that are offered still answer the problem: one click
+        // is a complete pair, Submit lights, the review lands.
+        await AnswerCubeNoDoubleAsync();
+        await Expect(VerdictBand).ToContainTextAsync("No Double: correct · Take: correct");
     }
 
     [Fact]

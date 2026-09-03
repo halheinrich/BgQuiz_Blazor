@@ -198,7 +198,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
         Assert.Equal(0d, await PanelWidthAsync());
 
         // Submit: scores and shows the solution, still in-page.
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         Assert.Equal(0d, await PanelWidthAsync());
 
         // Continue through that solution — the step that ends a run when it is
@@ -211,7 +211,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
 
         // The last Continue exhausts the source and navigates to /done — and
         // that navigation, not the answering before it, is what unfolds it.
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         Assert.Equal(0d, await PanelWidthAsync());
         await ContinueToDoneAsync();
 

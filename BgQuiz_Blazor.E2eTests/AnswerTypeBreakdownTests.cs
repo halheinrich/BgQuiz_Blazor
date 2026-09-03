@@ -20,7 +20,7 @@ namespace BgQuiz_Blazor.E2eTests;
 ///
 /// <para>
 /// The pool is two real committed fixtures — one checker play, one cube decision
-/// whose best pair is No Double / Take — so four of the six answer types are
+/// whose best pair is No Double / Take — so three of the five answer types are
 /// genuinely absent. That is the scenario the feature exists for: the zeros are
 /// the finding, and a breakdown that quietly listed only what it found would
 /// report a lopsided collection as a balanced one.
@@ -53,32 +53,34 @@ public sealed class AnswerTypeBreakdownTests : E2eTestBase
         await Expect(body).ToContainTextAsync("Checker plays: 1");
         await Expect(body).ToContainTextAsync("No double / take: 1");
 
-        // …and the four it holds none of, on screen and reading zero. Absent
+        // …and the three it holds none of, on screen and reading zero. Absent
         // rows would leave a collection of nothing but takes looking complete.
-        // Too good is two rows since the claim vocabulary
-        // (halheinrich/backgammon#86): its take side was uncountable before.
+        // Too good is one row — its pass side — since SPEC-scoring §3's
+        // 2026-09-02 amendment retired the take side as a verdict
+        // (halheinrich/backgammon#187); the absence of that row is pinned below.
         await Expect(body).ToContainTextAsync("Double / take: 0");
         await Expect(body).ToContainTextAsync("Double / pass: 0");
         await Expect(body).ToContainTextAsync("Too good / pass: 0");
-        await Expect(body).ToContainTextAsync("Too good / take: 0");
+        await Expect(body).Not.ToContainTextAsync("Too good / take");
     }
 
     [Fact]
-    public async Task ATooGoodTakePositionCountsUnderItsOwnRowNotUnderNoDoubleTake()
+    public async Task ATooGoodToDoubleTakePositionCountsUnderNoDoubleTake_ByRuling()
     {
-        // The landing the split exists for, on a real file: before the claim
-        // vocabulary the too-good-and-take fixture read as No double / take
-        // (the identical board action), and a collection of such positions
-        // looked like a collection of takes. Now it is its own row, and the No
-        // double / take row reads zero.
+        // The position XG labels "Too good to double/Take" on a real file: under
+        // the halheinrich/backgammon#86 claim vocabulary it counted under a row
+        // of its own; SPEC-scoring §3's 2026-09-02 amendment
+        // (halheinrich/backgammon#187) rules it a No double / Take — Too Good
+        // requires the pass, and the opponent takes — so it lands in the No
+        // double / take row, and no too-good row counts it.
         await BootHomeAsync();
         await PickFixturesAsync(CheckerFixture, TooGoodTakeFixture);
         await ApplyFilterAsync();
 
         var body = Page.Locator("body");
         await Expect(body).ToContainTextAsync("2 decisions match your filters");
-        await Expect(body).ToContainTextAsync("Too good / take: 1");
-        await Expect(body).ToContainTextAsync("No double / take: 0");
+        await Expect(body).ToContainTextAsync("No double / take: 1");
+        await Expect(body).ToContainTextAsync("Too good / pass: 0");
     }
 
     /// <summary>

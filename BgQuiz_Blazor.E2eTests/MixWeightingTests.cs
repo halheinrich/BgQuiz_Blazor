@@ -36,7 +36,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
 
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
         await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
 
@@ -64,7 +64,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         await ActivateMixAsync();
 
         await StartQuizAsync();
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
         await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
 
@@ -148,7 +148,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         // Re-checking weights the restored mix and the quiz runs to Done.
         await ActivateMixAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
         await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
     }
@@ -165,7 +165,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         await PickFakeFolderAsync();
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
 
         await StageFirstWriteAsTheFoldersStatsFileAsync();
@@ -230,7 +230,7 @@ public sealed class MixRefusalTests : FsAccessFakeTestBase
         // The one-click per-run escape runs this quiz unweighted, to Done.
         await Page.Locator("#startWithoutMix").ClickAsync();
         await ExpectUrlAsync("/quiz");
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
         await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
     }

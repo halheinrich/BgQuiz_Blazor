@@ -233,11 +233,18 @@ internal static class TestFixtures
     /// <paramref name="away"/> discriminates content identity exactly as on
     /// <see cref="TwoChoiceDecision"/>, and <paramref name="location"/> is
     /// display-only — and supplies the matching identity — exactly as there.
+    /// <paramref name="cubeOwner"/> defaults to <see cref="CubeOwner.OnRoll"/>
+    /// (a turned cube), so the default money fixture — Jacoby on, as
+    /// <paramref name="away"/> 0 stamps it — offers Too good; pass
+    /// <see cref="CubeOwner.Centered"/> to build the one position where the
+    /// producer withholds it (<see cref="BgDecisionData.CanBeTooGood"/>: money
+    /// under Jacoby with the cube in the middle).
     /// </summary>
     public static BgDecisionData CubeDecision(
         double noDoubleEquity = 0.5, double doubleTakeEquity = 0.7,
         string onRoll = "Alice", string opp = "Bob", string xgid = "",
-        DecisionId? id = null, int away = 0, SourceLocation? location = null)
+        DecisionId? id = null, int away = 0, SourceLocation? location = null,
+        CubeOwner cubeOwner = CubeOwner.OnRoll)
     {
         return new BgDecisionData
         {
@@ -249,6 +256,7 @@ internal static class TestFixtures
                 OnRollNeeds = away,
                 OpponentNeeds = away,
                 IsJacoby = away == 0 ? true : null,
+                CubeOwner = cubeOwner,
             },
             Decision = new DecisionData
             {

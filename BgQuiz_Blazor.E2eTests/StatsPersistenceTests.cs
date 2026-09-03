@@ -31,7 +31,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
 
         // Exactly one fold (one answered problem), one write-back — captured by
@@ -98,7 +98,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await Expect(Page.GetByText(RetiredStatsFileName).First).ToBeVisibleAsync();
         await Expect(Page.GetByText("couldn't be read")).ToBeHiddenAsync();
 
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
 
         // The old file preserved verbatim, unparsed. Line endings normalized on
@@ -163,7 +163,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         // quiz page (and Done), not on Home at pick time.
         await Expect(Page.GetByText("couldn't be read")).ToBeVisibleAsync();
 
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
         await Expect(Page.GetByText("couldn't be read")).ToBeVisibleAsync();
 
@@ -190,7 +190,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
 
         Assert.Empty(await CapturedWritesAsync());
@@ -222,7 +222,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
 
         Assert.Empty(await CapturedWritesAsync());
@@ -279,7 +279,7 @@ public sealed class FallbackPickNoticeTests : E2eTestBase
 
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
         await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
     }

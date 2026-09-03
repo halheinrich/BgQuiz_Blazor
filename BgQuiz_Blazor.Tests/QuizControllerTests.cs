@@ -712,34 +712,63 @@ public class QuizControllerTests
         // (halheinrich/backgammon#86): on a too-good position, answering No
         // double performs the identical board action, so no equity is lost —
         // and the claim is still wrong. The doubler half scores incorrect at
-        // +0.000; the taker half is independent and scores on its own.
-        var c = Make(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 0.9));
+        // +0.000; the taker half is independent and scores on its own. The
+        // position is Too Good under the 2026-09-02 predicate
+        // (halheinrich/backgammon#187): no double above the cash AND the
+        // opponent would pass — so the No double pill's implied Take is the
+        // wrong taker half here, with its own loss.
+        var c = Make(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
         c.SubmitCubeAction(CubeClaimPair.NoDoubleTake);
 
         var sub = Assert.Single(c.CubeHistory);
-        Assert.Equal(CubeClaimPair.TooGoodTake, sub.BestDecision);
+        Assert.Equal(CubeClaimPair.TooGoodPass, sub.BestDecision);
         Assert.False(sub.DoublerCorrect);
         Assert.Equal(0.0, sub.DoublerEquityLoss, 6);
-        Assert.True(sub.TakerCorrect);
+        Assert.False(sub.TakerCorrect);
+        Assert.Equal(0.5, sub.TakerEquityLoss, 6);
 
         Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
         Assert.Equal(0, c.Score.DoubleDecisions.Correct);
         Assert.Equal(0.0, c.Score.DoubleDecisions.TotalEquityLoss, 6);
-        Assert.Equal(1, c.Score.TakeDecisions.Correct);
+        Assert.Equal(0, c.Score.TakeDecisions.Correct);
+    }
+
+    [Fact]
+    public async Task SubmitCubeAction_TooGoodOverATooGoodToDoubleTakePosition_IsTheWrongClaimAtZeroLoss()
+    {
+        // The other direction of the same verdict, on the position that
+        // decided the amendment (halheinrich/backgammon#187): XG's "Too good
+        // to double/Take" — no double above the cash, but the opponent takes —
+        // is a No double / Take here BY RULING (Too Good requires the pass).
+        // Claiming Too good performs the identical board action, so the
+        // doubler half is wrong at +0.000; the Too good pill's implied Pass is
+        // the wrong taker half against a take.
+        var c = Make(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 0.9));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+
+        c.SubmitCubeAction(CubeClaimPair.TooGoodPass);
+
+        var sub = Assert.Single(c.CubeHistory);
+        Assert.Equal(CubeClaimPair.NoDoubleTake, sub.BestDecision);
+        Assert.False(sub.DoublerCorrect);
+        Assert.Equal(0.0, sub.DoublerEquityLoss, 6);
+        Assert.False(sub.TakerCorrect);
+        Assert.Equal(0.1, sub.TakerEquityLoss, 6);
     }
 
     [Fact]
     public async Task SubmitCubeAction_TooGoodClaim_ScoresCorrectOnATooGoodPosition()
     {
-        // The fifth verdict, expressible for the first time: Too good / Take
-        // answered as such scores both halves correct — the arc's motivating
-        // case, which the action-level 2×2 could not represent.
-        var c = Make(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 0.9));
+        // The one too-good verdict left, Too good / Pass: answered as such it
+        // scores both halves correct. (Too good / Take, the fifth verdict of
+        // the halheinrich/backgammon#86 era, is retired by the 2026-09-02
+        // amendment and never derived as truth.)
+        var c = Make(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
 
-        c.SubmitCubeAction(CubeClaimPair.TooGoodTake);
+        c.SubmitCubeAction(CubeClaimPair.TooGoodPass);
 
         var sub = Assert.Single(c.CubeHistory);
         Assert.True(sub.DoublerCorrect);
@@ -1540,20 +1569,25 @@ public class QuizControllerTests
         // halves — folding the composite would misbucket every cube decision).
         // One of each kind in, one in each bucket out. Cube best pairs come from
         // the equities, through the producer's claim derivation: Double iff
-        // min(DoubleTake, 1) > NoDouble; else Too good iff NoDouble > 1; Take
-        // iff DoubleTake < 1 (halheinrich/backgammon#86).
+        // min(DoubleTake, 1) > NoDouble; else Too good iff NoDouble > 1 AND
+        // the taker would pass; Take iff DoubleTake < 1
+        // (halheinrich/backgammon#86, amended by halheinrich/backgammon#187).
+        // The last record is XG's "too good to double/Take" — no double above
+        // the cash, opponent takes — which the amendment rules a No double /
+        // Take, so it counts there and the record carries no take-side
+        // too-good field for it to land in.
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),                     // checker
             TestFixtures.CubeDecision(noDoubleEquity: 0.8, doubleTakeEquity: 0.7),     // no double / take
             TestFixtures.CubeDecision(noDoubleEquity: 0.5, doubleTakeEquity: 0.7),     // double / take
             TestFixtures.CubeDecision(noDoubleEquity: 0.5, doubleTakeEquity: 1.5),     // double / pass
             TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5),     // too good / pass
-            TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 0.9));    // too good / take
+            TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 0.9));    // no double / take, by ruling
 
         var summary = await c.SummarizeMatchesAsync(new FilterConfig());
 
         Assert.Equal(new AnswerTypeDistribution(
-            CheckerPlays: 1, NoDoubleTake: 1, DoubleTake: 1, DoublePass: 1, TooGoodPass: 1, TooGoodTake: 1),
+            CheckerPlays: 1, NoDoubleTake: 2, DoubleTake: 1, DoublePass: 1, TooGoodPass: 1),
             summary.AnswerTypes);
         Assert.Equal(6, summary.AnswerTypes.Total);
     }

@@ -111,7 +111,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
         await Expect(Page.Locator(".board-container .xgid-label")).ToHaveCountAsync(0);
         await AssertBadgeSitsBelowTheBoardAsync();
 
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
 
         // Review, normalized: the full composition is back, verdict included, and
         // the Solution-mode panel renders — which is also the proof that the
@@ -189,7 +189,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
 
         await Expect(ScorePanel).ToHaveCountAsync(1);
         await Expect(StatusStrip).ToHaveCountAsync(1);
-        await Expect(VerdictBand).ToContainTextAsync("Pick the cube action and the take-or-pass reply, then Submit.");
+        await Expect(VerdictBand).ToContainTextAsync("Pick the cube decision, then Submit.");
 
         // Normal view's half of "one home, both modes" — with the setting off the
         // badge is in exactly the same place, which is what makes it a home
@@ -221,7 +221,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
         await PickFixtureAsync(CubeFixture);
         await ApplyFilterAsync();
         await StartQuizAsync();
-        await AnswerCubeNoDoubleTakeAsync();
+        await AnswerCubeNoDoubleAsync();
 
         await Expect(ScorePanel).ToBeVisibleAsync();
 
