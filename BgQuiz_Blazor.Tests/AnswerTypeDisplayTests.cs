@@ -9,12 +9,14 @@ namespace BgQuiz_Blazor.Tests;
 /// five are always present.
 ///
 /// <para>
-/// Deliberately not a pin of the label <i>wording</i>: the labels are user-facing
-/// copy, so they are pinned as independent literals in the published app by the
-/// e2e suite (the copy-pin split). A unit test asserting the same strings the
-/// class defines would agree with any wording at all — including a swap that put
-/// <c>Double / pass</c>'s count under <c>Double / take</c>'s name, which is
-/// exactly the defect this file <i>can</i> catch and does.
+/// Deliberately not a pin of the label <i>wording</i>: the labels are
+/// user-facing copy, so they are pinned as independent literals in the
+/// published app by the e2e suite (the copy-pin split). A unit test asserting
+/// the same strings the class reads — now <c>CubeLabels.Label(pair)</c> for
+/// every cube row — would be <c>Label(pair) == Label(pair)</c> and agree with
+/// any wording at all, including a swap that put <c>Double / Pass</c>'s count
+/// under <c>Double / Take</c>'s name, which is exactly the defect this file
+/// <i>can</i> catch and does.
 /// </para>
 /// </summary>
 public class AnswerTypeDisplayTests
@@ -53,8 +55,8 @@ public class AnswerTypeDisplayTests
         // amendment (halheinrich/backgammon#187: Too Good requires the pass,
         // so the take side is retired as a verdict and the producer record
         // carries no field for it). The pass side is row five, reading its
-        // own count and nobody else's — in particular not the No double / take
-        // row, where a too-good-to-double/take position now counts by ruling.
+        // own count and nobody else's — in particular not the No double row,
+        // where a too-good-to-double/take position now counts by ruling.
         var onlyPass = AnswerTypeDisplay.Buckets(
             AnswerTypeDistribution.Empty with { TooGoodPass = 9 });
 

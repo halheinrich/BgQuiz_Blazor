@@ -106,7 +106,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
 
         // Submitted, and scored as the click answered it.
         await Expect(ContinueButton).ToBeVisibleAsync();
-        await Expect(VerdictBand).ToContainTextAsync("No Double: correct · Take: correct");
+        await Expect(VerdictBand).ToContainTextAsync("No double: correct · Take: correct");
     }
 
     [Fact]

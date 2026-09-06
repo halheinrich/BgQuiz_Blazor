@@ -4033,7 +4033,7 @@ public class PageTests : BunitContext
         // The parent → child → handler wire for cube: BackgammonCubeActions fires
         // ValueChanged, @bind-Value latches it into _completedCube and enables
         // Submit, and the Submit click routes to SubmitCubeAction, scoring both
-        // halves into the Double / Take segments.
+        // halves into the Double and Take score segments.
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
@@ -4498,7 +4498,7 @@ public class PageTests : BunitContext
 
         // The scored verdict itself still renders — the clause is a prefix, not
         // a replacement — and the outcome colouring is untouched.
-        Assert.Contains("No Double: ", practiceText);
+        Assert.Contains("No double: ", practiceText);
         Assert.Contains("Pass: ", practiceText);
         Assert.NotNull(cut.Find(".status-verdict.alert-danger, .status-verdict.alert-success"));
 
@@ -4603,7 +4603,7 @@ public class PageTests : BunitContext
         // contradiction ("incorrect (lost 0.0000)"); it names the claim that
         // was right and says no equity was lost. Coloured as a miss — the
         // doubler half is wrong. The position is one the producer derives as
-        // Too Good under the 2026-09-02 predicate (halheinrich/backgammon#187):
+        // Too good under the 2026-09-02 predicate (halheinrich/backgammon#187):
         // playing on beats the cash AND the opponent would pass — so the
         // No double pill's implied Take is wrong on the taker half as well,
         // and the line says so with its own loss.
@@ -4616,7 +4616,7 @@ public class PageTests : BunitContext
         var verdict = cut.Find(".status-strip").QuerySelector(".status-verdict")!;
         Assert.Contains("alert-danger", verdict.ClassList);
         Assert.Contains(
-            "No Double: wrong claim — it's Too Good (right action, no equity lost)",
+            "No double: wrong claim — it's Too good (right action, no equity lost)",
             verdict.TextContent);
         Assert.Contains("Take: incorrect (lost 0.5000)", verdict.TextContent);
         Assert.DoesNotContain("0.0000", verdict.TextContent);
@@ -4630,7 +4630,7 @@ public class PageTests : BunitContext
         // above the cash, but the opponent takes) is a No double / Take here
         // BY RULING (halheinrich/backgammon#187) — so a Too good answer is the
         // wrong claim over the right board action, at no equity lost, and the
-        // line names No Double as the truth. Its implied Pass is wrong on the
+        // line names No double as the truth. Its implied Pass is wrong on the
         // taker half against a take.
         var c = WithController(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 0.9));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
@@ -4641,7 +4641,7 @@ public class PageTests : BunitContext
         var verdict = cut.Find(".status-strip").QuerySelector(".status-verdict")!;
         Assert.Contains("alert-danger", verdict.ClassList);
         Assert.Contains(
-            "Too Good: wrong claim — it's No Double (right action, no equity lost)",
+            "Too good: wrong claim — it's No double (right action, no equity lost)",
             verdict.TextContent);
         Assert.Contains("Pass: incorrect (lost 0.1000)", verdict.TextContent);
         Assert.DoesNotContain("0.0000", verdict.TextContent);
@@ -4651,7 +4651,7 @@ public class PageTests : BunitContext
     public async Task Quiz_Review_CubeVerdict_TooGoodPass_IsTheFourthVerdict()
     {
         // The one too-good verdict left (Too Good requires the pass): answered
-        // as such — the Too good pill is the (Too Good, Pass) pair — it is
+        // as such — the Too good pill is the (TooGood, Pass) pair — it is
         // correct on both halves and coloured as a hit.
         var c = WithController(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
@@ -4661,7 +4661,7 @@ public class PageTests : BunitContext
 
         var verdict = cut.Find(".status-strip").QuerySelector(".status-verdict")!;
         Assert.Contains("alert-success", verdict.ClassList);
-        Assert.Equal("Too Good: correct · Pass: correct", verdict.TextContent.Trim());
+        Assert.Equal("Too good: correct · Pass: correct", verdict.TextContent.Trim());
     }
 
     [Fact]
@@ -4681,7 +4681,7 @@ public class PageTests : BunitContext
         await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.NoDoublePass));
 
         var text = cut.Find(".status-verdict-text").TextContent;
-        Assert.Contains("No Double: incorrect — best is Double (lost 0.2000)", text);
+        Assert.Contains("No double: incorrect — best is Double (lost 0.2000)", text);
         Assert.Contains("Pass: incorrect (lost 0.3000)", text);
         Assert.EndsWith(
             "No double and pass can't both hold: if they'd pass, cashing beats playing on.",
@@ -6361,7 +6361,7 @@ public class PageTests : BunitContext
         // half by its action, in the solution diagram's banner wording. Against
         // the default cube fixture (best is Double / Take), a Too good / Pass
         // answer is incorrect on both halves, so the doubler half reads "Too
-        // Good" — a claim in its own words, no longer spelled as "No Double" —
+        // good" — a claim in its own words, no longer spelled as "No double" —
         // and the taker half reads "Pass". A wrong claim names the truth claim
         // (three values, so "incorrect" alone leaves two); the taker half does
         // not (two values, so it already implies the other).
@@ -6374,9 +6374,9 @@ public class PageTests : BunitContext
 
         var verdict = cut.Find(".status-strip").QuerySelector(".status-verdict")!;
         Assert.Contains("alert-danger", verdict.ClassList);
-        Assert.Contains("Too Good: incorrect — best is Double (lost 0.2000)", verdict.TextContent);
+        Assert.Contains("Too good: incorrect — best is Double (lost 0.2000)", verdict.TextContent);
         Assert.Contains("Pass: incorrect (lost 0.3000)", verdict.TextContent);
-        Assert.DoesNotContain("No Double", verdict.TextContent);
+        Assert.DoesNotContain("No double", verdict.TextContent);
         // The taker half is labeled by the submitted action ("Pass"), never
         // the old generic "Take" half-name.
         Assert.DoesNotContain("Take:", verdict.TextContent);

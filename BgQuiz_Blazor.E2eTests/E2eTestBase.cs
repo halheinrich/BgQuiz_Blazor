@@ -22,10 +22,10 @@ namespace BgQuiz_Blazor.E2eTests;
 public abstract class E2eTestBase : IAsyncLifetime
 {
     /// <summary>
-    /// Committed cube-decision fixture — one problem, best action "No Double"
-    /// and best taker response "Take", i.e. a best <i>pair</i> of No Double /
-    /// Take. The taker half matters to the answer-type breakdown suite, which
-    /// reads the bucket a whole cube decision lands in.
+    /// Committed cube-decision fixture — one problem, whose best doubler claim
+    /// is NoDouble and best taker response Take, i.e. a best <i>pair</i> of
+    /// (NoDouble, Take). The taker half matters to the answer-type breakdown
+    /// suite, which reads the bucket a whole cube decision lands in.
     ///
     /// <para>
     /// It is also a <b>money</b> position, <b>Jacoby on</b>, <b>cube centred</b>
@@ -82,9 +82,9 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </summary>
     private static readonly string[] CubeFixtures =
     [
-        CubeFixture,                 // No Double / Take (money, Jacoby, cube centred)
-        TooGoodTakeFixture,          // a different board, No Double / Take by ruling (a match)
-        "match35253054_2_37.xgp",    // a different board, Double / Pass (a match)
+        CubeFixture,                 // (NoDouble, Take) (money, Jacoby, cube centred)
+        TooGoodTakeFixture,          // a different board, (NoDouble, Take) by ruling (a match)
+        "match35253054_2_37.xgp",    // a different board, (Double, Pass) (a match)
     ];
 
     /// <summary>
@@ -94,7 +94,7 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// halheinrich/backgammon#86's motivating case and the fifth verdict's
     /// primary path; it is the position that then <i>decided</i> SPEC-scoring
     /// §3's 2026-09-02 amendment (halheinrich/backgammon#187): Too Good
-    /// requires the pass, so its best claim pair is <b>No Double / Take by
+    /// requires the pass, so its best claim pair is <b>(NoDouble, Take) by
     /// ruling</b>, and answering Too good to it is the wrong claim over the
     /// right action. A <b>match</b> position, so the Too good pill is offered
     /// here — which is what lets that wrong claim be pressed end to end.
@@ -513,6 +513,24 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// submit, landing in the review state (Continue visible).
     ///
     /// <para>
+    /// <b>The cube copy inventory, and why it stays literal.</b> Those four
+    /// captions, the review verdict line's per-half labels, and the solution
+    /// panel's <c>Best:</c> banner are all spelled by one home —
+    /// <c>CubeLabels</c> in <c>BackgammonDiagram_Lib</c>, since
+    /// halheinrich/backgammon#185 — and this app spells none of them any more.
+    /// The literals here and across this suite are therefore <b>consumer pins
+    /// by ruling and must not be re-sourced</b>: they say what a user reads off
+    /// this app's surfaces, so a re-wording at the label home has to arrive
+    /// here as a deliberate edit instead of passing through unseen. Re-sourcing
+    /// them from <c>CubeLabels</c> would turn every one into
+    /// <c>Label(pair) == Label(pair)</c> and pin nothing — so do not
+    /// "de-duplicate" them against the label home. (The same sentence guards
+    /// <c>BgDiag_Razor</c>'s own caption table.) The rule's own suite,
+    /// <c>CubeLabelsTests</c>, is where the wording is proved correct; these
+    /// are where it is proved <i>shipped</i>.
+    /// </para>
+    ///
+    /// <para>
     /// One click: since SPEC-scoring §3's 2026-09-02 amendment
     /// (halheinrich/backgammon#187) every pill is a complete (claim, taker)
     /// pair, so the first selection lights Submit. The Submit-enabled wait
@@ -531,10 +549,10 @@ public abstract class E2eTestBase : IAsyncLifetime
 
     /// <summary>
     /// Answer the current cube problem as No double and submit, landing in the
-    /// review state. <see cref="CubeFixture"/>'s best claim pair is No Double /
-    /// Take — the pair the "No double" pill is — so against it this is the
-    /// fully correct answer, which is what the scenarios built on that fixture
-    /// rely on.
+    /// review state. <see cref="CubeFixture"/>'s best claim pair is
+    /// (NoDouble, Take) — the pair the "No double" pill is — so against it
+    /// this is the fully correct answer, which is what the scenarios built on
+    /// that fixture rely on.
     /// </summary>
     protected Task AnswerCubeNoDoubleAsync() => AnswerCubeAsync("No double");
 

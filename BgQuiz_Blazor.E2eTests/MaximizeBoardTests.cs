@@ -119,8 +119,8 @@ public sealed class MaximizeBoardTests : E2eTestBase
         // on that pairing, so a leak would fault the render, not merely look wrong).
         await Expect(StatusStrip).ToHaveCountAsync(1);
         await Expect(ScorePanel).ToHaveCountAsync(1);
-        await Expect(VerdictBand).ToContainTextAsync("No Double: correct · Take: correct");
-        await Expect(Page.Locator(".bg-diagram")).ToContainTextAsync("Best: No Double");
+        await Expect(VerdictBand).ToContainTextAsync("No double: correct · Take: correct");
+        await Expect(Page.Locator(".bg-diagram")).ToContainTextAsync("Best: No double");
 
         // The badge did not move when the composition did — one home, both
         // states. A badge that teleported per mode would read as a bug, which is

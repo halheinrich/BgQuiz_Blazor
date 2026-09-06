@@ -37,14 +37,13 @@ public sealed class QuizFlowTests : E2eTestBase
         await AnswerCubeNoDoubleAsync();
 
         // Review state: the Solution-mode diagram fills the analysis panel. The
-        // committed fixture's best action is No Double, so the panel's Best
-        // banner is an exact, stable pin (the taker half is suppressed when the
-        // best doubler action is No Double).
-        await Expect(Page.Locator(".bg-diagram")).ToContainTextAsync("Best: No Double");
-        // No double / Take answers both halves correctly against this fixture.
-        // The verdict line labels each half by what was submitted — the claim
-        // and the taker action — in the diagram's banner wording.
-        await Expect(VerdictBand).ToContainTextAsync("No Double: correct · Take: correct");
+        // committed fixture's best pair is (NoDouble, Take), which reads as its
+        // claim alone, so the panel's Best banner is an exact, stable pin.
+        await Expect(Page.Locator(".bg-diagram")).ToContainTextAsync("Best: No double");
+        // That pair answers both halves correctly against this fixture. The
+        // verdict line labels each half by what was submitted — the claim and
+        // the taker action — in the same label home's wording as the banner.
+        await Expect(VerdictBand).ToContainTextAsync("No double: correct · Take: correct");
 
         await ContinueToDoneAsync();
         await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
@@ -56,7 +55,7 @@ public sealed class QuizFlowTests : E2eTestBase
         // The position that decided SPEC-scoring §3's 2026-09-02 amendment
         // (halheinrich/backgammon#187), end to end: XG labels it "Too good to
         // double/Take" (no double +1.1711, double/take +0.6004), and it is a
-        // No double / Take here BY RULING — Too Good requires the pass, and
+        // a (NoDouble, Take) here BY RULING — Too Good requires the pass, and
         // the opponent takes. Answered first the way a reader of XG's label
         // would — Too good — which is the wrong claim over the right action,
         // scored wrong at no equity lost; then, as a practice retry, No double,
@@ -77,14 +76,14 @@ public sealed class QuizFlowTests : E2eTestBase
         // truth claim rather than printing a zero loss. The taker half is the
         // Too good pill's implied Pass, wrong against a take.
         await Expect(VerdictBand).ToContainTextAsync(
-            "Too Good: wrong claim — it's No Double (right action, no equity lost) · Pass: incorrect");
+            "Too good: wrong claim — it's No double (right action, no equity lost) · Pass: incorrect");
         await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-danger"));
 
         await Page.GetByRole(AriaRole.Button, new() { Name = "Redo" }).ClickAsync();
         await AnswerCubeNoDoubleAsync();
 
         await Expect(VerdictBand).ToContainTextAsync("Practice retry");
-        await Expect(VerdictBand).ToContainTextAsync("No Double: correct · Take: correct");
+        await Expect(VerdictBand).ToContainTextAsync("No double: correct · Take: correct");
         await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-success"));
 
         // The answer of record stands: one doubling decision, scored wrong.
@@ -119,7 +118,7 @@ public sealed class QuizFlowTests : E2eTestBase
         // And the three that are offered still answer the problem: one click
         // is a complete pair, Submit lights, the review lands.
         await AnswerCubeNoDoubleAsync();
-        await Expect(VerdictBand).ToContainTextAsync("No Double: correct · Take: correct");
+        await Expect(VerdictBand).ToContainTextAsync("No double: correct · Take: correct");
     }
 
     [Fact]

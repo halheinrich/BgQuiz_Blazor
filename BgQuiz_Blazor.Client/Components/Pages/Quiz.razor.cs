@@ -116,12 +116,13 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// <b>The cube verdict speaks claims.</b> The review's verdict line names the
-/// doubler half by the claim the user submitted — No Double, Double, or Too
-/// Good — and, when that claim is wrong, names the truth claim; a no-double
-/// answer to a too-good position, or a too-good answer to a no-double one (the
-/// XG "too good to double/Take" position, a No double by ruling), is called out
-/// as the right action with the wrong claim rather than as an equity loss of
-/// nothing. The incoherent (no double, pass) answer is no longer offered by the
+/// doubler half by the claim the user submitted, spelled by the one label
+/// home (<see cref="CubeLabels"/>), and, when that claim is wrong, names the
+/// truth claim; a no-double answer to a too-good position, or a too-good
+/// answer to a no-double one (the XG "too good to double/Take" position, a
+/// no-double by ruling), is called out as the right action with the wrong
+/// claim rather than as an equity loss of nothing. The incoherent (no double,
+/// pass) answer is no longer offered by the
 /// row, but the controller's <see cref="QuizController.SubmitCubeAction"/>
 /// still accepts any pair, so the trailing clause that explains it stands for
 /// an answer arriving that way. See <see cref="CubeVerdict"/>.
@@ -632,22 +633,21 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// <summary>
     /// The cube verdict: one segment per half, each named for what the user
     /// submitted — the doubler half by its claim, the taker half by its
-    /// action — in the solution diagram's own wording
-    /// (<see cref="CubeActionDisplay"/>), plus a trailing explanation when the
-    /// submitted pair is the incoherent cell. SPEC-scoring.md §3
-    /// (halheinrich/backgammon#86) rules the shape: per-half, claim-wise on
-    /// the doubler side.
+    /// action — in the wording of the one label home,
+    /// <see cref="CubeLabels"/> (halheinrich/backgammon#185), plus a trailing
+    /// explanation when the submitted pair is the incoherent cell.
+    /// SPEC-scoring.md §3 (halheinrich/backgammon#86) rules the shape:
+    /// per-half, claim-wise on the doubler side.
     ///
     /// <para>
     /// <b>The doubler half names the truth claim when the user's is wrong,
     /// and the taker half does not.</b> The claim axis has three values, so
     /// "incorrect" alone leaves two candidates; the taker axis has two, so
-    /// "Take: incorrect" already says Pass. Naming it also covers what the
-    /// diagram beside this line says at the action level: the producer's
-    /// banner speaks board actions, so a too-good position reads there as
-    /// "Best: No Double" while this line says Too Good (the label SSOT arc,
-    /// halheinrich/backgammon#185, recomposes the banner over claims and
-    /// re-sources these spellings; neither is patched here).
+    /// "Take: incorrect" already says Pass. Naming it also keeps this line in
+    /// step with the diagram beside it: the producer's Best banner is
+    /// recomposed over claims and spelled by the same label home since
+    /// halheinrich/backgammon#185, so a too-good position reads as the claim
+    /// on both surfaces rather than as a board action on one of them.
     /// </para>
     ///
     /// <para>
@@ -683,14 +683,14 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
         var answer = submission.UserDecision;
         var best = submission.BestDecision;
 
-        string doubler = CubeActionDisplay.Label(answer.Claim) + ": " + (
+        string doubler = CubeLabels.Label(answer.Claim) + ": " + (
             submission.DoublerCorrect
                 ? "correct"
                 : answer.Claim.ToCubeAction() == best.Claim.ToCubeAction()
-                    ? $"wrong claim — it's {CubeActionDisplay.Label(best.Claim)} (right action, no equity lost)"
-                    : $"incorrect — best is {CubeActionDisplay.Label(best.Claim)} (lost {submission.DoublerEquityLoss:0.0000})");
+                    ? $"wrong claim — it's {CubeLabels.Label(best.Claim)} (right action, no equity lost)"
+                    : $"incorrect — best is {CubeLabels.Label(best.Claim)} (lost {submission.DoublerEquityLoss:0.0000})");
 
-        string taker = CubeActionDisplay.Label(answer.Taker) + ": " + (
+        string taker = CubeLabels.Label(answer.Taker) + ": " + (
             submission.TakerCorrect
                 ? "correct"
                 : $"incorrect (lost {submission.TakerEquityLoss:0.0000})");
