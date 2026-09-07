@@ -104,7 +104,7 @@
             }
         </div>
 
-        <div class="mb-2 form-check">
+        <div class="mb-2 form-check form-switch">
             <input class="form-check-input" type="checkbox" id="mixRandomOrder"
                    checked="@Draft.RandomOrder" disabled="@(Draft.Rows.Count == 0)"
                    @onchange="e => Draft.SetRandomOrderAsync(e.Value is true)" />
@@ -143,8 +143,20 @@
            clearing the rows, breaking the mix, or editing the filter leaves the
            user's consent exactly where they put it (a checked box over the
            blank mix is honest passthrough — the zero-row copy above says so).
-           Deliberately NOT disabled at zero rows, ruled. *@
-        <div class="mb-2 form-check">
+           Deliberately NOT disabled at zero rows, ruled.
+
+           Rendered as Bootstrap's form-switch (halheinrich/backgammon#182,
+           ruling (a)): a switch reads as STATE — this mix is on, or it is off
+           — and a checkbox reads as a form field waiting to be submitted with
+           the rest of the page. The bit it carries is standing consent, so the
+           switch is the honest picture of it. This is the whole of the change:
+           the same <input type="checkbox">, the same id, label, @onchange and
+           asymmetric gate, so keyboard and assistive behaviour are Bootstrap's
+           native checkbox behaviour still. .form-switch styles only the track
+           and the knob and declares no border-color, so app.css's darkened
+           .form-check-input border (halheinrich/backgammon#154) reaches the
+           switch untouched — pinned in MixPanelTests. *@
+        <div class="mb-2 form-check form-switch">
             <input class="form-check-input" type="checkbox" id="mixApplies"
                    checked="@Consent.Applies"
                    disabled="@(!Consent.Applies && !CanActivate)"
