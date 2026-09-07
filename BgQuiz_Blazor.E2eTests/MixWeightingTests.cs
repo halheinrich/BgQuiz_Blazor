@@ -234,4 +234,85 @@ public sealed class MixRefusalTests : FsAccessFakeTestBase
         await ContinueToDoneAsync();
         await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
     }
+
+    /// <summary>
+    /// The category select is as wide as its own options and no wider, by the
+    /// app's one content-sizing mechanism — the same ruler pair
+    /// <c>/settings</c>' depth-ceiling dropdown wears
+    /// (<c>halheinrich/backgammon#174</c>; <c>SettingsTests</c>
+    /// <c>DepthCeilingDropdown_IsSizedFromItsOptions_NotFromThePage</c> is the
+    /// other adopter's copy of this measurement).
+    ///
+    /// <para>
+    /// <b>The overlap assertion is the load-bearing one.</b> The ruler's box is
+    /// 15% narrower than the select painted inside it, and this row is a flex
+    /// line whose gap is measured from the ruler — so before the room was
+    /// reserved the percent field sat 19.89px under the select's right end. The
+    /// reservation is a length (<c>app.css</c>'s <c>.mix-row &gt; .mix-kind</c>),
+    /// because no percentage can be written against a width only the ruler
+    /// knows, and a length is a number that can rot: a category label 15% longer
+    /// than "Avg equity loss over…" grows the overflow past it. This assertion
+    /// is where that goes red. It is a strict inequality on painted boxes, not a
+    /// pin on the length, so re-tuning the length is the fix and re-tuning the
+    /// test is not.
+    /// </para>
+    ///
+    /// <para>
+    /// The width claims mirror the Settings pin's, and for its reasons:
+    /// inequalities rather than the 115% itself, which is the stylesheet's to
+    /// state and is pinned there as a literal — a geometric equality would turn
+    /// every sub-pixel of font rounding into a red suite. Box-guarded, since a
+    /// rect read before layout settles measures nothing and "narrower than the
+    /// row" is a green for the wrong reason.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task CategorySelect_IsSizedFromItsOptions_AndClearsThePercentField()
+    {
+        await Page.SetViewportSizeAsync(1280, 900);
+        await BootHomeAsync();
+        await SeedStatsHistoryAsync();
+        await ApplyFilterAsync();
+        await AddDefaultMixRowAsync();
+
+        // Every option is present before anything is measured: the width comes
+        // off the widest of them, so a half-rendered list is a narrower control
+        // for a reason this test is not about.
+        var select = Page.GetByLabel("Category");
+        await Expect(select).ToContainTextAsync("Never seen");
+        await Expect(select).ToContainTextAsync("Avg equity loss over…");
+
+        await ExpectToPassAsync(async () =>
+        {
+            var row = await LaidOutBoxAsync(Page.Locator(".mix-row"), "the mix row");
+            var ruler = await LaidOutBoxAsync(
+                Page.Locator(".mix-row > .option-sized-field"), "the category select's ruler");
+            var box = await LaidOutBoxAsync(select, "the category select");
+            var percent = await LaidOutBoxAsync(
+                Page.Locator(".mix-percent"), "the percent field");
+
+            Assert.True(
+                ruler.Width < row.Width / 2,
+                $"the ruler measured the row rather than the options "
+                + $"(ruler {ruler.Width}, row {row.Width}).");
+            Assert.True(
+                box.Width < row.Width / 2,
+                $"the category select is sized from the row rather than from its "
+                + $"options (select {box.Width}, row {row.Width}).");
+            Assert.True(
+                box.Width > ruler.Width,
+                $"the category select got no breathing room past the width its "
+                + $"options need (select {box.Width}, ruler {ruler.Width}) — this "
+                + "is what separates the mechanism from a plain w-auto.");
+
+            // …and the room the overflow needs is really reserved: the painted
+            // control ends before the next control begins.
+            Assert.True(
+                box.X + box.Width < percent.X,
+                $"the category select overlaps the percent field by "
+                + $"{box.X + box.Width - percent.X}px — the ruler's 15% overflow "
+                + "has outgrown the room reserved for it in app.css "
+                + "(.mix-row > .mix-kind).");
+        });
+    }
 }

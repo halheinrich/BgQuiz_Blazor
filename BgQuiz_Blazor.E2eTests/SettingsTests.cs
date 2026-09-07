@@ -54,9 +54,13 @@ public sealed class SettingsTests : E2eTestBase
     /// <summary>
     /// The shrink-to-fit box the dropdown is measured against
     /// (<c>halheinrich/backgammon#170</c>) — see <c>app.css</c> for what the
-    /// pair of classes does.
+    /// pair of classes does. The classes are the app's one content-sizing
+    /// mechanism since <c>halheinrich/backgammon#174</c>, so the locator is
+    /// scoped to this page's dropdown rather than taken file-wide: the same
+    /// wrapper class appears on the mix panel's category row.
     /// </summary>
-    private ILocator HiddenLevelField => Page.Locator(".hidden-level-field");
+    private ILocator HiddenLevelField =>
+        Page.Locator(".option-sized-field:has(#settingsHiddenLevel)");
 
     /// <summary>
     /// The block the dropdown used to fill edge to edge, and so the yardstick

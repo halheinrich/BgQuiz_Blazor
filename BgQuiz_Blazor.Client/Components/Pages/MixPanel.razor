@@ -47,13 +47,26 @@
             var row = Draft.Rows[i];
             var index = i; // capture per iteration for the lambdas below
             <div class="d-flex flex-wrap align-items-center gap-2 mb-2 mix-row">
-                <select class="form-select form-select-sm w-auto" aria-label="Category"
-                        @onchange="e => HandleKindChangedAsync(index, e)">
-                    @foreach (var kind in MixDraft.CategoryKinds)
-                    {
-                        <option value="@kind" selected="@(row.Kind == kind)">@MixDisplay.KindLabel(kind)</option>
-                    }
-                </select>
+                @* Sized from its own options, the one mechanism this app has for
+                   that (halheinrich/backgammon#174; app.css carries the whole of
+                   the reasoning). It replaces a bare w-auto, which gave the
+                   control the width of the widest label and not a pixel more —
+                   "Avg equity loss over…" ran to the arrow.
+
+                   The ruler's box is 15% narrower than the select painted in
+                   it, and this is a flex line, so the row's own 8px gap would
+                   put the percent field under the select's right end. The room
+                   is reserved here, on the ruler, because the amount is a fact
+                   about THIS row's layout and not about the mechanism. *@
+                <div class="option-sized-field mix-kind">
+                    <select class="form-select form-select-sm option-sized-select" aria-label="Category"
+                            @onchange="e => HandleKindChangedAsync(index, e)">
+                        @foreach (var kind in MixDraft.CategoryKinds)
+                        {
+                            <option value="@kind" selected="@(row.Kind == kind)">@MixDisplay.KindLabel(kind)</option>
+                        }
+                    </select>
+                </div>
                 @if (KindTakesParameter(row.Kind))
                 {
                     <input class="form-control form-control-sm mix-param" style="max-width:90px"

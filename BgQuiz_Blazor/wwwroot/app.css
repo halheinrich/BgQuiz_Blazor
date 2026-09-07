@@ -669,15 +669,15 @@ h1:focus {
 }
 
 /* ---------------------------------------------------------------------------
-   /settings — the hide-ceiling dropdown's width (halheinrich/backgammon#170).
+   Selects sized from their own options (halheinrich/backgammon#170, generalized
+   under halheinrich/backgammon#174).
 
-   Bootstrap's .form-select is width:100%, which stretched this control across
-   the whole 800px of the Settings container to say a word as short as
-   "XG Roller++". The width it wants is the width its own options need, and that
-   width cannot be written down here: the options come from
-   QuizSettings.HideableLevels and are worded by AnalysisLevel.ToLabel(), so a
-   px or ch count in this file would be a copy of the producer's vocabulary that
-   rots the next time a level is added or reworded.
+   Bootstrap's .form-select is width:100%. On a wide block that stretches a
+   control across the whole container to say a word as short as "XG Roller++";
+   the width such a control wants is the width its own options need. That width
+   cannot be written down here: the options belong to the page, and a px or ch
+   count in this file would be a copy of somebody else's vocabulary that rots the
+   next time an option is added or reworded.
 
    So the width is measured, in two steps. The wrapper is shrink-to-fit, and a
    shrink-to-fit box treats a percentage width on its child as auto while it
@@ -697,11 +697,49 @@ h1:focus {
    wrapper — so the pair cannot be half-applied, and the select overflowing its
    wrapper by that 15% is the mechanism working, not a layout escape: the
    wrapper's only job is to be the ruler.
+
+   THE OVERFLOW IS THE ADOPTION CONSTRAINT, and it is why this comment is here
+   rather than beside either call site. The ruler's box is 15% narrower than the
+   control painted in it, and no CSS reserves that difference: a percentage on
+   the child is treated as auto exactly while the wrapper is being measured,
+   which is the engine of the mechanism, so nothing the wrapper can say about
+   itself grows it to the width the select will end up painting. Anything laid
+   out immediately after the ruler is therefore laid out under the control's
+   right end.
+
+   Both users satisfy that constraint, differently, and a third adopter has to
+   answer the same question before it wears these classes:
+     - /settings gives the wrapper a block of its own, so the overflow spills
+       into an empty column;
+     - the mix panel's category row is a flex line, where the next item WOULD
+       sit under the select, so the room is reserved there — see below.
    --------------------------------------------------------------------------- */
-.hidden-level-field {
+.option-sized-field {
     width: fit-content;
 }
 
-.hidden-level-field > .hidden-level-select {
+.option-sized-field > .option-sized-select {
     width: 115%;
+}
+
+/* The mix panel's category ruler, and the room its overflow needs. .mix-row is
+   a flex line spacing its items 8px apart, and those 8px are measured from the
+   RULER's right edge, which is 15% short of where the select is painted — so
+   without this the percent field sat 19.89px under the select (measured
+   2026-09-07 at a 1280px viewport: ruler 186.00, select 213.89 from x=339,
+   percent field at x=533).
+
+   1.75rem is that overflow at today's labels — 15% of the 186px "Avg equity
+   loss over…" needs — so the painted control keeps the row's own 8px gap after
+   it. It is a length and not a ratio because there is no ratio to write: the
+   only box that knows the intrinsic width is the ruler, and a percentage margin
+   on the ruler would resolve against the row instead. That makes it the one
+   number here that can rot — a longer label grows the overflow past it — which
+   is why the rule it stands in for is asserted where it can fail, in
+   MixWeightingTests.CategorySelect_IsSizedFromItsOptions_AndClearsThePercentField:
+   that pin states the acceptance criterion (the painted select ends before the
+   percent field begins), so a label that outgrows this number goes red rather
+   than quiet. */
+.mix-row > .mix-kind {
+    margin-right: 1.75rem;
 }

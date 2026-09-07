@@ -9371,6 +9371,12 @@ public class PageTests : BunitContext
     /// control really does come out a fraction of its container — is measured in
     /// <c>SettingsTests.DepthCeilingDropdown_IsSizedFromItsOptions_NotFromThePage</c>.
     /// </para>
+    /// <para>
+    /// The classes are named for what they do rather than for this page, and
+    /// the mix panel's category select wears the same pair
+    /// (<c>halheinrich/backgammon#174</c>) — so this test's subject is one of
+    /// two adopters, and the mechanism's own claims below hold for both.
+    /// </para>
     /// </remarks>
     [Fact]
     public void Settings_HiddenLevel_IsSizedFromItsOptions_ByTheWrapperAndItsRule()
@@ -9385,8 +9391,8 @@ public class PageTests : BunitContext
         // so a box slipped in between would leave both classes in place and the
         // width back at 100%.
         var select = cut.Find("#settingsHiddenLevel");
-        Assert.Contains("hidden-level-select", select.ClassList);
-        Assert.Contains("hidden-level-field", select.ParentElement!.ClassList);
+        Assert.Contains("option-sized-select", select.ClassList);
+        Assert.Contains("option-sized-field", select.ParentElement!.ClassList);
 
         // …and no inline width beside them, which would outrank the stylesheet
         // and kill the mechanism while leaving every class above intact.
@@ -9404,16 +9410,16 @@ public class PageTests : BunitContext
             "fit-content",
             RulesWhoseSelector(
                 noComments,
-                s => s.Contains(".hidden-level-field")
-                    && !s.Contains(".hidden-level-select")));
+                s => s.Contains(".option-sized-field")
+                    && !s.Contains(".option-sized-select")));
 
         // The reading: 115% of that measurement, scoped to the ruler, and stated
         // as a ratio rather than as a count of pixels or characters. The options
         // come from QuizSettings.HideableLevels and are worded by ToLabel(), so
         // a count here would be a copy of the producer's vocabulary that rots
         // the next time a level is added or reworded; a ratio does not.
-        var reading = RulesWhoseSelector(noComments, s => s.Contains(".hidden-level-select"));
-        Assert.Contains(".hidden-level-field > .hidden-level-select", reading);
+        var reading = RulesWhoseSelector(noComments, s => s.Contains(".option-sized-select"));
+        Assert.Contains(".option-sized-field > .option-sized-select", reading);
         Assert.Contains("115%", reading);
     }
 }
