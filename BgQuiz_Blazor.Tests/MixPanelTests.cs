@@ -713,18 +713,20 @@ public class MixPanelTests : BunitContext
     /// <para>
     /// <b>Three claims, because the switch is a cascade and not a class.</b>
     /// The markup half is that the same <c>&lt;input type="checkbox"&gt;</c>
-    /// still wears <c>.form-check-input</c> — the selector app.css's #154 rule
-    /// is written with — inside a wrapper that now carries
-    /// <c>form-check form-switch</c>. The app.css half is that the #154 rule
-    /// really is written unqualified, so it selects this input as readily as a
-    /// plain checkbox: a rule narrowed to, say, <c>.form-check:not(.form-switch)
+    /// still wears <c>.form-check-input</c> — the selector app.css's
+    /// <c>halheinrich/backgammon#154</c> rule is written with — inside a
+    /// wrapper that now carries <c>form-check form-switch</c>. The app.css half
+    /// is that the <c>halheinrich/backgammon#154</c> rule really is written
+    /// unqualified, so it selects this input as readily as a plain checkbox: a
+    /// rule narrowed to, say, <c>.form-check:not(.form-switch)
     /// .form-check-input</c> would leave both classes above in place and the
     /// switch back at Bootstrap's 1.30:1 <c>#dee2e6</c>. The Bootstrap half is
-    /// that <c>.form-switch .form-check-input</c> — which outranks the #154 rule
-    /// at (0,2,0) — declares no <c>border-color</c> of its own, which is the one
-    /// fact that lets a (0,1,0) rule survive the switch rendering. An upgrade
-    /// that started colouring the switch's track would take the fix away
-    /// silently, and this is where it lands instead.
+    /// that <c>.form-switch .form-check-input</c> — which outranks the
+    /// <c>halheinrich/backgammon#154</c> rule at (0,2,0) — declares no
+    /// <c>border-color</c> of its own, which is the one fact that lets a
+    /// (0,1,0) rule survive the switch rendering. An upgrade that started
+    /// colouring the switch's track would take the fix away silently, and this
+    /// is where it lands instead.
     /// </para>
     ///
     /// <para>
@@ -741,15 +743,17 @@ public class MixPanelTests : BunitContext
         var cut = RenderPanel();
 
         // The markup half. The input is untouched — same element, same class
-        // the #154 rule selects — and only its wrapper gained the switch.
+        // the halheinrich/backgammon#154 rule selects — and only its wrapper
+        // gained the switch.
         var box = cut.Find("#mixApplies");
         Assert.Equal("checkbox", box.GetAttribute("type"));
         Assert.Contains("form-check-input", box.ClassList);
         Assert.Contains("form-check", box.ParentElement!.ClassList);
         Assert.Contains("form-switch", box.ParentElement!.ClassList);
 
-        // The app.css half: #154's rule, written unqualified, so it reaches
-        // every rendering of the class rather than the plain checkbox alone.
+        // The app.css half: the halheinrich/backgammon#154 rule, written
+        // unqualified, so it reaches every rendering of the class rather than
+        // the plain checkbox alone.
         // The whole set of selectors that colour a checkbox's border is pinned
         // rather than the presence of one of them — narrowing this rule is how
         // the switch would quietly lose the fix, and a narrowed rule is still a
