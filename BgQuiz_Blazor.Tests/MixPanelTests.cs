@@ -770,12 +770,18 @@ public class MixPanelTests : BunitContext
 
         // The Bootstrap half: the switch block styles the track and the knob
         // and leaves the border colour alone, which is what a (0,1,0) rule
-        // needs to survive a (0,2,0) one.
-        var switchBlock = Regex.Match(
-            File.ReadAllText(BootstrapCssPath()),
-            @"\.form-switch \.form-check-input\s*\{(?<body>[^{}]*)\}");
-        Assert.True(switchBlock.Success, "Bootstrap no longer styles .form-switch .form-check-input");
-        Assert.DoesNotContain("border-color", switchBlock.Groups["body"].Value);
+        // needs to survive a (0,2,0) one. Every rule whose selector is exactly
+        // that pair is read rather than the first one the file happens to hold:
+        // the shipped sheet is minified, so a first-match read is one no
+        // reviewer can eyeball, and Bootstrap already writes the selector more
+        // than once.
+        var switchBodies = Regex.Matches(
+                File.ReadAllText(BootstrapCssPath()), @"(?<selector>[^{}@]+)\{(?<body>[^{}]*)\}")
+            .Where(m => m.Groups["selector"].Value.Trim() is ".form-switch .form-check-input")
+            .Select(m => m.Groups["body"].Value)
+            .ToArray();
+        Assert.True(switchBodies.Length > 0, "Bootstrap no longer styles .form-switch .form-check-input");
+        Assert.All(switchBodies, body => Assert.DoesNotContain("border-color", body));
     }
 
     /// <summary>
@@ -786,9 +792,15 @@ public class MixPanelTests : BunitContext
         Path.GetFullPath(Path.Combine(
             Path.GetDirectoryName(thisFile)!, "..", "BgQuiz_Blazor", "wwwroot", "app.css"));
 
-    /// <summary>The host's bundled Bootstrap, the sheet the switch rendering comes from.</summary>
+    /// <summary>
+    /// The host's bundled Bootstrap, the sheet the switch rendering comes from
+    /// — the <b>minified</b> file, because that is the one
+    /// <c>App.razor</c> links and the only one git tracks. Its unminified
+    /// sibling is gitignored and exists only where Bootstrap was built locally,
+    /// so reading it passed here and threw <c>FileNotFoundException</c> on CI.
+    /// </summary>
     private static string BootstrapCssPath([CallerFilePath] string thisFile = "") =>
         Path.GetFullPath(Path.Combine(
             Path.GetDirectoryName(thisFile)!, "..", "BgQuiz_Blazor", "wwwroot",
-            "lib", "bootstrap", "dist", "css", "bootstrap.css"));
+            "lib", "bootstrap", "dist", "css", "bootstrap.min.css"));
 }
