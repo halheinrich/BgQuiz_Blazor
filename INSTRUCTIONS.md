@@ -323,7 +323,7 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
   StatsPersistenceTests.cs          — FS-Access stats path via the fake
   SavedFiltersPersistenceTests.cs   — saved-filters FS path via the fake
   MixWeightingTests.cs              — weighted start to Done (+ MixRefusalTests)
-  ApplyMixGatingTests.cs            — mix activation sequenced behind Apply Filter
+  MixVisibilityTests.cs             — visible ⟺ setting ∧ stats, pinned both ways
   PickBusyAffordanceTests.cs        — the pick's busy paint, scan held open
   CommaDecimalLocaleTests.cs        — nb-NO comma-decimal guard
   HelpAndTitlesTests.cs             — /help renders; document.title contract
@@ -612,8 +612,12 @@ outcome**: the host offers no way to build a mix where `CanWeightMix` is false,
 so what is left reachable is a bind that fails *after* the pick looked
 capable — a stats file that changed or turned unparseable in between. Either refusal returns `MixRequiresStats` having touched **no quiz
 state** (see Pitfalls). `RestartAsync(bool ignoreMix = false)` re-attempts the
-stored mix every time, so the mix re-applies whenever stats allow; the
-override is strictly per-run and the stored mix is never rewritten.
+stored mix, and **the caller decides whether to**: since
+`halheinrich/backgammon#5` `Done` passes `ignoreMix: !MixVisibility.IsVisible`,
+so a restart weights exactly when the panel does — one rule, no special case
+for the mix having come from a previous run. The controller is unchanged; what
+moved is which page-level fact it is handed. The override is strictly per-run
+and the stored mix is never rewritten.
 
 **Presentation telemetry for the Quiz page.** The mix-notice framing fact —
 whether the run's *effective* mix bound its percentages to a requested
@@ -1467,22 +1471,39 @@ picker), full category labels (the Quiz page's mix notices), the
 composition summary those notices lead with (`CompositionSummary` — "Your
 quiz has N problems: 195 Never seen + 5 Ever got wrong.", every entry's
 actual draw in declared order, zero-draw entries included), and the
-refusal reason (Home's Start and Done's Restart render the same
-capability/status rule — neither page hand-words it).
+refusal reason (Home's Start and Done's Restart render the same rule —
+neither page hand-words it). `RefusalReason` is **status-only** since
+`halheinrich/backgammon#5` (2026-09-07): it took the pick-time
+`FolderWriteCapability` and led with two capability arms until Restart began
+following the one rule, after which a weighted run can only happen where the
+panel was visible — so the capability is `Enabled` at every call by
+construction, and both arms were unreachable. A parameter whose every
+non-default value is unreachable only invites a caller to pass the wrong
+thing.
 
 **Honest notices, all three** (a fourth — the *signal early* won't-apply
 advisory — was retired when the panel became stats-gated, which made its state
 unreachable; don't re-add it, it has no trigger left). (1) *Gate late*: a
 refused weighted Start/Restart renders an actionable `role="alert"` with the
 reason and the one-click per-run override ("Start without mix" / "Restart
-without mix"); the mix rows and the checkbox are kept either way, and the
-notice says so — its keep-your-mix escape is *uncheck*, not *Clear mix*,
-because Clear now genuinely deletes the rows (screen-follows-storage). The
+without mix"); the mix rows and the setting are kept either way, and the
+notice says so — its keep-your-mix escape is *turn the mix off in Settings*,
+not *Clear mix*, because Clear genuinely deletes the rows
+(screen-follows-storage) and is not an off-switch. The
 reachable refusal is **stage 2 over a file that changed after the pick** — the
 pick-time probe found a readable record (or the panel would not have been
-offered), and the Start-time bind then didn't. Stage 1 can no longer meet a
-mix in effect through the UI at all, since #87 gates the panel on the same
-predicate stage 1 reads. (2) *Composed-to-zero*: Home's empty-result branch keys on
+offered, and so nothing would be in effect), and the Start-time bind then
+didn't. Stage 1 can no longer meet a mix in effect through the UI at all,
+since the panel is gated on the stats fact stage 1's policy is written over.
+
+Done carries a **fourth** notice, and it is not a refusal: since
+`halheinrich/backgammon#5` Restart weights iff the mix is visible *at that
+moment*, so a run that WAS weighted can meet a mix that has since gone (the
+setting turned off mid-quiz, or a re-pick to a folder without stats). That
+restarts unweighted, and `RestartWillDropTheMix` says so in one sentence
+**before** the click rather than refusing after it. The sentence names both
+ways the mix can have gone, because visibility is deliberately one fact and
+splitting it to word this better would be a second copy of its halves. (2) *Composed-to-zero*: Home's empty-result branch keys on
 `LastComposition is { DrawnCount: 0 }` for mix-aware wording, parallel to
 filtered-to-zero. (3) *Composition-first mix notices on Quiz*: every mix
 notice leads with the effective quiz — `MixDisplay.CompositionSummary` over
@@ -2591,11 +2612,20 @@ The asymmetry is pinned three times over: at the service seam
   active-context stats notices (`LoadFailed` status / `WriteFailed` alert) —
   a failure on the *final* Continue lands the user here without ever seeing
   the in-quiz notice; no subscription needed, the status cannot change while
-  Done is shown. Restart re-attempts the stored mix and handles refusal like
-  Home's Start (§ Pages → Home): `MixRequiresStats` renders the alert with
-  **"Restart without mix"**, and the marker stays cleared (nothing became
-  live). Both Restart buttons disable on `Controller.IsBusy` + `app-busy`
-  ("Back to setup" stays enabled — navigation only).
+  Done is shown. **Restart weights iff the mix is visible at that moment**
+  (`ignoreMix: !MixVisibility.IsVisible` — `halheinrich/backgammon#5`), and
+  where the finished run was weighted and the mix has since gone, the page says
+  so in one sentence before the click (`RestartWillDropTheMix`, over
+  `LastComposition is not null` — no new state) and restarts unweighted.
+  Refusal is otherwise handled like Home's Start (§ Pages → Home):
+  `MixRequiresStats` renders the alert with **"Restart without mix"**, and the
+  marker stays cleared (nothing became live). The page awaits
+  `QuizSettings.EnsureHydratedAsync` in its init, since half of what Restart
+  reads is a stored setting — Home has always hydrated it first, and awaiting
+  the completed cached task turns that claim about page ordering into something
+  structural at no render cost. Both Restart buttons disable on
+  `Controller.IsBusy` + `app-busy` ("Back to setup" stays enabled — navigation
+  only).
 - **`ScorePanel.razor`** — compact status strip used by both Quiz and Done.
   Renders the `Total` segment: Submitted / Correct (with %) / Skipped /
   average equity loss; optional Source name and Heading. Kept Total-only to
@@ -2994,13 +3024,23 @@ anyway, the state every first-time user of a folder is in. Every mix scenario
 now needs a seeded history first, which `SeedStatsHistoryAsync` supplies the
 only honest way: **run a quiz and feed the app's own captured write back** as
 the folder's pre-existing file, so no scenario hand-crafts the stats wire
-format. It ends by re-picking, which re-probes the seeded record *and* expires
-the seeding quiz's applied filter (the generation bumps past its key) — the
-state the Apply-Mix gate scenarios assume. Its wait is on the Apply-Mix gate
-hint, the one thing true only after the re-pick lands (panel mounted **and**
-no filter in effect);
-waiting on the folder summary would race, since the outgoing pick's reads
-identically. `MixRefusalTests` pins the refusal at its one remaining reachable
+format. It also turns the **weighted-mix setting on first**, through the
+Settings page, because since `SPEC-filtering.md` §5's ruling a seeded record
+alone no longer offers a panel; turning it on before the seeding quiz is
+deliberate, since that quiz's folder has no stats yet and so still shows no
+panel. It ends by re-picking, which re-probes the seeded record *and* expires
+the seeding quiz's applied filter (the generation bumps past its key). Its wait
+is on the **mix panel itself**, the one thing true only after the re-pick lands
+— it replaced the Apply-Mix gate hint, which said the same thing until the gate
+was deleted; waiting on the folder summary would race, since the outgoing
+pick's reads identically.
+
+`MixVisibilityTests` replaced `ApplyMixGatingTests`, whose subject (the "Mix
+applies" checkbox and its Fork A gate) was deleted. It pins the conjunction
+from **both** sides — a folder with stats and the setting off, and the setting
+on with a folder without stats — because either half alone is a passing test
+over a broken derivation, plus that composing needs no filter first and that
+*Clear mix* never becomes the off-switch. `MixRefusalTests` pins the refusal at its one remaining reachable
 path: a stats file that turns unreadable **after** the mix is committed —
 stage 2 → "Start without mix" → Done. Don't move it back to a corrupt-from-the-
 start file: the pick-time probe would hide the panel, leaving no mix to

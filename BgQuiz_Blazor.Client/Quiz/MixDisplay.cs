@@ -73,19 +73,29 @@ internal static class MixDisplay
     }
 
     /// <summary>
-    /// Why a weighted start was refused, worded for the refusal notice —
-    /// derived from the pick-time capability and, when the capability was
-    /// fine, the bound context's condition (the stage-2 unreadable-file
-    /// case). One rule, rendered identically by Home's Start and Done's
-    /// Restart.
+    /// Why a weighted start was refused, worded for the refusal notice — the
+    /// bound context's condition, and nothing else. One rule, rendered
+    /// identically by Home's Start and Done's Restart.
+    ///
+    /// <para>
+    /// <b>Status-only since <c>halheinrich/backgammon#5</c> (2026-09-07).</b>
+    /// It used to take the pick-time <see cref="FolderWriteCapability"/> and
+    /// lead with two capability arms — "can't save stats in your browser",
+    /// "write access was declined". Under <c>SPEC-filtering.md</c> §5's
+    /// "Visible means in effect" those arms are unreachable: a weighted run
+    /// happens only where the mix panel was visible, visibility reads the
+    /// folder's stats fact, and the probe behind that fact cannot find stats in
+    /// a folder it could not have written. So the capability is
+    /// <see cref="FolderWriteCapability.Enabled"/> by construction at every
+    /// call, and a parameter whose every non-default value is unreachable is a
+    /// parameter that only invites a caller to pass the wrong thing. Restart
+    /// closed the last hole by following the one rule with no special case,
+    /// which is what let this collapse (the 2026-09-07 reachability proof
+    /// against the consent model failed, and is recorded on the issue).
+    /// </para>
     /// </summary>
-    public static string RefusalReason(FolderWriteCapability capability, QuizStatsStatus status) =>
-        capability switch
-        {
-            FolderWriteCapability.BrowserUnsupported => "this folder pick can't save stats in your browser",
-            FolderWriteCapability.PermissionDenied => "write access to the folder was declined",
-            _ => status == QuizStatsStatus.LoadFailed
-                ? $"the existing {QuizStatsFile.FileName} couldn't be read"
-                : "no stats context could be bound",
-        };
+    public static string RefusalReason(QuizStatsStatus status) =>
+        status == QuizStatsStatus.LoadFailed
+            ? $"the existing {QuizStatsFile.FileName} couldn't be read"
+            : "no stats context could be bound";
 }

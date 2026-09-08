@@ -5,7 +5,8 @@
 
 @inject QuizController Controller
 @inject QuizStatsStore StatsStore
-@inject PickedProblemFolder Folder
+@inject QuizSettings Settings
+@inject MixVisibility MixVisibility
 @inject NavigationManager Nav
 @inject QuizLiveMarker Marker
 
@@ -61,17 +62,40 @@
         Total problems shown: <strong>@(ProblemsShown)</strong>.
     </p>
 
-    @* Weighted-restart refusal, mirroring Home's Start: the stored mix is
-       re-attempted on every Restart, and stats can have fallen away since the
-       last run (cleared pick, unreadable file). The refusal touches no
-       controller state — this summary stays intact — and the one-click
-       per-run escape sits inside the notice; the stored mix is never touched. *@
+    @* Restart follows the one rule with no special case (SPEC-filtering.md §5,
+       "Visible means in effect"; halheinrich/backgammon#5): it weights iff the
+       mix panel is visible AT THIS MOMENT. So a run that was weighted can find
+       the mix gone underneath it — the setting turned off from Settings
+       mid-quiz, or a re-pick to a folder without stats — and the honest thing is
+       to say so BEFORE the click rather than silently dropping the weighting or
+       refusing after it. One sentence, and it names both ways the mix can have
+       gone because this page cannot tell them apart: visibility is one fact,
+       deliberately, and splitting it here to word this better would be a second
+       copy of its halves. *@
+    @if (RestartWillDropTheMix)
+    {
+        <p class="text-muted" role="status">
+            This quiz was drawn from your weighted mix, but the mix isn't in
+            effect now — it's switched off in <strong>Settings</strong>, or the
+            folder in hand has no stats to weight by — so
+            <strong>Restart</strong> runs unweighted.
+        </p>
+    }
+
+    @* Weighted-restart refusal, mirroring Home's Start: a Restart that IS
+       weighted composes against the stats document, and the file can have
+       stopped being readable since the last run. That is now the only way here:
+       a cleared pick or a folder without stats takes the panel off screen, which
+       the rule above turns into an unweighted restart, not a refusal. The
+       refusal touches no controller state — this summary stays intact — and the
+       one-click per-run escape sits inside the notice; the stored mix is never
+       touched. *@
     @if (_mixRefused)
     {
         <div class="alert alert-warning" role="alert">
             <p class="mb-2">
                 Lifetime stats aren't available for a restart
-                (@MixDisplay.RefusalReason(Folder.Capability, StatsStore.Status)),
+                (@MixDisplay.RefusalReason(StatsStore.Status)),
                 so the weighted mix can't be applied.
             </p>
             <button class="btn btn-outline-primary btn-sm" id="restartWithoutMix"

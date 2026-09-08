@@ -8433,33 +8433,132 @@ public class PageTests : BunitContext
         Assert.DoesNotContain("requested", cut.Markup);
     }
 
-    [Fact]
-    public async Task Done_WeightedRestartWithoutStats_RefusedKeepsSummary_OverrideRestartsPassthrough()
+    /// <summary>
+    /// Run a weighted quiz to completion over a scriptable sink, so a
+    /// <c>Done</c> render has a finished, <i>weighted</i> run behind it —
+    /// <see cref="QuizController.LastComposition"/> non-null, which is what the
+    /// page reads as "this run was weighted".
+    /// </summary>
+    private async Task<QuizController> FinishAWeightedQuizAsync(FakeProblemStatsSink sink)
     {
-        // Restart re-attempts the stored mix; stats fell away in between. The
-        // refusal must leave the summary standing (touches-no-state) and the
-        // override must restart unweighted.
-        var c = WithWeighableController(out var sink,
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
+        var c = Services.GetRequiredService<QuizController>();
         await c.StartAsync(new FilterConfig(), NeverSeenMix());
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts the one-problem source → finished
         Assert.True(c.IsFinished);
+        Assert.NotNull(c.LastComposition); // the run really was weighted
+        return c;
+    }
 
-        sink.CanWeightMix = false; // e.g. the pick was cleared between quizzes
-        WithPickedFolder(); // Done reads capability for the refusal reason
+    /// <summary>
+    /// Make the mix visible for a <c>Done</c> render: the setting stored on,
+    /// and the picked folder probed with a stats record — <c>Home</c>'s two
+    /// reading points do not run here, so the probe is driven directly, which
+    /// is the state a real arrival at Done comes with (the pick ran it).
+    /// </summary>
+    private async Task MakeTheMixVisibleAsync()
+    {
+        WithMixSettingOn();
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
+        // Both halves have to be READ, not merely staged: Home hydrates the
+        // settings and runs the probe on the way through, and neither happens
+        // on a Done render that a test drives straight into.
+        await Services.GetRequiredService<QuizSettings>().EnsureHydratedAsync();
+        await Services.GetRequiredService<QuizStatsStore>().RefreshPickedStatsAsync();
+        Assert.True(MixIsInEffect());
+    }
+
+    /// <summary>
+    /// <b>Restart weights iff the mix is visible at that moment, with no
+    /// special case</b> (<c>SPEC-filtering.md</c> §5, "Visible means in
+    /// effect"; <c>halheinrich/backgammon#5</c>). A run that WAS weighted, met
+    /// by a mix that has since gone — here because the setting was turned off
+    /// from the Settings page mid-quiz — restarts <i>unweighted</i>, and the
+    /// page says so before the click rather than refusing after it.
+    ///
+    /// <para>
+    /// This is half of what
+    /// <c>Done_WeightedRestartWithoutStats_RefusedKeepsSummary_OverrideRestartsPassthrough</c>
+    /// used to be. That test staged "stats fell away between quizzes" as
+    /// <c>CanWeightMix = false</c> and expected a refusal; under the rule that
+    /// state takes the panel off screen instead, so it is no longer a refusal
+    /// at all. The refusal's surviving path is its sibling below.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Done_MixNoLongerVisible_SaysSo_AndRestartsUnweighted()
+    {
+        WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await MakeTheMixVisibleAsync();
+        var c = await FinishAWeightedQuizAsync(sink);
+
+        // The user turns the mix off from Settings while the quiz is finishing.
+        await TurnTheMixSettingOffAsync();
+        Assert.False(MixIsInEffect());
 
         var cut = Render<DonePage>();
+
+        // Said before the click, in one sentence naming both ways it can happen.
+        Assert.Contains("This quiz was drawn from your weighted mix", Normalize(cut.Markup));
+        Assert.Contains("Restart", Normalize(cut.Markup));
+        Assert.DoesNotContain("weighted mix can't be applied", cut.Markup); // no refusal yet
+
+        await cut.FindAll("button").First(b => b.TextContent.Contains("Restart with same filters"))
+            .ClickAsync(new());
+
+        // Unweighted, and not refused: the rule dropped the mix rather than
+        // carrying it into a folder the panel is no longer rendering under.
+        Assert.True(c.HasStarted);
+        Assert.False(c.IsFinished);
+        Assert.Null(c.LastComposition);
+        Assert.DoesNotContain("weighted mix can't be applied", cut.Markup);
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+        Assert.EndsWith("/quiz", nav.Uri);
+    }
+
+    /// <summary>
+    /// The refusal's <b>one surviving path</b>: the mix is still visible — so
+    /// Restart really does weight — and the stats file has stopped being
+    /// readable underneath it, which the pick-time probe cannot know. The
+    /// refusal must leave the summary standing (touches-no-state) and the
+    /// override must restart unweighted.
+    ///
+    /// <para>
+    /// The sibling above covers everything else that used to reach here. Note
+    /// the two sinks: the controller reads the scriptable fake (so the bind can
+    /// be made to fail), while visibility reads the real store the fixture
+    /// registers — the same split the page has, where the controller's refusal
+    /// and the panel's presence are different questions.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Done_WeightedRestartWithUnreadableStats_RefusedKeepsSummary_OverrideRestartsPassthrough()
+    {
+        WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await MakeTheMixVisibleAsync();
+        var c = await FinishAWeightedQuizAsync(sink);
+
+        // The mix is still on screen, so Restart weights — but the bind now
+        // yields no document (the file changed, or turned out unparseable).
+        sink.CurrentDocument = null;
+
+        var cut = Render<DonePage>();
+        // Nothing to disclose in advance: the mix IS still in effect.
+        Assert.DoesNotContain("This quiz was drawn from your weighted mix", Normalize(cut.Markup));
+
         await cut.FindAll("button").First(b => b.TextContent.Contains("Restart with same filters"))
             .ClickAsync(new());
 
         Assert.Contains("weighted mix can't be applied", cut.Markup);
+        // The reason is status-only now: no capability arm can reach this page.
+        Assert.Contains("no stats context could be bound", cut.Markup);
         Assert.True(c.IsFinished);                     // summary state survived the refusal
         Assert.Equal(1, c.Score.Total.Submitted);
 
-        sink.CurrentDocument = null; // override ignores the mix, so stats stay unused
         await cut.Find("#restartWithoutMix").ClickAsync(new());
 
         Assert.True(c.HasStarted);

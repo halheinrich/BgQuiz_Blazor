@@ -56,6 +56,15 @@ public partial class Done : ComponentBase
             return;
         }
 
+        // Restart reads the mix's visibility, half of which is a stored
+        // setting, so this page must not render its Restart affordances over an
+        // unhydrated QuizSettings. In practice Home has always hydrated it —
+        // reaching Done requires a Start, and Start happens there — but the
+        // call is idempotent and already complete by now, so awaiting it costs
+        // no render pass and turns a claim about page ordering into something
+        // structural.
+        await Settings.EnsureHydratedAsync();
+
         // Honest completion — no reload-reset to announce later. Clear the marker
         // (set on Start) so a subsequent boot doesn't misread a finished quiz as
         // one a reload interrupted.
@@ -72,7 +81,42 @@ public partial class Done : ComponentBase
     /// </summary>
     private bool _mixRefused;
 
-    private Task RestartAsync() => RestartCoreAsync(ignoreMix: false);
+    /// <summary>
+    /// Whether the finished run was weighted while a restart of it would not
+    /// be — the one state <see cref="RestartAsync"/>'s rule makes possible, and
+    /// the one this page has to disclose before the click.
+    ///
+    /// <para>
+    /// "Was weighted" is <see cref="QuizController.LastComposition"/>, which is
+    /// non-null exactly when a composing layer was wired: no new state, and no
+    /// second copy of what the last Start decided. "Would not be" is the same
+    /// <see cref="MixVisibility.IsVisible"/> the restart itself reads, so the
+    /// sentence cannot promise something other than what the button does.
+    /// </para>
+    /// </summary>
+    private bool RestartWillDropTheMix =>
+        Controller.LastComposition is not null && !MixVisibility.IsVisible;
+
+    /// <summary>
+    /// <b>Restart weights iff the mix panel is visible at this moment</b>
+    /// (<c>SPEC-filtering.md</c> §5, "Visible means in effect";
+    /// <c>halheinrich/backgammon#5</c>) — the same rule Home's Start follows,
+    /// with no special case for the fact that the mix being re-attempted came
+    /// from a previous run.
+    ///
+    /// <para>
+    /// It used to pass <c>ignoreMix: false</c> unconditionally and let the
+    /// controller re-attempt whatever the last Start stored, which is how a
+    /// weighted mix could reach a folder the panel was no longer rendering
+    /// under. Reading visibility here closes that: a weighted Restart is now
+    /// always against the pick the panel rendered under, so the folder's write
+    /// capability is <c>Enabled</c> by construction — which is what let
+    /// <see cref="MixDisplay.RefusalReason"/> collapse to status-only. When the
+    /// mix has gone the restart runs unweighted and
+    /// <see cref="RestartWillDropTheMix"/> has already said so.
+    /// </para>
+    /// </summary>
+    private Task RestartAsync() => RestartCoreAsync(ignoreMix: !MixVisibility.IsVisible);
 
     /// <summary>
     /// The refusal notice's one-click escape: restart this one quiz as
