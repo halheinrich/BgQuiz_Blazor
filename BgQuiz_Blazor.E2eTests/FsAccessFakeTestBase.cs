@@ -280,16 +280,30 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     /// scenarios assume: a folder held, its stats now readable (the pick
     /// re-probes), and no filter in effect for the current pick — the pick
     /// generation bumped past the key the seeding quiz's Apply left its config
-    /// under. The
-    /// wait is on the Apply-Mix gate hint, which is the one thing true only
-    /// after the re-pick lands: it needs the panel mounted (so the probe found
-    /// the seeded record) <i>and</i> nothing in effect (so the new pick is the
-    /// one being set up). Waiting on the folder summary instead would race — the
-    /// outgoing pick's summary reads identically.
+    /// under.
+    /// </para>
+    ///
+    /// <para>
+    /// It also turns the <b>weighted-mix setting</b> on first, because since
+    /// <c>SPEC-filtering.md</c> §5's "Visible means in effect" ruling that is
+    /// half of what makes a mix panel exist — seeding a stats record alone no
+    /// longer offers one. Turning it on before the seeding quiz is deliberate:
+    /// the first pick has no stats, so no panel appears then either, which is
+    /// what keeps the wait below a valid signal.
+    /// </para>
+    ///
+    /// <para>
+    /// The wait is on the <b>mix panel itself</b>, which is the one thing true
+    /// only after the re-pick lands: it needs the probe to have found the seeded
+    /// record, and the first pick could not have shown it. (It replaced the
+    /// Apply-Mix gate hint, which said the same thing until the gate was
+    /// deleted.) Waiting on the folder summary instead would race — the outgoing
+    /// pick's summary reads identically.
     /// </para>
     /// </summary>
     protected async Task SeedStatsHistoryAsync()
     {
+        await TurnOnTheWeightedMixSettingAsync();
         await PickFakeFolderAsync();
         await ApplyFilterAsync();
         await StartQuizAsync();
@@ -302,8 +316,7 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
         await ExpectUrlAsync("/");
 
         await PickFolderButton.ClickAsync();
-        await Expect(Page.GetByText("the mix draws its problems from the filtered pool"))
-            .ToBeVisibleAsync();
+        await Expect(MixPanel).ToBeVisibleAsync();
     }
 
     /// <summary>

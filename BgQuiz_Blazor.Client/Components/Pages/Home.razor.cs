@@ -19,17 +19,21 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// Pre-pick there is nothing to filter, weight, or start, so hiding them keeps
 /// the required first step — picking a folder — unmistakable, and makes the
 /// filter-half of the start gate true by construction (no panel to apply). The
-/// weighted mix carries a <i>further</i> gate, and it is the one shared
-/// predicate rather than a second reading of the pick: it renders only while
-/// <see cref="QuizStatsStore.CanWeightMix"/> — this folder can save stats
-/// <i>and</i> already holds a record with something in it (issue #87). Where
-/// that is false the mix plays no part in Start — the panel is hidden and every
-/// pick revokes the mix consent (see
-/// <see cref="EndCurrentSetupAsync"/>), so Start runs plain with no mix gate,
-/// warning, or refusal. Nothing is shown disabled and no reason is offered: the
-/// non-mount <i>is</i> the answer, and the accepted consequence is that a
-/// brand-new folder offers no mix until its own first quiz creates the stats a
-/// mix would weight by.
+/// weighted mix carries a <i>further</i> gate, and it is the one derivation
+/// rather than a second reading of anything: it renders only while
+/// <see cref="MixVisibility.IsVisible"/> — the user's standing
+/// <see cref="QuizSettings.WeightQuizzesByStats"/> setting is on <i>and</i> this
+/// folder already holds a stats record with something in it
+/// (<c>SPEC-filtering.md</c> §5, "Visible means in effect", ruled 2026-09-07;
+/// issue <c>halheinrich/backgammon#181</c>). That same fact is what
+/// <see cref="EffectiveMix"/> reads, so the panel being on screen and the rows
+/// being in effect are one fact: a visible mix always applies and a hidden one
+/// never does. Where it is false the mix plays no part in Start — the panel is
+/// hidden and the effective mix is the passthrough — so Start runs plain with no
+/// mix gate, warning, or refusal. Nothing is shown disabled and no reason is
+/// offered: the non-mount <i>is</i> the answer, and the accepted consequence is
+/// that a brand-new folder offers no mix until its own first quiz creates the
+/// stats a mix would weight by.
 /// </para>
 ///
 /// <para>
@@ -83,17 +87,17 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// with <c>Total: 0</c> — known-zero only, so a null or still-computing
 /// summary never gates and the no-match outcome notice stays the backstop
 /// for races), and an effective mix (<see cref="EffectiveMix"/> non-null —
-/// null means "Mix applies" is checked over an invalid draft, the one mix
-/// state that gates; an unchecked mix never does, per the spec's §5). Each
+/// null means the panel is visible over an invalid draft, the one mix state
+/// that gates; a hidden mix never does, per the spec's §5). Each
 /// gate has its own sibling hint stating its reason. Everything the gate
 /// reads lives in per-app scoped services (<see cref="AppliedFilter"/>,
-/// <see cref="PickedProblemFolder"/>, <see cref="MixConsent"/>,
+/// <see cref="PickedProblemFolder"/>, <see cref="MixVisibility"/>,
 /// <see cref="MixDraft"/>) rather than transient component fields, so the
 /// gate survives in-app navigation — when the page is re-instantiated on
 /// navigate-back it re-derives from the holders instead of resetting. On
 /// Start the applied <see cref="FilterConfig"/> and the effective
-/// <see cref="BgGame_Lib.QuizMix"/> — the on-screen draft's build when
-/// consented, the passthrough otherwise — are handed to the
+/// <see cref="BgGame_Lib.QuizMix"/> — the on-screen draft's build while the
+/// panel is visible, the passthrough otherwise — are handed to the
 /// <see cref="QuizController"/>, whose source factory builds a
 /// <see cref="WasmUploadedProblemSetSource"/> over the picked files, and the
 /// app navigates to <c>/quiz</c>. Pick failures and
@@ -120,9 +124,10 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <b>A pick ends the current setup — at the click.</b> Choosing a folder
 /// returns the whole setup surface to its pre-setup state
 /// (<see cref="EndCurrentSetupAsync"/>, shared with the <c>Clear</c> affordance,
-/// which encodes the same decision): folder and picked slot, the mix consent
-/// bit and the mix draft, the applied filter, and every pick-scoped notice and
-/// match count.
+/// which encodes the same decision): folder and picked slot, the mix draft, the
+/// applied filter, and every pick-scoped notice and match count. The mix
+/// setting is deliberately untouched — it is a choice, and choices outlive
+/// setups (§4).
 /// Nothing the user selected against the previous corpus can be assumed to mean
 /// the same thing against the next one, so Start is always re-gated by a pick,
 /// never inherited across one. Two things deliberately survive:
@@ -333,9 +338,11 @@ public partial class Home : ComponentBase, IDisposable
     /// but no lifetime stats are available. Drives the actionable refusal
     /// notice with its one-click per-run "Start without mix" override.
     /// Genuinely per-visit outcome state, so a component field like the
-    /// banners above; cleared on a new pick (capability may change), a "Mix
-    /// applies" toggle (the user has re-decided, so the refusal may be moot —
-    /// see <see cref="HandleConsentChanged"/>), and every Start attempt.
+    /// banners above; cleared on a new pick (capability may change) and on
+    /// every Start attempt. The third clear point went with the consent bit
+    /// and needed no replacement: the setting that turns the mix off now lives
+    /// on another page, so re-deciding means leaving this one, and a fresh
+    /// mount clears this field for free.
     /// </summary>
     private bool _mixRefused;
 
@@ -462,18 +469,25 @@ public partial class Home : ComponentBase, IDisposable
     /// every read — the one mix fact everything downstream reads
     /// (<see cref="CanStart"/>, its hint, <see cref="MixInEffect"/>, and the
     /// hand-off in <see cref="StartCoreAsync"/>), so screen and effect cannot
-    /// diverge (<c>SPEC-filtering.md</c> §5, Fork B: there is no committed
-    /// copy). Unchecked, the mix is simply not in effect — the passthrough
-    /// runs and nothing about the draft, however divergent from whatever ran
-    /// last, gates anything. Checked, the effect is the on-screen draft's
-    /// build: <see cref="QuizMix.Empty"/> for the blank draft (checked-but-
-    /// inert, ruled — vacuous consent is passthrough, not an error), and
+    /// diverge (<c>SPEC-filtering.md</c> §5: there is no committed copy).
+    ///
+    /// <para>
+    /// <b>Visible means in effect</b> (§5, ruled 2026-09-07). The condition is
+    /// <see cref="MixVisibility.IsVisible"/> — the same fact the markup renders
+    /// the panel from, read here rather than restated — so "the panel is on
+    /// screen" and "the rows on screen are what Start composes with" are one
+    /// fact and cannot disagree. Hidden, the mix is simply not in effect: the
+    /// passthrough runs and nothing about the draft, however divergent from
+    /// whatever ran last, gates anything. Visible, the effect is the on-screen
+    /// draft's build: <see cref="QuizMix.Empty"/> for the blank draft (blank is
+    /// the blank mix in effect — passthrough, ruled, not an error), and
     /// <see langword="null"/> exactly when the draft fails to validate — the
-    /// one mix state that gates Start, with the box left checked because it
-    /// records intent and only the user moves it.
+    /// one mix state that gates Start, with the panel left standing because
+    /// only the user fixes it or turns the setting off.
+    /// </para>
     /// </summary>
     private QuizMix? EffectiveMix =>
-        MixConsent.Applies ? MixDraft.Build() : QuizMix.Empty;
+        MixVisibility.IsVisible ? MixDraft.Build() : QuizMix.Empty;
 
     /// <summary>
     /// This page's identity for the corpus a filter can be applied against —
@@ -492,8 +506,9 @@ public partial class Home : ComponentBase, IDisposable
     /// The filter in effect for the pick on screen right now, or
     /// <see langword="null"/> when none is — the single fact this page's whole
     /// filter story reads: Start's filter gate (<see cref="CanStart"/>), its
-    /// hint, the mix's activation gate (<see cref="MixActivationEnabled"/>), and the
-    /// config <see cref="StartCoreAsync"/> actually runs. Source-relative by
+    /// hint, and the config <see cref="StartCoreAsync"/> actually runs — the
+    /// mix's activation gate was the third reader until the 2026-09-07 ruling
+    /// deleted activation itself (SPEC-filtering.md §5). Source-relative by
     /// construction, so a config applied against an earlier pick expires
     /// without anyone clearing anything: the generation bumps and the key stops
     /// matching. Nothing here can answer "has this folder ever been filtered" —
@@ -505,7 +520,7 @@ public partial class Home : ComponentBase, IDisposable
     /// Four gates, each with its own sibling hint in the markup: a filter in
     /// effect for this pick, a folder with problem files picked, a filtered
     /// pool not <i>known</i> to be empty, and an effective mix (see
-    /// <see cref="EffectiveMix"/> — null exactly when "Mix applies" is checked
+    /// <see cref="EffectiveMix"/> — null exactly when the mix panel is visible
     /// over an invalid draft).
     ///
     /// <para>
@@ -526,56 +541,6 @@ public partial class Home : ComponentBase, IDisposable
         && Folder.HasFiles
         && _matchSummary is not { AnswerTypes.Total: 0 }
         && EffectiveMix is not null;
-
-    /// <summary>
-    /// The "Mix applies" checkbox's <i>check</i> gate: whether a filter is in
-    /// effect for this pick <i>now</i> (<see cref="FilterInEffect"/>). Ratified
-    /// UX sequencing, not a data-flow requirement — the mix composes over the
-    /// filtered pool at <i>Start</i>, so activating one first would be legal
-    /// and harmless in the pipeline; what it isn't is legible, because the
-    /// panel gives no hint that the mix draws from the filter's pool. Gating
-    /// the gesture is what states the dependency direction.
-    ///
-    /// <para>
-    /// <b>The same fact Start reads — the spec's Fork A, ruled strict.</b>
-    /// Activation requires the filter in effect at this moment, so editing the
-    /// filter darkens the <i>check</i> gesture until the filter is re-applied,
-    /// exactly as it darkens Start. Accepted cost: mid-composition friction.
-    /// What it buys is that no fact of the form "this folder was filtered at
-    /// some point" survives anywhere in the model (§3). Nothing can <i>run</i>
-    /// wrong in the window either way, since Start is dead while the filter is
-    /// dirty. Gates checking only — an already-checked box stays operable
-    /// (unchecking is the universal way out and is never taken away), and the
-    /// bit itself is untouched: the app flips consent in neither direction.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Derived, and deliberately not coupled to the mix's lifetimes.</b>
-    /// Nothing about <see cref="MixDraft"/> or <see cref="MixConsent"/> takes
-    /// part: the gate is a property of the <i>filter</i> and the <i>pick</i>
-    /// alone, read live per render. A new pick revokes it by construction —
-    /// the generation bumps and <see cref="FilterInEffect"/> stops matching.
-    /// And <i>Clear mix</i> stays ungated in every state: it is a way out,
-    /// never a way in. Deliberately <b>not</b> pool-gated either (see
-    /// <see cref="CanStart"/>).
-    /// </para>
-    /// </summary>
-    private bool MixActivationEnabled => FilterInEffect is not null;
-
-    /// <summary>
-    /// The muted hint the mix panel shows while
-    /// <see cref="MixActivationEnabled"/> is false and the box is unchecked —
-    /// the host-owned sentence, mirroring
-    /// <see cref="SavedFiltersDisabledReason"/>'s contract with the composite's
-    /// saved-filters half. It states the <i>reason</i> for the ordering
-    /// (the mix draws from the filtered pool), not merely the rule, because the
-    /// rule alone is what the user found arbitrary.
-    /// </summary>
-    private string? MixActivationDisabledReason =>
-        MixActivationEnabled
-            ? null
-            : "Apply the filters above first — the mix draws its problems from the "
-              + "filtered pool, so the filters come first.";
 
     /// <summary>
     /// Whether a non-passthrough mix is in effect right now — checked <i>and</i>
@@ -617,14 +582,17 @@ public partial class Home : ComponentBase, IDisposable
     /// </summary>
     protected override async Task OnInitializedAsync()
     {
-        // The start gate derives from the mix draft and the consent bit (see
-        // EffectiveMix), and both are moved inside MixPanel — a child whose
-        // gestures don't pass through this component. Subscribe so any change
-        // re-renders the gate (the standard Blazor state-container pattern;
-        // every mutation happens on the renderer's sync context, so the
-        // handlers are safe to hand over directly). Unsubscribed in Dispose.
+        // The start gate derives from the mix draft (see EffectiveMix), which
+        // is moved inside MixPanel — a child whose gestures don't pass through
+        // this component. Subscribe so any change re-renders the gate (the
+        // standard Blazor state-container pattern; every mutation happens on
+        // the renderer's sync context, so the handler is safe to hand over
+        // directly). Unsubscribed in Dispose.
+        //
+        // Visibility's other half — the setting — needs no subscription: it
+        // moves only on the Settings page, which this page cannot be mounted
+        // beside, so a change is always followed by a fresh mount here.
         MixDraft.Changed += StateHasChanged;
-        MixConsent.Changed += HandleConsentChanged;
 
         // Hydrate the user's settings here, where every quiz begins. Nothing on
         // this page renders them, but the Quiz page's board does, on its very
@@ -654,24 +622,22 @@ public partial class Home : ComponentBase, IDisposable
     }
 
     /// <summary>
-    /// The consent bit moved — the "Mix applies" gesture. Re-render like any
-    /// draft change, and retire a standing weighted-start refusal: the toggle
-    /// is the model's nearest analog of the commit that used to moot it (the
-    /// user has re-decided what the mix should be doing, so a notice about the
-    /// previous decision is stale). The notice's other clear points — a new
-    /// pick, every Start attempt — are unchanged.
+    /// Detach from the app-scoped mix draft — the page dies before the Scoped
+    /// services do.
+    ///
+    /// <para>
+    /// One handler now, not two: the consent bit's subscription went with the
+    /// bit. Its side job — retiring a standing weighted-start refusal when the
+    /// user re-decided what the mix should be doing — needs no replacement,
+    /// because the setting that replaced it can only be changed from another
+    /// page, and <see cref="_mixRefused"/> is a component field that a fresh
+    /// mount clears for free. The notice's other clear points — a new pick,
+    /// every Start attempt — are unchanged.
+    /// </para>
     /// </summary>
-    private void HandleConsentChanged()
-    {
-        _mixRefused = false;
-        StateHasChanged();
-    }
-
-    /// <summary>Detach from the app-scoped mix services — the page dies before the Scoped services do.</summary>
     public void Dispose()
     {
         MixDraft.Changed -= StateHasChanged;
-        MixConsent.Changed -= HandleConsentChanged;
     }
 
     /// <summary>
@@ -930,8 +896,7 @@ public partial class Home : ComponentBase, IDisposable
     ///
     /// <para>
     /// <b>Everything pick-scoped goes.</b> The folder holder and the JS module's
-    /// picked slot, the mix consent bit and the mix draft (the
-    /// <see cref="MixConsent"/> revoke and <see cref="MixDraft.Discard"/> —
+    /// picked slot, the mix draft (<see cref="MixDraft.Discard"/> —
     /// see the inline comment; the <i>stored</i> mix deliberately survives),
     /// the applied filter (see below), and every pick-scoped notice
     /// and match count (<see cref="ClearPickNotices"/>). The saved-filters
@@ -997,19 +962,18 @@ public partial class Home : ComponentBase, IDisposable
     private async Task EndCurrentSetupAsync()
     {
         Folder.Clear();
-        // The mix's consent dies with the setup; its rows do not (§4: your
-        // choices outlive the setup, your consent does not). Revoke is
-        // UNCONDITIONAL, which is what settles issue #87's third ruling with
-        // no code: a mix in effect for the outgoing folder cannot survive
-        // into one whose predicate is false, because consent survives into no
-        // folder at all. Discard blanks the draft and forgets hydration —
-        // deliberately without touching localStorage — so a mix-capable
-        // pick's re-mounted panel re-hydrates the stored last-valid mix,
-        // visible but inert until the user re-checks the box; a pick that
-        // can't mean a mix mounts no panel, re-hydrates nothing, and the
-        // revoked consent keeps the mix out of its Start with no capability
-        // fork in the gate.
-        MixConsent.Revoke();
+        // The mix's rows outlive the setup (§4), so this is the draft's
+        // in-memory reset and not a deletion: Discard blanks the builder and
+        // forgets hydration — deliberately without touching localStorage — so
+        // a mix-capable pick's re-mounted panel re-hydrates the stored
+        // last-valid mix. Nothing sits beside it any more. The consent revoke
+        // that did is gone with the bit: visibility is derived per render from
+        // a standing setting and the incoming pick's own stats fact
+        // (SPEC-filtering.md §5, "Visible means in effect"), so a mix in effect
+        // for the outgoing folder cannot survive into a folder without stats —
+        // the derivation simply reads false there, with no state to reset and
+        // no capability fork in the gate. Into a folder that HAS stats it does
+        // carry, and applies, which is the ruling.
         MixDraft.Discard();
         // Drop the applied pair outright — see the method summary for why this
         // is residue-dropping now rather than the gate close it once was. The
@@ -1222,10 +1186,10 @@ public partial class Home : ComponentBase, IDisposable
     private async Task StartCoreAsync(bool ignoreMix)
     {
         if (FilterInEffect is not { } cfg) return;
-        // The effective mix is the on-screen draft's build when "Mix applies"
-        // is checked, the passthrough otherwise (see EffectiveMix). Null means
-        // checked-and-invalid — CanStart is dark and its hint says why, so
-        // this early return is the backstop for programmatic dispatch only,
+        // The effective mix is the on-screen draft's build while the mix
+        // panel is visible, the passthrough otherwise (see EffectiveMix). Null
+        // means visible-and-invalid — CanStart is dark and its hint says why,
+        // so this early return is the backstop for programmatic dispatch only,
         // same as the filter guard above.
         if (EffectiveMix is not { } mix) return;
         _startError = null;

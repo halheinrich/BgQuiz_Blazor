@@ -81,6 +81,9 @@ public partial class Settings : ComponentBase
         UserSettings.SetMaximumHiddenCandidateAnalysisLevelAsync(
             QuizSettings.LevelFromToken(token));
 
+    private Task SetWeightQuizzesByStatsAsync(bool value) =>
+        UserSettings.SetWeightQuizzesByStatsAsync(value);
+
     private Task SetKeepNavigationPanelFoldedAsync(bool value) =>
         UserSettings.SetKeepNavigationPanelFoldedAsync(value);
 

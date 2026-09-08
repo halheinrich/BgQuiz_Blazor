@@ -13,8 +13,8 @@ using XgFilter_Razor;
 /// <c>Settings</c> page edits: which side the home board renders on, whether
 /// that side is re-rolled per problem, whether the board is maximized while the
 /// user answers, how the solution's candidate list is ordered and which shallow
-/// evaluations are left out of it, and whether the
-/// navigation panel stays folded. Every setting is recorded and persisted the
+/// evaluations are left out of it, whether quizzes are drawn by the weighted
+/// mix, and whether the navigation panel stays folded. Every setting is recorded and persisted the
 /// moment it is changed — there is no Apply gesture anywhere in this service.
 /// When each becomes <i>visible</i> is a separate question, and the fold answers
 /// it differently from every other setting here: see
@@ -22,8 +22,8 @@ using XgFilter_Razor;
 ///
 /// <para>
 /// <b>No draft, no commit, no dirty flag — deliberately.</b> Unlike the
-/// start-gate state (<see cref="AppliedFilter"/>, <see cref="MixConsent"/> +
-/// <see cref="MixDraft"/>), nothing here is composed into a quiz at a Start
+/// start-gate state (<see cref="AppliedFilter"/>, <see cref="MixDraft"/>),
+/// nothing here is composed into a quiz at a Start
 /// gesture, so there is no half-edited state to guard against and no gate to
 /// derive: a toggle is a complete, immediately valid choice, the same reasoning
 /// <see cref="ShuffleOption"/> records. Introducing a draft/commit lifetime split
@@ -31,11 +31,16 @@ using XgFilter_Razor;
 /// </para>
 ///
 /// <para>
-/// <b>No <c>Changed</c> event.</b> The <c>Settings</c> page binds straight to
-/// these properties and is the only component that renders them, so there is no
-/// second consumer to notify — the state-container pattern
-/// <see cref="MixDraft.Changed"/> exists for buys nothing here. Add notify
-/// plumbing if (and only if) a real simultaneous consumer appears.
+/// <b>No <c>Changed</c> event.</b> The <c>Settings</c> page is the only
+/// component that renders these properties, and the one reader elsewhere —
+/// <see cref="MixVisibility"/>, over
+/// <see cref="WeightQuizzesByStats"/> — cannot be on screen while they move:
+/// changing a setting means standing on the Settings page, so every surface
+/// derived from one re-renders on its own next mount. That is a fact about
+/// where the controls live, not a timing bet, and it is why the
+/// state-container pattern <see cref="MixDraft.Changed"/> exists for still
+/// buys nothing here. Add notify plumbing if (and only if) a setting ever
+/// becomes editable from a page that also renders something derived from it.
 /// </para>
 ///
 /// <para>
@@ -124,6 +129,7 @@ internal sealed class QuizSettings(IJSRuntime js)
     private const string SortAnalysisByDepthFirstField = "sortAnalysisByDepthFirst";
     private const string MaximumHiddenCandidateAnalysisLevelField =
         "maximumHiddenCandidateAnalysisLevel";
+    private const string WeightQuizzesByStatsField = "weightQuizzesByStats";
 
     // The defaults, named once so the property initializers and the
     // missing-field fallbacks in Restore cannot disagree.
@@ -132,6 +138,7 @@ internal sealed class QuizSettings(IJSRuntime js)
     private const bool DefaultKeepNavigationPanelFolded = false;
     private const bool DefaultMaximizeBoardWhileAnswering = true;
     private const bool DefaultSortAnalysisByDepthFirst = false;
+    private const bool DefaultWeightQuizzesByStats = false;
 
     // static readonly rather than const only because a nullable enum cannot be
     // const; it is named for the same reason its five neighbours are.
@@ -247,6 +254,36 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// </summary>
     public bool SortAnalysisByDepthFirst { get; private set; } =
         DefaultSortAnalysisByDepthFirst;
+
+    /// <summary>
+    /// Whether quizzes are drawn by the weighted mix — <b>the one control over
+    /// the mix</b> (<c>SPEC-filtering.md</c> §5, "Visible means in effect",
+    /// ruled 2026-09-07). It is half of the <i>visible</i> derivation; the
+    /// folder's stats fact is the other half, and
+    /// <see cref="MixVisibility"/> is the single place the two meet. Visible
+    /// means the rows on screen are in effect at Start, so this setting and
+    /// the panel's presence say the same thing and cannot disagree.
+    ///
+    /// <para>
+    /// <b>A choice, never consent</b> — which is precisely why it lives here
+    /// and not in a scoped bit of its own. The <c>MixConsent</c> it replaced
+    /// was consent in §4's sense: a folder change or a reload revoked it, so
+    /// weighting had to be re-armed by hand for every setup. As a setting it
+    /// survives navigation, reload and setup boundaries alike, and no gesture
+    /// expires it. Carrying a mix into another folder that has stats therefore
+    /// weights there — the panel on screen is the disclosure.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Default off</b>, and the absent-field rule of
+    /// <see cref="MaximizeBoardWhileAnswering"/> applies unchanged: every
+    /// payload written before this setting existed restores to off, which is
+    /// what lets it ship with no migration. Off is the product's own answer —
+    /// weighting is the deliberate mode, not the one you get by not choosing.
+    /// </para>
+    /// </summary>
+    public bool WeightQuizzesByStats { get; private set; } =
+        DefaultWeightQuizzesByStats;
 
     /// <summary>
     /// The deepest evaluation the user wants left out of the solution's
@@ -442,6 +479,19 @@ internal sealed class QuizSettings(IJSRuntime js)
     }
 
     /// <summary>
+    /// Record the weight-quizzes-by-stats choice, applying and persisting
+    /// immediately. Like every setting but the fold there is nothing to defer:
+    /// the mix panel is derived from this on <c>Home</c>'s next render, and no
+    /// page the user is standing in gets pulled out from under them by it —
+    /// the Settings page renders no mix surface of its own.
+    /// </summary>
+    public Task SetWeightQuizzesByStatsAsync(bool value)
+    {
+        WeightQuizzesByStats = value;
+        return PersistAsync();
+    }
+
+    /// <summary>
     /// Record the hide ceiling, applying and persisting immediately — the same
     /// non-deferral as <see cref="SetSortAnalysisByDepthFirstAsync"/>.
     /// </summary>
@@ -584,6 +634,7 @@ internal sealed class QuizSettings(IJSRuntime js)
             {
                 writer.WriteNull(MaximumHiddenCandidateAnalysisLevelField);
             }
+            writer.WriteBoolean(WeightQuizzesByStatsField, WeightQuizzesByStats);
             writer.WriteEndObject();
         }
         return Encoding.UTF8.GetString(buffer.WrittenSpan);
@@ -612,6 +663,7 @@ internal sealed class QuizSettings(IJSRuntime js)
         bool maximizeBoardWhileAnswering;
         bool sortAnalysisByDepthFirst;
         AnalysisLevel? maximumHiddenCandidateAnalysisLevel;
+        bool weightQuizzesByStats;
         try
         {
             using var document = JsonDocument.Parse(json);
@@ -641,6 +693,12 @@ internal sealed class QuizSettings(IJSRuntime js)
                 root,
                 MaximumHiddenCandidateAnalysisLevelField,
                 DefaultMaximumHiddenCandidateAnalysisLevel);
+            // Absent from every payload written while the mix was armed by a
+            // per-setup consent bit, and defaulting to off — so an entry from
+            // such a build restores with the mix turned off, which is the state
+            // a reload left that bit in anyway. No migration, no version stamp.
+            weightQuizzesByStats =
+                ReadBool(root, WeightQuizzesByStatsField, DefaultWeightQuizzesByStats);
         }
         catch (JsonException)
         {
@@ -653,6 +711,7 @@ internal sealed class QuizSettings(IJSRuntime js)
         MaximizeBoardWhileAnswering = maximizeBoardWhileAnswering;
         SortAnalysisByDepthFirst = sortAnalysisByDepthFirst;
         MaximumHiddenCandidateAnalysisLevel = maximumHiddenCandidateAnalysisLevel;
+        WeightQuizzesByStats = weightQuizzesByStats;
     }
 
     private static bool ReadBool(JsonElement root, string name, bool fallback) =>

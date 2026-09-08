@@ -55,16 +55,39 @@ internal interface IProblemStatsSink
     /// </para>
     ///
     /// <para>
-    /// <b>Naming trigger.</b> This puts a <i>mix</i> policy on a stats
-    /// abstraction, deliberately: the honest fact-level alternative
-    /// (<c>PickedFolderHasStats</c>) would scatter the "a mix needs stats"
-    /// rule across both consumers instead, which is worse at two call sites.
-    /// The first consumer of "does this folder have stats" that is <i>not</i>
-    /// about the mix — a stats viewer, or issue #43's saved-mix gating — is
-    /// when this should split into the fact plus the policy over it.
+    /// <b>The policy half, over <see cref="PickedFolderHasStats"/>'s fact.</b>
+    /// The split the naming trigger here asked for arrived with
+    /// <c>SPEC-filtering.md</c> §5's "Visible means in effect" ruling
+    /// (2026-09-07), whose visibility derivation is the first consumer of the
+    /// bare fact: this member stays the policy — weighting also needs a
+    /// folder that can hold stats — and states it once for the controller's
+    /// stage-1 refusal.
     /// </para>
     /// </summary>
     bool CanWeightMix { get; }
+
+    /// <summary>
+    /// <b>The fact:</b> the folder picked right now holds a stats document
+    /// with content — the pick-time probe's verdict, and nothing else. No
+    /// policy: it says what is in the folder, not what may be done about it.
+    ///
+    /// <para>
+    /// Missing, empty, and unreadable remain <i>one</i> answer
+    /// (<see langword="false"/>), the same ratified rule
+    /// <see cref="CanWeightMix"/> is written over. Expires with the pick by
+    /// construction — a probe taken against an earlier pick stops describing
+    /// the folder in hand — so no consumer has to ask how fresh it is.
+    /// </para>
+    ///
+    /// <para>
+    /// Its consumer is the mix's <i>visible</i> derivation
+    /// (<c>SPEC-filtering.md</c> §5, "Visible means in effect": visible ⟺ the
+    /// setting is on ∧ this fact), which asks what the folder holds rather
+    /// than whether a weighted run may proceed — the question
+    /// <see cref="CanWeightMix"/> answers for the controller.
+    /// </para>
+    /// </summary>
+    bool PickedFolderHasStats { get; }
 
     /// <summary>
     /// The live lifetime-stats document of the active context, or
@@ -159,7 +182,8 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// The pick-time probe's verdict: whether the picked folder's stats
     /// document exists and holds at least one problem. Written only by
     /// <see cref="RefreshPickedStatsAsync"/>, read only through
-    /// <see cref="CanWeightMix"/>, and deliberately never consulted by the
+    /// <see cref="PickedFolderHasStats"/> (and so, transitively, through
+    /// <see cref="CanWeightMix"/>), and deliberately never consulted by the
     /// bind path — a fresh folder with no stats still binds and still records.
     /// </summary>
     private bool _pickedHasStats;
@@ -295,8 +319,25 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     private bool ProbeDescribesTheCurrentPick => _statsProbeGeneration == _folder.PickGeneration;
 
     /// <inheritdoc/>
-    public bool CanWeightMix =>
-        FolderCanHoldStats && _pickedHasStats && ProbeDescribesTheCurrentPick;
+    public bool PickedFolderHasStats => _pickedHasStats && ProbeDescribesTheCurrentPick;
+
+    /// <inheritdoc/>
+    ///
+    /// <remarks>
+    /// Written as the capability over the fact, which is the model's shape
+    /// (<c>SPEC-filtering.md</c> §5) rather than a redundancy to fold away.
+    /// The two terms happen to be inseparable in <i>this</i> class:
+    /// <see cref="RefreshPickedStatsAsync"/> returns early under a false
+    /// <see cref="FolderCanHoldStats"/> leaving <see cref="_pickedHasStats"/>
+    /// false, and <see cref="PickedProblemFolder.Capability"/> moves only in
+    /// <c>Set</c>/<c>Clear</c>, both of which bump the generation the probe is
+    /// stamped with — so a true fact implies a capable folder and this
+    /// conjunction can never be narrower than its right-hand side. That is an
+    /// invariant of the probe, not of the model: a future fact learned some
+    /// other way (a cached read, a server-side stats source) would separate
+    /// them, and the policy has to keep saying which half it needs.
+    /// </remarks>
+    public bool CanWeightMix => FolderCanHoldStats && PickedFolderHasStats;
 
     /// <summary>
     /// <b>The name the picked folder's stats document would be set aside under

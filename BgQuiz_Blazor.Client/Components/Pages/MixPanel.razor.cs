@@ -6,25 +6,26 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 
 /// <summary>
 /// The stats-weighted mix builder hosted on <c>Home</c> — a <b>view</b> over
-/// the app-scoped <see cref="MixDraft"/> and <see cref="MixConsent"/>: every
-/// gesture routes through the draft's mutators or the consent bit, and the
-/// markup renders the draft's rows, toggle, length, and validation. The panel
-/// holds no state of its own, so mix edits and the activation bit survive
-/// in-app navigation with their services (ratified product behavior), and
+/// the app-scoped <see cref="MixDraft"/>: every gesture routes through the
+/// draft's mutators, and the markup renders the draft's rows, toggle, length,
+/// and validation. The panel holds no state of its own, so mix edits survive
+/// in-app navigation with their service (ratified product behavior), and
 /// everything Start derives from shares one lifetime.
 ///
 /// <para>
-/// <b>Activation is the "Mix applies" checkbox — the sole control</b>
-/// (<c>SPEC-filtering.md</c> §5, Fork B; it replaced the Apply Mix button
-/// outright). Checked means the on-screen mix is in effect: there is no
-/// committed copy, no commit gesture, and no event to the host — the host
-/// observes <see cref="MixConsent.Changed"/> / <see cref="MixDraft.Changed"/>
-/// like any other state-container subscriber. The check gesture is gated by
-/// <see cref="CanActivate"/> (the host's Fork A fact: the filter is in effect
-/// <i>now</i>); <b>unchecking is always live</b> — the box is disabled only
-/// while unchecked-and-gated, so consent can always be withdrawn, which is
-/// what keeps a checked-but-invalid mix (Start gated, hint says
-/// fix-or-uncheck) from ever wedging.
+/// <b>There is no activation control, because being mounted is the
+/// activation</b> (<c>SPEC-filtering.md</c> §5, "Visible means in effect",
+/// ruled 2026-09-07). The host mounts this panel exactly while
+/// <see cref="MixVisibility.IsVisible"/>, and reads the same member to decide
+/// what Start composes with, so the rows on screen are in effect whenever they
+/// are on screen at all. That deletes the "Mix applies" checkbox
+/// (<c>halheinrich/backgammon#182</c>'s form switch with it), its asymmetric
+/// gate, and Fork A's activation sequencing — the panel now takes no parameters
+/// whatever, and the host observes <see cref="MixDraft.Changed"/> like any other
+/// state-container subscriber. The user's off-switch is the
+/// <see cref="QuizSettings.WeightQuizzesByStats"/> setting, which unmounts this
+/// panel rather than sitting inside it; a mix that fails to validate gates Start
+/// with a hint saying to fix it or turn the mix off.
 /// </para>
 ///
 /// <para>
@@ -33,17 +34,17 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// follows the screen with no commit moment; this panel never touches a
 /// serializer or localStorage. <i>Clear mix</i> is
 /// <see cref="MixDraft.ClearAsync"/> whole: blank the builder and persist the
-/// blank mix — deliberate row removal, its one honest job. It never touches
-/// the checkbox (checked over blank is vacuous, in-effect passthrough — the
-/// app flips the bit in neither direction).
+/// blank mix — deliberate row removal, its one honest job. Blank stays a mix
+/// in effect, the passthrough (ruled), which is what the zero-row copy says.
 /// </para>
 ///
 /// <para>
 /// <b>Hydration is the draft's, triggered here.</b> Init awaits the
 /// idempotent <see cref="MixDraft.EnsureHydratedAsync"/>: the first mount of
-/// a setup loads the stored last-valid mix into the draft — visible but inert
-/// until the user checks the box; a re-mount after in-app navigation finds
-/// the draft already hydrated and shows it as-is, edits included.
+/// a setup loads the stored last-valid mix into the draft — and, since this
+/// panel is mounted only where the mix is in effect, loads it <i>in effect</i>;
+/// a re-mount after in-app navigation finds the draft already hydrated and
+/// shows it as-is, edits included.
 /// </para>
 ///
 /// <para>
@@ -71,41 +72,10 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 public partial class MixPanel : ComponentBase
 {
     /// <summary>
-    /// Gates the <b>check</b> gesture of "Mix applies" — the host's Fork A
-    /// fact ("the filter is in effect right now", the same fact Start reads),
-    /// told to this panel because the panel knows nothing of filters. Gates
-    /// checking only: while the box is already checked it renders enabled
-    /// regardless, so unchecking — the universal way out — is never taken
-    /// away, and the app never unchecks on the user's behalf.
-    ///
-    /// <para>
-    /// Defaults to <see langword="true"/> (a host that doesn't sequence its
-    /// panels gets an always-checkable box), but is <c>[EditorRequired]</c>
-    /// all the same: with the Apply event gone this component has no other
-    /// required binding, and a future host mounting it bare would otherwise
-    /// compile silently into an ungated activation control. The
-    /// <see cref="HandleAppliesChanged"/> backstop enforces the gate even for
-    /// programmatic event dispatch that ignores the <c>disabled</c> attribute.
-    /// </para>
-    /// </summary>
-    [Parameter, EditorRequired] public bool CanActivate { get; set; } = true;
-
-    /// <summary>
-    /// Host-supplied explanation shown while the check gesture is gated
-    /// (<see cref="CanActivate"/> false and the box unchecked) — as the
-    /// disabled checkbox's <c>title</c> and as a muted hint line beneath the
-    /// controls. Ignored otherwise. The sentence belongs to the host because
-    /// the <i>rule</i> does: this panel knows nothing of what it is being
-    /// sequenced behind. <c>[EditorRequired]</c> beside its gate for the same
-    /// reason the gate is: a host that sequences must also say why.
-    /// </summary>
-    [Parameter, EditorRequired] public string? ActivateDisabledReason { get; set; }
-
-    /// <summary>
     /// Trigger the draft's once-per-setup hydration. Awaiting it here (rather
     /// than in the draft's constructor) keeps the JS read tied to the panel
-    /// actually being offered — under a no-stats pick no panel mounts, the
-    /// draft stays blank, and the mix plays no part in the start gate.
+    /// actually being offered — where the mix is not visible no panel mounts,
+    /// the draft stays blank, and the mix plays no part in the start gate.
     /// </summary>
     protected override Task OnInitializedAsync() => Draft.EnsureHydratedAsync();
 
@@ -167,21 +137,4 @@ public partial class MixPanel : ComponentBase
         return Task.CompletedTask;
     }
 
-    /// <summary>The gated checkbox's tooltip — the host's reason, or nothing while checking is available (or the box is checked).</summary>
-    private string? ActivateDisabledTitle =>
-        !CanActivate && !Consent.Applies ? ActivateDisabledReason : null;
-
-    /// <summary>
-    /// The "Mix applies" gesture. Asymmetric by design: unchecking always
-    /// lands (consent can always be withdrawn), while a <i>check</i> arriving
-    /// past the gate — programmatic dispatch ignores <c>disabled</c> — is
-    /// dropped, mirroring the old Apply backstop. No other logic: effect is
-    /// derived by the host from the bit and the draft, never computed here.
-    /// </summary>
-    private void HandleAppliesChanged(ChangeEventArgs e)
-    {
-        var requested = e.Value is true;
-        if (requested && !CanActivate) return;
-        Consent.Set(requested);
-    }
 }

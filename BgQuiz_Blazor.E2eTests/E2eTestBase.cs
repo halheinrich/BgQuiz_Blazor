@@ -475,16 +475,42 @@ public abstract class E2eTestBase : IAsyncLifetime
         await Expect(Page.Locator(".mix-row")).ToHaveCountAsync(1);
     }
 
+    /// <summary>The mix panel's Add-category button — present exactly while the mix panel is.</summary>
+    protected ILocator MixPanel => Page.Locator("#mixAddRow");
+
     /// <summary>
-    /// Put the on-screen mix in effect by checking <b>"Mix applies"</b> — the
-    /// sole activation control — and wait for the checked state to land.
-    /// Playwright's CheckAsync auto-waits for the box to be enabled, so this
-    /// also implicitly waits out the activation gate (a filter in effect).
+    /// Turn the weighted mix on the only way a user can: the
+    /// <c>Draw quizzes from your weighted mix</c> setting on the Settings page
+    /// (<c>SPEC-filtering.md</c> §5, "Visible means in effect", ruled
+    /// 2026-09-07). Navigates there, checks the box, and comes back to Home.
+    ///
+    /// <para>
+    /// This replaced <c>ActivateMixAsync</c>, which checked the panel's own
+    /// "Mix applies" box. There is no in-panel control any more, and the
+    /// difference is not only where the click lands: the setting is a stored
+    /// choice, so once this has run the mix stays on across picks, navigation
+    /// and reloads, and the panel appearing is what tells the user it applies.
+    /// Callers therefore run this <i>once</i>, usually before picking, rather
+    /// than re-arming per setup.
+    /// </para>
+    ///
+    /// <para>
+    /// Driven through the nav link and the real control, the way
+    /// <c>SettingsTests</c> drives every other toggle — not through
+    /// localStorage — so the wire this depends on is the one the user uses.
+    /// </para>
     /// </summary>
-    protected async Task ActivateMixAsync()
+    protected async Task TurnOnTheWeightedMixSettingAsync()
     {
-        await Page.Locator("#mixApplies").CheckAsync();
-        await Expect(Page.Locator("#mixApplies")).ToBeCheckedAsync();
+        await Page.GetByRole(AriaRole.Link, new() { Name = "Settings" }).ClickAsync();
+        await ExpectUrlAsync("/settings");
+
+        var box = Page.Locator("#settingsWeightQuizzes");
+        await box.CheckAsync();
+        await Expect(box).ToBeCheckedAsync();
+
+        await Page.GotoAsync(BaseUrl + "/");
+        await Expect(PickFolderButton).ToBeVisibleAsync();
     }
 
     /// <summary>

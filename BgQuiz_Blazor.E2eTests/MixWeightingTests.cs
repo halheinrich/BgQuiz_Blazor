@@ -23,6 +23,9 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         // at all — no panel, no disabled controls, no explanation — and the quiz
         // runs perfectly well without it. This is the state EVERY first-time
         // user of a new folder is in, so it is the path that must not break.
+        // Neither half of "visible" holds here (the setting is off by default
+        // too), which is what makes this the cheapest smoke; the two halves are
+        // separated one at a time in MixVisibilityTests.
         await BootHomeAsync();
         await PickFakeFolderAsync();
 
@@ -61,7 +64,6 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
 
         await AddDefaultMixRowAsync();
         await Page.GetByLabel("Category").SelectOptionAsync("EverythingElse");
-        await ActivateMixAsync();
 
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
@@ -73,51 +75,51 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
     }
 
     [Fact]
-    public async Task MixRows_SurviveInAppNavigation_InertUntilActivated()
+    public async Task MixRows_SurviveInAppNavigation_StillInEffect()
     {
         // The screen-is-the-mix architecture's headline surface, in a real
         // browser: the mix draft is app-scoped, so an edit survives in-app
         // navigation (client-side routing — the WASM runtime and its Scoped
         // services live on; a full reload is the separate story below). Under
-        // the spec's §5 the un-activated rows never gate Start — they are
-        // simply not in effect — so the page is live before, during, and after
-        // the round trip, and one check activates exactly what survived.
+        // §5's "Visible means in effect" what survives is the whole fact: the
+        // rows come back on screen and therefore come back applying, with no
+        // gesture in between. Start is live before, during, and after.
         await BootHomeAsync();
-        await SeedStatsHistoryAsync(); // #87: no stats history, no mix panel to edit
+        await SeedStatsHistoryAsync(); // no stats history, no mix panel to edit
         await ApplyFilterAsync();
-        await AddDefaultMixRowAsync(); // rows on screen, box unchecked
+        await AddDefaultMixRowAsync(); // rows on screen — and in effect
 
-        await Expect(StartButton).ToBeEnabledAsync(); // never gated by inert rows
+        await Expect(StartButton).ToBeEnabledAsync();
 
         await Page.GetByRole(AriaRole.Link, new() { Name = "Help" }).ClickAsync();
         await ExpectUrlAsync("/help");
         await Page.GetByRole(AriaRole.Link, new() { Name = "Home" }).ClickAsync();
         await ExpectUrlAsync("/");
 
-        // The rows are still on screen, still inert; the filter half also
-        // survived (Scoped holder), so activation is one check away.
+        // The rows are still on screen; the filter half also survived (Scoped
+        // holder), so the page is ready to run the mix it is showing.
         await Expect(Page.Locator(".mix-row")).ToHaveCountAsync(1);
-        await Expect(Page.Locator("#mixApplies")).Not.ToBeCheckedAsync();
-        await Expect(StartButton).ToBeEnabledAsync();
-
-        await ActivateMixAsync();
+        await Expect(Page.Locator("#mixApplies")).ToHaveCountAsync(0);
+        await Expect(MixPanel).ToBeVisibleAsync();
         await Expect(StartButton).ToBeEnabledAsync();
     }
 
     [Fact]
-    public async Task MixRows_SurviveAFullReload_TheCheckboxDoesNot()
+    public async Task MixRowsAndTheSetting_BothSurviveAFullReload_StillInEffect()
     {
-        // §4's law at the reload boundary, end to end over real localStorage:
-        // the rows are choice and persist (the write-through saved them on the
-        // edit itself — no commit gesture exists); the checkbox is consent and
-        // dies with the app scope. After reload + re-pick the SAME mix is on
-        // screen, unchecked and inert, and re-checking weights the next run.
+        // §4's law at the reload boundary, end to end over real localStorage —
+        // and the ruling's reversal of what used to happen here. BOTH halves of
+        // "visible" are stored choices now: the rows (the write-through saved
+        // them on the edit itself, no commit gesture exists) and the setting.
+        // So after reload + re-pick the SAME mix is on screen AND in effect,
+        // with nothing to re-arm. Until 2026-09-07 the consent bit died with the
+        // app scope and this scenario's whole point was that the box came back
+        // unchecked.
         await BootHomeAsync();
         await SeedStatsHistoryAsync();
         await ApplyFilterAsync();
         await AddDefaultMixRowAsync();
         await Page.GetByLabel("Category").SelectOptionAsync("EverythingElse");
-        await ActivateMixAsync();
         await Expect(StartButton).ToBeEnabledAsync();
 
         // Carry the seeded stats record across the reload by hand: the reload
@@ -138,15 +140,14 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         await PickFakeFolderAsync();
         await ApplyFilterAsync();
 
-        // The mix came back from localStorage — same row, same category —
-        // visible but inert: the consent bit did not survive.
+        // The mix came back from localStorage — same row, same category — and
+        // so did the setting, so the panel is here and what it shows applies.
+        // Nothing was re-armed between the reload and the weighted run.
         await Expect(Page.Locator(".mix-row")).ToHaveCountAsync(1);
         await Expect(Page.GetByLabel("Category")).ToHaveValueAsync("EverythingElse");
-        await Expect(Page.Locator("#mixApplies")).Not.ToBeCheckedAsync();
+        await Expect(Page.Locator("#mixApplies")).ToHaveCountAsync(0);
         await Expect(StartButton).ToBeEnabledAsync();
 
-        // Re-checking weights the restored mix and the quiz runs to Done.
-        await ActivateMixAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
@@ -162,6 +163,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         // Home behind the mix-aware zero notice (the composed-to-zero sibling
         // of the filtered-to-zero banner), not a 0/0 bounce.
         await BootHomeAsync();
+        await TurnOnTheWeightedMixSettingAsync(); // the mix's other half, before anything
         await PickFakeFolderAsync();
         await ApplyFilterAsync();
         await StartQuizAsync();
@@ -172,8 +174,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
 
         await Page.GetByRole(AriaRole.Button, new() { Name = "Back to setup" }).ClickAsync();
         await ExpectUrlAsync("/");
-        await AddDefaultMixRowAsync();
-        await ActivateMixAsync();
+        await AddDefaultMixRowAsync(); // composing it is putting it in effect
 
         await Expect(StartButton).ToBeEnabledAsync();
         await StartButton.ClickAsync();
@@ -204,13 +205,13 @@ public sealed class MixRefusalTests : FsAccessFakeTestBase
     [Fact]
     public async Task StatsBecomeUnreadableAfterTheMixIsCommitted_Refuses_OverrideRunsUnweighted()
     {
-        // Seed a real history so the mix is offered and can be committed at all.
+        // Seed a real history so the mix is offered — and, being offered, in
+        // effect — at all.
         await BootHomeAsync();
         await SeedStatsHistoryAsync();
         await ApplyFilterAsync();
         await AddDefaultMixRowAsync();
         await Page.GetByLabel("Category").SelectOptionAsync("EverythingElse");
-        await ActivateMixAsync();
 
         // Now the file turns unreadable underneath the active mix — the user
         // edited it, or another tool rewrote it, between setup and Start. The

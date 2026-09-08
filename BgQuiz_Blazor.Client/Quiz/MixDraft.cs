@@ -15,14 +15,15 @@ using Microsoft.JSInterop;
 /// one app scope).
 ///
 /// <para>
-/// <b>There is no committed copy of the mix</b> (<c>SPEC-filtering.md</c> §5,
-/// Fork B). What runs, when the app-scoped <see cref="MixConsent"/> bit is
-/// checked, is this draft itself — <see cref="Build"/>'s result — so screen
-/// and effect cannot diverge and no draft-vs-committed comparison exists to
-/// gate anything. An un-consented draft, however divergent from whatever ran
-/// last, never gates Start; a consented draft that fails to build is the one
-/// mix state that does (<c>Home.EffectiveMix</c> reads null), with the box
-/// left checked because it records intent.
+/// <b>There is no committed copy of the mix</b> (<c>SPEC-filtering.md</c>
+/// §5). What runs, while the mix panel is visible
+/// (<see cref="MixVisibility"/>), is this draft itself —
+/// <see cref="Build"/>'s result — so screen and effect cannot diverge and no
+/// draft-vs-committed comparison exists to gate anything. A draft the user
+/// cannot see, however divergent from whatever ran last, never gates Start; a
+/// <i>visible</i> draft that fails to build is the one mix state that does
+/// (<c>Home.EffectiveMix</c> reads null), with the rows left standing because
+/// only the user fixes them or turns the mix off.
 /// </para>
 ///
 /// <para>
@@ -42,14 +43,15 @@ using Microsoft.JSInterop;
 ///
 /// <para>
 /// <b>A pick (or Clear) discards the draft — not the storage.</b>
-/// <c>Home.EndCurrentSetupAsync</c> calls <see cref="Discard"/> beside
-/// <c>MixConsent.Revoke</c>: ending a setup blanks the builder and forgets
-/// hydration, so the next panel mount (stats-capable picks only) re-hydrates
-/// the <i>stored</i> last-valid mix afresh — the rows outlive the setup
-/// (§4: they are choice), visible but inert until the user re-checks the
-/// box (consent died with the setup). Under a no-stats pick no panel mounts,
-/// nothing re-hydrates, and the unchecked consent keeps the mix out of Start
-/// with no capability fork in the gate.
+/// <c>Home.EndCurrentSetupAsync</c> calls <see cref="Discard"/>, and since the
+/// 2026-09-07 ruling it calls nothing beside it: ending a setup blanks the
+/// builder and forgets hydration, so the next panel mount re-hydrates the
+/// <i>stored</i> last-valid mix afresh — the rows outlive the setup (§4: they
+/// are choice). What the re-mounted panel shows is <i>in effect</i>, because
+/// the host mounts it only where the mix is visible and composes Start from
+/// that same fact. Where the mix is not visible no panel mounts, nothing
+/// re-hydrates, and <c>Home.EffectiveMix</c> reads the passthrough — so the
+/// mix stays out of Start with no capability fork in the gate.
 /// </para>
 ///
 /// <para>
@@ -149,9 +151,11 @@ internal sealed class MixDraft(IJSRuntime js)
     /// <i>successful</i> parse projects (TryFromJson's Empty fallback is a
     /// usable mix, but projecting it would overwrite the blank draft's own
     /// defaults with Empty's). Hydration fills the draft only — it never
-    /// writes storage and never touches <c>MixConsent</c>, so a restored mix
-    /// arrives visible but inert until the user checks "Mix applies" (§5
-    /// rule 3: activation is explicit, in <i>this</i> setup).
+    /// writes storage and never touches the setting. What a restored mix
+    /// <i>does</i> is not this method's to say: it is in effect exactly while
+    /// the panel showing it is (§5, "Visible means in effect"), and since the
+    /// panel triggers this hydration, a restored mix normally arrives applying.
+    /// Rule 3's explicit activation, which this line used to name, is gone.
     /// </summary>
     public Task EnsureHydratedAsync() => _hydration ??= HydrateAsync();
 
@@ -207,9 +211,10 @@ internal sealed class MixDraft(IJSRuntime js)
     /// blank-builder defaults so "zero rows" means one state however it was
     /// reached, and the write-through persists <see cref="QuizMix.Empty"/> so
     /// storage follows the screen (deliberate data removal — the button's one
-    /// honest job). Consent is untouched: a checked box over the blank mix is
-    /// vacuous, in-effect passthrough (ruled — the app flips the bit in
-    /// neither direction). Hydration is <i>not</i> forgotten: the current
+    /// honest job). The mix stays in effect across it: blank is the blank mix
+    /// in effect, the passthrough (ruled), and this button has never had a way
+    /// to turn the mix off — that is the setting's job, and always was some
+    /// other control's. Hydration is <i>not</i> forgotten: the current
     /// setup keeps its now-blank draft, whose blankness is persisted, so a
     /// re-mount would hydrate blank anyway. Ending a setup is
     /// <see cref="Discard"/>'s job.
@@ -224,12 +229,13 @@ internal sealed class MixDraft(IJSRuntime js)
     /// End the draft's setup: blank the builder <i>and</i> forget hydration, so
     /// the next panel mount re-offers the stored mix afresh. Called from
     /// <c>Home.EndCurrentSetupAsync</c> — the start of every pick gesture, and
-    /// Clear — beside <c>MixConsent.Revoke</c>. Deliberately <b>not</b> a
+    /// Clear. Deliberately <b>not</b> a
     /// write-through mutator: it does not touch localStorage, so the stored
     /// last-valid mix survives the end of the setup for the next hydration to
     /// re-offer — this asymmetry (Clear persists blank, Discard persists
-    /// nothing) is exactly §4's choice-vs-consent line drawn through the
-    /// draft.
+    /// nothing) is exactly §4's line drawn through the draft: what the user
+    /// deliberately removed is a choice and is written down, while a setup
+    /// ending is not a decision about the rows at all.
     /// </summary>
     public void Discard()
     {
@@ -336,9 +342,9 @@ internal sealed class MixDraft(IJSRuntime js)
     /// The first problem with the current draft, or null when it would build
     /// cleanly. Recomputed per read; the panel renders it as the in-place
     /// account of <i>why</i> the state is invalid — which matters more now
-    /// than under the Apply era, because a checked "Mix applies" over an
-    /// invalid draft gates Start (Home's hint says fix-or-uncheck; this line
-    /// says what to fix). The construction-time try/catch in
+    /// than under the Apply era, because a visible panel over an invalid draft
+    /// gates Start (Home's hint says fix-it-or-turn-the-mix-off; this line says
+    /// what to fix). The construction-time try/catch in
     /// <see cref="Build"/> is a backstop, not the primary validation. A blank
     /// draft reports no error: it builds the inert <see cref="QuizMix.Empty"/>
     /// (see <see cref="Build"/> — that is a ruled, load-bearing line).

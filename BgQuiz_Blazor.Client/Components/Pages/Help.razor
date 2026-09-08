@@ -430,29 +430,43 @@
                 <strong>A mix that applies owns the order.</strong> Its own
                 <em>Random order</em> setting then decides how problems are
                 presented, and the page's Shuffle order checkbox is disabled — your
-                choice there is kept, and comes back when you turn the mix off.
+                choice there is kept, and comes back when you turn the mix off in
+                Settings.
+            </li>
+            <li>
+                <strong>Turn it on in <em>Settings</em>.</strong> The weighted mix
+                is off until you switch on <em>Draw quizzes from your weighted
+                mix</em> on the Settings page. That is the only control there is,
+                and it stays as you set it — across pages, folder changes, and
+                reloads.
+            </li>
+            <li>
+                <strong>If you can see it, it applies.</strong> While the setting
+                is on, the <em>Weighted mix</em> section appears on the setup page
+                for any folder that has stats — and whenever you can see it, the
+                mix shown there is what your next quiz is drawn from. There is
+                nothing further to switch on, and no way for the quiz you get to
+                differ from the rows in front of you. To stop weighting, turn the
+                setting off; the section disappears and your rows are kept.
+                <em>Clear mix</em> is different: it deliberately empties the rows,
+                which leaves the mix on but drawing from everything.
             </li>
             <li>
                 <strong>No lifetime stats, no mix.</strong> The mix is what your
-                stats record composes into a quiz, so it appears only for a folder
-                that can save stats <em>and</em> already has some — on a folder
-                you've never quizzed from, there is nothing yet to weight by, and
-                the section simply isn't there. Run one quiz from it and the mix is
-                offered from then on. If the stats turn out to be unusable when you
-                press Start, BgQuiz refuses rather than quietly running an
-                unweighted quiz: it offers to start that one quiz without the mix,
-                and keeps the mix you built either way.
+                stats record composes into a quiz, so the section appears only for
+                a folder that can save stats <em>and</em> already has some — on a
+                folder you've never quizzed from, there is nothing yet to weight
+                by, and the section isn't there however the setting is set. Run one
+                quiz from it and the mix is offered from then on. If the stats turn
+                out to be unusable when you press Start, BgQuiz refuses rather than
+                quietly running an unweighted quiz: it offers to start that one
+                quiz without the mix, and keeps the mix you built either way.
             </li>
             <li>
-                <strong>Turn it on with <em>Mix applies</em>.</strong> The mix you
-                compose does nothing until you check that box (after applying the
-                filters — the mix draws from the filtered pool), and what runs is
-                always exactly the mix shown on screen. Unchecking turns it off
-                without losing anything. Your rows keep — across pages, folder
-                changes, and reloads — but the checkbox itself resets when you
-                change folders or reload, so check it again to weight the next
-                quiz. If the mix on screen is broken while the box is checked,
-                Start waits until you fix it or uncheck.
+                <strong>A broken mix holds Start.</strong> If the mix on screen
+                doesn't add up while it is showing, Start waits until you fix it or
+                turn the mix off in Settings — it will not quietly run something
+                other than what you can see.
             </li>
         </ul>
 

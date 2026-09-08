@@ -167,10 +167,12 @@ public class MixDraftTests : BunitContext
     [Fact]
     public async Task Discard_PersistsNothing_TheStoredMixSurvivesTheSetupEnd()
     {
-        // The Clear/Discard asymmetry is §4's choice-vs-consent line: ending a
-        // setup blanks the DRAFT but must leave the STORED mix for the next
-        // setup's hydration to re-offer. A Discard that wrote blank through
-        // would delete the user's mix on every pick.
+        // The Clear/Discard asymmetry is §4's line drawn through the draft:
+        // what the user deliberately removed is a choice and is written down,
+        // while a setup ENDING is not a decision about the rows at all. So
+        // ending a setup blanks the DRAFT and must leave the STORED mix for the
+        // next setup's hydration to re-offer. A Discard that wrote blank
+        // through would delete the user's mix on every pick.
         var draft = NewDraft();
         await draft.AddRowAsync();
         var writesBeforeDiscard = PersistedMixes().Length;

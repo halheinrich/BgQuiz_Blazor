@@ -11,27 +11,30 @@ namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
 /// Tests for <see cref="MixPanel"/> — the stats-weighted mix builder, a view
-/// over the app-scoped <see cref="MixDraft"/> and <see cref="MixConsent"/>.
-/// Pins the activation model (the <b>"Mix applies"</b> checkbox is the sole
-/// control: the check gesture gated by <see cref="MixPanel.CanActivate"/> with
-/// the host's reason shown, unchecking always live, the programmatic-dispatch
-/// backstop, and no app-side flip in either direction — Clear mix leaves the
-/// bit alone), the draft hydration surfacing through the panel
-/// (hydrate-don't-activate; the re-offer after a
+/// over the app-scoped <see cref="MixDraft"/> and nothing else. Pins the
+/// <b>absence</b> of any activation control (<c>SPEC-filtering.md</c> §5,
+/// "Visible means in effect", ruled 2026-09-07: being mounted is what puts
+/// these rows in effect, so a control saying so would be a second copy of one
+/// fact), the draft hydration surfacing through the panel (the re-offer after a
 /// <see cref="MixDraft.Discard"/>), the write-through persistence as driven by
 /// panel gestures (edits persist while valid; Clear persists blank; the
 /// localStorage round-trip through the lib's <c>ToJson</c>/<c>TryFromJson</c>),
 /// the semantic row order, per-kind parameter defaults, the
 /// row-count-owns-the-percents rebalance and next-unused-kind seeding
 /// (findings AH/AI), the percent-display/fraction-store rule for the
-/// wrong-rate row, and the validation display. The effect derivation itself
-/// (checked ∧ build) is Home's and is pinned in <c>PageTests</c>; the
+/// wrong-rate row, and the validation display.
+///
+/// <para>
+/// Two things that used to live here now live where their subjects moved. The
+/// effect derivation (visible ∧ build) is Home's and is pinned in
+/// <c>PageTests</c>, together with the <c>halheinrich/backgammon#154</c> border
+/// treatment — which followed the one control onto the Settings page. The
 /// write-through's full matrix is pinned in <see cref="MixDraftTests"/>.
+/// </para>
 /// </summary>
 public class MixPanelTests : BunitContext
 {
     private readonly MixDraft _draft;
-    private readonly MixConsent _consent;
 
     public MixPanelTests()
     {
@@ -41,20 +44,22 @@ public class MixPanelTests : BunitContext
         // mock for assertion.
         JSInterop.Mode = JSRuntimeMode.Loose;
 
-        // The panel injects the app-scoped draft and consent bit; registering
-        // one instance of each up front lets tests assert their state and
-        // drive the setup lifecycle (Discard / Revoke) the way Home does.
+        // The panel injects the app-scoped draft and nothing else; one
+        // instance registered up front lets tests assert its state and drive
+        // the setup lifecycle (Discard) the way Home does. No consent bit and
+        // no visibility service: since SPEC-filtering.md §5's "Visible means in
+        // effect" ruling the panel is a pure view over the draft, and whether
+        // it is on screen at all is the host's decision — pinned in PageTests,
+        // where the host is.
         _draft = new MixDraft(JSInterop.JSRuntime);
-        _consent = new MixConsent();
         Services.AddSingleton(_draft);
-        Services.AddSingleton(_consent);
     }
 
-    private IRenderedComponent<MixPanel> RenderPanel(
-        bool canActivate = true, string? activateDisabledReason = null) =>
-        Render<MixPanel>(parameters => parameters
-            .Add(p => p.CanActivate, canActivate)
-            .Add(p => p.ActivateDisabledReason, activateDisabledReason));
+    /// <summary>
+    /// The panel under test. Parameterless, and that is a pin in itself: the
+    /// component takes no parameters at all since activation left the model.
+    /// </summary>
+    private IRenderedComponent<MixPanel> RenderPanel() => Render<MixPanel>();
 
     private static Task ClickAsync(IRenderedComponent<MixPanel> cut, string selector) =>
         cut.Find(selector).ClickAsync(new());
@@ -85,100 +90,58 @@ public class MixPanelTests : BunitContext
             : null;
 
     // -----------------------------------------------------------------------
-    //  The "Mix applies" checkbox — sole activation control
+    //  No activation control — the absence is the ruling
     // -----------------------------------------------------------------------
 
+    /// <summary>
+    /// <b>The panel offers no way to turn the mix on or off</b>
+    /// (<c>SPEC-filtering.md</c> §5, "Visible means in effect", ruled
+    /// 2026-09-07). Being on screen is what puts these rows in effect, so a
+    /// control saying so again would be the second copy of one fact that the
+    /// ruling deletes.
+    ///
+    /// <para>
+    /// <b>Pinned as an absence, and pinned by <i>id</i>, deliberately.</b> The
+    /// six tests this replaced asserted the "Mix applies" switch's gate, its
+    /// asymmetry, its programmatic backstop and its zero-row behaviour; all six
+    /// went with their subject, and a suite that simply stopped mentioning
+    /// <c>#mixApplies</c> would be indistinguishable from one where the control
+    /// quietly came back. So the old id is named here — the one place in the
+    /// suite that still may — together with the hint line that went with it and
+    /// the general shape (no checkbox in this panel is an activation control:
+    /// the two that remain are the mix's own Random-order toggle and nothing
+    /// else). The Settings page carries the one control now, pinned in
+    /// <c>PageTests</c>.
+    /// </para>
+    /// </summary>
     [Fact]
-    public async Task Check_SetsConsent_AndUncheck_ClearsIt()
+    public void ThePanelHasNoActivationControl()
     {
         var cut = RenderPanel();
-        Assert.False(cut.Find("#mixApplies").HasAttribute("disabled"));
 
-        await cut.Find("#mixApplies").ChangeAsync(new() { Value = true });
-        Assert.True(_consent.Applies);
-        Assert.True(cut.Find("#mixApplies").HasAttribute("checked"));
-
-        await cut.Find("#mixApplies").ChangeAsync(new() { Value = false });
-        Assert.False(_consent.Applies);
-    }
-
-    [Fact]
-    public void Gated_AndUnchecked_CheckboxIsDisabled_WithTheHostsReason()
-    {
-        // Fork A through the panel seam: no filter in effect ⇒ the host gates
-        // the check gesture and supplies the sentence saying why — rendered as
-        // the hint line and the disabled control's title, mirroring the old
-        // Apply contract.
-        var cut = RenderPanel(canActivate: false, activateDisabledReason: "the filters come first");
-
-        var checkbox = cut.Find("#mixApplies");
-        Assert.True(checkbox.HasAttribute("disabled"));
-        Assert.Equal("the filters come first", checkbox.GetAttribute("title"));
-        Assert.Equal("the filters come first",
-            cut.Find("#mixActivateDisabledReason").TextContent.Trim());
-    }
-
-    [Fact]
-    public void Gated_ButChecked_CheckboxStaysOperable_AndShowsNoReason()
-    {
-        // The ruled asymmetry: only CHECKING is gated. A box checked while the
-        // filter was in effect must stay operable through a later filter edit
-        // (CanActivate false), or unchecking — the universal way out — would be
-        // taken away exactly when the fix-or-uncheck hint offers it.
-        _consent.Set(true);
-
-        var cut = RenderPanel(canActivate: false, activateDisabledReason: "the filters come first");
-
-        Assert.False(cut.Find("#mixApplies").HasAttribute("disabled"));
-        Assert.Null(cut.Find("#mixApplies").GetAttribute("title"));
+        Assert.Empty(cut.FindAll("#mixApplies"));
         Assert.Empty(cut.FindAll("#mixActivateDisabledReason"));
+
+        // The only checkbox left is the mix's own Random-order setting, so an
+        // activation control could not hide among unnamed siblings either.
+        // That one is itself a form switch and always was — which is why the
+        // switch is pinned by the id it belongs to rather than by class alone.
+        Assert.Equal(
+            ["mixRandomOrder"],
+            cut.FindAll("input[type=checkbox]").Select(i => i.Id!).ToArray());
+        Assert.Equal(
+            ["mixRandomOrder"],
+            cut.FindAll(".form-switch input").Select(i => i.Id!).ToArray());
     }
 
     [Fact]
-    public async Task Gated_ProgrammaticCheck_IsDropped()
+    public async Task ClearMix_BlanksAndPersistsBlank_LeavingTheMixInEffect()
     {
-        // The disabled attribute stops the browser, not a synthetic dispatch —
-        // the handler itself must hold the gate (the old ApplyAsync backstop,
-        // checkbox-shaped).
-        var cut = RenderPanel(canActivate: false);
-
-        await cut.Find("#mixApplies").ChangeAsync(new() { Value = true });
-
-        Assert.False(_consent.Applies);
-    }
-
-    [Fact]
-    public async Task Gated_ProgrammaticUncheck_StillLands()
-    {
-        _consent.Set(true);
-        var cut = RenderPanel(canActivate: false);
-
-        await cut.Find("#mixApplies").ChangeAsync(new() { Value = false });
-
-        Assert.False(_consent.Applies);
-    }
-
-    [Fact]
-    public void CheckboxIsNotDisabledAtZeroRows()
-    {
-        // RULED (design point B): checked-but-inert. The blank mix is a valid,
-        // vacuous consent target (it builds Empty — passthrough), so zero rows
-        // never disable the box; only the host's Fork A gate does.
-        var cut = RenderPanel();
-
-        Assert.Empty(cut.FindAll(".mix-row"));
-        Assert.False(cut.Find("#mixApplies").HasAttribute("disabled"));
-    }
-
-    [Fact]
-    public async Task ClearMix_BlanksAndPersistsBlank_ButNeverTouchesTheCheckbox()
-    {
-        // Clear's one honest job is removing the rows (storage follows). The
-        // consent bit belongs to the user alone: clearing while checked leaves
-        // the box checked and the effect passthrough — the app flips the bit
-        // in neither direction (auto-uncheck is a rejected alternative, and
-        // this is where it would sneak back in).
-        _consent.Set(true);
+        // Clear's one honest job is removing the rows (storage follows). It is
+        // not an off-switch and never was: blank is the blank mix IN EFFECT —
+        // the passthrough, ruled — so the panel is still here afterwards and
+        // still applying. Turning the mix off is the Settings page's, which is
+        // also what takes this panel off screen.
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow");
 
@@ -186,8 +149,7 @@ public class MixPanelTests : BunitContext
 
         Assert.Empty(cut.FindAll(".mix-row"));
         Assert.True(LastPersistedMix()!.IsPassthrough);
-        Assert.True(_consent.Applies);
-        Assert.True(cut.Find("#mixApplies").HasAttribute("checked"));
+        Assert.Empty(cut.FindAll("#mixApplies")); // no off-switch appeared either
     }
 
     [Fact]
@@ -215,7 +177,6 @@ public class MixPanelTests : BunitContext
 
         Assert.Empty(cut.FindAll(".mix-row"));
         Assert.Null(LastPersistedMix()); // hydration is a read, never an echo write
-        Assert.False(_consent.Applies);
     }
 
     [Fact]
@@ -246,7 +207,7 @@ public class MixPanelTests : BunitContext
     }
 
     [Fact]
-    public void Hydrate_PersistedMix_ShowsRowsInWireOrder_InertUntilChecked()
+    public void Hydrate_PersistedMix_ShowsRowsInWireOrder()
     {
         var mix = new QuizMix(
             [
@@ -273,11 +234,12 @@ public class MixPanelTests : BunitContext
         Assert.False(cut.Find("#mixRandomOrder").HasAttribute("checked"));
         Assert.Equal(mix, _draft.Build()); // shows exactly what was stored…
 
-        // …and rule 3 holds: a restored mix is visible and updateable but has
-        // no effect until activated in THIS setup — hydration never checks the
-        // box.
-        Assert.False(_consent.Applies);
-        Assert.False(cut.Find("#mixApplies").HasAttribute("checked"));
+        // …and what is shown is what is in effect. Rule 3's explicit activation
+        // went with the 2026-09-07 ruling: there is no longer a state where a
+        // restored mix is visible but inert, so hydration has nothing left to
+        // withhold. The host mounting this panel IS the activation, and the
+        // absence of any control to check is pinned above.
+        Assert.Empty(cut.FindAll("#mixApplies"));
     }
 
     [Fact]
@@ -703,104 +665,4 @@ public class MixPanelTests : BunitContext
         Assert.True(cut.Find("#mixRandomOrder").HasAttribute("disabled"));
         Assert.True(cut.Find("#mixQuizLength").HasAttribute("disabled"));
     }
-
-    /// <summary>
-    /// The activation control renders as a Bootstrap <b>form switch</b>
-    /// (<c>halheinrich/backgammon#182</c>, ruling (a)) — state, not a form
-    /// field — and the darkened border of
-    /// <c>halheinrich/backgammon#154</c> still reaches it.
-    ///
-    /// <para>
-    /// <b>Three claims, because the switch is a cascade and not a class.</b>
-    /// The markup half is that the same <c>&lt;input type="checkbox"&gt;</c>
-    /// still wears <c>.form-check-input</c> — the selector app.css's
-    /// <c>halheinrich/backgammon#154</c> rule is written with — inside a
-    /// wrapper that now carries <c>form-check form-switch</c>. The app.css half
-    /// is that the <c>halheinrich/backgammon#154</c> rule really is written
-    /// unqualified, so it selects this input as readily as a plain checkbox: a
-    /// rule narrowed to, say, <c>.form-check:not(.form-switch)
-    /// .form-check-input</c> would leave both classes above in place and the
-    /// switch back at Bootstrap's 1.30:1 <c>#dee2e6</c>. The Bootstrap half is
-    /// that <c>.form-switch .form-check-input</c> — which outranks the
-    /// <c>halheinrich/backgammon#154</c> rule at (0,2,0) — declares no
-    /// <c>border-color</c> of its own, which is the one fact that lets a
-    /// (0,1,0) rule survive the switch rendering. An upgrade that started
-    /// colouring the switch's track would take the fix away silently, and this
-    /// is where it lands instead.
-    /// </para>
-    ///
-    /// <para>
-    /// bUnit's AngleSharp evaluates no CSS, so this reads the two stylesheets
-    /// rather than a computed value; the computed border is asserted in a real
-    /// browser by <c>EnvironmentFidelityTests.TheCheckboxBorder_IsAppliedOnASettingsPage</c>,
-    /// which keys on <c>.form-check-input</c> and so covers every rendering of
-    /// it.
-    /// </para>
-    /// </summary>
-    [Fact]
-    public void MixApplies_RendersAsAFormSwitch_AndKeepsTheDarkenedBorder()
-    {
-        var cut = RenderPanel();
-
-        // The markup half. The input is untouched — same element, same class
-        // the halheinrich/backgammon#154 rule selects — and only its wrapper
-        // gained the switch.
-        var box = cut.Find("#mixApplies");
-        Assert.Equal("checkbox", box.GetAttribute("type"));
-        Assert.Contains("form-check-input", box.ClassList);
-        Assert.Contains("form-check", box.ParentElement!.ClassList);
-        Assert.Contains("form-switch", box.ParentElement!.ClassList);
-
-        // The app.css half: the halheinrich/backgammon#154 rule, written
-        // unqualified, so it reaches every rendering of the class rather than
-        // the plain checkbox alone.
-        // The whole set of selectors that colour a checkbox's border is pinned
-        // rather than the presence of one of them — narrowing this rule is how
-        // the switch would quietly lose the fix, and a narrowed rule is still a
-        // rule that contains ".form-check-input".
-        var appCss = Regex.Replace(
-            File.ReadAllText(AppCssPath()), @"/\*.*?\*/", "", RegexOptions.Singleline);
-        var darkened = Regex.Matches(appCss, @"(?<selector>[^{}@]+)\{(?<body>[^{}]*)\}")
-            .Where(m => m.Groups["selector"].Value.Contains("form-check-input", StringComparison.Ordinal)
-                     && m.Groups["body"].Value.Contains("border-color", StringComparison.Ordinal))
-            .Select(m => m.Groups["selector"].Value.Trim())
-            .ToArray();
-        Assert.Equal([".form-check-input"], darkened);
-        Assert.Contains("#6c757d", appCss);
-
-        // The Bootstrap half: the switch block styles the track and the knob
-        // and leaves the border colour alone, which is what a (0,1,0) rule
-        // needs to survive a (0,2,0) one. Every rule whose selector is exactly
-        // that pair is read rather than the first one the file happens to hold:
-        // the shipped sheet is minified, so a first-match read is one no
-        // reviewer can eyeball, and Bootstrap already writes the selector more
-        // than once.
-        var switchBodies = Regex.Matches(
-                File.ReadAllText(BootstrapCssPath()), @"(?<selector>[^{}@]+)\{(?<body>[^{}]*)\}")
-            .Where(m => m.Groups["selector"].Value.Trim() is ".form-switch .form-check-input")
-            .Select(m => m.Groups["body"].Value)
-            .ToArray();
-        Assert.True(switchBodies.Length > 0, "Bootstrap no longer styles .form-switch .form-check-input");
-        Assert.All(switchBodies, body => Assert.DoesNotContain("border-color", body));
-    }
-
-    /// <summary>
-    /// <c>app.css</c>, from the test file's own location — the same derivation
-    /// <c>PageTests</c> uses, so neither copy depends on a working directory.
-    /// </summary>
-    private static string AppCssPath([CallerFilePath] string thisFile = "") =>
-        Path.GetFullPath(Path.Combine(
-            Path.GetDirectoryName(thisFile)!, "..", "BgQuiz_Blazor", "wwwroot", "app.css"));
-
-    /// <summary>
-    /// The host's bundled Bootstrap, the sheet the switch rendering comes from
-    /// — the <b>minified</b> file, because that is the one
-    /// <c>App.razor</c> links and the only one git tracks. Its unminified
-    /// sibling is gitignored and exists only where Bootstrap was built locally,
-    /// so reading it passed here and threw <c>FileNotFoundException</c> on CI.
-    /// </summary>
-    private static string BootstrapCssPath([CallerFilePath] string thisFile = "") =>
-        Path.GetFullPath(Path.Combine(
-            Path.GetDirectoryName(thisFile)!, "..", "BgQuiz_Blazor", "wwwroot",
-            "lib", "bootstrap", "dist", "css", "bootstrap.min.css"));
 }

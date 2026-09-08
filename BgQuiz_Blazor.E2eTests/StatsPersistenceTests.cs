@@ -74,10 +74,11 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
             $"window.__statsFake.statsJson = {JsonSerializer.Serialize(V3StatsJson)};");
 
         await BootHomeAsync();
+        await TurnOnTheWeightedMixSettingAsync(); // so "the mix is offered" is observable
         await PickFakeFolderAsync();
 
         await Expect(Page.GetByText("will be set aside as")).ToBeHiddenAsync();
-        await Expect(Page.GetByText("the mix draws its problems from the filtered pool")).ToBeVisibleAsync();
+        await Expect(MixPanel).ToBeVisibleAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();
@@ -115,10 +116,11 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
             + $"window.__statsFake.retiredV3Json = {JsonSerializer.Serialize(V3StatsJson)};");
 
         await BootHomeAsync();
+        await TurnOnTheWeightedMixSettingAsync(); // so "the mix is offered" is observable
         await PickFakeFolderAsync();
 
         await Expect(Page.GetByText("will be set aside as")).ToBeHiddenAsync();
-        await Expect(Page.GetByText("the mix draws its problems from the filtered pool")).ToBeVisibleAsync();
+        await Expect(MixPanel).ToBeVisibleAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();

@@ -85,18 +85,21 @@ builder.Services.AddScoped<PickedFolderFilterStorage>();
 builder.Services.AddScoped<ShuffleOption>();
 
 // The stats-weighted mix, as two sibling per-app services with one lifetime:
-// the consent bit (MixConsent — the "Mix applies" checkbox state; checked
-// means the on-screen mix is in effect, SPEC-filtering.md §5) and the mix
-// draft (MixDraft — the panel's edit state, hoisted out of the component so
-// mix edits survive in-app navigation). There is NO committed copy: what
-// runs, when consented, is the draft itself (MixDraft.Build), so screen and
-// effect cannot diverge. The draft owns the one localStorage key with
-// last-valid write-through persistence — every mutation that validates
-// writes, blank included — plus a once-per-setup hydration that re-offers
-// the stored mix, inert until the user checks the box. Consent is reset at
-// setup end and dies on reload with the scope: §4's "choices outlive the
-// setup; consent does not", by construction.
-builder.Services.AddScoped<MixConsent>();
+// the visible derivation (MixVisibility — the setting is on AND the picked
+// folder holds stats, SPEC-filtering.md §5's "Visible means in effect") and
+// the mix draft (MixDraft — the panel's edit state, hoisted out of the
+// component so mix edits survive in-app navigation). There is NO committed
+// copy: what runs, while the panel is visible, is the draft itself
+// (MixDraft.Build), so screen and effect cannot diverge. The draft owns the
+// one localStorage key with last-valid write-through persistence — every
+// mutation that validates writes, blank included — plus a once-per-setup
+// hydration that re-offers the stored mix.
+//
+// MixVisibility holds no state: its two inputs are a QuizSettings choice,
+// which outlives every setup (§4), and the pick-time stats probe, which
+// expires with the pick. Nothing here is reset at setup end any more — the
+// consent bit that was is gone with the ruling that superseded it.
+builder.Services.AddScoped<MixVisibility>();
 builder.Services.AddScoped<MixDraft>();
 
 // Per-app dismissal state for every notice on the Quiz page: the composition

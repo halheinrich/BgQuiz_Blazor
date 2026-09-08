@@ -374,10 +374,13 @@ public class QuizSettingsTests : BunitContext
         // "absent" from "false".
         //
         // Field order is append-only (see ToJson): maximizeBoardWhileAnswering
-        // joined at the END, after the fold field, and the depth-treatment pair
-        // after it in turn, however the properties are grouped on the C# side.
-        // That is what makes this literal's diff read as "fields were added"
-        // rather than "the format moved under the applier".
+        // joined at the END, after the fold field, the depth-treatment pair
+        // after it in turn, and weightQuizzesByStats after those — however the
+        // properties are grouped on the C# side. That is what makes this
+        // literal's diff read as "fields were added" rather than "the format
+        // moved under the applier". The newest field sits AFTER the ceiling
+        // even though every other boolean precedes it: append-only beats
+        // tidiness, and that is the rule working rather than a slip.
         //
         // The ceiling is the one field that is not a boolean, and the one
         // position ever reused: hideShallowCandidates was last, so retiring that
@@ -390,7 +393,7 @@ public class QuizSettingsTests : BunitContext
         await settings.SetRandomizeSidePerProblemAsync(true);
 
         Assert.Equal(
-            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":null}""",
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":null,"weightQuizzesByStats":false}""",
             LastPersisted());
     }
 
@@ -410,7 +413,7 @@ public class QuizSettingsTests : BunitContext
         await settings.SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.XgRollerPlusPlus);
 
         Assert.Equal(
-            """{"homeBoardOnRight":true,"randomizeSidePerProblem":false,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":"XgRollerPlusPlus"}""",
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":false,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":"XgRollerPlusPlus","weightQuizzesByStats":false}""",
             LastPersisted());
     }
 

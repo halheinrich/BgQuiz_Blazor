@@ -11,7 +11,7 @@
 @inject PickedProblemFolder Folder
 @inject AppliedFilter AppliedFilter
 @inject FilterRestoreNotice FilterRestoreNotice
-@inject MixConsent MixConsent
+@inject MixVisibility MixVisibility
 @inject MixDraft MixDraft
 @inject ShuffleOption ShuffleOption
 @inject QuizStatsStore StatsStore
@@ -562,46 +562,41 @@
         </div>
     }
 
-    @* Weighted mix — offered only where a mix can mean something: the one
-       predicate, StatsStore.CanWeightMix (issue #87). It asks both halves at
-       once — this folder can save stats AND already holds a record with
-       something in it — because weighting composes FROM that record, so an
-       empty one expresses no weighting anybody asked for. Missing, empty and
-       unreadable are one answer, not three rungs.
+    @* Weighted mix — VISIBLE MEANS IN EFFECT (SPEC-filtering.md §5, ruled
+       2026-09-07; halheinrich/backgammon#181). The one derivation,
+       MixVisibility.IsVisible, is the user's standing setting AND this folder's
+       stats fact. The second half asks what the folder holds — weighting
+       composes FROM that record, so an empty one expresses no weighting anybody
+       asked for, and missing, empty and unreadable are one answer, not three
+       rungs.
 
-       Nothing is disabled and no reason is given: the panel simply isn't here,
-       which is the same non-mount path a no-stats pick always took, now driven
-       by the full predicate rather than by capability alone. The emergent
-       behavior is accepted, not worked around — a brand-new folder offers no
-       mix until its own first quiz has written some stats.
+       This condition is not a display rule with an effect rule beside it: it IS
+       the effect rule. EffectiveMix reads the same member, so a visible mix
+       always applies and a hidden one never does — the panel on screen is the
+       whole disclosure, and there is no control here to arm.
 
-       Under a false predicate the mix plays no part in Start, by construction:
-       there is no way to build a mix, every pick revokes the consent bit and
-       discards the draft (see EndCurrentSetupAsync), and with no panel mounted
-       nothing re-hydrates — the unchecked consent reads as passthrough, so no
-       mix gate, warning, or refusal can fire. Keyed on the pick generation so
-       every pick re-mounts it: the fresh mount triggers the discarded draft's
-       re-hydration, which re-offers the stored last-valid mix — visible but
-       inert until the user re-checks "Mix applies" (consent died with the
-       setup) — enforcing "no mix silently survives a pick in effect" with no
-       reconcile code.
+       Nothing is disabled and no reason is given: the panel simply isn't here.
+       The emergent behavior is accepted, not worked around — a brand-new folder
+       offers no mix until its own first quiz has written some stats, whatever
+       the setting says.
+
+       Under a false derivation the mix plays no part in Start, by construction:
+       with no panel mounted nothing re-hydrates, and EffectiveMix reads the
+       passthrough, so no mix gate, warning, or refusal can fire. Keyed on the
+       pick generation so every pick re-mounts it: the fresh mount triggers the
+       discarded draft's re-hydration, which re-offers the stored last-valid mix
+       — and, into a folder that has stats while the setting is on, re-offers it
+       IN EFFECT. That is the ruling and not an oversight: the rows are a
+       standing choice, the setting is a standing choice, and the panel showing
+       them is how the user is told.
 
        The @key now decides less than it did: since the reset moved to the click,
        the enclosing HasFiles gate already unmounts this panel on every pick. The
        key stays because it — not the gate — is what guarantees the remount, and
        nothing here should depend on the gate's timing. *@
-    @* The "Mix applies" CHECK gesture is gated on a filter being in effect for
-       this pick right now (MixActivationEnabled — the spec's Fork A, strict; the
-       same fact Start reads) — UX sequencing only: the mix composes over the
-       filtered pool at Start, so the pipeline never required the order, but
-       nothing on the page said which draws from which. Unchecking is never
-       gated, nothing about the mix's own state takes part, and the panel is
-       told, never asks. *@
-    @if (StatsStore.CanWeightMix)
+    @if (MixVisibility.IsVisible)
     {
-        <MixPanel @key="Folder.PickGeneration"
-                  CanActivate="MixActivationEnabled"
-                  ActivateDisabledReason="@MixActivationDisabledReason" />
+        <MixPanel @key="Folder.PickGeneration" />
     }
 
     @* Disabled — not rewritten — while a committed mix owns presentation
@@ -651,7 +646,7 @@
     }
     else if (EffectiveMix is null)
     {
-        <small class="text-muted ms-2">Mix applies but isn't valid — fix it or uncheck.</small>
+        <small class="text-muted ms-2">Mix applies but isn't valid — fix it or turn the mix off.</small>
     }
 
     @if (!string.IsNullOrEmpty(_startError))
@@ -682,8 +677,9 @@
                 Start without mix
             </button>
             <span class="small text-muted ms-2">
-                runs this one quiz unweighted — or uncheck <em>Mix applies</em>
-                above to turn the mix off; your mix rows are kept either way.
+                runs this one quiz unweighted — or turn the mix off in
+                <em>Settings</em> to stop weighting altogether; your mix rows are
+                kept either way.
             </span>
         </div>
     }

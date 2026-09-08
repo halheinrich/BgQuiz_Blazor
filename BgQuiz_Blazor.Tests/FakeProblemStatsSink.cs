@@ -14,12 +14,31 @@ internal sealed class FakeProblemStatsSink : IProblemStatsSink
     public int BeginQuizCallCount { get; private set; }
 
     /// <summary>
-    /// Scriptable shared predicate — "can a weighted mix mean anything for the
-    /// picked folder". Defaults to false — the no-stats posture a fresh app has
-    /// — so blank-mix tests never depend on stats state; tests exercising a
-    /// weighted start opt in explicitly.
+    /// Scriptable policy — "may a weighted mix run for the picked folder":
+    /// a folder that can hold stats <i>and</i> already holds some. Defaults to
+    /// false — the no-stats posture a fresh app has — so blank-mix tests never
+    /// depend on stats state; tests exercising a weighted start opt in
+    /// explicitly.
     /// </summary>
     public bool CanWeightMix { get; set; }
+
+    /// <summary>
+    /// Scriptable fact — "does the picked folder hold a stats document with
+    /// content" (<c>SPEC-filtering.md</c> §5). Defaults to false for the same
+    /// reason its policy sibling does. A page test that wants the mix panel on
+    /// screen sets <b>this</b>, since visibility reads the fact.
+    ///
+    /// <para>
+    /// <b>Independently settable, deliberately, though production couples
+    /// them.</b> There the probe cannot find stats in a folder it could not
+    /// have written, so a true fact implies a true policy. Letting a test
+    /// script the pair apart is what keeps the controller's stage-1 refusal
+    /// pinnable at all: that backstop exists precisely for a caller reaching
+    /// the controller without the host's gating, and a fake that enforced the
+    /// host's invariant could not express one.
+    /// </para>
+    /// </summary>
+    public bool PickedFolderHasStats { get; set; }
 
     /// <summary>
     /// Scriptable live document. Defaults to null (no bound context); a

@@ -189,6 +189,49 @@
             </div>
         </fieldset>
 
+        @* The weighted mix (SPEC-filtering.md §5, "Visible means in effect",
+           ruled 2026-09-07; halheinrich/backgammon#181). Its OWN fieldset, by
+           the same grouping rule as the two above: this setting moves neither
+           the board nor the analysis panel but the setup page, and it is the
+           only setting here that is not purely about rendering — it decides how
+           the next quiz is drawn.
+
+           THE fine print carries the whole model, because this control is one
+           half of a conjunction and a checkbox alone cannot say so. Turning it
+           on does not make a mix panel appear in a folder with no stats to
+           weight by, and someone who turned it on and saw nothing would
+           otherwise read that as the setting failing — the same reasoning the
+           fold row's deferral note is written from. The second sentence is the
+           part that is easy to leave unsaid and must not be: while the panel
+           is showing, it is in effect. There is no second gesture.
+
+           A plain form-check, not the form switch halheinrich/backgammon#182
+           put on the panel's old "Mix applies" control: this is a settings
+           page, every one of its neighbours is a checkbox, and a lone switch
+           among them would say this setting is a different KIND of thing than
+           the ones above it. app.css's darkened .form-check-input border
+           (halheinrich/backgammon#154) reaches it for free, and is pinned. *@
+        <fieldset class="mb-4">
+            <legend class="h5">The weighted mix</legend>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="settingsWeightQuizzes"
+                       checked="@UserSettings.WeightQuizzesByStats"
+                       @onchange="@(e => SetWeightQuizzesByStatsAsync((bool)e.Value!))" />
+                <label class="form-check-label" for="settingsWeightQuizzes">
+                    Draw quizzes from your weighted mix
+                </label>
+            </div>
+            <div class="form-text">
+                The mix builds a quiz out of your lifetime stats — so many never
+                seen, so many you got wrong — instead of taking everything your
+                filters matched. With this on, the <em>Weighted mix</em> panel
+                appears on the setup page for any folder that already has stats,
+                and stays hidden for one that hasn't yet. Whenever you can see
+                it, it applies: the mix shown there is what your next quiz is
+                drawn from, with nothing further to switch on.
+            </div>
+        </fieldset>
+
         <fieldset>
             <legend class="h5">The navigation panel</legend>
             <div class="form-check">

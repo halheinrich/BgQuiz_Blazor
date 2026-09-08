@@ -1,17 +1,16 @@
 @using BgGame_Lib
 @using BgQuiz_Blazor.Client.Quiz
 @inject MixDraft Draft
-@inject MixConsent Consent
 
 @* ── MixPanel.razor ──────────────────────────────────────────────────────────
-   The stats-weighted mix builder: a VIEW over the app-scoped MixDraft and
-   MixConsent — an ordered list of (category, percent) rows plus the
-   Random-order toggle and an optional quiz length, all owned by the draft so
-   edits survive in-app navigation; and the "Mix applies" checkbox, the sole
-   activation control (SPEC-filtering.md §5 Fork B), whose bit lives in the
-   scoped MixConsent because the panel dies on navigation and §4 says
-   navigation changes nothing. There is no committed mix and no commit
-   gesture: checked = the mix shown here is in effect, and every edit that
+   The stats-weighted mix builder: a VIEW over the app-scoped MixDraft — an
+   ordered list of (category, percent) rows plus the Random-order toggle and an
+   optional quiz length, all owned by the draft so edits survive in-app
+   navigation. There is no activation control here at all: the host mounts this
+   panel exactly while MixVisibility.IsVisible and composes Start from the same
+   fact, so BEING ON SCREEN is what puts these rows in effect
+   (SPEC-filtering.md §5, "Visible means in effect", 2026-09-07). No committed
+   mix, no commit gesture, and now no consent bit either; every edit that
    validates writes the built mix through to localStorage (xg_quizMix, via the
    draft — last-valid write-through; this component never touches a serializer
    or localStorage). Row order is semantic — earlier rows win contested
@@ -99,8 +98,8 @@
             @* Outline-*primary*, not the secondary grey the panel's other
                buttons wear. Adding a row is always valid — there is no state in
                which this is disabled — but at zero rows it is surrounded by
-               controls that genuinely are (Random order, Quiz length, and the
-               gated "Mix applies" box before a filter is applied), so in
+               controls that genuinely are (Random order and Quiz length, both
+               disabled while there is nothing to order or size), so in
                secondary grey it read as another switched-off control, which is
                the one reading that must never happen: it is the only way out of
                the zero-row state. Same class as Home's "Choose folder…" — the
@@ -146,56 +145,31 @@
             <div class="text-danger small mb-2" role="status">@error</div>
         }
 
-        @* "Mix applies" — the sole activation control (SPEC §5 Fork B):
-           checked = the mix above is in effect for the next Start; there is no
-           committed copy for it to diverge from. The disabled condition is
-           ASYMMETRIC on purpose: only the *check* gesture is gated (CanActivate
-           — the host's filter-in-effect fact, Fork A strict), so while the box
-           is checked it stays operable and unchecking — the universal way out —
-           is never taken away. The app flips the bit in neither direction:
-           clearing the rows, breaking the mix, or editing the filter leaves the
-           user's consent exactly where they put it (a checked box over the
-           blank mix is honest passthrough — the zero-row copy above says so).
-           Deliberately NOT disabled at zero rows, ruled.
+        @* There is NO activation control here, and its absence is the ruling
+           (SPEC-filtering.md §5, "Visible means in effect", 2026-09-07;
+           halheinrich/backgammon#181). This panel being on screen is itself the
+           statement that the rows above are in effect at the next Start, so a
+           checkbox saying so again would be a second copy of one fact — the
+           divergence the "Mix applies" switch (halheinrich/backgammon#182) was
+           built to prevent and, being a fact of its own, could still cause. The
+           off-switch is the setting on the Settings page, which is also what
+           took this panel off screen. Rule 2's activation gate went with it: the
+           mix composes over the filtered pool at Start, and Start already
+           requires an applied filter, so nothing here needs sequencing behind
+           one.
 
-           Rendered as Bootstrap's form-switch (halheinrich/backgammon#182,
-           ruling (a)): a switch reads as STATE — this mix is on, or it is off
-           — and a checkbox reads as a form field waiting to be submitted with
-           the rest of the page. The bit it carries is standing consent, so the
-           switch is the honest picture of it. This is the whole of the change:
-           the same <input type="checkbox">, the same id, label, @onchange and
-           asymmetric gate, so keyboard and assistive behaviour are Bootstrap's
-           native checkbox behaviour still. .form-switch styles only the track
-           and the knob and declares no border-color, so app.css's darkened
-           .form-check-input border (halheinrich/backgammon#154) reaches the
-           switch untouched — pinned in MixPanelTests. *@
-        <div class="mb-2 form-check form-switch">
-            <input class="form-check-input" type="checkbox" id="mixApplies"
-                   checked="@Consent.Applies"
-                   disabled="@(!Consent.Applies && !CanActivate)"
-                   title="@ActivateDisabledTitle"
-                   @onchange="HandleAppliesChanged" />
-            <label class="form-check-label" for="mixApplies">
-                Mix applies
-                <small class="text-muted">(checked = the next quiz is drawn by the mix above)</small>
-            </label>
-        </div>
-
+           The switch's border treatment did not go with it — the darkened
+           .form-check-input border (halheinrich/backgammon#154) now reaches the
+           setting's own control, and is pinned there. *@
         @* Clear mix keeps its one honest job — deliberately removing the rows,
            with storage following the screen (the write-through persists the
            blank mix). Ungated in every state: it is a way out, never a way
-           into anything. It does NOT touch the checkbox — consent is the
-           user's alone. *@
+           into anything. *@
         <div class="d-flex gap-2">
             <button class="btn btn-outline-secondary btn-sm" id="mixClear" @onclick="Draft.ClearAsync">
                 Clear mix
             </button>
         </div>
-
-        @if (!CanActivate && !Consent.Applies && ActivateDisabledReason is not null)
-        {
-            <div class="form-text" id="mixActivateDisabledReason">@ActivateDisabledReason</div>
-        }
 
     </div>
 </div>
