@@ -113,7 +113,7 @@ public class PageTests : BunitContext
         // document lifecycle over it, so tests stage saved-filters content on
         // the fake's picked-slot properties (FiltersJson / LegacyFiltersJson)
         // and drive everything else through the rendered DOM.
-        Services.AddScoped<PickedFolderFilterStorage>();
+        Services.AddScoped<PickedFolderDocumentStorage>();
 
         // Home injects both halves of the mix state: MixVisibility (the one
         // derivation — the QuizSettings choice AND the picked folder's stats
@@ -2129,9 +2129,10 @@ public class PageTests : BunitContext
     }
 
     // -----------------------------------------------------------------------
-    //  Home.razor — saved filters (Arc B): the parent → SavedFiltersPanel →
-    //  handler wiring, driven through real picks so the SavedFiltersStore loads
-    //  from the FakeFolderAccess exactly as it would from the JS picked slot.
+    //  Home.razor — saved filters (Arc B): the parent → the saved-filters
+    //  NamedEntriesPanel FilterSurface mounts → handler wiring, driven through
+    //  real picks so the SavedFiltersStore loads from the FakeFolderAccess
+    //  exactly as it would from the JS picked slot.
     // -----------------------------------------------------------------------
 
     /// <summary>A one-entry saved-filters document JSON, "Race" carrying a distinguishing player.</summary>
@@ -2207,10 +2208,10 @@ public class PageTests : BunitContext
         var markup = cut.Markup;
         var savedFiltersIndex = markup.IndexOf("id=\"saveFilterName\"", StringComparison.Ordinal);
         var filterPanelIndex = markup.IndexOf("id=\"moreFiltersToggle\"", StringComparison.Ordinal);
-        Assert.True(savedFiltersIndex >= 0, "SavedFiltersPanel should render for an FS-Access pick");
+        Assert.True(savedFiltersIndex >= 0, "The saved-filters NamedEntriesPanel should render for an FS-Access pick");
         Assert.True(filterPanelIndex >= 0, "FilterPanel should render post-pick");
         Assert.True(savedFiltersIndex < filterPanelIndex,
-            "SavedFiltersPanel must render above the FilterPanel");
+            "The saved-filters NamedEntriesPanel must render above the FilterPanel");
     }
 
     [Fact]

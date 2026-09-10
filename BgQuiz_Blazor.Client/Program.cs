@@ -70,14 +70,14 @@ builder.Services.AddScoped<AppliedFilter>();
 // contract is to register the instance here and bind it to FilterSurface.
 builder.Services.AddScoped<FilterRestoreNotice>();
 
-// The saved-filters storage seam: XgFilter_Razor's IFilterDocumentStorage over
+// The document-storage seam: XgFilter_Razor's IDocumentStorage over
 // BgFolderAccess_Razor's picked-slot file I/O — the one-line adapter glue the
 // two producers deliberately leave to the host. Home hands it to FilterSurface
 // while the pick's capability exposes a readable handle; the composite owns the
 // document lifecycle (read at mount/source change, save/delete edits, degrade
 // states) over it. Scoped: the composite rebuilds its store when the bound
 // adapter *reference* changes, so the instance must be stable per app.
-builder.Services.AddScoped<PickedFolderFilterStorage>();
+builder.Services.AddScoped<PickedFolderDocumentStorage>();
 
 // Per-app holder for the "Shuffle order" toggle — a presentation-only choice,
 // deliberately separate from AppliedFilter/FilterConfig. Scoped for the same

@@ -434,9 +434,9 @@ public partial class Home : ComponentBase, IDisposable
     /// The instance is app-scoped so the bound reference is stable: the
     /// composite rebuilds its store when the reference changes.
     /// </summary>
-    private IFilterDocumentStorage? FilterStorage =>
+    private IDocumentStorage? Storage =>
         Folder.Capability is FolderWriteCapability.Enabled or FolderWriteCapability.PermissionDenied
-            ? FilterDocumentStorage
+            ? DocumentStorage
             : null;
 
     /// <summary>

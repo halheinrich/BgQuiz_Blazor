@@ -15,7 +15,7 @@
 @inject MixDraft MixDraft
 @inject ShuffleOption ShuffleOption
 @inject QuizStatsStore StatsStore
-@inject PickedFolderFilterStorage FilterDocumentStorage
+@inject PickedFolderDocumentStorage DocumentStorage
 @inject NavigationManager Nav
 @inject QuizController Controller
 @inject QuizLiveMarker Marker
@@ -442,7 +442,7 @@
     <FilterSurface AppliedFilter="AppliedFilter"
                    RestoreNotice="FilterRestoreNotice"
                    Source="CurrentFilterSource"
-                   Storage="FilterStorage"
+                   Storage="Storage"
                    CanPersist="Folder.Capability == FolderWriteCapability.Enabled"
                    PersistDisabledReason="@SavedFiltersDisabledReason"
                    OnFilterConfigChanged="HandleFilterConfigApplied"

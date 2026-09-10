@@ -7,12 +7,17 @@ using XgFilter_Razor;
 /// <summary>
 /// The one-line adapter glue the two producer libraries deliberately don't ship
 /// (they reference each other in neither direction): XgFilter_Razor's
-/// <see cref="IFilterDocumentStorage"/> seam over BgFolderAccess_Razor's
-/// <b>picked-slot</b> file I/O. <c>FilterSurface</c>'s composite-owned
-/// <c>SavedFiltersStore</c> reads and writes the saved-filters document through
-/// this, so the document lives beside the corpus in the user's picked folder —
-/// and never touches the <i>active</i> slot a running quiz records stats
-/// through.
+/// <see cref="IDocumentStorage"/> seam over BgFolderAccess_Razor's
+/// <b>picked-slot</b> file I/O, so every document kept over it lives beside the
+/// corpus in the user's picked folder — and never touches the <i>active</i>
+/// slot a running quiz records stats through.
+///
+/// <para>
+/// <b>An adapter is named for its storage, never for its payload</b>
+/// (halheinrich/backgammon#190 leg (D)): "picked folder" is where it reads and
+/// writes, and <i>which</i> document any call carries is the business of the
+/// <c>NamedDocumentStore</c> above the seam.
+/// </para>
 ///
 /// <para>
 /// Lifetime: <b>Scoped</b>, like <see cref="IFolderAccess"/> it wraps. A stable
@@ -29,18 +34,18 @@ using XgFilter_Razor;
 /// <para>
 /// <b>Error translation is the whole job.</b> The store's degrade-never-block
 /// posture rides on a typed catch: adapters must signal "the I/O failed" as
-/// <see cref="FilterStorageException"/> and nothing else, so every
+/// <see cref="DocumentStorageException"/> and nothing else, so every
 /// <see cref="JSException"/> — the lib's stated unexpected-browser-failure
 /// surface — is wrapped here. An absent document is already a <c>null</c> read
 /// on both sides of the seam, never an exception, so it passes through
 /// untranslated.
 /// </para>
 /// </summary>
-internal sealed class PickedFolderFilterStorage : IFilterDocumentStorage
+internal sealed class PickedFolderDocumentStorage : IDocumentStorage
 {
     private readonly IFolderAccess _folderAccess;
 
-    public PickedFolderFilterStorage(IFolderAccess folderAccess)
+    public PickedFolderDocumentStorage(IFolderAccess folderAccess)
     {
         _folderAccess = folderAccess ?? throw new ArgumentNullException(nameof(folderAccess));
     }
@@ -54,7 +59,7 @@ internal sealed class PickedFolderFilterStorage : IFilterDocumentStorage
         }
         catch (JSException ex)
         {
-            throw new FilterStorageException($"Reading '{fileName}' from the picked folder failed.", ex);
+            throw new DocumentStorageException($"Reading '{fileName}' from the picked folder failed.", ex);
         }
     }
 
@@ -67,7 +72,7 @@ internal sealed class PickedFolderFilterStorage : IFilterDocumentStorage
         }
         catch (JSException ex)
         {
-            throw new FilterStorageException($"Writing '{fileName}' into the picked folder failed.", ex);
+            throw new DocumentStorageException($"Writing '{fileName}' into the picked folder failed.", ex);
         }
     }
 }

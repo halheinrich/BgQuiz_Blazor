@@ -110,20 +110,20 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `DecisionTypeFilter` / `DecisionTypeOption` (materialized from the user's
   decision-type choice; the controller adds no filter of its own).
 - **XgFilter_Razor** — `FilterSurface.razor`, the one composite hosted on `/`:
-  it owns `FilterPanel` + `SavedFiltersPanel` (both
-  `XgFilter_Razor.Components.Internal` — banned from host use, host tests
-  included) and the whole filter interaction lifecycle — load→stage,
-  save/save-as/delete mediation, the applied-state mediation onto the shared
-  `AppliedFilter` holder, the restored-selection notice, the saved-filters
-  degrade/refusal notices with producer-owned copy, and the source-change rule
-  over the host-minted `FilterSourceToken`. Also the non-visual model this app
-  binds: `AppliedFilter` (the start-gate holder, registered Scoped here),
-  `FilterRestoreNotice` (the restored-selection notice's state — registered
-  Scoped and bound, nothing else: every member that moves it is
-  producer-internal), `FilterSourceToken` (minted once, in
+  it owns `FilterPanel` (`XgFilter_Razor.Components.Internal` — banned from
+  host use, host tests included) and its saved-filters mount of the public
+  generic `NamedEntriesPanel`, and the whole filter interaction lifecycle —
+  load→stage, save/save-as/delete mediation, the applied-state mediation onto
+  the shared `AppliedFilter` holder, the restored-selection notice, the
+  saved-filters degrade/refusal notices with producer-owned copy, and the
+  source-change rule over the host-minted `FilterSourceToken`. Also the
+  non-visual model this app binds: `AppliedFilter` (the start-gate holder,
+  registered Scoped here), `FilterRestoreNotice` (the restored-selection
+  notice's state — registered Scoped and bound, nothing else: every member
+  that moves it is producer-internal), `FilterSourceToken` (minted once, in
   `Home.CurrentFilterSource`, `FromGeneration(PickGeneration)`),
-  `IFilterDocumentStorage` + `FilterStorageException` (the storage seam this
-  app adapts over the folder library), and `SavedFiltersDocument`
+  `IDocumentStorage` + `DocumentStorageException` (the storage seam this app
+  adapts over the folder library), and `SavedFiltersDocument`
   (`FileName` = `xg-filters.json` / `LegacyFileName` = `bgquiz-filters.json` —
   the saved-filters document identity and two-name migration rule, rendered
   wherever this app names the file). Also
@@ -200,8 +200,8 @@ BgQuiz_Blazor.Client/              — WASM client (the whole interactive surfac
     PickedFileLimits.cs             — pick-cap values (bytes / per-format counts /
                                       derived MB) — host policy feeding the
                                       registered FolderPickLimits
-    PickedFolderFilterStorage.cs    — IFilterDocumentStorage over the picked
-                                      slot (the two-producer adapter glue)
+    PickedFolderDocumentStorage.cs  — IDocumentStorage over the picked slot
+                                      (the two-producer adapter glue)
     FolderPickDisplay.cs            — folder-pick wording SSOT (+ the
                                       folder-load refusal copy, composed in
                                       the source stack, read on the page)
@@ -916,7 +916,7 @@ file through the active slot. Home's Clear resets **only the picked slot**
 (`ClearPickedAsync`), so a mid-quiz Clear or re-pick never affects the running
 quiz's recording — that changes only when the next Start re-binds. The picked
 slot also serves the **saved-filters** document (through
-`PickedFolderFilterStorage` over `ReadPickedFileAsync`/`WritePickedFileAsync`):
+`PickedFolderDocumentStorage` over `ReadPickedFileAsync`/`WritePickedFileAsync`):
 a setup-time concern on the folder being configured, deliberately on the
 picked slot so it never requires a promote and never touches a running quiz's
 active handle.
@@ -1072,7 +1072,7 @@ both scope to the active context and reset at the next Start's re-bind.
 document beside the corpus lets the user save and reload filter
 configurations. The whole lifecycle moved into XgFilter_Razor with the
 `FilterSurface` adoption (umbrella #63/#78/#38): the composite owns its
-`SavedFiltersStore` over the host's `IFilterDocumentStorage` adapter, the
+`SavedFiltersStore` over the host's `IDocumentStorage` adapter, the
 status taxonomy, the panel-offering rules (Ready hides a read-only *empty*
 section — the clutter ruling, producer-owned now; WriteFailed keeps the panel
 beside its notice; LoadFailed replaces it), the degrade-notice copy, and the
@@ -1081,9 +1081,9 @@ identity is `SavedFiltersDocument`: canonical `FileName` (`xg-filters.json`),
 legacy `LegacyFileName` (`bgquiz-filters.json`) — read canonical first, fall
 back to legacy only when canonical is *absent* (never when corrupt), write
 canonical only, never delete the legacy file. This app's remaining half is
-capability policy and glue: `PickedFolderFilterStorage` (Scoped) adapts the
+capability policy and glue: `PickedFolderDocumentStorage` (Scoped) adapts the
 seam onto the lib's picked-slot I/O wrapping `JSException` in
-`FilterStorageException`; `Home` supplies it only while the pick's capability
+`DocumentStorageException`; `Home` supplies it only while the pick's capability
 exposes a readable handle (`Enabled` / `PermissionDenied` — `null` under
 `BrowserUnsupported` ⇒ no saved-filters section), rules
 `CanPersist = (Capability == Enabled)`, and words `PersistDisabledReason` from
@@ -1909,7 +1909,7 @@ The asymmetry is pinned three times over: at the service seam
   the shared `AppliedFilter` holder, the app-scoped `FilterRestoreNotice`
   (bound and nothing more — § `AppliedFilter`), `Source = CurrentFilterSource`
   (the one mint — inside this gate a folder is always held), `Storage` = the Scoped
-  `PickedFolderFilterStorage` while the capability exposes a readable handle
+  `PickedFolderDocumentStorage` while the capability exposes a readable handle
   (`null` under `BrowserUnsupported` ⇒ no saved-filters section),
   `CanPersist = (Capability == Enabled)` with `PersistDisabledReason` from
   `FolderPickDisplay.WriteAccessNotGranted` — **capability-only, deliberately
@@ -3215,7 +3215,8 @@ public (see Pitfalls). The externally visible surface is the route map:
   stays append-only and untouched.
 - **Wire tests drive `FilterSurface`'s rendered DOM — no
   `FindComponent<FilterPanel>()`, ever, host tests included** (the producer's
-  no-carve-out ruling; the panels live in `XgFilter_Razor.Components.Internal`).
+  no-carve-out ruling; `FilterPanel` lives in
+  `XgFilter_Razor.Components.Internal`).
   `PageTests`' helpers encode the sanctioned gestures: `ApplyFiltersAsync`
   clicks the panel's real *Apply Filter* button (committing whatever the
   buffers hold — defaults on a fresh mount under loose JS interop),
@@ -3635,7 +3636,7 @@ public (see Pitfalls). The externally visible surface is the route map:
   filters.** A load `JsonException` (corrupt, foreign, or newer-schema file)
   flips `QuizStatsStore` to `LoadFailed`; the saved-filters equivalent is the
   producer store's `LoadFailed` (a rejected parse, or a read wrapped into
-  `FilterStorageException` by the adapter — an FS error, or read genuinely
+  `DocumentStorageException` by the adapter — an FS error, or read genuinely
   withheld under `PermissionDenied`). Terminal for
   that quiz / that pick: no records, and — the actual guarantee — **zero
   writes**, so the user's existing data survives whatever went wrong (stats
@@ -3656,7 +3657,7 @@ public (see Pitfalls). The externally visible surface is the route map:
   retargeting!) the quiz's recording.
 - **Saved filters read/write the *picked* slot, not the active one.** The
   same isolation invariant as stats, from the other side:
-  `PickedFolderFilterStorage` adapts the composite's storage seam onto
+  `PickedFolderDocumentStorage` adapts the composite's storage seam onto
   `ReadPickedFileAsync`/`WritePickedFileAsync`, never the active-slot pair,
   so a mid-quiz re-pick reloads the
   saved-filters context off the *new* picked folder while the running quiz
