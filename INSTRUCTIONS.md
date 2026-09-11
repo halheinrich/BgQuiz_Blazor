@@ -3240,12 +3240,12 @@ public (see Pitfalls). The externally visible surface is the route map:
   `XgFilter_Razor`'s `FilterHelp` and adds app-level framing only. The
   producer's Pitfall draws the line: app-level framing means *where the panel
   sits in this app and what applying it unlocks here*, never what the controls
-  do — so the disclosure and its hidden-active badge, Apply's two disabled
-  states and `Clear filters` are all off-limits here (umbrella #36 removed the
-  copy that described them). A description written here is a second encoding
-  that passes every test on the day it ships and silently goes wrong the next
-  time the lib changes. If `FilterHelp` lacks prose the app needs, extend it in
-  `XgFilter_Razor`; don't restore it here.
+  do — so the facet rows and their badges, Apply's two disabled states and
+  `Clear filters` are all off-limits here (halheinrich/backgammon#36 removed
+  the copy that described the panel's chrome as it then stood). A description
+  written here is a second encoding that passes every test on the day it ships
+  and silently goes wrong the next time the lib changes. If `FilterHelp` lacks
+  prose the app needs, extend it in `XgFilter_Razor`; don't restore it here.
   Corollary for the sweep after a producer facet change: grep BgQuiz for the
   retired *field* names **and** read the user-facing copy — the compiler
   catches the first class and nothing catches the second.
@@ -3290,17 +3290,26 @@ public (see Pitfalls). The externally visible surface is the route map:
   running browser. A bUnit href assertion cannot see any of this; the e2e test
   clicks the link and asserts the target moves into the viewport, having first
   asserted it was outside it.
-- **Most `FilterPanel` controls are behind its disclosure — a test that
-  drives one must expand first.** The panel keeps the error-range section
-  always visible and renders its other eight sections *only while expanded* —
-  absent from the DOM when collapsed, not styled away — so a selector for any
-  of them silently finds nothing. Both suites go through their own one-line
-  helper (`ExpandMoreFiltersAsync`) that clicks the panel's real
-  `#moreFiltersToggle` button, never a JS or field poke; toggling raises no
-  applied-state report, so it never disturbs an applied/dirty expectation.
-  Error-range edits, Apply, and Clear filters need no expansion. Two related
-  traps: address the panel in an ordering assertion by an *always-rendered*
-  element (`#moreFiltersToggle`), not `#positionPattern`; and Playwright's
+- **Every `FilterPanel` facet but the error range is a collapsed row — a
+  test that drives one must open that row first.** The panel keeps the
+  error-range section always visible; each of its other eight facets is its
+  own collapsible row whose controls render *only while that row is
+  expanded* — absent from the DOM when collapsed, not styled away — so a
+  selector for any of them silently finds nothing. Both suites go through
+  their own helper (`ExpandFacetRowAsync`), which takes the facet, clicks
+  that row's real `#facetToggle_<Facet>` button — never a JS or field poke —
+  and then requires its `aria-expanded` to read `true`: the button is a
+  toggle, so that check is what makes the helper an expand, and a click on a
+  row already open fails there rather than at a later selector. Each call
+  site names the row its control lives in and no other; opening every row
+  would hide a control that had quietly moved. The e2e helper finds the
+  toggle by id, not accessible name: a collapsed active row carries a badge,
+  and whether it joins the button's name is the producer's layout. Toggling
+  raises no applied-state report, so it never disturbs an applied/dirty
+  expectation. Error-range edits, Apply, and Clear filters need no row. Two
+  related traps: address the panel in an ordering assertion by an
+  *always-rendered* element (a row toggle — the page test uses
+  `#facetToggle_Players`), not `#positionPattern`; and Playwright's
   accessible-name match is a substring, so the panel's `Clear filters` button
   collides with Home's `Clear` — that locator needs `Exact = true`.
 - **Never gate a control's `disabled` on an `@ref` field.** Blazor assigns a
@@ -3598,8 +3607,11 @@ public (see Pitfalls). The externally visible surface is the route map:
   progressive-disclosure gate closed. That re-mount is production behavior, and
   load-bearing — § `AppliedFilter` owns what it buys and why the composite's
   source-change rule never runs here.
-  So a page test that expands the panel's "more filters" disclosure before a
-  pick must expand it *again* afterwards, and one that pre-arms
+  So a page test that opens a facet row before a pick must open it *again*
+  afterwards — in bUnit the re-mounted panel restores every row collapsed,
+  because the loose interop mock answers its stored open-row set with
+  nothing, where a real browser restores the rows left open (an e2e
+  scenario must therefore *not* re-open one) — and one that pre-arms
   `WithAppliedFilter` then picks through the UI must re-apply, exactly as a
   user would.
 - **The stage-2 refusal's re-bind is a real side effect — including the

@@ -494,10 +494,10 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
 
-        // Type the player through the panel's own control (behind the
-        // disclosure) and commit with its Apply — the real gesture, so the
+        // Type the player through the panel's own control (in the collapsed
+        // Players row) and commit with its Apply — the real gesture, so the
         // config that reaches the pipeline is the one the panel built.
-        await ExpandMoreFiltersAsync(cut);
+        await ExpandFacetRowAsync(cut, FilterFacet.Players);
         cut.Find("input[placeholder='e.g. Hal, Magriel']").Input("Alice");
         await ApplyFiltersAsync(cut);
 
@@ -2172,9 +2172,9 @@ public class PageTests : BunitContext
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.False(startBtn.HasAttribute("disabled"));
 
-        // Players lives behind the panel's disclosure, so open it to read the
-        // staged value back off the real control.
-        await ExpandMoreFiltersAsync(cut);
+        // Players is a collapsed row, so open it to read the staged value back
+        // off the real control.
+        await ExpandFacetRowAsync(cut, FilterFacet.Players);
         await FindSavedFilterRowButton(cut, "Race", "Load").ClickAsync(new());
 
         // The config staged into the panel — its players input now shows the value.
@@ -2202,12 +2202,13 @@ public class PageTests : BunitContext
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         // Address the two panels by their own unique, always-rendered controls:
-        // the saved-filters save-name box and the filter panel's more-filters
-        // disclosure toggle. (Not the position-pattern box — it sits inside the
-        // disclosure and is absent from the DOM while collapsed.)
+        // the saved-filters save-name box and the filter panel's first facet
+        // row's toggle. (Not the position-pattern box — it sits inside its row
+        // and is absent from the DOM while that row is collapsed.)
         var markup = cut.Markup;
         var savedFiltersIndex = markup.IndexOf("id=\"saveFilterName\"", StringComparison.Ordinal);
-        var filterPanelIndex = markup.IndexOf("id=\"moreFiltersToggle\"", StringComparison.Ordinal);
+        var filterPanelIndex = markup.IndexOf(
+            $"id=\"{FacetToggleId(FilterFacet.Players)}\"", StringComparison.Ordinal);
         Assert.True(savedFiltersIndex >= 0, "The saved-filters NamedEntriesPanel should render for an FS-Access pick");
         Assert.True(filterPanelIndex >= 0, "FilterPanel should render post-pick");
         Assert.True(savedFiltersIndex < filterPanelIndex,
@@ -2253,8 +2254,8 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        // Position pattern sits behind the panel's disclosure — open it to type.
-        await ExpandMoreFiltersAsync(cut);
+        // Position pattern is a collapsed row — open it to type.
+        await ExpandFacetRowAsync(cut, FilterFacet.PositionPattern);
         cut.Find("#positionPattern").Input("[6,2"); // unparseable
         cut.Find("#saveFilterName").Input("Bad");
         await ClickSavedFilterButtonByTextAsync(cut, "Save");
@@ -2291,7 +2292,7 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        await ExpandMoreFiltersAsync(cut);
+        await ExpandFacetRowAsync(cut, FilterFacet.PositionPattern);
         cut.Find("#positionPattern").Input("[6,2"); // unparseable → save refused
         cut.Find("#saveFilterName").Input("Bad");
         await ClickSavedFilterButtonByTextAsync(cut, "Save");
@@ -2555,7 +2556,8 @@ public class PageTests : BunitContext
         // (nothing new to commit). Driven entirely through the always-visible
         // error-range control: commit a Min of 0.75, edit it away, undo it
         // back. (Home_UndoingAnEdit_ReArmsStartAndRestoresTheMatchCount pins
-        // the same arc through a disclosure control plus the match count.)
+        // the same arc through a control inside a facet row plus the match
+        // count.)
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder();
         WithAppliedFilter();
@@ -2607,8 +2609,9 @@ public class PageTests : BunitContext
     /// constants <c>internal</c> precisely so no consumer depends on them), so
     /// this matches every <c>localStorage.getItem</c> for a key BgQuiz does not
     /// own. Everything left over on a Home render belongs to the composite, and
-    /// the panel's other restore — its disclosure flag — reads this tolerantly
-    /// (anything but <c>"true"</c> keeps the collapsed default).
+    /// the panel's other restore — its set of open rows — reads this
+    /// all-or-nothing: a config object is not an array of row names, so every
+    /// row keeps its collapsed default.
     /// </summary>
     private void WithStoredFilterSelection(FilterConfig stored)
     {
@@ -2700,8 +2703,8 @@ public class PageTests : BunitContext
 
         // Commit a distinctive config through the panel's own Apply button, so
         // what comes back on the undo is identifiably the committed one. Players
-        // sits behind the panel's disclosure.
-        await ExpandMoreFiltersAsync(cut);
+        // is a collapsed row.
+        await ExpandFacetRowAsync(cut, FilterFacet.Players);
         cut.Find("input[placeholder='e.g. Hal, Magriel']").Input("Magriel");
         await ApplyFiltersAsync(cut);
         Assert.False(StartButton(cut).HasAttribute("disabled"));
@@ -2781,11 +2784,11 @@ public class PageTests : BunitContext
 
         Assert.False(StartButton(cut).HasAttribute("disabled"));
 
-        // Analysis depth sits behind the panel's disclosure, like every facet but
-        // the error range. The mode toggle ids are the panel's own
+        // Analysis depth is a collapsed row, like every facet but the error
+        // range. The mode toggle ids are the panel's own
         // md_<AnalysisMode> convention — a level group renders only once its mode
         // is checked, which is itself part of what a bare toggle click asserts.
-        await ExpandMoreFiltersAsync(cut);
+        await ExpandFacetRowAsync(cut, FilterFacet.AnalysisDepth);
         await cut.Find($"#md_{AnalysisMode.Rollout}").ChangeAsync(new ChangeEventArgs { Value = true });
 
         // The edit is a dirty signal like any other: Start re-gates until Apply.
@@ -2829,14 +2832,17 @@ public class PageTests : BunitContext
 
         // Set a filter through the panel's own controls and commit it with its own
         // Apply button — the real gesture, not a synthesized callback. Players
-        // lives behind the panel's disclosure, so open it first — and again after
-        // the re-pick, because a pick renders at its empty-folder state (the busy
-        // affordance paints there, and before that the picked-slot interop
-        // yielded), which unmounts the panel behind the disclosure gate and
-        // re-mounts it collapsed. That re-mount is the documented production
-        // behavior, not an artifact: what this test pins is that the buffers come
-        // back at defaults however the panel got there.
-        await ExpandMoreFiltersAsync(cut);
+        // is a collapsed row, so open it first — and again after the re-pick,
+        // because a pick renders at its empty-folder state (the busy affordance
+        // paints there, and before that the picked-slot interop yielded), which
+        // unmounts the panel behind the progressive-disclosure gate and
+        // re-mounts it. That re-mount is the documented production behavior,
+        // not an artifact; that it comes back with every row collapsed is this
+        // harness's — the loose interop mock answers the panel's stored
+        // open-row set with nothing, where a browser would restore the open
+        // row. What this test pins is that the buffers come back at defaults
+        // however the panel got there.
+        await ExpandFacetRowAsync(cut, FilterFacet.Players);
         cut.Find("input[placeholder='e.g. Hal, Magriel']").Input("Magriel");
         await ApplyFiltersAsync(cut);
 
@@ -2851,7 +2857,7 @@ public class PageTests : BunitContext
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         // Panel buffers back to defaults…
-        await ExpandMoreFiltersAsync(cut); // re-mounted collapsed by the pick's render
+        await ExpandFacetRowAsync(cut, FilterFacet.Players); // re-mounted collapsed — see above
         Assert.Equal(string.Empty,
             cut.Find("input[placeholder='e.g. Hal, Magriel']").GetAttribute("value"));
         // …applied state dropped, so Start re-gates behind the Apply hint…
@@ -5755,9 +5761,10 @@ public class PageTests : BunitContext
         // Every assertion here reads HOST prose only, with the embedded block
         // subtracted. That is load-bearing rather than tidy: FilterHelp is
         // rendered *inside* this section and now documents the chrome too, so a
-        // whole-section pin on "Show more filters" — which is what this test
-        // used to assert — went vacuous the moment the host stopped saying it,
-        // and a whole-section absence pin on chrome wording could never be true.
+        // whole-section pin on a control's label — this test once pinned the
+        // panel's old single disclosure toggle that way — went vacuous the
+        // moment the host stopped saying it, and a whole-section absence pin on
+        // chrome wording could never be true.
         WithController();
 
         var cut = Render<HelpPage>();
@@ -5772,10 +5779,10 @@ public class PageTests : BunitContext
         // The negative half. One entry is the facet gloss an earlier leg retired
         // (Help used to define the error range in its own voice); the other
         // three are the chrome sentences umbrella #36 retired — where the error
-        // range sits, what the hidden-active badge counts, and what Clear
-        // filters does. Each names a control's behavior, which is precisely what
-        // the producer's Pitfall reserves to FilterHelp, and each would pass
-        // every other test on this page if it were pasted back.
+        // range sits, what the old disclosure's hidden-active badge counted, and
+        // what Clear filters does. Each names a control's behavior, which is
+        // precisely what the producer's Pitfall reserves to FilterHelp, and each
+        // would pass every other test on this page if it were pasted back.
         Assert.DoesNotContain("how costly the recorded mistake was", hostProse);
         Assert.DoesNotContain("always shown", hostProse);
         Assert.DoesNotContain("hidden sections", hostProse);
@@ -7265,22 +7272,37 @@ public class PageTests : BunitContext
         cut.Find("#mixAddRow").ClickAsync(new());
 
     /// <summary>
-    /// Opens the <see cref="FilterPanel"/>'s "more filters" disclosure through
-    /// the panel's own toggle button. The panel keeps the error-range section
-    /// first and always visible; its other eight sections (player names,
-    /// decision type, match scores, move number range, contact type, analysis
-    /// depth, dice rolls, position pattern) render <i>only</i> while expanded —
-    /// they are absent from the DOM when collapsed, not merely styled away — so
-    /// any test driving one of those controls has to expand first. Error-range
-    /// edits, Apply, and Clear filters need no expansion.
+    /// Opens one of the <see cref="FilterPanel"/>'s facet rows through that
+    /// row's own toggle button, then asserts the row reports itself open. The
+    /// panel keeps the error-range section first and always visible; each of
+    /// its other eight facets is its own collapsible row whose controls render
+    /// <i>only</i> while that row is expanded — absent from the DOM when
+    /// collapsed, not merely styled away — so a test driving one of those
+    /// controls opens the row it lives in, and only that row: opening more
+    /// would hide a control that had quietly moved to another. Error-range
+    /// edits, Apply, and Clear filters need no row.
     /// <para>
-    /// Toggling is navigation, not an edit: the panel raises no applied-state
-    /// report for it, so calling this never disturbs a test's applied/dirty
-    /// expectations.
+    /// The button is a toggle, so the assertion is what makes this an expand
+    /// rather than a flip: a click on a row that is already open closes it, and
+    /// the <c>aria-expanded</c> read fails right there instead of at a later
+    /// <c>Find</c> that cannot say why. Toggling is navigation, not an edit —
+    /// the panel raises no applied-state report for it, so calling this never
+    /// disturbs a test's applied/dirty expectations.
     /// </para>
     /// </summary>
-    private static Task ExpandMoreFiltersAsync(IRenderedComponent<HomePage> cut) =>
-        cut.Find("#moreFiltersToggle").ClickAsync(new());
+    private static async Task ExpandFacetRowAsync(IRenderedComponent<HomePage> cut, FilterFacet facet)
+    {
+        var selector = $"#{FacetToggleId(facet)}";
+        await cut.Find(selector).ClickAsync(new());
+        Assert.Equal("true", cut.Find(selector).GetAttribute("aria-expanded"));
+    }
+
+    /// <summary>
+    /// The id of a facet row's toggle button: the producer's one mould,
+    /// <c>facetToggle_</c> followed by the <see cref="FilterFacet"/> member
+    /// name — spelled once here for every page test that addresses a row.
+    /// </summary>
+    private static string FacetToggleId(FilterFacet facet) => $"facetToggle_{facet}";
 
     [Fact]
     public async Task Home_MixComposedInPanel_StartComposesWeightedQuiz()

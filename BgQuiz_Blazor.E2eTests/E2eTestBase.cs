@@ -422,27 +422,38 @@ public abstract class E2eTestBase : IAsyncLifetime
     }
 
     /// <summary>
-    /// Open the filter panel's "more filters" disclosure and wait for it to
-    /// land. The panel keeps its error-range section first and always visible;
-    /// its other eight sections (player names, decision type, match scores,
-    /// move number range, contact type, analysis depth, dice rolls, position
-    /// pattern) render only while expanded — absent from the DOM when
-    /// collapsed, not merely hidden — so any scenario setting one of those
-    /// facets must expand first. Error-range edits, Apply, and Clear filters
-    /// need no expansion.
+    /// Open one of the filter panel's facet rows and wait for it to land. The
+    /// panel keeps its error-range section first and always visible; each of
+    /// its other eight facets is its own collapsible row whose controls render
+    /// only while that row is expanded — absent from the DOM when collapsed,
+    /// not merely hidden — so a scenario setting one of those facets opens the
+    /// row it lives in first, and only that row. Error-range edits, Apply, and
+    /// Clear filters need no row.
     ///
     /// <para>
-    /// The toggle's two labels are pinned here as literals, per this suite's
-    /// independent-literal convention: they are what the user reads on the
-    /// control, and the flip from one to the other is the user-visible proof
-    /// the disclosure opened.
+    /// <paramref name="facet"/> is the facet's member name as the panel spells
+    /// it into the row's ids (<c>"ContactTypes"</c>, not the row's label), held
+    /// as a literal at the call site per this suite's independent-literal
+    /// convention. The row is addressed by its toggle's <b>id</b>, never its
+    /// accessible name: a collapsed row with an active filter carries a badge,
+    /// and whether that badge joins the button's name is the producer's layout
+    /// — an id locator is indifferent to it.
+    /// </para>
+    ///
+    /// <para>
+    /// <c>aria-expanded</c> reading <c>true</c> is the proof the row opened,
+    /// and — because the button is a toggle — what catches a click that closed
+    /// a row which was already open. The panel remembers its open rows in
+    /// localStorage and restores them on every fresh mount, so a row a
+    /// scenario opened is still open after a re-pick or a reload, and must not
+    /// be expanded again.
     /// </para>
     /// </summary>
-    protected async Task ExpandMoreFiltersAsync()
+    protected async Task ExpandFacetRowAsync(string facet)
     {
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Show more filters" }).ClickAsync();
-        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = "Hide more filters" }))
-            .ToBeVisibleAsync();
+        var toggle = Page.Locator($"#facetToggle_{facet}");
+        await toggle.ClickAsync();
+        await Expect(toggle).ToHaveAttributeAsync("aria-expanded", "true");
     }
 
     /// <summary>

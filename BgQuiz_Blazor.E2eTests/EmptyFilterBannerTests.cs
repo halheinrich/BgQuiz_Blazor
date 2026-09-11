@@ -28,10 +28,10 @@ public sealed class EmptyFilterBannerTests : E2eTestBase
         // Race click below cannot be overwritten by a late hydrate.
         await PickFixtureAsync(CubeFixture);
 
-        // Contact type sits behind the panel's "more filters" disclosure, so
-        // open it the way the user must. The cube fixture is a contact
-        // position, so the Race contact-type filter admits nothing.
-        await ExpandMoreFiltersAsync();
+        // Contact type is one of the panel's collapsed rows, so open that row
+        // the way the user must. The cube fixture is a contact position, so
+        // the Race contact-type filter admits nothing.
+        await ExpandFacetRowAsync("ContactTypes");
         await Page.GetByLabel("Race", new() { Exact = true }).CheckAsync();
         await ApplyFilterAsync();
 
