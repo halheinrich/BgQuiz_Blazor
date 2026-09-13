@@ -2200,8 +2200,11 @@ The asymmetry is pinned three times over: at the service seam
   and the badge is **in-flow and positions nothing**, so the old `position:
   relative` host requirement and the `container-type: inline-size` cqw anchor
   on `.board-container .bg-diagram` are both gone (pinned retired — see
-  Pitfalls). The producer's `Overlay` slot and the exporters' baked corner label
-  are untouched — this is the quiz page's placement choice only. Nothing in the
+  Pitfalls). The exporters' baked corner label is untouched — this is the quiz
+  page's placement choice only; the producer's `Overlay` slot, orphaned by it,
+  was removed the same day (halheinrich/backgammon#98) and must not be expected
+  to exist (corrected 2026-09-13; audit A-002, halheinrich/backgammon#211).
+  Nothing in the
   cluster may be load-bearing for its layout, because either of its two leading
   components can render nothing at all (an empty `Xgid`; a record that locates
   nothing) — which is why the cluster right-aligns itself rather than being
