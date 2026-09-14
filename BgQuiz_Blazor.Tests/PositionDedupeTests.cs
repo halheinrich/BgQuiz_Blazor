@@ -65,7 +65,7 @@ public class PositionDedupeTests
         if (!File.Exists(FixturePath))
         {
             throw new FileNotFoundException(
-                $"The issue #84 duplicate-position repro needs the FixtureFiles fixture '{FixtureName}'. " +
+                $"The issue halheinrich/backgammon#84 duplicate-position repro needs the FixtureFiles fixture '{FixtureName}'. " +
                 "TestData/FixtureFiles is append-only so pinned tests may name files in it; this test " +
                 "fails loudly rather than skipping, because a repro that skips is a repro that has " +
                 "stopped existing.",
@@ -126,7 +126,7 @@ public class PositionDedupeTests
         Assert.True(
             undeduped.Count > undeduped.Select(d => d.Xgid).Distinct(StringComparer.Ordinal).Count(),
             "Premise broken: the two copies no longer yield content-equal decisions, so this " +
-            "test can no longer observe the #84 duplication it exists to pin.");
+            "test can no longer observe the halheinrich/backgammon#84 duplication it exists to pin.");
 
         var controller = new QuizController(
             FactoryOver(picked, new ShuffleOption()),
