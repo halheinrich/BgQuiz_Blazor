@@ -6,7 +6,7 @@ namespace BgQuiz_Blazor.E2eTests;
 /// The pre-Start match count read as a <i>deduplicated</i> count (umbrella
 /// issue <c>halheinrich/backgammon#104</c>). The count has always been one item
 /// per distinct position — the source stack dedupes beneath every quiz mode
-/// (issue #84) — but the screen said nothing about it, so a user reading "N
+/// (issue halheinrich/backgammon#84) — but the screen said nothing about it, so a user reading "N
 /// problem file(s)" and a smaller match count on the same page subtracted the
 /// two and reported a bug.
 ///

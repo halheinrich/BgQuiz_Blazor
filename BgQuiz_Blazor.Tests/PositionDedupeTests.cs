@@ -120,7 +120,7 @@ public class PositionDedupeTests
         // The premise, asserted rather than assumed: without the dedupe layer
         // this pick genuinely serves positions twice. If a future fixture or
         // parser change made the copies distinguishable, the test below would
-        // start passing for a reason that has nothing to do with #84 — so the
+        // start passing for a reason that has nothing to do with halheinrich/backgammon#84 — so the
         // duplication itself is pinned first.
         var undeduped = await UndedupedAsync(picked, EarlyMoves);
         Assert.True(

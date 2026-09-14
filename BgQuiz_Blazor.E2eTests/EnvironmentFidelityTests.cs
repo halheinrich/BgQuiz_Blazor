@@ -7,7 +7,7 @@ namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
 /// The gate's first line: the environment the rest of the suite runs in is the
-/// product's (issues <c>halheinrich/backgammon#126</c>, <c>#127</c>). Every other
+/// product's (issues <c>halheinrich/backgammon#126</c>, <c>halheinrich/backgammon#127</c>). Every other
 /// scenario here asks whether the app behaves; these ask whether the app under
 /// them is the one that ships.
 ///
@@ -20,7 +20,7 @@ namespace BgQuiz_Blazor.E2eTests;
 /// cluster laid out as a block on its own line, no container gutters. Every test
 /// stayed green, because every test asked about behaviour — which survives a
 /// missing stylesheet — and the one geometric assertion in the suite (the
-/// locator's, <c>#115</c>) was read as a layout bug rather than as the messenger
+/// locator's, <c>halheinrich/backgammon#115</c>) was read as a layout bug rather than as the messenger
 /// it was. A green test proves the test passed <i>in its environment</i>; it says
 /// nothing about whether that environment is the product's.
 /// </para>
@@ -32,7 +32,7 @@ namespace BgQuiz_Blazor.E2eTests;
 /// is covered the day it is linked, and an asset that quietly stops being served
 /// fails here rather than as a puzzling layout report three suites away. A
 /// hand-written list of files would have to be maintained against the app, and a
-/// list that drifts is exactly the SSOT defect #126 was: two statements of what
+/// list that drifts is exactly the SSOT defect halheinrich/backgammon#126 was: two statements of what
 /// the app needs, one of them wrong. That also rules out naming any producer's
 /// <c>_content/</c> path here: those belong to the submodules that ship them, and
 /// this suite would only be restating a contract it does not own.
@@ -294,7 +294,7 @@ public sealed class EnvironmentFidelityTests : E2eTestBase
     /// pointing this at a path the host does not map). The body is what says a
     /// real health-checks endpoint answered rather than something else that
     /// happens to return 200 there — a static file dropped into <c>wwwroot</c>,
-    /// or some future catch-all — which is the whole of the ruling behind #24's
+    /// or some future catch-all — which is the whole of the ruling behind halheinrich/backgammon#24's
     /// app half.
     /// </para>
     /// </summary>

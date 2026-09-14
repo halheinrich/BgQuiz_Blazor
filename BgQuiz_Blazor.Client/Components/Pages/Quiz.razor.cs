@@ -130,7 +130,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// <b>Ending the run early.</b> Both action rows trail with an <b>End quiz</b>
-/// button (issue #57) — see <see cref="EndQuizAsync"/> for why it sits at the far
+/// button (issue halheinrich/backgammon#57) — see <see cref="EndQuizAsync"/> for why it sits at the far
 /// end of the row and carries no confirmation. It is the only control here that
 /// finishes a run the source has not exhausted; everything about what that leaves
 /// behind (an unanswered problem counted as a skip, an answered one kept and
@@ -837,7 +837,7 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     }
 
     /// <summary>
-    /// End the run here and go to the summary (issue #57). One click, acting
+    /// End the run here and go to the summary (issue halheinrich/backgammon#57). One click, acting
     /// immediately: the confirmation the issue first sketched was ruled out, so
     /// the only thing standing between a stray click and a finished quiz is
     /// where the button sits — the far end of the action row, past Show stats.

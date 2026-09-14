@@ -146,7 +146,7 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await Expect(body).ToContainTextAsync("disappears when you close this one");
 
         // Naming what is stored is only half of "your data stays yours" — the
-        // other half is that the reader can act on it (issue #54). This used to
+        // other half is that the reader can act on it (issue halheinrich/backgammon#54). This used to
         // be one sentence routing the whole answer through "your browser's
         // developer tools"; it now leads with the setting every reader already
         // has. Three literals, each a claim that could quietly be dropped: the
@@ -158,7 +158,7 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await Expect(body).ToContainTextAsync("removes all three at once");
         await Expect(body).ToContainTextAsync("files in your problem folder are untouched");
 
-        // The consequence the section is now asked to draw (issue #51): having
+        // The consequence the section is now asked to draw (issue halheinrich/backgammon#51): having
         // accounted for everything BgQuiz keeps, it says the thing a reader
         // cannot infer from a list — that closing the tab is safe, mid-quiz
         // included. Ruled as words rather than a button: a "finish and quit"
@@ -211,7 +211,7 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         // The note is about the CONTROL, never an inventory of what the panel
         // contains — prose naming the nav's entries rots the day one is added.
         // The literal this originally guarded with ("Settings") stopped being a
-        // usable proxy when #30 landed: the note now legitimately points at the
+        // usable proxy when halheinrich/backgammon#30 landed: the note now legitimately points at the
         // Settings *page* as where the fold option lives, which is a pointer to
         // an option and not a listing of the panel's contents. Home and Help have
         // no such reason to appear, so they are what an inventory would drag in.

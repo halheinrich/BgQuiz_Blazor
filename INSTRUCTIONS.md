@@ -137,13 +137,14 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   pointer is built from. The other `fh-*` ids stay `internal` — nothing here
   links to them.
 - **BgFolderAccess_Razor** — the File System Access machinery this app
-  originally grew app-side, rehomed (umbrella #79): `IFolderAccess` /
-  `JsFolderAccess` (both pick mechanisms, name-parameterized picked/active
-  slot file I/O, the two-slot isolation model), `FolderWriteCapability`,
-  `FolderPickOutcome` / `PickedFile` / `PickTruncation`, and `FolderPickLimits`
-  — the host-supplied caps configuration `Program.cs` builds from
-  `PickedFileLimits`' values (the numbers stay host policy; the lib ships
-  none). Its `folderAccess.js` ships as the lib's static web asset
+  originally grew app-side, rehomed (umbrella halheinrich/backgammon#79):
+  `IFolderAccess` / `JsFolderAccess` (both pick mechanisms, name-parameterized
+  picked/active slot file I/O, the two-slot isolation model),
+  `FolderWriteCapability`, `FolderPickOutcome` / `PickedFile` /
+  `PickTruncation`, and `FolderPickLimits` — the host-supplied caps
+  configuration `Program.cs` builds from `PickedFileLimits`' values (the
+  numbers stay host policy; the lib ships none). Its `folderAccess.js` ships as
+  the lib's static web asset
   (`_content/BgFolderAccess_Razor/js/folderAccess.js`); this app authors no
   folder JS of its own any more. The FS-Access lore (two-prompt shape,
   cause-ambiguous cancels/denials, the busy-affordance seam) lives in that
@@ -268,8 +269,9 @@ BgQuiz_Blazor.Tests/
                                       throw, the file naming, the multi-file
                                       count, pass-through, and the guard's
                                       presence in the real stack
-  PositionDedupeTests.cs            — the #84 repro: one fixture under two names
-                                      (fixture absent ⇒ FAIL, never skip)
+  PositionDedupeTests.cs            — the halheinrich/backgammon#84 repro: one
+                                      fixture under two names (fixture
+                                      absent ⇒ FAIL, never skip)
   AnswerTypeDisplayTests.cs         — bucket→field mapping, order, always-five
   MixPanelTests.cs                  — builder / validation / rebalance pins
   MixDraftTests.cs                  — build/write-through matrix + hydration
@@ -328,9 +330,9 @@ BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
   CommaDecimalLocaleTests.cs        — nb-NO comma-decimal guard
   HelpAndTitlesTests.cs             — /help renders; document.title contract
   AnswerTypeBreakdownTests.cs       — the pre-Start breakdown: labels and zeros
-  DeduplicatedCountTests.cs         — the count as a deduplicated count (#104):
-                                      duplicated files collapse, magnitude says
-                                      how many
+  DeduplicatedCountTests.cs         — the count as a deduplicated count
+                                      (halheinrich/backgammon#104): duplicated
+                                      files collapse, magnitude says how many
   ForcedPlaySkipTests.cs            — a forced play never reaches the user
                                       (halheinrich/backgammon#140): two
                                       decisions match, one shows
@@ -459,24 +461,25 @@ the fake sink's `RecordGate`.
   (`SkippedCount++`, nothing folds); mid-practice-cycle the problem is already
   answered, so this is the run advancing past it — the answer of record folds
   and no skip is counted.
-- **`EndQuizAsync`** — the user's own exit from the run (issue #57), and the one
-  path that leaves the three-state flow rather than moving through it: it
-  finishes where it stands, with problems still unread. `IsFinished` flips,
-  `Current` and `Review` clear, and the live enumerator is released early (safe
-  because the gate guarantees no `MoveNextAsync` is in flight). No-op before
-  start and after finish. **Two settled semantics, no new scoring path,** parting
-  on the *answer of record* rather than on `Review`: with **no** record the
-  problem showing is **abandoned** — any in-progress input is discarded, it
-  records no answer, and it takes the same non-scoring outcome an explicit Skip
-  records (`SkippedCount++`), so Done's "problems shown" still counts a problem
-  the user saw; **with** one the answer **stands and folds**, because it was
-  submitted, scored, and read — whether the review is still showing or a redo
-  re-opened the problem for practice. Folding goes through the same
-  `FoldAnswerOfRecordAsync` Continue uses — which is what preserves the standing
-  invariant that **every answer visible on Done has reached the lifetime record**
-  (Done states it to the user; see Pitfalls). The run is a **completed quiz**,
-  ruled: `/done` is unchanged, with no ended-early wording and no controller flag
-  for one — the partial score is simply the score of the problems answered.
+- **`EndQuizAsync`** — the user's own exit from the run (issue
+  halheinrich/backgammon#57), and the one path that leaves the three-state flow
+  rather than moving through it: it finishes where it stands, with problems still
+  unread. `IsFinished` flips, `Current` and `Review` clear, and the live
+  enumerator is released early (safe because the gate guarantees no
+  `MoveNextAsync` is in flight). No-op before start and after finish. **Two
+  settled semantics, no new scoring path,** parting on the *answer of record*
+  rather than on `Review`: with **no** record the problem showing is
+  **abandoned** — any in-progress input is discarded, it records no answer, and
+  it takes the same non-scoring outcome an explicit Skip records
+  (`SkippedCount++`), so Done's "problems shown" still counts a problem the user
+  saw; **with** one the answer **stands and folds**, because it was submitted,
+  scored, and read — whether the review is still showing or a redo re-opened the
+  problem for practice. Folding goes through the same `FoldAnswerOfRecordAsync`
+  Continue uses — which is what preserves the standing invariant that **every
+  answer visible on Done has reached the lifetime record** (Done states it to the
+  user; see Pitfalls). The run is a **completed quiz**, ruled: `/done` is
+  unchanged, with no ended-early wording and no controller flag for one — the
+  partial score is simply the score of the problems answered.
 
 `ProblemReview` lives in `BgQuiz_Blazor.Client` (not BgGame_Lib): it is
 per-app UI state, and adding it to the submodule would cross the boundary. Its
@@ -583,8 +586,8 @@ notice tally deduped supply.
   copy reads and writes the same record whichever one the quiz shows — which is
   why this factory no longer takes the stats seam at all. (The stats-bearing
   survivor preference it used to pass existed solely to keep id-keyed stats
-  reachable across content-identical copies; #95 deleted the fragmentation and
-  the seam with it. Don't reintroduce one.)
+  reachable across content-identical copies; halheinrich/backgammon#95 deleted
+  the fragmentation and the seam with it. Don't reintroduce one.)
 - The producer's `Count` is null through this layer by contract — how many
   positions collapse is unknowable before enumeration.
 
@@ -607,7 +610,7 @@ so the start is **refused** in two stages: stage 1, the side-effect-free
 `IProblemStatsSink.CanWeightMix` shared predicate (§ `QuizStatsStore`) —
 before even the stats bind; stage 2, after `BeginQuizAsync` (ordered **before**
 the source build, because the wrap decision needs the bound context), when the
-bind yielded no document. Since #87 the refusal is a **backstop, not a routine
+bind yielded no document. Since halheinrich/backgammon#87 the refusal is a **backstop, not a routine
 outcome**: the host offers no way to build a mix where `CanWeightMix` is false,
 so what is left reachable is a bind that fails *after* the pick looked
 capable — a stats file that changed or turned unparseable in between. Either refusal returns `MixRequiresStats` having touched **no quiz
@@ -679,14 +682,14 @@ the pool it counts: "N decisions match your filters" means N distinct
 positions. The agreement is structural, not a convention two call sites must
 honour: the layer decides *which* copy survives, never how many do, so pool
 size cannot vary between a pre-Start summary and the quiz it precedes. The
-collapse **magnitude** rides in the same `MatchSummary` (issue #104): the
-factory folds the producer's duplicate-class telemetry to one number and the
-summary reads it after the drain, since it is telemetry of that enumeration.
-`Total + DuplicatesCollapsed` is the whole filtered stream — the accounting
-identity `PositionDedupeTests` pins against a real parse. The factory returns
-the pair rather than the decorator so the shuffle wrapper above it needs no
-type-test, and so a substitute stack with no dedupe layer reports `0` honestly
-instead of fabricating one.
+collapse **magnitude** rides in the same `MatchSummary` (issue
+halheinrich/backgammon#104): the factory folds the producer's duplicate-class
+telemetry to one number and the summary reads it after the drain, since it is
+telemetry of that enumeration. `Total + DuplicatesCollapsed` is the whole
+filtered stream — the accounting identity `PositionDedupeTests` pins against a
+real parse. The factory returns the pair rather than the decorator so the
+shuffle wrapper above it needs no type-test, and so a substitute stack with no
+dedupe layer reports `0` honestly instead of fabricating one.
 
 **The count is `Total`, and there is no second surface for it.** The
 producer's fold contract (every `Add` increments exactly one bucket) makes the
@@ -886,27 +889,27 @@ now.** The whole gateway (both pick mechanisms, the two-slot state model,
 name-parameterized picked/active file I/O, the caps enforcement, the error
 contract — expected outcomes as values, unexpected browser failures as
 `JSException`, `Cancelled` deliberately cause-ambiguous) was rehomed to the
-BgFolderAccess_Razor submodule (umbrella #79) and is documented there; its JS
-module ships as that library's static web asset, so this app authors no folder
-JS. What stays *here* is the host's side of the seam: `Program.cs` registers
-the lib's `JsFolderAccess` (Scoped) plus one `FolderPickLimits` built from
-`PickedFileLimits`' values, `Home` drives the pick gestures and renders the
-outcomes, and the file-name constants stay host policy — the stats store passes
-`QuizStatsFile.FileName` into the name-parameterized active-slot calls, and the
-saved-filters names come from XgFilter_Razor's `SavedFiltersDocument` through
-the composite.
+BgFolderAccess_Razor submodule (umbrella halheinrich/backgammon#79) and is
+documented there; its JS module ships as that library's static web asset, so this
+app authors no folder JS. What stays *here* is the host's side of the seam:
+`Program.cs` registers the lib's `JsFolderAccess` (Scoped) plus one
+`FolderPickLimits` built from `PickedFileLimits`' values, `Home` drives the pick
+gestures and renders the outcomes, and the file-name constants stay host policy —
+the stats store passes `QuizStatsFile.FileName` into the name-parameterized
+active-slot calls, and the saved-filters names come from XgFilter_Razor's
+`SavedFiltersDocument` through the composite.
 
-**The FS-Access pick is split in two, on purpose (issue #48; the seam is the
-library's contract now).** `PickFolderAsync` awaits a caller-supplied
-`Func<Task> onPickAccepted` between the browser's prompts and the
-enumeration/buffering — the only point at which a busy affordance can be
-raised *truthfully* (earlier lies over a modal; later never paints — the
-lib's Pitfalls carry the full rationale). It is **not** invoked for a
-cancelled pick. `Home` passes `EnterBusyAsync`; the fallback reaches the same
-meaning by a different route, its work beginning at the input's `change` event
-so the whole of `HandleFallbackPickedAsync` runs under the affordance. On both
-mechanisms the busy state means one thing — *the app is processing a selection
-the user has made*.
+**The FS-Access pick is split in two, on purpose (issue
+halheinrich/backgammon#48; the seam is the library's contract now).**
+`PickFolderAsync` awaits a caller-supplied `Func<Task> onPickAccepted` between
+the browser's prompts and the enumeration/buffering — the only point at which
+a busy affordance can be raised *truthfully* (earlier lies over a modal; later
+never paints — the lib's Pitfalls carry the full rationale). It is **not**
+invoked for a cancelled pick. `Home` passes `EnterBusyAsync`; the fallback
+reaches the same meaning by a different route, its work beginning at the
+input's `change` event so the whole of `HandleFallbackPickedAsync` runs under
+the affordance. On both mechanisms the busy state means one thing — *the app
+is processing a selection the user has made*.
 
 **Two-slot model — the mid-quiz-Clear ruling (enforced lib-side, relied on
 here).** The stats context **binds at Start/Restart, never at pick**: the
@@ -981,8 +984,9 @@ controller's sink and the pages' status notices observe one instance; deps:
 - The clock is the DI `TimeProvider` (registered `TimeProvider.System` in
   `Program.cs`), handed to the document's `Plus` — ambient time is never read.
 
-**Two states, two lifetimes, no traffic between them** (issue #87). Beside the
-*active context* above sits the **pick-time probe** behind `CanWeightMix`:
+**Two states, two lifetimes, no traffic between them** (issue
+halheinrich/backgammon#87). Beside the *active context* above sits the
+**pick-time probe** behind `CanWeightMix`:
 
 - **`CanWeightMix`** (on `IProblemStatsSink`, replacing the old
   `CanBindStats`) — *the* predicate for "can a weighted mix mean anything
@@ -1054,8 +1058,8 @@ on a stats abstraction. The fact-level alternative (`PickedFolderHasStats`)
 would scatter the "a mix needs stats" rule across both consumers instead, which
 is worse at two call sites — but the trade flips with a third. **The first
 consumer of "does this folder have stats" that is not about the mix** — a stats
-viewer, or #43's saved-mix gating — **is when this splits into the fact plus
-the policy over it.**
+viewer, or halheinrich/backgammon#43's saved-mix gating — **is when this splits
+into the fact plus the policy over it.**
 
 **Status surfacing** splits by context. Pick-time (Home, capability-based,
 all polite `role="status"`): stats-will-be-saved (`Enabled`, naming
@@ -1071,11 +1075,12 @@ both scope to the active context and reset at the next Start's re-bind.
 **Saved named filters — composite-owned now.** A per-directory saved-filters
 document beside the corpus lets the user save and reload filter
 configurations. The whole lifecycle moved into XgFilter_Razor with the
-`FilterSurface` adoption (umbrella #63/#78/#38): the composite owns its
-`SavedFiltersStore` over the host's `IDocumentStorage` adapter, the
-status taxonomy, the panel-offering rules (Ready hides a read-only *empty*
-section — the clutter ruling, producer-owned now; WriteFailed keeps the panel
-beside its notice; LoadFailed replaces it), the degrade-notice copy, and the
+`FilterSurface` adoption (umbrella halheinrich/backgammon#63 /
+halheinrich/backgammon#78 / halheinrich/backgammon#38): the composite owns its
+`SavedFiltersStore` over the host's `IDocumentStorage` adapter, the status
+taxonomy, the panel-offering rules (Ready hides a read-only *empty* section —
+the clutter ruling, producer-owned now; WriteFailed keeps the panel beside its
+notice; LoadFailed replaces it), the degrade-notice copy, and the
 save-as/row-save refusal on an unparseable position pattern. The document
 identity is `SavedFiltersDocument`: canonical `FileName` (`xg-filters.json`),
 legacy `LegacyFileName` (`bgquiz-filters.json`) — read canonical first, fall
@@ -1114,7 +1119,7 @@ the contract — and **`PickOccurrence`**, the opaque per-pick identity token
 (replaced exactly where `PickGeneration` bumps) that keys Home's dismissible
 pick-outcome notices in `QuizNoticeDismissal`; opaque rather than the boxed
 generation for the holder's one-rule-one-kind-of-token discipline (issue
-#107, mirroring `QuizStatsStore.StatusOccurrence`).
+halheinrich/backgammon#107, mirroring `QuizStatsStore.StatusOccurrence`).
 
 - **`Summary`** (`string?`) — the holder-owned label:
   `"'{FolderName}' — {N} problem file(s)"`, `null` when nothing is picked.
@@ -1136,11 +1141,11 @@ registered `FolderPickLimits` from this table, and the lib enforces it (the
 lib ships no numbers — each host's values encode its own cost model).
 
 **The counts are per format because count is only a cost proxy within one
-format** (issue #59): an `.xgp` is one position, an `.xg` averages ~120
-decisions, so a flat cap would authorize ~4× the worst-case parse load for the
-heavy format — or keep hard-blocking real position libraries, which is what
-500 did. Each extension truncates at its own cap independently, so one folder
-can admit its full quota of both.
+format** (issue halheinrich/backgammon#59): an `.xgp` is one position, an
+`.xg` averages ~120 decisions, so a flat cap would authorize ~4× the
+worst-case parse load for the heavy format — or keep hard-blocking real
+position libraries, which is what 500 did. Each extension truncates at its own
+cap independently, so one folder can admit its full quota of both.
 
 **The two caps end differently, and that is the design.** An oversized *file*
 throws (lib-side, before any bytes move) and lands on Home's pick-error
@@ -1149,15 +1154,15 @@ a **uniformly random** N of that kind — never a prefix, so repeated picks of
 one folder reach the whole corpus rather than the same slice forever
 (`BgFolderAccess_Razor`'s `PickTruncation` holds the rationale; Home's notice
 says "chosen at random" because the shifting match count is otherwise
-unexplained, issue #106) — and the left-behind count rides back as
-`FolderPickOutcome.Truncations` → `PickedProblemFolder.Truncations` → Home's
-polite per-kind notice. Failing the whole pick threw away the 2000 files that
-were perfectly readable; the caps are a cost ceiling, not an admissions test.
-Everything downstream — match count, mix, stats — derives from the partial pool
-with no special-casing at all. Each `PickTruncation.MaxFileCount` is derived
-lib-side from the enforced `FolderPickLimits` instance (never round-tripped
-across interop), so the figure Home's notice states is by construction the
-figure the pick applied.
+unexplained, issue halheinrich/backgammon#106) — and the left-behind count
+rides back as `FolderPickOutcome.Truncations` →
+`PickedProblemFolder.Truncations` → Home's polite per-kind notice. Failing the
+whole pick threw away the 2000 files that were perfectly readable; the caps are
+a cost ceiling, not an admissions test. Everything downstream — match count,
+mix, stats — derives from the partial pool with no special-casing at all. Each
+`PickTruncation.MaxFileCount` is derived lib-side from the enforced
+`FolderPickLimits` instance (never round-tripped across interop), so the figure
+Home's notice states is by construction the figure the pick applied.
 
 `MaxFileCounts` still has several consumers, which is why the table (not just
 the numbers) is the unit: the registered `FolderPickLimits` *carries* it into
@@ -1242,11 +1247,11 @@ mirrors the panel's `null` report onto the holder) — and an edit *undone* back
 to the applied values makes the panel report the committed config again, which
 re-`Set`s it. That direction is not a nicety: the panel disables its own Apply
 whenever the buffers equal what it committed, so without the re-`Set` an
-edit-then-undo would leave Start and Apply both dead (issue #49). The
-interaction with the panel's localStorage restore is safe by construction:
-restore writes the panel's own fields directly and raises **neither**
-callback, so it can't spuriously mark applied or clear an existing applied
-state — the holder is the sole authority on "applied".
+edit-then-undo would leave Start and Apply both dead (issue
+halheinrich/backgammon#49). The interaction with the panel's localStorage restore
+is safe by construction: restore writes the panel's own fields directly and
+raises **neither** callback, so it can't spuriously mark applied or clear an
+existing applied state — the holder is the sole authority on "applied".
 
 ### `FilterRestoreNotice` — the reload is legible (`SPEC-filtering.md` §4)
 
@@ -1380,25 +1385,25 @@ derivation, read by everything downstream:
 `EffectiveMix => MixVisibility.IsVisible ? MixDraft.Build() : QuizMix.Empty`
 — the *same member* the markup renders the panel from, read rather than
 restated. Hidden ⇒ passthrough — a draft the user cannot see, however divergent
-from whatever ran last, **never gates Start** (issue #83 resolved by
-construction: no disagreement exists to gate on). Visible ⇒ the on-screen
-build: `QuizMix.Empty` for the blank draft (passthrough in effect), and **null
-exactly when the draft fails to validate — the one mix state that gates
-Start**, with the exact hint "Mix applies but isn't valid — fix it or turn the
-mix off.", the rows left standing, and the panel's `ValidationError` saying
-what to fix. Gated is never wedged: the Settings control is always reachable,
-and *Clear mix* clears the rows in every state.
+from whatever ran last, **never gates Start** (issue halheinrich/backgammon#83
+resolved by construction: no disagreement exists to gate on). Visible ⇒ the
+on-screen build: `QuizMix.Empty` for the blank draft (passthrough in effect),
+and **null exactly when the draft fails to validate — the one mix state that
+gates Start**, with the exact hint "Mix applies but isn't valid — fix it or
+turn the mix off.", the rows left standing, and the panel's `ValidationError`
+saying what to fix. Gated is never wedged: the Settings control is always
+reachable, and *Clear mix* clears the rows in every state.
 
 **The stats fact and the mix policy are two members, split at the ruling**
-(issue #87, re-cut 2026-09-07). `IProblemStatsSink.PickedFolderHasStats` is
-the **fact** — this folder holds a stats document with content, the pick-time
-probe's verdict, expiring with the pick by construction — and
-`QuizStatsStore.CanWeightMix` stays the **policy** over it, adding write
-capability, which is what the controller's stage-1 refusal reads. Visibility
-reads the *fact* and the setting; nothing re-derives either half. Ruled: **a
-weighted mix does not apply to an empty stats document, and an empty document
-is treated exactly as no document**; missing, empty, and unreadable are one
-answer, not three rungs.
+(issue halheinrich/backgammon#87, re-cut 2026-09-07).
+`IProblemStatsSink.PickedFolderHasStats` is the **fact** — this folder holds
+a stats document with content, the pick-time probe's verdict, expiring with
+the pick by construction — and `QuizStatsStore.CanWeightMix` stays the
+**policy** over it, adding write capability, which is what the controller's
+stage-1 refusal reads. Visibility reads the *fact* and the setting; nothing
+re-derives either half. Ruled: **a weighted mix does not apply to an empty
+stats document, and an empty document is treated exactly as no document**;
+missing, empty, and unreadable are one answer, not three rungs.
 
 The two happen to be inseparable in `QuizStatsStore` today —
 `RefreshPickedStatsAsync` returns early under a false capability leaving the
@@ -1430,15 +1435,15 @@ decision about the rows at all. So a re-mounted panel re-hydrates the stored
 last-valid mix, and where the incoming folder has stats and the setting is on,
 re-offers it **in effect**.
 
-#87's "a non-passthrough mix must not survive into a folder that can't honor
-it" still holds, and now rests on **one** fact rather than two: the incoming
-pick's own stats fact reads false there, so the panel does not mount, nothing
-re-hydrates, and `EffectiveMix` reads the passthrough — with **no capability
-fork in the gate**. Such a pick therefore still cannot coexist with a mix in
-effect, which is what retired the old won't-apply advisory. The panel is
-**`@key`-ed on `PickedProblemFolder.PickGeneration`** so every pick re-mounts
-it and the fresh mount re-hydrates the discarded draft (see Pitfalls:
-load-bearing).
+halheinrich/backgammon#87's "a non-passthrough mix must not survive into a
+folder that can't honor it" still holds, and now rests on **one** fact rather
+than two: the incoming pick's own stats fact reads false there, so the panel
+does not mount, nothing re-hydrates, and `EffectiveMix` reads the passthrough
+— with **no capability fork in the gate**. Such a pick therefore still cannot
+coexist with a mix in effect, which is what retired the old won't-apply
+advisory. The panel is **`@key`-ed on `PickedProblemFolder.PickGeneration`**
+so every pick re-mounts it and the fresh mount re-hydrates the discarded
+draft (see Pitfalls: load-bearing).
 
 **`MixDraft`** (Quiz/) is the app-scoped edit state behind the panel — and,
 while the panel is visible, the mix that runs: rows (kind / parameter text / percent
@@ -1542,7 +1547,7 @@ gate, and dismissing on a submit that scored nothing would drop the notice
 with no answer given; the predicate also covers an off-list play. **Skip is
 deliberately not a dismissal** — it moves past a problem without answering it.
 
-### Dismissible notices — `QuizNoticeDismissal` (issues #41 / #107, `SPEC-quiz-view.md` §4)
+### Dismissible notices — `QuizNoticeDismissal` (issues halheinrich/backgammon#41 / halheinrich/backgammon#107, `SPEC-quiz-view.md` §4)
 
 **Every notice on the Quiz page dismisses on a click**: the mix composition
 notice (both framings), the stats-context degrade notice (`LoadFailed`'s
@@ -1551,19 +1556,20 @@ Dismissal is §4's answer to the
 board space they cost, the mode being forbidden from suppressing them — the
 ruling and its reasoning are the spec's.
 
-**So does every outcome/status notice in Home's pick band** (issue #107, the
-ruling "a colored info message should go away when clicked"). The
-holder-backed trio — the truncation alert, the stats-capability notice
-(its three branches share one slot: mutually exclusive renderings of one
-per-pick verdict) and the stats-retirement forecast — key on
-`PickedProblemFolder.PickOccurrence`, so a re-pick shows fresh and
-navigate-back stays dismissed. The per-visit pair — cancelled pick, empty
-folder — get the same click affordance but clear their own page
+**So does every outcome/status notice in Home's pick band** (issue
+halheinrich/backgammon#107, the ruling "a colored info message should go
+away when clicked"). The holder-backed trio — the truncation alert, the
+stats-capability notice (its three branches share one slot: mutually
+exclusive renderings of one per-pick verdict) and the stats-retirement
+forecast — key on `PickedProblemFolder.PickOccurrence`, so a re-pick shows
+fresh and navigate-back stays dismissed. The per-visit pair — cancelled
+pick, empty folder — get the same click affordance but clear their own page
 fields: their transience already scopes the dismissal, so a token would have
 nothing to outlive. **Not dismissible, deliberately**: the red pick-error
 banner (a failure report, `role="alert"`, a different claim class) and the
-pre-pick advisory lines (guidance with their own retirement rules — #105's
-silent-gesture account is folder-held-gated, not a pick outcome).
+pre-pick advisory lines (guidance with their own retirement rules —
+halheinrich/backgammon#105's silent-gesture account is folder-held-gated,
+not a pick outcome).
 
 **Per occurrence, transient, app-scoped.** The holder generalizes the old
 composition-only `MixNoticeDismissal` by adding a **slot key** (`QuizNotice`)
@@ -1609,11 +1615,11 @@ The *act* stays at the quiz bind — set-aside-before-replace is the data-safety
 ordering and a pick must never mutate the folder, write permission not being
 settled until then (**SPEC-stats-identity.md §3**, which this leg does not
 move) — and `StatsRetired` on Quiz/Done stays its **report**, also the only
-surface a straight-to-quiz navigation sees. What #146 adds is the
-**forecast**: Home's pick band says, *before* the pick is acted on, that this
-folder's stats file will be set aside, because the fact is knowable at pick
-(the mix-gating probe opens the file then) and the page's own ordering
-standard — "Your data stays yours" precedes the pick — puts
+surface a straight-to-quiz navigation sees. What halheinrich/backgammon#146
+adds is the **forecast**: Home's pick band says, *before* the pick is acted
+on, that this folder's stats file will be set aside, because the fact is
+knowable at pick (the mix-gating probe opens the file then) and the page's own
+ordering standard — "Your data stays yours" precedes the pick — puts
 consequence-bearing information before the action. Both tenses render the
 name through `QuizStatsFile.RetiredNameFor` over the version the *file*
 declared, so they cannot name two different files; the forecast reads
@@ -1687,7 +1693,7 @@ is widened exactly as far as that one doc surface needs — `internal`, never
 side by side in that section, and a documented pair reading `Key` /
 `StorageKey` invites a reader to look for a distinction that isn't there.
 
-### `QuizSettings` — the user settings service (issue #30 leg 1)
+### `QuizSettings` — the user settings service (issue halheinrich/backgammon#30 leg 1)
 
 > **The weighted-mix setting** (`WeightQuizzesByStats`, wire
 > `weightQuizzesByStats`, default **off**) is the mix's one control
@@ -1708,11 +1714,11 @@ maximized while answering, how the solution's candidate list is ordered, which
 shallow evaluations are hidden from it, **whether quizzes are drawn by the
 weighted mix**, and whether the navigation panel stays folded. (The count said
 four until 2026-09-07: the depth-treatment pair arrived with
-`halheinrich/backgammon#150`/`#66` without updating it, and the mix setting
-made the drift worth correcting rather than extending.) Every change is
-**recorded and persisted the moment it is made**; when it becomes *visible* is
-a separate question, and the fold answers it differently (§ The fold it cannot
-apply itself, below).
+`halheinrich/backgammon#150`/`halheinrich/backgammon#66` without updating it,
+and the mix setting made the drift worth correcting rather than extending.)
+Every change is **recorded and persisted the moment it is made**; when it
+becomes *visible* is a separate question, and the fold answers it differently
+(§ The fold it cannot apply itself, below).
 **Defaults state the product's answers, not the app's history** — home board
 right (the producer's own `DiagramRequest.HomeBoardOnRight` default), no
 randomization, panel unfolded, equity ordering, nothing hidden, **the weighted
@@ -1761,29 +1767,29 @@ default. That same rule is what lets a **default change** ship without a
 migration — it reaches exactly the users who never chose, because an explicit
 stored value is still read and still wins. The asymmetry is pinned from both
 sides in `QuizSettingsTests` (absent ⇒ the new default; stored `false` ⇒
-`false`, forever); it is load-bearing, not incidental, and #113 is the arc that
-first leaned on it.
+`false`, forever); it is load-bearing, not incidental, and
+halheinrich/backgammon#113 is the arc that first leaned on it.
 
-**The maximize-board setting** (issue #41 / `SPEC-quiz-view.md` §3) is the one
-field here that reverses a documented invariant rather than choosing between
-equals — and the one whose default is not the pre-settings app. **Default on**
-since 2026-08-19 (§3 amended, `halheinrich/backgammon#113`): it shipped off
-because off reproduced the pre-arc page exactly, which is a migration-safety
-argument and pre-beta protects nobody, so the default now states the product's
-own answer to *how large should the board be while you answer*. Users who had
-already turned it off keep it off — see the absent-field asymmetry above.
-This service records the *choice* only — the composition it produces is
-`Quiz`'s derivation (§ `Quiz.razor`), and **nothing stores "currently
-maximized"** (§6: a second copy of the view mode is a divergence from the
-model). It is a **choice, never consent** in §3's sense, so nothing here
-expires it. The **Settings checkbox is its sole
-control** (fork D, ruled) — an on-page toggle would be a second write surface
-for one fact and would force this service to grow the notify plumbing its
-contract defers until a real second consumer exists. Its fine print states the
-ratified consequence (the board is deliberately a different size while
-answering than while reading), so a user who sees the board move reads the
-feature working rather than a bug — the same posture the fold row takes toward
-its deferral.
+**The maximize-board setting** (issue halheinrich/backgammon#41 /
+`SPEC-quiz-view.md` §3) is the one field here that reverses a documented
+invariant rather than choosing between equals — and the one whose default is
+not the pre-settings app. **Default on** since 2026-08-19 (§3 amended,
+`halheinrich/backgammon#113`): it shipped off because off reproduced the
+pre-arc page exactly, which is a migration-safety argument and pre-beta
+protects nobody, so the default now states the product's own answer to *how
+large should the board be while you answer*. Users who had already turned it
+off keep it off — see the absent-field asymmetry above. This service records
+the *choice* only — the composition it produces is `Quiz`'s derivation (§
+`Quiz.razor`), and **nothing stores "currently maximized"** (§6: a second copy
+of the view mode is a divergence from the model). It is a **choice, never
+consent** in §3's sense, so nothing here expires it. The **Settings checkbox
+is its sole control** (fork D, ruled) — an on-page toggle would be a second
+write surface for one fact and would force this service to grow the notify
+plumbing its contract defers until a real second consumer exists. Its fine
+print states the ratified consequence (the board is deliberately a different
+size while answering than while reading), so a user who sees the board move
+reads the feature working rather than a bug — the same posture the fold row
+takes toward its deferral.
 
 **The side, and the roll.** `QuizController.RandomHomeBoardOnRight` is a coin
 flip taken **unconditionally**, beside the assignment of `Current` and after
@@ -1801,7 +1807,8 @@ call sites.
 service owns and persists the value; restoring the fold is `navFold.js`'s job
 (§ The host layout). The applier is invoked with the value **as an argument**,
 so the setter carries no ordering dependency on its own storage write — but it
-is invoked **for the unfold direction only** (finding #50, ruled 2026-08-03):
+is invoked **for the unfold direction only** (finding
+halheinrich/backgammon#50, ruled 2026-08-03):
 
 - **On → deferred.** The setting describes how pages *start*; folding the page
   the user is standing in strands them behind a panel that just vanished, with
@@ -1837,11 +1844,11 @@ The asymmetry is pinned three times over: at the service seam
   *present-but-inert* `showDirectoryPicker` that aborts without ever opening
   (halheinrich/backgammon#116, observed live), so its advice is a
   **conditional** ("if your browser asks…"), and on the FS-Access branch only
-  it carries the post-gesture sibling of #105's dead-gesture conditional
+  it carries the post-gesture sibling of halheinrich/backgammon#105's dead-gesture conditional
   ("If no folder chooser opened, …" + `FolderPickDisplay.DeadPickVerdict`,
   the clause both accounts share) — omitted on the fallback branch, where the
   notice only fires via a `cancel` event a chooser must have opened to raise
-  and the #105 grey line stands beside it. **Both mechanisms
+  and the halheinrich/backgammon#105 grey line stands beside it. **Both mechanisms
   reach it by different routes**: only `PickFolderAsync` reports cancellation
   as an *outcome*, while a dismissed `webkitdirectory` picker fires no change
   event at all, so the fallback's dismissal comes through the input's own
@@ -1864,8 +1871,8 @@ The asymmetry is pinned three times over: at the service seam
   for are exactly the ones a capability probe would exclude. It states a
   **capability, never a device class** — it once said "on phones, choosing a
   folder may not work at all", which hardware falsified in both directions
-  (halheinrich/backgammon#108/#109); a dead pick gesture is capability-shaped,
-  not screen-shaped. The two remaining advisories are the **two branches of
+  (halheinrich/backgammon#108 / halheinrich/backgammon#109); a dead pick gesture is
+  capability-shaped, not screen-shaped. The two remaining advisories are the **two branches of
   one `_fsAccessAvailable` snapshot**, so exactly one of them is ever on
   screen. The **two-step permission guidance** covers
   both rungs of the ladder (§ Folder picking) as an ordered list naming what
@@ -1938,7 +1945,7 @@ The asymmetry is pinned three times over: at the service seam
   stays the backstop for a non-empty pool whose mix reaches nothing. The mix
   hint is the ruled "Mix applies but isn't valid — fix it or turn the mix off."
   (visible + invalid — the only mix state that gates).
-  **Match summary and answer-type breakdown** (umbrella #35). On Apply, Home
+  **Match summary and answer-type breakdown** (umbrella halheinrich/backgammon#35). On Apply, Home
   calls `Controller.SummarizeMatchesAsync` (§ Pre-Start match summary) and
   holds the returned `MatchSummary` in `_matchSummary`. Home owns
   only display and lifecycle: a request id stamped per Apply discards a stale
@@ -1948,19 +1955,20 @@ The asymmetry is pinned three times over: at the service seam
   breakdown — so a screen reader gets the pool and its make-up in one
   announcement. Settled rules:
   - **The count is a count of distinct positions, and the line says so**
-    (umbrella #104) — "N decisions match your filters" is N *positions*, and it
-    cannot disagree with what a capless quiz then serves (§ Pre-Start match
-    summary for why that agreement is structural). Two sentences carry it. The
-    standing one, "Repeated positions are counted once.", renders on any
-    non-empty pool, so the number reads as deduplicated even where nothing
-    collapsed; it is suppressed on an empty pool for the reason the breakdown
-    is. The magnitude, "That left out N more matching decision(s).", renders
-    only when N > 0 — and it is the half that actually works, since "distinct"
-    alone still leaves the user's file-count subtraction unexplained. Both
-    claim exactly what the telemetry measures: matching *decisions* dropped,
-    never files (a file holds many decisions, and the magnitude is measured on
-    the filtered stream). Neither inventories what makes two positions the
-    same — that is the producer's identity rule, not this app's to restate.
+    (umbrella halheinrich/backgammon#104) — "N decisions match your filters" is
+    N *positions*, and it cannot disagree with what a capless quiz then serves
+    (§ Pre-Start match summary for why that agreement is structural). Two
+    sentences carry it. The standing one, "Repeated positions are counted
+    once.", renders on any non-empty pool, so the number reads as deduplicated
+    even where nothing collapsed; it is suppressed on an empty pool for the
+    reason the breakdown is. The magnitude, "That left out N more matching
+    decision(s).", renders only when N > 0 — and it is the half that actually
+    works, since "distinct" alone still leaves the user's file-count
+    subtraction unexplained. Both claim exactly what the telemetry measures:
+    matching *decisions* dropped, never files (a file holds many decisions, and
+    the magnitude is measured on the filtered stream). Neither inventories what
+    makes two positions the same — that is the producer's identity rule, not
+    this app's to restate.
   - **The count is filter-only, and says so when a mix is in effect.** With
     `MixInEffect` (`EffectiveMix is { IsPassthrough: false }` — live per
     keystroke, since effect follows the screen) a caveat renders in the same
@@ -1982,8 +1990,8 @@ The asymmetry is pinned three times over: at the service seam
     repeating it would put one figure on screen under two meanings.
     `PageTests` pins the buckets summing to the rendered count, the invariant
     that fails the moment a second computation appears. The lead-in is named
-    for its axis, leaving the region free for issue #3's composition preview;
-    nothing is built for that, the name is simply not claimed.
+    for its axis, leaving the region free for issue halheinrich/backgammon#3's
+    composition preview; nothing is built for that, the name is simply not claimed.
   The first count after a pick parses the corpus once (warming the cache), so
   `_isCounting` folds into the same busy boundary as the transition gate,
   which also serializes the count against a Start. Help documents the count in
@@ -1998,10 +2006,10 @@ The asymmetry is pinned three times over: at the service seam
   actionable refusal alert (`_mixRefused`, reason via
   `MixDisplay.RefusalReason`, the "Start without mix" per-run override, a
   pointer to turning the mix off in Settings), and the mix-aware
-  composed-to-zero wording rides the no-match branch. Since #87 that refusal is
-  near-unreachable from the UI — where the stats fact is false the panel is
-  hidden and `EffectiveMix` reads the passthrough, so what can still reach it
-  is a stats file that stopped being readable between the pick and the Start.
+  composed-to-zero wording rides the no-match branch. Since halheinrich/backgammon#87
+  that refusal is near-unreachable from the UI — where the stats fact is false the
+  panel is hidden and `EffectiveMix` reads the passthrough, so what can still reach
+  it is a stats file that stopped being readable between the pick and the Start.
   **A pick ends the current setup — at the click.** `EndCurrentSetupAsync`
   is the single reset behind *both* gestures that end a setup (the pick
   gesture and the `Clear` affordance — they encode the same decision, so they
@@ -2062,9 +2070,9 @@ The asymmetry is pinned three times over: at the service seam
   **The filter does not sequence the mix, and the `MixPanel` takes no
   parameters at all.** Rule 2's activation gate — the panel handed
   `CanActivate` plus a reason sentence, darkened until a filter was in effect
-  (umbrella #45, Fork A) — was deleted by `SPEC-filtering.md` §5's "Visible
-  means in effect" ruling on 2026-09-07, because Start already requires an
-  applied filter and the rows stay editable at any time. What survives of it is
+  (umbrella halheinrich/backgammon#45, Fork A) — was deleted by `SPEC-filtering.md`
+  §5's "Visible means in effect" ruling on 2026-09-07, because Start already requires
+  an applied filter and the rows stay editable at any time. What survives of it is
   *Clear mix stays ungated in every state*: a way out, never a way in.
   **Failure and outcome banners.** Pick failures (unexpected `JSException`,
   caps exceeded — `_pickError`) and start-time exceptions
@@ -2085,10 +2093,10 @@ The asymmetry is pinned three times over: at the service seam
   that finds the `QuizLiveMarker` set with no live controller. The page
   **footer** carries `AppInfo.Version` (in a `#appVersion` span) and the beta
   feedback `mailto:` from the same `AppInfo` (§ that section).
-  **Back to quiz** (issue #58). The same conditional button `Help` and
-  `Settings` carry — same `HasStarted && !IsFinished` predicate, same markup,
-  same words — closing the last page reachable mid-quiz that had no way back. It
-  sits **outside** the busy `fieldset` (it navigates and drives no transition, so
+  **Back to quiz** (issue halheinrich/backgammon#58). The same conditional button
+  `Help` and `Settings` carry — same `HasStarted && !IsFinished` predicate, same
+  markup, same words — closing the last page reachable mid-quiz that had no way back.
+  It sits **outside** the busy `fieldset` (it navigates and drives no transition, so
   it follows the Show-stats convention of staying live while the page works) and
   outside the progressive-disclosure gate, so a mid-quiz Clear cannot take the
   way back with it. Nothing else is added: a mid-quiz Home visit is already safe
@@ -2123,16 +2131,16 @@ The asymmetry is pinned three times over: at the service seam
   **There is ONE action row (`.action-row`), shared by both states** — only the
   leading answer instruments branch. Its trailing cluster (`.action-row-tail`)
   holds, **in this order**, the XGID badge, the problem's locator, "Show stats",
-  then **"End quiz"** (issue #57 — § `QuizController` for what that transition
-  does). End quiz is one-click and immediate, ruled: the confirmation the issue
-  first sketched was dropped, so its placement at the far end of the row — as far
-  from Submit / Continue as the row allows — *is* the mitigation, and `PageTests`
-  pins the whole sequence; the two provenance chips therefore *open* the cluster
-  rather than closing it. The shared row is what keeps the two states' row
-  heights equal (and so the board's flex remainder unchanged) **by
-  construction** — the claim the old two-row arrangement had to make by hand. The
-  semantic class names are the pins' hooks — the Bootstrap utilities beside them
-  still do the layout. **Review** (`Review`
+  then **"End quiz"** (issue halheinrich/backgammon#57 — § `QuizController` for
+  what that transition does). End quiz is one-click and immediate, ruled: the
+  confirmation the issue first sketched was dropped, so its placement at the far
+  end of the row — as far from Submit / Continue as the row allows — *is* the
+  mitigation, and `PageTests` pins the whole sequence; the two provenance chips
+  therefore *open* the cluster rather than closing it. The shared row is what
+  keeps the two states' row heights equal (and so the board's flex remainder
+  unchanged) **by construction** — the claim the old two-row arrangement had to
+  make by hand. The semantic class names are the pins' hooks — the Bootstrap
+  utilities beside them still do the layout. **Review** (`Review`
   set): a read-only `BackgammonDiagram` in `DiagramMode.Solution` plus
   Continue / Redo / Show stats, built with `DiagramRequest.Builder.From(...)`
   and then the user's marks overridden from `Review` — `UserPlayIndex` for a
@@ -2160,10 +2168,10 @@ The asymmetry is pinned three times over: at the service seam
   (`* played · † your answer`) and outcome-coloured verdict at review. Its
   fixed height, and the board sizing that rides on it, are in Pitfalls.
   **Below the status strip — the page's bottom chrome — sits the `ScorePanel`**
-  (`SPEC-quiz-view.md` §5, issue #41): reference material read between
-  problems, not while deciding one, so it sits below the controls the user is
-  reaching for and leaves the chrome nearest the board to the chrome that
-  speaks to the problem in hand. It stays *inside* `.board-chrome`, which is
+  (`SPEC-quiz-view.md` §5, issue halheinrich/backgammon#41): reference material
+  read between problems, not while deciding one, so it sits below the controls
+  the user is reaching for and leaves the chrome nearest the board to the chrome
+  that speaks to the problem in hand. It stays *inside* `.board-chrome`, which is
   the move's whole no-interaction claim — reordering within the measured
   `flex: 0 0 auto` block leaves its total height, and so the board's flex
   remainder, unchanged. `Done` and `Stats` render their own `ScorePanel` with
@@ -2309,15 +2317,16 @@ The asymmetry is pinned three times over: at the service seam
     (`TestFixtureContractTests`), which is what lets `SPEC-stats-identity.md` go
     on keying by content while the chip names a file.
 
-  **The maximize-board mode** (issue #41 / `SPEC-quiz-view.md` §4). With the
-  user's `QuizSettings.MaximizeBoardWhileAnswering` on, the *answering*
-  composition renders **the board and the action row and nothing else below the
-  notices**: score panel and status strip suppressed (and with them the
-  "Problem N of M" indicator and the neutral prompt — ratified consequences),
-  and the board on `AspectPreset.BoardOnly`. **Both legs are required** — §2's
-  measurement is what rules that, chrome suppression alone changing the rendered
-  canvas not at all. Review **normalizes** to
-  the full composition, because it needs the panel and needs it filled.
+  **The maximize-board mode** (issue halheinrich/backgammon#41 /
+  `SPEC-quiz-view.md` §4). With the user's
+  `QuizSettings.MaximizeBoardWhileAnswering` on, the *answering* composition
+  renders **the board and the action row and nothing else below the notices**:
+  score panel and status strip suppressed (and with them the "Problem N of M"
+  indicator and the neutral prompt — ratified consequences), and the board on
+  `AspectPreset.BoardOnly`. **Both legs are required** — §2's measurement is
+  what rules that, chrome suppression alone changing the rendered canvas not at
+  all. Review **normalizes** to the full composition, because it needs the panel
+  and needs it filled.
 
   The mode is **a pure derivation and stays one**: `MaximizedAnswering` is
   `setting && Review is null`, re-derived every render, and `BoardOptions`
@@ -2358,28 +2367,29 @@ The asymmetry is pinned three times over: at the service seam
   where you left off" for free. Direct nav with no quiz in progress bounces to
   `/`; with it already finished, to `/done` — the same guards `Quiz` applies
   to itself.
-- **`Settings.razor`** — the user settings page (issue #30 leg 1), a plain
-  view over `QuizSettings` (§ that section for the contracts). Radios for
-  the home-board side, checkboxes for randomize-per-problem,
-  maximize-while-answering and keep-nav-folded; every control writes straight
-  through, recording and persisting on the spot (the fold's *visible* effect
-  defers by one navigation — § `QuizSettings`; the page's job in that split is
-  the fine print that says so). The board's three rows share one fieldset; the
-  fold's is its own. **No Apply button — pinned as a design constraint, not a
-  coincidence:** an Apply is the front end of the draft/commit lifetime
-  split behind finding (AK)'s wedge. The only page state is whether hydration
-  landed, which gates the controls so none can paint a default the stored
-  settings are about to overwrite. Reachable from the host `NavMenu` beside
-  Help (`NavMenuTests` pins the link, as it does Help's); nothing else links
-  to it, and the pages the settings affect deliberately carry no control of
-  their own — for the maximize mode that is a *ruling* (fork D), not an open
-  question; the broader mid-quiz-tweaking question booked on #30 still is one.
-  It offers the same **"Back to quiz"** button `Help` does — same predicate,
-  same markup, same words (§ `Help`) — copied rather than designed, because
-  the two pages sit in the same position: reachable from any state, so neither
-  redirects the way `Stats` does. It sits on the page and not in the nav panel
-  because that panel renders statically and cannot know a quiz is live — the
-  same constraint that put the fold applier in JS.
+- **`Settings.razor`** — the user settings page (issue
+  halheinrich/backgammon#30 leg 1), a plain view over `QuizSettings` (§ that
+  section for the contracts). Radios for the home-board side, checkboxes for
+  randomize-per-problem, maximize-while-answering and keep-nav-folded; every
+  control writes straight through, recording and persisting on the spot (the
+  fold's *visible* effect defers by one navigation — § `QuizSettings`; the
+  page's job in that split is the fine print that says so). The board's three
+  rows share one fieldset; the fold's is its own. **No Apply button — pinned
+  as a design constraint, not a coincidence:** an Apply is the front end of
+  the draft/commit lifetime split behind finding (AK)'s wedge. The only page
+  state is whether hydration landed, which gates the controls so none can
+  paint a default the stored settings are about to overwrite. Reachable from
+  the host `NavMenu` beside Help (`NavMenuTests` pins the link, as it does
+  Help's); nothing else links to it, and the pages the settings affect
+  deliberately carry no control of their own — for the maximize mode that is a
+  *ruling* (fork D), not an open question; the broader mid-quiz-tweaking
+  question booked on halheinrich/backgammon#30 still is one. It offers the
+  same **"Back to quiz"** button `Help` does — same predicate, same markup,
+  same words (§ `Help`) — copied rather than designed, because the two pages
+  sit in the same position: reachable from any state, so neither redirects the
+  way `Stats` does. It sits on the page and not in the nav panel because that
+  panel renders statically and cannot know a quiz is live — the same
+  constraint that put the fold applier in JS.
 - **`Help.razor`** — end-user documentation. Its information architecture is
   `../SPEC-help.md`'s, not this doc's: **five parts at `<h2>`** (*Before you
   start* / *Setting up a quiz* / *Answering* / *After the quiz* / *Reference*)
@@ -2551,35 +2561,36 @@ The asymmetry is pinned three times over: at the service seam
   reassurance must not read as a promise that one is.
 
   Naming the three is only half of it: the section also says **what a reader can
-  do about them** (issue #54). The route it names is the one a general reader
-  already has — the browser's own setting for clearing what a site has stored,
-  named by *what it does* and never by a menu path, since every browser words and
-  places it differently (the claim class `FolderPickDisplay` rules out quoting
-  for permission prompts). Devtools survive as a signposted trailing parenthesis:
-  they are the only way to inspect the three entries individually — which is what
-  makes the key names above findable — but they may never be the sentence's
-  premise again, which is what the original wording made them. The paragraph also
-  answers the question clearing site data actually raises for its reader (it does
-  not reach the problem folder); that is the ownership point as a consequence,
-  not a restatement of the writes-into-your-folder paragraph below.
+  do about them** (issue halheinrich/backgammon#54). The route it names is the
+  one a general reader already has — the browser's own setting for clearing what
+  a site has stored, named by *what it does* and never by a menu path, since
+  every browser words and places it differently (the claim class
+  `FolderPickDisplay` rules out quoting for permission prompts). Devtools survive
+  as a signposted trailing parenthesis: they are the only way to inspect the
+  three entries individually — which is what makes the key names above findable —
+  but they may never be the sentence's premise again, which is what the original
+  wording made them. The paragraph also answers the question clearing site data
+  actually raises for its reader (it does not reach the problem folder); that is
+  the ownership point as a consequence, not a restatement of the
+  writes-into-your-folder paragraph below.
 
-  It then **draws the consequence** (issue #51, ruled 2026-08-03): closing the
-  tab is safe at any moment, mid-quiz included. That belongs here and nowhere
-  else — it is what the account above *implies*, and a reader told what is
-  stored where will otherwise assume a quiz in progress is among it. **No
-  button**, deliberately: a "finish and quit" control would invent an
-  obligation the app does not have. `Done` carries a one-line echo beside its
-  buttons, gated off the `LoadFailed` / `WriteFailed` statuses its own notices
-  report: "nothing needs saving" printed under "your stats could not be saved"
-  reads as a contradiction, and there the notice is the honest word. Composing
-  rather than consolidating is the constraint — the nothing-leaves-your-machine
-  claim was **moved** here out of *What you need* and dropped from *Pick
-  your folder*, so it is asserted once. `PageTests` pins the wiring (both keys
-  from their constants; the section's `<code>` elements are *exactly* those
-  two; the pointer's href and text both from `FilterHelp`'s exported
-  constants, *and* landing on a heading that exists in the same render and
-  carries those words; neither filename restated); `HelpAndTitlesTests` pins
-  the phrasing as independent literals and clicks the anchor in a real
+  It then **draws the consequence** (issue halheinrich/backgammon#51, ruled
+  2026-08-03): closing the tab is safe at any moment, mid-quiz included. That
+  belongs here and nowhere else — it is what the account above *implies*, and a
+  reader told what is stored where will otherwise assume a quiz in progress is
+  among it. **No button**, deliberately: a "finish and quit" control would
+  invent an obligation the app does not have. `Done` carries a one-line echo
+  beside its buttons, gated off the `LoadFailed` / `WriteFailed` statuses its
+  own notices report: "nothing needs saving" printed under "your stats could
+  not be saved" reads as a contradiction, and there the notice is the honest
+  word. Composing rather than consolidating is the constraint — the
+  nothing-leaves-your-machine claim was **moved** here out of *What you need*
+  and dropped from *Pick your folder*, so it is asserted once. `PageTests` pins
+  the wiring (both keys from their constants; the section's `<code>` elements
+  are *exactly* those two; the pointer's href and text both from `FilterHelp`'s
+  exported constants, *and* landing on a heading that exists in the same render
+  and carries those words; neither filename restated); `HelpAndTitlesTests`
+  pins the phrasing as independent literals and clicks the anchor in a real
   browser.
 
   **`Help.PanelStorageHref`** — the anchor href is **computed**, never
@@ -2763,16 +2774,16 @@ load-bearing:
   `--nav-scrollable-display`, which crosses the scoped-CSS boundary that a
   class selector could not.
 
-**The rail (issue #29 — the defect was discoverability, not absence).** The
-strip is a rail with a chevron chip: one SVG background (chip + chevron) that
-**reverses direction on `:checked`**, so the control states both what it does
-and which state it is in; plus a hover tint, a `:focus-visible` ring, and a
-hairline `border-right` seam. Chip and chevron are one background image on
-purpose — no element may be introduced between the checkbox and `.sidebar`
-without breaking the `~` rule, so every state has to come from `:hover` /
-`:focus-visible` / `:checked` alone. The accessible name
-(`aria-label="Hide navigation panel"`) states what *checking* does, matching
-the checkbox's own semantics; `title` is deliberately a different,
+**The rail (issue halheinrich/backgammon#29 — the defect was discoverability,
+not absence).** The strip is a rail with a chevron chip: one SVG background
+(chip + chevron) that **reverses direction on `:checked`**, so the control
+states both what it does and which state it is in; plus a hover tint, a
+`:focus-visible` ring, and a hairline `border-right` seam. Chip and chevron
+are one background image on purpose — no element may be introduced between
+the checkbox and `.sidebar` without breaking the `~` rule, so every state has
+to come from `:hover` / `:focus-visible` / `:checked` alone. The accessible
+name (`aria-label="Hide navigation panel"`) states what *checking* does,
+matching the checkbox's own semantics; `title` is deliberately a different,
 state-neutral string, because no CSS can rewrite an attribute and only the
 chevron can carry the state.
 
@@ -2792,25 +2803,25 @@ pins both alongside the fold and the chevron flip; the worked-run scenario
 gates each step on the problem indicator advancing, so a click that failed to
 land cannot masquerade as survival.
 
-**Outliving navigation (issue #30 leg 1).** The rail's own click stays
-route-scoped as above; what the *user* can now ask for is more. The **"Keep
-the navigation panel folded" setting** (§ `QuizSettings`) persists the choice,
-and `wwwroot/js/navFold.js` — a classic script `App.razor` loads right after
-`blazor.web.js`, the app's second authored JS — re-applies it on initial load
-and on every `Blazor.addEventListener` `enhancedload`. It lives in the **host**
-project because it must run on static pages with no WASM runtime, reads the
-storage entry itself in JS, and publishes `window.bgquizNavFold.apply(folded)`
-as the seam `QuizSettings` invokes to move the fold without a navigation —
-invoked **only to unfold** (§ `QuizSettings`). Two couplings the script holds
-with no compiler behind them — the storage field name and the
-`.sidebar-toggle-checkbox` selector — are in Pitfalls.
+**Outliving navigation (issue halheinrich/backgammon#30 leg 1).** The rail's
+own click stays route-scoped as above; what the *user* can now ask for is more.
+The **"Keep the navigation panel folded" setting** (§ `QuizSettings`) persists
+the choice, and `wwwroot/js/navFold.js` — a classic script `App.razor` loads
+right after `blazor.web.js`, the app's second authored JS — re-applies it on
+initial load and on every `Blazor.addEventListener` `enhancedload`. It lives in
+the **host** project because it must run on static pages with no WASM runtime,
+reads the storage entry itself in JS, and publishes
+`window.bgquizNavFold.apply(folded)` as the seam `QuizSettings` invokes to move
+the fold without a navigation — invoked **only to unfold** (§ `QuizSettings`).
+Two couplings the script holds with no compiler behind them — the storage field
+name and the `.sidebar-toggle-checkbox` selector — are in Pitfalls.
 
 Re-applying on **every** `enhancedload`, late syncs included, is what
-dissolves the live-latency artifact in umbrella issue #46 (the DOM
-synchronization has been measured landing ~500ms after the navigation,
-silently unfolding a rail folded on arrival). The e2e half uses that reset as
-its settle signal, never a sleep or network-idle (the suite's
-`WaitForTheEnhancedNavSettleAsync`).
+dissolves the live-latency artifact in umbrella issue
+halheinrich/backgammon#46 (the DOM synchronization has been measured landing
+~500ms after the navigation, silently unfolding a rail folded on arrival).
+The e2e half uses that reset as its settle signal, never a sleep or
+network-idle (the suite's `WaitForTheEnhancedNavSettleAsync`).
 
 **What collapsing buys is room, not reliably a bigger board.** `.board-page` is
 height-capped, so the reclaimed 250px becomes board only while the board is
@@ -2834,23 +2845,24 @@ two structurally cannot: bUnit renders components in isolation and the
 browser, so only the published artifact booting a real WASM runtime in a real
 browser sees this class of defect.
 
-**Environment fidelity is the gate's first line** (issues `#126`, `#127`).
-Before any behavioural scenario is worth reading, `EnvironmentFidelityTests`
-asks whether the app under it is the one that ships. On each route reachable
-cold (`/`, `/help`, `/settings`) and on `/quiz` at the end of the pick → apply
-→ start flow, it records the page's **own** requests and requires every one to
-have arrived and nothing to have been logged as an error. The page is the
-inventory: the test names no asset and no producer `_content/` path, so an
-asset added tomorrow is covered the day it is linked and no second list can
-drift out of step with the shell. **An empty 200 counts as unserved**, and that
-is the load-bearing part — `MapStaticAssets` serves from a manifest built at
-publish time, so an asset the manifest names but the disk lacks comes back
-`200 OK` with `Content-Length: 0`, which a status check alone would wave
-through (measured 2026-08-21; it is the same shape a wrong `--contentRoot`
-produces). Three applied pins survive that, one per linked stylesheet, because
-a 200 cannot say the browser understood the bytes: Bootstrap's `--bs-primary`
-and the `xl` container width, `app.css`'s named `app-content` query container,
-and `MainLayout.razor.css`'s `.sidebar` gradient reaching the page through the
+**Environment fidelity is the gate's first line** (issues
+`halheinrich/backgammon#126`, `halheinrich/backgammon#127`). Before any
+behavioural scenario is worth reading, `EnvironmentFidelityTests` asks whether
+the app under it is the one that ships. On each route reachable cold (`/`,
+`/help`, `/settings`) and on `/quiz` at the end of the pick → apply → start
+flow, it records the page's **own** requests and requires every one to have
+arrived and nothing to have been logged as an error. The page is the inventory:
+the test names no asset and no producer `_content/` path, so an asset added
+tomorrow is covered the day it is linked and no second list can drift out of
+step with the shell. **An empty 200 counts as unserved**, and that is the
+load-bearing part — `MapStaticAssets` serves from a manifest built at publish
+time, so an asset the manifest names but the disk lacks comes back `200 OK`
+with `Content-Length: 0`, which a status check alone would wave through
+(measured 2026-08-21; it is the same shape a wrong `--contentRoot` produces).
+Three applied pins survive that, one per linked stylesheet, because a 200
+cannot say the browser understood the bytes: Bootstrap's `--bs-primary` and the
+`xl` container width, `app.css`'s named `app-content` query container, and
+`MainLayout.razor.css`'s `.sidebar` gradient reaching the page through the
 generated `BgQuiz_Blazor.styles.css` bundle.
 
 **Pin the fact once.** Those three pins are the *only* place this suite proves
@@ -2956,8 +2968,9 @@ committed cube fixtures listed in the Directory tree are the whole supply, and
 different position rather than silently padding. Its `CubeFixtures` remarks name
 the specific look-alikes ruled out.
 The one deliberate exception is `PickDuplicatedFixtureAsync`, which stages
-copies *because* they collapse: it is how the #104 scenario — a file count and
-a smaller match count on one screen — is set up at all.
+copies *because* they collapse: it is how the halheinrich/backgammon#104
+scenario — a file count and a smaller match count on one screen — is set up at
+all.
 
 **The FS-Access path** lives in `FsAccessFakeTestBase`, riding the base
 class's second customization seam, `ContextInitScript` (applied via
@@ -3084,21 +3097,21 @@ when the push lands between the triggering click and the wait's registration
 (observed as a rare timeout with the app already on the target URL).
 
 **One-shot reads after an action are timing assertions in disguise** (issues
-`#126`, `#127`). A value read straight after a click, a navigation or a
-re-render passes or fails on how fast the runner happened to be, and umbrella
-CI is slower than any machine here — that is how Help's anchor pins stayed
-green on an unstyled page that jumped instead of smooth-scrolling, and how two
-of the locator's geometry reds were first misread as layout bugs. So: use a
-retrying `Expect` form; where the claim relates **two** elements and no such
-assertion exists (the .NET binding has no `ToPass`), wrap the measurement in
-`E2eTestBase.ExpectToPassAsync`, which re-runs an ordinary xunit assertion
-until it holds, so the claim stays written once and in C#. Its poll interval is
-the suite's only delay and is not the sleep ruled out above — it waits out
-nothing, ends the moment the assertion holds, and is the interval Playwright's
-own assertions poll on. A single read stays correct only where it follows an
-`Expect` that already proved the settled state **and** nothing can still be
-moving, and every such site says so in a remark
-(`SidebarCollapseTests.PanelWidthAsync`, `CommaDecimalLocaleTests`).
+`halheinrich/backgammon#126`, `halheinrich/backgammon#127`). A value read
+straight after a click, a navigation or a re-render passes or fails on how fast
+the runner happened to be, and umbrella CI is slower than any machine here —
+that is how Help's anchor pins stayed green on an unstyled page that jumped
+instead of smooth-scrolling, and how two of the locator's geometry reds were
+first misread as layout bugs. So: use a retrying `Expect` form; where the claim
+relates **two** elements and no such assertion exists (the .NET binding has no
+`ToPass`), wrap the measurement in `E2eTestBase.ExpectToPassAsync`, which
+re-runs an ordinary xunit assertion until it holds, so the claim stays written
+once and in C#. Its poll interval is the suite's only delay and is not the
+sleep ruled out above — it waits out nothing, ends the moment the assertion
+holds, and is the interval Playwright's own assertions poll on. A single read
+stays correct only where it follows an `Expect` that already proved the settled
+state **and** nothing can still be moving, and every such site says so in a
+remark (`SidebarCollapseTests.PanelWidthAsync`, `CommaDecimalLocaleTests`).
 
 **A geometry pin checks its yardstick first.** Every "A sits below B" claim
 here is arithmetic over two boxes, and a box that is absent or zero-sized makes
@@ -3712,16 +3725,17 @@ public (see Pitfalls). The externally visible surface is the route map:
   filters are not purely positional (players, dates, error bands), so
   content-equal copies are *not* interchangeable to them, and a matching
   position vanishes with nothing reporting it. Moving it above shuffle or mix
-  gives each quiz mode its own dedupe story, which is how #84 arose in the
-  first place (id-level dedupe existed inside the mix; the bug was
-  mix-independent). Also: don't reintroduce a survivor *preference*. The old
-  one existed solely to keep id-keyed lifetime stats reachable across
-  content-identical copies; content-keyed stats make every copy read and write
-  the same record, so #95 deleted the fragmentation and the seam together —
-  first occurrence survives, for display and provenance only.
-  `PositionDedupeTests` pins all of it against a committed fixture streamed
-  twice under two names, and **fails loudly if that fixture is missing** —
-  never convert it to a skip (§ the e2e rule, same reasoning).
+  gives each quiz mode its own dedupe story, which is how
+  halheinrich/backgammon#84 arose in the first place (id-level dedupe existed
+  inside the mix; the bug was mix-independent). Also: don't reintroduce a
+  survivor *preference*. The old one existed solely to keep id-keyed lifetime
+  stats reachable across content-identical copies; content-keyed stats make
+  every copy read and write the same record, so halheinrich/backgammon#95
+  deleted the fragmentation and the seam together — first occurrence survives,
+  for display and provenance only. `PositionDedupeTests` pins all of it
+  against a committed fixture streamed twice under two names, and **fails
+  loudly if that fixture is missing** — never convert it to a skip (§ the e2e
+  rule, same reasoning).
 - **Never manufacture a multi-problem test run by duplicating a fixture.** It
   used to work and no longer can: the app collapses content-equal positions, so
   N copies of one file are one problem. A scenario that needs N problems needs N
@@ -3765,32 +3779,32 @@ public (see Pitfalls). The externally visible surface is the route map:
   answering↔review board-size jump. Sizing it by content (`min-height`, auto
   height) reintroduces the per-question jitter it was built to remove — long
   content clamps instead (legend one line, verdict two). **The invariance is
-  scoped, not absolute** (`SPEC-quiz-view.md` §2, issue #41): with the maximize
-  setting on, the answering composition suppresses this strip outright and
-  renders a board-only canvas, so the board is deliberately larger while
-  answering than at review and oscillates once per problem. That reversal is
-  the opted-in feature, not this contract failing; what the contract still
-  forbids is size drift nobody asked for, inside Normal view and inside
-  Maximized view's own review composition alike. No CSS knows about the mode —
-  which composition renders is `Quiz.razor`'s `MaximizedAnswering` derivation.
-  On the board side, sizing belongs to
-  BgDiag_Razor's bounded-height contract: bound the `BackgammonPlayEntry`
-  wrapper with a real height (the fold column hands `.board-container`'s
-  definite post-flex height down) and let the producer's `bg-board-slot` and
-  `.bg-diagram` contain-fit default do the rest — re-adding consumer
-  `max-height` glue, `display: contents` on a wrapper, or styles inside
-  `.bg-board-slot` breaks it (`AppCss_RetiredBoundedHeightGlue_StaysGone`
-  pins this). **Nothing consumer-side may style or contain the board box for a
-  badge's benefit any more:** `container-type: inline-size` on
-  `.board-container .bg-diagram` existed solely as the overlaid XGID's cqw
-  anchor, and went with the badge (issue `halheinrich/backgammon#98`) —
-  containment is layout, not decoration, so it was measured (board box
-  identical on and off) and then removed rather than left behind.
-  `AppCss_RetiredBadgeContainerQueryAnchor_StaysGone` pins both halves —
-  `container-type` scoped to **the rules that name the board**, since `/help`'s
-  fit condition makes the layout's content area a legitimate query container
-  (§ `Help.razor`); `cqw` stays file-wide, because nothing in this app sizes in
-  container units.
+  scoped, not absolute** (`SPEC-quiz-view.md` §2, issue
+  halheinrich/backgammon#41): with the maximize setting on, the answering
+  composition suppresses this strip outright and renders a board-only canvas,
+  so the board is deliberately larger while answering than at review and
+  oscillates once per problem. That reversal is the opted-in feature, not this
+  contract failing; what the contract still forbids is size drift nobody asked
+  for, inside Normal view and inside Maximized view's own review composition
+  alike. No CSS knows about the mode — which composition renders is
+  `Quiz.razor`'s `MaximizedAnswering` derivation. On the board side, sizing
+  belongs to BgDiag_Razor's bounded-height contract: bound the
+  `BackgammonPlayEntry` wrapper with a real height (the fold column hands
+  `.board-container`'s definite post-flex height down) and let the producer's
+  `bg-board-slot` and `.bg-diagram` contain-fit default do the rest — re-adding
+  consumer `max-height` glue, `display: contents` on a wrapper, or styles
+  inside `.bg-board-slot` breaks it
+  (`AppCss_RetiredBoundedHeightGlue_StaysGone` pins this). **Nothing
+  consumer-side may style or contain the board box for a badge's benefit any
+  more:** `container-type: inline-size` on `.board-container .bg-diagram`
+  existed solely as the overlaid XGID's cqw anchor, and went with the badge
+  (issue `halheinrich/backgammon#98`) — containment is layout, not decoration,
+  so it was measured (board box identical on and off) and then removed rather
+  than left behind. `AppCss_RetiredBadgeContainerQueryAnchor_StaysGone` pins
+  both halves — `container-type` scoped to **the rules that name the board**,
+  since `/help`'s fit condition makes the layout's content area a legitimate
+  query container (§ `Help.razor`); `cqw` stays file-wide, because nothing in
+  this app sizes in container units.
   The cube-answering and review boards are a bare `.bg-diagram`
   directly under `.board-container` — the cube radios live in the action row —
   so all three states size identically under the fold cap *within a mode*;

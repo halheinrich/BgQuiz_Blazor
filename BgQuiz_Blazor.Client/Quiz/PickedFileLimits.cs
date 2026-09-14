@@ -42,7 +42,7 @@ internal static class PickedFileLimits
 
     /// <summary>
     /// Upper bound on <c>.xg</c> match files taken from a single folder pick.
-    /// Unchanged at 500 by the per-format ruling (issue #59): one match file
+    /// Unchanged at 500 by the per-format ruling (issue halheinrich/backgammon#59): one match file
     /// averages ~120 decisions, so it is the expensive format and keeps the
     /// original cap.
     /// </summary>
@@ -50,7 +50,7 @@ internal static class PickedFileLimits
 
     /// <summary>
     /// Upper bound on <c>.xgp</c> position files taken from a single folder pick.
-    /// Raised to 2000 by the per-format ruling (issue #59): one position file is
+    /// Raised to 2000 by the per-format ruling (issue halheinrich/backgammon#59): one position file is
     /// one decision, so a real position library costs a fraction of the same
     /// number of match files — and 500 hard-blocked exactly that use.
     /// </summary>

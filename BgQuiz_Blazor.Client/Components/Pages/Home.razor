@@ -204,7 +204,7 @@
                 </button>
             </div>
         }
-        @* Truncated pick (issue #59): the folder held more files of some kind
+        @* Truncated pick (issue halheinrich/backgammon#59): the folder held more files of some kind
            than that kind's cap admits, so a randomly drawn N were taken and
            the rest left unread. An outcome, not a failure — the quiz runs on
            what was read, and everything downstream (match count, mix, stats)
@@ -219,14 +219,14 @@
            limit the app does not apply.
 
            "chosen at random" is in the copy because the draw is OBSERVABLE
-           (issue #106): re-picking one over-cap folder reads a different
+           (issue halheinrich/backgammon#106): re-picking one over-cap folder reads a different
            subset, so the match count and the problems shift between picks of
            the same folder. Unexplained, that reads as a bug; named, it reads
            as the reason to re-pick — the excess is reachable, not lost. The
            line still claims only how many were used and how many were not,
            never which: PickTruncation carries counts, no identities.
 
-           Dismissible on a click (issue #107) — the Quiz-page affordance
+           Dismissible on a click (issue halheinrich/backgammon#107) — the Quiz-page affordance
            copied whole: whole-alert target plus the accessible btn-close,
            recorded in the app-scoped QuizNoticeDismissal so navigating away
            and back cannot resurrect it, keyed on the pick's occurrence token
@@ -252,7 +252,7 @@
            role="status" like the other outcome notices. Rendered only while a
            pick is held (the capability is meaningless otherwise).
 
-           Dismissible on a click (issue #107), like the truncation alert above
+           Dismissible on a click (issue halheinrich/backgammon#107), like the truncation alert above
            — one holder slot for all three branches, because they are mutually
            exclusive renderings of one per-pick verdict, so a dismissal can
            only ever cover the one the user actually read. Keyed on the pick's
@@ -297,7 +297,7 @@
                     break;
             }
         }
-        @* Stats-retirement forecast (issue #146): this folder's stats file was
+        @* Stats-retirement forecast (issue halheinrich/backgammon#146): this folder's stats file was
            written by an earlier version, so the next quiz will set it aside and
            start fresh. The act itself stays at the quiz bind — a pick must not
            mutate the folder (SPEC-stats-identity.md §3) — and the Quiz page's
@@ -332,7 +332,7 @@
         @* Cancelled-pick outcome (not a failure): the pick ended holding no
            folder. Three causes reach here — the picker was dismissed, the
            required view-files permission was declined, or a present-but-inert
-           showDirectoryPicker aborted without ever opening (issue #116,
+           showDirectoryPicker aborted without ever opening (issue halheinrich/backgammon#116,
            observed live) — and they are deliberately not distinguished
            (AbortError conflates them; pinned in BgFolderAccess_Razor), so the
            wording must be true under all of them and stay non-accusatory
@@ -348,15 +348,15 @@
            same one-snapshot two-branches discipline as the advisories above.
            On that branch the inert case lands here with nothing else on the
            page accounting for it, and the tail is the post-gesture sibling of
-           the #105 conditional (same FolderPickDisplay verdict, its own
+           the halheinrich/backgammon#105 conditional (same FolderPickDisplay verdict, its own
            antecedent), which is what breaks the retry loop the issue
            reported. On the fallback branch the tail is omitted because its
            antecedent is known false — this notice only fires there via the
            input's cancel event, which a chooser must open to raise — and the
-           #105 grey line already stands beside this notice covering the
+           halheinrich/backgammon#105 grey line already stands beside this notice covering the
            silent case.
 
-           Dismissible on a click (issue #107), same affordance as the
+           Dismissible on a click (issue halheinrich/backgammon#107), same affordance as the
            holder-backed notices above — but recorded by clearing the page
            field itself, not through the dismissal holder: the notice is
            per-visit by construction (it describes a gesture that left nothing
@@ -472,7 +472,7 @@
 
        The number is a count of distinct positions (the source stack dedupes by
        content identity), and saying nothing about that is what raised issue
-       #104: a user reads their file count, reads this number, subtracts, and
+       halheinrich/backgammon#104: a user reads their file count, reads this number, subtracts, and
        has no account for the difference except a bug. Two sentences close that.
        The first is standing — repeats are counted once, true of every pool — so
        the count is legible as a deduplicated count even where nothing
@@ -510,7 +510,7 @@
        announcement rather than a number with a silent qualification.
 
        Named for its axis ("By answer type"), which leaves the region open for
-       issue #3's pre-Start composition preview to sit beside it as its own
+       issue halheinrich/backgammon#3's pre-Start composition preview to sit beside it as its own
        block on the mix axis. Nothing here is built for that; it is only kept
        un-claimed. *@
     @if (_isCounting)
@@ -697,7 +697,7 @@
 
     </fieldset>
 
-    @* The way back to a running quiz (issue #58). Home is the third page
+    @* The way back to a running quiz (issue halheinrich/backgammon#58). Home is the third page
        reachable mid-quiz with no way back — Help and Settings already carry
        this affordance, and this is the same predicate, the same markup, and the
        same words, copied rather than designed for the reason Settings copied it

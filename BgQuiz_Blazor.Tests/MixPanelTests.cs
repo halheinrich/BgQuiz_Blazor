@@ -389,7 +389,7 @@ public class MixPanelTests : BunitContext
     /// offered moves the row (halheinrich/backgammon#164).
     /// </summary>
     [Theory]
-    [InlineData("5")]                  // ordinal — selected AvgEquityLossOver before #164
+    [InlineData("5")]                  // ordinal — selected AvgEquityLossOver before halheinrich/backgammon#164
     [InlineData("1")]                  // ordinal — the row's own current kind, as a number
     [InlineData("99")]                 // ordinal outside the declared range
     [InlineData("avgEquityLossOver")]  // case variant

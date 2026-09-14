@@ -60,7 +60,7 @@ internal sealed class PickedProblemFolder
 
     /// <summary>
     /// The problem-file kinds this pick's count caps cut short, empty when the
-    /// folder fit (issue #59). Held here for the same reason as
+    /// folder fit (issue halheinrich/backgammon#59). Held here for the same reason as
     /// <see cref="Capability"/>: it is a fact about the folder being <i>held</i>,
     /// not about the gesture that fetched it, so Home's notice must survive
     /// navigate-back — which a component field would not. The no-folder outcomes

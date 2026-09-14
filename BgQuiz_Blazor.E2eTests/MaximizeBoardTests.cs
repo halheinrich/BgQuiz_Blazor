@@ -19,7 +19,7 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </para>
 ///
 /// <para>
-/// <b>Which test carries that chain inverted at #113.</b> The mode is the
+/// <b>Which test carries that chain inverted at halheinrich/backgammon#113.</b> The mode is the
 /// default since 2026-08-19 (<c>SPEC-quiz-view.md</c> §3), so ticking the box
 /// no longer moves anything: the maximized scenario simply starts a quiz, and
 /// it is <see cref="WithTheSettingOff_AnsweringKeepsItsChrome"/> — the one whose
@@ -66,7 +66,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
     ///
     /// <para>
     /// This was <c>EnableMaximizeAsync</c> and ticked the box. Renaming it would
-    /// not have been enough: since #113 made the mode the default, the very same
+    /// not have been enough: since halheinrich/backgammon#113 made the mode the default, the very same
     /// gesture on the very same control turns the mode <i>off</i>, so the helper
     /// changed meaning rather than spelling, and moved to the scenario that wants
     /// the other composition.
@@ -83,7 +83,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
     [Fact]
     public async Task MaximizedAnsweringShedsItsChrome_AndReviewPutsItBack()
     {
-        // No trip to Settings: since #113 this is what a visitor gets by walking
+        // No trip to Settings: since halheinrich/backgammon#113 this is what a visitor gets by walking
         // straight in, and that is the more valuable thing to smoke. The control
         // that produces the other composition is driven in the test below.
         await BootHomeAsync();
@@ -103,7 +103,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
         await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "No double" })).ToBeVisibleAsync();
 
         // And so does the XGID — the badge rides the action row, which this mode
-        // keeps. This is the composition #98 came out of: the badge used to
+        // keeps. This is the composition halheinrich/backgammon#98 came out of: the badge used to
         // overlay a title strip that no longer exists here at all, so "present in
         // the maximized answering view" is the ruling's load-bearing half, and
         // "nowhere on the canvas" is the other.
@@ -166,7 +166,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
         // assertions there would be satisfied by chrome that had gone missing for
         // some entirely different reason.
         //
-        // It is also the scenario carrying the control's whole chain since #113,
+        // It is also the scenario carrying the control's whole chain since halheinrich/backgammon#113,
         // which is why the untick is a real gesture on the real page rather than a
         // seeded storage entry: the box is ticked when this arrives, and unticking
         // it has to reach the service, the entry, and the quiz page's derivation
@@ -213,7 +213,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
         // play.
         //
         // Judged at REVIEW rather than while answering, and not by turning the
-        // maximize mode off: since #113 review is where a default visitor sees
+        // maximize mode off: since halheinrich/backgammon#113 review is where a default visitor sees
         // the strip and the panel at all, so it is where the geometry claim is
         // worth making. The chrome block sits outside the per-state action-row
         // branch, so the order is the same order in either state.

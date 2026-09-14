@@ -1266,7 +1266,7 @@ public class QuizControllerTests
     }
 
     // -----------------------------------------------------------------------
-    //  EndQuizAsync — the user's own exit from a run (issue #57)
+    //  EndQuizAsync — the user's own exit from a run (issue halheinrich/backgammon#57)
     // -----------------------------------------------------------------------
 
     [Fact]

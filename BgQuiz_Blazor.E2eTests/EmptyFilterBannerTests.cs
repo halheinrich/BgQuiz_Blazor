@@ -6,7 +6,7 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <summary>
 /// The known-empty pool: filters the page has just reported matching nothing
 /// must darken Start with their own hint — not leave it live to dead-end in
-/// the no-match outcome (the live dogfooding find folded into the #83
+/// the no-match outcome (the live dogfooding find folded into the halheinrich/backgammon#83
 /// rebuild). The click-through banner this suite originally gated (the fourth
 /// of the four invisible-to-tests production defects) survives as the
 /// backstop for a Start racing the count, pinned at the bUnit layer where the

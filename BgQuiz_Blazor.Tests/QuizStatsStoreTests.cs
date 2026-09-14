@@ -979,7 +979,7 @@ public class QuizStatsStoreTests
     }
 
     // -----------------------------------------------------------------------
-    //  CanWeightMix — the shared "can a mix mean anything here" predicate (#87)
+    //  CanWeightMix — the shared "can a mix mean anything here" predicate (halheinrich/backgammon#87)
     // -----------------------------------------------------------------------
 
     /// <summary>
@@ -1024,7 +1024,7 @@ public class QuizStatsStoreTests
     [InlineData(RetiredStatsFixture.V2Json)]               // …either of them (v3 is current again, v4 folds — both read as stats)
     public async Task CanWeightMix_MissingOrUnusable_AllReadFalse(string? pickedStatsJson)
     {
-        // #87's ruling in one place: a document that cannot be read is treated
+        // halheinrich/backgammon#87's ruling in one place: a document that cannot be read is treated
         // exactly as no document. Several situations, one answer, no rungs to
         // tell apart — the retired-version pair included, which the forecast
         // section below surfaces as a *fact* without moving this answer

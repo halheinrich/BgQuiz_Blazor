@@ -107,7 +107,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// held a folder with no problem files — each get their own polite notice rather
 /// than silence, so no gesture ever returns the user to an unchanged page with
 /// no account of what happened. Every outcome/status notice in the pick band
-/// dismisses on a click (issue #107, the Quiz page's affordance): the
+/// dismisses on a click (issue halheinrich/backgammon#107, the Quiz page's affordance): the
 /// holder-backed pair — truncations and stats capability, which survive
 /// navigation with the pick they describe — record their dismissal in the
 /// app-scoped <see cref="QuizNoticeDismissal"/> keyed on
@@ -190,7 +190,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// Below the setup surface — outside the busy <c>fieldset</c>, since it only
 /// navigates — sits the same conditional <b>"Back to quiz"</b> button
 /// <see cref="Help"/> and <see cref="Settings"/> carry, on the same
-/// <c>HasStarted &amp;&amp; !IsFinished</c> predicate (issue #58). Home is the
+/// <c>HasStarted &amp;&amp; !IsFinished</c> predicate (issue halheinrich/backgammon#58). Home is the
 /// third page a user can reach mid-quiz and the last one that had no way back.
 /// The visit itself was always safe — see <see cref="BackToQuiz"/> — so the
 /// affordance is the whole change.
@@ -226,7 +226,7 @@ public partial class Home : ComponentBase, IDisposable
     /// three causes — the picker was dismissed, the required view-files
     /// permission was declined, or a present-but-inert
     /// <c>showDirectoryPicker</c> aborted without ever opening a chooser
-    /// (issue #116, observed live on a WebView-wrapping browser) — and only the
+    /// (issue halheinrich/backgammon#116, observed live on a WebView-wrapping browser) — and only the
     /// first is the user changing their mind: the second is the load-bearing
     /// grant refused, the third a gesture that did nothing at all, each leaving
     /// them on an unchanged, empty page with no explanation. The browser
@@ -398,7 +398,7 @@ public partial class Home : ComponentBase, IDisposable
 
     /// <summary>
     /// True while this page is running a foreground operation the user must
-    /// wait out: the scan-and-buffer half of a folder pick (issue #48), and
+    /// wait out: the scan-and-buffer half of a folder pick (issue halheinrich/backgammon#48), and
     /// the match count. One flag, not one per site — the affordance is a
     /// property of the <i>page</i> ("BgQuiz is working, don't touch anything"),
     /// not of the operation, and the operations cannot overlap because the busy
@@ -610,7 +610,7 @@ public partial class Home : ComponentBase, IDisposable
 
         _fsAccessAvailable = await FolderAccess.SupportsDirectoryPickerAsync();
 
-        // The mix predicate's other reading point (issue #87). A pick refreshes
+        // The mix predicate's other reading point (issue halheinrich/backgammon#87). A pick refreshes
         // it, but two things can move it with no pick in sight, and both land
         // here: a folder already held when this page is re-instantiated
         // (navigate-back), and — the one that matters — a quiz run since the
@@ -831,7 +831,7 @@ public partial class Home : ComponentBase, IDisposable
     /// <para>
     /// Async again — one await, and only on the path that keeps a folder: the
     /// mix predicate's pick-time probe
-    /// (<see cref="QuizStatsStore.RefreshPickedStatsAsync"/>, issue #87). It
+    /// (<see cref="QuizStatsStore.RefreshPickedStatsAsync"/>, issue halheinrich/backgammon#87). It
     /// runs <i>after</i> <see cref="PickedProblemFolder.Set"/> so it probes the
     /// generation it is about, and before this method returns so no render can
     /// fall between the two: the panel's mount decision is made once, against a
@@ -1125,7 +1125,7 @@ public partial class Home : ComponentBase, IDisposable
 
     /// <summary>
     /// Dismiss the truncated-pick report for the pick on screen, keyed on the
-    /// holder's occurrence token (issue #107): navigating away and back finds
+    /// holder's occurrence token (issue halheinrich/backgammon#107): navigating away and back finds
     /// the same token and stays dismissed, while the next pick mints a fresh
     /// one and reports its own truncations — with no reset call site to forget.
     /// </summary>
@@ -1156,7 +1156,7 @@ public partial class Home : ComponentBase, IDisposable
     /// notice describes a gesture that left nothing behind, dies with the
     /// visit by construction, and <see cref="ClearPickNotices"/> already
     /// retires it on the next gesture, so an occurrence token would have
-    /// nothing to outlive. The click affordance is what issue #107 adds; the
+    /// nothing to outlive. The click affordance is what issue halheinrich/backgammon#107 adds; the
     /// lifetime was already right.
     /// </summary>
     private void DismissCancelledPick() => _cancelledPickNotice = false;
@@ -1249,7 +1249,7 @@ public partial class Home : ComponentBase, IDisposable
     }
 
     /// <summary>
-    /// Return to the problem a live quiz is sitting on (issue #58) — the same
+    /// Return to the problem a live quiz is sitting on (issue halheinrich/backgammon#58) — the same
     /// one-line handler behind the identical affordance on <see cref="Help"/>
     /// and <see cref="Settings"/>, rendered under the same
     /// <c>HasStarted &amp;&amp; !IsFinished</c> predicate.

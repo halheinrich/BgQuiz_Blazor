@@ -55,7 +55,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         Assert.Equal(2, tally.GetProperty("correct").GetInt32());
 
         // The key is content, not provenance: a fixture filename appearing in it
-        // would mean the #95 fragmentation had survived the re-key. A cube key
+        // would mean the halheinrich/backgammon#95 fragmentation had survived the re-key. A cube key
         // additionally carries no dice field (the kind discriminant).
         Assert.DoesNotContain(CubeFixture, record.Name, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(2, record.Name.Count(c => c == '/'));

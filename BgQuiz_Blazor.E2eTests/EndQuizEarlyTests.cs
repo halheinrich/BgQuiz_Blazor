@@ -4,7 +4,7 @@ using static Microsoft.Playwright.Assertions;
 namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
-/// Ending a run before the source is exhausted (issue #57) — the exit a quiz
+/// Ending a run before the source is exhausted (issue halheinrich/backgammon#57) — the exit a quiz
 /// that has served its purpose needs, and the one the app had no control for:
 /// until now the only ways out of a live run were answering every problem or
 /// abandoning the tab.
@@ -45,7 +45,7 @@ public sealed class EndQuizEarlyTests : E2eTestBase
         // happen in for the abandoned problem to count as a skip. Keyed on the
         // answering row's own Submit rather than the "Problem 2" counter, which
         // rides in the score panel and is suppressed while answering under the
-        // maximize mode (the default since #113). That the run really was two
+        // maximize mode (the default since halheinrich/backgammon#113). That the run really was two
         // problems in is settled downstream, by the Done totals.
         await Expect(SubmitButton).ToBeVisibleAsync();
 

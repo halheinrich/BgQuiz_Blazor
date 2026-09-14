@@ -183,7 +183,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        // Answering, maximized (the default since #113). This is the
+        // Answering, maximized (the default since halheinrich/backgammon#113). This is the
         // composition the ruling came out of: the producer's title strip is
         // gone, the score panel with it, and a money decision has no score to
         // be framed by — so the chip is the only thing on the page that says

@@ -364,7 +364,7 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// the original plus numbered duplicates, the shape a re-downloaded match
     /// takes in a real problem folder. Every copy is content-identical, so the
     /// pool collapses to a single position and the pick summary's file count and
-    /// the match count deliberately disagree: the scenario umbrella issue #104
+    /// the match count deliberately disagree: the scenario umbrella issue halheinrich/backgammon#104
     /// exists for.
     /// </summary>
     /// <param name="fixtureFileName">The committed fixture to duplicate.</param>

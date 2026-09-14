@@ -756,7 +756,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// <summary>
     /// End the run here, at the user's request, and finish with the score of
     /// what they answered — the quiz-side exit a run that has served its purpose
-    /// needs (issue #57). A real transition, not a navigation: only the
+    /// needs (issue halheinrich/backgammon#57). A real transition, not a navigation: only the
     /// controller can retire the enumerator and flip <see cref="IsFinished"/>,
     /// and doing it anywhere else would leave a live quiz behind a Done page.
     /// No-op before start and after finish, and gated like every other async

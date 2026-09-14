@@ -64,7 +64,7 @@
     // The seam QuizSettings invokes to move the fold without a navigation. In
     // practice it is called with `false` only: turning the setting ON is
     // deliberately left to the enhancedload handler below, so the panel the user
-    // is standing in is never folded under them (finding #50) — turning it OFF
+    // is standing in is never folded under them (finding halheinrich/backgammon#50) — turning it OFF
     // cannot wait, because a folded panel offers no navigation to wait for.
     // Takes the value explicitly all the same: the C# side then has no ordering
     // dependency on its own localStorage write having landed first, and this
@@ -78,7 +78,7 @@
     // path a newly turned-on setting first takes hold on. It applies INCLUDING
     // after a DOM synchronization that lands late (seen at ~500ms on the
     // deployed host, which is what made a fold taken just after arriving pop
-    // back open — umbrella issue #46). Re-applying after each sync is what makes
+    // back open — umbrella issue halheinrich/backgammon#46). Re-applying after each sync is what makes
     // the stored value the last word rather than the first.
     function registerEnhancedLoad() {
         if (window.Blazor && typeof window.Blazor.addEventListener === 'function') {

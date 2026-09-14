@@ -115,7 +115,7 @@ public sealed class CommaDecimalLocaleTests : E2eTestBase
 
         // The hit overlay is both this scenario's subject and its readiness gate.
         // It used to wait on the status strip's neutral prompt, which the
-        // maximize mode — the default since #113 — suppresses while answering;
+        // maximize mode — the default since halheinrich/backgammon#113 — suppresses while answering;
         // waiting on the overlay is in any case the closer gate, since every
         // measurement below reads geometry out of it.
         await Expect(HitOverlaySvg).ToBeVisibleAsync();

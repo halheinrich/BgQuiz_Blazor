@@ -5,7 +5,7 @@ using static Microsoft.Playwright.Assertions;
 namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
-/// The busy affordance the folder scan raises (umbrella #48): between the
+/// The busy affordance the folder scan raises (umbrella halheinrich/backgammon#48): between the
 /// browser's prompts and the pick summary the app enumerates and buffers the
 /// folder, which on a real corpus takes long enough that silence reads as a
 /// hung page.

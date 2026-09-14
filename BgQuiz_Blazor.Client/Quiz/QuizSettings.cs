@@ -526,7 +526,7 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// <summary>
     /// Record the keep-folded choice and persist it — then <b>unfold now, but
     /// never fold now</b>. The asymmetry is the whole contract, and it is
-    /// deliberate (finding #50).
+    /// deliberate (finding halheinrich/backgammon#50).
     ///
     /// <para>
     /// <b>Turning it on defers to the next navigation.</b> "Keep the navigation
@@ -678,7 +678,7 @@ internal sealed class QuizSettings(IJSRuntime js)
             // Absent from every payload written before this setting existed, and
             // therefore the field the tolerance rule above exists for: an old
             // entry restores with the CURRENT default, whatever that is. That is
-            // what let the default flip to on (#113) with no migration and no
+            // what let the default flip to on (halheinrich/backgammon#113) with no migration and no
             // version stamp — the flip reaches exactly the users who never chose,
             // while an explicit stored false keeps winning.
             maximizeBoardWhileAnswering =

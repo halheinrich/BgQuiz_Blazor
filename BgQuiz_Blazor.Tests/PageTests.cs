@@ -246,7 +246,7 @@ public class PageTests : BunitContext
 
     /// <summary>
     /// The empty-but-present stats document, in the same real wire format —
-    /// #87's headline case: a file the user has, holding no decisions. The
+    /// halheinrich/backgammon#87's headline case: a file the user has, holding no decisions. The
     /// ruling is that this reads exactly as no file at all, so no test may
     /// treat it as a third state.
     /// </summary>
@@ -441,7 +441,7 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
 
         // Summary renders straight from the persisted holder, no pick handler run,
-        // under the markup-side caption that says what the folder IS (#96). The
+        // under the markup-side caption that says what the folder IS (halheinrich/backgammon#96). The
         // caption is pinned here because it lives only in Home's markup: every
         // other pin on this line matches the holder's own Summary text, so all
         // of them would stay green with the caption gone.
@@ -602,7 +602,7 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_ApplyFilters_CountSaysRepeatsAreCountedOnce()
     {
-        // Issue #104. The count has always been a count of distinct positions —
+        // Issue halheinrich/backgammon#104. The count has always been a count of distinct positions —
         // the source stack dedupes beneath everything — but the line said
         // nothing about it, so a user comparing it to their file count read the
         // difference as a bug. The standing sentence makes the number legible as
@@ -741,7 +741,7 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_ApplyFilters_BreaksThePoolDownByAnswerType()
     {
-        // Issue #35: the count line is joined by the answer-type breakdown, so a
+        // Issue halheinrich/backgammon#35: the count line is joined by the answer-type breakdown, so a
         // user can see what their collection is made of before starting. The
         // pool here is deliberately lopsided — two checker plays and one
         // double/take — because the interesting reading is the categories that
@@ -1012,7 +1012,7 @@ public class PageTests : BunitContext
 
     /// <summary>
     /// The minimum discriminating substring of the cancelled notice's
-    /// conditional advice (issue #116) — conditional because on a
+    /// conditional advice (issue halheinrich/backgammon#116) — conditional because on a
     /// present-but-inert <c>showDirectoryPicker</c> no view-files request ever
     /// appears, so an imperative "allow the request" recommended an action that
     /// could not be taken.
@@ -1021,7 +1021,7 @@ public class PageTests : BunitContext
 
     /// <summary>
     /// The minimum discriminating substring of the cancelled notice's
-    /// dead-chooser tail (issue #116), shared by the presence and absence pins
+    /// dead-chooser tail (issue halheinrich/backgammon#116), shared by the presence and absence pins
     /// below so a copy polish moves both or neither — the same anti-vacuous
     /// pairing as <see cref="SilentGestureAccount"/>, whose sentence this tail
     /// is deliberately <i>not</i> (that copy's own presence/absence pair keys
@@ -1032,13 +1032,13 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_CancelledFsAccessPick_HedgesTheAdvice_AndAccountsForADeadChooser()
     {
-        // Issue #116, the observed arc: showDirectoryPicker exists but is inert
+        // Issue halheinrich/backgammon#116, the observed arc: showDirectoryPicker exists but is inert
         // — the pick aborts without ever opening a chooser, lands here as a
-        // plain cancellation, and nothing else on the page covers it (#105's
+        // plain cancellation, and nothing else on the page covers it (halheinrich/backgammon#105's
         // grey line is honestly gated on the capability being absent). So on
         // this branch the notice itself must carry both hedges: advice that is
         // conditional on the request actually appearing, and the post-gesture
-        // sibling of the #105 conditional naming what a silent gesture means.
+        // sibling of the halheinrich/backgammon#105 conditional naming what a silent gesture means.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
@@ -1058,7 +1058,7 @@ public class PageTests : BunitContext
         // The other branch of the same snapshot: this notice reaches the
         // fallback path only through the input's cancel event, which a chooser
         // must have opened to raise — the tail's antecedent is known false, and
-        // the #105 grey line already stands beside the notice covering the
+        // the halheinrich/backgammon#105 grey line already stands beside the notice covering the
         // silent case. Rendering the tail here would say the same thing twice.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
@@ -1258,7 +1258,7 @@ public class PageTests : BunitContext
     {
         // Unexpected browser failure (or a file past the byte cap): the failure
         // idiom — assertive alert — and a cleared holder. A folder past the
-        // *count* caps is not this: it truncates and reports (issue #59).
+        // *count* caps is not this: it truncates and reports (issue halheinrich/backgammon#59).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
@@ -1276,8 +1276,8 @@ public class PageTests : BunitContext
 
     /// <summary>
     /// Home's truncated-pick notice, addressed by its id — the structural hook
-    /// issue #107's dismissal affordance added, preferred over a content marker
-    /// so #106's coming reword of the truncation copy can't re-key this suite.
+    /// issue halheinrich/backgammon#107's dismissal affordance added, preferred over a content marker
+    /// so halheinrich/backgammon#106's coming reword of the truncation copy can't re-key this suite.
     /// </summary>
     private static AngleSharp.Dom.IElement TruncationNotice(IRenderedComponent<HomePage> cut) =>
         cut.Find("#truncationNotice");
@@ -1293,9 +1293,9 @@ public class PageTests : BunitContext
     [Fact]
     public void Home_TruncatedPick_XgpOnly_ReportsThatKindFromTheConstants()
     {
-        // Issue #59, the motivating case: a position library past the .xgp cap.
+        // Issue halheinrich/backgammon#59, the motivating case: a position library past the .xgp cap.
         // Blame-free and factual — how many were used, how many were not read,
-        // and that the pick drew them at random (issue #106) — with both figures
+        // and that the pick drew them at random (issue halheinrich/backgammon#106) — with both figures
         // from the constants the pick enforced, never literals. The equality is
         // what pins the other half of the claim: never *which* files, because
         // PickTruncation reports counts and carries no identities to name.
@@ -1417,7 +1417,7 @@ public class PageTests : BunitContext
     }
 
     // -----------------------------------------------------------------------
-    //  Dismissible pick-outcome notices (issue #107). The Quiz page's contract,
+    //  Dismissible pick-outcome notices (issue halheinrich/backgammon#107). The Quiz page's contract,
     //  extended to Home's band: every outcome/status notice dismisses on a
     //  click. The holder-backed pair (truncations, stats capability) record it
     //  in QuizNoticeDismissal keyed on PickedProblemFolder.PickOccurrence —
@@ -1907,7 +1907,7 @@ public class PageTests : BunitContext
 
     /// <summary>
     /// The minimum discriminating substring of Home's silent-gesture account
-    /// (issue #105), shared by the presence and absence pins below so a copy
+    /// (issue halheinrich/backgammon#105), shared by the presence and absence pins below so a copy
     /// polish moves both or neither. An absence assertion keyed on its own
     /// literal is the vacuous-green trap this repo has already paid for twice:
     /// reword the notice and the DoesNotContain keeps passing for the wrong
@@ -1918,10 +1918,10 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_NoFsAccessBrowser_AccountsForAPickGestureThatDoesNothing()
     {
-        // Issue #105. With no showDirectoryPicker the hidden webkitdirectory
+        // Issue halheinrich/backgammon#105. With no showDirectoryPicker the hidden webkitdirectory
         // input is the only mechanism left, and whether a browser honors it is
         // not feature-detectable — the attribute is present on the input object
-        // even where the picker never opens (#108's tablet raised no chooser of
+        // even where the picker never opens (halheinrich/backgammon#108's tablet raised no chooser of
         // any kind). So the page says what silence would mean, BEFORE the
         // gesture, on the one predicate it can honestly report.
         //
@@ -2043,7 +2043,7 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_MidQuiz_OffersBackToQuiz_AndItNavigates()
     {
-        // Issue #58: Home was the third page reachable mid-quiz — after Help and
+        // Issue halheinrich/backgammon#58: Home was the third page reachable mid-quiz — after Help and
         // Settings, which already carry this — and the last one with no way back.
         // Same predicate, same markup, same words as its two siblings.
         //
@@ -2241,7 +2241,7 @@ public class PageTests : BunitContext
     public async Task Home_SaveAsInvalidPositionPattern_ShowsNoticeAndDoesNotWrite()
     {
         // One of the states Apply refuses — an unparseable position pattern — is
-        // one TryGetEditedConfig refuses (umbrella #39 put an out-of-range error
+        // one TryGetEditedConfig refuses (umbrella halheinrich/backgammon#39 put an out-of-range error
         // bound in the same set; the two gates are one member producer-side, so
         // either reaches this path). The host surfaces the refusal (the panel
         // already cleared its typed name) and nothing is written.
@@ -2260,7 +2260,7 @@ public class PageTests : BunitContext
         cut.Find("#saveFilterName").Input("Bad");
         await ClickSavedFilterButtonByTextAsync(cut, "Save");
 
-        // The refusal copy names no field, by producer ruling (#39): the
+        // The refusal copy names no field, by producer ruling (halheinrich/backgammon#39): the
         // offending box is already marked in the panel with its own
         // explanation, and a second naming here would be a second encoding of
         // which rule failed. Both halves are scoped to the notice itself —
@@ -3376,7 +3376,7 @@ public class PageTests : BunitContext
     public async Task Quiz_Active_RendersScorePanelAndButtons()
     {
         // Normal view: the score panel is the half of this that the maximize mode
-        // suppresses while answering, and since #113 that mode is the default —
+        // suppresses while answering, and since halheinrich/backgammon#113 that mode is the default —
         // so the composition carrying a score panel beside the answer controls has
         // to be asked for by name.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -3391,7 +3391,7 @@ public class PageTests : BunitContext
         Assert.Contains("Skip", cut.Markup);
     }
 
-    /// <summary>The Quiz page's End-quiz control (issue #57), by its visible label.</summary>
+    /// <summary>The Quiz page's End-quiz control (issue halheinrich/backgammon#57), by its visible label.</summary>
     private static AngleSharp.Dom.IElement EndQuizButton(IRenderedComponent<QuizPage> cut) =>
         cut.FindAll("button").First(b => b.TextContent.Trim() == "End quiz");
 
@@ -3464,7 +3464,7 @@ public class PageTests : BunitContext
     /// <para>
     /// The indicator rides inside the score panel, so it is <b>Normal-view
     /// chrome</b>: SPEC-quiz-view.md §4 ratifies losing it for the answering half
-    /// of each problem, and since #113 that is the default. Every counter
+    /// of each problem, and since halheinrich/backgammon#113 that is the default. Every counter
     /// scenario below therefore stages Normal view — the counter is their
     /// subject, not incidental staging, so moving them to a composition that
     /// renders it is the honest re-key.
@@ -3861,7 +3861,7 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Done_SaysNothingNeedsSaving()
     {
-        // Issue #51's echo. There is no "finish and quit" button and there should
+        // Issue halheinrich/backgammon#51's echo. There is no "finish and quit" button and there should
         // not be one — closing the tab is the exit for an app with no account and
         // nothing pending — so the reassurance is words, and words only exist if
         // something asserts they are there.
@@ -4902,7 +4902,7 @@ public class PageTests : BunitContext
     {
         // Show stats sits where Restart used to — the row's trailing cluster —
         // rather than in a standalone block above the branch. It *opens* that
-        // cluster rather than closing the row: End quiz trails it (issue #57).
+        // cluster rather than closing the row: End quiz trails it (issue halheinrich/backgammon#57).
         //
         // The cluster is right-aligned as a CLUSTER, not by this button: since
         // the locator joined it (halheinrich/backgammon#115) it takes the width
@@ -5614,7 +5614,7 @@ public class PageTests : BunitContext
     [Fact]
     public void Help_ChooseFilters_DocumentsThatRepeatedPositionsAreCountedOnce()
     {
-        // Issue #104's Help half: the count has always been deduplicated, and
+        // Issue halheinrich/backgammon#104's Help half: the count has always been deduplicated, and
         // the prose that explains the line has to say so — otherwise the gap
         // between a file count and this number has no account anywhere. Both
         // halves are pinned: the rule, and that the line reports how many the
@@ -5689,7 +5689,7 @@ public class PageTests : BunitContext
         Assert.Contains(FilterFacet.AnalysisDepth.ToLabel(), section);
         Assert.Contains(FilterFacet.ErrorRange.ToLabel(), section);
 
-        // The chrome section specifically (umbrella #36). This page used to
+        // The chrome section specifically (umbrella halheinrich/backgammon#36). This page used to
         // describe the disclosure, Apply's disabled states and Clear filters in
         // its own words; that prose moved to its owner rather than being
         // deleted, and this is the assertion that says so — without it the
@@ -5778,7 +5778,7 @@ public class PageTests : BunitContext
 
         // The negative half. One entry is the facet gloss an earlier leg retired
         // (Help used to define the error range in its own voice); the other
-        // three are the chrome sentences umbrella #36 retired — where the error
+        // three are the chrome sentences umbrella halheinrich/backgammon#36 retired — where the error
         // range sits, what the old disclosure's hidden-active badge counted, and
         // what Clear filters does. Each names a control's behavior, which is
         // precisely what the producer's Pitfall reserves to FilterHelp, and each
@@ -5886,7 +5886,7 @@ public class PageTests : BunitContext
         // Asserting against the constants (not the literals "50" / "500" /
         // "2000") is what makes this fail if page prose and enforced rule ever
         // drift — which is the whole reason the caps were hoisted off the
-        // enforcing type. Per format since #59: a page that stated one number
+        // enforcing type. Per format since halheinrich/backgammon#59: a page that stated one number
         // for both would be wrong about one of them.
         WithController();
 
@@ -6045,7 +6045,7 @@ public class PageTests : BunitContext
         // is the pin standing on the Normal side of it — Maximized answering has
         // its own, in Quiz_Maximized_Xgid_KeepsItsBottomRowHome_AnsweringAndReview.
         // Left to the default this would have quietly moved to the maximized side
-        // when #113 flipped it, leaving the other side uncovered.
+        // when halheinrich/backgammon#113 flipped it, leaving the other side uncovered.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: SampleXgid));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         await NormalViewAsync();
@@ -6216,7 +6216,7 @@ public class PageTests : BunitContext
         // §4's tail order, as one claim rather than four: XGID → locator →
         // Show stats → End quiz. The two ends are what the order exists for —
         // the position's provenance opens the cluster, and End quiz keeps the
-        // far end of the row, which is issue #57's whole mitigation and not
+        // far end of the row, which is issue halheinrich/backgammon#57's whole mitigation and not
         // this chip's to spend. Asserting the sequence (rather than "the chip
         // is somewhere in the tail") is what catches the chip being inserted
         // past a button, which is the way that mitigation actually erodes.
@@ -6335,7 +6335,7 @@ public class PageTests : BunitContext
     //
     //  "State-invariant" was never "mode-invariant": Maximized view suppresses
     //  the strip while answering (SPEC-quiz-view.md §4), which is the one place
-    //  the height equality is deliberately broken. Since #113 that mode is the
+    //  the height equality is deliberately broken. Since halheinrich/backgammon#113 that mode is the
     //  default, so the two ANSWERING scenarios below stage Normal view by name.
     //  The two review scenarios need no staging — review normalizes the chrome
     //  in both modes, so they read the same strip either way.
@@ -6441,7 +6441,7 @@ public class PageTests : BunitContext
         // this strip and this score panel, which sit outside the per-state
         // action-row branch. Normal view is stated because all three pieces have
         // to be on the page at once for an ordering to mean anything, and
-        // Maximized view — the default since #113 — renders only one of them.
+        // Maximized view — the default since halheinrich/backgammon#113 — renders only one of them.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         await NormalViewAsync();
@@ -6540,7 +6540,7 @@ public class PageTests : BunitContext
     }
 
     // -----------------------------------------------------------------------
-    //  The maximize-board mode (issue #41 / SPEC-quiz-view.md §4). The mode is
+    //  The maximize-board mode (issue halheinrich/backgammon#41 / SPEC-quiz-view.md §4). The mode is
     //  a pure derivation over (the setting, answering|review), so these pin it
     //  from both ends: which chrome renders, and which canvas the producer is
     //  asked for. bUnit cannot measure the resulting board, which is the e2e
@@ -6573,7 +6573,7 @@ public class PageTests : BunitContext
     /// A matched pair with <see cref="NormalViewAsync"/>, and both are stated at
     /// every call site that cares which composition it is looking at, whichever
     /// one the default happens to supply. That is deliberate: the default flipped
-    /// once already (#113), and a test whose staging is "say nothing and inherit"
+    /// once already (halheinrich/backgammon#113), and a test whose staging is "say nothing and inherit"
     /// silently changes subject when it flips again. The default itself is one
     /// fact, pinned in one place — QuizSettingsTests for the value, and
     /// Settings_MaximizeBoard_* for what the control shows on a fresh visit.
@@ -6582,7 +6582,7 @@ public class PageTests : BunitContext
     private Task MaximizedViewAsync() => Settings().SetMaximizeBoardWhileAnsweringAsync(true);
 
     /// <summary>
-    /// Stage <b>Normal view</b> — the full-chrome composition, and since #113 the
+    /// Stage <b>Normal view</b> — the full-chrome composition, and since halheinrich/backgammon#113 the
     /// one a user has to ask for. See <see cref="MaximizedViewAsync"/> for why
     /// both are always stated.
     /// </summary>
@@ -6762,7 +6762,7 @@ public class PageTests : BunitContext
         // Written as its own test rather than left implicit in the older pins, so
         // a suppression that leaked out of the mode fails somewhere that names why.
         //
-        // Its premise inverted at #113. It used to read "with the setting off —
+        // Its premise inverted at halheinrich/backgammon#113. It used to read "with the setting off —
         // the default", and was the contract that let the mode ship dark; off is
         // now a choice a user makes, so the setting is turned off here by hand and
         // the assertion below reads as "the opt-out landed", not "nobody has
@@ -7338,7 +7338,7 @@ public class PageTests : BunitContext
         // MUTATION ARM ONE of the visibility derivation: the setting off, the
         // stats fact TRUE. A hidden mix never applies — so a folder with stats
         // and a stored mix runs passthrough, with no panel, no gate and no
-        // hint. This is also the §5 headline that resolves issue #83 by
+        // hint. This is also the §5 headline that resolves issue halheinrich/backgammon#83 by
         // construction: nothing about a mix the user cannot see can gate Start.
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -7971,7 +7971,7 @@ public class PageTests : BunitContext
     }
 
     // -----------------------------------------------------------------------
-    //  A weighted mix requires stats: the shared predicate at the page (#87)
+    //  A weighted mix requires stats: the shared predicate at the page (halheinrich/backgammon#87)
     // -----------------------------------------------------------------------
 
     /// <summary>
@@ -8000,7 +8000,7 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_PickWithEmptyStatsDocument_OffersNoMix_AndCommitsNone()
     {
-        // #87's headline, and the fix-prover: the folder CAN save stats and has
+        // halheinrich/backgammon#87's headline, and the fix-prover: the folder CAN save stats and has
         // a stats file — it is simply empty. Before the predicate this mounted
         // the panel on capability alone, and a mix built there composed against
         // a record with nothing in it. Now the panel is not offered at all, and
@@ -8654,7 +8654,7 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_PickScanning_DisablesSetupFieldsetAndShowsBusyCursor()
     {
-        // Issue #48: after the browser's prompts, the app scans and buffers the
+        // Issue halheinrich/backgammon#48: after the browser's prompts, the app scans and buffers the
         // folder with nothing on screen to say so. The affordance must be up —
         // and *rendered*, not merely set — for that whole stretch. OnScanning
         // observes from inside it, which is the only place the claim is
@@ -8839,7 +8839,7 @@ public class PageTests : BunitContext
         // Every stored value is the OPPOSITE of that setting's default, which is
         // what makes the claim testable at all: a control showing its default
         // would agree with a page that read nothing. The maximize field is stored
-        // false for that reason since #113 flipped its default to true — stored
+        // false for that reason since halheinrich/backgammon#113 flipped its default to true — stored
         // true would now be indistinguishable from the page-local default this
         // test exists to rule out. The depth-first box defaults off, so for it
         // the opposite is stored true; the hide ceiling defaults to none, so the
@@ -8998,7 +8998,7 @@ public class PageTests : BunitContext
         var cut = Render<SettingsPage>();
 
         var control = cut.Find("#settingsMaximizeBoard");
-        // Default ON since #113 (SPEC-quiz-view.md §3) — and this is where a
+        // Default ON since halheinrich/backgammon#113 (SPEC-quiz-view.md §3) — and this is where a
         // fresh visit's state is pinned, the counterpart to the stored-false pin
         // in Settings_RendersEveryControl_ReflectingTheStoredValues.
         Assert.True(control.HasAttribute("checked"));
@@ -9062,7 +9062,7 @@ public class PageTests : BunitContext
 
         // Off, not on: every control here is driven AWAY from its default, so a
         // handler wired to nothing cannot pass. Ticking maximize on has been a
-        // no-op against the service's state since #113 made on the default.
+        // no-op against the service's state since halheinrich/backgammon#113 made on the default.
         await cut.Find("#settingsMaximizeBoard").ChangeAsync(new() { Value = false });
         Assert.False(Settings().MaximizeBoardWhileAnswering);
 
@@ -9093,7 +9093,7 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Settings_TurningTheFoldOn_LeavesThePanelTheUserIsOnAlone()
     {
-        // Finding #50, from the control rather than the service: ticking the box
+        // Finding halheinrich/backgammon#50, from the control rather than the service: ticking the box
         // records the choice and nothing else moves. The panel folds on the next
         // navigation, off the value already in storage — which is why deferring
         // needed no code at all, only the removal of a call.
@@ -9138,7 +9138,7 @@ public class PageTests : BunitContext
         // two settings: a user who ticks the box and sees nothing happen has no
         // way to tell "deferred" from "broken". So the deferral is stated beside
         // the control, and pinned — dropping the sentence would leave the page
-        // silently inert-looking, which is the failure #50 reported.
+        // silently inert-looking, which is the failure halheinrich/backgammon#50 reported.
         WithController();
         var cut = Render<SettingsPage>();
 
@@ -9157,7 +9157,7 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Settings_MidQuiz_OffersBackToQuiz_AndItNavigates()
     {
-        // The way back the dogfood pass found missing (issue #30): the round trip
+        // The way back the dogfood pass found missing (issue halheinrich/backgammon#30): the round trip
         // always worked — both the controller and the settings are app-scoped —
         // but nothing on the page pointed at it, so a user who changed the board
         // side mid-quiz was left with the browser's Back button and a guess.

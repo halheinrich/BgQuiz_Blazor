@@ -87,7 +87,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
         await Expect(CollapseRail).ToBeCheckedAsync();
         Assert.Equal(0d, await PanelWidthAsync());
 
-        // The affordance's whole point (umbrella issue #29): the control reads as
+        // The affordance's whole point (umbrella issue halheinrich/backgammon#29): the control reads as
         // a control and says which state it is in. The artwork is craft and
         // deliberately not pinned — that it CHANGES with the state is the
         // contract, and a chevron frozen in one direction is the regression.
@@ -157,7 +157,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// <para>
     /// <b>The advance is read off the XGID badge</b>, not the "Problem N"
     /// counter. The counter rides in the score panel, which the maximize mode
-    /// suppresses while answering — and that mode is the default since #113, so
+    /// suppresses while answering — and that mode is the default since halheinrich/backgammon#113, so
     /// the marker this test's discipline depends on had to be one the view mode
     /// cannot take away. The badge qualifies twice over: it has one home in both
     /// modes (<c>SPEC-quiz-view.md</c> §4) and it names the <i>position</i>, so a
@@ -169,7 +169,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// The run begins by folding, navigating, and waiting for the fold to be
     /// undone — see <see cref="WaitForTheEnhancedNavSettleAsync"/>. That is not
     /// part of the scenario; it is how the scenario refuses to race the
-    /// navigation's own late DOM synchronization before it starts (issue #46).
+    /// navigation's own late DOM synchronization before it starts (issue halheinrich/backgammon#46).
     /// </para>
     /// </summary>
     [Fact]
@@ -226,7 +226,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// reset is observable.
     ///
     /// <para>
-    /// <b>Why this is needed (umbrella issue #46).</b> Enhanced navigation's DOM
+    /// <b>Why this is needed (umbrella issue halheinrich/backgammon#46).</b> Enhanced navigation's DOM
     /// synchronization is what clears the checkbox, and it does not land with the
     /// navigation: on the deployed host it has been measured arriving ~500ms
     /// later, while on localhost it beats any human or any Playwright click. A

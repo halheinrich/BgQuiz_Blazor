@@ -4,7 +4,7 @@ using static Microsoft.Playwright.Assertions;
 namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
-/// Leaving a running quiz for <c>Home</c> and coming back (issue #58).
+/// Leaving a running quiz for <c>Home</c> and coming back (issue halheinrich/backgammon#58).
 ///
 /// <para>
 /// The round trip itself always worked — the controller and every holder are
@@ -41,7 +41,7 @@ public sealed class MidQuizNavigationTests : E2eTestBase
         await StartQuizAsync();
         // The answering state is on screen. Keyed on the cube radios rather than
         // the "Problem N" counter: the counter rides in the score panel, which
-        // the maximize mode — the default since #113 — suppresses while
+        // the maximize mode — the default since halheinrich/backgammon#113 — suppresses while
         // answering, so it is no longer a marker this test can read.
         await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "No double" })).ToBeVisibleAsync();
 

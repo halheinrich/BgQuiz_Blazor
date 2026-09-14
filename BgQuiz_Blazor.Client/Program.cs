@@ -46,7 +46,7 @@ builder.Services.AddScoped<PickedProblemFolder>();
 // writes bgquiz-stats.json back after every fold. It also owns the pick-time
 // probe behind CanWeightMix — the one predicate for "can a weighted mix mean
 // anything for this folder", which Home's panel gate and the controller's
-// stage-1 refusal both read (issue #87); that probe touches the picked slot
+// stage-1 refusal both read (issue halheinrich/backgammon#87); that probe touches the picked slot
 // only and never the active context above. Registered once and aliased as
 // IProblemStatsSink so the controller's sink and the pages' status notices
 // observe the same instance.

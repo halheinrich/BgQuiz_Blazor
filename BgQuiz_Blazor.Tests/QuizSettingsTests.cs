@@ -425,7 +425,7 @@ public class QuizSettingsTests : BunitContext
         // reads back identically. Every field is driven AWAY from its own
         // default, without exception — a field left sitting on its default would
         // round-trip green through a reader that ignored the payload entirely.
-        // The maximize field was that exception until #113 flipped its default;
+        // The maximize field was that exception until halheinrich/backgammon#113 flipped its default;
         // it now writes false for the same reason the other three write what they
         // write.
         //
@@ -459,7 +459,7 @@ public class QuizSettingsTests : BunitContext
     [Fact]
     public async Task SettingTheFold_ReachesTheApplier_ToUnfoldOnly()
     {
-        // THE asymmetry (finding #50), pinned at the seam that carries it.
+        // THE asymmetry (finding halheinrich/backgammon#50), pinned at the seam that carries it.
         //
         // This test used to assert the applier was called in BOTH directions,
         // and that was the shipped contract: "immediate apply" was read as
@@ -531,14 +531,14 @@ public class QuizSettingsTests : BunitContext
     public async Task Hydrate_PayloadPredatingTheMaximizeField_RestoresItOn()
     {
         // The tolerance rule in the concrete case it now has: the exact bytes
-        // every build before issue #41 wrote. There is no migration and no
+        // every build before issue halheinrich/backgammon#41 wrote. There is no migration and no
         // version stamp — the missing field simply takes its default, and since
-        // #113 that default is ON. This is the half of the asymmetry that lets a
+        // halheinrich/backgammon#113 that default is ON. This is the half of the asymmetry that lets a
         // default change reach the users it should: they never chose, so they get
         // the product's current answer. The other three must come back as
         // written, so this is not a "the payload was ignored" pass.
         //
-        // It asserted OFF until #113, by the same rule and the opposite
+        // It asserted OFF until halheinrich/backgammon#113, by the same rule and the opposite
         // arithmetic — the assertion follows the default, which is the point.
         StageStored(
             """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true}""");
@@ -561,7 +561,7 @@ public class QuizSettingsTests : BunitContext
         // user's stored settings produce a request identical to the one they
         // were already getting. That is the whole no-migration argument, and it
         // holds only because both defaults are off; the maximize field's flip
-        // (#113) is the counter-example showing an absent field CAN change what
+        // (halheinrich/backgammon#113) is the counter-example showing an absent field CAN change what
         // a user sees, which is why this is asserted rather than assumed.
         //
         // The other four must come back as written, so this cannot pass by the
@@ -665,7 +665,7 @@ public class QuizSettingsTests : BunitContext
     public async Task Hydrate_StoredFalse_OutranksTheDefault()
     {
         // The OTHER half of the asymmetry, and the one that made changing the
-        // default safe at all (#113): a user who went to the Settings page and
+        // default safe at all (halheinrich/backgammon#113): a user who went to the Settings page and
         // turned the mode off wrote an explicit false, and an explicit false has
         // to keep winning — a default change is not a licence to overrule a
         // choice somebody made. Nothing in Restore separates "stored false" from
@@ -732,7 +732,7 @@ public class QuizSettingsTests : BunitContext
         // falling back is distinguishable from parsing it loosely: the maximize
         // field is staged as the string "false" against a default of true,
         // exactly as randomizeSidePerProblem is staged as 1 against a default of
-        // false. (It was staged as "true" until #113 flipped that default, at
+        // false. (It was staged as "true" until halheinrich/backgammon#113 flipped that default, at
         // which point the assertion below would have passed either way.)
         //
         // The ceiling's own wrong-type rows are a theory of their own

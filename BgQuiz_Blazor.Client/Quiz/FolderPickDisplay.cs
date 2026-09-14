@@ -150,14 +150,14 @@ internal static class FolderPickDisplay
     /// chooser at all — in one clause that reads correctly mid-sentence inside
     /// either surface's own conditional: the pre-pick silent-gesture account
     /// ("If choosing a folder opens nothing at all, … — there's nothing more to
-    /// try here", issue #105) and the cancelled-pick notice's post-gesture hedge
-    /// ("If no folder chooser opened, …", issue #116).
+    /// try here", issue halheinrich/backgammon#105) and the cancelled-pick notice's post-gesture hedge
+    /// ("If no folder chooser opened, …", issue halheinrich/backgammon#116).
     ///
     /// <para>
     /// The clause is only ever asserted <b>under an antecedent the reader can
     /// check</b> ("opens nothing" / "no chooser opened"), never flatly: no code
     /// path can detect a dead gesture (§ <see cref="SupportedBrowsers"/> for the
-    /// absent-mechanism case; issue #116's present-but-inert
+    /// absent-mechanism case; issue halheinrich/backgammon#116's present-but-inert
     /// <c>showDirectoryPicker</c> for the other — it aborts without ever opening,
     /// indistinguishable from a user cancel). Each surface supplies the
     /// antecedent for the moment it renders in; sharing the verdict is what

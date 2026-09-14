@@ -4,7 +4,7 @@ using static Microsoft.Playwright.Assertions;
 namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
-/// The pre-Start answer-type breakdown (umbrella issue #35): beside the match
+/// The pre-Start answer-type breakdown (umbrella issue halheinrich/backgammon#35): beside the match
 /// count, Home says what the matched pool is <i>made of</i> — the curation-bias
 /// check a beta tester asked for after suspecting his collection was mostly
 /// takes.

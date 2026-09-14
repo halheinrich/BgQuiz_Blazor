@@ -27,7 +27,7 @@ public sealed class QuizFlowTests : E2eTestBase
         //
         // Keyed on the radios, not on the status strip's neutral prompt. The
         // prompt is Normal-view chrome and the maximize mode — the default since
-        // #113 — suppresses it while answering, so a primary-path smoke asserting
+        // halheinrich/backgammon#113 — suppresses it while answering, so a primary-path smoke asserting
         // it would be asserting a composition its own users do not get. The
         // prompt's own pins live in MaximizeBoardTests (the setting-off scenario)
         // and in bUnit.

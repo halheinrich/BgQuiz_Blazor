@@ -14,7 +14,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// Recording immediately is not the same as showing immediately, and the fold
 /// setting deliberately parts company with every other one: it takes hold on the
 /// next navigation rather than folding the panel the user is standing in
-/// (finding #50, reasoned in <c>QuizSettings.SetKeepNavigationPanelFoldedAsync</c>).
+/// (finding halheinrich/backgammon#50, reasoned in <c>QuizSettings.SetKeepNavigationPanelFoldedAsync</c>).
 /// The page's job in that split is the words — the fold's fine print states the
 /// deferral, so a user who sees nothing happen is not left reading it as a
 /// failure.
@@ -40,7 +40,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// redirects: settings are reachable from any state, including a cold bookmark.
 /// Only the "Back to quiz" affordance is conditional, on the same
 /// <c>HasStarted &amp;&amp; !IsFinished</c> predicate both siblings use. It is
-/// the page's answer to the mid-quiz round trip booked on issue #30: the round
+/// the page's answer to the mid-quiz round trip booked on issue halheinrich/backgammon#30: the round
 /// trip already worked (the settings service and the controller are both
 /// app-scoped, so nothing is lost either way), but nothing pointed at it, and a
 /// user who changes the board side mid-quiz has no visible way back. The

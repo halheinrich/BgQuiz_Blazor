@@ -88,7 +88,7 @@ public sealed class SettingsTests : E2eTestBase
         await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Settings" })).ToBeVisibleAsync();
 
         // The side and fold defaults, as a fresh visitor sees them. (The maximize
-        // default is on since #113 and is pinned by MaximizeBoardTests, which
+        // default is on since halheinrich/backgammon#113 and is pinned by MaximizeBoardTests, which
         // reads it where it has a consequence — on the quiz page.)
         await Expect(HomeBoardRightRadio).ToBeCheckedAsync();
         await Expect(HomeBoardLeftRadio).Not.ToBeCheckedAsync();
@@ -229,7 +229,7 @@ public sealed class SettingsTests : E2eTestBase
     ///
     /// <para>
     /// The return leg goes through the page's own <b>Back to quiz</b> button
-    /// (issue #30), which is what a user actually has. It used to go through
+    /// (issue halheinrich/backgammon#30), which is what a user actually has. It used to go through
     /// <c>GoBack</c> — browser history — and that passed while the page offered
     /// no way back at all, which is precisely the gap the dogfood pass reported:
     /// the round trip worked and nothing pointed at it. Driving the affordance
@@ -258,7 +258,7 @@ public sealed class SettingsTests : E2eTestBase
         // The board is laid out again — the gate the geometry read below needs.
         // It used to wait on the "Problem 1" counter, which rides in the score
         // panel and is suppressed while answering under the maximize mode (the
-        // default since #113); the overlay this reads its rects from is the
+        // default since halheinrich/backgammon#113); the overlay this reads its rects from is the
         // closer gate anyway.
         await Expect(HitOverlaySvg).ToBeVisibleAsync();
 
@@ -290,7 +290,7 @@ public sealed class SettingsTests : E2eTestBase
     /// against a full reload, which is what the stored entry carries it through.
     ///
     /// <para>
-    /// It also pins the <b>asymmetry</b> finding #50 settled — on defers to the
+    /// It also pins the <b>asymmetry</b> finding halheinrich/backgammon#50 settled — on defers to the
     /// next navigation, off unfolds now. This test previously asserted the fold
     /// landing on the spot, which was the shipped contract until the ruling: the
     /// setting describes how pages <i>start</i>, and folding the page the user is
@@ -464,7 +464,7 @@ public sealed class SettingsTests : E2eTestBase
     /// <para>
     /// <b>Retried, and both rects required to be laid out</b>
     /// (<c>halheinrich/backgammon#127</c>). This used to be a single read taken
-    /// straight after landing back on the quiz page, which is the shape #126
+    /// straight after landing back on the quiz page, which is the shape halheinrich/backgammon#126
     /// caught elsewhere in this suite: the overlay being visible says the board
     /// rendered, not that this render is the one carrying the new setting. And
     /// the comparison is between two rect centres, so a rect that measured

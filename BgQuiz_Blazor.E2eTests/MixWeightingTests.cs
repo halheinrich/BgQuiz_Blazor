@@ -53,7 +53,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
     {
         // The weighted pipeline (mix UI → draft build → controller → composing
         // decorator over the real stats bind) end to end, now necessarily over a
-        // folder that HAS a history — under #87 there is no other kind of folder
+        // folder that HAS a history — under halheinrich/backgammon#87 there is no other kind of folder
         // a mix can be built on. The seeding quiz leaves the one fixture
         // decision seen, so the category has to be one that still reaches it:
         // "Everything else" draws exactly what the rows above it didn't claim,

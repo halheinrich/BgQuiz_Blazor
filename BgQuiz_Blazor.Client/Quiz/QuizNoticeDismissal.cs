@@ -36,7 +36,7 @@ internal enum QuizNotice
     StatsRetired,
 
     /// <summary>
-    /// <c>Home</c>'s truncated-pick report (issue #59): the folder held more
+    /// <c>Home</c>'s truncated-pick report (issue halheinrich/backgammon#59): the folder held more
     /// files of some kind than that kind's cap admits, so a randomly drawn N
     /// were taken and the rest left unread. One slot for the whole alert,
     /// however many kinds it lists — it is one report about one pick.
@@ -83,7 +83,7 @@ internal enum QuizNotice
 /// (<c>SPEC-quiz-view.md</c> §4: the composition notice retires on the first
 /// answer, so hiding it while answering means it is never seen, and a
 /// recording failure must be seen). On <c>Home</c> the pick-outcome notices
-/// render for as long as the pick is held (issue #107). In both cases the
+/// render for as long as the pick is held (issue halheinrich/backgammon#107). In both cases the
 /// answer to the space they cost is the user dismissing them.
 /// </para>
 ///
