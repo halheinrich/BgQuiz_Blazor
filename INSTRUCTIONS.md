@@ -153,202 +153,99 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   (parses the user's browser-picked `.xg` / `.xgp` bytes in-browser, via
   `FilteredDecisionIterator.IterateXgStreamDiagrams`).
 
-## Directory tree
+## Layout
 
-```
-BgQuiz_Blazor.slnx
+Four projects under `BgQuiz_Blazor.slnx`, governed by repo-root
+`Directory.Build.props` (TFM, `TreatWarningsAsErrors`, XML doc generation)
+and `Directory.Packages.props` (Central Package Management).
 
-BgQuiz_Blazor/                      — thin ASP.NET Core WASM host (server)
-  BgQuiz_Blazor.csproj              — Sdk.Web; references only the .Client
-  Program.cs                        — WASM components + render mode + pipeline
-  appsettings.json
-  appsettings.Development.json
-  Properties/
-    launchSettings.json
-  Components/
-    _Imports.razor
-    App.razor                       — host shell (<head>, blazor.web.js +
-                                      navFold.js, <Routes/>)
-    Routes.razor                    — <Router> over the .Client _Imports
-    Layout/
-      MainLayout.razor / .razor.css
-      NavMenu.razor / .razor.css
-    Pages/
-      Error.razor
-      NotFound.razor
-  wwwroot/                          — static assets (favicon, app.css, Bootstrap)
-    js/navFold.js                   — 2nd authored JS; re-applies the nav fold
-    lib/bootstrap/dist/css/         — VENDORED: bootstrap.min.css (5.3.3) is the
-      bootstrap.min.css               one tracked file under lib/ (see Pitfalls)
-    robots.txt                      — Disallow: / (see Pitfalls: two wwwroots)
+**`BgQuiz_Blazor/`** — the thin ASP.NET Core host (`Sdk.Web`), referencing
+only the client project. Three areas:
 
-BgQuiz_Blazor.Client/              — WASM client (the whole interactive surface)
-  BgQuiz_Blazor.Client.csproj       — Sdk.BlazorWebAssembly; the bg-lib closure
-  Program.cs                        — TimeProvider.System + controller, holders,
-                                      stores; registers the source factory by
-                                      resolving PickedFolderSourceFactory.Create
-  _Imports.razor
-  AppInfo.cs                        — app-level identity SSOT (§ AppInfo)
-  wwwroot/js/quizKeys.js            — the quiz page's spacebar module (an ES
-                                      module the page imports; served at the
-                                      app root as a static web asset)
-  Quiz/
-    QuizSettings.cs                 — user settings + xg_quizSettings owner
-    QuizController.cs               — + ProblemSetSourceFactory, QuizStartOutcome
-    ProblemReview.cs
-    PickedProblemFolder.cs          — picked-folder holder + parse-cache seam
-                                      (over BgFolderAccess_Razor's PickedFile)
-    PickedFileLimits.cs             — pick-cap values (bytes / per-format counts /
-                                      derived MB) — host policy feeding the
-                                      registered FolderPickLimits
-    PickedFolderDocumentStorage.cs  — IDocumentStorage over the picked slot
-                                      (the two-producer adapter glue)
-    FolderPickDisplay.cs            — folder-pick wording SSOT (+ the
-                                      folder-load refusal copy, composed in
-                                      the source stack, read on the page)
-    QuizStatsFile.cs                — stats filenames (live + retired sidecar) +
-                                      the document's serializer contract
-                                      (DocumentTypeInfo) SSOT
-    QuizStatsStore.cs               — IProblemStatsSink + document lifecycle
-    MixVisibility.cs                — visible ⟺ the setting ∧ the folder's stats
-    MixDraft.cs                     — mix edit state + write-through xg_quizMix
-    MixDisplay.cs                   — mix wording SSOT
-    AnswerTypeDisplay.cs            — answer-type rows: which, in what order,
-                                      always five (cube names off CubeLabels)
-    QuizNoticeDismissal.cs          — occurrence-keyed dismissal, one slot per
-                                      dismissible notice, Quiz page and Home's
-                                      pick band (+ the QuizNotice enum)
-    ShuffleOption.cs                — "shuffle order" toggle holder
-    QuizLiveMarker.cs               — sessionStorage was-a-quiz-live marker
-    WasmUploadedProblemSetSource.cs — in-browser stream-backed source (parser)
-    CachedProblemSetSource.cs       — parse-once layer over the holder's cache
-    JacobyStampedProblemSetSource.cs — pool-composition guard: an unstamped
-                                      money record fails the load, named
-    PickedFolderSourceFactory.cs    — the source composition (cache → Jacoby
-                                      guard → dedupe → shuffle?), the one
-                                      layer-order statement
-    ComposedProblemSource.cs        — the factory's product: stack + collapse
-                                      magnitude reader
-    MatchSummary.cs                 — pre-Start pool + what it deduped away
-  Components/
-    XgidLabel.razor / .razor.cs    — selectable+copyable XGID badge (in-flow;
-                                      the quiz page's bottom row is its one home)
-    ProblemLocator.razor / .razor.cs — the problem's locator chip: source file
-                                      name (middle-truncated) + game/move, same
-                                      home, same row
-    Pages/
-      Home.razor / .razor.cs        — landing: pick + filters + mix + Start
-      MixPanel.razor / .razor.cs    — mix builder (a view over MixDraft)
-      Quiz.razor / .razor.cs        — active problem (play or cube)
-      Done.razor / .razor.cs        — final summary
-      Stats.razor / .razor.cs       — read-only mid-quiz stats (live Controller)
-      Settings.razor / .razor.cs    — user settings (a view over QuizSettings)
-      Help.razor / .razor.cs        — end-user documentation (never redirects)
-      HelpSections.cs               — Help's structure: the five parts, their
-                                      fourteen sections, ids + headings (SSOT)
-      ScorePanel.razor              — compact header strip (Total only)
-      ScoreBreakdown.razor          — four-way Play/Double/Take/Total table
+- **Pipeline** — `Program.cs`: the WebAssembly render mode and the client
+  assembly, the 404 re-execute into the NotFound page, the health endpoint,
+  static assets.
+- **Shell and layout** — `Components/`: `App.razor`, the host shell (the
+  three stylesheets, `blazor.web.js`, `navFold.js`, `<Routes/>`);
+  `Routes.razor`, the router over the host and client assemblies; `Layout/`,
+  the static `MainLayout` and `NavMenu` with their scoped CSS (§ The host
+  layout); `Pages/`, the host's own `Error` and `NotFound`.
+- **Static assets** — `wwwroot/`, what the host serves at fixed URLs:
+  `app.css`, the favicon, `robots.txt`, `js/navFold.js` (the classic script
+  that re-applies the navigation fold on every page), and the vendored
+  Bootstrap stylesheet, the one tracked file under `lib/` (see Pitfalls).
 
-BgQuiz_Blazor.Tests/
-  BgQuiz_Blazor.Tests.csproj
-  TestFixtures.cs
-  FakeProblemSetSource.cs
-  GatedProblemSetSource.cs          — externally-completable MoveNextAsync
-  FakeFolderAccess.cs               — scriptable IFolderAccess double
-  FakeProblemStatsSink.cs           — recording sink double + RecordGate
-  RetiredStatsFixture.cs            — stats files this build cannot write:
-                                      the retired v1, v2 and v3 docs + near misses
-  TestFixtureContractTests.cs       — every TestFixtures factory yields a
-                                      key-derivable position (the silent rung)
-  QuizControllerTests.cs
-  QuizControllerOverlapTests.cs     — the transition-gate overlap suite
-  CachedProblemSetSourceTests.cs    — parse-once / invalidation / equivalence
-  PickedFolderSourceFactoryTests.cs — the real composition: layer wire, shuffle
-                                      arbitration (corpus-level, skips if empty)
-  JacobyStampedProblemSetSourceTests.cs — the pool-composition guard: the
-                                      throw, the file naming, the multi-file
-                                      count, pass-through, and the guard's
-                                      presence in the real stack
-  PositionDedupeTests.cs            — the halheinrich/backgammon#84 repro: one
-                                      fixture under two names (fixture
-                                      absent ⇒ FAIL, never skip)
-  AnswerTypeDisplayTests.cs         — bucket→field mapping, order, always-five
-  MixPanelTests.cs                  — builder / validation / rebalance pins
-  MixDraftTests.cs                  — build/write-through matrix + hydration
-  QuizSettingsTests.cs              — the settings seam + the pinned wire bytes
-  QuizStatsStoreTests.cs            — bind / fold / write-back / degrade,
-                                      the retirements (v1 + v2, each under its
-                                      own name), the v4 fold (with and without
-                                      the v3 sibling; copy-before-replace; the
-                                      probe's verdict), the pre-write guard
-  WasmUploadedProblemSetSourceTests.cs
-  PickedProblemFolderTests.cs
-  PageTests.cs
-  NavMenuTests.cs                   — the sidebar Help and Settings links
-  MainLayoutTests.cs
-  NotFoundPipelineTests.cs          — WebApplicationFactory 404 wire tests
+**`BgQuiz_Blazor.Client/`** — the WebAssembly client, the whole interactive
+surface (`Sdk.BlazorWebAssembly`), referencing the bg-lib closure. Every
+plain-C# type here is `internal` (§ Public API). Seven areas:
 
-BgQuiz_Blazor.E2eTests/            — browser e2e smoke gate (§ Architecture)
-  BgQuiz_Blazor.E2eTests.csproj     — xunit + Playwright; references no app project
-  Fixtures/                         — committed single-decision .xgp files
-    BothAnalysis.xgp                — cube decision; best pair `NoDoubleTake`;
-                                      money, Jacoby, cube centred — the one
-                                      position where the too-good verdict is
-                                      withheld
-    Opening 32 65 64 31 65.xgp      — 6-5 checker play; best play 24/13
-    TooGoodAndTake.xgp              — cube decision, a *different* board (a
-                                      match); XG's "Too good to double/Take",
-                                      a `NoDoubleTake` **by ruling** since
-                                      SPEC-scoring §3's 2026-09-02 amendment
-                                      (the position that decided it)
-    match35253054_2_37.xgp          — cube decision (a match), `DoublePass`
-                                      (the three cube fixtures are mutually
-                                      distinct positions — the supply a
-                                      multi-problem run is staged from)
-    ForcedPlay.xgp                  — forced checker play (both checkers on
-                                      the bar, one entry per die); the quiz
-                                      must never show it
-  PublishedAppFixture.cs            — publish + spawn once; BGQUIZ_E2E_BASE_URL
-  PublishDirectoryResetTests.cs     — the clean-publish rule and its guard
-  PublishOutputHygieneTests.cs      — one generation per asset in the publish
-  PlaywrightFixture.cs              — Chromium lifecycle; fail-loud
-  E2eCollection.cs                  — the single (sequential) test collection
-  E2eTestBase.cs                    — per-test context + shared flow helpers
-  SyntheticXgMatch.cs               — the .xg match fixture, built at run time
-  FsAccessFakeTestBase.cs           — the fake showDirectoryPicker seam
-  EnvironmentFidelityTests.cs       — the gate's first line: every route serves
-                                      what it asks for and logs nothing; the
-                                      three linked stylesheets applied
-  QuizFlowTests.cs                  — cube + checker primary paths, pick → Done
-  EmptyFilterBannerTests.cs         — known-zero pool darkens Start + recovery
-  ReloadNoticeTests.cs              — reload-reset notice, Start and Restart
-  StatsPersistenceTests.cs          — FS-Access stats path via the fake
-  SavedFiltersPersistenceTests.cs   — saved-filters FS path via the fake
-  MixWeightingTests.cs              — weighted start to Done (+ MixRefusalTests)
-  MixVisibilityTests.cs             — visible ⟺ setting ∧ stats, pinned both ways
-  PickBusyAffordanceTests.cs        — the pick's busy paint, scan held open
-  CommaDecimalLocaleTests.cs        — nb-NO comma-decimal guard
-  HelpAndTitlesTests.cs             — /help renders; document.title contract
-  AnswerTypeBreakdownTests.cs       — the pre-Start breakdown: labels and zeros
-  DeduplicatedCountTests.cs         — the count as a deduplicated count
-                                      (halheinrich/backgammon#104): duplicated
-                                      files collapse, magnitude says how many
-  ForcedPlaySkipTests.cs            — a forced play never reaches the user
-                                      (halheinrich/backgammon#140): two
-                                      decisions match, one shows
-  SidebarCollapseTests.cs           — fold, chevron state, how long it lasts
-  SettingsTests.cs                  — board side by geometry; the fold setting
-  MaximizeBoardTests.cs             — chrome absent answering, back at review;
-                                      maximize off via the Settings checkbox →
-                                      chrome stays; the strip's bottom position
-  MidQuizNavigationTests.cs         — Home's way back into a running quiz
-  EndQuizEarlyTests.cs              — ending a run before the source runs out
-  BetaOnboardingTests.cs            — robots.txt over HTTP; the feedback mailto
-  DeadPickGestureTests.cs           — the pick-capability pair: no
-                                      showDirectoryPicker ⇒ the silent-gesture
-                                      account; the fake installed ⇒ absent
-  NotFoundTests.cs                  — unknown URL → 404 status + styled body
-```
+- **Composition root** — `Program.cs`: the system `TimeProvider`, the
+  controller, the scoped holders, stores and services, and the source factory
+  registered from `PickedFolderSourceFactory.Create`. Beside it `AppInfo`
+  (app identity: the version and the beta feedback address) and
+  `ILLink.LinkAttributes.xml` (the member-pinned dispositions of the
+  framework trim warnings a publish would otherwise fail on).
+- **The quiz** — `Quiz/`: `QuizController`, the per-app state machine, with
+  its `ProblemSetSourceFactory` delegate and `QuizStartOutcome`;
+  `ProblemReview`, the displayed review; `MatchSummary`, the pre-Start pool
+  and what its dedupe collapsed.
+- **The source stack** — `Quiz/`: `WasmUploadedProblemSetSource` (the
+  in-browser parse), `CachedProblemSetSource` (parse once),
+  `JacobyStampedProblemSetSource` (the pool-composition guard),
+  `PickedFolderSourceFactory` (the one statement of the layer order) and
+  `ComposedProblemSource` (its product: the stack plus the dedupe's collapse
+  reader).
+- **Folder and lifetime stats** — `Quiz/`: `PickedProblemFolder` (the
+  picked-folder holder and its parse-cache seam), `PickedFileLimits` (the
+  pick caps, host policy), `PickedFolderDocumentStorage` (XgFilter_Razor's
+  storage seam over the picked slot), `QuizStatsFile` (the stats document's
+  names and serializer contract), `QuizStatsStore` (the stats sink and the
+  document's lifecycle), `StatsRetirement` (what one run's retirement did,
+  keyed for its notice).
+- **Per-tab state** — `Quiz/`: `QuizSettings` (the user settings),
+  `MixDraft` and `MixVisibility` (the weighted mix's edit state and its
+  visible fact), `ShuffleOption`, `QuizNoticeDismissal` (occurrence-keyed
+  dismissal of the dismissible notices), `QuizLiveMarker` (the
+  sessionStorage was-a-quiz-live marker).
+- **Wording** — `Quiz/`: `FolderPickDisplay`, `MixDisplay` and
+  `AnswerTypeDisplay`, each the one home of copy more than one surface
+  renders.
+- **Components** — `Components/Pages/`: one page per route (`Home`, `Quiz`,
+  `Done`, `Stats`, `Settings`, `Help` — with `HelpSections`, the help
+  outline's anchor ids and headings) plus the `MixPanel` builder Home hosts
+  and the `ScorePanel` / `ScoreBreakdown` pair. `Components/` itself holds
+  `XgidLabel` and `ProblemLocator`, the quiz page's bottom-row XGID badge
+  and locator chip.
+  `wwwroot/js/quizKeys.js` is the quiz page's Space-shortcut module.
+
+**`BgQuiz_Blazor.Tests/`** — xUnit over both app projects, with bUnit for
+components and `WebApplicationFactory` for the host pipeline. Areas: the
+controller (its behaviour, the transition-gate overlap suite, and the
+canonical-play equivalence the no-play-choice skip stands on); the source
+stack, each layer and the real composition; the stores, settings, mix
+state and wording; the pages and components; the host's 404 pipeline. The doubles and
+fixtures sit beside them: `TestFixtures`, hand-built decisions whose
+key-derivability `TestFixtureContractTests` pins; fake and gated sources, a
+scriptable folder-access double and a recording stats sink;
+`RetiredStatsFixture`, the stats files this build does not simply read.
+
+**`BgQuiz_Blazor.E2eTests/`** — the browser smoke gate (§ The e2e smoke
+gate): xUnit and Playwright against the published artifact over real HTTP,
+referencing no app project. Three areas:
+
+- **Harness** — `PublishedAppFixture` (publish and spawn once),
+  `PlaywrightFixture` (one Chromium), `E2eCollection` (the one sequential
+  collection), `E2eTestBase` (a context per test and the flow helpers),
+  `FsAccessFakeTestBase` (the fake directory picker), `SyntheticXgMatch`
+  (the one `.xg` fixture, built at run time).
+- **Fixtures** — `Fixtures/`: the committed single-decision `.xgp` files.
+  What each one is, and which are the distinct cube positions a
+  multi-problem run is staged from, is documented on `E2eTestBase`'s
+  fixture constants and its `CubeFixtures` list.
+- **Scenarios** — one class per user-facing behaviour, led by
+  `EnvironmentFidelityTests`, the gate's first line; the publish-hygiene
+  pair (`PublishDirectoryResetTests`, `PublishOutputHygieneTests`) pins
+  the clean-publish rule the harness stands on.
 
 ## Architecture
 
@@ -2963,7 +2860,8 @@ stager; what the fallback input is handed is a directory either way.
 Distinct cube fixtures buy the same ordering-independence by a route the app
 agrees with. Distinctness is scarcer than it looks, because position files that
 differ only in their *analysis* sections are the same position to the app: the
-committed cube fixtures listed in the Directory tree are the whole supply, and
+committed cube fixtures in `BgQuiz_Blazor.E2eTests/Fixtures/`, the ones
+`E2eTestBase.CubeFixtures` lists, are the whole supply, and
 `PickCubeProblemsAsync` throws with the instruction to commit a genuinely
 different position rather than silently padding. Its `CubeFixtures` remarks name
 the specific look-alikes ruled out.
@@ -3203,7 +3101,8 @@ and the `.Client` assembly enforces that at the type level: **every plain-C#
 client type is `internal`** (the controller and its outcome enum, all the
 scoped holders and services, the storage adapter,
 the file/wording SSOTs, the sources, `ProblemReview`, and the
-`ProblemSetSourceFactory` delegate — see the Directory tree for the roster),
+`ProblemSetSourceFactory` delegate — the `.Client` project's non-component
+`.cs` files are the roster, grouped by area under Layout),
 reachable by the test project only through the `InternalsVisibleTo` grant. The
 only `public` types are the Razor components, which the framework requires
 public (see Pitfalls). The externally visible surface is the route map:
