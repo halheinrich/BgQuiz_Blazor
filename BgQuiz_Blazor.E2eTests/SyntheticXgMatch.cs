@@ -34,6 +34,16 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </para>
 ///
 /// <para>
+/// <b>It also carries the suite's decision notes</b>
+/// (<c>halheinrich/backgammon#31</c>): the builder takes a per-decision
+/// comment and writes it through the same comment table XG does, so both of
+/// the file's problems carry one — see <see cref="CubeComment"/> and
+/// <see cref="PlayComment"/> — and the review's Notes overlay is smoked
+/// against text that crossed the real parse. No committed fixture has a
+/// comment, which is what makes those the suite's no-notes case.
+/// </para>
+///
+/// <para>
 /// <b>Byte-determinism</b> is <c>XgFileBuilder</c>'s own documented contract
 /// (no timestamps, no ids) — so two runs stage identical bytes, and a failure
 /// is never "which file did this run get".
@@ -84,9 +94,10 @@ internal static class SyntheticXgMatch
     /// The opening this fixture's games play out, in order. Unanalysed by
     /// construction: XG records a play whether or not it was rolled out, and
     /// the quiz only ever asks about analysed decisions — so these give the
-    /// match its shape and its move numbers while leaving exactly one problem
-    /// in the file. That single problem is what makes a scenario over this
-    /// fixture as deterministic as one over a committed <c>.xgp</c>.
+    /// match its shape and its move numbers while contributing no problem of
+    /// their own. The file's problems are the two analysed decisions after
+    /// them, in file order (see <see cref="Bytes"/>), which with shuffle off —
+    /// every scenario's default — is the order a quiz asks them in.
     /// </summary>
     private static readonly (XgPlayer Player, DiceRoll Dice, Play Play)[] PlaysBeforeTheCube =
     [
@@ -107,6 +118,36 @@ internal static class SyntheticXgMatch
     private const int CubePly = 4;
 
     /// <summary>
+    /// The cube decision's comment — the text its review's Notes overlay must
+    /// show (<c>halheinrich/backgammon#31</c>). A parameter of the fixture, so
+    /// the scenario asserts what the file was told to carry rather than what
+    /// the app happened to render. It carries the two shapes real XG comments
+    /// have and the ruling turns on: an <b>embedded CRLF</b> (every real
+    /// comment has several; the comment table escapes it and the reader
+    /// restores it) and a <b>run of spaces</b> aligning a column. Invented here,
+    /// like the players.
+    /// </summary>
+    internal const string CubeComment = "Double, take: the gammons tip it.\r\nND   +0.42     D/T   +0.61";
+
+    /// <summary>
+    /// The roll and the play of the file's second problem: <see cref="XgPlayer.Player2"/>,
+    /// on roll once the double is taken, making the 5-point from the 8 and the
+    /// 6. Analysed with that play as its one candidate, so entering it scores
+    /// as correct — the scenario only needs a review to open, not a verdict to
+    /// read. Legal from the position the cube game reaches: the builder
+    /// validates it against the tracked board.
+    /// </summary>
+    private static readonly (DiceRoll Dice, Play Play) PlayAfterTheCube =
+        (new DiceRoll(3, 1), Play.Create(new(8, 5), new(6, 5)));
+
+    /// <summary>
+    /// The checker play's comment — the same two shapes as
+    /// <see cref="CubeComment"/>, so both decision kinds' notes are smoked with
+    /// a line break in them.
+    /// </summary>
+    internal const string PlayComment = "Make the 5-point.\r\nSplitting the back checkers is second.";
+
+    /// <summary>
     /// The game number the locator must show: games are numbered in the order
     /// they are added, so the cube's game is the one after
     /// <see cref="GamesBeforeTheCubeGame"/>.
@@ -123,8 +164,17 @@ internal static class SyntheticXgMatch
 
     /// <summary>
     /// The match as XG binary bytes: <see cref="GamesBeforeTheCubeGame"/>
-    /// complete-looking games, then the game carrying the file's one analysed
-    /// decision — a cube by <see cref="XgPlayer.Player2"/>, doubled and taken.
+    /// complete-looking games, then the game carrying the file's two analysed
+    /// decisions, both commented — a cube by <see cref="XgPlayer.Player2"/>,
+    /// doubled and taken, and then that player's checker play.
+    ///
+    /// <para>
+    /// <b>The cube comes first, deliberately.</b> File order is quiz order
+    /// with shuffle off, so every scenario over this fixture meets the cube
+    /// first — the widest answer row there is, which the locator scenarios
+    /// need, at the coordinates they pin — and only a scenario that answers
+    /// and continues ever reaches the play.
+    /// </para>
     /// </summary>
     internal static byte[] Bytes()
     {
@@ -137,7 +187,9 @@ internal static class SyntheticXgMatch
         Replay(cubeGame);
         cubeGame.CubeDecision(
             XgPlayer.Player2, CubeEquities, CubePly,
-            doublerAction: CubeAction.Double, takerAction: CubeAction.Take);
+            doublerAction: CubeAction.Double, takerAction: CubeAction.Take,
+            comment: CubeComment);
+        cubeGame.Play(XgPlayer.Player2, PlayAfterTheCube.Dice, PlayAfterTheCube.Play, comment: PlayComment);
 
         return XgFileWriter.ToBytes(builder.Build());
     }

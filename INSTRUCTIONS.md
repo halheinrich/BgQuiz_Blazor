@@ -2803,8 +2803,9 @@ pick→done flows, the reload notice, the known-zero-pool Start gate, the
 pre-Start
 answer-type breakdown, the nb-NO comma-decimal guard, 404/titles, the sidebar
 collapse, the settings page, the mid-quiz round trip through Home and the early
-end of a run, the mix-activation gating and the pick busy affordance, and the
-stats-persistence suite. It covers the one layer the other
+end of a run, the mix-activation gating and the pick busy affordance, the
+review's decision notes, and the stats-persistence suite. It covers the one
+layer the other
 two structurally cannot: bUnit renders components in isolation and the
 `WebApplicationFactory` wire tests run the host pipeline in-process with no
 browser, so only the published artifact booting a real WASM runtime in a real
@@ -2907,9 +2908,15 @@ exports cannot fill the gap: the ones on this machine carry real players'
 names, and they live under gitignored `TestData/`, which CI has never seen.
 `SyntheticXgMatch` builds a short match in memory instead — `XgFileBuilder` +
 `XgFileWriter` from ConvertXgToJson_Lib, whose output is byte-deterministic by
-that builder's own contract — with invented player names and exactly one
-analysed decision (the plays around it are unanalysed, so the file is as
-single-problem as an `.xgp`). Those two libraries are this project's only
+that builder's own contract — with invented player names and exactly two
+analysed decisions, both commented (halheinrich/backgammon#31): the cube, then
+the doubler's checker play after the take. Every other play is unanalysed, and
+file order is quiz order with shuffle off, so every scenario over the file meets
+the cube first — the widest answer row, at the coordinates the locator pins —
+and only one that answers and continues reaches the play. Each comment carries
+an embedded CRLF and a run of spaces, the two shapes real XG comments have, and
+they cross the real comment table and the real parse before the page sees them;
+no committed fixture has a comment. Those two libraries are this project's only
 project references and they are **fixture producers only**: no scenario may
 take an expectation from them, which is what keeps the independent-literal
 posture intact. The pins' coordinates are derived from the builder's own
