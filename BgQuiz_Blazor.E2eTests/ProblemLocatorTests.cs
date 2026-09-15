@@ -196,6 +196,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
         string answeringGeometry = await CaptureRowGeometryAsync();
         try
         {
+            AssertTheDumpSawTheTail(answeringGeometry);
             await AssertChipReadsTheFixtureAsync();
             await AssertChipSitsBelowTheBoardAsync();
             await AssertClusterSharesTheLineOfAsync(SkipButton);
@@ -214,6 +215,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
         string reviewGeometry = await CaptureRowGeometryAsync();
         try
         {
+            AssertTheDumpSawTheTail(reviewGeometry);
             await AssertChipReadsTheFixtureAsync();
             await AssertChipSitsBelowTheBoardAsync();
             await AssertClusterSharesTheLineOfAsync(RedoButton);
@@ -290,6 +292,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
         string geometry = await CaptureRowGeometryAsync();
         try
         {
+            AssertTheDumpSawTheTail(geometry);
             await AssertChipLocatesTheMatchDecisionAtTheTailFloorAsync();
             await AssertChipSitsBelowTheBoardAsync();
             await AssertClusterSharesTheLineOfAsync(SkipButton);
@@ -308,6 +311,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
         string foldedGeometry = await CaptureRowGeometryAsync();
         try
         {
+            AssertTheDumpSawTheTail(foldedGeometry);
             await Expect(ChipFileName).ToBeVisibleAsync();
             await AssertChipLocatesTheMatchDecisionAtTheTailFloorAsync();
             await AssertClusterSharesTheLineOfAsync(SkipButton);
@@ -345,9 +349,47 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// A passing run keeps it in the TRX only; <c>--logger
     /// "console;verbosity=detailed"</c> surfaces it there too.
     /// </para>
+    ///
+    /// <para>
+    /// <b>It waits for the row the way the assertions do, and says so</b>
+    /// (<c>halheinrich/backgammon#155</c>). A single evaluation straight after
+    /// the Start could run before the quiz page's first render and report a
+    /// present <c>.action-row-tail</c> as <c>(absent)</c> — misleading first
+    /// evidence, which is the one thing a dump read under the
+    /// observability-first rule must not be. So the capture first waits on the
+    /// same retrying locator the assertions use. What it does <i>not</i> do is
+    /// throw when that wait runs out: a tail that never renders is exactly the
+    /// failure this dump exists to explain, so it is captured anyway, and the
+    /// dump's first line states which of the two it was — settled, or taken
+    /// after the wait expired with the tail still missing. Either way the dump
+    /// says when it was taken.
+    /// </para>
     /// </summary>
-    private Task<string> CaptureRowGeometryAsync() =>
-        Page.EvaluateAsync<string>(GeometryReportScript);
+    private async Task<string> CaptureRowGeometryAsync()
+    {
+        string when;
+        try
+        {
+            await Expect(Page.Locator(".action-row-tail")).ToBeVisibleAsync();
+            when = "  captured: after .action-row-tail rendered";
+        }
+        catch (PlaywrightException)
+        {
+            when = $"  captured: after waiting {PlaywrightFixture.DefaultTimeoutMs} ms for "
+                + ".action-row-tail, which never rendered";
+        }
+
+        return when + Environment.NewLine + await Page.EvaluateAsync<string>(GeometryReportScript);
+    }
+
+    /// <summary>
+    /// The dump describes a settled row: the tail's own line carries its
+    /// geometry. Stated positively, as the box the report prints, rather than
+    /// as the absence of <c>(absent)</c> — an absence keyed on the report's
+    /// wording would go quietly green the day that wording changed.
+    /// </summary>
+    private static void AssertTheDumpSawTheTail(string report) =>
+        Assert.Matches(@"\.action-row-tail\s+x=", report);
 
     private void ReportRowGeometry(string state, string report)
     {
