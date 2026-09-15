@@ -90,9 +90,9 @@ internal static class SyntheticXgMatch
     /// </summary>
     private static readonly (XgPlayer Player, DiceRoll Dice, Play Play)[] PlaysBeforeTheCube =
     [
-        (XgPlayer.Player1, new DiceRoll(3, 1), Of(new Move(8, 5), new Move(6, 5))),
-        (XgPlayer.Player2, new DiceRoll(6, 5), Of(new Move(24, 18), new Move(18, 13))),
-        (XgPlayer.Player1, new DiceRoll(5, 4), Of(new Move(13, 8), new Move(13, 9))),
+        (XgPlayer.Player1, new DiceRoll(3, 1), Play.Create(new(8, 5), new(6, 5))),
+        (XgPlayer.Player2, new DiceRoll(6, 5), Play.Create(new(24, 18), new(18, 13))),
+        (XgPlayer.Player1, new DiceRoll(5, 4), Play.Create(new(13, 8), new(13, 9))),
     ];
 
     /// <summary>
@@ -147,13 +147,5 @@ internal static class SyntheticXgMatch
     {
         foreach (var (player, dice, play) in PlaysBeforeTheCube)
             game.UnanalysedPlay(player, dice, play);
-    }
-
-    /// <summary>A <see cref="Play"/> of the given moves; the type is built up, not constructed.</summary>
-    private static Play Of(params Move[] moves)
-    {
-        var play = new Play();
-        foreach (var move in moves) play.Add(move);
-        return play;
     }
 }
