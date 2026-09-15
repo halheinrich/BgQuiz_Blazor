@@ -41,7 +41,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
-        await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
 
         // Unweighted, and recording — that write is what gives this folder the
         // stats history a mix would later compose from.
@@ -63,12 +63,12 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         await ApplyFilterAsync();
 
         await AddDefaultMixRowAsync();
-        await Page.GetByLabel("Category").SelectOptionAsync("EverythingElse");
+        await Page.GetByLabel(ExpectedText.MixCategoryLabel).SelectOptionAsync("EverythingElse");
 
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
-        await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
 
         // Two write-backs now: the seeding quiz's fold and this weighted run's.
         Assert.Equal(2, (await CapturedWritesAsync()).Length);
@@ -91,9 +91,9 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
 
         await Expect(StartButton).ToBeEnabledAsync();
 
-        await Page.GetByRole(AriaRole.Link, new() { Name = "Help" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HelpNavLink }).ClickAsync();
         await ExpectUrlAsync("/help");
-        await Page.GetByRole(AriaRole.Link, new() { Name = "Home" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HomeNavLink }).ClickAsync();
         await ExpectUrlAsync("/");
 
         // The rows are still on screen; the filter half also survived (Scoped
@@ -119,7 +119,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         await SeedStatsHistoryAsync();
         await ApplyFilterAsync();
         await AddDefaultMixRowAsync();
-        await Page.GetByLabel("Category").SelectOptionAsync("EverythingElse");
+        await Page.GetByLabel(ExpectedText.MixCategoryLabel).SelectOptionAsync("EverythingElse");
         await Expect(StartButton).ToBeEnabledAsync();
 
         // Carry the seeded stats record across the reload by hand: the reload
@@ -144,14 +144,14 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         // so did the setting, so the panel is here and what it shows applies.
         // Nothing was re-armed between the reload and the weighted run.
         await Expect(Page.Locator(".mix-row")).ToHaveCountAsync(1);
-        await Expect(Page.GetByLabel("Category")).ToHaveValueAsync("EverythingElse");
+        await Expect(Page.GetByLabel(ExpectedText.MixCategoryLabel)).ToHaveValueAsync("EverythingElse");
         await Expect(Page.Locator("#mixApplies")).ToHaveCountAsync(0);
         await Expect(StartButton).ToBeEnabledAsync();
 
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
-        await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
     }
 
     [Fact]
@@ -172,7 +172,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
 
         await StageFirstWriteAsTheFoldersStatsFileAsync();
 
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Back to setup" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToSetupButton }).ClickAsync();
         await ExpectUrlAsync("/");
         await AddDefaultMixRowAsync(); // composing it is putting it in effect
 
@@ -211,7 +211,7 @@ public sealed class MixRefusalTests : FsAccessFakeTestBase
         await SeedStatsHistoryAsync();
         await ApplyFilterAsync();
         await AddDefaultMixRowAsync();
-        await Page.GetByLabel("Category").SelectOptionAsync("EverythingElse");
+        await Page.GetByLabel(ExpectedText.MixCategoryLabel).SelectOptionAsync("EverythingElse");
 
         // Now the file turns unreadable underneath the active mix — the user
         // edited it, or another tool rewrote it, between setup and Start. The
@@ -233,7 +233,7 @@ public sealed class MixRefusalTests : FsAccessFakeTestBase
         await ExpectUrlAsync("/quiz");
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
-        await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
     }
 
     /// <summary>
@@ -279,7 +279,7 @@ public sealed class MixRefusalTests : FsAccessFakeTestBase
         // Every option is present before anything is measured: the width comes
         // off the widest of them, so a half-rendered list is a narrower control
         // for a reason this test is not about.
-        var select = Page.GetByLabel("Category");
+        var select = Page.GetByLabel(ExpectedText.MixCategoryLabel);
         await Expect(select).ToContainTextAsync("Never seen");
         await Expect(select).ToContainTextAsync("Avg equity loss over…");
 

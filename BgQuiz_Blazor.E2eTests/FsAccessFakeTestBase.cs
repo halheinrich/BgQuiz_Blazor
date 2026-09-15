@@ -1,4 +1,4 @@
-﻿using Microsoft.Playwright;
+using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
 
 namespace BgQuiz_Blazor.E2eTests;
@@ -258,7 +258,7 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     protected async Task PickFakeFolderAsync()
     {
         await PickFolderButton.ClickAsync();
-        await Expect(Page.GetByText("1 problem file")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.ProblemFiles(1))).ToBeVisibleAsync();
     }
 
     /// <summary>
@@ -312,7 +312,7 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
 
         await StageFirstWriteAsTheFoldersStatsFileAsync();
 
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Back to setup" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToSetupButton }).ClickAsync();
         await ExpectUrlAsync("/");
 
         await PickFolderButton.ClickAsync();

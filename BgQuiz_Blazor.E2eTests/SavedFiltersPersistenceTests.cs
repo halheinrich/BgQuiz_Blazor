@@ -58,7 +58,7 @@ public sealed class SavedFiltersPersistenceTests : FsAccessFakeTestBase
         // the real picked-slot read + NamedFilterCollection parse: the round-trip.
         // Exact: the filter panel's own "Clear filters" button is on screen too,
         // and Playwright's default accessible-name match is a substring.
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Clear", Exact = true }).ClickAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ClearPickButton, Exact = true }).ClickAsync();
         await Expect(Page.GetByText("MyRace")).ToHaveCountAsync(0);
 
         await PickFakeFolderAsync();
@@ -79,7 +79,7 @@ public sealed class SavedFiltersPersistenceTests : FsAccessFakeTestBase
         await BootHomeAsync();
         await PickFakeFolderAsync();
 
-        await Expect(Page.GetByText("couldn't be read")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.FiltersFileUnreadable)).ToBeVisibleAsync();
         await Expect(Page.GetByText(CanonicalFiltersFileName)).ToBeVisibleAsync();
         // The panel itself is replaced by the notice — its save-name input is gone.
         await Expect(SaveNameInput).ToHaveCountAsync(0);
@@ -114,7 +114,7 @@ public sealed class SavedFiltersPersistenceTests : FsAccessFakeTestBase
 
         // End the setup, then re-pick: the canonical read finds nothing, the
         // legacy fallback finds the document, and the filter is offered again.
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Clear", Exact = true }).ClickAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ClearPickButton, Exact = true }).ClickAsync();
         await Expect(Page.GetByText("Mine")).ToHaveCountAsync(0);
         await PickFakeFolderAsync();
         await Expect(Page.GetByText("Mine")).ToBeVisibleAsync();

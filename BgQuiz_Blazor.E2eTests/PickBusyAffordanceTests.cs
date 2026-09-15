@@ -47,7 +47,7 @@ public sealed class PickBusyAffordanceTests : FsAccessFakeTestBase
         await ReleaseScanAsync();
 
         // …and it is lowered exactly when the summary lands, not before.
-        await Expect(Page.GetByText("1 problem file")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.ProblemFiles(1))).ToBeVisibleAsync();
         await Expect(container).Not.ToHaveClassAsync(BusyClass);
         await Expect(PickFolderButton).ToBeEnabledAsync();
     }

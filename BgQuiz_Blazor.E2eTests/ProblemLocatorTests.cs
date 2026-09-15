@@ -98,7 +98,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// because a name is the thing a failure message can be honest about; the
     /// page needs no new handle for it.
     /// </summary>
-    private const string SkipButton = "Skip";
+    private const string SkipButton = ExpectedText.SkipButton;
 
     /// <summary>
     /// And the control it follows at <b>review</b>, where the row is Continue,
@@ -106,7 +106,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// row genuinely has two compositions — pretending otherwise is what a
     /// positional selector does.
     /// </summary>
-    private const string RedoButton = "Redo";
+    private const string RedoButton = ExpectedText.RedoButton;
 
     /// <summary>
     /// The one evaluation behind <see cref="ReportRowGeometryAsync"/> — every
@@ -172,7 +172,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// amendment).
     /// </summary>
     private ILocator CollapseRail =>
-        Page.GetByRole(AriaRole.Checkbox, new() { Name = "Hide navigation panel" });
+        Page.GetByRole(AriaRole.Checkbox, new() { Name = ExpectedText.HideNavigationPanelCheckbox });
 
     [Fact]
     public async Task MoneyProblem_IsNamedByItsSourceFile_AnsweringAndReview()

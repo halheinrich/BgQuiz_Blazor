@@ -56,17 +56,17 @@ public sealed class DecisionNotesTests : E2eTestBase
     /// The Notes control, by its accessible name — exact, because Playwright
     /// matches names by substring and the dialog's close button is "Close notes".
     /// </summary>
-    private ILocator NotesButton => Page.GetByRole(AriaRole.Button, new() { Name = "Notes", Exact = true });
+    private ILocator NotesButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.NotesButton, Exact = true });
 
     /// <summary>The overlay, as assistive technology is told it is: a dialog named Notes.</summary>
-    private ILocator NotesDialog => Page.GetByRole(AriaRole.Dialog, new() { Name = "Notes" });
+    private ILocator NotesDialog => Page.GetByRole(AriaRole.Dialog, new() { Name = ExpectedText.NotesButton });
 
     private ILocator NotesText => NotesDialog.Locator(".decision-notes-text");
 
-    private ILocator ContinueButton => Page.GetByRole(AriaRole.Button, new() { Name = "Continue" });
+    private ILocator ContinueButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton });
 
     private ILocator CollapseRail =>
-        Page.GetByRole(AriaRole.Checkbox, new() { Name = "Hide navigation panel" });
+        Page.GetByRole(AriaRole.Checkbox, new() { Name = ExpectedText.HideNavigationPanelCheckbox });
 
     private async Task StartTheSynthesizedMatchAsync()
     {
@@ -87,7 +87,7 @@ public sealed class DecisionNotesTests : E2eTestBase
         await Expect(Page.Locator(".bg-cube-actions")).ToHaveCountAsync(1);
         await Expect(NotesButton).ToHaveCountAsync(0);
 
-        await AnswerCubeAsync("Double / Take");
+        await AnswerCubeAsync(ExpectedText.DoubleTakePill);
 
         // Review: the control is offered, closed, and the row is still one line
         // at the floor with the control in it.
@@ -142,7 +142,7 @@ public sealed class DecisionNotesTests : E2eTestBase
         await NotesButton.ClickAsync();
         await Expect(NotesDialog).ToBeVisibleAsync();
         var homeLink = await LaidOutBoxAsync(
-            Page.GetByRole(AriaRole.Link, new() { Name = "Home" }), "the navigation panel's Home link");
+            Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HomeNavLink }), "the navigation panel's Home link");
         await Page.Mouse.ClickAsync(homeLink.X + homeLink.Width / 2, homeLink.Y + homeLink.Height / 2);
         await Expect(NotesDialog).ToHaveCountAsync(0);
         await Expect(NotesButton).ToBeFocusedAsync();
@@ -169,7 +169,7 @@ public sealed class DecisionNotesTests : E2eTestBase
         await StartTheSynthesizedMatchAsync();
 
         // Past the cube (the file's first problem) to the checker play.
-        await AnswerCubeAsync("Double / Take");
+        await AnswerCubeAsync(ExpectedText.DoubleTakePill);
         await ContinueButton.ClickAsync();
 
         // Answering the play: the play-entry board, and no notes.
@@ -202,7 +202,7 @@ public sealed class DecisionNotesTests : E2eTestBase
         await AnswerCubeNoDoubleAsync();
 
         // Positive precondition: this is review, where notes would be offered.
-        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = "Redo" })).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.RedoButton })).ToBeVisibleAsync();
         await Expect(NotesButton).ToHaveCountAsync(0);
     }
 

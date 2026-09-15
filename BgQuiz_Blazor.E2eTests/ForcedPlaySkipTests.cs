@@ -43,7 +43,7 @@ public sealed class ForcedPlaySkipTests : E2eTestBase
         // convention). Pinned here because it is the half a reader is most
         // likely to assume the other way.
         await Expect(body).ToContainTextAsync("2 problem files");
-        await Expect(body).ToContainTextAsync("2 decisions match your filters");
+        await Expect(body).ToContainTextAsync(ExpectedText.DecisionsMatchYourFilters(2));
 
         await StartQuizAsync();
 
@@ -56,12 +56,12 @@ public sealed class ForcedPlaySkipTests : E2eTestBase
         await ClickBoardPointAsync(18);
         await Expect(SubmitButton).ToBeEnabledAsync();
         await SubmitButton.ClickAsync();
-        await Expect(VerdictBand).ToContainTextAsync("Correct — you found the best play.");
+        await Expect(VerdictBand).ToContainTextAsync(ExpectedText.BestPlayVerdict);
 
         // And there is nothing after it: continuing consumes the forced slot
         // without ever showing it, so the run ends having shown one problem of
         // the two that matched.
         await ContinueToDoneAsync();
-        await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
     }
 }

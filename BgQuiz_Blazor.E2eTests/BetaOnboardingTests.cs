@@ -77,7 +77,7 @@ public sealed class BetaOnboardingTests : E2eTestBase
 
         // The same link on Help, resolved from the same app-level value — the
         // reason the version stopped living on the Home page class.
-        await Page.GetByRole(AriaRole.Link, new() { Name = "Help" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HelpNavLink }).ClickAsync();
         await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Send feedback" }))
             .ToBeVisibleAsync();
 

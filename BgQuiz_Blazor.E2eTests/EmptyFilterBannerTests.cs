@@ -48,7 +48,7 @@ public sealed class EmptyFilterBannerTests : E2eTestBase
         await Page.GetByLabel("Race", new() { Exact = true }).UncheckAsync();
         await ApplyFilterAsync();
 
-        await Expect(Page.GetByText("1 decision matches your filters")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.DecisionsMatchYourFilters(1))).ToBeVisibleAsync();
         await Expect(Page.GetByText("No problems match the filters")).ToHaveCountAsync(0);
         await Expect(StartButton).ToBeEnabledAsync();
     }

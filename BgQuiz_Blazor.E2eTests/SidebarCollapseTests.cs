@@ -34,7 +34,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// <c>title</c>, so the name is itself part of what shipped.
     /// </summary>
     private ILocator CollapseRail =>
-        Page.GetByRole(AriaRole.Checkbox, new() { Name = "Hide navigation panel" });
+        Page.GetByRole(AriaRole.Checkbox, new() { Name = ExpectedText.HideNavigationPanelCheckbox });
 
     private ILocator NavigationPanel => Page.Locator(".sidebar");
 
@@ -192,7 +192,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
         string firstProblem = await CurrentProblemXgidAsync();
 
         // Skip: advances without scoring, entirely in-page.
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Skip" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.SkipButton }).ClickAsync();
         await Expect(XgidBadgeText).Not.ToHaveTextAsync(firstProblem);
         string secondProblem = await CurrentProblemXgidAsync();
         Assert.Equal(0d, await PanelWidthAsync());
@@ -203,7 +203,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
 
         // Continue through that solution — the step that ends a run when it is
         // the last problem, and here is just an advance.
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Continue" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton }).ClickAsync();
         await Expect(XgidBadgeText).Not.ToHaveTextAsync(secondProblem);
         await ExpectUrlAsync("/quiz");
         Assert.Equal(0d, await PanelWidthAsync());

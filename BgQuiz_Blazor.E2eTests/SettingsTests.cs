@@ -34,15 +34,15 @@ public sealed class SettingsTests : E2eTestBase
     private ILocator CollapseCheckbox => Page.Locator(".sidebar-toggle-checkbox");
 
     private ILocator KeepFoldedCheckbox =>
-        Page.GetByRole(AriaRole.Checkbox, new() { Name = "Keep the navigation panel folded" });
+        Page.GetByRole(AriaRole.Checkbox, new() { Name = ExpectedText.KeepNavigationPanelFoldedSetting });
 
-    private ILocator HomeBoardLeftRadio => Page.GetByRole(AriaRole.Radio, new() { Name = "Left" });
+    private ILocator HomeBoardLeftRadio => Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.HomeBoardLeftRadio });
 
     private ILocator HomeBoardRightRadio => Page.GetByRole(AriaRole.Radio, new() { Name = "Right" });
 
     /// <summary>The page's way back into a running quiz — absent when none is.</summary>
     private ILocator BackToQuizButton =>
-        Page.GetByRole(AriaRole.Button, new() { Name = "Back to quiz" });
+        Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton });
 
     /// <summary>
     /// The analysis-depth ceiling dropdown (<c>halheinrich/backgammon#66</c>).
@@ -72,7 +72,7 @@ public sealed class SettingsTests : E2eTestBase
 
     private async Task GoToSettingsAsync()
     {
-        await Page.GetByRole(AriaRole.Link, new() { Name = "Settings" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink }).ClickAsync();
         await ExpectUrlAsync("/settings");
         await Expect(KeepFoldedCheckbox).ToBeVisibleAsync();
     }
@@ -85,7 +85,7 @@ public sealed class SettingsTests : E2eTestBase
         await GoToSettingsAsync();
 
         await Expect(Page).ToHaveTitleAsync("BgQuiz — Settings");
-        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Settings" })).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = ExpectedText.SettingsNavLink })).ToBeVisibleAsync();
 
         // The side and fold defaults, as a fresh visitor sees them. (The maximize
         // default is on since halheinrich/backgammon#113 and is pinned by MaximizeBoardTests, which
@@ -128,12 +128,12 @@ public sealed class SettingsTests : E2eTestBase
         // A fresh visitor hides nothing, and the control says so rather than
         // sitting blank.
         await Expect(HiddenLevelSelect).ToHaveValueAsync(string.Empty);
-        await Expect(HiddenLevelSelect).ToContainTextAsync("Hide nothing");
+        await Expect(HiddenLevelSelect).ToContainTextAsync(ExpectedText.HideNothingOption);
 
         // The ruling's own selection ("show only rollouts"), chosen by the LABEL
         // a user reads — which also proves the label and the value token belong
         // to the same option.
-        await HiddenLevelSelect.SelectOptionAsync(new SelectOptionValue { Label = "XG Roller++" });
+        await HiddenLevelSelect.SelectOptionAsync(new SelectOptionValue { Label = ExpectedText.XgRollerPlusPlusOption });
         await ExpectStoredCeilingAsync("XgRollerPlusPlus");
 
         await Page.ReloadAsync();
@@ -196,8 +196,8 @@ public sealed class SettingsTests : E2eTestBase
         // The options are all present before anything is measured — the width is
         // read off the widest of them, so a half-rendered list is a smaller
         // control for a reason this test is not about.
-        await Expect(HiddenLevelSelect).ToContainTextAsync("Hide nothing");
-        await Expect(HiddenLevelSelect).ToContainTextAsync("XG Roller++");
+        await Expect(HiddenLevelSelect).ToContainTextAsync(ExpectedText.HideNothingOption);
+        await Expect(HiddenLevelSelect).ToContainTextAsync(ExpectedText.XgRollerPlusPlusOption);
 
         await ExpectToPassAsync(async () =>
         {

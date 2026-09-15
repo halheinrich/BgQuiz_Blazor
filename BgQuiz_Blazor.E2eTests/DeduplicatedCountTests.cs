@@ -46,7 +46,7 @@ public sealed class DeduplicatedCountTests : E2eTestBase
 
         // The gap the report was about, both numbers visible at once.
         await Expect(body).ToContainTextAsync("3 problem files");
-        await Expect(body).ToContainTextAsync("1 decision matches your filters");
+        await Expect(body).ToContainTextAsync(ExpectedText.DecisionsMatchYourFilters(1));
 
         // The standing rule, then the magnitude — 1 + 2 accounts for all three.
         await Expect(body).ToContainTextAsync("Repeated positions are counted once.");
@@ -62,7 +62,7 @@ public sealed class DeduplicatedCountTests : E2eTestBase
 
         var body = Page.Locator("body");
 
-        await Expect(body).ToContainTextAsync("1 decision matches your filters");
+        await Expect(body).ToContainTextAsync(ExpectedText.DecisionsMatchYourFilters(1));
         await Expect(body).ToContainTextAsync("That left out 1 more matching decision.");
     }
 }

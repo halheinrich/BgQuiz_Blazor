@@ -26,7 +26,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await PickFakeFolderAsync();
 
         // Pick-time status: the stats-enabled notice, naming the file.
-        await Expect(Page.GetByText("stats will be saved")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.StatsWillBeSaved)).ToBeVisibleAsync();
         await Expect(Page.GetByText(StatsFileName)).ToBeVisibleAsync();
 
         await ApplyFilterAsync();
@@ -77,14 +77,14 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await TurnOnTheWeightedMixSettingAsync(); // so "the mix is offered" is observable
         await PickFakeFolderAsync();
 
-        await Expect(Page.GetByText("will be set aside as")).ToBeHiddenAsync();
+        await Expect(Page.GetByText(ExpectedText.StatsFileWillBeSetAside)).ToBeHiddenAsync();
         await Expect(MixPanel).ToBeVisibleAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        await Expect(Page.GetByText("has been set aside as")).ToBeHiddenAsync();
-        await Expect(Page.GetByText("couldn't be read")).ToBeHiddenAsync();
+        await Expect(Page.GetByText(ExpectedText.StatsFileHasBeenSetAside)).ToBeHiddenAsync();
+        await Expect(Page.GetByText(ExpectedText.StatsFileUnreadable)).ToBeHiddenAsync();
 
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
@@ -119,14 +119,14 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await TurnOnTheWeightedMixSettingAsync(); // so "the mix is offered" is observable
         await PickFakeFolderAsync();
 
-        await Expect(Page.GetByText("will be set aside as")).ToBeHiddenAsync();
+        await Expect(Page.GetByText(ExpectedText.StatsFileWillBeSetAside)).ToBeHiddenAsync();
         await Expect(MixPanel).ToBeVisibleAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        await Expect(Page.GetByText("has been set aside as")).ToBeHiddenAsync();
-        await Expect(Page.GetByText("couldn't be read")).ToBeHiddenAsync();
+        await Expect(Page.GetByText(ExpectedText.StatsFileHasBeenSetAside)).ToBeHiddenAsync();
+        await Expect(Page.GetByText(ExpectedText.StatsFileUnreadable)).ToBeHiddenAsync();
         await Expect(Page.GetByText(MergedStatsFileName)).ToHaveCountAsync(0);
 
         // The v4 bytes preserved verbatim under the merged name (line endings
@@ -235,22 +235,22 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 
         await BootHomeAsync();
         await PickFakeFolderAsync();
-        await Expect(Page.GetByText("stats will be saved")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.StatsWillBeSaved)).ToBeVisibleAsync();
         // The other half of the retirement forecast's pin
         // (halheinrich/backgammon#146): an unreadable file is not a retired one.
         // It will never be set aside, so nothing on Home may promise that.
-        await Expect(Page.GetByText("will be set aside as")).ToBeHiddenAsync();
+        await Expect(Page.GetByText(ExpectedText.StatsFileWillBeSetAside)).ToBeHiddenAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();
 
         // The load happens at the Start-time bind, so the notice lives on the
         // quiz page (and Done), not on Home at pick time.
-        await Expect(Page.GetByText("couldn't be read")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.StatsFileUnreadable)).ToBeVisibleAsync();
 
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
-        await Expect(Page.GetByText("couldn't be read")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.StatsFileUnreadable)).ToBeVisibleAsync();
 
         Assert.Empty(await CapturedWritesAsync());
     }
@@ -271,7 +271,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         // wording for what the missing grant costs, not "stats won't be saved".
         // Pinned to the distinctive fragment only: the shorter the discriminating
         // substring, the less a copy polish breaks it spuriously.
-        await Expect(Page.GetByText("which problems give you difficulty")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.LifetimeRecordConsequence)).ToBeVisibleAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();
@@ -302,8 +302,8 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await BootHomeAsync();
         // Waits on the holder summary, so a pick that died fails right here.
         await PickFakeFolderAsync();
-        await Expect(Page.GetByText("Could not read the folder")).ToBeHiddenAsync();
-        await Expect(Page.GetByText("which problems give you difficulty")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.CouldNotReadTheFolder)).ToBeHiddenAsync();
+        await Expect(Page.GetByText(ExpectedText.LifetimeRecordConsequence)).ToBeVisibleAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();
@@ -326,7 +326,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await BootHomeAsync();
         await PickFolderButton.ClickAsync();
 
-        await Expect(Page.GetByText("Could not read the folder")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.CouldNotReadTheFolder)).ToBeVisibleAsync();
     }
 }
 
@@ -360,12 +360,12 @@ public sealed class FallbackPickNoticeTests : E2eTestBase
         // FS-Access-onlyness is pinned by the unit test that reports no
         // capability (PageTests.Home_NoFsAccessBrowser_ShowsNoPermissionGuidance),
         // which is the only place that condition is reachable.
-        await Expect(Page.GetByText("Your browser will ask about the selected folder")).ToBeHiddenAsync();
+        await Expect(Page.GetByText(ExpectedText.BrowserWillAskAboutTheFolder)).ToBeHiddenAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
-        await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
     }
 }

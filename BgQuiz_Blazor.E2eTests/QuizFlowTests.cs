@@ -31,7 +31,7 @@ public sealed class QuizFlowTests : E2eTestBase
         // it would be asserting a composition its own users do not get. The
         // prompt's own pins live in MaximizeBoardTests (the setting-off scenario)
         // and in bUnit.
-        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "No double" })).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.NoDoublePill })).ToBeVisibleAsync();
         await Expect(Page.Locator(".bg-diagram")).Not.ToContainTextAsync("Best:");
 
         await AnswerCubeNoDoubleAsync();
@@ -39,14 +39,14 @@ public sealed class QuizFlowTests : E2eTestBase
         // Review state: the Solution-mode diagram fills the analysis panel. The
         // committed fixture's best pair is (NoDouble, Take), which reads as its
         // claim alone, so the panel's Best banner is an exact, stable pin.
-        await Expect(Page.Locator(".bg-diagram")).ToContainTextAsync("Best: No double");
+        await Expect(Page.Locator(".bg-diagram")).ToContainTextAsync(ExpectedText.SolutionBestNoDouble);
         // That pair answers both halves correctly against this fixture. The
         // verdict line labels each half by what was submitted — the claim and
         // the taker action — in the same label home's wording as the banner.
-        await Expect(VerdictBand).ToContainTextAsync("No double: correct · Take: correct");
+        await Expect(VerdictBand).ToContainTextAsync(ExpectedText.CubeVerdictNoDoubleAndTakeCorrect);
 
         await ContinueToDoneAsync();
-        await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
     }
 
     [Fact]
@@ -68,9 +68,9 @@ public sealed class QuizFlowTests : E2eTestBase
         // A match position: Too good is offered (the withheld case is money
         // under Jacoby with the cube centred — see the scenario below), so
         // the wrong claim is a pill a user can actually press.
-        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "Too good" })).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.TooGoodPill })).ToBeVisibleAsync();
 
-        await AnswerCubeAsync("Too good");
+        await AnswerCubeAsync(ExpectedText.TooGoodPill);
 
         // Right action, wrong claim, in this direction too: the line names the
         // truth claim rather than printing a zero loss. The taker half is the
@@ -79,16 +79,16 @@ public sealed class QuizFlowTests : E2eTestBase
             "Too good: wrong claim — it's No double (right action, no equity lost) · Pass: incorrect");
         await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-danger"));
 
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Redo" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.RedoButton }).ClickAsync();
         await AnswerCubeNoDoubleAsync();
 
         await Expect(VerdictBand).ToContainTextAsync("Practice retry");
-        await Expect(VerdictBand).ToContainTextAsync("No double: correct · Take: correct");
+        await Expect(VerdictBand).ToContainTextAsync(ExpectedText.CubeVerdictNoDoubleAndTakeCorrect);
         await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-success"));
 
         // The answer of record stands: one doubling decision, scored wrong.
         await ContinueToDoneAsync();
-        await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
     }
 
     [Fact]
@@ -109,16 +109,16 @@ public sealed class QuizFlowTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "No double" })).ToBeVisibleAsync();
-        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "Double / Take" })).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.NoDoublePill })).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.DoubleTakePill })).ToBeVisibleAsync();
         await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "Double / Pass" })).ToBeVisibleAsync();
         await Expect(Page.Locator(".bg-cube-actions").GetByRole(AriaRole.Radio)).ToHaveCountAsync(3);
-        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "Too good" })).ToHaveCountAsync(0);
+        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.TooGoodPill })).ToHaveCountAsync(0);
 
         // And the three that are offered still answer the problem: one click
         // is a complete pair, Submit lights, the review lands.
         await AnswerCubeNoDoubleAsync();
-        await Expect(VerdictBand).ToContainTextAsync("No double: correct · Take: correct");
+        await Expect(VerdictBand).ToContainTextAsync(ExpectedText.CubeVerdictNoDoubleAndTakeCorrect);
     }
 
     [Fact]
@@ -148,10 +148,10 @@ public sealed class QuizFlowTests : E2eTestBase
 
         // Review: the entered play matches the zero-loss candidate, and the
         // Solution-mode analysis panel lists it in its collapsed notation.
-        await Expect(VerdictBand).ToContainTextAsync("Correct — you found the best play.");
+        await Expect(VerdictBand).ToContainTextAsync(ExpectedText.BestPlayVerdict);
         await Expect(Page.Locator(".bg-diagram")).ToContainTextAsync("24/13");
 
         await ContinueToDoneAsync();
-        await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
     }
 }

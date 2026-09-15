@@ -23,7 +23,7 @@ public sealed class EndQuizEarlyTests : E2eTestBase
     public EndQuizEarlyTests(PublishedAppFixture app, PlaywrightFixture playwright)
         : base(app, playwright) { }
 
-    private ILocator EndQuizButton => Page.GetByRole(AriaRole.Button, new() { Name = "End quiz" });
+    private ILocator EndQuizButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.EndQuizButton });
 
     /// <summary>
     /// Quitting on an unanswered problem: the answered work stands, the problem
@@ -40,7 +40,7 @@ public sealed class EndQuizEarlyTests : E2eTestBase
         await StartQuizAsync();
 
         await AnswerCubeNoDoubleAsync();
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Continue" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton }).ClickAsync();
         // Past the review and answering again — the state the quit below has to
         // happen in for the abandoned problem to count as a skip. Keyed on the
         // answering row's own Submit rather than the "Problem 2" counter, which
@@ -63,7 +63,7 @@ public sealed class EndQuizEarlyTests : E2eTestBase
         // The partial score: the cube answered scores as two decisions (the
         // double and the take), and the abandoned problem counts among the
         // problems shown, exactly as a skipped one does.
-        await Expect(body).ToContainTextAsync("Submitted: 2");
+        await Expect(body).ToContainTextAsync(ExpectedText.Submitted(2));
         await Expect(body).ToContainTextAsync("Skipped: 1");
         await Expect(body).ToContainTextAsync("Total problems shown: 2");
     }
@@ -92,8 +92,8 @@ public sealed class EndQuizEarlyTests : E2eTestBase
 
         // The reviewed answer counted, and nothing was recorded as skipped on
         // top of it — the problem was answered, not abandoned.
-        await Expect(body).ToContainTextAsync("Submitted: 2");
+        await Expect(body).ToContainTextAsync(ExpectedText.Submitted(2));
         await Expect(body).ToContainTextAsync("Skipped: 0");
-        await Expect(body).ToContainTextAsync("Total problems shown: 1");
+        await Expect(body).ToContainTextAsync(ExpectedText.TotalProblemsShown(1));
     }
 }

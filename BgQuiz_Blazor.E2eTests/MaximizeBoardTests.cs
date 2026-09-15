@@ -74,7 +74,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
     /// </summary>
     private async Task DisableMaximizeAsync()
     {
-        await Page.GetByRole(AriaRole.Link, new() { Name = "Settings" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink }).ClickAsync();
         await ExpectUrlAsync("/settings");
         await MaximizeCheckbox.UncheckAsync();
         await Expect(MaximizeCheckbox).Not.ToBeCheckedAsync();
@@ -100,7 +100,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
         // The board and every answer instrument survive: a cube answer must stay
         // makeable without leaving the maximized view.
         await Expect(Page.Locator(".board-container .bg-diagram")).ToBeVisibleAsync();
-        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = "No double" })).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.NoDoublePill })).ToBeVisibleAsync();
 
         // And so does the XGID — the badge rides the action row, which this mode
         // keeps. This is the composition halheinrich/backgammon#98 came out of: the badge used to
@@ -119,8 +119,8 @@ public sealed class MaximizeBoardTests : E2eTestBase
         // on that pairing, so a leak would fault the render, not merely look wrong).
         await Expect(StatusStrip).ToHaveCountAsync(1);
         await Expect(ScorePanel).ToHaveCountAsync(1);
-        await Expect(VerdictBand).ToContainTextAsync("No double: correct · Take: correct");
-        await Expect(Page.Locator(".bg-diagram")).ToContainTextAsync("Best: No double");
+        await Expect(VerdictBand).ToContainTextAsync(ExpectedText.CubeVerdictNoDoubleAndTakeCorrect);
+        await Expect(Page.Locator(".bg-diagram")).ToContainTextAsync(ExpectedText.SolutionBestNoDouble);
 
         // The badge did not move when the composition did — one home, both
         // states. A badge that teleported per mode would read as a bug, which is
@@ -180,7 +180,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
         // the Home NavLink's href is the app base, so the landing URL's trailing
         // form is the framework's business, and the pick button being there is
         // the readiness this test actually needs.
-        await Page.GetByRole(AriaRole.Link, new() { Name = "Home" }).First.ClickAsync();
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HomeNavLink }).First.ClickAsync();
         await Expect(PickFolderButton).ToBeVisibleAsync();
 
         await PickFixtureAsync(CubeFixture);

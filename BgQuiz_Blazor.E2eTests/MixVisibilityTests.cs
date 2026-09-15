@@ -55,7 +55,7 @@ public sealed class MixVisibilityTests : FsAccessFakeTestBase
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
         await StageFirstWriteAsTheFoldersStatsFileAsync();
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Back to setup" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToSetupButton }).ClickAsync();
         await ExpectUrlAsync("/");
         await PickFolderButton.ClickAsync();
 
@@ -72,7 +72,7 @@ public sealed class MixVisibilityTests : FsAccessFakeTestBase
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
-        await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
     }
 
     /// <summary>
@@ -94,7 +94,7 @@ public sealed class MixVisibilityTests : FsAccessFakeTestBase
         await Expect(MixPanel).ToHaveCountAsync(0);
 
         // The setting really is on — the page just has nothing to weight by.
-        await Page.GetByRole(AriaRole.Link, new() { Name = "Settings" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink }).ClickAsync();
         await ExpectUrlAsync("/settings");
         await Expect(Page.Locator("#settingsWeightQuizzes")).ToBeCheckedAsync();
     }
@@ -118,13 +118,13 @@ public sealed class MixVisibilityTests : FsAccessFakeTestBase
         // Compose "Everything else" at 100% so the mix can actually draw the
         // one seeded problem, and start — with no activation gesture between.
         await AddDefaultMixRowAsync();
-        await Page.GetByLabel("Category").SelectOptionAsync("EverythingElse");
+        await Page.GetByLabel(ExpectedText.MixCategoryLabel).SelectOptionAsync("EverythingElse");
         await Expect(StartButton).ToBeEnabledAsync();
 
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
-        await Expect(Page.GetByText("Total problems shown: 1")).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
     }
 
     /// <summary>

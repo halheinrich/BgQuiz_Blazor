@@ -157,6 +157,6 @@ public sealed class CommaDecimalLocaleTests : E2eTestBase
 
         await Expect(SubmitButton).ToBeEnabledAsync();
         await SubmitButton.ClickAsync();
-        await Expect(VerdictBand).ToContainTextAsync("Correct — you found the best play.");
+        await Expect(VerdictBand).ToContainTextAsync(ExpectedText.BestPlayVerdict);
     }
 }

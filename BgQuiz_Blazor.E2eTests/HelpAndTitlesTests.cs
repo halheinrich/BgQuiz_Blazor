@@ -25,7 +25,7 @@ public sealed class HelpAndTitlesTests : E2eTestBase
             .ToBeVisibleAsync();
         await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Pick your folder" }))
             .ToBeVisibleAsync();
-        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Scoring" }))
+        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = ExpectedText.HelpScoringSection }))
             .ToBeVisibleAsync();
 
         // The facet reference is XgFilter_Razor's FilterHelp, embedded rather
@@ -43,10 +43,10 @@ public sealed class HelpAndTitlesTests : E2eTestBase
 
         // Per-page titles change across in-app navigation, both directions —
         // via the nav menu, whose Help link is the sole /help entry point.
-        await Page.GetByRole(AriaRole.Link, new() { Name = "Home" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HomeNavLink }).ClickAsync();
         await Expect(Page).ToHaveTitleAsync("BgQuiz");
 
-        await Page.GetByRole(AriaRole.Link, new() { Name = "Help" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HelpNavLink }).ClickAsync();
         await Expect(Page).ToHaveTitleAsync("BgQuiz — Help");
     }
 
@@ -102,7 +102,7 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         var target = Page.Locator("#help-scoring");
         await Expect(target).Not.ToBeInViewportAsync();
 
-        await contents.GetByRole(AriaRole.Link, new() { Name = "Scoring", Exact = true }).ClickAsync();
+        await contents.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HelpScoringSection, Exact = true }).ClickAsync();
 
         await Expect(target).ToBeInViewportAsync();
         Assert.EndsWith("#help-scoring", Page.Url);
@@ -206,7 +206,7 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         // ...and the way out of that reset, which is the whole reason the fold
         // setting exists. Named by the words on the control, so a reader can find
         // it; the behaviour is pinned in SettingsTests.
-        await Expect(body).ToContainTextAsync("Keep the navigation panel folded");
+        await Expect(body).ToContainTextAsync(ExpectedText.KeepNavigationPanelFoldedSetting);
 
         // The note is about the CONTROL, never an inventory of what the panel
         // contains — prose naming the nav's entries rots the day one is added.

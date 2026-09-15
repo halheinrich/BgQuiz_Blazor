@@ -4,26 +4,6 @@ using static Microsoft.Playwright.Assertions;
 namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
-/// The one fragment of Home's silent-gesture account both suites below key on
-/// (issue <c>halheinrich/backgammon#105</c>). Shared deliberately: an absence
-/// assertion written against its own literal goes <b>vacuously green</b> the
-/// moment the notice is reworded — it stops matching the notice, keeps passing,
-/// and proves nothing. One const forces the pair to move together.
-///
-/// <para>
-/// Kept independent of the app assembly, like every other consumer-side pin in
-/// this project: the e2e suite references no app project by design, and that
-/// independence is what gives the assertion its power. It is also the
-/// <i>minimum</i> discriminating substring, so a copy polish elsewhere in the
-/// sentence doesn't break it spuriously.
-/// </para>
-/// </summary>
-internal static class SilentPickGestureCopy
-{
-    internal const string Account = "opens nothing at all";
-}
-
-/// <summary>
 /// The dead-capability half of the pair: a browser with <b>no</b>
 /// <c>showDirectoryPicker</c>, where the hidden <c>webkitdirectory</c> input is
 /// the only pick mechanism left and whether it is honored cannot be
@@ -59,11 +39,11 @@ public sealed class DeadPickGestureTests : E2eTestBase
 
         // The account is up from load, before any gesture — the only moment it
         // can reach this reader.
-        await Expect(Page.GetByText(SilentPickGestureCopy.Account)).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.SilentPickGestureAccount)).ToBeVisibleAsync();
 
         // …and its FS-Access-only sibling is not, which is what proves the
         // capability was actually removed rather than the notice being ungated.
-        await Expect(Page.GetByText("Your browser will ask about the selected folder"))
+        await Expect(Page.GetByText(ExpectedText.BrowserWillAskAboutTheFolder))
             .ToBeHiddenAsync();
 
         // The gesture itself survives the account: clicking only opens the
@@ -71,7 +51,7 @@ public sealed class DeadPickGestureTests : E2eTestBase
         // dead browser's shape), and the reader who sees nothing happen must
         // still find the explanation standing.
         await PickFolderButton.ClickAsync();
-        await Expect(Page.GetByText(SilentPickGestureCopy.Account)).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.SilentPickGestureAccount)).ToBeVisibleAsync();
     }
 }
 
@@ -96,12 +76,12 @@ public sealed class LivePickGestureTests : FsAccessFakeTestBase
         // absence straight away: both land on the render pass after the probe
         // resolves, so a bare DoesNotContain would pass before the probe had
         // even reported — vacuously, for the wrong reason.
-        await Expect(Page.GetByText("Your browser will ask about the selected folder"))
+        await Expect(Page.GetByText(ExpectedText.BrowserWillAskAboutTheFolder))
             .ToBeVisibleAsync();
-        await Expect(Page.GetByText(SilentPickGestureCopy.Account)).ToBeHiddenAsync();
+        await Expect(Page.GetByText(ExpectedText.SilentPickGestureAccount)).ToBeHiddenAsync();
 
         // And it stays absent across the gesture, where a real folder lands.
         await PickFakeFolderAsync();
-        await Expect(Page.GetByText(SilentPickGestureCopy.Account)).ToBeHiddenAsync();
+        await Expect(Page.GetByText(ExpectedText.SilentPickGestureAccount)).ToBeHiddenAsync();
     }
 }

@@ -33,10 +33,10 @@ public sealed class KeyboardShortcutTests : E2eTestBase
     public KeyboardShortcutTests(PublishedAppFixture app, PlaywrightFixture playwright)
         : base(app, playwright) { }
 
-    private ILocator ContinueButton => Page.GetByRole(AriaRole.Button, new() { Name = "Continue" });
-    private ILocator RedoButton => Page.GetByRole(AriaRole.Button, new() { Name = "Redo" });
-    private ILocator NoDoublePill => Page.GetByRole(AriaRole.Radio, new() { Name = "No double" });
-    private ILocator DoubleTakePill => Page.GetByRole(AriaRole.Radio, new() { Name = "Double / Take" });
+    private ILocator ContinueButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton });
+    private ILocator RedoButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.RedoButton });
+    private ILocator NoDoublePill => Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.NoDoublePill });
+    private ILocator DoubleTakePill => Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.DoubleTakePill });
 
     /// <summary>The XGID badge's text — the identity of the problem on screen.</summary>
     private ILocator XgidBadgeText => Page.Locator(".action-row-tail .xgid-label-text");
@@ -106,7 +106,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
 
         // Submitted, and scored as the click answered it.
         await Expect(ContinueButton).ToBeVisibleAsync();
-        await Expect(VerdictBand).ToContainTextAsync("No double: correct · Take: correct");
+        await Expect(VerdictBand).ToContainTextAsync(ExpectedText.CubeVerdictNoDoubleAndTakeCorrect);
     }
 
     [Fact]

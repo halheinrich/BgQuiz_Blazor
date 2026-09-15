@@ -50,18 +50,18 @@ public sealed class AnswerTypeBreakdownTests : E2eTestBase
         // Nothing is claimed about a pool before the user has applied a filter to
         // define one: the breakdown arrives with the count, not before it.
         var body = Page.Locator("body");
-        await Expect(Page.GetByText("By answer type")).ToHaveCountAsync(0);
+        await Expect(Page.GetByText(ExpectedText.AnswerTypeHeading)).ToHaveCountAsync(0);
 
         await ApplyFilterAsync();
 
         // The count line's own semantics are unchanged — still decisions, still
         // filter-only — and the breakdown sits with it.
-        await Expect(body).ToContainTextAsync("2 decisions match your filters");
-        await Expect(body).ToContainTextAsync("By answer type");
+        await Expect(body).ToContainTextAsync(ExpectedText.DecisionsMatchYourFilters(2));
+        await Expect(body).ToContainTextAsync(ExpectedText.AnswerTypeHeading);
 
         // The two answer types this folder holds…
-        await Expect(body).ToContainTextAsync("Checker plays: 1");
-        await Expect(body).ToContainTextAsync("No double: 1");
+        await Expect(body).ToContainTextAsync(ExpectedText.AnswerTypeCount(ExpectedText.CheckerPlaysType, 1));
+        await Expect(body).ToContainTextAsync(ExpectedText.AnswerTypeCount(ExpectedText.NoDoublePill, 1));
 
         // …and the three it holds none of, on screen and reading zero. Absent
         // rows would leave a collection of nothing but takes looking complete.
@@ -71,7 +71,7 @@ public sealed class AnswerTypeBreakdownTests : E2eTestBase
         // pinned below, in the joined form the label home would give it.
         await Expect(body).ToContainTextAsync("Double / Take: 0");
         await Expect(body).ToContainTextAsync("Double / Pass: 0");
-        await Expect(body).ToContainTextAsync("Too good: 0");
+        await Expect(body).ToContainTextAsync(ExpectedText.AnswerTypeCount(ExpectedText.TooGoodPill, 0));
         await Expect(body).Not.ToContainTextAsync("Too good / Take");
     }
 
@@ -89,9 +89,9 @@ public sealed class AnswerTypeBreakdownTests : E2eTestBase
         await ApplyFilterAsync();
 
         var body = Page.Locator("body");
-        await Expect(body).ToContainTextAsync("2 decisions match your filters");
-        await Expect(body).ToContainTextAsync("No double: 1");
-        await Expect(body).ToContainTextAsync("Too good: 0");
+        await Expect(body).ToContainTextAsync(ExpectedText.DecisionsMatchYourFilters(2));
+        await Expect(body).ToContainTextAsync(ExpectedText.AnswerTypeCount(ExpectedText.NoDoublePill, 1));
+        await Expect(body).ToContainTextAsync(ExpectedText.AnswerTypeCount(ExpectedText.TooGoodPill, 0));
     }
 
     /// <summary>
@@ -111,7 +111,7 @@ public sealed class AnswerTypeBreakdownTests : E2eTestBase
                          .Filter(new() { HasText = "decisions match your filters" });
 
         await Expect(status).ToHaveCountAsync(1);
-        await Expect(status).ToContainTextAsync("By answer type");
-        await Expect(status).ToContainTextAsync("Checker plays: 1");
+        await Expect(status).ToContainTextAsync(ExpectedText.AnswerTypeHeading);
+        await Expect(status).ToContainTextAsync(ExpectedText.AnswerTypeCount(ExpectedText.CheckerPlaysType, 1));
     }
 }

@@ -239,7 +239,8 @@ referencing no app project. Three areas:
   `PlaywrightFixture` (one Chromium), `E2eCollection` (the one sequential
   collection), `E2eTestBase` (a context per test and the flow helpers),
   `FsAccessFakeTestBase` (the fake directory picker), `SyntheticXgMatch`
-  (the one `.xg` fixture, built at run time).
+  (the one `.xg` fixture, built at run time), `ExpectedText` (every phrase
+  more than one test pins, named once — § the copy-pin split below).
 - **Fixtures** — `Fixtures/`: the committed single-decision `.xgp` files.
   What each one is, and which are the distinct cube positions a
   multi-problem run is staged from, is documented on `E2eTestBase`'s
@@ -2923,6 +2924,24 @@ posture intact. The pins' coordinates are derived from the builder's own
 parameters — the games staged before the cube's game, the plays staged before
 the cube within it — so a change in what the builder emits fails at a stated
 expectation instead of quietly redefining one.
+
+**The copy pins are independent literals, and the shared ones are named once**
+(halheinrich/backgammon#4, deliverable 1). The umbrella's copy-pin SSOT ruling
+stands unchanged: this suite must **not** import the app's constants, because
+the app constant encodes what we tell users and the literal here encodes what a
+user must be able to read — importing one into the other is an assertion that
+passes when the constant is emptied. What `ExpectedText` changes is only
+duplication: a phrase more than one test depends on is one entry there, each
+commented with the app-side surface that owns the words, and a phrase only one
+test pins stays inline where its reader can see it. Two entries may hold the
+same words where two surfaces share a fragment (the stats file and the
+saved-filters file are each "couldn't be read") — two expectations, not one.
+File names stay out of it: the stats and saved-filters names belong to
+`FsAccessFakeTestBase`, whose fake directory is built out of them, and staging
+names to their fixtures. The class is also what makes an **absence** pin safe:
+an absence written against its own copy of a sentence goes vacuously green the
+day the sentence is reworded, so the presence/absence pair must read one entry
+(the dead-pick pair, halheinrich/backgammon#105).
 
 **Staging is by content, not by path.** `StageAndPickAsync` takes
 `(name, bytes)` pairs, so a committed fixture (`FixtureBytes`) and a

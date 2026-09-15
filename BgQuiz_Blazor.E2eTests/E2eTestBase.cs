@@ -180,16 +180,16 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </summary>
     protected ILocator FallbackFolderInput => Page.Locator("#problemFolderFallback");
 
-    protected ILocator StartButton => Page.GetByRole(AriaRole.Button, new() { Name = "Start Quiz" });
+    protected ILocator StartButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.StartQuizButton });
 
-    protected ILocator SubmitButton => Page.GetByRole(AriaRole.Button, new() { Name = "Submit" });
+    protected ILocator SubmitButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.SubmitButton });
 
     /// <summary>The quiz page's fixed-height verdict band (answering prompt / scored verdict).</summary>
     protected ILocator VerdictBand => Page.Locator(".status-verdict");
 
     /// <summary>Home's one-shot "your quiz was reset by the reload" notice.</summary>
     protected ILocator ReloadNotice =>
-        Page.GetByText("Your previous quiz was reset by the page reload");
+        Page.GetByText(ExpectedText.QuizResetByReload);
 
     /// <summary>
     /// The board diagram's transparent hit-region overlay — the absolutely
@@ -417,7 +417,7 @@ public abstract class E2eTestBase : IAsyncLifetime
             File.WriteAllBytes(Path.Combine(stagedDir, destName), bytes);
 
         await FallbackFolderInput.SetInputFilesAsync(stagedDir);
-        await Expect(Page.GetByText(files.Count == 1 ? "1 problem file" : $"{files.Count} problem files"))
+        await Expect(Page.GetByText(ExpectedText.ProblemFiles(files.Count)))
             .ToBeVisibleAsync();
     }
 
@@ -462,8 +462,8 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </summary>
     protected async Task ApplyFilterAsync()
     {
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Apply Filter" }).ClickAsync();
-        await Expect(Page.GetByText("Apply the filters above to enable Start")).ToHaveCountAsync(0);
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ApplyFilterButton }).ClickAsync();
+        await Expect(Page.GetByText(ExpectedText.ApplyFiltersHint)).ToHaveCountAsync(0);
     }
 
     /// <summary>Click Start Quiz and wait for the quiz page.</summary>
@@ -513,7 +513,7 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </summary>
     protected async Task TurnOnTheWeightedMixSettingAsync()
     {
-        await Page.GetByRole(AriaRole.Link, new() { Name = "Settings" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink }).ClickAsync();
         await ExpectUrlAsync("/settings");
 
         var box = Page.Locator("#settingsWeightQuizzes");
@@ -581,7 +581,7 @@ public abstract class E2eTestBase : IAsyncLifetime
         await Page.GetByRole(AriaRole.Radio, new() { Name = pill }).CheckAsync();
         await Expect(SubmitButton).ToBeEnabledAsync();
         await SubmitButton.ClickAsync();
-        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = "Continue" })).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton })).ToBeVisibleAsync();
     }
 
     /// <summary>
@@ -591,12 +591,12 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// this is the fully correct answer, which is what the scenarios built on
     /// that fixture rely on.
     /// </summary>
-    protected Task AnswerCubeNoDoubleAsync() => AnswerCubeAsync("No double");
+    protected Task AnswerCubeNoDoubleAsync() => AnswerCubeAsync(ExpectedText.NoDoublePill);
 
     /// <summary>Continue past the review of the (only) problem and land on Done.</summary>
     protected async Task ContinueToDoneAsync()
     {
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Continue" }).ClickAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton }).ClickAsync();
         await ExpectUrlAsync("/done");
     }
 
