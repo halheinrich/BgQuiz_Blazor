@@ -6,7 +6,9 @@ namespace BgQuiz_Blazor.Tests;
 /// <summary>
 /// Tests for <see cref="PickedProblemFolder"/> — the holder whose
 /// <see cref="PickedProblemFolder.Summary"/> is the single source of truth for
-/// how a pick describes itself, and whose <see cref="PickedProblemFolder.Capability"/>
+/// how a pick describes itself (composed from
+/// <see cref="PickedProblemFolder.DisplayName"/>, the one spelling of the quoted
+/// folder name), and whose <see cref="PickedProblemFolder.Capability"/>
 /// carries the pick-time stats verdict across in-app navigation. Deriving both
 /// here (rather than in transient page fields) is what keeps them honest across
 /// navigate-back; <see cref="PageTests"/> pins the page-render half.
@@ -45,6 +47,46 @@ public class PickedProblemFolderTests
         folder.Clear();
 
         Assert.Null(folder.Summary);
+    }
+
+    [Fact]
+    public void DisplayName_NothingPicked_IsNull() =>
+        Assert.Null(new PickedProblemFolder().DisplayName);
+
+    [Fact]
+    public void DisplayName_QuotesTheFolderName()
+    {
+        var folder = new PickedProblemFolder();
+        folder.Set("MyMatches", [File()], FolderWriteCapability.Enabled, []);
+
+        Assert.Equal("'MyMatches'", folder.DisplayName);
+    }
+
+    [Fact]
+    public void DisplayName_AfterClear_IsNullAgain()
+    {
+        var folder = new PickedProblemFolder();
+        folder.Set("MyMatches", [File()], FolderWriteCapability.Enabled, []);
+        folder.Clear();
+
+        Assert.Null(folder.DisplayName);
+    }
+
+    [Fact]
+    public void Summary_ComposesFromDisplayName()
+    {
+        // halheinrich/backgammon#199: the quoting has one owner and Summary
+        // reads it. What this pin can see is agreement, not the reading: with
+        // today's quoting a Summary carrying its own copy produces the same
+        // string. It fails the day the two come apart — DisplayName re-quoted
+        // and a stray copy left in Summary — which the literal pins, each
+        // updated alongside its own member, would let through. That there is
+        // no second copy to drift is the acceptance survey's claim (the quote
+        // pattern is spelled once in the tree), not this test's.
+        var folder = new PickedProblemFolder();
+        folder.Set("MyMatches", [File("a.xg"), File("b.xgp")], FolderWriteCapability.Enabled, []);
+
+        Assert.Equal($"{folder.DisplayName} — 2 problem files", folder.Summary);
     }
 
     [Fact]

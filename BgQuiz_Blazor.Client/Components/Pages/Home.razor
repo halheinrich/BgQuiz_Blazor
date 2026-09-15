@@ -191,11 +191,13 @@
         @if (!string.IsNullOrEmpty(Folder.Summary))
         {
             <div class="text-muted small mt-1 d-flex align-items-center gap-2">
-                @* The caption is markup-side, not part of Summary: that property
-                   is the single source of the folder's description and other
-                   surfaces re-derive from it, so what frames it on THIS screen
-                   belongs to this call site. *@
-                <span>Problem folder: @Folder.Summary</span>
+                @* The caption is ProblemFolderLabel's, the one owner Home, Done
+                   and Stats all render it through (halheinrich/backgammon#199);
+                   Summary stays the holder's description of the pick and never
+                   carries the caption. Home frames Summary because the file
+                   count is what setup needs to see; the stats pages frame the
+                   bare DisplayName. *@
+                <ProblemFolderLabel Description="@Folder.Summary" />
                 @* Clear and "Choose folder…" end the current setup identically —
                    one handler, so the two can't drift. *@
                 <button type="button" class="btn btn-link btn-sm p-0 align-baseline"

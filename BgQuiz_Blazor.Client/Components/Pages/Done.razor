@@ -4,6 +4,7 @@
 @using BgQuiz_Blazor.Client.Quiz
 
 @inject QuizController Controller
+@inject PickedProblemFolder Folder
 @inject QuizStatsStore StatsStore
 @inject QuizSettings Settings
 @inject MixVisibility MixVisibility
@@ -56,7 +57,16 @@
                 Source="@Controller.Name"
                 Heading="Final" />
 
-    <ScoreBreakdown Score="Controller.Score" Heading="Detailed evaluation" />
+    @* The problem folder leads the breakdown's heading, on its line
+       (halheinrich/backgammon#199): the folder held NOW, by ruling — a re-pick
+       mid-quiz does not bear on this, so no run-captured copy exists. The
+       quoting is the holder's DisplayName and the caption ProblemFolderLabel's;
+       a pick cleared mid-quiz leaves the heading alone. *@
+    <ScoreBreakdown Score="Controller.Score" Heading="Detailed evaluation">
+        <HeadingLead>
+            <ProblemFolderLabel Description="@Folder.DisplayName" />
+        </HeadingLead>
+    </ScoreBreakdown>
 
     <p class="text-muted">
         Total problems shown: <strong>@(ProblemsShown)</strong>.

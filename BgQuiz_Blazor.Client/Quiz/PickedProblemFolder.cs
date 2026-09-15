@@ -139,8 +139,18 @@ internal sealed class PickedProblemFolder
     }
 
     /// <summary>
-    /// A short, human-readable label for the picked folder, derived from
-    /// <see cref="FolderName"/> and <see cref="Files"/>: e.g.
+    /// How the picked folder's name displays: <see cref="FolderName"/> in
+    /// single quotes, e.g. <c>'MyMatches'</c>, or <c>null</c> when nothing is
+    /// picked. The one spelling of that quoting in the app
+    /// (<c>halheinrich/backgammon#199</c>): <see cref="Summary"/> composes from
+    /// it, and the stats pages show it bare, so a folder reads the same on
+    /// every surface that names it.
+    /// </summary>
+    public string? DisplayName => FolderName is { } name ? $"'{name}'" : null;
+
+    /// <summary>
+    /// A short, human-readable label for the picked folder, composed from
+    /// <see cref="DisplayName"/> and the count of <see cref="Files"/>: e.g.
     /// <c>"'MyMatches' — 12 problem files"</c>, or <c>null</c> when nothing is
     /// picked. Single source of truth for how a pick describes itself, so a
     /// page re-instantiated by in-app navigation re-derives the same label
@@ -149,8 +159,8 @@ internal sealed class PickedProblemFolder
     public string? Summary => Files.Count switch
     {
         0 => null,
-        1 => $"'{FolderName}' — 1 problem file",
-        var n => $"'{FolderName}' — {n} problem files",
+        1 => $"{DisplayName} — 1 problem file",
+        var n => $"{DisplayName} — {n} problem files",
     };
 
     /// <summary>

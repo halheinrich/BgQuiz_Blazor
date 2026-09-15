@@ -10,6 +10,7 @@ using BgDiag_Razor.Components;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client;
 using BgFolderAccess_Razor;
+using BgQuiz_Blazor.Client.Components;
 using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
 using Bunit.TestDoubles;
@@ -434,20 +435,26 @@ public class PageTests : BunitContext
         // re-instantiation, blanking the summary while the file gate stayed
         // satisfied (summary blank + Start enabled = the reported desync).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithPickedFolder("resume"); // holder already populated, as after navigate-back
+        var folder = WithPickedFolder("resume"); // holder already populated, as after navigate-back
         WithAppliedFilter();
         WithShuffleOption();
 
         var cut = Render<HomePage>();
 
-        // Summary renders straight from the persisted holder, no pick handler run,
-        // under the markup-side caption that says what the folder IS (halheinrich/backgammon#96). The
-        // caption is pinned here because it lives only in Home's markup: every
-        // other pin on this line matches the holder's own Summary text, so all
-        // of them would stay green with the caption gone.
-        Assert.Contains("Problem folder:", cut.Markup);
-        Assert.Contains("resume", cut.Markup);
-        Assert.Contains("1 problem file", cut.Markup);
+        // Summary renders straight from the persisted holder, no pick handler
+        // run, under the caption that says what the folder IS
+        // (halheinrich/backgammon#96). Content first, as a literal: the caption
+        // and the summary read as one line. Pinned whole because every other
+        // pin on this line matches the holder's own Summary text, so they would
+        // all stay green with the caption gone.
+        Assert.Contains(
+            "Problem folder: 'resume' — 1 problem file",
+            Normalize(cut.Find(".problem-folder-label").TextContent));
+
+        // Wiring second (halheinrich/backgammon#199): the caption is rendered
+        // through its one owner, framing the holder's Summary — the same
+        // component Done and Stats render it through.
+        Assert.Equal(folder.Summary, cut.FindComponent<ProblemFolderLabel>().Instance.Description);
 
         // With both gates met (file already held + filters applied) Start enables.
         await ApplyFiltersAsync(cut);
@@ -5199,6 +5206,61 @@ public class PageTests : BunitContext
         Assert.Contains("<strong>2</strong>", cut.Markup);
     }
 
+    [Fact]
+    public async Task Done_NamesTheProblemFolder_InFrontOfTheBreakdownHeading()
+    {
+        // halheinrich/backgammon#199, ruled 2026-09-11: the summary names the
+        // folder on the breakdown heading's line, ahead of the heading — the
+        // user's mockup, "Problem folder: 'xg'   Detailed evaluation so far".
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var folder = WithPickedFolder("xg");
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+
+        var cut = Render<DonePage>();
+
+        AssertFolderLeadsTheBreakdownHeading(cut.Find(".score-breakdown-heading"), "Detailed evaluation");
+        // Wiring: the one caption owner, framing the holder's quoted name.
+        Assert.Equal(folder.DisplayName, cut.FindComponent<ProblemFolderLabel>().Instance.Description);
+    }
+
+    [Fact]
+    public async Task Done_NoFolderHeld_ShowsTheBreakdownHeadingAlone()
+    {
+        // The folder is read as held NOW (the ruling needs no run-captured
+        // copy), so a pick cleared mid-quiz leaves nothing to name: no caption,
+        // and the heading exactly as it was. The fixture's holder is empty.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+
+        var cut = Render<DonePage>();
+
+        Assert.Equal("Detailed evaluation", cut.Find(".score-breakdown-heading h2").TextContent.Trim());
+        Assert.Empty(cut.FindAll(".problem-folder-label"));
+    }
+
+    /// <summary>
+    /// The breakdown's heading line as <c>halheinrich/backgammon#199</c> rules
+    /// it: the folder label first, reading <c>Problem folder: 'xg'</c> (the
+    /// literal, per this suite's content-as-literals posture), then the
+    /// heading — still the breakdown's own <c>h2</c>, its words unchanged.
+    /// Pinned as the line's children in order, because "in front of, on one
+    /// line" is a claim about order and containment that text alone cannot
+    /// make.
+    /// </summary>
+    private static void AssertFolderLeadsTheBreakdownHeading(IElement line, string heading)
+    {
+        var children = line.Children.ToList();
+        Assert.Equal(2, children.Count);
+        Assert.True(children[0].ClassList.Contains("problem-folder-label"), "the folder label leads the line");
+        Assert.Equal("Problem folder: 'xg'", Normalize(children[0].TextContent));
+        Assert.Equal("H2", children[1].TagName);
+        Assert.Equal(heading, children[1].TextContent.Trim());
+    }
+
     // -----------------------------------------------------------------------
     //  Stats.razor
     // -----------------------------------------------------------------------
@@ -5273,6 +5335,39 @@ public class PageTests : BunitContext
         await backButton.ClickAsync(new());
 
         Assert.EndsWith("/quiz", nav.Uri);
+    }
+
+    [Fact]
+    public async Task Stats_NamesTheProblemFolder_InFrontOfTheBreakdownHeading()
+    {
+        // halheinrich/backgammon#199 on the page the mockup was drawn from: mid
+        // quiz, the folder leads "Detailed evaluation so far" on its line.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var folder = WithPickedFolder("xg");
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+
+        var cut = Render<StatsPage>();
+
+        AssertFolderLeadsTheBreakdownHeading(cut.Find(".score-breakdown-heading"), "Detailed evaluation so far");
+        Assert.Equal(folder.DisplayName, cut.FindComponent<ProblemFolderLabel>().Instance.Description);
+    }
+
+    [Fact]
+    public async Task Stats_NoFolderHeld_ShowsTheBreakdownHeadingAlone()
+    {
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+
+        var cut = Render<StatsPage>();
+
+        Assert.Equal("Detailed evaluation so far", cut.Find(".score-breakdown-heading h2").TextContent.Trim());
+        Assert.Empty(cut.FindAll(".problem-folder-label"));
     }
 
     // -----------------------------------------------------------------------

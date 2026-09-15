@@ -1,0 +1,9 @@
+@* The "Problem folder:" caption and what follows it — the one place the app
+   spells the caption (halheinrich/backgammon#199). Each host decides what the
+   caption frames, from PickedProblemFolder; this component decides how the
+   caption reads. Renders nothing when there is no folder to name (see the
+   code-behind). *@
+@if (!string.IsNullOrEmpty(Description))
+{
+    <span class="problem-folder-label">Problem folder: @Description</span>
+}

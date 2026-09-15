@@ -4,6 +4,13 @@
     [Parameter, EditorRequired] public QuizScore Score { get; set; } = QuizScore.Empty;
     [Parameter] public string? Heading { get; set; }
 
+    // What leads the heading, on its line (halheinrich/backgammon#199: the
+    // stats pages put the problem folder here, "Problem folder: 'xg'   Detailed
+    // evaluation so far"). A slot rather than a folder parameter: the line's
+    // layout is this component's, what leads it is the host's, and the
+    // breakdown has no reason to know what a problem folder is.
+    [Parameter] public RenderFragment? HeadingLead { get; set; }
+
     // The four reported rows: the three independently-tracked segments plus the
     // derived Total. Order mirrors a cube position's decision flow (play, then
     // the doubler's offer, then the taker's response), with Total last.
@@ -22,9 +29,18 @@
 }
 
 <div class="score-breakdown">
-    @if (!string.IsNullOrEmpty(Heading))
+    @if (HeadingLead is not null || !string.IsNullOrEmpty(Heading))
     {
-        <h2 class="h6">@Heading</h2>
+        @* One line, baseline-aligned, wrapping only when the viewport cannot
+           hold both — the lead first, then the heading, which stays this
+           component's own <h2>. *@
+        <div class="score-breakdown-heading d-flex flex-wrap align-items-baseline column-gap-4">
+            @HeadingLead
+            @if (!string.IsNullOrEmpty(Heading))
+            {
+                <h2 class="h6">@Heading</h2>
+            }
+        </div>
     }
     <table class="table table-sm">
         <thead>

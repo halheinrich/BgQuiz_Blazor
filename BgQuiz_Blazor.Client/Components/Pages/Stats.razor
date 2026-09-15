@@ -4,6 +4,7 @@
 @using BgQuiz_Blazor.Client.Quiz
 
 @inject QuizController Controller
+@inject PickedProblemFolder Folder
 @inject NavigationManager Nav
 
 <PageTitle>BgQuiz — Stats</PageTitle>
@@ -16,7 +17,13 @@
                 Source="@Controller.Name"
                 Heading="Progress so far" />
 
-    <ScoreBreakdown Score="Controller.Score" Heading="Detailed evaluation so far" />
+    @* The problem folder leads the heading, as on Done
+       (halheinrich/backgammon#199) — see Done.razor for the shape. *@
+    <ScoreBreakdown Score="Controller.Score" Heading="Detailed evaluation so far">
+        <HeadingLead>
+            <ProblemFolderLabel Description="@Folder.DisplayName" />
+        </HeadingLead>
+    </ScoreBreakdown>
 
     <button class="btn btn-primary" @onclick="BackToQuiz">
         Back to quiz

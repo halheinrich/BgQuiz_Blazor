@@ -215,7 +215,8 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   outline's anchor ids and headings) plus the `MixPanel` builder Home hosts
   and the `ScorePanel` / `ScoreBreakdown` pair. `Components/` itself holds
   `XgidLabel` and `ProblemLocator`, the quiz page's bottom-row XGID badge
-  and locator chip.
+  and locator chip, and `ProblemFolderLabel`, the `Problem folder:` caption
+  Home, Done and Stats share.
   `wwwroot/js/quizKeys.js` is the quiz page's Space-shortcut module.
 
 **`BgQuiz_Blazor.Tests/`** — xUnit over both app projects, with bUnit for
@@ -1018,11 +1019,20 @@ pick-outcome notices in `QuizNoticeDismissal`; opaque rather than the boxed
 generation for the holder's one-rule-one-kind-of-token discipline (issue
 halheinrich/backgammon#107, mirroring `QuizStatsStore.StatusOccurrence`).
 
+- **`DisplayName`** (`string?`) — how the folder's name displays: `FolderName`
+  in single quotes (`'MyMatches'`), `null` when nothing is picked. The **one
+  spelling of that quoting** (halheinrich/backgammon#199): `Summary` composes
+  from it, and `Done` / `Stats` show it bare under the shared caption.
 - **`Summary`** (`string?`) — the holder-owned label:
-  `"'{FolderName}' — {N} problem file(s)"`, `null` when nothing is picked.
+  `"{DisplayName} — {N} problem file(s)"`, `null` when nothing is picked.
   The **single source of truth** for how a pick describes itself; `Home`
   renders it directly rather than caching text in a component field (see
   Pitfalls: holder, not field).
+
+The **`Problem folder:` caption** is neither member's: it belongs to the
+`ProblemFolderLabel` component (`Components/`), the one owner `Home`, `Done`
+and `Stats` all render it through, each passing the description it frames —
+`Home` the `Summary`, the two stats pages the `DisplayName`.
 
 The pick is **in-memory only** — the stats *file* is not lost with it;
 re-picking the folder resumes it.
@@ -1753,9 +1763,10 @@ The asymmetry is pinned three times over: at the service seam
   best-effort: where a browser never fires `cancel` the outcome degrades to
   silence — no wrong statement, only a missing one (bUnit pins the binding,
   not the browser's delivery). The pick label renders straight from
-  `PickedProblemFolder.Summary` (the SSOT) under a markup-side
-  `"Problem folder:"` caption — the caption frames the line on *this* screen
-  and stays out of `Summary`, which other surfaces re-derive from — with a
+  `PickedProblemFolder.Summary` (the SSOT) through `ProblemFolderLabel`,
+  the `"Problem folder:"` caption's one owner, which `Done` and `Stats` render
+  too (halheinrich/backgammon#199) — the caption stays out of `Summary`, which
+  describes the pick and nothing more — with a
   **Clear** affordance beside
   it bound to `EndCurrentSetupAsync`. Clearing is safe mid-quiz and left
   unguarded on purpose — files are read only at Start time and the clear
@@ -2256,7 +2267,8 @@ The asymmetry is pinned three times over: at the service seam
   dismiss on a click** — § Dismissible notices. The `ScorePanel` carries
   "Problem N of M" from `Controller.ProblemNumber` / `ProblemCount`.
 - **`Stats.razor`** — read-only mid-quiz stats view: the same `ScorePanel` /
-  `ScoreBreakdown` pair `Done` shows, rendered against the live in-progress
+  `ScoreBreakdown` pair `Done` shows (the problem folder leading the
+  breakdown's heading, as there), rendered against the live in-progress
   `QuizController` with honest mid-quiz wording ("Progress so far", not
   `Done`'s "Final"). Reachable only from `Quiz`'s "Show stats" button. Never
   calls Submit / Continue / Skip, so the round trip leaves `Current` /
@@ -2495,7 +2507,8 @@ The asymmetry is pinned three times over: at the service seam
   `FilterHelp.StorageSectionAnchorId` rather than a slug spelled here. See
   Pitfalls (`<base href="/">`).
 - **`Done.razor`** — final `ScorePanel` (Total) + `ScoreBreakdown`
-  (four-way) + total problems shown + **Restart with same filters** /
+  (four-way, its heading led by `Problem folder: 'xg'` — § `ScoreBreakdown`
+  below) + total problems shown + **Restart with same filters** /
   **Back to setup**, and — for the third exit, the one with no button — a
   muted line saying nothing needs saving (§ `Help`'s data section for the
   ruling and the gate). "Problems shown" is `PlayDecisions.Submitted +
@@ -2533,10 +2546,17 @@ The asymmetry is pinned three times over: at the service seam
   "Problem N" when the total is unknowable) — opt-in per surface: Quiz
   passes the controller's stream position; Stats and Done omit it.
 - **`ScoreBreakdown.razor`** — the four-way detailed evaluation, hosted on
-  Done. A Play / Double / Take / Total table (Submitted · Correct (%) · Avg
+  Done and Stats. A Play / Double / Take / Total table (Submitted · Correct (%) · Avg
   loss per row), reading the three `QuizScore` segments and the derived
   `Total`. Kept separate from `ScorePanel` rather than a `Detailed` flag so
-  each component owns one layout.
+  each component owns one layout. Its heading line takes an optional
+  **`HeadingLead`** fragment ahead of the `h2`, on one baseline-aligned line
+  (halheinrich/backgammon#199): Done and Stats put the `ProblemFolderLabel`
+  there over `PickedProblemFolder.DisplayName`, the folder held *now* — a
+  re-pick mid-quiz does not bear on it by ruling, so no run-captured copy
+  exists, and a pick cleared mid-quiz leaves the heading alone. A slot rather
+  than a folder parameter, so the breakdown knows nothing about folders; the
+  heading stays the component's.
 
 ### `AppInfo` — app-level identity, and the beta feedback link
 
