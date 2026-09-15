@@ -231,6 +231,23 @@ key-derivability `TestFixtureContractTests` pins; fake and gated sources, a
 scriptable folder-access double and a recording stats sink;
 `RetiredStatsFixture`, the stats files this build does not simply read.
 
+It also carries the **copy-drift tripwire** (`CopyDriftTripwireTests`,
+halheinrich/backgammon#4): this project references both app assemblies, which
+the e2e project deliberately does not, and compiles that suite's
+`ExpectedText` as a **linked** file — so it can ask whether an app-side
+constant still contains the literal the browser suite pins, in the two-second
+suite instead of after a publish and a browser run. It is a **detector, not a
+guarantee**: both sides can be edited together, deliberately, and the ruling
+wants that possible; what it catches is the one-sided edit. Scope is
+load-bearing copy only — the write-access consequence
+(`FolderPickDisplay.WriteAccessConsequence`) and the stats-unreadable refusal
+(`MixDisplay.RefusalReason`), both messages on paths most runs never take.
+Producer-owned words are deliberately out (a reword there arrives through a
+submodule bump the umbrella reviews, and a unit suite reddening before that
+bump is reviewed pre-empts the coordination); ordinary copy is out because the
+browser suite sees it every run. The linked file may never take a Playwright
+dependency.
+
 **`BgQuiz_Blazor.E2eTests/`** — the browser smoke gate (§ The e2e smoke
 gate): xUnit and Playwright against the published artifact over real HTTP,
 referencing no app project. Three areas:

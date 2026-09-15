@@ -14,8 +14,18 @@ namespace BgQuiz_Blazor.E2eTests;
 /// constant is emptied. Nothing changes about that. What changes is that a
 /// phrase two tests both depend on is now <b>one expectation in one place</b>
 /// instead of the same sentence typed twice — the shape the suite already used
-/// for the file names it keeps (<see cref="FsAccessFakeTestBase"/>), extended
+/// for the file names it keeps (<c>FsAccessFakeTestBase</c>), extended
 /// to the prose it used to inline.
+/// </para>
+///
+/// <para>
+/// <b>This file is compiled into the unit project too</b>, linked rather than
+/// referenced (<c>BgQuiz_Blazor.Tests.csproj</c>). That project references both
+/// app assemblies, which this one deliberately does not, so it is where a
+/// <i>drift tripwire</i> can ask whether an app-side constant still contains
+/// what this suite pins (<c>CopyDriftTripwireTests</c>, deliverable 2). Nothing
+/// here may depend on Playwright or on any other e2e type, or the link stops
+/// compiling.
 /// </para>
 ///
 /// <para>
@@ -135,7 +145,7 @@ internal static class ExpectedText
     /// BgDiag_Razor's <c>BackgammonCubeActions</c> — and they are pinned here as
     /// consumer literals <b>by ruling</b>: a re-wording at that home must arrive
     /// as a deliberate edit rather than pass through unseen, so they are never
-    /// re-sourced from it (see <see cref="E2eTestBase.AnswerCubeAsync"/>).
+    /// re-sourced from it (see <c>E2eTestBase.AnswerCubeAsync</c>).
     /// </summary>
     internal const string NoDoublePill = "No double";
 

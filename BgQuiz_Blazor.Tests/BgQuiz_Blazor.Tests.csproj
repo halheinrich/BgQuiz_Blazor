@@ -34,6 +34,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The e2e suite's shared phrase list, compiled in here as well
+         (halheinrich/backgammon#4, deliverable 2). LINKED, not referenced: this
+         project must not take a dependency on Playwright or on the e2e
+         harness, and the e2e project must keep referencing no app assembly.
+         Linking one leaf file is what lets CopyDriftTripwireTests hold an
+         app-side constant against the literal the browser suite pins, in the
+         2-second suite instead of after a publish and a browser run. -->
+    <Compile Include="..\BgQuiz_Blazor.E2eTests\ExpectedText.cs" Link="ExpectedText.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 
