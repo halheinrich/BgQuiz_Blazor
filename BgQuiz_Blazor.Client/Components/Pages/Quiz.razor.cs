@@ -148,7 +148,10 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// board region is board-only) ahead of Submit / Skip — a cube answer has no
 /// partial-move state, so Undo does not apply. Both trail with Show stats and
 /// End quiz in the row's <c>ms-auto</c> cluster. In the review state both kinds
-/// offer Continue / Redo, trailed the same way.
+/// offer Continue / Redo — and, when the decision carries a comment, the
+/// <see cref="DecisionNotes"/> control after
+/// them (<c>SPEC-quiz-view.md</c> §4's 2026-09-15 amendment,
+/// <c>halheinrich/backgammon#31</c>) — trailed the same way.
 /// </para>
 ///
 /// <para>

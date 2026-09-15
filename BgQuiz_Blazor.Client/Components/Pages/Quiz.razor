@@ -269,6 +269,19 @@
                             @onclick="RedoAsync">
                         Redo
                     </button>
+                    @* THE DECISION'S NOTES HAVE ONE HOME (SPEC-quiz-view.md §4's
+                       2026-09-15 amendment, issue halheinrich/backgammon#31): this
+                       leading cluster, after Redo and before the tail, at review
+                       only — the comment was written by someone who knew the
+                       answer, so answering never shows it, in either view mode.
+                       The page hands over the comment and nothing else; the
+                       control, its overlay and whether it is open are the
+                       component's, and a decision without a comment renders
+                       nothing here. It is a fixed-width button, not a member of
+                       the tail's shrink order, and the row's height stays the
+                       primary button's. Continue and Redo close the overlay by
+                       leaving this branch, which unmounts it. *@
+                    <DecisionNotes Comment="@current.Descriptive.Comment" />
                 }
                 else if (current.Decision.IsCube)
                 {

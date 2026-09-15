@@ -5055,6 +5055,130 @@ public class PageTests : BunitContext
     }
 
     // -----------------------------------------------------------------------
+    //  Quiz.razor — the decision's notes (SPEC-quiz-view.md §4's 2026-09-15
+    //  amendment, issue halheinrich/backgammon#31). The component's own
+    //  contract is DecisionNotesTests; these pin the page's half of it.
+    // -----------------------------------------------------------------------
+
+    private const string CubeNote = "Take: the gammons are not there yet.";
+    private const string PlayNote = "Split — the 5-point can wait.";
+
+    private static IReadOnlyList<AngleSharp.Dom.IElement> NotesControls(IRenderedComponent<QuizPage> cut) =>
+        cut.FindAll("button.decision-notes-toggle");
+
+    /// <summary>Answer the rendered cube problem and press the page's Submit, landing in review.</summary>
+    private static async Task SubmitCubeThroughPageAsync(IRenderedComponent<QuizPage> cut)
+    {
+        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Quiz_Answering_ShowsNoNotes_InEitherViewMode(bool maximized)
+    {
+        // The spoiler rule (halheinrich/backgammon#31, 2026-07-31): the comment
+        // was written by someone who knew the answer, so answering shows none —
+        // for both answer kinds, in both view modes. Positive precondition per
+        // kind: the answering instruments are on screen, so the absence is of
+        // the notes and not of the row.
+        var c = WithController(
+            TestFixtures.CubeDecision(comment: CubeNote),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 3, comment: PlayNote));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await (maximized ? MaximizedViewAsync() : NormalViewAsync());
+        var cut = Render<QuizPage>();
+
+        Assert.NotEmpty(cut.FindComponents<BackgammonCubeActions>());
+        Assert.Empty(NotesControls(cut));
+
+        await SubmitCubeThroughPageAsync(cut);
+        Assert.Single(NotesControls(cut)); // review: the cube's notes are offered
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Continue").ClickAsync(new());
+
+        Assert.NotEmpty(cut.FindComponents<BackgammonPlayEntry>());
+        Assert.Empty(NotesControls(cut));
+    }
+
+    [Fact]
+    public async Task Quiz_Review_OffersTheNotes_AfterRedo_WiredToTheRecordsComment()
+    {
+        // The one home: the review row's leading cluster, after Redo and before
+        // the tail — and the page hands over the record's comment and nothing
+        // else. The order is read off the row's children, because "after Redo,
+        // before the tail" is a claim about position that presence cannot make.
+        var c = WithController(TestFixtures.CubeDecision(comment: CubeNote));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        await SubmitCubeThroughPageAsync(cut);
+
+        var row = cut.Find(".action-row").Children.ToList();
+        Assert.Equal(4, row.Count);
+        Assert.Equal("Continue", row[0].TextContent.Trim());
+        Assert.Equal("Redo", row[1].TextContent.Trim());
+        Assert.True(row[2].ClassList.Contains("decision-notes-toggle"), "the Notes control follows Redo");
+        Assert.Equal("Notes", row[2].TextContent.Trim());
+        Assert.True(row[3].ClassList.Contains("action-row-tail"), "and precedes the tail");
+
+        // Wiring: the record's comment, verbatim, and nothing else to go on.
+        Assert.Equal(c.Current!.Descriptive.Comment, cut.FindComponent<DecisionNotes>().Instance.Comment);
+
+        // And it opens onto that text.
+        await row[2].ClickAsync(new());
+        Assert.Equal(CubeNote, cut.Find("dialog .decision-notes-text").TextContent);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_WithoutAComment_OffersNoNotes()
+    {
+        // A problem without notes has no control, and the row is exactly what
+        // it was before notes existed. Positive precondition: this IS review.
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        await SubmitCubeThroughPageAsync(cut);
+
+        Assert.Contains(cut.FindAll("button"), b => b.TextContent.Trim() == "Redo");
+        Assert.Empty(NotesControls(cut));
+        Assert.Equal(3, cut.Find(".action-row").Children.Length); // Continue, Redo, tail
+    }
+
+    [Fact]
+    public async Task Quiz_RedoAndContinue_CloseTheNotes_ByLeavingTheReview()
+    {
+        // "Continue and Redo close it by re-rendering the row": both leave the
+        // review branch, which unmounts the notes, so the next review — the same
+        // problem after Redo, the next one after Continue — offers them closed.
+        // Not a view state, and nothing app-scoped remembers it was open.
+        var c = WithController(
+            TestFixtures.CubeDecision(comment: CubeNote),
+            TestFixtures.CubeDecision(away: 3, comment: CubeNote));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        await SubmitCubeThroughPageAsync(cut);
+        await NotesControls(cut)[0].ClickAsync(new());
+        Assert.Single(cut.FindAll("dialog"));
+
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo").ClickAsync(new());
+        Assert.Empty(cut.FindAll("dialog"));
+        await SubmitCubeThroughPageAsync(cut);
+        Assert.Equal("false", NotesControls(cut)[0].GetAttribute("aria-expanded"));
+        Assert.Empty(cut.FindAll("dialog"));
+
+        await NotesControls(cut)[0].ClickAsync(new());
+        Assert.Single(cut.FindAll("dialog"));
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Continue").ClickAsync(new());
+        Assert.Empty(cut.FindAll("dialog"));
+        await SubmitCubeThroughPageAsync(cut);
+        Assert.Equal("false", NotesControls(cut)[0].GetAttribute("aria-expanded"));
+        Assert.Empty(cut.FindAll("dialog"));
+    }
+
+    // -----------------------------------------------------------------------
     //  Done.razor
     // -----------------------------------------------------------------------
 
@@ -7037,6 +7161,48 @@ public class PageTests : BunitContext
         Assert.Contains("max-width: 2.5rem", rule.Value);
         Assert.Contains("text-overflow: ellipsis", rule.Value);
         Assert.Contains("white-space: nowrap", rule.Value);
+    }
+
+    [Fact]
+    public void AppCss_DecisionNotesText_KeepsTheAuthorsWhitespace()
+    {
+        // SPEC-quiz-view.md §4's 2026-09-15 amendment (issue
+        // halheinrich/backgammon#31): the notes are shown as the source stored
+        // them, whitespace preserved — and that half of the ruling is CSS, which
+        // bUnit evaluates none of. `pre-wrap` keeps runs of spaces (real XG notes
+        // align columns with them) and renders an embedded CRLF as one line
+        // break; `overflow-wrap: anywhere` breaks a raw RTF control-word run,
+        // which has no space to break at, instead of widening the dialog past
+        // the viewport. The e2e scenario measures both in a real browser; this
+        // stops the declarations being edited away without that run.
+        var css = File.ReadAllText(AppCssPath());
+        var noComments = Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);
+        var rule = Regex.Match(noComments, @"\.decision-notes-text\s*\{[^}]*\}", RegexOptions.Singleline);
+
+        Assert.True(rule.Success, ".decision-notes-text rule present");
+        Assert.Contains("white-space: pre-wrap", rule.Value);
+        Assert.Contains("overflow-wrap: anywhere", rule.Value);
+    }
+
+    [Fact]
+    public void AppCss_DecisionNotes_OverlayIsFixed_SoNothingReflows()
+    {
+        // The same amendment's other CSS-borne promise: opening the notes
+        // reflows nothing and the board does not move, so §2's invariance holds
+        // by construction. Both pieces are taken out of flow by `position:
+        // fixed`; either one in flow would push the page around. The dialog's
+        // rule is scoped to [open] because an author `display` beats the UA's
+        // hiding of a closed dialog.
+        var css = File.ReadAllText(AppCssPath());
+        var noComments = Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);
+        var backdrop = Regex.Match(noComments, @"\.decision-notes-backdrop\s*\{[^}]*\}", RegexOptions.Singleline);
+        var dialog = Regex.Match(noComments, @"\.decision-notes\[open\]\s*\{[^}]*\}", RegexOptions.Singleline);
+
+        Assert.True(backdrop.Success, ".decision-notes-backdrop rule present");
+        Assert.True(dialog.Success, ".decision-notes[open] rule present");
+        Assert.Contains("position: fixed", backdrop.Value);
+        Assert.Contains("inset: 0", backdrop.Value);
+        Assert.Contains("position: fixed", dialog.Value);
     }
 
     [Fact]

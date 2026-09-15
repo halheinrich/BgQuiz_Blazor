@@ -1,0 +1,33 @@
+@* The decision's notes: a control that opens the comment as an overlay above
+   the page (SPEC-quiz-view.md §4, amended 2026-09-15; issue
+   halheinrich/backgammon#31). One component owns the control, the overlay
+   and whether it is open; the host passes the comment and nothing else.
+   Renders nothing when the comment is empty (see the code-behind). *@
+@if (!string.IsNullOrEmpty(Comment))
+{
+    <button type="button" class="btn btn-outline-secondary decision-notes-toggle"
+            aria-haspopup="dialog" aria-expanded="@(_open ? "true" : "false")"
+            aria-controls="@(_open ? _dialogId : null)"
+            @ref="_toggle" @onclick="Toggle">
+        @Label
+    </button>
+    @if (_open)
+    {
+        @* Covers the whole viewport beneath the dialog, so any click outside
+           the notes lands here and closes them — and lands on nothing else. *@
+        <div class="decision-notes-backdrop" @onclick="Close"></div>
+        @* tabindex -1: focus is moved here on open, and a click on the text
+           keeps focus inside, which is what lets Esc reach the handler. *@
+        <dialog open id="@_dialogId" class="decision-notes" tabindex="-1"
+                aria-labelledby="@HeadingId" @ref="_dialog" @onkeydown="HandleKeyDown">
+            <div class="decision-notes-header">
+                <h2 class="h6 m-0" id="@HeadingId">@Label</h2>
+                <button type="button" class="btn-close" aria-label="@CloseLabel"
+                        @onclick="Close"></button>
+            </div>
+            @* The text as the source stored it: rendered as a text node, never
+               inspected, whitespace kept by the stylesheet (pre-wrap). *@
+            <div class="decision-notes-text">@Comment</div>
+        </dialog>
+    }
+}

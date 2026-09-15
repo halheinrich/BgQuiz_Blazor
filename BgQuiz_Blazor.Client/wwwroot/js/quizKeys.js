@@ -29,7 +29,11 @@
 //     ALREADY checked. Space on an unchecked focused radio selects it, which
 //     must still happen; a checked one ignores space natively. The user's
 //     last click before Space is a cube pill, which keeps focus, so the
-//     one-pill case reads "select it" and the two-pill case "submit".
+//     one-pill case reads "select it" and the two-pill case "submit";
+//   - anything inside an open <dialog> — the review's notes overlay
+//     (halheinrich/backgammon#31), which takes focus when it opens. Space
+//     there scrolls a long note, and the page's primary action is behind the
+//     overlay, where a click cannot reach it either.
 // Everything else — the body, the board's SVG, a plain div — fires.
 
 let dotNetRef = null;
@@ -74,6 +78,7 @@ function isEligible(event) {
 // Whether Space already does something at `target` — the filter above, as code.
 function consumesSpace(target) {
     if (!(target instanceof Element)) return false;
+    if (target.closest('dialog[open]')) return true;
     if (target.isContentEditable) return true;
     if (target instanceof HTMLInputElement) {
         // Every input type but radio consumes: text-like types type a space,

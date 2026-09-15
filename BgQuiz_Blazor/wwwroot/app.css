@@ -504,6 +504,83 @@ h1:focus {
     color: #6c757d;
 }
 
+/* The decision's notes (SPEC-quiz-view.md §4's 2026-09-15 amendment, issue
+   halheinrich/backgammon#31): the review row's Notes control opens the comment
+   as an OVERLAY ABOVE THE PAGE. Both pieces are position: fixed, so opening
+   reflows nothing and the board never moves — §2's invariance by construction,
+   not by a reserved slot. The control itself is an ordinary Bootstrap button in
+   the row's leading cluster and needs no rule here.
+
+   Measured before relying on it: .content's inline-size container does not make
+   it the containing block for fixed descendants in Chromium — a fixed inset:0
+   probe inside it covered the whole 1280x720 viewport from 0,0 and won the hit
+   test over the navigation panel. So the backdrop really is the whole page, and
+   a click outside the notes anywhere, the panel included, lands on it.
+
+   z-index 1050 / 1055 are Bootstrap's own modal backdrop and modal values: above
+   the layout's sticky top row (z-index 1) and every chip on this page, under
+   nothing the app renders. */
+.decision-notes-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1050;
+    /* A light tint, deliberately not Bootstrap's 50% black: the notes are
+       usually about the position, so the board must stay readable behind them,
+       while the tint still says the page is not the thing a click reaches. */
+    background-color: rgb(0 0 0 / 0.15);
+}
+
+/* Scoped to [open]: an author `display` beats the UA sheet's
+   `dialog:not([open]) { display: none }` whatever its specificity, so an
+   unscoped rule would paint a closed dialog. (The component renders the element
+   only while open; the scope keeps this rule honest if that ever changes.)
+   Centred by inset: 0 plus auto margins against a fit-content height, which the
+   max-height caps — a long note scrolls inside .decision-notes-text rather than
+   growing past the viewport. */
+.decision-notes[open] {
+    position: fixed;
+    inset: 0;
+    z-index: 1055;
+    display: flex;
+    flex-direction: column;
+    width: min(36rem, calc(100vw - 2rem));
+    height: fit-content;
+    max-height: min(32rem, calc(100vh - 2rem));
+    margin: auto;
+    padding: 0;
+    border: 1px solid #dee2e6;
+    border-radius: 0.5rem;
+    background-color: #fff;
+    color: #212529;
+    box-shadow: 0 0.5rem 1rem rgb(0 0 0 / 0.15);
+}
+
+.decision-notes-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #dee2e6;
+}
+
+/* THE TEXT AS THE SOURCE STORED IT (the ruling's own words): pre-wrap keeps
+   runs of spaces and every line break, so a note laid out in columns reads as
+   its author wrote it, and an embedded CRLF renders as exactly one break —
+   measured, the same height as LF. Nothing upstream normalizes the text and
+   nothing may. overflow-wrap: anywhere breaks the one kind of token that has no
+   space to break at — a raw RTF control-word run, which is what a real XG
+   comment starts with until halheinrich/backgammon#233 — instead of pushing the
+   dialog wider than the viewport. The page's own font, not a monospace one:
+   eXtreme Gammon lays comments out in a proportional face, so its authors'
+   spacing is tuned to one. */
+.decision-notes-text {
+    padding: 0.75rem 1rem;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 /* Dismissible notices (Quiz's board-space set, SPEC-quiz-view.md §4; Home's
    pick-outcome band, issue #107) — dismissed by a click anywhere in the alert,
    not just on the btn-close inside it. The oversized target is the

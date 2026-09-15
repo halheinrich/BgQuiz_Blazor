@@ -215,8 +215,9 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   outline's anchor ids and headings) plus the `MixPanel` builder Home hosts
   and the `ScorePanel` / `ScoreBreakdown` pair. `Components/` itself holds
   `XgidLabel` and `ProblemLocator`, the quiz page's bottom-row XGID badge
-  and locator chip, and `ProblemFolderLabel`, the `Problem folder:` caption
-  Home, Done and Stats share.
+  and locator chip, `DecisionNotes`, the review row's Notes control and its
+  overlay, and `ProblemFolderLabel`, the `Problem folder:` caption Home, Done
+  and Stats share.
   `wwwroot/js/quizKeys.js` is the quiz page's Space-shortcut module.
 
 **`BgQuiz_Blazor.Tests/`** — xUnit over both app projects, with bUnit for
@@ -2050,7 +2051,8 @@ The asymmetry is pinned three times over: at the service seam
   make by hand. The semantic class names are the pins' hooks — the Bootstrap
   utilities beside them still do the layout. **Review** (`Review`
   set): a read-only `BackgammonDiagram` in `DiagramMode.Solution` plus
-  Continue / Redo / Show stats, built with `DiagramRequest.Builder.From(...)`
+  Continue / Redo — then Notes, when the decision carries a comment (below) —
+  / Show stats, built with `DiagramRequest.Builder.From(...)`
   and then the user's marks overridden from `Review` — `UserPlayIndex` for a
   play (`-1` off-list draws no marker), or `UserDoubleError` / `UserTakeError`
   for a cube. `FromDecisionData` is **not** used here: it defaults those marks
@@ -2097,7 +2099,9 @@ The asymmetry is pinned three times over: at the service seam
   decides *eligibility* in the browser, synchronously, from the event alone:
   Space, unmodified, not a repeat, and focus on nothing that consumes space
   (typing surfaces, buttons and links, checkboxes; radios only when already
-  checked, so a pill still selects). `preventDefault` only when it fires.
+  checked, so a pill still selects; anything inside an open `<dialog>` — the
+  review's notes overlay, halheinrich/backgammon#31). `preventDefault` only
+  when it fires.
   The callback's name travels with the reference (`nameof`), so it is
   spelled once. It is the app's first `[JSInvokable]`, and the e2e suite
   against the trimmed AOT publish is what proves it survives
@@ -2224,6 +2228,50 @@ The asymmetry is pinned three times over: at the service seam
   - **None of it is identity.** The three facts reach display and stop
     (`TestFixtureContractTests`), which is what lets `SPEC-stats-identity.md` go
     on keying by content while the chip names a file.
+
+  **The decision's notes have one home: a Notes control after Redo, opening an
+  overlay** (`SPEC-quiz-view.md` §4's 2026-09-15 amendment, issue
+  halheinrich/backgammon#31). `DecisionNotes` (`Components/`) is the one
+  display seam for `DescriptiveData.Comment` — nothing else reads it — and the
+  page hands it `current.Descriptive.Comment` and nothing else, in the review
+  branch only (the comment's author knew the answer, so answering shows none, in
+  either view mode). It renders nothing for an empty comment. What a reader of
+  this code needs beyond §4:
+
+  - **The overlay is a native `<dialog>`, rendered only while the component's
+    own bit is set**, so its `open` attribute accompanies it whenever it exists
+    — no `showModal()`, no `popover`, no authored script. The bit is a field:
+    never app-scoped, never persisted, set only by the user's click, and cleared
+    without a focus move if the host ever hands the instance a different comment
+    (another decision's notes were not opened by anyone). Continue and Redo
+    close it by leaving the review branch, which unmounts the component.
+  - **Both pieces are `position: fixed`** (`.decision-notes-backdrop`,
+    `.decision-notes[open]` — `AppCss_DecisionNotes_OverlayIsFixed_SoNothingReflows`),
+    so opening reflows nothing and the board never moves. The backdrop covers the
+    whole viewport — measured: `.content`'s inline-size container does not trap
+    a fixed descendant in Chromium, and a fixed probe inside it covered the
+    viewport and won the hit test over the navigation panel — so any click
+    outside the notes closes them and reaches nothing else. The dialog's rule is
+    scoped to `[open]`: an author `display` beats the UA sheet's hiding of a
+    closed dialog whatever the specificity.
+  - **Focus**: moved into the dialog (`tabindex="-1"`, named by its `Notes`
+    heading) on open through `ElementReference.FocusAsync`, and back to the
+    control on every close — Esc (`@onkeydown` on the dialog, which is why a
+    click on the text keeps focus inside), the backdrop, the visible close
+    button, or the control itself. **`quizKeys.js`'s focus filter treats
+    anything inside an open `<dialog>` as consuming Space**, so the page's
+    Space shortcut cannot press Continue through the overlay — the one change
+    the notes made to the keyboard module.
+  - **The text is shown as the source stored it** (`pre-wrap`,
+    `AppCss_DecisionNotesText_KeepsTheAuthorsWhitespace`): one text node, never
+    inspected. Real XG comments are RTF documents with embedded CRLFs, and
+    authors align columns with runs of spaces; a CRLF renders as exactly one
+    break (measured, the same height as LF), and `overflow-wrap: anywhere`
+    breaks a raw control-word run that has no space to break at. RTF-to-text is
+    the converter's upgrade (halheinrich/backgammon#233) and changes nothing
+    here.
+  - **The control is a fixed-width button in the leading cluster**, not a member
+    of the tail's shrink order; the row's height stays the primary button's.
 
   **The maximize-board mode** (issue halheinrich/backgammon#41 /
   `SPEC-quiz-view.md` §4). With the user's

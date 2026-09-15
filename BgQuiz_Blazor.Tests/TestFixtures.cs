@@ -148,9 +148,13 @@ internal static class TestFixtures
     /// cube fixtures cannot come to disagree about what an unset location
     /// means — and the answer is the record's own defaults (no file name,
     /// game 0, move 0), which <c>ProblemLocator</c> reads as "locates nothing".
+    /// <paramref name="comment"/> is the decision's XG comment, the text
+    /// <c>DecisionNotes</c> displays (<c>halheinrich/backgammon#31</c>); the
+    /// factories default it to empty — the record's own default, and "no
+    /// notes" — so a test that says nothing about notes renders no control.
     /// </summary>
     private static DescriptiveData Describe(
-        string onRoll, string opp, SourceLocation? location) =>
+        string onRoll, string opp, SourceLocation? location, string comment) =>
         new()
         {
             OnRollName = onRoll,
@@ -158,6 +162,7 @@ internal static class TestFixtures
             SourceFile = location?.SourceFile,
             Game = location?.Game ?? 0,
             MoveNumber = location?.MoveNumber ?? 0,
+            Comment = comment,
         };
 
     /// <summary>
@@ -192,7 +197,8 @@ internal static class TestFixtures
     public static BgDecisionData TwoChoiceDecision(
         Play play1, Play play2, double play2Loss = 0.05, string onRoll = "Alice",
         string opp = "Bob", string xgid = "", int recordedPlayIndex = -1,
-        DecisionId? id = null, int away = 0, SourceLocation? location = null)
+        DecisionId? id = null, int away = 0, SourceLocation? location = null,
+        string comment = "")
     {
         return new BgDecisionData
         {
@@ -216,7 +222,7 @@ internal static class TestFixtures
                 BestPlayIndex = 0,
                 UserPlayIndex = recordedPlayIndex,
             },
-            Descriptive = Describe(onRoll, opp, location),
+            Descriptive = Describe(onRoll, opp, location, comment),
         };
     }
 
@@ -244,7 +250,7 @@ internal static class TestFixtures
         double noDoubleEquity = 0.5, double doubleTakeEquity = 0.7,
         string onRoll = "Alice", string opp = "Bob", string xgid = "",
         DecisionId? id = null, int away = 0, SourceLocation? location = null,
-        CubeOwner cubeOwner = CubeOwner.OnRoll)
+        CubeOwner cubeOwner = CubeOwner.OnRoll, string comment = "")
     {
         return new BgDecisionData
         {
@@ -264,7 +270,7 @@ internal static class TestFixtures
                 NoDoubleEquity = noDoubleEquity,
                 DoubleTakeEquity = doubleTakeEquity,
             },
-            Descriptive = Describe(onRoll, opp, location),
+            Descriptive = Describe(onRoll, opp, location, comment),
         };
     }
 
