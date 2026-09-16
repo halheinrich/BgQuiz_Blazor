@@ -422,13 +422,56 @@ public abstract class E2eTestBase : IAsyncLifetime
     }
 
     /// <summary>
+    /// Open the filter panel's <c>More filters</c> container and wait for it to
+    /// land. The producer folds all eight facet rows behind this one disclosure
+    /// (umbrella <c>halheinrich/backgammon#231</c>), folded at rest, so a
+    /// scenario reaching any row opens this first — through the container's own
+    /// toggle, so it exercises the disclosure's real wiring rather than reaching
+    /// around it.
+    ///
+    /// <para>
+    /// <b>Conditional, and so idempotent.</b> The container's open state lives in
+    /// localStorage under its own key and is restored on every fresh mount,
+    /// exactly as the rows' is, so it survives a re-pick or a reload and can
+    /// already be open when this is called. The button is a toggle: an
+    /// unconditional click on an open container would fold it, and the row
+    /// locator that followed would fail far from the cause.
+    /// </para>
+    ///
+    /// <para>
+    /// Waiting on <c>aria-expanded</c> rather than returning from the click is
+    /// what makes this an open rather than a dispatch. The panel persists the
+    /// choice through interop before the render that puts the rows in the DOM
+    /// lands, so a locator for a row can outrun it — a bare click-then-find
+    /// flaked two runs in three in the producer's own suite until the wait was
+    /// added.
+    /// </para>
+    /// </summary>
+    protected async Task OpenMoreFiltersAsync()
+    {
+        var toggle = Page.Locator("#moreFiltersToggle");
+        if (await toggle.GetAttributeAsync("aria-expanded") == "true") return;
+
+        await toggle.ClickAsync();
+        await Expect(toggle).ToHaveAttributeAsync("aria-expanded", "true");
+    }
+
+    /// <summary>
     /// Open one of the filter panel's facet rows and wait for it to land. The
     /// panel keeps its error-range section first and always visible; each of
-    /// its other eight facets is its own collapsible row whose controls render
-    /// only while that row is expanded — absent from the DOM when collapsed,
-    /// not merely hidden — so a scenario setting one of those facets opens the
-    /// row it lives in first, and only that row. Error-range edits, Apply, and
-    /// Clear filters need no row.
+    /// its other eight facets is its own collapsible row, folded behind the
+    /// <c>More filters</c> container, whose controls render only while that row
+    /// is expanded — absent from the DOM when collapsed, not merely hidden — so
+    /// a scenario setting one of those facets opens the row it lives in first,
+    /// and only that row. Error-range edits, Apply, and Clear filters need no
+    /// row.
+    ///
+    /// <para>
+    /// <see cref="OpenMoreFiltersAsync"/> runs first because it must: a row's
+    /// toggle is not in the DOM until the container above it is open. The
+    /// conditionality lives there, not here, so a call site stays a statement
+    /// about the row its scenario needs and says nothing about the container.
+    /// </para>
     ///
     /// <para>
     /// <paramref name="facet"/> is the facet's member name as the panel spells
@@ -451,6 +494,8 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </summary>
     protected async Task ExpandFacetRowAsync(string facet)
     {
+        await OpenMoreFiltersAsync();
+
         var toggle = Page.Locator($"#facetToggle_{facet}");
         await toggle.ClickAsync();
         await Expect(toggle).ToHaveAttributeAsync("aria-expanded", "true");

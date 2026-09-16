@@ -2209,13 +2209,21 @@ public class PageTests : BunitContext
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         // Address the two panels by their own unique, always-rendered controls:
-        // the saved-filters save-name box and the filter panel's first facet
-        // row's toggle. (Not the position-pattern box — it sits inside its row
-        // and is absent from the DOM while that row is collapsed.)
+        // the saved-filters save-name box and the filter panel's More-filters
+        // toggle. Not a facet row's toggle, which this probe used until the
+        // producer folded all eight rows behind that container
+        // (halheinrich/backgammon#231) and they stopped being always-rendered —
+        // the same disqualification that already ruled out the position-pattern
+        // box, which sits inside a row and is absent from the DOM while that row
+        // is collapsed. Re-keyed rather than opened: what this test is about is
+        // where the two panels sit, so it addresses the outermost stable landmark
+        // the panel offers and reaches inside it for nothing. Opening a
+        // disclosure to prove a layout order would make the probe depend on a
+        // gesture its subject has no interest in.
         var markup = cut.Markup;
         var savedFiltersIndex = markup.IndexOf("id=\"saveFilterName\"", StringComparison.Ordinal);
         var filterPanelIndex = markup.IndexOf(
-            $"id=\"{FacetToggleId(FilterFacet.Players)}\"", StringComparison.Ordinal);
+            $"id=\"{MoreFiltersToggleId}\"", StringComparison.Ordinal);
         Assert.True(savedFiltersIndex >= 0, "The saved-filters NamedEntriesPanel should render for an FS-Access pick");
         Assert.True(filterPanelIndex >= 0, "FilterPanel should render post-pick");
         Assert.True(savedFiltersIndex < filterPanelIndex,
@@ -7533,15 +7541,59 @@ public class PageTests : BunitContext
         cut.Find("#mixAddRow").ClickAsync(new());
 
     /// <summary>
+    /// Opens the <see cref="FilterPanel"/>'s <i>More filters</i> container —
+    /// the single disclosure the producer folds all eight facet rows behind
+    /// (umbrella <c>halheinrich/backgammon#231</c>) — through the container's
+    /// own toggle button, so a test that reaches a row exercises that
+    /// disclosure's real wiring rather than reaching around it. Folded is the
+    /// resting state and the rows' toggles are absent from the DOM until it is
+    /// open, so this runs before any row is addressed.
+    /// <para>
+    /// <b>Conditional, and so idempotent.</b> The button is a toggle and the
+    /// container's open state persists exactly as the rows' does, so it can
+    /// mount already open — a re-pick, a reload, or a second call here. An
+    /// unconditional click would fold it again and the row <c>Find</c> that
+    /// followed would fail somewhere far from the cause; the
+    /// <c>aria-expanded</c> read up front is what makes this an <i>open</i>
+    /// rather than a flip.
+    /// </para>
+    /// <para>
+    /// The wait is not decoration. The producer persists the choice through
+    /// interop before the render that puts the rows in the DOM lands, so a
+    /// <c>Find</c> for a row on the next line can outrun it — a bare
+    /// click-then-find flaked two runs in three in the producer's own suite
+    /// until this wait was added. Opening the container is navigation, not an
+    /// edit, so like a row it raises no applied-state report and never
+    /// disturbs a test's applied/dirty expectations.
+    /// </para>
+    /// </summary>
+    private static async Task OpenMoreFiltersAsync(IRenderedComponent<HomePage> cut)
+    {
+        var selector = $"#{MoreFiltersToggleId}";
+        if (cut.Find(selector).GetAttribute("aria-expanded") == "true") return;
+
+        await cut.Find(selector).ClickAsync(new());
+        cut.WaitForAssertion(() => Assert.Equal(
+            "true", cut.Find(selector).GetAttribute("aria-expanded")));
+    }
+
+    /// <summary>
     /// Opens one of the <see cref="FilterPanel"/>'s facet rows through that
     /// row's own toggle button, then asserts the row reports itself open. The
     /// panel keeps the error-range section first and always visible; each of
-    /// its other eight facets is its own collapsible row whose controls render
-    /// <i>only</i> while that row is expanded — absent from the DOM when
-    /// collapsed, not merely styled away — so a test driving one of those
-    /// controls opens the row it lives in, and only that row: opening more
-    /// would hide a control that had quietly moved to another. Error-range
-    /// edits, Apply, and Clear filters need no row.
+    /// its other eight facets is its own collapsible row, folded behind the
+    /// <i>More filters</i> container, whose controls render <i>only</i> while
+    /// that row is expanded — absent from the DOM when collapsed, not merely
+    /// styled away — so a test driving one of those controls opens the row it
+    /// lives in, and only that row: opening more would hide a control that had
+    /// quietly moved to another. Error-range edits, Apply, and Clear filters
+    /// need no row.
+    /// <para>
+    /// <see cref="OpenMoreFiltersAsync"/> comes first because it must: a row's
+    /// toggle is not in the DOM until the container above it is open. It is
+    /// conditional there, not here, so the eight call sites stay a list of the
+    /// rows their subject lives in and say nothing about the container.
+    /// </para>
     /// <para>
     /// The button is a toggle, so the assertion is what makes this an expand
     /// rather than a flip: a click on a row that is already open closes it, and
@@ -7553,6 +7605,8 @@ public class PageTests : BunitContext
     /// </summary>
     private static async Task ExpandFacetRowAsync(IRenderedComponent<HomePage> cut, FilterFacet facet)
     {
+        await OpenMoreFiltersAsync(cut);
+
         var selector = $"#{FacetToggleId(facet)}";
         await cut.Find(selector).ClickAsync(new());
         Assert.Equal("true", cut.Find(selector).GetAttribute("aria-expanded"));
@@ -7564,6 +7618,16 @@ public class PageTests : BunitContext
     /// name — spelled once here for every page test that addresses a row.
     /// </summary>
     private static string FacetToggleId(FilterFacet facet) => $"facetToggle_{facet}";
+
+    /// <summary>
+    /// The id of the panel's <i>More filters</i> toggle — the container over
+    /// the eight facet rows, and the panel's only always-rendered control.
+    /// Deliberately not <c>facetToggle_</c>-shaped: that prefix is surveyed as
+    /// "the rows" here and in the producer, and the container is not a ninth
+    /// row. Spelled once here, for the helper above and for the one test that
+    /// addresses the panel itself rather than anything inside it.
+    /// </summary>
+    private const string MoreFiltersToggleId = "moreFiltersToggle";
 
     [Fact]
     public async Task Home_MixComposedInPanel_StartComposesWeightedQuiz()
