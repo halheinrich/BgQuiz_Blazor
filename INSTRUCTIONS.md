@@ -149,6 +149,19 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   folder JS of its own any more. The FS-Access lore (two-prompt shape,
   cause-ambiguous cancels/denials, the busy-affordance seam) lives in that
   repo's Pitfalls now.
+- **BgUiPrimitives_Razor** — `Notice`, with `NoticeKind` and
+  `NoticeAnnouncement`: every box this app draws in alert styling renders
+  through it (§ Notices), and the Client references it directly — it also
+  arrives through XgFilter_Razor, but a dependency a project uses is one it
+  states. Its scoped CSS (the dismissible box's pointer cursor and the
+  pointer transparency that makes the whole box the dismiss target) reaches
+  the browser inside this host's `BgQuiz_Blazor.styles.css` bundle, which
+  `App.razor` already links; `EnvironmentFidelityTests` pins that it arrives.
+  **`BgUiPrimitives_Razor.TestSupport`** — `NoticeBox`, `NoticeDismissGesture`,
+  `NoticeAssertionException`: the component's test reader, referenced by
+  `BgQuiz_Blazor.Tests` **only** (it carries bunit; no product project may
+  reference it, and the umbrella's member gate fails one that does). Its
+  bunit and AngleSharp versions are the floor for this repository's.
 - **ConvertXgToJson_Lib** — picked up transitively via the filter pipeline
   (parses the user's browser-picked `.xg` / `.xgp` bytes in-browser, via
   `FilteredDecisionIterator.IterateXgStreamDiagrams`).
@@ -205,7 +218,7 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
 - **Per-tab state** — `Quiz/`: `QuizSettings` (the user settings),
   `MixDraft` and `MixVisibility` (the weighted mix's edit state and its
   visible fact), `ShuffleOption`, `QuizNoticeDismissal` (occurrence-keyed
-  dismissal of the dismissible notices), `QuizLiveMarker` (the
+  dismissal of the notices whose occurrence outlives a page), `QuizLiveMarker` (the
   sessionStorage was-a-quiz-live marker).
 - **Wording** — `Quiz/`: `FolderPickDisplay`, `MixDisplay` and
   `AnswerTypeDisplay`, each the one home of copy more than one surface
@@ -216,8 +229,9 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   and the `ScorePanel` / `ScoreBreakdown` pair. `Components/` itself holds
   `XgidLabel` and `ProblemLocator`, the quiz page's bottom-row XGID badge
   and locator chip, `DecisionNotes`, the review row's Notes control and its
-  overlay, and `ProblemFolderLabel`, the `Problem folder:` caption Home, Done
-  and Stats share.
+  overlay, `ProblemFolderLabel`, the `Problem folder:` caption Home, Done
+  and Stats share, and `ReturnControl`, the way back Settings, Help and Stats
+  share.
   `wwwroot/js/quizKeys.js` is the quiz page's Space-shortcut module.
 
 **`BgQuiz_Blazor.Tests/`** — xUnit over both app projects, with bUnit for
@@ -300,7 +314,8 @@ referencing no app project. Three areas:
                           IsFinished (on Continue / Skip / End quiz) → Nav→/done
 
 /stats   Stats.razor   → read-only, live ScorePanel + ScoreBreakdown against the
-                          same in-progress Controller + Back to quiz (Nav→/quiz)
+                          same in-progress Controller + ReturnControl
+                          (Back to quiz, Nav→/quiz)
                           Reachable only from /quiz; redirects to / if no quiz
                           in progress, to /done if already finished.
 
@@ -979,11 +994,11 @@ viewer, or halheinrich/backgammon#43's saved-mix gating — **is when this split
 into the fact plus the policy over it.**
 
 **Status surfacing** splits by context. Pick-time (Home, capability-based,
-all polite `role="status"`): stats-will-be-saved (`Enabled`, naming
+all polite): stats-will-be-saved (`Enabled`, naming
 `QuizStatsFile.FileName`) / browser-can't-save / declined-write, plus the
 empty-folder outcome, the truncated-pick notice (one line per kind the count
 caps cut short — § `PickedFileLimits`), the stats-retirement **forecast**
-(§ Dismissible notices), and the `role="alert"` pick-failure banner.
+(§ Notices), and the assertive pick-failure error.
 Quiz-context (Quiz **and** Done — a failure on the final Continue lands on
 Done without ever showing Quiz's notice): `LoadFailed` polite, `WriteFailed`
 assertive;
@@ -1418,9 +1433,10 @@ thing.
 **Honest notices, all three** (a fourth — the *signal early* won't-apply
 advisory — was retired when the panel became stats-gated, which made its state
 unreachable; don't re-add it, it has no trigger left). (1) *Gate late*: a
-refused weighted Start/Restart renders an actionable `role="alert"` with the
+refused weighted Start/Restart renders an actionable assertive notice with the
 reason and the one-click per-run override ("Start without mix" / "Restart
-without mix"); the mix rows and the setting are kept either way, and the
+without mix") — a gate reason, so it does not dismiss (§ Notices): closing it
+would take the override with it; the mix rows and the setting are kept either way, and the
 notice says so — its keep-your-mix escape is *turn the mix off in Settings*,
 not *Clear mix*, because Clear genuinely deletes the rows
 (screen-follows-storage) and is not an off-switch. The
@@ -1442,12 +1458,12 @@ splitting it to word this better would be a second copy of its halves. (2) *Comp
 filtered-to-zero. (3) *Composition-first mix notices on Quiz*: every mix
 notice leads with the effective quiz — `MixDisplay.CompositionSummary` over
 `Controller.LastComposition` — before any apportionment internals. A
-**length-bound** mix that fell short keeps the assertive `role="alert"`
+**length-bound** mix that fell short keeps the assertive warning
 framing under that lead: the asked-for-X-drew-Y line plus per-entry
 drew-N-of-M when the target itself was missed, or per-entry
 filled-N-of-its-P%-share lines when the target was met but a pool ran dry
 (the internals demoted to explanation). A **capless** mix renders a
-composition-only `role="status"` info line instead and never says
+composition-only polite information notice instead and never says
 "requested": without a `QuizLength` the percentages bind to nothing —
 per-entry `Requested` is largest-remainder apportionment of the pool union,
 so an outdrawn entry is composition noise, not shortfall (the producer
@@ -1455,8 +1471,8 @@ guarantees Drawn == Target capless). The page keys the split on the
 composition's own `HasRequestedLength`; a length-bound mix that filled
 exactly shows no notice at all.
 
-**Both mix notices retire on the first submitted answer** — *or* on a click,
-like every notice on the page (§ Dismissible notices). They say how *this*
+**Both mix notices retire on the first submitted answer** — *or* when the
+user dismisses them, like every notice on the page (§ Notices). They say how *this*
 quiz was built — worth reading before answering, stale chrome after — so
 `Quiz.Submit` dismisses them once an answer lands, checker or cube alike.
 Three deliberate choices: **dismissal, not deletion** (the controller's
@@ -1473,29 +1489,66 @@ gate, and dismissing on a submit that scored nothing would drop the notice
 with no answer given; the predicate also covers an off-list play. **Skip is
 deliberately not a dismissal** — it moves past a problem without answering it.
 
-### Dismissible notices — `QuizNoticeDismissal` (issues halheinrich/backgammon#41 / halheinrich/backgammon#107, `SPEC-quiz-view.md` §4)
+### Notices — the shared `Notice`, and who holds each dismissal (`../SPEC-notices.md`; issues halheinrich/backgammon#41 / halheinrich/backgammon#107 / halheinrich/backgammon#248)
 
-**Every notice on the Quiz page dismisses on a click**: the mix composition
-notice (both framings), the stats-context degrade notice (`LoadFailed`'s
-polite one, `WriteFailed`'s assertive one), and the stats-retirement report.
-Dismissal is §4's answer to the
-board space they cost, the mode being forbidden from suppressing them — the
-ruling and its reasoning are the spec's.
+**Every box this app draws in alert styling renders through
+BgUiPrimitives_Razor's `Notice`** — on Home, Quiz and Done — except the quiz
+page's verdict strip, which borrows alert colours but is governed by
+`SPEC-quiz-view.md` §2's fixed-height contract and is outside the notices
+model. A call site names what the box *is*: its `NoticeKind`, its
+`NoticeAnnouncement` (a box that was `role="status"` is `Polite`, one that was
+`role="alert"` is `Assertive`), whether it is `Dismissible`, and its own id
+and spacing classes. The component owns everything that follows from that —
+the alert classes, the live-region role and where it sits, the close button,
+the whole box as the large low-vision-friendly target, the pointer cursor —
+so no page types alert markup, and no page may again.
 
-**So does every outcome/status notice in Home's pick band** (issue
-halheinrich/backgammon#107, the ruling "a colored info message should go
-away when clicked"). The holder-backed trio — the truncation alert, the
-stats-capability notice (its three branches share one slot: mutually
-exclusive renderings of one per-pick verdict) and the stats-retirement
-forecast — key on `PickedProblemFolder.PickOccurrence`, so a re-pick shows
-fresh and navigate-back stays dismissed. The per-visit pair — cancelled
-pick, empty folder — get the same click affordance but clear their own page
-fields: their transience already scopes the dismissal, so a token would have
-nothing to outlive. **Not dismissible, deliberately**: the red pick-error
-banner (a failure report, `role="alert"`, a different claim class) and the
-pre-pick advisory lines (guidance with their own retirement rules —
-halheinrich/backgammon#105's silent-gesture account is folder-held-gated,
-not a pick outcome).
+**Which boxes dismiss is the model's classification, not colour**
+(`SPEC-notices.md` §1 and §4). Event notices, condition notices and errors
+dismiss; **gate reasons do not** — a box whose absence would leave the screen
+unable to say why it is as it is: Home's and Done's weighted-mix refusals
+(each carries its own escape button, "Start without mix" / "Restart without
+mix", which works inside the notice untouched), Home's no-match notice (why
+Start found nothing), and Quiz's "No quiz in progress" (the page's whole
+content in that state). On the Quiz page dismissal is also `SPEC-quiz-view.md`
+§4's answer to the board space the notices cost, the maximize mode being
+forbidden from suppressing them. The pre-pick advisory lines are not boxes
+and are not notices.
+
+**The owner of each occurrence holds its dismissal** (`SPEC-notices.md` §2),
+so where a dismissal lives follows how long the thing it dismisses lives —
+never where the box happens to sit:
+
+- **`QuizNoticeDismissal`, the app-scoped holder, for occurrences that
+  outlive a page.** Each box binds `@bind-Dismissed:get` to
+  `Notices.IsDismissed(slot, occurrence)` and `:set` to
+  `Notices.Dismiss(slot, occurrence)`. The Quiz page's composition, stats
+  degrade and stats-retirement notices (*Show stats* re-instantiates the
+  page, so anything shorter-lived would resurrect a dismissed notice); Home's
+  pick-band trio — the truncation notice, the stats-capability notice (its
+  three branches share one slot: mutually exclusive renderings of one
+  per-pick verdict) and the stats-retirement forecast — keyed on
+  `PickedProblemFolder.PickOccurrence`, so a re-pick shows fresh and
+  navigate-back stays dismissed; and **Done's three stats notices, bound to
+  the Quiz page's slots and occurrences** (`SPEC-notices.md` Fork B, which
+  overturned Done's old "read once, not dismissible" exception): they are the
+  same notices, so one occurrence has one dismissal — closed mid-quiz, it
+  stays closed on Done, and the next occurrence shows fresh on both.
+- **The page field that is the notice's whole state, for per-visit
+  notices.** Home's cancelled-pick and empty-folder notices bind `:get` to
+  "the flag is clear" and `:set` to clearing it; the two errors — could not
+  read the folder, could not start the quiz (`SPEC-notices.md` Fork A) —
+  bind `:get` to "the message field is empty" and `:set` to clearing it. No
+  dismissed bit exists anywhere, so the next occurrence, **even a second
+  failure with identical text**, shows fresh: the text was never the
+  occurrence. The `<Notice>` sits outside any `@if` — one fact, read once.
+- **The component itself, for an occurrence that dies with the page
+  instance.** Home's reload-reset notice: its occurrence is this boot's reset,
+  which `Home` reads once from `QuizLiveMarker` and clears in the same step,
+  so a navigate-back re-instantiates the page with nothing to show. It is
+  simply `Dismissible` with no binding and no `OccurrenceKey` (the instance
+  never sees a second reset). An app-scoped owner here would *lengthen* the
+  notice's one-shot lifetime — a behaviour change, not a home for the bit.
 
 **Per occurrence, transient, app-scoped.** The holder generalizes the old
 composition-only `MixNoticeDismissal` by adding a **slot key** (`QuizNotice`)
@@ -1521,8 +1574,8 @@ exist at all:
   read. And deliberately not a `QuizStatsStatus` value — after a retirement
   the context is `Ready` and can still fail its next write, so retired-ness is
   orthogonal to the condition `Status` reports; folding it in would make every
-  `== Ready` site grow an "or retired" clause. `Done` mirrors it
-  non-dismissibly, as it mirrors the degrade notices.
+  `== Ready` site grow an "or retired" clause. `Done` mirrors it on the same
+  slot and occurrence, as it mirrors the degrade notices.
 - **PickTruncations / PickStatsCapability / PickStatsRetirementForecast** →
   `PickedProblemFolder.PickOccurrence`, the same opaque token for all three of
   Home's pick-band slots (they render side by side and dismiss independently).
@@ -1555,15 +1608,23 @@ producer's retired-schema signal forecasts: a corrupt, foreign or
 newer-schema file is the `LoadFailed` family's story, told after the bind,
 and promising a set-aside for one would promise an act that never comes.
 
-**The affordance is deliberately two things**: the whole alert is the click
-target (large, low-vision-friendly — this arc's reason for existing) *and* a
-standard Bootstrap `btn-close` renders inside it, because a bare clickable
-region is undiscoverable and carries none of the keyboard / screen-reader
-semantics. The button's click is `stopPropagation`'d; both routes call the
-same idempotent `Dismiss`. **Never `data-bs-dismiss`** — it removes the node
-behind Blazor's back, leaving the renderer's tree disagreeing with the DOM.
-Nothing here is persisted: a dismissal is transient by design, and a reload
-has no quiz to come back to.
+**The affordance is the component's, not this app's.** It is deliberately two
+things (`SPEC-notices.md` §3): the whole box is the click target (large,
+low-vision-friendly — the reason the Quiz page's arc began) *and* a visible
+close button carries the keyboard and screen-reader semantics a bare
+clickable region lacks. This app used to spell that pattern inline in every
+dismissible box, with an app.css class for the cursor; both are gone, and
+neither comes back — see Pitfalls. Nothing here is persisted: a dismissal is
+transient by design, and a reload has no quiz to come back to.
+
+**Tests read notices through `NoticeBox`**, the component's test reader
+(`BgUiPrimitives_Razor.TestSupport`): every box is asserted with `ShouldBe` —
+kind, announcement, dismissibility and the attribute names its tag passes —
+and every dismissible box is dismissed by both `NoticeDismissGesture`s. A box
+with an id is found by it; one without, by what it says (`PageTests`'
+`NoticeSaying`). The browser suite pins the one thing bUnit cannot: that a
+dismissible box computes `cursor: pointer` on a real page load, a value only
+the component's scoped stylesheet produces (`EnvironmentFidelityTests`).
 
 ### `ShuffleOption` — the "Shuffle order" toggle holder
 
@@ -2013,16 +2074,20 @@ The asymmetry is pinned three times over: at the service seam
   (zero filter matches; every match auto-skipped for offering no play choice), so the
   wording claims neither. `_noMatchNotice` is a sibling field to
   `_startError`, distinct because it reports an *outcome*, not a *failure*:
-  `alert-warning` + polite `role="status"`, not `alert-danger` + assertive
-  `role="alert"`. Both are genuinely per-visit state, so component fields (see
+  a polite warning and a gate reason that does not dismiss, not an assertive
+  error that does. Both are genuinely per-visit state, so component fields (see
   Pitfalls); `PageTests` pins both flip paths and the over-trigger guard. A
-  **third** per-visit notice (`_showReloadNotice`, polite) fires on a boot
+  **third** per-visit notice (`_showReloadNotice`, polite, dismissible and
+  held by the component — § Notices) fires on a boot
   that finds the `QuizLiveMarker` set with no live controller. The page
   **footer** carries `AppInfo.Version` (in a `#appVersion` span) and the beta
   feedback `mailto:` from the same `AppInfo` (§ that section).
-  **Back to quiz** (issue halheinrich/backgammon#58). The same conditional button
-  `Help` and `Settings` carry — same `HasStarted && !IsFinished` predicate, same
-  markup, same words — closing the last page reachable mid-quiz that had no way back.
+  **Back to quiz** (issue halheinrich/backgammon#58). A conditional button on
+  the same `HasStarted && !IsFinished` predicate and with the same words as
+  the live half of `ReturnControl` — closing the last page reachable mid-quiz
+  that had no way back. It is **not** `ReturnControl` (§ `Settings`): that
+  control falls back to "Back to Home" with no quiz live, and Home is the setup
+  page — it does not return to itself, so here the button is simply absent.
   It sits **outside** the busy `fieldset` (it navigates and drives no transition, so
   it follows the Show-stats convention of staying live while the page works) and
   outside the progressive-disclosure gate, so a mid-quiz Clear cannot take the
@@ -2316,7 +2381,7 @@ The asymmetry is pinned three times over: at the service seam
   `GetHitRegions` alike), and the derivation cannot select it while a review is
   rendering. The action row keeps **every** instrument, cube radios included,
   so every answer stays makeable without leaving the maximized view. Notices
-  are deliberately *not* gated on the mode — see § Dismissible notices.
+  are deliberately *not* gated on the mode — see § Notices.
 
   **Busy affordances:** every transition-driving button
   (Submit, Skip, Undo, Continue, Redo, End quiz) disables on `Controller.IsBusy`
@@ -2329,8 +2394,11 @@ The asymmetry is pinned three times over: at the service seam
   `WriteFailed` assertive — the store subscription surfaces a mid-quiz write
   failure the moment it happens) and the mix notices from
   `Controller.LastComposition`, framed per § MixPanel's honest-notices list.
-  Both are gated on `!Notices.IsDismissed(slot, occurrence)` and **both
-  dismiss on a click** — § Dismissible notices. The `ScorePanel` carries
+  Each is a `Notice` whose dismissed state is bound to
+  `QuizNoticeDismissal` on its slot and occurrence, and **both dismiss** —
+  § Notices. So does the stats-retirement report beside them. With no quiz
+  started the page's whole content is the "No quiz in progress" notice, a
+  gate reason that does not dismiss. The `ScorePanel` carries
   "Problem N of M" from `Controller.ProblemNumber` / `ProblemCount`.
 - **`Stats.razor`** — read-only mid-quiz stats view: the same `ScorePanel` /
   `ScoreBreakdown` pair `Done` shows (the problem folder leading the
@@ -2341,7 +2409,7 @@ The asymmetry is pinned three times over: at the service seam
   `Review` untouched — with the per-tab scoped controller that gives "resume
   where you left off" for free. Direct nav with no quiz in progress bounces to
   `/`; with it already finished, to `/done` — the same guards `Quiz` applies
-  to itself.
+  to itself. Its way back is the shared `ReturnControl` (§ `Settings`).
 - **`Settings.razor`** — the user settings page (issue
   halheinrich/backgammon#30 leg 1), a plain view over `QuizSettings` (§ that
   section for the contracts). Radios for the home-board side, checkboxes for
@@ -2358,13 +2426,27 @@ The asymmetry is pinned three times over: at the service seam
   Help's); nothing else links to it, and the pages the settings affect
   deliberately carry no control of their own — for the maximize mode that is a
   *ruling* (fork D), not an open question; the broader mid-quiz-tweaking
-  question booked on halheinrich/backgammon#30 still is one. It offers the
-  same **"Back to quiz"** button `Help` does — same predicate, same markup,
-  same words (§ `Help`) — copied rather than designed, because the two pages
-  sit in the same position: reachable from any state, so neither redirects the
-  way `Stats` does. It sits on the page and not in the nav panel because that
-  panel renders statically and cannot know a quiz is live — the same
-  constraint that put the fold applier in JS.
+  question booked on halheinrich/backgammon#30 still is one.
+
+  **The way back is `ReturnControl`, always present** (issue
+  halheinrich/backgammon#241). One component in `Components/` owns the rule
+  and both labels, and Settings, Help and Stats each render it where their own
+  button used to be, with the same placement and `btn btn-primary` styling
+  (the host passes only its spacing class). While a quiz is live —
+  `HasStarted && !IsFinished`, the predicate the pages' conditional buttons
+  used, moved rather than restated — it reads **"Back to quiz"** and goes to
+  `/quiz`; otherwise **"Back to Home"**, to the setup page, named as the nav
+  panel names it. The conditional it replaced left Settings and Help with no
+  on-page way out when no quiz was live, and a user rejected a release
+  candidate partly on that. Settings and Help never redirect, so both states
+  are real there; Stats bounces away when no quiz is live, so in practice it
+  shows "Back to quiz", but it renders the shared control so the rule has one
+  owner. Home's own conditional button is a different control (§ `Home`). The
+  control sits on the pages and not in the nav panel because that panel
+  renders statically and cannot know a quiz is live — the same constraint that
+  put the fold applier in JS. `PageTests` pins both states on all three pages,
+  where each label leads, and the styling; `SettingsTests` follows "Back to
+  Home" from Settings to the setup page in a browser.
 - **`Help.razor`** — end-user documentation. Its information architecture is
   `../SPEC-help.md`'s, not this doc's: **five parts at `<h2>`** (*Before you
   start* / *Setting up a quiz* / *Answering* / *After the quiz* / *Reference*)
@@ -2498,8 +2580,9 @@ The asymmetry is pinned three times over: at the service seam
   Lives in the `.Client` (not a static host page) so a mid-quiz Help → Back
   round trip doesn't disturb the WASM runtime holding quiz state. Unlike
   `Stats` it **never redirects**: help is reachable from any state, including
-  a cold visit or a bookmark; only the "Back to quiz" button is conditional,
-  on the exact predicate `Stats` guards with (`HasStarted && !IsFinished`). No
+  a cold visit or a bookmark, so its way back is the always-present
+  `ReturnControl` (§ `Settings`) — "Back to quiz" while a quiz is live,
+  "Back to Home" otherwise. No
   `StateChanged` subscription — nothing changes while the user reads. The host
   `NavMenu`'s Help link is the **only** entry point; `Quiz`'s action row
   deliberately gets no "?" button, because its fixed height is load-bearing
@@ -2587,16 +2670,20 @@ The asymmetry is pinned three times over: at the service seam
   land*, not in what they clear.
   Done participates in the `QuizLiveMarker` lifecycle both ways (clears on
   reaching it, re-sets on Restart — § QuizLiveMarker) and mirrors Quiz's
-  active-context stats notices (`LoadFailed` status / `WriteFailed` alert) —
+  active-context stats notices (`LoadFailed` polite / `WriteFailed`
+  assertive) and its stats-retirement report —
   a failure on the *final* Continue lands the user here without ever seeing
   the in-quiz notice; no subscription needed, the status cannot change while
-  Done is shown. **Restart weights iff the mix is visible at that moment**
+  Done is shown. All three dismiss, bound to the Quiz page's
+  `QuizNoticeDismissal` slots and occurrences, so a notice closed on either
+  page is closed on both (§ Notices). **Restart weights iff the mix is visible at that moment**
   (`ignoreMix: !MixVisibility.IsVisible` — `halheinrich/backgammon#5`), and
   where the finished run was weighted and the mix has since gone, the page says
   so in one sentence before the click (`RestartWillDropTheMix`, over
   `LastComposition is not null` — no new state) and restarts unweighted.
   Refusal is otherwise handled like Home's Start (§ Pages → Home):
-  `MixRequiresStats` renders the alert with **"Restart without mix"**, and the
+  `MixRequiresStats` renders the refusal — a gate reason, not dismissible —
+  with **"Restart without mix"**, and the
   marker stays cleared (nothing became live). The page awaits
   `QuizSettings.EnsureHydratedAsync` in its init, since half of what Restart
   reads is a stored setting — Home has always hydrated it first, and awaiting
@@ -3444,6 +3531,38 @@ public (see Pitfalls). The externally visible surface is the route map:
   `FilterSurface` — the *composite* is consumer surface, unlike the
   `.Internal` panels — which also rules out
   the attribute being silently splatted.
+- **A misspelt `<Notice>` parameter compiles clean and does nothing — a green
+  build proves nothing about a `<Notice>` tag.** `Notice` captures unmatched
+  attributes, so a parameter name it does not have (misspelt, or renamed
+  under the caller) is splatted onto the box as a plain HTML attribute while
+  the real parameter silently takes its default: polite, not dismissible.
+  Measured in both earlier adopters (halheinrich/backgammon#248). The catch
+  is `NoticeBox.ShouldBe` on **every** box, with the attribute names the tag
+  passes: an attribute the box carries that the test did not name is the
+  splat. Write `ShouldBe`'s arguments from what the call site is *meant* to
+  say, not from what it renders — and when adding a box, assert it before
+  trusting it.
+- **A test that names the notice component's markup is a defect.** No test
+  here may name `bg-notice-content`, `btn-close`, an `alert-*` class, or a
+  `role` selector or role string for a notice: each restates
+  BgUiPrimitives_Razor's internals where a change there cannot reach it, and
+  the producer ships `NoticeBox` so that no consumer has to. Find a notice by
+  the caller's own id (`NoticeBox.ById`) or by what it says
+  (`PageTests.NoticeSaying`), assert it with `ShouldBe`, dismiss it with
+  `Dismiss(NoticeDismissGesture…)`, and say "no notice" with
+  `NoticeBox.AllIn`. The browser suite, where it must dismiss a notice,
+  locates the button by its accessible name ("Dismiss this message"), never
+  by class. The caller's own ids, spacing classes and text are this app's and
+  are fine — and the quiz page's verdict strip is not a notice, so its
+  `alert-*` pins stand.
+- **Never type alert markup on a page again, and never re-add a page-side
+  dismiss affordance.** A new box renders through `Notice`; whether it
+  dismisses is decided by `../SPEC-notices.md` §1's gate-reason test, not by
+  colour; and its dismissal lives with the owner of its occurrence (§ Notices
+  — the holder, the page field, or the component), never in a second copy.
+  The inline close button, the `@onclick` / stop-propagation pair and the
+  app.css cursor class this app used to repeat are the component's now; a
+  local copy would be a second spelling of one presentation rule.
 - **Client plain-C# types are `internal`; only Razor components are `public`**
   (the list is in Public API). Don't widen one: the tests already see it
   through the `InternalsVisibleTo` grant, and a page reaches it through
