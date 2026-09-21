@@ -5,6 +5,8 @@
   <Project Path="../BgFolderAccess_Razor/BgFolderAccess_Razor/BgFolderAccess_Razor.csproj" />
   <Project Path="../BgGame_Lib/BgGame_Lib/BgGame_Lib.csproj" />
   <Project Path="../BgMoveGen/BgMoveGen/BgMoveGen.csproj" />
+  <Project Path="../BgUiPrimitives_Razor/BgUiPrimitives_Razor.TestSupport/BgUiPrimitives_Razor.TestSupport.csproj" />
+  <Project Path="../BgUiPrimitives_Razor/BgUiPrimitives_Razor/BgUiPrimitives_Razor.csproj" />
   <Project Path="../ConvertXgToJson_Lib/ConvertXgToJson_Lib/ConvertXgToJson_Lib.csproj" />
   <Project Path="../XgFilter_Lib/XgFilter_Lib/XgFilter_Lib.csproj" />
   <Project Path="../XgFilter_Razor/XgFilter_Razor/XgFilter_Razor.csproj" />

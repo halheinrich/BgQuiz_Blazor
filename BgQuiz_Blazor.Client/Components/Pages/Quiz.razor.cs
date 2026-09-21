@@ -164,32 +164,28 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// (see <see cref="Submit"/>), <i>or</i> the moment the user clicks them
 /// (<see cref="DismissComposition"/>): the notice describes how this quiz was
 /// built, worth reading before answering and stale chrome after. Either gesture
-/// ends it. The stats notices dismiss the same way
-/// (<see cref="DismissStats"/>) but have no automatic retirement — a degraded
-/// recording context is not something an answer makes stale.
+/// ends it. The stats notices dismiss the same way but have no automatic
+/// retirement — a degraded recording context is not something an answer makes
+/// stale.
 /// </para>
 ///
 /// <para>
-/// Every dismissal is recorded in the scoped <see cref="QuizNoticeDismissal"/>
-/// holder — <i>not</i> by clearing the controller's telemetry, which still frames
-/// the composition notice, carries <see cref="QuizController.ProblemCount"/>, and
-/// feeds Home's composed-to-zero wording, and <i>not</i> in a page field, which
-/// the <c>Show stats</c> round trip would reset (this page is re-instantiated on
-/// in-app navigation). Each is keyed on its notice's current occurrence — the
-/// composition instance, the store's
-/// <see cref="QuizStatsStore.StatusOccurrence"/> — so the next Start/Restart, or
-/// the next stats transition, shows its notice again without any reset call site.
-/// </para>
-///
-/// <para>
-/// <b>The affordance is a visible close button plus the whole alert.</b> The
-/// large click target is the low-vision one (this arc's whole reason for
-/// existing), but a bare clickable region with nothing to look at is
-/// undiscoverable — so the standard <c>btn-close</c> renders too, and it is the
-/// button, not the region, that carries the keyboard and screen-reader
-/// semantics. Bootstrap's own <c>data-bs-dismiss</c> is deliberately not used:
-/// it removes the node outside Blazor's knowledge, leaving the renderer's tree
-/// disagreeing with the DOM.
+/// Every notice renders through the shared <c>Notice</c>, which owns the
+/// affordance — the visible close button and the whole box as the large,
+/// low-vision-friendly target (<c>SPEC-notices.md</c> §3). This page owns only
+/// who holds each dismissal: every one binds to the scoped
+/// <see cref="QuizNoticeDismissal"/> holder — <i>not</i> by clearing the
+/// controller's telemetry, which still frames the composition notice, carries
+/// <see cref="QuizController.ProblemCount"/>, and feeds Home's composed-to-zero
+/// wording, and <i>not</i> a page field or the component's own bit, either of
+/// which the <c>Show stats</c> round trip would reset (this page is
+/// re-instantiated on in-app navigation). Each is keyed on its notice's current
+/// occurrence — the composition instance, the store's
+/// <see cref="QuizStatsStore.StatusOccurrence"/> and
+/// <see cref="QuizStatsStore.StatsRetiredOccurrence"/> — so the next
+/// Start/Restart, or the next stats transition, shows its notice again without
+/// any reset call site. The "No quiz in progress" notice is a gate reason — the
+/// page's whole content in that state — and does not dismiss.
 /// </para>
 ///
 /// <para>
@@ -759,30 +755,8 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     };
 
     /// <summary>
-    /// Dismiss the stats-context notice the user is looking at, keyed on the
-    /// occurrence the store is currently reporting rather than on "the stats
-    /// notice" as a standing thing. A later transition — or the next run's bind
-    /// — mints a new occurrence and shows its notice fresh, which is the point:
-    /// a run that records nothing has to say so once per run, not once per app.
-    /// </summary>
-    private void DismissStats() =>
-        Notices.Dismiss(QuizNotice.StatsContext, StatsStore.StatusOccurrence);
-
-    /// <summary>
-    /// Dismiss this run's stats-retirement report. Keyed on
-    /// <see cref="QuizStatsStore.StatsRetiredOccurrence"/>, which is non-null
-    /// only on a run that actually retired a file — and a different token on the
-    /// next one that does, so a folder retired later says so on its own.
-    /// </summary>
-    private void DismissStatsRetired()
-    {
-        if (StatsStore.StatsRetiredOccurrence is { } occurrence)
-            Notices.Dismiss(QuizNotice.StatsRetired, occurrence);
-    }
-
-    /// <summary>
     /// Dismiss the composition notice for <paramref name="composition"/> — the
-    /// click half of a retirement the first submitted answer also performs (see
+    /// gesture half of a retirement the first submitted answer also performs (see
     /// <see cref="Submit"/>). Either gesture ends it, and both record the same
     /// dismissal against the same key, so there is no ordering between them to
     /// get wrong.

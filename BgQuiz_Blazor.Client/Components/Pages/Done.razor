@@ -10,6 +10,7 @@
 @inject MixVisibility MixVisibility
 @inject NavigationManager Nav
 @inject QuizLiveMarker Marker
+@inject QuizNoticeDismissal Notices
 
 <PageTitle>BgQuiz — Done</PageTitle>
 
@@ -25,31 +26,47 @@
     @* The retirement report, mirrored from Quiz for the same reason the notices
        below are: what happened to the stats context is exactly what someone
        reading their results wants to know, and "your lifetime record restarted"
-       is the most consequential thing that can have happened to it. Not
-       dismissible here, like its neighbours — this page is read once. *@
+       is the most consequential thing that can have happened to it.
+
+       Dismissible, like its neighbours and like every notice on every page
+       (SPEC-notices.md Fork B, which overturned this page's earlier "read
+       once" exception): one rule, not one per page. These are the same
+       notices as the Quiz page's, so they bind to the same QuizNoticeDismissal
+       slot and the same occurrence — one occurrence, one dismissal: a notice
+       dismissed on the Quiz page stays dismissed here, and the next occurrence
+       shows fresh on both. *@
     @if (StatsStore.StatsRetiredOccurrence is { } retired)
     {
-        <div class="alert alert-info" role="status">
+        <Notice Kind="NoticeKind.Information" Announcement="NoticeAnnouncement.Polite"
+                Dismissible="true"
+                @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.StatsRetired, retired)"
+                @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.StatsRetired, retired)">
             Your stats file was written by an earlier version of BgQuiz and can't be
             carried forward. It has been set aside as
             <strong>@retired.SetAsideFileName</strong> and a new
             <strong>@QuizStatsFile.FileName</strong> started, so your lifetime stats
             began again with this quiz.
-        </div>
+        </Notice>
     }
 
     @if (StatsStore.Status == QuizStatsStatus.LoadFailed)
     {
-        <div class="alert alert-warning" role="status">
+        <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Polite"
+                Dismissible="true"
+                @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.StatsContext, StatsStore.StatusOccurrence)"
+                @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.StatsContext, StatsStore.StatusOccurrence)">
             The existing <strong>@QuizStatsFile.FileName</strong> couldn't be read, so this
             quiz didn't record stats. The file has not been changed.
-        </div>
+        </Notice>
     }
     else if (StatsStore.Status == QuizStatsStatus.WriteFailed)
     {
-        <div class="alert alert-danger" role="alert">
+        <Notice Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
+                Dismissible="true"
+                @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.StatsContext, StatsStore.StatusOccurrence)"
+                @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.StatsContext, StatsStore.StatusOccurrence)">
             Your stats file could not be saved — this quiz's stats were not recorded.
-        </div>
+        </Notice>
     }
 
     <ScorePanel Score="Controller.Score"
@@ -99,10 +116,11 @@
        the rule above turns into an unweighted restart, not a refusal. The
        refusal touches no controller state — this summary stays intact — and the
        one-click per-run escape sits inside the notice; the stored mix is never
-       touched. *@
+       touched. A gate reason, so not dismissible (SPEC-notices.md Fork C): it
+       carries the escape button, and closing it would take that with it. *@
     @if (_mixRefused)
     {
-        <div class="alert alert-warning" role="alert">
+        <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Assertive">
             <p class="mb-2">
                 Lifetime stats aren't available for a restart
                 (@MixDisplay.RefusalReason(StatsStore.Status)),
@@ -117,7 +135,7 @@
                 runs one quiz unweighted — or go Back to setup to change the
                 mix; your saved mix is kept either way.
             </span>
-        </div>
+        </Notice>
     }
 
     @* Restart disables while the controller is busy (the gate would no-op it

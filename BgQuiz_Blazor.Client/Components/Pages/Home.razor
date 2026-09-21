@@ -33,13 +33,23 @@
 
     @* Reload-reset notice: a full reload rebooted the runtime and discarded a
        live quiz. An outcome the user should understand, not an error — polite
-       role="status" (matching the no-match notice), not the assertive alert. *@
+       (matching the no-match notice), not assertive.
+
+       An event notice, so dismissible (SPEC-notices.md §1), and the component
+       holds the dismissal: the occurrence is this boot's reset, which lives in
+       _showReloadNotice and dies with this page instance — the marker that
+       raised it is cleared in the same step, so a navigate-back re-instantiates
+       the page with nothing to show. No holder slot and no occurrence key: an
+       owner that outlived the page would lengthen the notice's one-shot
+       lifetime, and this instance never sees a second reset (SPEC-notices.md
+       §2, the component-held case). *@
     @if (_showReloadNotice)
     {
-        <div class="alert alert-info" role="status">
+        <Notice Kind="NoticeKind.Information" Announcement="NoticeAnnouncement.Polite"
+                Dismissible="true">
             Your previous quiz was reset by the page reload — quiz progress
             doesn't survive a full reload.
-        </div>
+        </Notice>
     }
 
     @* One disabled-while-busy boundary for the whole setup surface. A native
@@ -210,8 +220,8 @@
            than that kind's cap admits, so a randomly drawn N were taken and
            the rest left unread. An outcome, not a failure — the quiz runs on
            what was read, and everything downstream (match count, mix, stats)
-           derives from that partial pool — so polite role="status" like its
-           neighbours, not the error banner.
+           derives from that partial pool — so polite like its neighbours, not
+           the error.
 
            One line per truncated kind, and only for kinds actually truncated:
            the caps are per format and independent, so a folder can be far past
@@ -228,16 +238,17 @@
            line still claims only how many were used and how many were not,
            never which: PickTruncation carries counts, no identities.
 
-           Dismissible on a click (issue halheinrich/backgammon#107) — the Quiz-page affordance
-           copied whole: whole-alert target plus the accessible btn-close,
-           recorded in the app-scoped QuizNoticeDismissal so navigating away
-           and back cannot resurrect it, keyed on the pick's occurrence token
-           so the next pick's report shows fresh with no reset wiring. *@
-        @if (Folder.Truncations.Count > 0
-             && !Notices.IsDismissed(QuizNotice.PickTruncations, Folder.PickOccurrence))
+           Dismissible (issue halheinrich/backgammon#107), and the owner of the
+           occurrence holds the dismissal (SPEC-notices.md §2): the app-scoped
+           QuizNoticeDismissal, so navigating away and back cannot resurrect
+           it, keyed on the pick's occurrence token so the next pick's report
+           shows fresh with no reset wiring. *@
+        @if (Folder.Truncations.Count > 0)
         {
-            <div id="truncationNotice" class="alert alert-warning alert-dismissible quiz-notice mt-2"
-                 role="status" @onclick="DismissTruncations">
+            <Notice id="truncationNotice" class="mt-2" Kind="NoticeKind.Warning"
+                    Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickTruncations, Folder.PickOccurrence)"
+                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickTruncations, Folder.PickOccurrence)">
                 @foreach (var truncation in Folder.Truncations)
                 {
                     <div>
@@ -245,41 +256,39 @@
                         @truncation.OmittedCount more @(truncation.OmittedCount == 1 ? "was" : "were") not read.
                     </div>
                 }
-                <button type="button" class="btn-close" aria-label="Dismiss this message"
-                        @onclick="DismissTruncations" @onclick:stopPropagation="true"></button>
-            </div>
+            </Notice>
         }
         @* Pick-time stats status: which rung of the degrade ladder this folder
            landed on. Outcomes the user should understand, not errors — polite
-           role="status" like the other outcome notices. Rendered only while a
+           like the other outcome notices. Rendered only while a
            pick is held (the capability is meaningless otherwise).
 
-           Dismissible on a click (issue halheinrich/backgammon#107), like the truncation alert above
-           — one holder slot for all three branches, because they are mutually
-           exclusive renderings of one per-pick verdict, so a dismissal can
-           only ever cover the one the user actually read. Keyed on the pick's
-           occurrence token: a re-pick reports its own verdict fresh. *@
-        @if (Folder.HasFiles
-             && !Notices.IsDismissed(QuizNotice.PickStatsCapability, Folder.PickOccurrence))
+           Dismissible (issue halheinrich/backgammon#107), held like the
+           truncation notice above — one holder slot for all three branches,
+           because they are mutually exclusive renderings of one per-pick
+           verdict, so a dismissal can only ever cover the one the user actually
+           read. Keyed on the pick's occurrence token: a re-pick reports its own
+           verdict fresh. *@
+        @if (Folder.HasFiles)
         {
             @switch (Folder.Capability)
             {
                 case FolderWriteCapability.Enabled:
-                    <div id="statsCapabilityNotice" class="alert alert-info alert-dismissible quiz-notice mt-2"
-                         role="status" @onclick="DismissStatsCapability">
+                    <Notice id="statsCapabilityNotice" class="mt-2" Kind="NoticeKind.Information"
+                            Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                            @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsCapability, Folder.PickOccurrence)"
+                            @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.PickOccurrence)">
                         Your lifetime quiz stats will be saved to
                         <strong>@QuizStatsFile.FileName</strong> in this folder.
-                        <button type="button" class="btn-close" aria-label="Dismiss this message"
-                                @onclick="DismissStatsCapability" @onclick:stopPropagation="true"></button>
-                    </div>
+                    </Notice>
                     break;
                 case FolderWriteCapability.BrowserUnsupported:
-                    <div id="statsCapabilityNotice" class="alert alert-warning alert-dismissible quiz-notice mt-2"
-                         role="status" @onclick="DismissStatsCapability">
+                    <Notice id="statsCapabilityNotice" class="mt-2" Kind="NoticeKind.Warning"
+                            Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                            @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsCapability, Folder.PickOccurrence)"
+                            @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.PickOccurrence)">
                         Your browser can't save quiz stats — the quiz runs without them.
-                        <button type="button" class="btn-close" aria-label="Dismiss this message"
-                                @onclick="DismissStatsCapability" @onclick:stopPropagation="true"></button>
-                    </div>
+                    </Notice>
                     break;
                 case FolderWriteCapability.PermissionDenied:
                     @* Both halves come from FolderPickDisplay: the premise is
@@ -289,13 +298,13 @@
                        made), and the consequence is the same
                        clause the pre-pick guidance's step 2 promised — one
                        constant each, so warning and follow-through can't drift. *@
-                    <div id="statsCapabilityNotice" class="alert alert-warning alert-dismissible quiz-notice mt-2"
-                         role="status" @onclick="DismissStatsCapability">
+                    <Notice id="statsCapabilityNotice" class="mt-2" Kind="NoticeKind.Warning"
+                            Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                            @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsCapability, Folder.PickOccurrence)"
+                            @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.PickOccurrence)">
                         @(FolderPickDisplay.WriteAccessNotGranted) — the quiz runs, but
                         @(FolderPickDisplay.WriteAccessConsequence).
-                        <button type="button" class="btn-close" aria-label="Dismiss this message"
-                                @onclick="DismissStatsCapability" @onclick:stopPropagation="true"></button>
-                    </div>
+                    </Notice>
                     break;
             }
         }
@@ -314,22 +323,21 @@
 
            Reads below the capability notice, which it qualifies: that line says
            where stats will be saved, this one says what happens to what is
-           already there. Polite role="status" — an outcome, not a failure — and
-           dismissible on a click keyed on the pick's occurrence token, exactly
+           already there. Polite — an outcome, not a failure — and dismissible,
+           held on its own slot keyed on the pick's occurrence token, exactly
            like the two notices above it. *@
-        @if (StatsStore.ForecastStatsSetAsideName is { } forecastSetAsideName
-             && !Notices.IsDismissed(QuizNotice.PickStatsRetirementForecast, Folder.PickOccurrence))
+        @if (StatsStore.ForecastStatsSetAsideName is { } forecastSetAsideName)
         {
-            <div id="statsRetirementForecastNotice" class="alert alert-info alert-dismissible quiz-notice mt-2"
-                 role="status" @onclick="DismissStatsRetirementForecast">
+            <Notice id="statsRetirementForecastNotice" class="mt-2" Kind="NoticeKind.Information"
+                    Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsRetirementForecast, Folder.PickOccurrence)"
+                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsRetirementForecast, Folder.PickOccurrence)">
                 Your stats file was written by an earlier version of BgQuiz and can't be
                 carried forward. When you start a quiz it will be set aside as
                 <strong>@forecastSetAsideName</strong> — nothing is deleted — and a new
                 <strong>@QuizStatsFile.FileName</strong> started, so your lifetime stats
                 will begin again.
-                <button type="button" class="btn-close" aria-label="Dismiss this message"
-                        @onclick="DismissStatsRetirementForecast" @onclick:stopPropagation="true"></button>
-            </div>
+            </Notice>
         }
         @* Cancelled-pick outcome (not a failure): the pick ended holding no
            folder. Three causes reach here — the picker was dismissed, the
@@ -343,8 +351,8 @@
            request ever appears, and the old imperative "allow your browser's
            request" recommended an action that could not be taken. Silence
            (the earlier choice) left them on an unchanged, empty page with no
-           explanation of why nothing happened. Polite role="status", like its
-           sibling outcome notices.
+           explanation of why nothing happened. Polite, like its sibling
+           outcome notices.
 
            The dead-chooser tail renders on the FS-Access branch only — the
            same one-snapshot two-branches discipline as the advisories above.
@@ -358,48 +366,50 @@
            halheinrich/backgammon#105 grey line already stands beside this notice covering the
            silent case.
 
-           Dismissible on a click (issue halheinrich/backgammon#107), same affordance as the
-           holder-backed notices above — but recorded by clearing the page
-           field itself, not through the dismissal holder: the notice is
-           per-visit by construction (it describes a gesture that left nothing
-           behind), so its own transience already scopes the dismissal and an
-           occurrence token would have nothing to outlive. *@
-        @if (_cancelledPickNotice)
-        {
-            <div id="cancelledPickNotice" class="alert alert-warning alert-dismissible quiz-notice mt-2"
-                 role="status" @onclick="DismissCancelledPick">
-                No folder is picked, so there's nothing for BgQuiz to read yet —
-                choose a folder and, if your browser asks to view its files,
-                allow that request.
-                @if (_fsAccessAvailable)
-                {
-                    <text>
-                        If no folder chooser opened,
-                        @(FolderPickDisplay.DeadPickVerdict).
-                    </text>
-                }
-                <button type="button" class="btn-close" aria-label="Dismiss this message"
-                        @onclick="DismissCancelledPick" @onclick:stopPropagation="true"></button>
-            </div>
-        }
+           Dismissible (issue halheinrich/backgammon#107), like the holder-backed
+           notices above — but the page field is the notice's whole state, not
+           the dismissal holder: the notice is per-visit by construction (it
+           describes a gesture that left nothing behind), so its own transience
+           already scopes the dismissal and an occurrence token would have
+           nothing to outlive. Dismissing clears the field; the next cancelled
+           pick sets it again and shows fresh. No @if around it — one fact,
+           read once. *@
+        <Notice id="cancelledPickNotice" class="mt-2" Kind="NoticeKind.Warning"
+                Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                @bind-Dismissed:get="!_cancelledPickNotice"
+                @bind-Dismissed:set="_ => _cancelledPickNotice = false">
+            No folder is picked, so there's nothing for BgQuiz to read yet —
+            choose a folder and, if your browser asks to view its files,
+            allow that request.
+            @if (_fsAccessAvailable)
+            {
+                <text>
+                    If no folder chooser opened,
+                    @(FolderPickDisplay.DeadPickVerdict).
+                </text>
+            }
+        </Notice>
         @* Empty-folder outcome (not a failure): a completed pick that yielded
-           no problem files. Polite, like the no-match notice. Dismissible via
-           its page field, like the cancelled notice above. *@
-        @if (_emptyFolderNotice)
-        {
-            <div id="emptyFolderNotice" class="alert alert-warning alert-dismissible quiz-notice mt-2"
-                 role="status" @onclick="DismissEmptyFolder">
-                No .xg / .xgp files found directly in that folder.
-                <button type="button" class="btn-close" aria-label="Dismiss this message"
-                        @onclick="DismissEmptyFolder" @onclick:stopPropagation="true"></button>
-            </div>
-        }
-        @if (!string.IsNullOrEmpty(_pickError))
-        {
-            <div class="alert alert-danger mt-2" role="alert">
-                <strong>Could not read the folder:</strong> @_pickError
-            </div>
-        }
+           no problem files. Polite, like the no-match notice. Its page field
+           is its whole state, like the cancelled notice above. *@
+        <Notice id="emptyFolderNotice" class="mt-2" Kind="NoticeKind.Warning"
+                Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                @bind-Dismissed:get="!_emptyFolderNotice"
+                @bind-Dismissed:set="_ => _emptyFolderNotice = false">
+            No .xg / .xgp files found directly in that folder.
+        </Notice>
+        @* Pick failure: a gesture that failed, so assertive, and dismissible
+           (SPEC-notices.md Fork A — an error already read should not sit until
+           the next attempt). The message field is the box's whole state:
+           dismissing clears it, and the next failure assigns it again and
+           shows fresh even with identical text — the text was never the
+           occurrence. No dismissed bit anywhere, and no @if around it. *@
+        <Notice class="mt-2" Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
+                Dismissible="true"
+                @bind-Dismissed:get="string.IsNullOrEmpty(_pickError)"
+                @bind-Dismissed:set="_ => _pickError = null">
+            <strong>Could not read the folder:</strong> @_pickError
+        </Notice>
     </div>
 
     @* Progressive disclosure: the filters, saved filters, weighted mix, shuffle
@@ -651,12 +661,15 @@
         <small class="text-muted ms-2">Mix applies but isn't valid — fix it or turn the mix off.</small>
     }
 
-    @if (!string.IsNullOrEmpty(_startError))
-    {
-        <div class="alert alert-danger mt-3" role="alert">
-            <strong>Could not start quiz:</strong> @_startError
-        </div>
-    }
+    @* Start failure: assertive and dismissible, with the message field as the
+       box's whole state — the pick error's shape, for the pick error's
+       reasons. *@
+    <Notice class="mt-3" Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
+            Dismissible="true"
+            @bind-Dismissed:get="string.IsNullOrEmpty(_startError)"
+            @bind-Dismissed:set="_ => _startError = null">
+        <strong>Could not start quiz:</strong> @_startError
+    </Notice>
 
     @* Weighted-start refusal: the effective mix has entries but no lifetime
        stats are available, and running silently unweighted would substitute
@@ -665,10 +678,14 @@
        checkbox are never touched by either path (the escape is per-run, and
        unchecking is the user's own standing off-switch). The copy no longer
        points at Clear mix: under screen-follows-storage Clear genuinely
-       deletes the rows, so the honest keep-your-mix escape is uncheck. *@
+       deletes the rows, so the honest keep-your-mix escape is uncheck.
+
+       A gate reason, so not dismissible (SPEC-notices.md Fork C): closing it
+       would take the escape button with it and leave a Start click that did
+       nothing, with no account of why. *@
     @if (_mixRefused)
     {
-        <div class="alert alert-warning mt-3" role="alert">
+        <Notice class="mt-3" Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Assertive">
             <p class="mb-2">
                 Lifetime stats aren't available for this quiz
                 (@MixDisplay.RefusalReason(StatsStore.Status)),
@@ -683,17 +700,18 @@
                 <em>Settings</em> to stop weighting altogether; your mix rows are
                 kept either way.
             </span>
-        </div>
+        </Notice>
     }
 
     @* Empty-result outcome (not a failure): a valid Start that admitted no
-       showable problem. role="status" (polite), not the error banner's
-       assertive role="alert". *@
+       showable problem. Polite, not the error banner's assertive
+       announcement. A gate reason — it is why Start found nothing — so not
+       dismissible (SPEC-notices.md Fork C). *@
     @if (!string.IsNullOrEmpty(_noMatchNotice))
     {
-        <div class="alert alert-warning mt-3" role="status">
+        <Notice class="mt-3" Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Polite">
             @_noMatchNotice
-        </div>
+        </Notice>
     }
     } @* end progressive-disclosure @if (Folder.HasFiles) *@
 

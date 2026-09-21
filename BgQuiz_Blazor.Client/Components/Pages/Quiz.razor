@@ -21,56 +21,54 @@
 <div class="container-fluid py-3 board-page @(Controller.IsBusy ? "app-busy" : null)">
     @* Active-context stats notices: scoped to the running quiz's stats context
        (bound at Start, reset by the next Start's re-bind). A load failure is an
-       outcome — the quiz runs, the file stays untouched — so polite
-       role="status"; a write failure is a failure mid-quiz, so the assertive
-       alert idiom. Neither ever blocks the quiz.
+       outcome — the quiz runs, the file stays untouched — so polite; a write
+       failure is a failure mid-quiz, so assertive. Neither ever blocks the quiz.
 
-       Dismissible, like every notice on this page (see DismissStats): keyed on
-       the store's StatusOccurrence, so a dismissal covers the report the user
+       Dismissible, like every notice on this page, and held by the owner of
+       the occurrence (SPEC-notices.md §2): QuizNoticeDismissal, keyed on the
+       store's StatusOccurrence, so a dismissal covers the report the user
        actually read — a later Ready → WriteFailed, or the next run binding
-       against the same unreadable file, is a new occurrence and shows again. *@
+       against the same unreadable file, is a new occurrence and shows again.
+       Done renders the same notices bound to the same slot and occurrence, so
+       one dismissed here stays dismissed there. *@
     @* The stats-retirement report: this run found a stats file in the retired
        format, set it aside, and started a fresh one. An outcome and not a
-       failure — the quiz records normally into the new file — so the polite
-       informational idiom, beside (not instead of) whatever the degrade notice
-       below is saying. Its own occurrence token, so dismissing it and
+       failure — the quiz records normally into the new file — so polite and
+       informational, beside (not instead of) whatever the degrade notice below
+       is saying. Its own slot and occurrence token, so dismissing it and
        dismissing a later write failure are two separate gestures. *@
-    @if (StatsStore.StatsRetiredOccurrence is { } retired
-         && !Notices.IsDismissed(QuizNotice.StatsRetired, retired))
+    @if (StatsStore.StatsRetiredOccurrence is { } retired)
     {
-        <div class="alert alert-info alert-dismissible quiz-notice" role="status"
-             @onclick="DismissStatsRetired">
+        <Notice Kind="NoticeKind.Information" Announcement="NoticeAnnouncement.Polite"
+                Dismissible="true"
+                @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.StatsRetired, retired)"
+                @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.StatsRetired, retired)">
             Your stats file was written by an earlier version of BgQuiz and can't be
             carried forward. It has been set aside as
             <strong>@retired.SetAsideFileName</strong> and a new
             <strong>@QuizStatsFile.FileName</strong> started, so your lifetime stats
             begin again with this quiz.
-            <button type="button" class="btn-close" aria-label="Dismiss this message"
-                    @onclick="DismissStatsRetired" @onclick:stopPropagation="true"></button>
-        </div>
+        </Notice>
     }
-    @if (!Notices.IsDismissed(QuizNotice.StatsContext, StatsStore.StatusOccurrence))
+    @if (StatsStore.Status == QuizStatsStatus.LoadFailed)
     {
-        @if (StatsStore.Status == QuizStatsStatus.LoadFailed)
-        {
-            <div class="alert alert-warning alert-dismissible quiz-notice" role="status"
-                 @onclick="DismissStats">
-                The existing <strong>@QuizStatsFile.FileName</strong> couldn't be read, so this
-                quiz won't record stats. The file has not been changed.
-                <button type="button" class="btn-close" aria-label="Dismiss this message"
-                        @onclick="DismissStats" @onclick:stopPropagation="true"></button>
-            </div>
-        }
-        else if (StatsStore.Status == QuizStatsStatus.WriteFailed)
-        {
-            <div class="alert alert-danger alert-dismissible quiz-notice" role="alert"
-                 @onclick="DismissStats">
-                Your stats file could not be saved — the quiz continues, but this
-                quiz's stats won't be recorded.
-                <button type="button" class="btn-close" aria-label="Dismiss this message"
-                        @onclick="DismissStats" @onclick:stopPropagation="true"></button>
-            </div>
-        }
+        <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Polite"
+                Dismissible="true"
+                @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.StatsContext, StatsStore.StatusOccurrence)"
+                @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.StatsContext, StatsStore.StatusOccurrence)">
+            The existing <strong>@QuizStatsFile.FileName</strong> couldn't be read, so this
+            quiz won't record stats. The file has not been changed.
+        </Notice>
+    }
+    else if (StatsStore.Status == QuizStatsStatus.WriteFailed)
+    {
+        <Notice Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
+                Dismissible="true"
+                @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.StatsContext, StatsStore.StatusOccurrence)"
+                @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.StatsContext, StatsStore.StatusOccurrence)">
+            Your stats file could not be saved — the quiz continues, but this
+            quiz's stats won't be recorded.
+        </Notice>
     }
     @* Mix notices, composition-first: whatever the framing, the first line is
        the quiz actually underway ("Your quiz has N problems: …"), rendered
@@ -95,26 +93,23 @@
        controller's telemetry is deliberately left intact: it still frames this
        notice, counts the quiz's problems, and feeds Home's composed-to-zero
        wording. *@
-    @if (Controller.LastComposition is { } comp
-         && !Notices.IsDismissed(QuizNotice.Composition, comp))
+    @if (Controller.LastComposition is { } comp)
     {
         @if (!comp.HasRequestedLength)
         {
-            <div class="alert alert-info alert-dismissible quiz-notice" role="status"
-                 @onclick="@(() => DismissComposition(comp))">
+            <Notice Kind="NoticeKind.Information" Announcement="NoticeAnnouncement.Polite"
+                    Dismissible="true"
+                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.Composition, comp)"
+                    @bind-Dismissed:set="_ => DismissComposition(comp)">
                 @MixDisplay.CompositionSummary(comp)
-                <button type="button" class="btn-close" aria-label="Dismiss this message"
-                        @onclick="@(() => DismissComposition(comp))"
-                        @onclick:stopPropagation="true"></button>
-            </div>
+            </Notice>
         }
         else if (HasShortfall(comp))
         {
-            <div class="alert alert-warning alert-dismissible quiz-notice" role="alert"
-                 @onclick="@(() => DismissComposition(comp))">
-                <button type="button" class="btn-close" aria-label="Dismiss this message"
-                        @onclick="@(() => DismissComposition(comp))"
-                        @onclick:stopPropagation="true"></button>
+            <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Assertive"
+                    Dismissible="true"
+                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.Composition, comp)"
+                    @bind-Dismissed:set="_ => DismissComposition(comp)">
                 <div>@MixDisplay.CompositionSummary(comp)</div>
                 @if (comp.DrawnCount < comp.TargetCount)
                 {
@@ -142,14 +137,17 @@
                         }
                     </ul>
                 }
-            </div>
+            </Notice>
         }
     }
+    @* The page's whole content in this state, so a gate reason and not
+       dismissible (SPEC-notices.md Fork C): closed, it would leave an empty
+       page that cannot say why. *@
     @if (!Controller.HasStarted)
     {
-        <div class="alert alert-warning" role="alert">
+        <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Assertive">
             No quiz in progress. <a href="/">Pick filters and start a quiz.</a>
-        </div>
+        </Notice>
     }
     else if (Controller.Current is { } current)
     {

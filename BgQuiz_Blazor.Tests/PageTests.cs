@@ -12,6 +12,8 @@ using BgQuiz_Blazor.Client;
 using BgFolderAccess_Razor;
 using BgQuiz_Blazor.Client.Components;
 using BgQuiz_Blazor.Client.Quiz;
+using BgUiPrimitives_Razor;
+using BgUiPrimitives_Razor.TestSupport;
 using Bunit;
 using Bunit.TestDoubles;
 using Microsoft.AspNetCore.Components;
@@ -920,6 +922,40 @@ public class PageTests : BunitContext
     private static string Normalize(string text) =>
         string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
+    // -----------------------------------------------------------------------
+    //  Notices are read through the component's own test reader (NoticeBox,
+    //  BgUiPrimitives_Razor.TestSupport), never by the markup it renders: no
+    //  test here names its classes, its roles or its close button. Every
+    //  notice is asserted with ShouldBe — kind, announcement, dismissibility
+    //  and the attribute names its tag passes — because a misspelt parameter
+    //  compiles clean and is splatted onto the box while the real one takes its
+    //  default; nothing else in a green run would notice.
+    // -----------------------------------------------------------------------
+
+    /// <summary>Both ways a user dismisses a notice, as a theory's data.</summary>
+    public static TheoryData<NoticeDismissGesture> BothGestures =>
+        new(Enum.GetValues<NoticeDismissGesture>());
+
+    /// <summary>
+    /// The one notice on the page whose content carries <paramref name="phrase"/>
+    /// — for the boxes whose tag passes no id, found by what they say rather
+    /// than by anything of the component's.
+    /// </summary>
+    private static NoticeBox NoticeSaying(IRenderedComponent<IComponent> cut, string phrase) =>
+        Assert.Single(NoticeBox.AllIn(cut), n => Normalize(n.Content.TextContent).Contains(phrase));
+
+    /// <summary>Whether any notice on the page carries <paramref name="phrase"/>.</summary>
+    private static bool ShowsNoticeSaying(IRenderedComponent<IComponent> cut, string phrase) =>
+        NoticeBox.AllIn(cut).Any(n => Normalize(n.Content.TextContent).Contains(phrase));
+
+    /// <summary>
+    /// Whether any notice on the page is an error — the "an outcome, never a
+    /// failure" half of the polite notices' pins, stated in the component's
+    /// vocabulary.
+    /// </summary>
+    private static bool ShowsAnErrorNotice(IRenderedComponent<IComponent> cut) =>
+        NoticeBox.AllIn(cut).Any(n => n.Kind == NoticeKind.Error);
+
     [Fact]
     public async Task Home_FolderPick_StatsEnabled_ShowsSaveNotice()
     {
@@ -935,7 +971,9 @@ public class PageTests : BunitContext
 
         Assert.Contains(QuizStatsFile.FileName, cut.Markup);
         Assert.Contains("stats will be saved", cut.Markup);
-        Assert.Contains("role=\"status\"", cut.Markup); // outcome, not an alert
+        // An outcome, not an alarm: polite information, dismissible.
+        NoticeBox.ById(cut, "statsCapabilityNotice").ShouldBe(
+            NoticeKind.Information, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
         // A completed pick that held a folder is neither of the no-folder
         // outcomes, and write access was granted — neither notice belongs here.
         Assert.DoesNotContain("No folder is picked", cut.Markup);
@@ -962,6 +1000,8 @@ public class PageTests : BunitContext
 
         Assert.Contains("can't save quiz stats", cut.Markup);
         Assert.DoesNotContain("stats will be saved", cut.Markup);
+        NoticeBox.ById(cut, "statsCapabilityNotice").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
     }
 
     [Fact]
@@ -984,7 +1024,8 @@ public class PageTests : BunitContext
         // surface. Pairing with the premise makes the sentence discriminating.
         // (Under (AB) the guidance is in fact hidden here — a folder is held —
         // but the scoping is what makes this assert say what it means.)
-        var notice = cut.Find(".alert.alert-warning");
+        var notice = NoticeBox.ById(cut, "statsCapabilityNotice").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id", "class").Content;
         Assert.Contains(FolderPickDisplay.WriteAccessNotGranted, notice.TextContent);
         // Finding (AA): the notice says what that costs — not "stats won't be
         // saved". And it never claims the user declined: this rung is also
@@ -1001,7 +1042,7 @@ public class PageTests : BunitContext
         // Finding (AA), reversing the earlier silence: a pick that ended holding
         // no folder now says so. Cancellation covers both a dismissed picker and
         // a declined view-files permission, so the notice must be neutral —
-        // polite role="status", never the assertive error banner.
+        // a polite warning, never the assertive error.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
@@ -1013,8 +1054,9 @@ public class PageTests : BunitContext
         var folder = Services.GetRequiredService<PickedProblemFolder>();
         Assert.False(folder.HasFiles); // the holder is still untouched
         Assert.Contains("No folder is picked", cut.Markup);
-        Assert.Contains("role=\"status\"", cut.Markup);
-        Assert.DoesNotContain("alert-danger", cut.Markup);
+        NoticeBox.ById(cut, "cancelledPickNotice").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
+        Assert.False(ShowsAnErrorNotice(cut));
     }
 
     /// <summary>
@@ -1233,7 +1275,7 @@ public class PageTests : BunitContext
         await cut.Find("#problemFolderFallback").TriggerEventAsync("oncancel", EventArgs.Empty);
 
         Assert.Contains("No folder is picked", cut.Markup);
-        Assert.DoesNotContain("alert-danger", cut.Markup); // an outcome, never an error
+        Assert.False(ShowsAnErrorNotice(cut)); // an outcome, never an error
     }
 
     [Fact]
@@ -1252,6 +1294,8 @@ public class PageTests : BunitContext
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         Assert.Contains("No .xg / .xgp files found", cut.Markup);
+        NoticeBox.ById(cut, "emptyFolderNotice").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
         // The two no-folder outcomes stay distinct: this pick completed and held
         // a folder, so the cancelled-pick notice must not also fire.
         Assert.DoesNotContain("No folder is picked", cut.Markup);
@@ -1264,7 +1308,7 @@ public class PageTests : BunitContext
     public async Task Home_FolderPick_Throws_ShowsPickErrorBanner()
     {
         // Unexpected browser failure (or a file past the byte cap): the failure
-        // idiom — assertive alert — and a cleared holder. A folder past the
+        // idiom — an assertive error — and a cleared holder. A folder past the
         // *count* caps is not this: it truncates and reports (issue halheinrich/backgammon#59).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
@@ -1274,9 +1318,9 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        Assert.Contains("Could not read the folder", cut.Markup);
-        Assert.Contains("boom from the browser", cut.Markup);
-        Assert.Contains("role=\"alert\"", cut.Markup);
+        var notice = NoticeSaying(cut, "Could not read the folder").ShouldBe(
+            NoticeKind.Error, NoticeAnnouncement.Assertive, dismissible: true, "class");
+        Assert.Contains("boom from the browser", notice.Content.TextContent);
         var folder = Services.GetRequiredService<PickedProblemFolder>();
         Assert.False(folder.HasFiles);
     }
@@ -1286,16 +1330,17 @@ public class PageTests : BunitContext
     /// issue halheinrich/backgammon#107's dismissal affordance added, preferred over a content marker
     /// so halheinrich/backgammon#106's coming reword of the truncation copy can't re-key this suite.
     /// </summary>
-    private static AngleSharp.Dom.IElement TruncationNotice(IRenderedComponent<HomePage> cut) =>
-        cut.Find("#truncationNotice");
+    private static NoticeBox TruncationNotice(IRenderedComponent<HomePage> cut) =>
+        NoticeBox.ById(cut, "truncationNotice");
 
     /// <summary>
     /// The truncation notice's lines as a reader sees them — whitespace
     /// collapsed, because the razor source's own line breaks ride into the
-    /// rendered text.
+    /// rendered text. Read off the notice's content, which is exactly what the
+    /// page put inside it.
     /// </summary>
     private static List<string> TruncationLines(IRenderedComponent<HomePage> cut) =>
-        [.. TruncationNotice(cut).QuerySelectorAll("div").Select(d => Normalize(d.TextContent))];
+        [.. TruncationNotice(cut).Content.QuerySelectorAll("div").Select(d => Normalize(d.TextContent))];
 
     [Fact]
     public void Home_TruncatedPick_XgpOnly_ReportsThatKindFromTheConstants()
@@ -1317,8 +1362,9 @@ public class PageTests : BunitContext
             $"Using {PickedFileLimits.MaxXgpFileCount} .xgp files chosen at random; 340 more were not read.",
             Assert.Single(TruncationLines(cut)));
         // An outcome, not a failure: the quiz runs on what was read.
-        Assert.DoesNotContain("alert-danger", cut.Markup);
-        Assert.Contains("role=\"status\"", cut.Markup);
+        TruncationNotice(cut).ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
+        Assert.False(ShowsAnErrorNotice(cut));
     }
 
     [Fact]
@@ -1425,12 +1471,13 @@ public class PageTests : BunitContext
 
     // -----------------------------------------------------------------------
     //  Dismissible pick-outcome notices (issue halheinrich/backgammon#107). The Quiz page's contract,
-    //  extended to Home's band: every outcome/status notice dismisses on a
-    //  click. The holder-backed pair (truncations, stats capability) record it
-    //  in QuizNoticeDismissal keyed on PickedProblemFolder.PickOccurrence —
-    //  per occurrence (a re-pick resurrects), surviving navigation, one slot
-    //  each. The per-visit pair (cancelled, empty) clear their own fields. The
-    //  red pick-error banner is a failure report and stays undismissible.
+    //  extended to Home's band: every outcome/status notice dismisses, by the
+    //  close button or by the whole box. The holder-backed pair (truncations,
+    //  stats capability) record it in QuizNoticeDismissal keyed on
+    //  PickedProblemFolder.PickOccurrence — per occurrence (a re-pick
+    //  resurrects), surviving navigation, one slot each. The per-visit pair
+    //  (cancelled, empty) and the two errors are held by their own fields
+    //  (SPEC-notices.md Fork A made the errors dismissible too).
     // -----------------------------------------------------------------------
 
     /// <summary>
@@ -1440,49 +1487,34 @@ public class PageTests : BunitContext
     private static PickTruncation SomeTruncation() =>
         new(PickedFileLimits.XgpExtension, 5, PickedFileLimits.MaxXgpFileCount);
 
-    [Fact]
-    public async Task Home_TruncationNotice_ClickingTheAlertDismissesIt_LeavingItsNeighborStanding()
+    [Theory]
+    [MemberData(nameof(BothGestures))]
+    public void Home_TruncationNotice_EachGestureDismissesIt_LeavingItsNeighborStanding(
+        NoticeDismissGesture gesture)
     {
-        // The oversized target (a click anywhere in the alert), and the slot
-        // key's job in the same gesture: the stats-capability notice beside it
-        // must not go with it.
+        // Both halves of the affordance — the close button and the whole box —
+        // and the slot key's job in the same gesture: the stats-capability
+        // notice beside it must not go with it.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
         WithPickedFolder(truncations: [SomeTruncation()]);
 
         var cut = Render<HomePage>();
-        Assert.Contains("files chosen at random", Normalize(cut.Markup));
+        TruncationNotice(cut).ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id", "class")
+            .Dismiss(gesture);
 
-        await cut.Find("#truncationNotice").ClickAsync(new());
-
-        Assert.DoesNotContain("files chosen at random", Normalize(cut.Markup));
+        Assert.Empty(cut.FindAll("#truncationNotice"));
         // BrowserUnsupported is WithPickedFolder's default capability, so its
         // warning is the neighbour still standing.
         Assert.Contains("can't save quiz stats", cut.Markup);
     }
 
-    [Fact]
-    public async Task Home_TruncationNotice_CloseButtonDismissesIt_AndCarriesItsOwnLabel()
-    {
-        // The discoverable, accessible half — same pin as the Quiz page's: the
-        // btn-close is present, labeled, and dismisses.
-        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        WithAppliedFilter();
-        WithShuffleOption();
-        WithPickedFolder(truncations: [SomeTruncation()]);
-
-        var cut = Render<HomePage>();
-        var close = CloseButton(cut.Find("#truncationNotice"));
-        Assert.Equal("Dismiss this message", close.GetAttribute("aria-label"));
-
-        await close.ClickAsync(new());
-
-        Assert.DoesNotContain("files chosen at random", Normalize(cut.Markup));
-    }
-
-    [Fact]
-    public async Task Home_StatsCapabilityNotice_ClickDismisses_LeavingTruncationsStanding()
+    [Theory]
+    [MemberData(nameof(BothGestures))]
+    public void Home_StatsCapabilityNotice_EachGestureDismissesIt_LeavingTruncationsStanding(
+        NoticeDismissGesture gesture)
     {
         // The other direction of slot independence, on the info branch the
         // issue's ruling named ("a colored info message should go away when
@@ -1493,16 +1525,16 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
 
         var cut = Render<HomePage>();
-        Assert.Contains("will be saved to", cut.Markup);
-
-        await cut.Find("#statsCapabilityNotice").ClickAsync(new());
+        NoticeBox.ById(cut, "statsCapabilityNotice").ShouldBe(
+            NoticeKind.Information, NoticeAnnouncement.Polite, dismissible: true, "id", "class")
+            .Dismiss(gesture);
 
         Assert.DoesNotContain("will be saved to", cut.Markup);
         Assert.Contains("files chosen at random", Normalize(cut.Markup));
     }
 
     [Fact]
-    public async Task Home_PickNoticeDismissals_SurviveTheNavigationRoundTrip()
+    public void Home_PickNoticeDismissals_SurviveTheNavigationRoundTrip()
     {
         // App-scoped, not page fields: the pick itself survives navigation, so
         // returning re-renders its notices — and a dismissal the user already
@@ -1513,8 +1545,8 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
 
         var cut = Render<HomePage>();
-        await cut.Find("#truncationNotice").ClickAsync(new());
-        await cut.Find("#statsCapabilityNotice").ClickAsync(new());
+        TruncationNotice(cut).Dismiss(NoticeDismissGesture.WholeBox);
+        NoticeBox.ById(cut, "statsCapabilityNotice").Dismiss(NoticeDismissGesture.CloseButton);
 
         var back = Render<HomePage>();
         Assert.DoesNotContain("files chosen at random", Normalize(back.Markup));
@@ -1533,8 +1565,8 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
 
         var cut = Render<HomePage>();
-        await cut.Find("#truncationNotice").ClickAsync(new());
-        await cut.Find("#statsCapabilityNotice").ClickAsync(new());
+        TruncationNotice(cut).Dismiss(NoticeDismissGesture.WholeBox);
+        NoticeBox.ById(cut, "statsCapabilityNotice").Dismiss(NoticeDismissGesture.CloseButton);
         Assert.DoesNotContain("files chosen at random", Normalize(cut.Markup));
 
         _folderAccess.NextPickOutcome = OneFileOutcome(
@@ -1589,8 +1621,9 @@ public class PageTests : BunitContext
             + $"{QuizStatsFile.FileName} started, so your lifetime stats will begin again.",
             ForecastNoticeText(cut));
         // An outcome to understand before starting, not a failure.
-        Assert.DoesNotContain("alert-danger", cut.Markup);
-        Assert.Contains("role=\"status\"", cut.Markup);
+        NoticeBox.ById(cut, "statsRetirementForecastNotice").ShouldBe(
+            NoticeKind.Information, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
+        Assert.False(ShowsAnErrorNotice(cut));
     }
 
     [Fact]
@@ -1653,8 +1686,10 @@ public class PageTests : BunitContext
         Assert.Empty(cut.FindAll("#statsRetirementForecastNotice"));
     }
 
-    [Fact]
-    public async Task Home_ForecastNotice_ClickDismisses_LeavingItsNeighborsStanding()
+    [Theory]
+    [MemberData(nameof(BothGestures))]
+    public void Home_ForecastNotice_EachGestureDismissesIt_LeavingItsNeighborsStanding(
+        NoticeDismissGesture gesture)
     {
         // Its own slot: reading past the forecast must not take the capability
         // line or the truncation report with it.
@@ -1665,10 +1700,7 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
 
         var cut = Render<HomePage>();
-        var close = CloseButton(cut.Find("#statsRetirementForecastNotice"));
-        Assert.Equal("Dismiss this message", close.GetAttribute("aria-label"));
-
-        await cut.Find("#statsRetirementForecastNotice").ClickAsync(new());
+        NoticeBox.ById(cut, "statsRetirementForecastNotice").Dismiss(gesture);
 
         Assert.Empty(cut.FindAll("#statsRetirementForecastNotice"));
         Assert.Contains("will be saved to", cut.Markup);
@@ -1689,7 +1721,7 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled);
 
         var cut = Render<HomePage>();
-        await cut.Find("#statsRetirementForecastNotice").ClickAsync(new());
+        NoticeBox.ById(cut, "statsRetirementForecastNotice").Dismiss(NoticeDismissGesture.WholeBox);
 
         var back = Render<HomePage>();
         Assert.Empty(back.FindAll("#statsRetirementForecastNotice"));
@@ -1700,12 +1732,15 @@ public class PageTests : BunitContext
         Assert.Contains("will be set aside", ForecastNoticeText(back));
     }
 
-    [Fact]
-    public async Task Home_CancelledPickNotice_ClickDismissesIt()
+    [Theory]
+    [MemberData(nameof(BothGestures))]
+    public async Task Home_CancelledPickNotice_EachGestureDismissesIt_AndTheNextCancelShowsItFresh(
+        NoticeDismissGesture gesture)
     {
-        // The per-visit pair's affordance: same click contract as the
-        // holder-backed notices, recorded by clearing the page field itself —
-        // the notice's transience already scopes the dismissal.
+        // The per-visit pair's affordance: same gestures as the holder-backed
+        // notices, held by the page field itself — the notice's transience
+        // already scopes the dismissal. And no dismissed bit survives it: the
+        // next cancelled pick is a new occurrence and shows.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
@@ -1713,15 +1748,19 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
-        Assert.Contains("No folder is picked", cut.Markup);
-
-        await cut.Find("#cancelledPickNotice").ClickAsync(new());
-
+        NoticeBox.ById(cut, "cancelledPickNotice").Dismiss(gesture);
         Assert.DoesNotContain("No folder is picked", cut.Markup);
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        NoticeBox.ById(cut, "cancelledPickNotice").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
     }
 
-    [Fact]
-    public async Task Home_EmptyFolderNotice_ClickDismissesIt()
+    [Theory]
+    [MemberData(nameof(BothGestures))]
+    public async Task Home_EmptyFolderNotice_EachGestureDismissesIt_AndTheNextEmptyPickShowsItFresh(
+        NoticeDismissGesture gesture)
     {
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
@@ -1731,19 +1770,22 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
-        Assert.Contains("No .xg / .xgp files found", cut.Markup);
-
-        await cut.Find("#emptyFolderNotice").ClickAsync(new());
-
+        NoticeBox.ById(cut, "emptyFolderNotice").Dismiss(gesture);
         Assert.DoesNotContain("No .xg / .xgp files found", cut.Markup);
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        NoticeBox.ById(cut, "emptyFolderNotice").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
     }
 
-    [Fact]
-    public async Task Home_PickErrorBanner_IsNotDismissible()
+    [Theory]
+    [MemberData(nameof(BothGestures))]
+    public async Task Home_PickError_IsADismissibleAssertiveError(NoticeDismissGesture gesture)
     {
-        // The claim-class boundary the issue drew: the red banner reports a
-        // failure (role="alert"), not an outcome, so it carries neither half of
-        // the dismissal affordance — no clickable-region class, no btn-close.
+        // SPEC-notices.md Fork A: an error already read should not sit until
+        // the next attempt. Still a failure report — assertive, the error kind
+        // — and now dismissible by both gestures.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
@@ -1752,10 +1794,33 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
-        var banner = cut.FindAll(".alert-danger")
-            .Single(a => a.TextContent.Contains("Could not read the folder"));
-        Assert.DoesNotContain("quiz-notice", banner.ClassName);
-        Assert.Null(banner.QuerySelector("button.btn-close"));
+        NoticeSaying(cut, "Could not read the folder").ShouldBe(
+            NoticeKind.Error, NoticeAnnouncement.Assertive, dismissible: true, "class")
+            .Dismiss(gesture);
+
+        Assert.False(ShowsNoticeSaying(cut, "Could not read the folder"));
+    }
+
+    [Fact]
+    public async Task Home_PickError_ASecondFailureWithIdenticalText_ShowsFresh()
+    {
+        // The message field is the notice's whole state, so there is no
+        // dismissed bit to outlive the failure: a second failure with the very
+        // same text is a new occurrence and shows. (A bit keyed on the text
+        // would have kept it hidden.)
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.PickException = new InvalidOperationException("boom");
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        NoticeSaying(cut, "Could not read the folder").Dismiss(NoticeDismissGesture.CloseButton);
+        Assert.False(ShowsNoticeSaying(cut, "Could not read the folder"));
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Contains("boom", NoticeSaying(cut, "Could not read the folder").Content.TextContent);
     }
 
     [Fact]
@@ -1945,7 +2010,7 @@ public class PageTests : BunitContext
 
         cut.WaitForAssertion(() => Assert.Contains(SilentGestureAccount, cut.Markup));
         // An advisory, never an alert: nothing has failed yet.
-        Assert.DoesNotContain("alert-danger", cut.Markup);
+        Assert.False(ShowsAnErrorNotice(cut));
 
         await cut.Find("#pickProblemFolder").ClickAsync(new());
         await cut.Find("#problemFolderFallback").TriggerEventAsync("oncancel", EventArgs.Empty);
@@ -2942,9 +3007,11 @@ public class PageTests : BunitContext
 
         Assert.True(controller.IsFinished);           // controller did start and exhaust
         Assert.EndsWith("/", nav.Uri);                // stayed on Home, no /quiz nav
-        Assert.Contains("No quiz problems matched these filters", cut.Markup);
-        // A neutral status message, not the assertive error banner.
-        Assert.Contains("role=\"status\"", cut.Markup);
+        // A neutral, polite warning, not the assertive error — and a gate
+        // reason, the only account of why Start found nothing, so it does not
+        // dismiss (SPEC-notices.md Fork C).
+        NoticeSaying(cut, "No quiz problems matched these filters").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: false, "class");
         Assert.DoesNotContain("Could not start quiz", cut.Markup);
     }
 
@@ -2960,9 +3027,28 @@ public class PageTests : BunitContext
         // the file. This is the pin that the copy travels the whole way; the
         // guard's own behaviour is JacobyStampedProblemSetSourceTests'.
         //
-        // The malformed record is built right here, per the rule
-        // TestFixtureContractTests states: a keyless fixture must never live in
-        // the shared TestFixtures library.
+        // The malformed record is built in RenderWithAFailingStartAsync, per
+        // the rule TestFixtureContractTests states: a keyless fixture must
+        // never live in the shared TestFixtures library.
+        var cut = await RenderWithAFailingStartAsync();
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        var banner = NoticeSaying(cut, "Could not start quiz").ShouldBe(
+            NoticeKind.Error, NoticeAnnouncement.Assertive, dismissible: true, "class").Content;
+        Assert.Contains("money-session.xg", banner.TextContent);
+        Assert.Contains("Jacoby", banner.TextContent);
+        Assert.EndsWith("/", nav.Uri);   // stayed on Home; no quiz to navigate to
+        Assert.Null(Services.GetRequiredService<QuizController>().Current); // and nothing from the folder was served
+    }
+
+    /// <summary>
+    /// Stage Home with a folder whose one record fails the pool-composition
+    /// guard — a money record that doesn't state its Jacoby rule — and click
+    /// Start, so every Start throws the same message: the start error's
+    /// reachable path. The malformed record is built here and nowhere else.
+    /// </summary>
+    private async Task<IRenderedComponent<HomePage>> RenderWithAFailingStartAsync()
+    {
         var unstamped = new BgDecisionData
         {
             Id = new XgDecisionId("money-session.xg", Game: 1, MoveNumber: 4, IsCube: true),
@@ -2979,26 +3065,46 @@ public class PageTests : BunitContext
                 DoubleTakeEquity = 0.7,
             },
         };
-        var controller = new QuizController(
+        Services.AddSingleton(new QuizController(
             (_, _) => TestFixtures.Composed(
                 new JacobyStampedProblemSetSource(new FakeProblemSetSource([unstamped]))),
-            new FakeProblemStatsSink(), TimeProvider.System);
-        Services.AddSingleton(controller);
+            new FakeProblemStatsSink(), TimeProvider.System));
         WithPickedFolder();
         WithAppliedFilter();
         WithShuffleOption();
-        var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<HomePage>();
         await ApplyFiltersAsync(cut);
         await StartButton(cut).ClickAsync(new());
+        return cut;
+    }
 
-        var banner = cut.FindAll(".alert-danger")
-                        .Single(e => e.TextContent.Contains("Could not start quiz"));
-        Assert.Contains("money-session.xg", banner.TextContent);
-        Assert.Contains("Jacoby", banner.TextContent);
-        Assert.EndsWith("/", nav.Uri);   // stayed on Home; no quiz to navigate to
-        Assert.Null(controller.Current); // and nothing from the folder was served
+    [Theory]
+    [MemberData(nameof(BothGestures))]
+    public async Task Home_StartError_IsADismissibleAssertiveError(NoticeDismissGesture gesture)
+    {
+        // SPEC-notices.md Fork A, the start error's half.
+        var cut = await RenderWithAFailingStartAsync();
+
+        NoticeSaying(cut, "Could not start quiz").ShouldBe(
+            NoticeKind.Error, NoticeAnnouncement.Assertive, dismissible: true, "class")
+            .Dismiss(gesture);
+
+        Assert.False(ShowsNoticeSaying(cut, "Could not start quiz"));
+    }
+
+    [Fact]
+    public async Task Home_StartError_ASecondFailureWithIdenticalText_ShowsFresh()
+    {
+        // The field is the whole state, so the next failure — same text, same
+        // file — is shown again rather than held dismissed by a stale bit.
+        var cut = await RenderWithAFailingStartAsync();
+        NoticeSaying(cut, "Could not start quiz").Dismiss(NoticeDismissGesture.WholeBox);
+        Assert.False(ShowsNoticeSaying(cut, "Could not start quiz"));
+
+        await StartButton(cut).ClickAsync(new());
+
+        Assert.Contains("money-session.xg", NoticeSaying(cut, "Could not start quiz").Content.TextContent);
     }
 
     [Fact]
@@ -3088,9 +3194,59 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
 
-        Assert.Contains("previous quiz was reset by the page reload", cut.Markup);
-        Assert.Contains("role=\"status\"", cut.Markup); // polite outcome, not an alert
+        // A polite outcome, not an alert — and an event notice, so dismissible,
+        // with nothing on its tag but what it is.
+        NoticeSaying(cut, "previous quiz was reset by the page reload").ShouldBe(
+            NoticeKind.Information, NoticeAnnouncement.Polite, dismissible: true);
         JSInterop.VerifyInvoke("sessionStorage.removeItem"); // cleared when shown
+    }
+
+    [Theory]
+    [MemberData(nameof(BothGestures))]
+    public void Home_ResetNotice_EachGestureDismissesIt_WithoutTouchingTheMarker(
+        NoticeDismissGesture gesture)
+    {
+        // The component holds this dismissal: the occurrence dies with the page
+        // instance, so there is no holder slot to write and no storage to
+        // touch. The marker was cleared once, when the notice was shown, and
+        // dismissing it clears nothing more.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Setup<string?>("sessionStorage.getItem", QuizLiveKey).SetResult("1");
+
+        var cut = Render<HomePage>();
+        NoticeSaying(cut, "previous quiz was reset by the page reload").Dismiss(gesture);
+
+        Assert.False(ShowsNoticeSaying(cut, "previous quiz was reset"));
+        JSInterop.VerifyInvoke("sessionStorage.removeItem", calledTimes: 1);
+    }
+
+    [Fact]
+    public void Home_ResetNotice_IsStillOneShot_ANavigateBackDoesNotBringItBack()
+    {
+        // The lifetime the notice already had, unchanged by it becoming
+        // dismissible: showing it cleared the marker, so the next Home
+        // instance — a navigate-back within the same boot — reads no marker
+        // and says nothing, dismissed or not. Nothing outside the page holds
+        // the reset fact, which is why the component, not QuizNoticeDismissal,
+        // holds the dismissal.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        var marker = JSInterop.Setup<string?>("sessionStorage.getItem", QuizLiveKey);
+        marker.SetResult("1");
+
+        var cut = Render<HomePage>();
+        Assert.True(ShowsNoticeSaying(cut, "previous quiz was reset")); // positive precondition
+        JSInterop.VerifyInvoke("sessionStorage.removeItem");
+
+        // What the removeItem just verified leaves in sessionStorage.
+        marker.SetResult(null);
+        var back = Render<HomePage>();
+
+        Assert.False(ShowsNoticeSaying(back, "previous quiz was reset"));
+        Assert.DoesNotContain("previous quiz was reset", back.Markup);
     }
 
     [Fact]
@@ -3641,34 +3797,34 @@ public class PageTests : BunitContext
     public async Task Quiz_StatsLoadFailed_ShowsPoliteUntouchedFileNotice()
     {
         // The quiz-runs-without-stats degrade: an unreadable stats file is an
-        // outcome (role="status"), states the file was not changed, and the
-        // quiz renders normally beneath it.
+        // outcome (polite), states the file was not changed, and the quiz
+        // renders normally beneath it.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         await WithStatsStoreInStatusAsync(QuizStatsStatus.LoadFailed);
 
         var cut = Render<QuizPage>();
 
-        Assert.Contains(QuizStatsFile.FileName, cut.Markup);
-        Assert.Contains("couldn't be read", cut.Markup);
-        Assert.Contains("has not been changed", cut.Markup);
-        Assert.Contains("role=\"status\"", cut.Markup);
+        var notice = NoticeSaying(cut, "couldn't be read").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true);
+        Assert.Contains(QuizStatsFile.FileName, notice.Content.TextContent);
+        Assert.Contains("has not been changed", notice.Content.TextContent);
         Assert.Contains("Submit", cut.Markup); // quiz still fully functional
     }
 
     [Fact]
     public async Task Quiz_StatsWriteFailed_ShowsAssertiveAlert()
     {
-        // A mid-quiz write failure is a failure (role="alert") but must not
-        // block the quiz — the answering UI still renders.
+        // A mid-quiz write failure is a failure (assertive, the error kind) but
+        // must not block the quiz — the answering UI still renders.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
 
         var cut = Render<QuizPage>();
 
-        Assert.Contains("could not be saved", cut.Markup);
-        Assert.Contains("role=\"alert\"", cut.Markup);
+        NoticeSaying(cut, "could not be saved").ShouldBe(
+            NoticeKind.Error, NoticeAnnouncement.Assertive, dismissible: true);
         Assert.Contains("Submit", cut.Markup);
     }
 
@@ -3715,13 +3871,15 @@ public class PageTests : BunitContext
         Assert.Contains(QuizStatsFile.FileName, cut.Markup);
         Assert.Contains("set aside", cut.Markup);
         Assert.Contains("begin again", cut.Markup);
-        Assert.Contains("role=\"status\"", cut.Markup);
+        NoticeSaying(cut, "set aside").ShouldBe(
+            NoticeKind.Information, NoticeAnnouncement.Polite, dismissible: true);
         Assert.Contains("Submit", cut.Markup);           // quiz still fully functional
         Assert.DoesNotContain("couldn't be read", cut.Markup); // and not reported as a failure
     }
 
-    [Fact]
-    public async Task Quiz_StatsRetiredNotice_IsDismissible()
+    [Theory]
+    [MemberData(nameof(BothGestures))]
+    public async Task Quiz_StatsRetiredNotice_EachGestureDismissesIt(NoticeDismissGesture gesture)
     {
         // Dismissible like every notice above the board, and on its own slot:
         // this one can be showing while a degrade notice is too, so dismissing
@@ -3731,11 +3889,18 @@ public class PageTests : BunitContext
         await WithRetiredStatsStoreAsync();
 
         var cut = Render<QuizPage>();
-        Assert.Contains("set aside", cut.Markup); // positive precondition
-
-        await cut.Find(".quiz-notice").ClickAsync(new());
+        NoticeSaying(cut, "set aside").Dismiss(gesture);
 
         Assert.DoesNotContain("set aside", cut.Markup);
+    }
+
+    /// <summary>Finish a one-problem quiz, so the Done page has a run to report.</summary>
+    private async Task FinishAQuizAsync()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync(); // exhausts → IsFinished
     }
 
     [Fact]
@@ -3743,31 +3908,154 @@ public class PageTests : BunitContext
     {
         // A failure on the FINAL Continue lands the user on Done without ever
         // seeing the in-quiz alert — Done must state it too.
-        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        c.SubmitPlay(BestPlay());
-        await c.ContinueAsync(); // exhausts → IsFinished
+        await FinishAQuizAsync();
         await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
 
         var cut = Render<DonePage>();
 
-        Assert.Contains("could not be saved", cut.Markup);
-        Assert.Contains("role=\"alert\"", cut.Markup);
+        NoticeSaying(cut, "could not be saved").ShouldBe(
+            NoticeKind.Error, NoticeAnnouncement.Assertive, dismissible: true);
     }
 
     [Fact]
     public async Task Done_StatsLoadFailed_ShowsPoliteNotice()
     {
-        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        c.SubmitPlay(BestPlay());
-        await c.ContinueAsync();
+        await FinishAQuizAsync();
         await WithStatsStoreInStatusAsync(QuizStatsStatus.LoadFailed);
 
         var cut = Render<DonePage>();
 
-        Assert.Contains("couldn't be read", cut.Markup);
-        Assert.Contains("role=\"status\"", cut.Markup);
+        NoticeSaying(cut, "couldn't be read").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Done's stats notices dismiss (SPEC-notices.md Fork B, overturning the
+    //  page's "read once" exception), and they are the Quiz page's notices:
+    //  one QuizNoticeDismissal slot and one occurrence between the two pages.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The two degraded stats statuses, as a theory parameter. Its own public
+    /// type because <see cref="QuizStatsStatus"/> is internal to the app and a
+    /// public test method cannot take it; <see cref="StatusOf"/> maps back.
+    /// </summary>
+    public enum StatsDegrade { LoadFailed, WriteFailed }
+
+    private static QuizStatsStatus StatusOf(StatsDegrade degrade) => degrade switch
+    {
+        StatsDegrade.LoadFailed => QuizStatsStatus.LoadFailed,
+        StatsDegrade.WriteFailed => QuizStatsStatus.WriteFailed,
+        _ => throw new ArgumentOutOfRangeException(nameof(degrade)),
+    };
+
+    /// <summary>Each degraded stats status, with each dismiss gesture.</summary>
+    public static TheoryData<StatsDegrade, NoticeDismissGesture> DegradedStatusesAndGestures()
+    {
+        var data = new TheoryData<StatsDegrade, NoticeDismissGesture>();
+        foreach (var degrade in Enum.GetValues<StatsDegrade>())
+            foreach (var gesture in Enum.GetValues<NoticeDismissGesture>())
+                data.Add(degrade, gesture);
+        return data;
+    }
+
+    /// <summary>
+    /// The phrase the degrade notice for <paramref name="degrade"/> is found
+    /// by — shared by both pages' copy of the notice, and by nothing else on
+    /// either.
+    /// </summary>
+    private static string DegradePhrase(StatsDegrade degrade) => degrade switch
+    {
+        StatsDegrade.LoadFailed => "couldn't be read",
+        StatsDegrade.WriteFailed => "could not be saved",
+        _ => throw new ArgumentOutOfRangeException(nameof(degrade)),
+    };
+
+    [Theory]
+    [MemberData(nameof(DegradedStatusesAndGestures))]
+    public async Task Done_StatsDegradeNotice_EachGestureDismissesIt(
+        StatsDegrade degrade, NoticeDismissGesture gesture)
+    {
+        await FinishAQuizAsync();
+        await WithStatsStoreInStatusAsync(StatusOf(degrade));
+
+        var cut = Render<DonePage>();
+        NoticeSaying(cut, DegradePhrase(degrade)).Dismiss(gesture);
+
+        Assert.False(ShowsNoticeSaying(cut, DegradePhrase(degrade)));
+    }
+
+    [Theory]
+    [MemberData(nameof(BothGestures))]
+    public async Task Done_StatsRetiredNotice_EachGestureDismissesIt(NoticeDismissGesture gesture)
+    {
+        await FinishAQuizAsync();
+        await WithRetiredStatsStoreAsync();
+
+        var cut = Render<DonePage>();
+        NoticeSaying(cut, "set aside").Dismiss(gesture);
+
+        Assert.False(ShowsNoticeSaying(cut, "set aside"));
+        Assert.Contains("Nothing here needs saving", cut.Markup); // the page itself still stands
+    }
+
+    [Theory]
+    [InlineData(StatsDegrade.LoadFailed)]
+    [InlineData(StatsDegrade.WriteFailed)]
+    public async Task Done_StatsDegradeNotice_DismissedOnTheQuizPage_StaysDismissedOnDone(
+        StatsDegrade degrade)
+    {
+        // One occurrence, one dismissal: the notice the user closed mid-quiz is
+        // the same notice Done would show, so it does not come back there.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await WithStatsStoreInStatusAsync(StatusOf(degrade));
+
+        var quiz = Render<QuizPage>();
+        NoticeSaying(quiz, DegradePhrase(degrade)).Dismiss(NoticeDismissGesture.CloseButton);
+
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync(); // exhausts → IsFinished, the run Done reports
+        var done = Render<DonePage>();
+
+        Assert.False(ShowsNoticeSaying(done, DegradePhrase(degrade)));
+    }
+
+    [Fact]
+    public async Task Done_StatsRetiredNotice_DismissedOnTheQuizPage_StaysDismissedOnDone()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await WithRetiredStatsStoreAsync();
+
+        var quiz = Render<QuizPage>();
+        NoticeSaying(quiz, "set aside").Dismiss(NoticeDismissGesture.WholeBox);
+
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+        var done = Render<DonePage>();
+
+        Assert.False(ShowsNoticeSaying(done, "set aside"));
+    }
+
+    [Fact]
+    public async Task Done_StatsDegradeNotice_ANewOccurrence_ShowsFresh()
+    {
+        // Per occurrence, never "this notice is off": dismissed on Done, the
+        // next run's bind against the same unreadable file is a new occurrence
+        // and Done reports it again.
+        await FinishAQuizAsync();
+        var store = await WithStatsStoreInStatusAsync(QuizStatsStatus.LoadFailed);
+
+        var cut = Render<DonePage>();
+        NoticeSaying(cut, "couldn't be read").Dismiss(NoticeDismissGesture.WholeBox);
+        Assert.False(ShowsNoticeSaying(cut, "couldn't be read"));
+
+        await store.BeginQuizAsync(); // the next run binds — a new occurrence
+        Assert.Equal(QuizStatsStatus.LoadFailed, store.Status);
+
+        NoticeSaying(Render<DonePage>(), "couldn't be read").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true);
     }
 
     [Theory]
@@ -3791,8 +4079,8 @@ public class PageTests : BunitContext
         Assert.Contains(QuizStatsFile.RetiredNameFor(retiredSchemaVersion), cut.Markup);
         Assert.All(OtherRetiredVersions(retiredSchemaVersion),
             other => Assert.DoesNotContain(QuizStatsFile.RetiredNameFor(other), cut.Markup));
-        Assert.Contains("set aside", cut.Markup);
-        Assert.Contains("role=\"status\"", cut.Markup);
+        NoticeSaying(cut, "set aside").ShouldBe(
+            NoticeKind.Information, NoticeAnnouncement.Polite, dismissible: true);
         // A retirement is not a recording failure, so the page's "nothing needs
         // saving" line — gated on the two failure statuses — still stands.
         Assert.Contains("Nothing here needs saving", cut.Markup);
@@ -7022,8 +7310,7 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
 
         Assert.Empty(cut.FindAll(".status-strip"));   // maximized, as staged
-        Assert.NotEmpty(cut.FindAll(".alert-danger")); // and the notice stands
-        Assert.Contains("stats won't be recorded", cut.Markup);
+        Assert.True(ShowsNoticeSaying(cut, "stats won't be recorded")); // and the notice stands
     }
 
     [Fact]
@@ -8091,7 +8378,10 @@ public class PageTests : BunitContext
         await StartButton(cut).ClickAsync(new());
 
         Assert.False(c.HasStarted);
-        Assert.Contains("weighted mix can't be applied", cut.Markup);
+        // A gate reason carrying its own escape (SPEC-notices.md Fork C): it
+        // cannot be dismissed, and the escape inside it works on its own.
+        NoticeSaying(cut, "weighted mix can't be applied").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Assertive, dismissible: false, "class");
         var nav = Services.GetRequiredService<BunitNavigationManager>();
         Assert.DoesNotContain("/quiz", nav.Uri);
 
@@ -8475,7 +8765,10 @@ public class PageTests : BunitContext
 
         var cut = Render<QuizPage>();
 
-        var alert = cut.Find("div.alert-warning[role=alert]");
+        // A length-bound shortfall: the quiz underway differs from what was
+        // asked, so an assertive warning.
+        var alert = NoticeSaying(cut, "Your quiz has").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Assertive, dismissible: true).Content;
         Assert.Contains("Your quiz has 1 problem: 1 Never seen.", alert.TextContent);
         Assert.Contains("asked for 5 problems but only", cut.Markup);
         Assert.Contains("drew 1 of 5 requested", cut.Markup);
@@ -8499,7 +8792,8 @@ public class PageTests : BunitContext
 
         var cut = Render<QuizPage>();
 
-        var alert = cut.Find("div.alert-warning[role=alert]");
+        var alert = NoticeSaying(cut, "Your quiz has").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Assertive, dismissible: true).Content;
         Assert.Contains("Your quiz has 2 problems: 2 Never seen + 0 Ever got wrong.", alert.TextContent);
         Assert.Contains("couldn't fill their share", alert.TextContent);
         Assert.Contains("Ever got wrong: filled 0 of its 50% share (1 requested)", alert.TextContent);
@@ -8525,11 +8819,11 @@ public class PageTests : BunitContext
 
         var cut = Render<QuizPage>();
 
-        var status = cut.Find("div.alert-info[role=status]");
+        var status = Assert.Single(NoticeBox.AllIn(cut)).ShouldBe(
+            NoticeKind.Information, NoticeAnnouncement.Polite, dismissible: true).Content;
         Assert.Contains("Your quiz has 3 problems: 3 Never seen + 0 Ever got wrong.", status.TextContent);
         Assert.DoesNotContain("requested", cut.Markup);
         Assert.DoesNotContain("ran short", cut.Markup);
-        Assert.Empty(cut.FindAll("div.alert-warning"));
     }
 
     [Fact]
@@ -8570,13 +8864,14 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), NeverSeenMix()); // capless
 
         var cut = Render<QuizPage>();
-        Assert.NotNull(cut.Find("div.alert-info[role=status]"));
+        NoticeSaying(cut, "Your quiz has").ShouldBe(
+            NoticeKind.Information, NoticeAnnouncement.Polite, dismissible: true);
 
         await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
 
         Assert.DoesNotContain("Your quiz has", cut.Markup);
-        Assert.Empty(cut.FindAll("div.alert-info[role=status]"));
+        Assert.Empty(NoticeBox.AllIn(cut));
     }
 
     [Fact]
@@ -8629,49 +8924,23 @@ public class PageTests : BunitContext
     //  one, plus the slot key that keeps two notices from dismissing each other.
     // -----------------------------------------------------------------------
 
-    /// <summary>The dismiss button rendered inside <paramref name="alert"/>.</summary>
-    private static AngleSharp.Dom.IElement CloseButton(AngleSharp.Dom.IElement alert) =>
-        alert.QuerySelector("button.btn-close")!;
-
-    [Fact]
-    public async Task Quiz_StatsNotice_ClickingTheAlertDismissesIt()
+    [Theory]
+    [MemberData(nameof(DegradedStatusesAndGestures))]
+    public async Task Quiz_StatsNotice_EachGestureDismissesIt(
+        StatsDegrade degrade, NoticeDismissGesture gesture)
     {
-        // The oversized target: a click anywhere in the alert, not only on the
-        // button. That is the low-vision affordance the arc exists for.
+        // Both halves of the affordance on both degrade notices: the whole box,
+        // the large low-vision target, and the close button that carries the
+        // keyboard and screen-reader semantics. The component owns both; this
+        // pins that the page's binding records what either gesture reports.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
+        await WithStatsStoreInStatusAsync(StatusOf(degrade));
 
         var cut = Render<QuizPage>();
-        Assert.Contains("could not be saved", cut.Markup);
+        NoticeSaying(cut, DegradePhrase(degrade)).Dismiss(gesture);
 
-        await cut.Find(".quiz-notice").ClickAsync(new());
-
-        Assert.DoesNotContain("could not be saved", cut.Markup);
-    }
-
-    [Fact]
-    public async Task Quiz_StatsNotice_CloseButtonDismissesIt_AndCarriesItsOwnLabel()
-    {
-        // The discoverable half, and the accessible one: a bare clickable region
-        // has no keyboard or screen-reader affordance at all, so the standard
-        // btn-close renders beside it and carries the semantics. What this pins
-        // is the button's presence, its label, and that activating it dismisses;
-        // it deliberately does NOT claim to distinguish the button's own handler
-        // from the alert's via bubbling, which the render layer's event dispatch
-        // makes indistinguishable from here. Both are wired, and Dismiss is
-        // idempotent, so either route is correct.
-        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        await WithStatsStoreInStatusAsync(QuizStatsStatus.LoadFailed);
-
-        var cut = Render<QuizPage>();
-        var close = CloseButton(cut.Find(".quiz-notice"));
-        Assert.Equal("Dismiss this message", close.GetAttribute("aria-label"));
-
-        await close.ClickAsync(new());
-
-        Assert.DoesNotContain("couldn't be read", cut.Markup);
+        Assert.False(ShowsNoticeSaying(cut, DegradePhrase(degrade)));
     }
 
     [Fact]
@@ -8685,7 +8954,7 @@ public class PageTests : BunitContext
         await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
 
         var cut = Render<QuizPage>();
-        await cut.Find(".quiz-notice").ClickAsync(new());
+        NoticeSaying(cut, "could not be saved").Dismiss(NoticeDismissGesture.WholeBox);
 
         Assert.DoesNotContain("could not be saved", Render<QuizPage>().Markup);
     }
@@ -8703,7 +8972,7 @@ public class PageTests : BunitContext
         var store = await WithStatsStoreInStatusAsync(QuizStatsStatus.LoadFailed);
 
         var cut = Render<QuizPage>();
-        await cut.Find(".quiz-notice").ClickAsync(new());
+        NoticeSaying(cut, "couldn't be read").Dismiss(NoticeDismissGesture.CloseButton);
         Assert.DoesNotContain("couldn't be read", cut.Markup);
 
         await store.BeginQuizAsync();                       // the next run binds
@@ -8712,11 +8981,13 @@ public class PageTests : BunitContext
         Assert.Contains("couldn't be read", Render<QuizPage>().Markup); // …new notice
     }
 
-    [Fact]
-    public async Task Quiz_MixNotice_ClickDismissesIt_WithoutWaitingForAnAnswer()
+    [Theory]
+    [MemberData(nameof(BothGestures))]
+    public async Task Quiz_MixNotice_EachGestureDismissesIt_WithoutWaitingForAnAnswer(
+        NoticeDismissGesture gesture)
     {
-        // The composition notice gains the click gesture and keeps its
-        // retire-on-first-answer: either gesture ends it. This is the half the
+        // The composition notice gains the dismiss gestures and keeps its
+        // retire-on-first-answer: either ends it. This is the half the
         // existing pins could not cover — a user who has read it before
         // answering gets the board space back immediately.
         var c = WithWeighableController(out var sink,
@@ -8726,9 +8997,7 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
 
         var cut = Render<QuizPage>();
-        Assert.Contains("Your quiz has", cut.Markup);
-
-        await cut.Find(".quiz-notice").ClickAsync(new());
+        NoticeSaying(cut, "Your quiz has").Dismiss(gesture);
 
         Assert.DoesNotContain("Your quiz has", cut.Markup);
         Assert.Null(c.Review);   // nothing was answered to get here
@@ -8750,17 +9019,32 @@ public class PageTests : BunitContext
         await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
 
         var cut = Render<QuizPage>();
-        Assert.Equal(2, cut.FindAll(".quiz-notice").Count);
+        Assert.Equal(2, NoticeBox.AllIn(cut).Count);
 
         // Dismiss the stats one (it renders first, above the mix notices).
-        await cut.FindAll(".quiz-notice")[0].ClickAsync(new());
+        NoticeBox.AllIn(cut)[0].Dismiss(NoticeDismissGesture.WholeBox);
 
         Assert.DoesNotContain("could not be saved", cut.Markup);
         Assert.Contains("Your quiz has", cut.Markup);
 
         // …and now the other, independently.
-        await cut.Find(".quiz-notice").ClickAsync(new());
-        Assert.Empty(cut.FindAll(".quiz-notice"));
+        Assert.Single(NoticeBox.AllIn(cut)).Dismiss(NoticeDismissGesture.WholeBox);
+        Assert.Empty(NoticeBox.AllIn(cut));
+    }
+
+    [Fact]
+    public void Quiz_NoQuizInProgress_IsAGateReason_ThatCannotBeDismissed()
+    {
+        // The page's whole content in this state: closed, it would leave an
+        // empty page that cannot say why (SPEC-notices.md Fork C). The link
+        // inside it does its own job — the way to the setup page.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())); // never started
+
+        var cut = Render<QuizPage>();
+
+        var notice = NoticeSaying(cut, "No quiz in progress").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Assertive, dismissible: false);
+        Assert.Equal("/", notice.Content.QuerySelector("a")!.GetAttribute("href"));
     }
 
     [Fact]
@@ -8901,9 +9185,10 @@ public class PageTests : BunitContext
         await cut.FindAll("button").First(b => b.TextContent.Contains("Restart with same filters"))
             .ClickAsync(new());
 
-        Assert.Contains("weighted mix can't be applied", cut.Markup);
+        var refusal = NoticeSaying(cut, "weighted mix can't be applied").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Assertive, dismissible: false);
         // The reason is status-only now: no capability arm can reach this page.
-        Assert.Contains("no stats context could be bound", cut.Markup);
+        Assert.Contains("no stats context could be bound", refusal.Content.TextContent);
         Assert.True(c.IsFinished);                     // summary state survived the refusal
         Assert.Equal(1, c.Score.Total.Submitted);
 

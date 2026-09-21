@@ -60,6 +60,14 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </para>
 ///
 /// <para>
+/// <b>A fifth, for a stylesheet this app does not write.</b> The notices'
+/// pointer cursor comes from the shared <c>Notice</c> component's scoped CSS,
+/// which reaches the page inside this host's bundle — a host obligation the
+/// library states and only a real browser can confirm was met
+/// (<c>halheinrich/backgammon#248</c>).
+/// </para>
+///
+/// <para>
 /// <b>And one thing no visitor ever asks for.</b> The health endpoint Azure App
 /// Service's probe will hit (<c>halheinrich/backgammon#24</c>) is a claim of the
 /// same kind as the stylesheets — what the <i>artifact</i> serves, not how the
@@ -120,6 +128,22 @@ public sealed class EnvironmentFidelityTests : E2eTestBase
     /// <i>empty</i> box changes, so this is the half that must stay Bootstrap's.
     /// </summary>
     private const string CheckboxCheckedFill = "rgb(13, 110, 253)";
+
+    /// <summary>
+    /// The cursor a dismissible notice's box shows, telling the user the whole
+    /// box is the dismiss target (<c>SPEC-notices.md</c> §3). Only the shared
+    /// <c>Notice</c> component's scoped stylesheet declares it: Bootstrap gives
+    /// an alert no cursor, and this app's own stylesheet stopped declaring one
+    /// when its notice rule was deleted in favour of the component's
+    /// (<c>halheinrich/backgammon#248</c>).
+    /// </summary>
+    private const string DismissibleNoticeCursor = "pointer";
+
+    /// <summary>
+    /// The pick-band notice a fallback pick always raises — the stats-capability
+    /// warning, dismissible — addressed by the id this app's call site gives it.
+    /// </summary>
+    private ILocator StatsCapabilityNotice => Page.Locator("#statsCapabilityNotice");
 
     /// <summary>
     /// The path <c>Program.cs</c> maps the health endpoint at. It is also half of
@@ -275,6 +299,35 @@ public sealed class EnvironmentFidelityTests : E2eTestBase
         var filled = Page.Locator(".form-check-input:checked").First;
         await Expect(filled).ToHaveCSSAsync("border-color", CheckboxCheckedFill);
         await Expect(filled).ToHaveCSSAsync("background-color", CheckboxCheckedFill);
+    }
+
+    /// <summary>
+    /// A dismissible notice's box shows the pointer, on a real page load of the
+    /// published artifact. The notices render through <c>BgUiPrimitives_Razor</c>'s
+    /// <c>Notice</c>, whose one piece of styling Bootstrap lacks — the cursor
+    /// that marks the whole box as the dismiss target — reaches the browser only
+    /// as a scoped rule the library's bundle contributes to this host's
+    /// <c>BgQuiz_Blazor.styles.css</c>. That route is the host obligation the
+    /// library states, and the sidebar pin above cannot vouch for it: the
+    /// sidebar's rule is this app's own, so the bundle could load while the
+    /// library's part of it did not.
+    ///
+    /// <para>
+    /// <b>Why here and not in bUnit.</b> bUnit renders markup and executes no
+    /// stylesheet, so no unit test can say what the user's pointer shows. The
+    /// same claim was app.css's before this app handed its notices to the
+    /// component; with that rule deleted, a value of <c>pointer</c> here can
+    /// only have come from the component's sheet.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task ADismissibleNotice_ShowsThePointer_OnARealPageLoad()
+    {
+        await BootHomeAsync();
+        await PickFixtureAsync(CubeFixture);
+
+        await Expect(StatsCapabilityNotice).ToBeVisibleAsync();
+        await Expect(StatsCapabilityNotice).ToHaveCSSAsync("cursor", DismissibleNoticeCursor);
     }
 
     /// <summary>

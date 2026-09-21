@@ -31,6 +31,12 @@
          the remaining server-side types (ServerDisk* problem-set source). -->
     <ProjectReference Include="..\BgQuiz_Blazor\BgQuiz_Blazor.csproj" />
     <ProjectReference Include="..\BgQuiz_Blazor.Client\BgQuiz_Blazor.Client.csproj" />
+    <!-- The notice component's test reader (NoticeBox): every notice is
+         asserted through it, so no test here restates the component's markup.
+         Test projects only — it carries bunit, and no product project may
+         reference it. Its bunit and AngleSharp versions are the floor for
+         this repository's (Directory.Packages.props). -->
+    <ProjectReference Include="..\..\BgUiPrimitives_Razor\BgUiPrimitives_Razor.TestSupport\BgUiPrimitives_Razor.TestSupport.csproj" />
   </ItemGroup>
 
   <ItemGroup>

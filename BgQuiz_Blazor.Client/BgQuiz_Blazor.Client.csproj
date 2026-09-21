@@ -146,6 +146,11 @@
     <ProjectReference Include="..\..\ConvertXgToJson_Lib\ConvertXgToJson_Lib\ConvertXgToJson_Lib.csproj" />
     <ProjectReference Include="..\..\XgFilter_Lib\XgFilter_Lib\XgFilter_Lib.csproj" />
     <ProjectReference Include="..\..\XgFilter_Razor\XgFilter_Razor\XgFilter_Razor.csproj" />
+    <!-- Referenced directly, not through XgFilter_Razor: every notice box this
+         app draws renders through the shared Notice (SPEC-notices.md,
+         halheinrich/backgammon#248), and a dependency a project uses is one it
+         states. -->
+    <ProjectReference Include="..\..\BgUiPrimitives_Razor\BgUiPrimitives_Razor\BgUiPrimitives_Razor.csproj" />
   </ItemGroup>
 
 </Project>

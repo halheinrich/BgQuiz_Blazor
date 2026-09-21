@@ -106,15 +106,20 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// non-failure pick outcomes — a pick that ended holding no folder, and one that
 /// held a folder with no problem files — each get their own polite notice rather
 /// than silence, so no gesture ever returns the user to an unchanged page with
-/// no account of what happened. Every outcome/status notice in the pick band
-/// dismisses on a click (issue halheinrich/backgammon#107, the Quiz page's affordance): the
-/// holder-backed pair — truncations and stats capability, which survive
-/// navigation with the pick they describe — record their dismissal in the
-/// app-scoped <see cref="QuizNoticeDismissal"/> keyed on
-/// <see cref="PickedProblemFolder.PickOccurrence"/>, while the per-visit pair
-/// clear their own fields (see <see cref="DismissCancelledPick"/>). The red
-/// pick-error banner alone stays undismissible: it is a failure report
-/// (<c>role="alert"</c>), not an outcome. A
+/// no account of what happened. Every box on this page renders through the
+/// shared <c>Notice</c>, and which of them dismiss is the umbrella's
+/// <c>SPEC-notices.md</c> classification, not colour. The owner of each
+/// occurrence holds its dismissal (§2): the holder-backed pick-band notices —
+/// truncations, stats capability and the retirement forecast, which survive
+/// navigation with the pick they describe — bind to the app-scoped
+/// <see cref="QuizNoticeDismissal"/> keyed on
+/// <see cref="PickedProblemFolder.PickOccurrence"/>; the per-visit pair
+/// (<see cref="_cancelledPickNotice"/>, <see cref="_emptyFolderNotice"/>) and
+/// the two errors (<see cref="_pickError"/>, <see cref="_startError"/>) bind to
+/// their own fields, which are each box's whole state; and the reload-reset
+/// notice lets the component hold the bit, its occurrence dying with this page
+/// instance (<see cref="_showReloadNotice"/>). The weighted-start refusal and
+/// the no-match notice are gate reasons and do not dismiss. A
 /// weighted start with no lifetime stats is <i>refused</i> as an outcome (the
 /// actionable notice with its per-run "Start without mix" override — see
 /// <see cref="StartCoreAsync"/>), never silently run unweighted.
@@ -203,7 +208,9 @@ public partial class Home : ComponentBase, IDisposable
     /// <summary>
     /// Sibling of <see cref="_startError"/> for pick failures — an unexpected
     /// browser error, or a file past the <see cref="PickedFileLimits.MaxFileBytes"/>
-    /// cap. A per-visit failure banner (assertive), like the start error.
+    /// cap. A per-visit failure notice (assertive), like the start error, and
+    /// the notice's whole state: dismissing it clears this field, and the next
+    /// failure assigns it again and shows fresh.
     /// A folder past the <i>count</i> caps is not a failure: it truncates and
     /// reports (<see cref="PickedProblemFolder.Truncations"/>).
     /// </summary>
@@ -258,7 +265,17 @@ public partial class Home : ComponentBase, IDisposable
     /// non-bubbling event and attaches a direct listener to the element.
     /// </para>
     ///
-    /// <para>Per-visit outcome state, so a component field.</para>
+    /// <para>
+    /// Per-visit outcome state, so a component field — and the notice's whole
+    /// state, dismissal included: the notice binds its dismissed state to this
+    /// field, so dismissing clears it, and it is deliberately not routed
+    /// through <see cref="QuizNoticeDismissal"/>. The notice describes a gesture
+    /// that left nothing behind and dies with the visit by construction, and
+    /// <see cref="ClearPickNotices"/> already retires it on the next gesture, so
+    /// an occurrence token would have nothing to outlive.
+    /// <see cref="_emptyFolderNotice"/> is held the same way, for the same
+    /// reasons.
+    /// </para>
     /// </summary>
     private bool _cancelledPickNotice;
 
@@ -330,6 +347,15 @@ public partial class Home : ComponentBase, IDisposable
     /// with no live quiz in the (freshly-booted) controller — i.e. a full reload
     /// silently reset a quiz that was underway. Drives the polite reset notice.
     /// A per-visit outcome flag, so a component field like the two banners above.
+    ///
+    /// <para>
+    /// The notice's occurrence lives exactly as long as this page instance: the
+    /// marker is cleared in the same step that sets this, so a navigate-back
+    /// re-instantiates the page with the flag false. The notice's own component
+    /// therefore holds its dismissal — nothing here records one, and no
+    /// app-scoped owner exists or is wanted, since one would outlive the
+    /// one-shot notice it describes (<c>SPEC-notices.md</c> §2).
+    /// </para>
     /// </summary>
     private bool _showReloadNotice;
 
@@ -1122,50 +1148,6 @@ public partial class Home : ComponentBase, IDisposable
             }
         });
     }
-
-    /// <summary>
-    /// Dismiss the truncated-pick report for the pick on screen, keyed on the
-    /// holder's occurrence token (issue halheinrich/backgammon#107): navigating away and back finds
-    /// the same token and stays dismissed, while the next pick mints a fresh
-    /// one and reports its own truncations — with no reset call site to forget.
-    /// </summary>
-    private void DismissTruncations() =>
-        Notices.Dismiss(QuizNotice.PickTruncations, Folder.PickOccurrence);
-
-    /// <summary>
-    /// Dismiss the stats-capability notice for the pick on screen — whichever
-    /// of the three mutually exclusive branches is showing (they share the
-    /// slot; see <see cref="QuizNotice.PickStatsCapability"/>). Same token
-    /// discipline as <see cref="DismissTruncations"/>.
-    /// </summary>
-    private void DismissStatsCapability() =>
-        Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.PickOccurrence);
-
-    /// <summary>
-    /// Dismiss the stats-retirement forecast for the pick on screen (issue
-    /// <c>halheinrich/backgammon#146</c>). Same token discipline as
-    /// <see cref="DismissTruncations"/> — and its own slot, so reading past the
-    /// forecast leaves the capability line beside it standing.
-    /// </summary>
-    private void DismissStatsRetirementForecast() =>
-        Notices.Dismiss(QuizNotice.PickStatsRetirementForecast, Folder.PickOccurrence);
-
-    /// <summary>
-    /// Dismiss the cancelled-pick notice by clearing its own per-visit field —
-    /// deliberately not routed through <see cref="QuizNoticeDismissal"/>: the
-    /// notice describes a gesture that left nothing behind, dies with the
-    /// visit by construction, and <see cref="ClearPickNotices"/> already
-    /// retires it on the next gesture, so an occurrence token would have
-    /// nothing to outlive. The click affordance is what issue halheinrich/backgammon#107 adds; the
-    /// lifetime was already right.
-    /// </summary>
-    private void DismissCancelledPick() => _cancelledPickNotice = false;
-
-    /// <summary>
-    /// Dismiss the empty-folder notice — <see cref="DismissCancelledPick"/>'s
-    /// sibling, for the same reasons.
-    /// </summary>
-    private void DismissEmptyFolder() => _emptyFolderNotice = false;
 
     private void HandleShuffleToggled(ChangeEventArgs e)
     {

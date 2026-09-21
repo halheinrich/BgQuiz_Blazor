@@ -84,7 +84,20 @@ internal enum QuizNotice
 /// answer, so hiding it while answering means it is never seen, and a
 /// recording failure must be seen). On <c>Home</c> the pick-outcome notices
 /// render for as long as the pick is held (issue halheinrich/backgammon#107). In both cases the
-/// answer to the space they cost is the user dismissing them.
+/// answer to the space they cost is the user dismissing them. <c>Done</c> renders
+/// the same three stats notices as <c>Quiz</c> and binds them to the same slots
+/// and occurrences (<c>SPEC-notices.md</c> Fork B), so one occurrence has one
+/// dismissal wherever it shows.
+/// </para>
+///
+/// <para>
+/// <b>What it does not hold.</b> The notices render through the shared
+/// <c>Notice</c> component, which owns the affordance; this holder is only the
+/// state that must outlive a page (<c>SPEC-notices.md</c> §2: the owner of the
+/// occurrence holds the dismissal). A notice whose occurrence dies with its
+/// page is not here: <c>Home</c>'s per-visit outcomes and errors bind to the
+/// page field that is their whole state, and its reload-reset notice lets the
+/// component hold the bit.
 /// </para>
 ///
 /// <para>
