@@ -25,7 +25,9 @@
         </HeadingLead>
     </ScoreBreakdown>
 
-    <button class="btn btn-primary" @onclick="BackToQuiz">
-        Back to quiz
-    </button>
+    @* The way back (halheinrich/backgammon#241). This page only ever settles
+       with a quiz live — it bounces away otherwise — so the control reads
+       "Back to quiz" here in practice; it is the shared one all the same, so
+       the rule and the words have one owner across Settings, Help and Stats. *@
+    <ReturnControl />
 </div>

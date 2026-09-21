@@ -40,9 +40,13 @@ public sealed class SettingsTests : E2eTestBase
 
     private ILocator HomeBoardRightRadio => Page.GetByRole(AriaRole.Radio, new() { Name = "Right" });
 
-    /// <summary>The page's way back into a running quiz — absent when none is.</summary>
+    /// <summary>The page's way back while a quiz is running.</summary>
     private ILocator BackToQuizButton =>
         Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton });
+
+    /// <summary>The same control with no quiz running: the way back to Home.</summary>
+    private ILocator BackToHomeButton =>
+        Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToHomeButton });
 
     /// <summary>
     /// The analysis-depth ceiling dropdown (<c>halheinrich/backgammon#66</c>).
@@ -267,19 +271,27 @@ public sealed class SettingsTests : E2eTestBase
     }
 
     /// <summary>
-    /// The other half of the affordance's predicate, in the browser: with no quiz
-    /// running the button is simply absent. Cheap to pin here and worth it — the
-    /// bUnit tests assert the same thing against a controller a test built, while
-    /// this asserts it on the page a first-time visitor actually lands on.
+    /// The other half of the return control, in the browser: with no quiz
+    /// running there is no quiz to go back to, but the page still offers a way
+    /// out — to Home, where every quiz begins (<c>halheinrich/backgammon#241</c>:
+    /// its absence was part of why a release candidate was rejected). Worth
+    /// pinning here as well as in bUnit — those tests assert it against a
+    /// controller a test built, while this asserts it on the page a first-time
+    /// visitor actually reaches, and follows the button to where it leads.
     /// </summary>
     [Fact]
-    public async Task SettingsOffersNoWayBackWhenNoQuizIsRunning()
+    public async Task SettingsOffersTheWayHomeWhenNoQuizIsRunning()
     {
         await BootHomeAsync();
-
         await GoToSettingsAsync();
 
         await Expect(BackToQuizButton).ToHaveCountAsync(0);
+        await BackToHomeButton.ClickAsync();
+
+        // Home's own control is the readiness this needs; the landing URL's
+        // trailing form for the app base is the framework's business.
+        await Expect(PickFolderButton).ToBeVisibleAsync();
+        await Expect(Page).ToHaveTitleAsync("BgQuiz");
     }
 
     /// <summary>

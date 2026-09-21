@@ -718,11 +718,15 @@
     </fieldset>
 
     @* The way back to a running quiz (issue halheinrich/backgammon#58). Home is the third page
-       reachable mid-quiz with no way back — Help and Settings already carry
-       this affordance, and this is the same predicate, the same markup, and the
-       same words, copied rather than designed for the reason Settings copied it
-       from Help: a user who has met the affordance once should meet the same one
-       here.
+       reachable mid-quiz with no way back — Help and Settings already carried
+       this affordance, and this is the same predicate and the same words, so a
+       user who has met it once meets the same one here.
+
+       Not the shared ReturnControl those pages render now
+       (halheinrich/backgammon#241), deliberately: that control falls back to
+       "Back to Home" with no quiz live, and Home is the setup page — it does
+       not return to itself. So here the button is conditional, and absent
+       when there is no quiz to go back to.
 
        Mid-quiz visits to Home are already safe by design — the picked files are
        read at Start only, and the setup surface's own gestures (Clear, re-pick)

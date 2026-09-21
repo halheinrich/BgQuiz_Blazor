@@ -5,7 +5,6 @@
 @using XgFilter_Razor
 @using XgFilter_Razor.Components
 
-@inject QuizController Controller
 @inject NavigationManager Nav
 
 <PageTitle>BgQuiz — Help</PageTitle>
@@ -741,12 +740,10 @@
             sense of a report.
         </p>
 
-        @if (Controller.HasStarted && !Controller.IsFinished)
-        {
-            <button class="btn btn-primary mt-3" @onclick="BackToQuiz">
-                Back to quiz
-            </button>
-        }
+        @* The way back, always present: to the running quiz while one is live,
+           to Home otherwise (halheinrich/backgammon#241). ReturnControl owns
+           the rule and both labels, shared with Settings and Stats. *@
+        <ReturnControl Class="mt-3" />
 
     </div>
 </div>

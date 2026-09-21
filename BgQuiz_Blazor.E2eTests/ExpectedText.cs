@@ -187,10 +187,16 @@ internal static class ExpectedText
 
     /// <summary>
     /// The way back into a running quiz, offered by every page that can be
-    /// reached mid-quiz (<c>Stats.razor</c>, <c>Settings.razor</c>,
-    /// <c>Help.razor</c>, <c>Home.razor</c>).
+    /// reached mid-quiz (<c>ReturnControl.razor</c> on Stats, Settings and
+    /// Help; <c>Home.razor</c>'s own).
     /// </summary>
     internal const string BackToQuizButton = "Back to quiz";
+
+    /// <summary>
+    /// The same control with no quiz live: the way back to the setup page,
+    /// named as the navigation panel names it (<c>ReturnControl.razor</c>).
+    /// </summary>
+    internal const string BackToHomeButton = "Back to Home";
 
     // ------------------------------------------------------------------
     //  The layout and the settings page

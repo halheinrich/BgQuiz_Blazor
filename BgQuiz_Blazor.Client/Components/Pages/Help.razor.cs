@@ -27,18 +27,21 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// A <c>.Client</c> WASM page rather than a static host page: a mid-quiz
 /// Help → Back round trip must not disturb the WASM runtime holding the quiz
 /// state, exactly as <see cref="Stats"/>'s round trip must not. It is interactive
-/// only for the Back button, and <c>prerender: false</c> is mandatory regardless —
-/// <see cref="QuizController"/> does not exist during a server prerender.
+/// only for the way back, and <c>prerender: false</c> is mandatory regardless —
+/// <see cref="QuizController"/>, which the way back reads, does not exist during
+/// a server prerender.
 /// </para>
 ///
 /// <para>
 /// Unlike <see cref="Stats"/> this page never redirects: help is reachable from
 /// any state, including before a quiz has started and from a browser bookmark.
-/// Only the "Back to quiz" affordance is conditional, on the same
-/// <c>HasStarted &amp;&amp; !IsFinished</c> predicate <see cref="Stats"/> guards
-/// with — with no quiz in progress there is nowhere to go back to. Nothing on the
-/// page changes while the user reads it, so it does not subscribe to
-/// <see cref="QuizController.StateChanged"/>.
+/// So its way back is always present, and the shared
+/// <see cref="ReturnControl"/> decides where it goes: <b>Back to quiz</b> while a
+/// quiz is live, <b>Back to Home</b> otherwise (issue
+/// <c>halheinrich/backgammon#241</c>) — with no quiz in progress there is no quiz
+/// to go back to, but there is still a page to go back to. Nothing on the page
+/// changes while the user reads it, so neither the page nor the control
+/// subscribes to <see cref="QuizController.StateChanged"/>.
 /// </para>
 ///
 /// <para>
@@ -103,9 +106,4 @@ public partial class Help : ComponentBase
     /// </para>
     /// </summary>
     private string PanelStorageHref => AnchorHref(FilterHelp.StorageSectionAnchorId);
-
-    private void BackToQuiz()
-    {
-        Nav.NavigateTo("/quiz");
-    }
 }

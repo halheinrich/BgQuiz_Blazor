@@ -23,6 +23,14 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// the quiz already finished it bounces to <c>/done</c>, mirroring <c>Quiz</c>'s
 /// own start/finish guards.
 /// </para>
+///
+/// <para>
+/// The way back is the shared <see cref="ReturnControl"/>, which Settings and
+/// Help render too (issue <c>halheinrich/backgammon#241</c>). Because of the
+/// bounces above this page only settles with a quiz live, so the control reads
+/// <b>Back to quiz</b> here in practice; the page renders the shared control
+/// rather than a button of its own so the rule and its words keep one owner.
+/// </para>
 /// </summary>
 public partial class Stats : ComponentBase
 {
@@ -43,10 +51,5 @@ public partial class Stats : ComponentBase
         {
             Nav.NavigateTo("/done", replace: true);
         }
-    }
-
-    private void BackToQuiz()
-    {
-        Nav.NavigateTo("/quiz");
     }
 }

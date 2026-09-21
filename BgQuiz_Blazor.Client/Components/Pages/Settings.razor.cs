@@ -38,14 +38,17 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <para>
 /// Like <see cref="Help"/> — and unlike <see cref="Stats"/> — this page never
 /// redirects: settings are reachable from any state, including a cold bookmark.
-/// Only the "Back to quiz" affordance is conditional, on the same
-/// <c>HasStarted &amp;&amp; !IsFinished</c> predicate both siblings use. It is
-/// the page's answer to the mid-quiz round trip booked on issue halheinrich/backgammon#30: the round
-/// trip already worked (the settings service and the controller are both
-/// app-scoped, so nothing is lost either way), but nothing pointed at it, and a
-/// user who changes the board side mid-quiz has no visible way back. The
-/// affordance belongs here rather than in the navigation panel because that
-/// panel renders statically and cannot know a quiz is live.
+/// So its way back is always present, and the shared <see cref="ReturnControl"/>
+/// decides where it goes: <b>Back to quiz</b> while a quiz is live, <b>Back to
+/// Home</b> otherwise (issue <c>halheinrich/backgammon#241</c>). The first half
+/// is the page's answer to the mid-quiz round trip booked on issue
+/// halheinrich/backgammon#30: the round trip already worked (the settings
+/// service and the controller are both app-scoped, so nothing is lost either
+/// way), but nothing pointed at it, and a user who changes the board side
+/// mid-quiz had no visible way back. The second half closes the gap that
+/// remained — with no quiz live the page offered no on-page way out at all. The
+/// control belongs here rather than in the navigation panel because that panel
+/// renders statically and cannot know a quiz is live.
 /// </para>
 /// </summary>
 public partial class Settings : ComponentBase
@@ -86,9 +89,4 @@ public partial class Settings : ComponentBase
 
     private Task SetKeepNavigationPanelFoldedAsync(bool value) =>
         UserSettings.SetKeepNavigationPanelFoldedAsync(value);
-
-    private void BackToQuiz()
-    {
-        Nav.NavigateTo("/quiz");
-    }
 }

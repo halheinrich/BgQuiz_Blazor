@@ -1,0 +1,5 @@
+@* The way back from Settings, Help and Stats — the one place the app decides
+   where "back" goes from those pages and what it is called
+   (halheinrich/backgammon#241). The rule and both labels are the code-behind's;
+   the host decides only where the button sits. *@
+<button type="button" class="@ButtonClass" @onclick="Return">@Label</button>

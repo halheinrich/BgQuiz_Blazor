@@ -193,12 +193,14 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// Below the setup surface — outside the busy <c>fieldset</c>, since it only
-/// navigates — sits the same conditional <b>"Back to quiz"</b> button
-/// <see cref="Help"/> and <see cref="Settings"/> carry, on the same
+/// navigates — sits a conditional <b>"Back to quiz"</b> button, on the
 /// <c>HasStarted &amp;&amp; !IsFinished</c> predicate (issue halheinrich/backgammon#58). Home is the
 /// third page a user can reach mid-quiz and the last one that had no way back.
 /// The visit itself was always safe — see <see cref="BackToQuiz"/> — so the
-/// affordance is the whole change.
+/// affordance is the whole change. It is deliberately <i>not</i> the
+/// <see cref="ReturnControl"/> <see cref="Help"/>, <see cref="Settings"/> and
+/// <see cref="Stats"/> render (issue halheinrich/backgammon#241): that control
+/// falls back to "Back to Home" with no quiz live, and this page is Home.
 /// </para>
 /// </summary>
 public partial class Home : ComponentBase, IDisposable
@@ -1231,10 +1233,9 @@ public partial class Home : ComponentBase, IDisposable
     }
 
     /// <summary>
-    /// Return to the problem a live quiz is sitting on (issue halheinrich/backgammon#58) — the same
-    /// one-line handler behind the identical affordance on <see cref="Help"/>
-    /// and <see cref="Settings"/>, rendered under the same
-    /// <c>HasStarted &amp;&amp; !IsFinished</c> predicate.
+    /// Return to the problem a live quiz is sitting on (issue halheinrich/backgammon#58), rendered
+    /// under the <c>HasStarted &amp;&amp; !IsFinished</c> predicate — the live
+    /// half of what <see cref="ReturnControl"/> does on the other pages.
     ///
     /// <para>
     /// Navigation only: the quiz state it returns to is app-scoped and was never

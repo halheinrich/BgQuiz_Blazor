@@ -5751,10 +5751,25 @@ public class PageTests : BunitContext
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<StatsPage>();
-        var backButton = cut.FindAll("button").First(b => b.TextContent.Trim() == "Back to quiz");
-        await backButton.ClickAsync(new());
+        var back = ReturnButton(cut);
+        Assert.Equal("Back to quiz", back.TextContent.Trim());
+        Assert.Equal(["btn", "btn-primary"], back.ClassList); // as the page's own button was
+        await back.ClickAsync(new());
 
         Assert.EndsWith("/quiz", nav.Uri);
+    }
+
+    [Fact]
+    public void Stats_NoQuizStarted_RendersTheSharedControl_ReadingBackToHome()
+    {
+        // Stats never settles in this state — it bounces home (pinned above) —
+        // but the render it makes on the way renders the shared control, not a
+        // "Back to quiz" of its own that would point at a quiz there is not.
+        WithController();
+
+        var cut = Render<StatsPage>();
+
+        Assert.Equal("Back to Home", ReturnButton(cut).TextContent.Trim());
     }
 
     [Fact]
@@ -6462,26 +6477,33 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public void Help_NoQuizInProgress_RendersWithoutRedirecting_AndOffersNoBackButton()
+    public async Task Help_NoQuizInProgress_RendersWithoutRedirecting_AndOffersTheWayHome()
     {
         // Unlike Stats, Help is reachable from any state — including a cold visit
-        // or a bookmark — so it must never bounce. With no quiz to return to, the
-        // Back affordance is simply absent.
+        // or a bookmark — so it must never bounce. With no quiz to return to,
+        // the way back goes to Home (halheinrich/backgammon#241): the page
+        // always offers one.
         WithController();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
-        var baseUri = nav.Uri;
+        nav.NavigateTo("/help"); // arrived here, so a way back has somewhere else to go
 
         var cut = Render<HelpPage>();
 
-        Assert.Equal(baseUri, nav.Uri); // no redirect fired
-        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Back to quiz");
+        Assert.EndsWith("/help", nav.Uri); // no redirect fired
+        var back = ReturnButton(cut);
+        Assert.Equal("Back to Home", back.TextContent.Trim());
+        Assert.Equal(["btn", "btn-primary", "mt-3"], back.ClassList);
+
+        await back.ClickAsync(new());
+
+        Assert.Equal(nav.BaseUri, nav.Uri);
     }
 
     [Fact]
-    public async Task Help_QuizFinished_OffersNoBackButton()
+    public async Task Help_QuizFinished_OffersTheWayHome()
     {
         // The finished quiz has no answering state to return to — the same half of
-        // the predicate Stats redirects to /done on.
+        // the predicate Stats redirects to /done on — so the way back is Home's.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitPlay(BestPlay());
@@ -6490,7 +6512,7 @@ public class PageTests : BunitContext
 
         var cut = Render<HelpPage>();
 
-        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Back to quiz");
+        Assert.Equal("Back to Home", ReturnButton(cut).TextContent.Trim());
     }
 
     [Fact]
@@ -6502,7 +6524,9 @@ public class PageTests : BunitContext
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<HelpPage>();
-        var back = cut.FindAll("button").First(b => b.TextContent.Trim() == "Back to quiz");
+        var back = ReturnButton(cut);
+        Assert.Equal("Back to quiz", back.TextContent.Trim());
+        Assert.Equal(["btn", "btn-primary", "mt-3"], back.ClassList);
         await back.ClickAsync(new());
 
         Assert.EndsWith("/quiz", nav.Uri);
@@ -9644,15 +9668,15 @@ public class PageTests : BunitContext
         // the front end of the draft/commit lifetime split that produced finding
         // (AK)'s wedge, and this page must never grow one.
         //
-        // Stated as "no buttons at all", which stays exact: the one button the
-        // page can render is Back to quiz, and with no quiz started it is absent
-        // by its own predicate. So an Apply added later still fails here,
-        // whatever it is called.
+        // Stated as "no button but the way back", which stays exact: the one
+        // button the page renders is its return control, which with no quiz
+        // started reads Back to Home (halheinrich/backgammon#241). So an Apply
+        // added later still fails here, whatever it is called.
         WithController();
 
         var cut = Render<SettingsPage>();
 
-        Assert.Empty(cut.FindAll("button"));
+        Assert.Equal(["Back to Home"], cut.FindAll("button").Select(b => b.TextContent.Trim()));
     }
 
     [Fact]
@@ -9777,35 +9801,46 @@ public class PageTests : BunitContext
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<SettingsPage>();
-        var back = cut.FindAll("button").First(b => b.TextContent.Trim() == "Back to quiz");
+        var back = ReturnButton(cut);
+        Assert.Equal("Back to quiz", back.TextContent.Trim());
+        Assert.Equal(["btn", "btn-primary", "mt-3"], back.ClassList);
         await back.ClickAsync(new());
 
         Assert.EndsWith("/quiz", nav.Uri);
     }
 
     [Fact]
-    public void Settings_NoQuizInProgress_RendersWithoutRedirecting_AndOffersNoBackButton()
+    public async Task Settings_NoQuizInProgress_RendersWithoutRedirecting_AndOffersTheWayHome()
     {
         // Settings sits where Help sits, not where Stats sits: reachable from any
         // state — a cold deep link is the very visit the hydration gate exists
-        // for — so it must never bounce, and with no quiz there is nowhere to go
-        // back to.
+        // for — so it must never bounce. With no quiz there is no quiz to go back
+        // to, but the page still offers a way out: to Home, where every quiz
+        // begins (halheinrich/backgammon#241 — its absence was part of why a
+        // release candidate was rejected).
         WithController();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
-        var baseUri = nav.Uri;
+        nav.NavigateTo("/settings"); // arrived here, so a way back has somewhere else to go
 
         var cut = Render<SettingsPage>();
 
-        Assert.Equal(baseUri, nav.Uri); // no redirect fired
-        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Back to quiz");
+        Assert.EndsWith("/settings", nav.Uri); // no redirect fired
+        var back = ReturnButton(cut);
+        Assert.Equal("Back to Home", back.TextContent.Trim());
+        Assert.Equal(["btn", "btn-primary", "mt-3"], back.ClassList);
+
+        await back.ClickAsync(new());
+
+        Assert.Equal(nav.BaseUri, nav.Uri);
     }
 
     [Fact]
-    public async Task Settings_QuizFinished_OffersNoBackButton()
+    public async Task Settings_QuizFinished_OffersTheWayHome()
     {
         // The other half of the predicate, and the half a HasStarted-only test
         // would miss: a finished quiz has no answering state to return to, which
-        // is exactly why Stats redirects to /done on it.
+        // is exactly why Stats redirects to /done on it — so the way back is
+        // Home's.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         c.SubmitPlay(BestPlay());
@@ -9814,7 +9849,20 @@ public class PageTests : BunitContext
 
         var cut = Render<SettingsPage>();
 
-        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Back to quiz");
+        Assert.Equal("Back to Home", ReturnButton(cut).TextContent.Trim());
+    }
+
+    /// <summary>
+    /// The return control on a page, read as a user meets it: the page renders
+    /// the shared <see cref="ReturnControl"/> — once, the rule's one owner —
+    /// and it is the one button carrying either of the control's labels.
+    /// </summary>
+    private static AngleSharp.Dom.IElement ReturnButton(IRenderedComponent<IComponent> cut)
+    {
+        Assert.Single(cut.FindComponents<ReturnControl>());
+        return Assert.Single(
+            cut.FindAll("button"),
+            b => b.TextContent.Trim() is "Back to quiz" or "Back to Home");
     }
 
     [Fact]
