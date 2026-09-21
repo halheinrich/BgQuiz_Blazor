@@ -7490,8 +7490,10 @@ public class PageTests : BunitContext
         // them, whitespace preserved — and that half of the ruling is CSS, which
         // bUnit evaluates none of. `pre-wrap` keeps runs of spaces (real XG notes
         // align columns with them) and renders an embedded CRLF as one line
-        // break; `overflow-wrap: anywhere` breaks a raw RTF control-word run,
-        // which has no space to break at, instead of widening the dialog past
+        // break; `overflow-wrap: anywhere` breaks a long unbroken run in the
+        // plain text (a pasted URL or XGID, a ruled line — the converter has
+        // reduced XG's RTF since halheinrich/backgammon#233), which has no
+        // space to break at, instead of widening the dialog past
         // the viewport. The e2e scenario measures both in a real browser; this
         // stops the declarations being edited away without that run.
         var css = File.ReadAllText(AppCssPath());

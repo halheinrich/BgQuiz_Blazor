@@ -2347,12 +2347,14 @@ The asymmetry is pinned three times over: at the service seam
     the notes made to the keyboard module.
   - **The text is shown as the source stored it** (`pre-wrap`,
     `AppCss_DecisionNotesText_KeepsTheAuthorsWhitespace`): one text node, never
-    inspected. Real XG comments are RTF documents with embedded CRLFs, and
+    inspected. The comment arrives as plain text — XG stores it as RTF, and
+    the converter reduces it to the text XG's own comment pane shows before
+    stamping it (halheinrich/backgammon#233) — with embedded CRLFs, and
     authors align columns with runs of spaces; a CRLF renders as exactly one
     break (measured, the same height as LF), and `overflow-wrap: anywhere`
-    breaks a raw control-word run that has no space to break at. RTF-to-text is
-    the converter's upgrade (halheinrich/backgammon#233) and changes nothing
-    here.
+    breaks a long unbroken run (a pasted URL or XGID, a ruled line) that has no
+    space to break at. Knowing XG's comment format is the converter's job,
+    never this component's.
   - **The control is a fixed-width button in the leading cluster**, not a member
     of the tail's shrink order; the row's height stays the primary button's.
 

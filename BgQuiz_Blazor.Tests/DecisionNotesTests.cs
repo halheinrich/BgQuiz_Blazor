@@ -221,10 +221,13 @@ public class DecisionNotesTests : BunitContext
     [Fact]
     public async Task TheText_ReachesThePageVerbatim_WhitespaceAndAll()
     {
-        // Shown as the source stored it: leading and trailing whitespace, runs
-        // of spaces, indentation, tabs, blank lines and a raw RTF control word
-        // pass through untouched, as one text node — nothing trims, collapses
-        // or interprets them. The edges matter: every real XG comment ends in a
+        // Shown as the converter stamped it: leading and trailing whitespace,
+        // runs of spaces, indentation, tabs, blank lines — and even text that
+        // looks like RTF markup — pass through untouched, as one text node;
+        // nothing trims, collapses or interprets them. (Real comments arrive
+        // as plain text: the converter reduces XG's RTF before stamping,
+        // halheinrich/backgammon#233. Markup-shaped text reaching this
+        // component is the author's own, and stays as written.) The edges matter: every real XG comment ends in a
         // line break, so a trim would be a change to real text, not a nicety.
         // (LF here, not CRLF: bUnit round-trips the render through AngleSharp's
         // HTML parser, which normalizes CR LF to LF by specification, so a CRLF

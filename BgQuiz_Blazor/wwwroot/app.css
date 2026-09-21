@@ -569,9 +569,11 @@ h1:focus {
    its author wrote it, and an embedded CRLF renders as exactly one break —
    measured, the same height as LF. Nothing upstream normalizes the text and
    nothing may. overflow-wrap: anywhere breaks the one kind of token that has no
-   space to break at — a raw RTF control-word run, which is what a real XG
-   comment starts with until halheinrich/backgammon#233 — instead of pushing the
-   dialog wider than the viewport. The page's own font, not a monospace one:
+   space to break at — a long unbroken run in the author's plain text, such as a
+   pasted URL or XGID or a ruled line of dashes — instead of pushing the dialog
+   wider than the viewport. (The comment arrives as plain text: the converter
+   reduces XG's RTF before stamping it, halheinrich/backgammon#233.) The page's
+   own font, not a monospace one:
    eXtreme Gammon lays comments out in a proportional face, so its authors'
    spacing is tuned to one. */
 .decision-notes-text {
