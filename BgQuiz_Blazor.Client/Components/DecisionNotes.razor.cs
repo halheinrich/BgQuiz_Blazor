@@ -22,13 +22,14 @@ namespace BgQuiz_Blazor.Client.Components;
 /// </para>
 ///
 /// <para>
-/// <b>The text is shown as the source stored it.</b> It is rendered as one
+/// <b>The text is shown as the converter stamped it.</b> It is rendered as one
 /// text node and the stylesheet keeps its whitespace (<c>pre-wrap</c>), so
 /// runs of spaces and embedded CRLFs read as their author laid them out. This
-/// component never inspects the text's format: a real XG comment is an RTF
-/// document today and is shown raw by ruling; turning it into plain text is
-/// the converter's upgrade (<c>halheinrich/backgammon#233</c>), and when it
-/// lands nothing here changes.
+/// component never inspects the text's format, and has no need to: XG stores
+/// a comment as an RTF document, and since <c>halheinrich/backgammon#233</c>
+/// the converter reduces it to the plain text XG's own comment pane shows
+/// before stamping it, so <see cref="Comment"/> arrives as plain text. Knowing
+/// XG's comment format is the converter's job, not this component's.
 /// </para>
 ///
 /// <para>
