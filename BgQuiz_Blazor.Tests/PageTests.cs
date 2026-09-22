@@ -6117,6 +6117,20 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public void Help_QuotesBothPickTimeStatsForecasts_FromTheConstantsHomeRenders()
+    {
+        // halheinrich/backgammon#260, halheinrich/backgammon#261: Help says
+        // what the home page will say, in the home page's own words.
+        WithController();
+
+        var cut = Render<HelpPage>();
+
+        var text = Normalize(cut.Markup);
+        Assert.Contains($"“{FolderPickDisplay.StatsUnreadableForecast}”", text);
+        Assert.Contains($"“{FolderPickDisplay.StatsUnwritableForecast}”", text);
+    }
+
+    [Fact]
     public void Help_RendersEachPartsSectionsBeneathIt_InOrder()
     {
         // The inner half, grouped: every section is an h3, under the part that

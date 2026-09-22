@@ -644,7 +644,20 @@
             <li>
                 <strong>An unreadable stats file is left alone.</strong> If the file can't be
                 read (edited by hand, or written by a newer BgQuiz), the quiz runs without
-                recording and the file is not touched.
+                recording and the file is not touched. The home page says so as soon as
+                you pick the folder: “@FolderPickDisplay.StatsUnreadableForecast”
+            </li>
+            @* The pick-time forecasts are quoted from the constants Home renders
+               (FolderPickDisplay), so Help cannot promise one wording while the
+               home page shows another. The unwritable one names only what the
+               pick can detect; a file another program holds open is found at
+               the first answer, which the second sentence covers without
+               claiming the pick catches it. *@
+            <li>
+                <strong>A stats file that can't be written records nothing.</strong> When
+                you pick the folder, the home page tells you: “@FolderPickDisplay.StatsUnwritableForecast”
+                If the file can't be saved once the quiz is under way, the quiz page says so
+                and the quiz carries on without saving.
             </li>
             @* Names both files from the app's own naming, like every other file name
                on this page — the prose cannot drift from what is written. The

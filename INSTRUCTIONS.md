@@ -139,8 +139,9 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
 - **BgFolderAccess_Razor** — the File System Access machinery this app
   originally grew app-side, rehomed (umbrella halheinrich/backgammon#79):
   `IFolderAccess` / `JsFolderAccess` (both pick mechanisms, name-parameterized
-  picked/active slot file I/O, the two-slot isolation model),
-  `FolderWriteCapability`, `FolderPickOutcome` / `PickedFile` /
+  picked/active slot file I/O, the two-slot isolation model, and the
+  picked-slot writability probe `ProbePickedFileWritabilityAsync` /
+  `PickedFileWritability`), `FolderWriteCapability`, `FolderPickOutcome` / `PickedFile` /
   `PickTruncation`, and `FolderPickLimits` — the host-supplied caps
   configuration `Program.cs` builds from `PickedFileLimits`' values (the
   numbers stay host policy; the lib ships none). Its `folderAccess.js` ships as
@@ -953,7 +954,7 @@ halheinrich/backgammon#87). Beside the *active context* above sits the
   (`ReadPickedFileAsync(QuizStatsFile.FileName)`), deserialize, `Count > 0`.
   Degrade-tolerant *because that is the ruling*, not as a defensive extra:
   missing, empty, corrupt, foreign-schema, and browser-read-failure all leave
-  it false, with no status, no notice, and nothing thrown. **A retired file
+  it false, with no status and nothing thrown. **A retired file
   reads as "no stats to weight by" too**, and stays that way until the first
   quiz performs the set-aside: the probe never binds, so it never retires. That
   is the ruling working, not a gap to close (SPEC-stats-identity.md §3). **A
@@ -967,7 +968,19 @@ halheinrich/backgammon#87). Beside the *active context* above sits the
   swallow with the corrupt files and the fact was lost. Caught ahead of that
   swallow, the mix answer is byte-identical (nothing sets `_pickedHasStats` on
   that path) and the read stays read-only — the one fact Home's forecast notice
-  needs is simply no longer thrown away. It **promotes nothing** and never
+  needs is simply no longer thrown away. **Three forecasts, one holder**
+  (halheinrich/backgammon#260, halheinrich/backgammon#261): the same read
+  also records `ForecastStatsUnreadable` — a file that exists and could not
+  be read (a `JsonException` on content, including a v4 body the fold
+  reader rejects, or a `JSException` on the read) — and, for any found file
+  (read or failing its read), asks the producer's
+  `ProbePickedFileWritabilityAsync(QuizStatsFile.FileName)`, recording
+  `ForecastStatsUnwritable` on `NotWritable`. `Absent` and `Writable` record
+  nothing, absent files are never probed, and a `JSException` out of the
+  probe is swallowed like a read failure — the probe is advisory, the bind
+  decides. All three (`ForecastStatsSetAsideName` too) are gated by the one
+  generation stamp, and none moves the mix answer: unreadable is still "no
+  stats to weight by". It **promotes nothing** and never
   assigns the active document or `Status`, so a probe during a running quiz
   cannot disturb what that quiz records. Under a
   non-`Enabled` capability the interop is skipped through the same private
@@ -997,8 +1010,16 @@ into the fact plus the policy over it.**
 all polite): stats-will-be-saved (`Enabled`, naming
 `QuizStatsFile.FileName`) / browser-can't-save / declined-write, plus the
 empty-folder outcome, the truncated-pick notice (one line per kind the count
-caps cut short — § `PickedFileLimits`), the stats-retirement **forecast**
-(§ Notices), and the assertive pick-failure error.
+caps cut short — § `PickedFileLimits`), the two will-not-record
+**forecasts** — `#statsUnreadableForecastNotice` and
+`#statsUnwritableForecastNotice`, polite warnings with copy from
+`FolderPickDisplay` (`StatsUnreadableForecast`, `StatsUnwritableForecast`),
+rendered right after the capability verdict — the stats-retirement
+**forecast** (§ Notices), and the assertive pick-failure error. **The
+"will be saved" line is a promise, so it renders only while neither
+will-not-record forecast holds** (`Home.StatsWillNotRecord`, derived from
+the same two store properties the forecasts render from); with one in
+force the forecast is the whole statement.
 Quiz-context (Quiz **and** Done — a failure on the final Continue lands on
 Done without ever showing Quiz's notice): `LoadFailed` polite, `WriteFailed`
 assertive;
@@ -1508,8 +1529,9 @@ so no page types alert markup, and no page may again.
 dismiss; **gate reasons do not** — a box whose absence would leave the screen
 unable to say why it is as it is: Home's and Done's weighted-mix refusals
 (each carries its own escape button, "Start without mix" / "Restart without
-mix", which works inside the notice untouched), Home's no-match notice (why
-Start found nothing), and Quiz's "No quiz in progress" (the page's whole
+mix", which works inside the notice untouched), Home's zero-count box
+`#noMatchNotice` and its after-Start no-match notice (why Start is dark, and
+why a Start found nothing), and Quiz's "No quiz in progress" (the page's whole
 content in that state). On the Quiz page dismissal is also `SPEC-quiz-view.md`
 §4's answer to the board space the notices cost, the maximize mode being
 forbidden from suppressing them. The pre-pick advisory lines are not boxes
@@ -1525,9 +1547,10 @@ never where the box happens to sit:
   `Notices.Dismiss(slot, occurrence)`. The Quiz page's composition, stats
   degrade and stats-retirement notices (*Show stats* re-instantiates the
   page, so anything shorter-lived would resurrect a dismissed notice); Home's
-  pick-band trio — the truncation notice, the stats-capability notice (its
+  pick-band notices — the truncation notice, the stats-capability notice (its
   three branches share one slot: mutually exclusive renderings of one
-  per-pick verdict) and the stats-retirement forecast — keyed on
+  per-pick verdict), the unreadable and unwritable forecasts (a slot each:
+  both can show at once) and the stats-retirement forecast — keyed on
   `PickedProblemFolder.PickOccurrence`, so a re-pick shows fresh and
   navigate-back stays dismissed; and **Done's three stats notices, bound to
   the Quiz page's slots and occurrences** (`SPEC-notices.md` Fork B, which
@@ -1927,8 +1950,13 @@ The asymmetry is pinned three times over: at the service seam
   **The pool gate is known-zero only** (found dogfooding, ruled): a resolved
   count of 0 darkens Start with "No problems match the filters — adjust and
   re-apply them to enable Start."; a null or still-computing summary gates
-  nothing (no async dependency in the gate), and the no-match outcome notice
-  stays the backstop for a Start racing the count. The mix surface — panel and
+  nothing (no async dependency in the gate). **The zero count is a box, not
+  the line** (halheinrich/backgammon#262): with Start dark it is the only
+  thing saying why, so it renders as the non-dismissible polite warning
+  `#noMatchNotice` — same sentence, mix caveat inside when `MixInEffect`; a
+  non-zero count keeps the muted line and its breakdown. A running count
+  cannot be raced (the busy state disables the setup fieldset), so the only
+  live Start over an unknown count is one whose count threw. The mix surface — panel and
   row editing — is deliberately **not** pool-gated; composed-to-zero
   stays the backstop for a non-empty pool whose mix reaches nothing. The mix
   hint is the ruled "Mix applies but isn't valid — fix it or turn the mix off."
@@ -2070,9 +2098,12 @@ The asymmetry is pinned three times over: at the service seam
   no-match banner rather than navigating into a `0/0` `/quiz` → `/done`
   bounce — a post-Start check, not a pre-flight enumeration: `StartAsync`
   already advances to the first showable problem, so `IsFinished` immediately
-  after it *is* the empty-result signal. Two indistinguishable causes flip it
-  (zero filter matches; every match auto-skipped for offering no play choice), so the
-  wording claims neither. `_noMatchNotice` is a sibling field to
+  after it *is* the empty-result signal. It says only what the page knows
+  (halheinrich/backgammon#262): the mix drew nothing; or, over a **known
+  non-zero** count, every match was auto-skipped for offering no play choice;
+  or, over an **unknown** count (it threw), only that no problems could be
+  presented — zero matches and all-skipped are indistinguishable there, so
+  that wording claims neither. `_noMatchNotice` is a sibling field to
   `_startError`, distinct because it reports an *outcome*, not a *failure*:
   a polite warning and a gate reason that does not dismiss, not an assertive
   error that does. Both are genuinely per-visit state, so component fields (see
@@ -3676,6 +3707,15 @@ public (see Pitfalls). The externally visible surface is the route map:
   which nothing on screen would tell them to do. The probe is also stamped
   with `PickGeneration` — don't "simplify" that away, it is what makes a
   verdict about the previous folder expire instead of answering for this one.
+- **A locked stats file is not caught at pick time.** The producer's
+  writability probe finds a file the browser will not open for writing —
+  marked read-only, or not allowed — but a file another program holds open
+  answers `Writable` and is found at the first real write; the measured limit
+  is `BgFolderAccess_Razor`'s (its `INSTRUCTIONS.md`, the writability probe),
+  not restated here. That is why the Start-time and answer-time notices on
+  Quiz and Done stay beside the pick-time forecasts, and why the unwritable
+  forecast's copy never names "locked": it would name a cause that never
+  produces it. Don't retire the later notices as redundant.
 - **`MixPanel`'s `@key` on `PickGeneration` is load-bearing — don't drop it.**
   A mix-visible → mix-visible re-pick leaves both `MixVisibility.IsVisible` and
   `HasFiles`
