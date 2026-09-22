@@ -541,8 +541,14 @@
        (SPEC-stats-identity.md §4) and restating it here would be a second
        spelling of it to keep in step.
 
-       The standing sentence is suppressed on an empty pool for the reason the
-       breakdown is: with nothing matched there is no pool to characterize.
+       A ZERO count is not this line (halheinrich/backgammon#262). CanStart is
+       false at zero, so the count is the only thing on the page saying why
+       Start is dark — a gate reason, by SPEC-notices.md's own test — and it
+       renders as the non-dismissible warning box #noMatchNotice: the same
+       sentence, the mix caveat inside it when the mix applies, polite because
+       the count is an outcome that lands, not a gesture's answer. The standing
+       sentence, the magnitude and the breakdown do not ride in it: with
+       nothing matched there is no pool to characterize.
 
        The breakdown answers a different question than the count does — not "how
        big is the pool" but "what is my collection made of", the curation-bias
@@ -564,9 +570,26 @@
        issue halheinrich/backgammon#3's pre-Start composition preview to sit beside it as its own
        block on the mix axis. Nothing here is built for that; it is only kept
        un-claimed. *@
+    @* The mix caveat, written once for both renderings of the count. *@
+    RenderFragment mixCaveat =
+        @<text>
+            Your mix applies: the quiz is drawn from these matches rather than
+            presenting all of them, so the quiz itself can be much smaller.
+        </text>;
     @if (_isCounting)
     {
         <div class="text-muted small mb-3" role="status">Counting matching decisions…</div>
+    }
+    else if (_matchSummary is { AnswerTypes.Total: 0 })
+    {
+        <Notice id="noMatchNotice" class="mb-3" Kind="NoticeKind.Warning"
+                Announcement="NoticeAnnouncement.Polite">
+            <strong>0</strong> decisions match your filters.
+            @if (MixInEffect)
+            {
+                @mixCaveat
+            }
+        </Notice>
     }
     else if (_matchSummary is { AnswerTypes: var pool, DuplicatesCollapsed: var collapsed })
     {
@@ -574,10 +597,7 @@
             <div>
                 <strong>@pool.Total</strong>
                 @(pool.Total == 1 ? "decision matches" : "decisions match") your filters.
-                @if (pool.Total > 0)
-                {
-                    <text>Repeated positions are counted once.</text>
-                }
+                Repeated positions are counted once.
                 @if (collapsed > 0)
                 {
                     <text>
@@ -587,29 +607,21 @@
                 }
                 @if (MixInEffect)
                 {
-                    <text>
-                        Your mix applies: the quiz is drawn from these matches rather than
-                        presenting all of them, so the quiz itself can be much smaller.
-                    </text>
+                    @mixCaveat
                 }
             </div>
-            @* Suppressed on an empty pool only: with nothing matched there is no
-               collection to characterize, and five zeros under "0 decisions
-               match" would be noise where the page most needs to be quiet. That
-               is not the zero-bucket case — a zero bucket inside a non-empty
-               pool is a finding and always renders. *@
-            @if (pool.Total > 0)
-            {
-                <div class="mt-1">
-                    By answer type:
-                    <ul class="list-inline d-inline mb-0">
-                        @foreach (var bucket in AnswerTypeDisplay.Buckets(pool))
-                        {
-                            <li class="list-inline-item">@bucket.Label: <strong>@bucket.Count</strong></li>
-                        }
-                    </ul>
-                </div>
-            }
+            @* A zero BUCKET inside a non-empty pool is a finding and always
+               renders; only an empty pool has no make-up, and that is the box
+               above. *@
+            <div class="mt-1">
+                By answer type:
+                <ul class="list-inline d-inline mb-0">
+                    @foreach (var bucket in AnswerTypeDisplay.Buckets(pool))
+                    {
+                        <li class="list-inline-item">@bucket.Label: <strong>@bucket.Count</strong></li>
+                    }
+                </ul>
+            </div>
         </div>
     }
 

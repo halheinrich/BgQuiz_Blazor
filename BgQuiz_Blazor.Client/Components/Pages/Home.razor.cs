@@ -565,9 +565,12 @@ public partial class Home : ComponentBase, IDisposable
     /// The pool gate is <b>known-zero only</b>, deliberately: it reads the
     /// advisory <see cref="_matchSummary"/> where it happens to be resolved
     /// with <c>Total: 0</c>, and a null or still-computing summary gates
-    /// nothing — the gate takes no async dependency, and the existing
-    /// no-match outcome notice in <see cref="StartCoreAsync"/> remains the
-    /// backstop for a Start that races the count. The mix surface is
+    /// nothing — the gate takes no async dependency. A count still running
+    /// cannot be raced (the page's busy state disables the whole setup
+    /// fieldset while it runs), so a null summary here means the count
+    /// failed; the no-match outcome notice in <see cref="StartCoreAsync"/> is
+    /// the backstop for that Start, and says only that nothing could be
+    /// presented, since the page does not know why. The mix surface is
     /// deliberately <i>not</i> pool-gated (rows are dir-independent choices,
     /// and pool-gating activation would freeze a checked box when a re-apply
     /// empties the pool); the composed-to-zero outcome stays the backstop for
@@ -1220,19 +1223,26 @@ public partial class Home : ComponentBase, IDisposable
 
             // StartAsync already advanced to the first showable problem, so an
             // immediately-finished controller means the source yielded nothing
-            // the quiz could present. With an active mix the telemetry says
-            // whether the composition itself came up empty; otherwise two
-            // indistinguishable causes flip this — zero filter matches, or
-            // every match auto-skipped for offering no play choice — so stay on / and
-            // surface a neutral outcome notice rather than navigating into a
-            // 0/0 /quiz → /done bounce with no hint of why.
+            // the quiz could present — stay on / with an outcome notice rather
+            // than navigating into a 0/0 /quiz → /done bounce with no hint of
+            // why. It says only what this page knows (halheinrich/backgammon#262):
+            // with an active mix the telemetry says whether the composition
+            // came up empty; otherwise a zero count never gets here (Start is
+            // dark at zero, and #noMatchNotice already says why), so a KNOWN
+            // non-zero count means every match was auto-skipped for offering no
+            // play choice. An unknown count — it threw, which leaves Start live
+            // — could be either, and the sentence claims neither.
             if (Controller.IsFinished)
             {
                 _noMatchNotice = Controller.LastComposition is { DrawnCount: 0 }
                     ? "Your mix drew no problems — no decision in these files matched "
                       + "the selected categories against your lifetime stats. Adjust "
                       + "the mix, the filters, or the files."
-                    : "No quiz problems matched these filters — adjust the filters or pick different files.";
+                    : _matchSummary is { AnswerTypes.Total: > 0 }
+                        ? "Every decision matching these filters was skipped for offering "
+                          + "no play choice — adjust the filters or pick different files."
+                        : "No quiz problems could be presented — try again, or adjust the "
+                          + "filters or pick different files.";
                 return;
             }
 

@@ -696,9 +696,9 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await ApplyFiltersAsync(cut);
 
-        var region = Normalize(MatchSummaryRegion(cut).TextContent);
-        Assert.Contains("0 decisions match your filters", region);
-        Assert.DoesNotContain("Repeated positions are counted once", region);
+        var box = Normalize(NoMatchBox(cut).Content.TextContent);
+        Assert.Contains("0 decisions match your filters", box);
+        Assert.DoesNotContain("Repeated positions are counted once", box);
     }
 
     [Fact]
@@ -827,9 +827,9 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await ApplyFiltersAsync(cut);
 
-        var region = MatchSummaryRegion(cut);
-        Assert.Contains("0 decisions match your filters", Normalize(region.TextContent));
-        Assert.DoesNotContain("By answer type", region.TextContent);
+        var box = NoMatchBox(cut).Content;
+        Assert.Contains("0 decisions match your filters", Normalize(box.TextContent));
+        Assert.DoesNotContain("By answer type", cut.Markup);
     }
 
     [Fact]
@@ -848,10 +848,76 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await ApplyFiltersAsync(cut);
 
-        Assert.Contains("0 decisions match your filters", Normalize(MatchSummaryRegion(cut).TextContent));
+        Assert.Contains("0 decisions match your filters", Normalize(NoMatchBox(cut).Content.TextContent));
         Assert.True(StartButton(cut).HasAttribute("disabled"));
         Assert.Contains(cut.FindAll("small"), s => s.TextContent.Trim()
             == "No problems match the filters — adjust and re-apply them to enable Start.");
+    }
+
+    [Fact]
+    public async Task Home_ZeroMatchCount_IsANonDismissibleWarningBox()
+    {
+        // halheinrich/backgammon#262: at zero the count is why Start is dark —
+        // a gate reason — so it is the warning box, not the muted line, and it
+        // cannot be closed: neither gesture has anything to act on.
+        WithController();
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        var box = NoMatchBox(cut).ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: false, "id", "class");
+        Assert.Equal("0 decisions match your filters.", Normalize(box.Content.TextContent));
+        Assert.DoesNotContain("drawn from these matches", box.Content.TextContent);
+        Assert.Empty(cut.FindAll("div.text-muted[role=status]")); // no muted line beside it
+
+        // A click has nothing to reach: the box carries no handler at all, so
+        // it stays.
+        await Assert.ThrowsAsync<MissingEventHandlerException>(
+            () => cut.Find("#noMatchNotice").ClickAsync(new()));
+        Assert.Single(cut.FindAll("#noMatchNotice"));
+    }
+
+    [Fact]
+    public async Task Home_ZeroMatchCount_WithTheMixInEffect_CarriesTheMixCaveatInTheBox()
+    {
+        WithController();
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithActiveMix(NeverSeenMix());
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        var text = Normalize(NoMatchBox(cut).Content.TextContent);
+        Assert.StartsWith("0 decisions match your filters.", text);
+        Assert.Contains(
+            "Your mix applies: the quiz is drawn from these matches rather than presenting "
+            + "all of them, so the quiz itself can be much smaller.",
+            text);
+    }
+
+    [Fact]
+    public async Task Home_NonZeroMatchCount_IsThePlainLine_WithNoBox()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        Assert.Empty(cut.FindAll("#noMatchNotice"));
+        Assert.DoesNotContain(NoticeBox.AllIn(cut), n => n.Content.TextContent.Contains("match"));
+        var line = MatchSummaryRegion(cut);
+        Assert.Contains("text-muted", line.ClassName);
+        Assert.Contains("1 decision matches your filters.", Normalize(line.TextContent));
+        Assert.Contains("By answer type", line.TextContent);
     }
 
     [Fact]
@@ -913,6 +979,14 @@ public class PageTests : BunitContext
         cut.FindAll("div[role=status]")
            .First(d => d.TextContent.Contains("match your filters")
                     || d.TextContent.Contains("matches your filters"));
+
+    /// <summary>
+    /// Home's zero-count box (halheinrich/backgammon#262) — what the count line
+    /// becomes when nothing matched: the only thing on the page saying why
+    /// Start is dark.
+    /// </summary>
+    private static NoticeBox NoMatchBox(IRenderedComponent<HomePage> cut) =>
+        NoticeBox.ById(cut, "noMatchNotice");
 
     /// <summary>
     /// Collapse the whitespace Razor leaves between an element's text and its
@@ -3162,38 +3236,27 @@ public class PageTests : BunitContext
         Assert.DoesNotContain("decision matches your filters", cut.Markup);
     }
 
-    [Fact]
-    public async Task Home_StartClick_EmptyFilterResult_ShowsBannerAndStaysHome()
+    /// <summary>The after-Start notice for a known non-zero count whose every match was auto-skipped.</summary>
+    private const string AllSkippedNotice = "Every decision matching these filters was skipped";
+
+    /// <summary>The after-Start notice for a Start made with the count unknown.</summary>
+    private const string NothingPresentedNotice = "No quiz problems could be presented";
+
+    /// <summary>
+    /// A controller over an empty source whose construction throws while
+    /// <paramref name="failing"/> says so: every count taken while it holds
+    /// fails (the summary stays unknown and Start stays live), and once the
+    /// test lowers it the Start that follows finishes at once.
+    /// </summary>
+    private QuizController WithControllerWhoseSourceFails(StrongBox<bool> failing)
     {
-        // The empty-result BACKSTOP: a filter set matching zero decisions makes
-        // StartAsync exhaust immediately (IsFinished true straight away), and
-        // the page stays on / with the no-match banner rather than bouncing
-        // through a 0/0 /quiz → /done. On the primary path the zero-pool gate
-        // now darkens Start before this can happen (the known-zero count —
-        // pinned in Home_KnownEmptyPool_GatesStart_WithItsOwnHint), so this
-        // scenario drives the click programmatically past the disabled button,
-        // exactly the race-with-the-count case the backstop is ruled to cover.
-        var controller = WithController(); // empty source → finishes on Start
-        WithPickedFolder();
-        WithAppliedFilter();
-        WithShuffleOption();
-        var nav = Services.GetRequiredService<BunitNavigationManager>();
-
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
-
-        var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
-        Assert.True(startBtn.HasAttribute("disabled")); // the gate holds; the click below is the backstop probe
-        await startBtn.ClickAsync(new());
-
-        Assert.True(controller.IsFinished);           // controller did start and exhaust
-        Assert.EndsWith("/", nav.Uri);                // stayed on Home, no /quiz nav
-        // A neutral, polite warning, not the assertive error — and a gate
-        // reason, the only account of why Start found nothing, so it does not
-        // dismiss (SPEC-notices.md Fork C).
-        NoticeSaying(cut, "No quiz problems matched these filters").ShouldBe(
-            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: false, "class");
-        Assert.DoesNotContain("Could not start quiz", cut.Markup);
+        var controller = new QuizController(
+            (_, _) => failing.Value
+                ? throw new InvalidOperationException("source failed")
+                : TestFixtures.Composed(new FakeProblemSetSource([])),
+            new FakeProblemStatsSink(), TimeProvider.System);
+        Services.AddSingleton(controller);
+        return controller;
     }
 
     [Fact]
@@ -3289,14 +3352,12 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_StartClick_AllMatchesAutoSkippedPasses_ShowsSameBanner()
+    public async Task Home_StartClick_AllMatchesAutoSkippedPasses_SaysEveryMatchWasSkipped()
     {
-        // The second, indistinguishable cause of an immediately-finished
-        // controller: every admitted decision is an auto-skipped pass position, so
-        // the user is shown nothing even though the filter "matched". The page
-        // can't tell this apart from zero matches, and the wording must not claim
-        // to — same neutral banner, same stay-home behavior. Pins the "both causes"
-        // wording decision.
+        // halheinrich/backgammon#262: with Start dark at zero, a KNOWN non-zero
+        // count that still finishes at once has one cause left — every match
+        // was auto-skipped for offering no play choice — and the notice says
+        // that, and only that. Still a gate reason, so not dismissible.
         var controller = WithController(TestFixtures.PassDecision());
         WithPickedFolder();
         WithAppliedFilter();
@@ -3307,11 +3368,53 @@ public class PageTests : BunitContext
         await ApplyFiltersAsync(cut);
 
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
+        Assert.False(startBtn.HasAttribute("disabled")); // a real click: the count was one
         await startBtn.ClickAsync(new());
 
         Assert.True(controller.IsFinished);
         Assert.EndsWith("/", nav.Uri);
-        Assert.Contains("No quiz problems matched these filters", cut.Markup);
+        var notice = NoticeSaying(cut, AllSkippedNotice).ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: false, "class");
+        Assert.Equal(
+            "Every decision matching these filters was skipped for offering no play choice "
+            + "— adjust the filters or pick different files.",
+            Normalize(notice.Content.TextContent));
+        Assert.False(ShowsNoticeSaying(cut, NothingPresentedNotice));
+        Assert.DoesNotContain("Could not start quiz", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_StartClick_CountThrew_SaysOnlyThatNothingCouldBePresented()
+    {
+        // The count failing leaves the summary unknown and Start live — the one
+        // path left to a Start that finds nothing without the page knowing why.
+        // Zero matches or every match skipped: the sentence claims neither.
+        var failing = new StrongBox<bool>(true);
+        var controller = WithControllerWhoseSourceFails(failing);
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        Assert.DoesNotContain("match your filters", cut.Markup); // the count is unknown…
+        Assert.Empty(cut.FindAll("#noMatchNotice"));
+        var startBtn = StartButton(cut);
+        Assert.False(startBtn.HasAttribute("disabled"));        // …so Start is live
+        failing.Value = false;                                  // the Start itself succeeds, empty
+        await startBtn.ClickAsync(new());
+
+        Assert.True(controller.IsFinished);
+        Assert.EndsWith("/", nav.Uri);
+        var notice = NoticeSaying(cut, NothingPresentedNotice).ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: false, "class");
+        Assert.Equal(
+            "No quiz problems could be presented — try again, or adjust the filters or pick "
+            + "different files.",
+            Normalize(notice.Content.TextContent));
+        Assert.False(ShowsNoticeSaying(cut, AllSkippedNotice));
     }
 
     [Fact]
@@ -3334,7 +3437,8 @@ public class PageTests : BunitContext
 
         Assert.False(controller.IsFinished);
         Assert.EndsWith("/quiz", nav.Uri);
-        Assert.DoesNotContain("No quiz problems matched these filters", cut.Markup);
+        Assert.False(ShowsNoticeSaying(cut, AllSkippedNotice));
+        Assert.False(ShowsNoticeSaying(cut, NothingPresentedNotice));
     }
 
     [Fact]

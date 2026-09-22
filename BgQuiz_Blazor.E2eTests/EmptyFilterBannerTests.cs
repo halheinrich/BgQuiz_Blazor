@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
 
@@ -7,11 +8,13 @@ namespace BgQuiz_Blazor.E2eTests;
 /// The known-empty pool: filters the page has just reported matching nothing
 /// must darken Start with their own hint — not leave it live to dead-end in
 /// the no-match outcome (the live dogfooding find folded into the halheinrich/backgammon#83
-/// rebuild). The click-through banner this suite originally gated (the fourth
-/// of the four invisible-to-tests production defects) survives as the
-/// backstop for a Start racing the count, pinned at the bUnit layer where the
-/// race can be staged; in a real browser the primary path now never reaches
-/// it, because the button is genuinely dark.
+/// rebuild). Since halheinrich/backgammon#262 the zero count itself is the
+/// non-dismissible warning box <c>#noMatchNotice</c> — the only thing on the
+/// page saying why Start is dark — pinned here in a real browser and at the
+/// bUnit layer (<c>PageTests.Home_ZeroMatchCount_IsANonDismissibleWarningBox</c>).
+/// The click-through banner this suite originally gated (the fourth of the
+/// four invisible-to-tests production defects) now says only what the page
+/// knows after a Start that found nothing; a zero count never reaches it.
 /// </summary>
 public sealed class EmptyFilterBannerTests : E2eTestBase
 {
@@ -51,5 +54,24 @@ public sealed class EmptyFilterBannerTests : E2eTestBase
         await Expect(Page.GetByText(ExpectedText.DecisionsMatchYourFilters(1))).ToBeVisibleAsync();
         await Expect(Page.GetByText("No problems match the filters")).ToHaveCountAsync(0);
         await Expect(StartButton).ToBeEnabledAsync();
+    }
+
+    [Fact]
+    public async Task PlayerNobodyHas_ShowsTheZeroCountWarningBox_AndADisabledStart()
+    {
+        await BootHomeAsync();
+        await PickFixtureAsync(CubeFixture);
+
+        // A player name no file carries: the filter admits nothing.
+        await ExpandFacetRowAsync("Players");
+        await Page.Locator("input[aria-describedby='facetHint_Players']").FillAsync("Nobody Anyone Knows");
+        await ApplyFilterAsync();
+
+        var box = Page.Locator("#noMatchNotice");
+        await Expect(box).ToBeVisibleAsync();
+        await Expect(box).ToContainTextAsync(ExpectedText.DecisionsMatchYourFilters(0));
+        await Expect(box).ToHaveClassAsync(new Regex(@"\balert-warning\b"));
+        await Expect(box.GetByRole(AriaRole.Button)).ToHaveCountAsync(0); // nothing closes it
+        await Expect(StartButton).ToBeDisabledAsync();
     }
 }
