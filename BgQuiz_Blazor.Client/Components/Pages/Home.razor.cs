@@ -59,6 +59,16 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
+/// Two more forecasts come out of the same probe (issues
+/// <c>halheinrich/backgammon#260</c>, <c>halheinrich/backgammon#261</c>): the
+/// stats file exists and can't be read
+/// (<see cref="QuizStatsStore.ForecastStatsUnreadable"/>), or can't be written
+/// (<see cref="QuizStatsStore.ForecastStatsUnwritable"/>). Either means the
+/// next quiz records nothing, so either replaces the stats-location promise
+/// (<see cref="StatsWillNotRecord"/>) rather than standing beside it.
+/// </para>
+///
+/// <para>
 /// The user picks a local folder with one "Choose folder…" gesture, served by
 /// whichever mechanism the browser offers (probed at pick time through
 /// <see cref="IFolderAccess"/>): the File System Access directory picker where
@@ -569,6 +579,17 @@ public partial class Home : ComponentBase, IDisposable
         && Folder.HasFiles
         && _matchSummary is not { AnswerTypes.Total: 0 }
         && EffectiveMix is not null;
+
+    /// <summary>
+    /// Whether either pick-time stats forecast is in force — the file exists
+    /// and can't be read (<see cref="QuizStatsStore.ForecastStatsUnreadable"/>)
+    /// or can't be written (<see cref="QuizStatsStore.ForecastStatsUnwritable"/>)
+    /// — so the next quiz will record nothing. Derived from the same two store
+    /// properties the forecast notices render from, never held beside them, so
+    /// the stats-location promise it suppresses cannot disagree with them.
+    /// </summary>
+    private bool StatsWillNotRecord =>
+        StatsStore.ForecastStatsUnreadable || StatsStore.ForecastStatsUnwritable;
 
     /// <summary>
     /// Whether a non-passthrough mix is in effect right now — checked <i>and</i>

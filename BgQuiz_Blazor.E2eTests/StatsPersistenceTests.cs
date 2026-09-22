@@ -227,7 +227,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         """;
 
     [Fact]
-    public async Task FsAccessPick_CorruptStatsFile_PoliteNoticeAndNoWrites()
+    public async Task FsAccessPick_CorruptStatsFile_ForecastAtPick_PoliteNoticeAndNoWrites()
     {
         // An existing stats file the converter must reject: the quiz runs
         // without stats behind a polite notice, and the file is NEVER written.
@@ -235,7 +235,12 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 
         await BootHomeAsync();
         await PickFakeFolderAsync();
-        await Expect(Page.GetByText(ExpectedText.StatsWillBeSaved)).ToBeVisibleAsync();
+        // Said at the pick now (halheinrich/backgammon#260): the pick-time
+        // probe already read the file, so Home forecasts that nothing will be
+        // recorded — and makes no "will be saved" promise beside it.
+        await Expect(Page.Locator("#statsUnreadableForecastNotice"))
+            .ToContainTextAsync(ExpectedText.StatsUnreadableForecast);
+        await Expect(Page.GetByText(ExpectedText.StatsWillBeSaved)).ToBeHiddenAsync();
         // The other half of the retirement forecast's pin
         // (halheinrich/backgammon#146): an unreadable file is not a retired one.
         // It will never be set aside, so nothing on Home may promise that.
@@ -244,13 +249,42 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        // The load happens at the Start-time bind, so the notice lives on the
-        // quiz page (and Done), not on Home at pick time.
+        // The bind still reports it: the file can change between the pick and
+        // Start, so the Start-time notice on Quiz (and Done) stays.
         await Expect(Page.GetByText(ExpectedText.StatsFileUnreadable)).ToBeVisibleAsync();
 
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
         await Expect(Page.GetByText(ExpectedText.StatsFileUnreadable)).ToBeVisibleAsync();
+
+        Assert.Empty(await CapturedWritesAsync());
+    }
+
+    [Fact]
+    public async Task FsAccessPick_ReadOnlyStatsFile_ForecastAtPick_QuizRunsAndNothingIsWritten()
+    {
+        // halheinrich/backgammon#261: a stats file the browser will not open
+        // for writing. The fake models the browser, never the app — its file
+        // handle rejects createWritable with the DOMException name a read-only
+        // file draws — and the app's real folderAccess.js probe reads that as
+        // NotWritable at the pick. The real browser's refusal was measured in
+        // the producer's leg and is not re-proven here.
+        await Page.AddInitScriptAsync(
+            $"window.__statsFake.statsJson = {JsonSerializer.Serialize(V3StatsJson)};"
+            + "window.__statsFake.statsWritableError = 'NoModificationAllowedError';");
+
+        await BootHomeAsync();
+        await PickFakeFolderAsync();
+
+        await Expect(Page.Locator("#statsUnwritableForecastNotice"))
+            .ToContainTextAsync(ExpectedText.StatsUnwritableForecast);
+        await Expect(Page.GetByText(ExpectedText.StatsWillBeSaved)).ToBeHiddenAsync();
+        await Expect(Page.Locator("#statsUnreadableForecastNotice")).ToHaveCountAsync(0);
+
+        await ApplyFilterAsync();
+        await StartQuizAsync();
+        await AnswerCubeNoDoubleAsync();
+        await ContinueToDoneAsync();
 
         Assert.Empty(await CapturedWritesAsync());
     }

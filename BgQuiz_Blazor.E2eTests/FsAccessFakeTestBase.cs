@@ -106,7 +106,7 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
           // sees in a folder that never held one. mergedWrites captures what
           // the fold copies aside under the .merged name.
           window.__statsFake = {
-            permission: 'granted', permissionError: null, statsJson: null,
+            permission: 'granted', permissionError: null, statsJson: null, statsWritableError: null,
             retiredV3Json: null,
             filtersJson: null, legacyFiltersJson: null,
             writes: [], retiredWrites: [], mergedWrites: [], filtersWrites: [], scanGate: null,
@@ -122,17 +122,31 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
             getFile: async () => new File([fixtureBytes], fixtureName),
           };
 
+          // The stats file's handle. queryPermission answers with the folder's
+          // grant, as a file handle inherits it; abort() discards the stream
+          // and records nothing, as the browser's swap-file write does — so
+          // the app's pick-time writability probe runs to its real answer and
+          // leaves every capture untouched. statsWritableError (null by
+          // default) is a DOMException name createWritable rejects with: the
+          // browser refusing to open the file for writing, e.g.
+          // 'NoModificationAllowedError' for a read-only file. It fails the
+          // probe and every real write alike, as the browser would.
           const statsHandle = {
             kind: 'file', name: '{{StatsFileName}}',
+            queryPermission: async () => cfg.permission,
             getFile: async () => {
               if (cfg.statsJson === null) throw notFound();
               return new File([cfg.statsJson], '{{StatsFileName}}');
             },
             createWritable: async () => {
+              if (cfg.statsWritableError !== null) {
+                throw new DOMException('The file cannot be written.', cfg.statsWritableError);
+              }
               let buf = '';
               return {
                 write: async d => { buf += d; },
                 close: async () => { cfg.writes.push(buf); },
+                abort: async () => { buf = ''; },
               };
             },
           };

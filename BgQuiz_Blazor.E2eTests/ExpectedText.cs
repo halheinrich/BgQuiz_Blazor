@@ -267,6 +267,18 @@ internal static class ExpectedText
     internal const string StatsWillBeSaved = "stats will be saved";
 
     /// <summary>
+    /// Home's pick-time forecast for a stats file that can't be read
+    /// (<c>Client/Quiz/FolderPickDisplay.cs</c>, <c>StatsUnreadableForecast</c>).
+    /// </summary>
+    internal const string StatsUnreadableForecast = "can't be read, so the quiz will run but record nothing";
+
+    /// <summary>
+    /// Home's pick-time forecast for a stats file that can't be written
+    /// (<c>Client/Quiz/FolderPickDisplay.cs</c>, <c>StatsUnwritableForecast</c>).
+    /// </summary>
+    internal const string StatsUnwritableForecast = "can't be written";
+
+    /// <summary>
     /// The retirement report before it happens, on Home (<c>Home.razor</c>) …
     /// </summary>
     internal const string StatsFileWillBeSetAside = "will be set aside as";

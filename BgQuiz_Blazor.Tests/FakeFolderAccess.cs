@@ -174,6 +174,30 @@ internal sealed class FakeFolderAccess : IFolderAccess
     /// </summary>
     public string? PickedStatsJson { get; set; }
 
+    /// <summary>
+    /// When set, <see cref="ReadPickedFileAsync"/> throws it for the
+    /// <see cref="QuizStatsFile.FileName"/> read only — the browser failing the
+    /// pick-time stats probe's read, the stats half of what
+    /// <see cref="FiltersReadException"/> is for the saved-filters names.
+    /// </summary>
+    public Exception? PickedStatsReadException { get; set; }
+
+    /// <summary>
+    /// What <see cref="ProbePickedFileWritabilityAsync"/> answers (default:
+    /// <see cref="PickedFileWritability.Writable"/> — the ordinary folder). A
+    /// settable answer rather than one derived from
+    /// <see cref="PickedStatsJson"/>, so a test can stage the answers the real
+    /// probe gives for reasons the fake does not model (a read-only attribute,
+    /// a file gone between the read and the probe).
+    /// </summary>
+    public PickedFileWritability PickedStatsWritability { get; set; } = PickedFileWritability.Writable;
+
+    /// <summary>When set, <see cref="ProbePickedFileWritabilityAsync"/> throws it instead.</summary>
+    public Exception? WritabilityProbeException { get; set; }
+
+    /// <summary>The file name of every writability probe, in call order — pins when the app probes at all.</summary>
+    public List<string> WritabilityProbeNames { get; } = [];
+
     /// <summary>When set, <see cref="ReadPickedFileAsync"/> throws it instead (the read-failed / denied path).</summary>
     public Exception? FiltersReadException { get; set; }
 
@@ -244,6 +268,10 @@ internal sealed class FakeFolderAccess : IFolderAccess
         {
             return Task.FromException<string?>(ex);
         }
+        if (PickedStatsReadException is { } statsEx && fileName == QuizStatsFile.FileName)
+        {
+            return Task.FromException<string?>(statsEx);
+        }
         return Task.FromResult(fileName switch
         {
             SavedFiltersDocument.FileName => FiltersJson,
@@ -261,6 +289,20 @@ internal sealed class FakeFolderAccess : IFolderAccess
         // Round-trip: a canonical write is readable back, as the real slot's is.
         if (fileName == SavedFiltersDocument.FileName) FiltersJson = json;
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Records the name, then answers <see cref="PickedStatsWritability"/> (or
+    /// throws <see cref="WritabilityProbeException"/>). Writes nothing — the
+    /// real probe aborts its stream, so neither slot changes.
+    /// </summary>
+    public Task<PickedFileWritability> ProbePickedFileWritabilityAsync(string fileName)
+    {
+        ArgumentNullException.ThrowIfNull(fileName);
+        WritabilityProbeNames.Add(fileName);
+        return WritabilityProbeException is { } ex
+            ? Task.FromException<PickedFileWritability>(ex)
+            : Task.FromResult(PickedStatsWritability);
     }
 
     public Task<string?> ReadActiveFileAsync(string fileName)

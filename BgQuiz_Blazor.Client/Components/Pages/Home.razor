@@ -268,11 +268,20 @@
            because they are mutually exclusive renderings of one per-pick
            verdict, so a dismissal can only ever cover the one the user actually
            read. Keyed on the pick's occurrence token: a re-pick reports its own
-           verdict fresh. *@
+           verdict fresh.
+
+           The Enabled branch's "will be saved" is a promise, so it is made only
+           while neither stats forecast below says otherwise (issues
+           halheinrich/backgammon#260, halheinrich/backgammon#261): with one in
+           force, the forecast is the whole statement. StatsWillNotRecord reads
+           the very store properties those notices render from — one fact
+           decides both. *@
         @if (Folder.HasFiles)
         {
             @switch (Folder.Capability)
             {
+                case FolderWriteCapability.Enabled when StatsWillNotRecord:
+                    break;
                 case FolderWriteCapability.Enabled:
                     <Notice id="statsCapabilityNotice" class="mt-2" Kind="NoticeKind.Information"
                             Announcement="NoticeAnnouncement.Polite" Dismissible="true"
@@ -307,6 +316,36 @@
                     </Notice>
                     break;
             }
+        }
+        @* The two will-not-record forecasts (issues halheinrich/backgammon#260,
+           halheinrich/backgammon#261): what the pick-time probe already knows,
+           said at the pick rather than after Start — the stats file exists and
+           can't be read, or can't be written. Each is its own condition notice
+           on its own holder slot, keyed on the pick's occurrence token like
+           every notice in this band, and both may show at once. Polite warnings:
+           outcomes the user should understand before acting, not failures.
+
+           The copy is FolderPickDisplay's, which Help quotes. The Quiz and Done
+           pages' Start-time and write-time notices stay regardless: the file
+           can change between pick and Start, and a file another program holds
+           open is only ever found at the write. *@
+        @if (StatsStore.ForecastStatsUnreadable)
+        {
+            <Notice id="statsUnreadableForecastNotice" class="mt-2" Kind="NoticeKind.Warning"
+                    Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsUnreadableForecast, Folder.PickOccurrence)"
+                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsUnreadableForecast, Folder.PickOccurrence)">
+                @FolderPickDisplay.StatsUnreadableForecast
+            </Notice>
+        }
+        @if (StatsStore.ForecastStatsUnwritable)
+        {
+            <Notice id="statsUnwritableForecastNotice" class="mt-2" Kind="NoticeKind.Warning"
+                    Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsUnwritableForecast, Folder.PickOccurrence)"
+                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsUnwritableForecast, Folder.PickOccurrence)">
+                @FolderPickDisplay.StatsUnwritableForecast
+            </Notice>
         }
         @* Stats-retirement forecast (issue halheinrich/backgammon#146): this folder's stats file was
            written by an earlier version, so the next quiz will set it aside and

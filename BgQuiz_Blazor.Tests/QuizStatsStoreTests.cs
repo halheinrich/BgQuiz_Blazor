@@ -1314,6 +1314,226 @@ public class QuizStatsStoreTests
     }
 
     // -----------------------------------------------------------------------
+    //  ForecastStatsUnreadable / ForecastStatsUnwritable — the next quiz will
+    //  record nothing, said at the pick (halheinrich/backgammon#260,
+    //  halheinrich/backgammon#261). The same probe, two more facts.
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("not json at all")]                            // corrupt
+    [InlineData(RetiredStatsFixture.ClaimsV1ButMalformedJson)] // claims a retired version, isn't one
+    [InlineData(RetiredStatsFixture.NewerSchemaJson)]          // version 99 — a later BgQuiz
+    [InlineData(RetiredStatsFixture.ClaimsV4ButMalformedJson)] // foldable version, body the fold reader rejects
+    public async Task ForecastUnreadable_AFileTheBindWillRefuse_IsTrue_AndTheMixAnswerIsUnchanged(
+        string pickedStatsJson)
+    {
+        // Every one of these is a file the bind reports LoadFailed over, so
+        // every one forecasts that the quiz will record nothing. The mix answer
+        // does not move: unreadable is still no stats to weight by, and the
+        // probe still writes nothing.
+        var fake = new FakeFolderAccess { PickedStatsJson = pickedStatsJson };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.True(store.ForecastStatsUnreadable);
+        Assert.False(store.PickedFolderHasStats);
+        Assert.Null(store.ForecastStatsSetAsideName);
+        Assert.Empty(fake.Writes);
+        Assert.Equal(pickedStatsJson, fake.PickedStatsJson);
+    }
+
+    [Fact]
+    public async Task ForecastUnreadable_TheBrowserFailsTheRead_IsTrue()
+    {
+        var fake = new FakeFolderAccess
+        {
+            PickedStatsJson = StatsDocumentJson(),
+            PickedStatsReadException = new JSException("read failed"),
+        };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.True(store.ForecastStatsUnreadable);
+        Assert.False(store.PickedFolderHasStats);
+    }
+
+    [Fact]
+    public async Task ForecastUnreadable_ForAbsentCurrentOrRetiredFiles_IsFalse()
+    {
+        // Absent stays absent; a readable file is readable whatever its
+        // version — a retired one is the set-aside forecast's, not this one's.
+        var fake = new FakeFolderAccess();
+        var store = MakeStore(fake);
+        await store.RefreshPickedStatsAsync();
+        Assert.False(store.ForecastStatsUnreadable);
+
+        foreach (var json in new[] { StatsDocumentJson(), RetiredStatsFixture.V1Json, RetiredStatsFixture.V4Json })
+        {
+            fake.PickedStatsJson = json;
+            await store.RefreshPickedStatsAsync();
+            Assert.False(store.ForecastStatsUnreadable);
+        }
+    }
+
+    [Theory]
+    [InlineData(PickedFileWritability.NotWritable, true)]
+    [InlineData(PickedFileWritability.Writable, false)]
+    [InlineData(PickedFileWritability.Absent, false)] // gone between the read and the probe
+    public async Task ForecastUnwritable_FollowsTheProducersAnswer(
+        PickedFileWritability answer, bool expected)
+    {
+        var fake = new FakeFolderAccess
+        {
+            PickedStatsJson = StatsDocumentJson(),
+            PickedStatsWritability = answer,
+        };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.Equal(expected, store.ForecastStatsUnwritable);
+        Assert.Equal([QuizStatsFile.FileName], fake.WritabilityProbeNames);
+        Assert.True(store.PickedFolderHasStats); // the mix answer is the read's alone
+    }
+
+    [Theory]
+    [InlineData("not json at all")]
+    [InlineData(RetiredStatsFixture.V1Json)]
+    public async Task ForecastUnwritable_IsAskedOfUnreadableAndRetiredFilesToo(string pickedStatsJson)
+    {
+        // A found file is probed whatever the read made of it: both forecasts
+        // can hold at once, and a retired file the bind cannot rewrite is a
+        // retirement that will fail.
+        var fake = new FakeFolderAccess
+        {
+            PickedStatsJson = pickedStatsJson,
+            PickedStatsWritability = PickedFileWritability.NotWritable,
+        };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.True(store.ForecastStatsUnwritable);
+    }
+
+    [Fact]
+    public async Task ForecastUnwritable_AReadFailure_IsStillProbed()
+    {
+        // The read threw, so a file is there to ask about.
+        var fake = new FakeFolderAccess
+        {
+            PickedStatsReadException = new JSException("read failed"),
+            PickedStatsWritability = PickedFileWritability.NotWritable,
+        };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.True(store.ForecastStatsUnreadable);
+        Assert.True(store.ForecastStatsUnwritable);
+    }
+
+    [Fact]
+    public async Task ForecastUnwritable_NoFile_IsNotProbed()
+    {
+        // Absent is not a question for the probe: nothing to open, and whether
+        // one could be created is the folder's capability.
+        var fake = new FakeFolderAccess { PickedStatsWritability = PickedFileWritability.NotWritable };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.Empty(fake.WritabilityProbeNames);
+        Assert.False(store.ForecastStatsUnwritable);
+    }
+
+    [Theory]
+    [InlineData(FolderWriteCapability.BrowserUnsupported)]
+    [InlineData(FolderWriteCapability.PermissionDenied)]
+    public async Task Forecasts_WithoutWriteCapability_NothingIsReadOrProbed(FolderWriteCapability capability)
+    {
+        var folder = new PickedProblemFolder();
+        folder.Set("Corpus", [new PickedFile("a.xg", [1])], capability, []);
+        var fake = new FakeFolderAccess
+        {
+            PickedStatsJson = "not json at all",
+            PickedStatsWritability = PickedFileWritability.NotWritable,
+        };
+        var store = MakeStore(fake, folder);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.Empty(fake.WritabilityProbeNames);
+        Assert.False(store.ForecastStatsUnreadable);
+        Assert.False(store.ForecastStatsUnwritable);
+    }
+
+    [Fact]
+    public async Task ForecastUnwritable_AProbeTheBrowserFails_IsSwallowed()
+    {
+        // Advisory: a failed probe forecasts nothing, throws nothing, and
+        // leaves the read's own answers standing.
+        var fake = new FakeFolderAccess
+        {
+            PickedStatsJson = StatsDocumentJson(),
+            WritabilityProbeException = new JSException("probe failed"),
+        };
+        var store = MakeStore(fake);
+
+        await store.RefreshPickedStatsAsync();
+
+        Assert.False(store.ForecastStatsUnwritable);
+        Assert.False(store.ForecastStatsUnreadable);
+        Assert.True(store.PickedFolderHasStats);
+    }
+
+    [Fact]
+    public async Task Forecasts_BeforeAnyProbe_AndAfterTheFolderChanges_AreFalse()
+    {
+        // The expires-by-construction stamp, on both facts: a verdict about the
+        // previous folder is never read as one about this one.
+        var folder = EnabledFolder();
+        var fake = new FakeFolderAccess
+        {
+            PickedStatsJson = "not json at all",
+            PickedStatsWritability = PickedFileWritability.NotWritable,
+        };
+        var store = MakeStore(fake, folder);
+        Assert.False(store.ForecastStatsUnreadable);
+        Assert.False(store.ForecastStatsUnwritable);
+
+        await store.RefreshPickedStatsAsync();
+        Assert.True(store.ForecastStatsUnreadable);
+        Assert.True(store.ForecastStatsUnwritable);
+
+        folder.Set("Other", [new PickedFile("b.xg", [1])], FolderWriteCapability.Enabled, []);
+
+        Assert.False(store.ForecastStatsUnreadable);
+        Assert.False(store.ForecastStatsUnwritable);
+    }
+
+    [Fact]
+    public async Task Forecasts_ARefreshThatFindsAFixedFile_ClearsThem()
+    {
+        var fake = new FakeFolderAccess
+        {
+            PickedStatsJson = "not json at all",
+            PickedStatsWritability = PickedFileWritability.NotWritable,
+        };
+        var store = MakeStore(fake);
+        await store.RefreshPickedStatsAsync();
+
+        fake.PickedStatsJson = StatsDocumentJson();
+        fake.PickedStatsWritability = PickedFileWritability.Writable;
+        await store.RefreshPickedStatsAsync();
+
+        Assert.False(store.ForecastStatsUnreadable);
+        Assert.False(store.ForecastStatsUnwritable);
+    }
+
+    // -----------------------------------------------------------------------
     //  DocumentTypeInfo — the one serializer contract (halheinrich/backgammon#129)
     // -----------------------------------------------------------------------
 

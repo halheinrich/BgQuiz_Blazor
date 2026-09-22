@@ -1668,7 +1668,19 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
 
         Assert.Empty(cut.FindAll("#statsRetirementForecastNotice"));
-        Assert.Contains("will be saved to", cut.Markup); // …the capability line still stands
+        // What stands instead is the file's own story: with no file the
+        // capability line promises a save; an unreadable one is forecast as
+        // recording nothing, which replaces that promise
+        // (halheinrich/backgammon#260).
+        if (statsJson is null)
+        {
+            Assert.Contains("will be saved to", cut.Markup);
+        }
+        else
+        {
+            Assert.Single(cut.FindAll("#statsUnreadableForecastNotice"));
+            Assert.DoesNotContain("will be saved to", cut.Markup);
+        }
     }
 
     [Fact]
@@ -1730,6 +1742,175 @@ public class PageTests : BunitContext
         await back.Find("#pickProblemFolder").ClickAsync(new());
 
         Assert.Contains("will be set aside", ForecastNoticeText(back));
+    }
+
+    // -----------------------------------------------------------------------
+    //  The will-not-record forecasts (halheinrich/backgammon#260,
+    //  halheinrich/backgammon#261): what the pick already knows, Home says.
+    //  The stats file exists and can't be read, or can't be written — each its
+    //  own condition notice on its own holder slot, and either one replaces
+    //  the capability line's "will be saved" promise.
+    // -----------------------------------------------------------------------
+
+    private const string UnreadableForecastId = "statsUnreadableForecastNotice";
+    private const string UnwritableForecastId = "statsUnwritableForecastNotice";
+
+    /// <summary>Both forecast notices' ids, each with both dismiss gestures.</summary>
+    public static TheoryData<string, NoticeDismissGesture> ForecastIdsAndGestures
+    {
+        get
+        {
+            var data = new TheoryData<string, NoticeDismissGesture>();
+            foreach (var id in new[] { UnreadableForecastId, UnwritableForecastId })
+            {
+                foreach (var gesture in Enum.GetValues<NoticeDismissGesture>()) data.Add(id, gesture);
+            }
+            return data;
+        }
+    }
+
+    /// <summary>
+    /// Render Home with nothing held, then pick a stats-capable folder — the
+    /// forecasts must land from the pick itself, not from a first render
+    /// over a folder already held.
+    /// </summary>
+    private async Task<IRenderedComponent<HomePage>> PickACapableFolderAsync()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        return cut;
+    }
+
+    [Theory]
+    [InlineData("not json at all")]
+    [InlineData(RetiredStatsFixture.NewerSchemaJson)] // version 99
+    public async Task Home_PickOfAnUnreadableStatsFile_ForecastsNothingRecorded_InsteadOfTheSavePromise(
+        string statsJson)
+    {
+        _folderAccess.PickedStatsJson = statsJson;
+
+        var cut = await PickACapableFolderAsync();
+
+        var notice = NoticeBox.ById(cut, UnreadableForecastId).ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
+        Assert.Equal(FolderPickDisplay.StatsUnreadableForecast, Normalize(notice.Content.TextContent));
+        Assert.Empty(cut.FindAll("#statsCapabilityNotice"));
+        Assert.DoesNotContain("will be saved to", cut.Markup);
+        Assert.Empty(cut.FindAll($"#{UnwritableForecastId}"));
+        Assert.Empty(cut.FindAll("#statsRetirementForecastNotice"));
+        Assert.False(ShowsAnErrorNotice(cut));
+    }
+
+    [Fact]
+    public async Task Home_PickOfAnUnwritableStatsFile_ForecastsNothingRecorded_InsteadOfTheSavePromise()
+    {
+        _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
+        _folderAccess.PickedStatsWritability = PickedFileWritability.NotWritable;
+
+        var cut = await PickACapableFolderAsync();
+
+        var notice = NoticeBox.ById(cut, UnwritableForecastId).ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
+        Assert.Equal(FolderPickDisplay.StatsUnwritableForecast, Normalize(notice.Content.TextContent));
+        Assert.Empty(cut.FindAll("#statsCapabilityNotice"));
+        Assert.DoesNotContain("will be saved to", cut.Markup);
+        Assert.Empty(cut.FindAll($"#{UnreadableForecastId}"));
+        Assert.False(ShowsAnErrorNotice(cut));
+    }
+
+    [Fact]
+    public async Task Home_PickOfAStatsFileBothUnreadableAndUnwritable_ShowsBothForecasts()
+    {
+        // Two facts, two notices, each saying its own thing.
+        _folderAccess.PickedStatsJson = "not json at all";
+        _folderAccess.PickedStatsWritability = PickedFileWritability.NotWritable;
+
+        var cut = await PickACapableFolderAsync();
+
+        Assert.Equal(FolderPickDisplay.StatsUnreadableForecast,
+            Normalize(NoticeBox.ById(cut, UnreadableForecastId).Content.TextContent));
+        Assert.Equal(FolderPickDisplay.StatsUnwritableForecast,
+            Normalize(NoticeBox.ById(cut, UnwritableForecastId).Content.TextContent));
+        Assert.DoesNotContain("will be saved to", cut.Markup);
+    }
+
+    [Theory]
+    [InlineData(PickedFileWritability.Writable)]
+    [InlineData(PickedFileWritability.Absent)]
+    public async Task Home_PickOfAReadableWritableStatsFile_ShowsNeitherForecast_AndTheSavePromiseReturns(
+        PickedFileWritability answer)
+    {
+        _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
+        _folderAccess.PickedStatsWritability = answer;
+
+        var cut = await PickACapableFolderAsync();
+
+        Assert.Empty(cut.FindAll($"#{UnreadableForecastId}"));
+        Assert.Empty(cut.FindAll($"#{UnwritableForecastId}"));
+        Assert.Contains("will be saved to", cut.Markup);
+    }
+
+    [Theory]
+    [MemberData(nameof(ForecastIdsAndGestures))]
+    public async Task Home_WillNotRecordForecast_EachGestureDismissesIt_AndANewPickShowsItFresh(
+        string id, NoticeDismissGesture gesture)
+    {
+        // Its own slot, keyed on the pick: dismissing one leaves its sibling
+        // standing, navigating back keeps it dismissed, and the next pick is a
+        // new thing to say.
+        _folderAccess.PickedStatsJson = "not json at all";
+        _folderAccess.PickedStatsWritability = PickedFileWritability.NotWritable;
+        var sibling = id == UnreadableForecastId ? UnwritableForecastId : UnreadableForecastId;
+
+        var cut = await PickACapableFolderAsync();
+        NoticeBox.ById(cut, id).Dismiss(gesture);
+
+        Assert.Empty(cut.FindAll($"#{id}"));
+        Assert.Single(cut.FindAll($"#{sibling}"));
+
+        var back = Render<HomePage>();
+        Assert.Empty(back.FindAll($"#{id}"));
+
+        await back.Find("#pickProblemFolder").ClickAsync(new());
+        Assert.Single(back.FindAll($"#{id}"));
+    }
+
+    [Theory]
+    [InlineData(FolderWriteCapability.BrowserUnsupported)]
+    [InlineData(FolderWriteCapability.PermissionDenied)]
+    public async Task Home_PickOfAFolderThatCannotHoldStats_NeverProbesWritability(
+        FolderWriteCapability capability)
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.PickedStatsJson = "not json at all";
+        _folderAccess.PickedStatsWritability = PickedFileWritability.NotWritable;
+        _folderAccess.NextPickOutcome = OneFileOutcome(capability: capability);
+
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Empty(_folderAccess.WritabilityProbeNames);
+        Assert.Empty(cut.FindAll($"#{UnreadableForecastId}"));
+        Assert.Empty(cut.FindAll($"#{UnwritableForecastId}"));
+    }
+
+    [Fact]
+    public async Task Home_PickOfAFolderWithNoStatsFile_NeverProbesWritability()
+    {
+        _folderAccess.PickedStatsWritability = PickedFileWritability.NotWritable;
+
+        var cut = await PickACapableFolderAsync();
+
+        Assert.Empty(_folderAccess.WritabilityProbeNames);
+        Assert.Empty(cut.FindAll($"#{UnwritableForecastId}"));
+        Assert.Contains("will be saved to", cut.Markup);
     }
 
     [Theory]

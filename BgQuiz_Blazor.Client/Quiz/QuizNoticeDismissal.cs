@@ -68,6 +68,26 @@ internal enum QuizNotice
     /// capability notice and dismisses independently.
     /// </summary>
     PickStatsRetirementForecast,
+
+    /// <summary>
+    /// <c>Home</c>'s unreadable-stats forecast (issue
+    /// <c>halheinrich/backgammon#260</c>): the picked folder's stats file exists
+    /// and cannot be read, so the next quiz will record nothing. Occurrence:
+    /// <see cref="PickedProblemFolder.PickOccurrence"/>; its own slot because it
+    /// can show beside the retirement forecast's neighbours and the unwritable
+    /// forecast, and dismisses independently of each.
+    /// </summary>
+    PickStatsUnreadableForecast,
+
+    /// <summary>
+    /// <c>Home</c>'s unwritable-stats forecast (issue
+    /// <c>halheinrich/backgammon#261</c>): the picked folder's stats file cannot
+    /// be written, so the next quiz will record nothing. Occurrence:
+    /// <see cref="PickedProblemFolder.PickOccurrence"/>; its own slot for the
+    /// same reason as <see cref="PickStatsUnreadableForecast"/> — the two can
+    /// show at once, and each says its own thing.
+    /// </summary>
+    PickStatsUnwritableForecast,
 }
 
 /// <summary>

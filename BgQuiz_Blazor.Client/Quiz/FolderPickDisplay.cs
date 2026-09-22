@@ -14,10 +14,11 @@ using BgFolderAccess_Razor;
 /// earns a constant here only once a second surface renders it. Help's prose
 /// stays prose — it explains the same rules at length and in its own voice, so
 /// pinning it to these constants would fight the page rather than serve it. The
-/// one exception is <see cref="SupportedBrowsers"/>, which Help's "before you
-/// start" lead renders <i>verbatim</i> rather than restating: it is a single
-/// sentence of fact, not an explanation, and the two surfaces must agree
-/// exactly — see its own remarks.
+/// exceptions are single sentences of fact that Help renders <i>verbatim</i>
+/// rather than restating, because the two surfaces must agree exactly:
+/// <see cref="SupportedBrowsers"/> in the "before you start" lead, and the two
+/// pick-time stats forecasts (<see cref="StatsUnreadableForecast"/>,
+/// <see cref="StatsUnwritableForecast"/>), which Help quotes as what Home says.
 /// </para>
 ///
 /// <para>
@@ -144,6 +145,51 @@ internal static class FolderPickDisplay
     /// </para>
     /// </summary>
     internal const string WriteAccessNotGranted = "Write access wasn't granted";
+
+    /// <summary>
+    /// Home's pick-time forecast for a stats file that exists and cannot be
+    /// read (issue <c>halheinrich/backgammon#260</c>;
+    /// <c>QuizStatsStore.ForecastStatsUnreadable</c>), as one whole sentence.
+    /// Rendered by Home's <c>#statsUnreadableForecastNotice</c> and quoted
+    /// verbatim by Help's lifetime-stats section — two surfaces, which is the
+    /// bar for living here.
+    ///
+    /// <para>
+    /// It says what the next quiz will do, not why the file is unreadable: the
+    /// probe knows only that the read failed, and the causes (a hand edit, a
+    /// newer BgQuiz, a browser read failure) are Help's to list. "Left
+    /// untouched" is the promise the bind keeps — an unreadable file is never
+    /// written (<c>QuizStatsStatus.LoadFailed</c>).
+    /// </para>
+    /// </summary>
+    internal const string StatsUnreadableForecast =
+        "This folder's " + QuizStatsFile.FileName + " can't be read, so the quiz will "
+        + "run but record nothing — and the file will be left untouched.";
+
+    /// <summary>
+    /// Home's pick-time forecast for a stats file that cannot be written (issue
+    /// <c>halheinrich/backgammon#261</c>;
+    /// <c>QuizStatsStore.ForecastStatsUnwritable</c>), as one whole sentence,
+    /// rendered by Home's <c>#statsUnwritableForecastNotice</c> and quoted by
+    /// Help.
+    ///
+    /// <para>
+    /// <b>It names only what the probe can detect</b> (ruled 2026-09-22): the
+    /// producer answers <c>NotWritable</c> for a file marked read-only or one
+    /// the browser isn't allowed to write, and deliberately does not
+    /// tell those two apart — so the sentence names both and neither alone. A
+    /// file another program holds open is <b>not</b> among them: the probe
+    /// answers <c>Writable</c> for it, and it is found at the first real write
+    /// instead, where the Quiz page's write-failed notice reports it. The
+    /// measured limit is <c>BgFolderAccess_Razor</c>'s
+    /// (<c>INSTRUCTIONS.md</c>, the writability probe); it is not restated
+    /// here, and it is not the user's to read in this notice.
+    /// </para>
+    /// </summary>
+    internal const string StatsUnwritableForecast =
+        "This folder's " + QuizStatsFile.FileName + " can't be written — it's marked "
+        + "read-only, or the browser isn't allowed to write it — so the quiz will run but "
+        + "record nothing.";
 
     /// <summary>
     /// The dead-pick verdict — what it means when the pick gesture raises no

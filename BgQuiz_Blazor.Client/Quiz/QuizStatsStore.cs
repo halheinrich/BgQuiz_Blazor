@@ -207,6 +207,35 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     private int? _pickedRetiredSchemaVersion;
 
     /// <summary>
+    /// Whether the probe found a stats file in the picked folder and could not
+    /// read it — content that would not parse (corrupt, foreign, a newer
+    /// schema, a foldable body the fold reader rejects), or a browser failure
+    /// on the read itself. Written only by <see cref="RefreshPickedStatsAsync"/>
+    /// and read only through <see cref="ForecastStatsUnreadable"/>.
+    ///
+    /// <para>
+    /// <b>A third fact out of the same read, never a second answer to the mix
+    /// question</b> — the retired version's discipline exactly:
+    /// <see cref="_pickedHasStats"/> stays false on this path, and nothing is
+    /// written. Until issue <c>halheinrich/backgammon#260</c> this outcome was
+    /// swallowed as "absent"; it is still absent for weighting, but it is no
+    /// longer thrown away, because the next bind will record nothing over it
+    /// and the user can be told so before they start.
+    /// </para>
+    /// </summary>
+    private bool _pickedStatsUnreadable;
+
+    /// <summary>
+    /// Whether the producer's writability probe
+    /// (<see cref="IFolderAccess.ProbePickedFileWritabilityAsync"/>) answered
+    /// <see cref="PickedFileWritability.NotWritable"/> for the picked folder's
+    /// stats file. Written only by <see cref="RefreshPickedStatsAsync"/> and
+    /// read only through <see cref="ForecastStatsUnwritable"/>
+    /// (issue <c>halheinrich/backgammon#261</c>).
+    /// </summary>
+    private bool _pickedStatsUnwritable;
+
+    /// <summary>
     /// The <see cref="PickedProblemFolder.PickGeneration"/> the probe above was
     /// taken against, so <see cref="CanWeightMix"/> <b>expires by
     /// construction</b> rather than by anyone remembering to reset it: every
@@ -381,6 +410,44 @@ internal sealed class QuizStatsStore : IProblemStatsSink
             : null;
 
     /// <summary>
+    /// <b>The pick-time forecast that the next quiz will record nothing because
+    /// the picked folder's stats file cannot be read</b> (issue
+    /// <c>halheinrich/backgammon#260</c>) — the same event the Quiz and Done
+    /// pages report after the bind as <see cref="QuizStatsStatus.LoadFailed"/>,
+    /// said before the user commits to a quiz.
+    ///
+    /// <para>
+    /// A forecast with the standing of <see cref="ForecastStatsSetAsideName"/>:
+    /// read-only, so the file may still change before Start, which is why the
+    /// Start-time notice stays. Expires with the pick that produced it
+    /// (<see cref="ProbeDescribesTheCurrentPick"/>) — false for any other pick
+    /// — and is true only for a folder that can hold stats, since the probe
+    /// reads nothing otherwise.
+    /// </para>
+    /// </summary>
+    public bool ForecastStatsUnreadable => _pickedStatsUnreadable && ProbeDescribesTheCurrentPick;
+
+    /// <summary>
+    /// <b>The pick-time forecast that the next quiz will record nothing because
+    /// the picked folder's stats file cannot be written</b> (issue
+    /// <c>halheinrich/backgammon#261</c>): the producer's probe answered
+    /// <see cref="PickedFileWritability.NotWritable"/> — a read-only file, or
+    /// one the browser isn't allowed to write.
+    ///
+    /// <para>
+    /// <b>False is not a promise that the writes will land.</b> The probe does
+    /// not catch a file another program holds open — it answers
+    /// <see cref="PickedFileWritability.Writable"/> — so that file is still
+    /// found at the first real write and reported as
+    /// <see cref="QuizStatsStatus.WriteFailed"/>; see the measured limit on
+    /// <see cref="PickedFileWritability"/> and in <c>BgFolderAccess_Razor</c>'s
+    /// <c>INSTRUCTIONS.md</c>. Gated and expiring exactly as
+    /// <see cref="ForecastStatsUnreadable"/> is.
+    /// </para>
+    /// </summary>
+    public bool ForecastStatsUnwritable => _pickedStatsUnwritable && ProbeDescribesTheCurrentPick;
+
+    /// <summary>
     /// Take the pick-time probe <see cref="CanWeightMix"/> reads: does the
     /// folder currently picked already hold a stats document with something in
     /// it — and, if what it holds is a document of a retired schema version,
@@ -394,10 +461,21 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// <b>Degrade-tolerant by construction, because that <i>is</i> the
     /// ruling.</b> A missing file, an empty document, and an unreadable one
     /// (corrupt, foreign, newer schema, or a browser read failure) are not
-    /// three outcomes to distinguish — they are one answer, "no stats to weight
-    /// by". So there is no status, no notice, and nothing thrown: every path
-    /// out of here leaves <see cref="_pickedHasStats"/> false and the mix simply
-    /// isn't offered.
+    /// three outcomes to distinguish <i>for the mix</i> — they are one answer,
+    /// "no stats to weight by". So there is no status and nothing thrown:
+    /// every such path leaves <see cref="_pickedHasStats"/> false and the mix
+    /// simply isn't offered.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Two more facts ride out of the same probe, for Home to say, not for
+    /// the mix to weigh</b> (issues <c>halheinrich/backgammon#260</c> and
+    /// <c>halheinrich/backgammon#261</c>): that a file exists and could not be
+    /// read (<see cref="ForecastStatsUnreadable"/>), and — asked of the producer
+    /// once a file was found — that it cannot be written
+    /// (<see cref="ForecastStatsUnwritable"/>). "Absent" stays absent: no file
+    /// is neither. The writability probe is advisory — the bind decides — so a
+    /// browser failure out of it is swallowed exactly as a read failure is.
     /// </para>
     ///
     /// <para>
@@ -440,6 +518,8 @@ internal sealed class QuizStatsStore : IProblemStatsSink
         _statsProbeGeneration = _folder.PickGeneration;
         _pickedHasStats = false;
         _pickedRetiredSchemaVersion = null;
+        _pickedStatsUnreadable = false;
+        _pickedStatsUnwritable = false;
 
         if (!FolderCanHoldStats) return;
 
@@ -481,13 +561,36 @@ internal sealed class QuizStatsStore : IProblemStatsSink
             }
             catch (JsonException)
             {
+                // The swallow below, reached one level down: the bind's
+                // FoldPreviousStatsAsync reports this body LoadFailed, so it is
+                // unreadable in the same sense and forecast the same way.
+                _pickedStatsUnreadable = true;
             }
         }
         catch (Exception ex) when (ex is JsonException or JSException)
         {
-            // Unreadable reads exactly as absent — see the summary. The file
-            // itself is left alone; only the bind decides what to do about a
-            // document it cannot parse.
+            // Unreadable is still absent for the mix — see the summary — but
+            // it is remembered, so Home can say the next quiz will record
+            // nothing. The file itself is left alone; only the bind decides
+            // what to do about a document it cannot parse.
+            _pickedStatsUnreadable = true;
+        }
+
+        // A file was found — read, or failing its read — so ask whether the
+        // next bind could write it. Absent asks nothing: there is no file to
+        // probe, and whether one could be created is the capability above.
+        if (json is null && !_pickedStatsUnreadable) return;
+
+        try
+        {
+            _pickedStatsUnwritable =
+                await _folderAccess.ProbePickedFileWritabilityAsync(QuizStatsFile.FileName)
+                    == PickedFileWritability.NotWritable;
+        }
+        catch (JSException)
+        {
+            // Advisory: a probe the browser failed forecasts nothing, and the
+            // bind and the writes report whatever is really wrong.
         }
     }
 
