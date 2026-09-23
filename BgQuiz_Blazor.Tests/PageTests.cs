@@ -7973,6 +7973,31 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public void AppCss_BoardRegion_HasItsNamedFloor_AndThePageScrollsPastIt()
+    {
+        // SPEC-quiz-view.md §2's floor (ruled 2026-09-22, issue
+        // halheinrich/backgammon#112). Invisible at every viewport the law
+        // already measures — the floor is below the board there — so, like the
+        // law's own flex pin above, only a declaration pin can fail if it is
+        // reverted to `min-height: 0` or the page loses its scroll. The value
+        // is the browser suite's to check; this pins that there IS a named one.
+        var css = File.ReadAllText(AppCssPath());
+        var noComments = Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline);
+        var region = string.Join(Environment.NewLine,
+            Regex.Matches(noComments, @"\.board-container\s*\{[^}]*\}", RegexOptions.Singleline)
+                 .Select(m => m.Value));
+        var page = string.Join(Environment.NewLine,
+            Regex.Matches(noComments, @"\.board-page\s*\{[^}]*\}", RegexOptions.Singleline)
+                 .Select(m => m.Value));
+
+        Assert.Matches(@"--board-min-height:\s*\d+(\.\d+)?px;", region);
+        Assert.Contains("min-height: var(--board-min-height)", region);
+        Assert.DoesNotContain("min-height: 0", region);
+        Assert.Contains("overflow-y: auto", page);
+        Assert.Contains("height: calc(100vh - 1.1rem)", page); // the remainder still needs a definite height
+    }
+
+    [Fact]
     public void AppCss_HelpContents_IsARailOnlyWhereTheDocumentAndRailBothFit()
     {
         // SPEC-help.md §5 as amended: the rail is a FIT CONDITION on the

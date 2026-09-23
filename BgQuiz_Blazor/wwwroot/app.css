@@ -159,10 +159,15 @@ h1:focus {
        the remainder binds, the board caps to it and letterboxes, width
        re-deriving from the producer's ratio. 1.1rem is article.content's own
        padding-top; the chrome height is measured, never a guessed constant. */
+    /* overflow-y: the law's floor (below, at .board-container). The height
+       stays — the law's remainder needs a definite one — so where the floor
+       pushes the chrome past the fold, this column scrolls instead. Where the
+       floor is not engaged nothing overflows and no scrollbar appears. */
     .board-page {
         display: flex;
         flex-direction: column;
         height: calc(100vh - 1.1rem);
+        overflow-y: auto;
     }
 
     /* THE VERTICAL LAW (SPEC-quiz-view.md §2, amended 2026-08-17 by issue
@@ -196,11 +201,25 @@ h1:focus {
        intrinsic size (556x313 to 300x169); the only repair is the retired
        pre-contract glue the bounded-height comment below records as removed; and
        even repaired it centres the cube and review branches but not the
-       play-entry branch, which is per-branch divergence inside one view mode. */
+       play-entry branch, which is per-branch divergence inside one view mode.
+
+       THE LAW HAS A FLOOR (§2, ruled 2026-09-22, issue
+       halheinrich/backgammon#112): the region never shrinks below
+       --board-min-height, and where the viewport cannot give that much the
+       page column scrolls (.board-page above) rather than shrinking the board
+       further — a 200%-zoomed 1440x900 gave a 136x76 board with no scroll.
+       The value is derived, not chosen: the board's height at the 641px-wide
+       edge of the law's own domain, measured 2026-09-22 on the committed cube
+       fixture (Windows Chromium, published app, 641x1000, navigation panel
+       open) as 212.06px at review (Normal composition) and 391.19px while
+       answering maximized. The floor is the smaller of the two, rounded down:
+       the larger would hold the review board taller than its natural height
+       at 641 wide and move a viewport the law already measures. */
     .board-container {
+        --board-min-height: 212px;
         flex: 0 1 auto;
         min-width: 0;
-        min-height: 0;
+        min-height: var(--board-min-height);
     }
 
     .board-chrome {

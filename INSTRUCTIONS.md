@@ -3962,6 +3962,20 @@ public (see Pitfalls). The externally visible surface is the route map:
   unmounted the row), and since `halheinrich/backgammon#187` carries no
   `@key` either — nulling the bound pair clears a row whose every pill is a
   complete pair; see the cube-row pitfall above.
+- **The law has a floor, and the page scrolls past it** (`SPEC-quiz-view.md`
+  §2, ruled 2026-09-22, halheinrich/backgammon#112). `.board-container`'s
+  `min-height` is `var(--board-min-height)`, stated beside the rule in
+  `app.css` with its measurement: the board's height at the 641px-wide edge
+  of the law's domain, 212px (review, the smaller of review's 212.06 and
+  maximized answering's 391.19 — the larger would move a viewport the law
+  already measures). `.board-page` keeps its definite height and gains
+  `overflow-y: auto`, so a viewport that cannot give the floor (720×450, a
+  200%-zoomed 1440×900) scrolls rather than shrinking the board. Measured
+  2026-09-22: every §2 viewport, answering and review, renders identically with
+  and without the floor. Don't restore `min-height: 0` — the floor is
+  invisible wherever the law already gives more, so only
+  `AppCss_BoardRegion_HasItsNamedFloor_AndThePageScrollsPastIt` and
+  `BoardFloorTests` would notice.
 - **The status strip must stay fixed-height *within a view mode*, and the
   board-sizing glue must stay retired.** The strip's purpose is mode-invariant
   chrome: equal chrome height ⇒ equal board flex remainder ⇒ no
