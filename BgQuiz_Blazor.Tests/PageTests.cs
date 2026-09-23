@@ -4496,14 +4496,51 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public void ScorePanel_EmptyScore_OmitsPercent()
+    public void ScorePanel_EmptyScore_ShowsNoPercent_OnlyTheReservedSlot()
     {
-        // Submitted == 0: the panel shows no "(…%)" at all. Accuracy is 0 on an
+        // Submitted == 0: the panel shows no percentage. Accuracy is 0 on an
         // empty segment, so the guard that survives is the render-side @if, not a
-        // divide-by-zero defence inside PercentCorrect.
+        // divide-by-zero defence inside PercentCorrect. The one "%" in the markup
+        // is the reserved widest suffix (halheinrich/backgammon#111): hidden from
+        // assistive technology here, and from sight by app.css.
         var cut = Render<ScorePanelComponent>(p => p.Add(c => c.Score, QuizScore.Empty));
 
-        Assert.DoesNotContain("%", cut.Markup);
+        var reserve = cut.Find(".score-panel-suffix-reserve");
+        Assert.Equal("true", reserve.GetAttribute("aria-hidden"));
+        Assert.Equal(" (100%)", reserve.TextContent);
+        reserve.Remove();
+        Assert.DoesNotContain("%", cut.Find(".score-panel").OuterHtml);
+    }
+
+    [Fact]
+    public void ScorePanel_FirstSubmission_ReplacesTheReservedSlotWithTheRealSuffix()
+    {
+        // The slot is held until the first submission fills it, then gone: one
+        // suffix on the line, never the placeholder beside the real one.
+        var score = new QuizScore(new ScoreSegment(1, 1, 0.0), ScoreSegment.Empty, ScoreSegment.Empty);
+
+        var cut = Render<ScorePanelComponent>(p => p.Add(c => c.Score, score));
+
+        Assert.Empty(cut.FindAll(".score-panel-suffix-reserve"));
+        Assert.Contains("(100%)", Normalize(cut.Find(".score-panel").TextContent));
+    }
+
+    [Fact]
+    public void ScorePanel_Source_IsCutByTheAppsOneMiddleTruncation_WithTheFullNameOnTheTitle()
+    {
+        // halheinrich/backgammon#111: the folder name cannot run the line long.
+        // The cut is the locator chip's (NameTruncation) — one rule, two
+        // surfaces — and the whole name stays reachable on hover.
+        var name = "Tournament-Finals-2026-Hal-v-Magriel-Match-Seventeen-of-Twenty";
+
+        var cut = Render<ScorePanelComponent>(p => p
+            .Add(c => c.Score, QuizScore.Empty)
+            .Add(c => c.Source, name));
+
+        var source = cut.Find(".score-panel-source");
+        Assert.Equal(NameTruncation.MiddleTruncate(name), source.TextContent);
+        Assert.Equal("Tourname…f-Twenty", source.TextContent);
+        Assert.Equal(name, source.GetAttribute("title"));
     }
 
     [Fact]

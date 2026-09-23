@@ -2737,6 +2737,18 @@ The asymmetry is pinned three times over: at the service seam
   parameters render the problem-position indicator ("Problem N of M", or
   "Problem N" when the total is unknowable) — opt-in per surface: Quiz
   passes the controller's stream position; Stats and Done omit it.
+  **Fixed height where the line fits** (`SPEC-quiz-view.md` §2, ruled
+  2026-09-22, halheinrich/backgammon#111): at and above the fit width
+  `app.css` states beside `.status-strip` (1065px, measured with four-digit
+  counts; the committed fixture's one-problem line fits from 925px), the panel
+  is one `1lh` line, `nowrap`/`overflow: hidden`; below it the wrap is
+  tolerated by ruling. The accuracy suffix's slot is reserved from the first
+  render by the invisible widest form, `" (100%)"`, until the first submission
+  replaces it; the Source name is cut by `NameTruncation.MiddleTruncate`, the
+  app's one middle cut, shared with `ProblemLocator` (full name on `title`).
+  Source is the picked file's name for a one-file pick and "N files"
+  otherwise, never the folder's. Done and Stats render the same class and
+  take the same rule.
 - **`ScoreBreakdown.razor`** — the four-way detailed evaluation, hosted on
   Done and Stats. A Play / Double / Take / Total table (Submitted · Correct (%) · Avg
   loss per row), reading the three `QuizScore` segments and the derived

@@ -19,8 +19,22 @@
     // percentage rendering is a display concern that lives here, per
     // ScoreSegment's documented split — the same pattern ScoreBreakdown uses.
     private double PercentCorrect => Score.Total.Accuracy * 100;
+
+    // The accuracy suffix's widest form. Before the first submission there is
+    // no percentage to show, and the line would grow by this much the moment
+    // one arrives — so it is rendered invisibly until then, reserving its own
+    // width from the same text (SPEC-quiz-view.md §2, issue
+    // halheinrich/backgammon#111). app.css decides where the reservation holds.
+    private const string WidestPercentSuffix = " (100%)";
 }
 
+@* One fixed-height line where the line fits (SPEC-quiz-view.md §2, ruled
+   2026-09-22, issue halheinrich/backgammon#111): app.css states the contract
+   and the width it starts at. What this markup owes it is a line whose width
+   does not change between answering and review — the reserved suffix below —
+   and a folder name that cannot run long: the app's one middle cut
+   (NameTruncation, shared with the problem locator chip), with the full
+   name on the title. *@
 <div class="score-panel mb-2 small text-muted">
     @if (!string.IsNullOrEmpty(Heading))
     {
@@ -28,7 +42,7 @@
     }
     @if (!string.IsNullOrEmpty(Source))
     {
-        <span class="me-3">Set: <code>@Source</code></span>
+        <span class="me-3">Set: <code class="score-panel-source" title="@Source">@NameTruncation.MiddleTruncate(Source)</code></span>
     }
     @if (ProblemNumber is { } n)
     {
@@ -46,6 +60,10 @@
         @if (Score.Total.Submitted > 0)
         {
             <text> (@PercentCorrect.ToString("0")%)</text>
+        }
+        else
+        {
+            <span class="score-panel-suffix-reserve" aria-hidden="true">@WidestPercentSuffix</span>
         }
     </span>
     <span class="me-3">Skipped: <strong>@Skipped</strong></span>

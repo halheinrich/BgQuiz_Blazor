@@ -55,31 +55,6 @@ public sealed class MaximizeBoardTests : E2eTestBase
     /// </summary>
     private ILocator XgidBadge => Page.Locator(".action-row-tail .xgid-label");
 
-    private ILocator MaximizeCheckbox => Page.GetByRole(
-        AriaRole.Checkbox, new() { Name = "Make the board as large as possible while you answer" });
-
-    /// <summary>
-    /// Turn the mode off the way a user does: navigate to Settings and untick the
-    /// box. Waits for the unchecked state to land, which is also the service's
-    /// write having happened — the control is bound to the property the setter
-    /// assigns before it persists.
-    ///
-    /// <para>
-    /// This was <c>EnableMaximizeAsync</c> and ticked the box. Renaming it would
-    /// not have been enough: since halheinrich/backgammon#113 made the mode the default, the very same
-    /// gesture on the very same control turns the mode <i>off</i>, so the helper
-    /// changed meaning rather than spelling, and moved to the scenario that wants
-    /// the other composition.
-    /// </para>
-    /// </summary>
-    private async Task DisableMaximizeAsync()
-    {
-        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink }).ClickAsync();
-        await ExpectUrlAsync("/settings");
-        await MaximizeCheckbox.UncheckAsync();
-        await Expect(MaximizeCheckbox).Not.ToBeCheckedAsync();
-    }
-
     [Fact]
     public async Task MaximizedAnsweringShedsItsChrome_AndReviewPutsItBack()
     {

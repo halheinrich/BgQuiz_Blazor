@@ -255,7 +255,15 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// The name to stage it under, extension included — it must be the same
     /// extension, since that is what decides how the app parses the file.
     /// </param>
-    protected Task PickFixtureUnderNameAsync(string fixtureFileName, string stagedFileName)
+    /// <param name="folderName">
+    /// The staged folder's name; by default the staged file's name without its
+    /// extension. Name it apart when the file name is long: the stager nests
+    /// the folder name twice and the file inside it, and Windows' 260-character
+    /// path limit is reached around a 60-character name used for both — the
+    /// browser then fails the read, not the app.
+    /// </param>
+    protected Task PickFixtureUnderNameAsync(
+        string fixtureFileName, string stagedFileName, string? folderName = null)
     {
         if (!string.Equals(
                 Path.GetExtension(fixtureFileName),
@@ -269,7 +277,7 @@ public abstract class E2eTestBase : IAsyncLifetime
         }
 
         return StageAndPickAsync(
-            Path.GetFileNameWithoutExtension(stagedFileName),
+            folderName ?? Path.GetFileNameWithoutExtension(stagedFileName),
             [(stagedFileName, FixtureBytes(fixtureFileName))]);
     }
 
@@ -509,6 +517,35 @@ public abstract class E2eTestBase : IAsyncLifetime
     {
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ApplyFilterButton }).ClickAsync();
         await Expect(Page.GetByText(ExpectedText.ApplyFiltersHint)).ToHaveCountAsync(0);
+    }
+
+    /// <summary>The Settings page's maximize-while-answering checkbox.</summary>
+    protected ILocator MaximizeCheckbox => Page.GetByRole(
+        AriaRole.Checkbox, new() { Name = "Make the board as large as possible while you answer" });
+
+    /// <summary>
+    /// Turn the maximize mode off the way a user does: navigate to Settings and
+    /// untick the box — for the scenarios that need the Normal-view composition,
+    /// where the score panel and status strip show while answering. Waits for
+    /// the unchecked state to land, which is also the service's write having
+    /// happened — the control is bound to the property the setter assigns
+    /// before it persists.
+    ///
+    /// <para>
+    /// This was <c>EnableMaximizeAsync</c> and ticked the box. Renaming it would
+    /// not have been enough: since halheinrich/backgammon#113 made the mode the default, the very same
+    /// gesture on the very same control turns the mode <i>off</i>, so the helper
+    /// changed meaning rather than spelling. Lifted here from
+    /// <c>MaximizeBoardTests</c> when the score panel's contract became its
+    /// second user (halheinrich/backgammon#111).
+    /// </para>
+    /// </summary>
+    protected async Task DisableMaximizeAsync()
+    {
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink }).ClickAsync();
+        await ExpectUrlAsync("/settings");
+        await MaximizeCheckbox.UncheckAsync();
+        await Expect(MaximizeCheckbox).Not.ToBeCheckedAsync();
     }
 
     /// <summary>Click Start Quiz and wait for the quiz page.</summary>

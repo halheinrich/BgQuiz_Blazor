@@ -58,40 +58,6 @@ public partial class ProblemLocator : ComponentBase
     /// </summary>
     private const string LocatorLabel = "Problem location";
 
-    /// <summary>Characters kept from the front of a truncated name.</summary>
-    private const int HeadLength = 8;
-
-    /// <summary>
-    /// Characters kept from the end of a truncated name. Equal to
-    /// <see cref="HeadLength"/> deliberately: the two halves of a real match
-    /// file name carry different things — the front names the source (an
-    /// opponent, a tournament), the back disambiguates it (a date, a match
-    /// number) — and neither is the one worth favouring.
-    /// </summary>
-    private const int TailLength = 8;
-
-    /// <summary>
-    /// The ellipsis standing in for the elided middle. One character, so
-    /// <see cref="MaxVisibleNameLength"/> is the arithmetic it looks like.
-    /// </summary>
-    private const char Ellipsis = '…';
-
-    /// <summary>
-    /// The longest file name shown in full, and — because a truncated name is
-    /// cut to exactly this — the visible name's length in every truncated
-    /// state.
-    ///
-    /// <para>
-    /// This is the chip's <b>widest</b> state, not its only one. What keeps
-    /// the action row one line is the shrink order in <c>app.css</c> (§4
-    /// ruling (i)): the XGID badge gives up its text first, then this name
-    /// narrows under CSS, and the game/move numbers never move. So the cap
-    /// governs how much name a reader gets when there <i>is</i> room; it is
-    /// not what the fixed-height contract rests on.
-    /// </para>
-    /// </summary>
-    private const int MaxVisibleNameLength = HeadLength + 1 + TailLength;
-
     /// <summary>Separates the two coordinates; the app's own separator idiom.</summary>
     private const string CoordinateSeparator = " · ";
 
@@ -187,7 +153,8 @@ public partial class ProblemLocator : ComponentBase
 
     /// <summary>
     /// The visible file name: the record's name with its last extension
-    /// dropped, then middle-truncated to <see cref="MaxVisibleNameLength"/>.
+    /// dropped, then middle-truncated to
+    /// <see cref="NameTruncation.MaxVisibleLength"/>.
     ///
     /// <para>
     /// <b>The extension rule, stated here because it is stated nowhere this
@@ -203,12 +170,18 @@ public partial class ProblemLocator : ComponentBase
     /// </para>
     ///
     /// <para>
-    /// The truncation is done here rather than in CSS because CSS can only
-    /// elide an <i>end</i>, and the end of a match file name is usually the
-    /// half that tells two of them apart.
+    /// The cut is the app's one middle truncation,
+    /// <see cref="NameTruncation.MiddleTruncate"/>, shared with the score
+    /// panel's folder name. The cut length is the chip's <b>widest</b> state,
+    /// not its only one: what keeps the action row one line is the shrink
+    /// order in <c>app.css</c> (§4 ruling (i)) — the XGID badge gives up its
+    /// text first, then this name narrows under CSS, and the game/move numbers
+    /// never move. So the cut governs how much name a reader gets when there
+    /// <i>is</i> room; it is not what the fixed-height contract rests on.
     /// </para>
     /// </summary>
-    private string DisplayFileName => Shorten(StripLastExtension(SourceFile!));
+    private string DisplayFileName =>
+        NameTruncation.MiddleTruncate(StripLastExtension(SourceFile!));
 
     /// <summary>See <see cref="DisplayFileName"/> for the rule this states.</summary>
     private static string StripLastExtension(string fileName)
@@ -216,15 +189,4 @@ public partial class ProblemLocator : ComponentBase
         int dot = fileName.LastIndexOf('.');
         return dot > 0 ? fileName[..dot] : fileName;
     }
-
-    /// <summary>
-    /// Middle-truncates <paramref name="name"/> to
-    /// <see cref="MaxVisibleNameLength"/> characters. A name already that long
-    /// or shorter comes back untouched — the cap is a ceiling, not a width to
-    /// pad to.
-    /// </summary>
-    private static string Shorten(string name) =>
-        name.Length <= MaxVisibleNameLength
-            ? name
-            : $"{name[..HeadLength]}{Ellipsis}{name[^TailLength..]}";
 }

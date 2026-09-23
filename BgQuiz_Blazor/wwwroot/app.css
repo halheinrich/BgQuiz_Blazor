@@ -263,6 +263,49 @@ h1:focus {
     margin-block: 0.75rem;
 }
 
+/* The score panel joins the fixed-height contract WHERE THE LINE FITS
+   (SPEC-quiz-view.md §2, ruled 2026-09-22 on this leg's measurement, issue
+   halheinrich/backgammon#111). Below that width the review line cannot be one
+   line at all — the stats alone outgrow the content column — so there a wrap
+   is tolerated by ruling, exactly as §2 tolerates the cube-row wrap below
+   768px tall, and nothing here applies: no reserved line, today's flow.
+
+   THE FIT WIDTH, 1065px: the narrowest viewport at which the review line
+   renders one line with nothing clipped, measured 2026-09-22 (Windows
+   Chromium, Helvetica/Arial, published app, 900px tall, navigation panel open)
+   on the committed cube fixture with the folder name at its full cut length
+   and the widest accuracy suffix, "(100%)" — and with four-digit counts
+   written into its figures (Problem 1234 of 5678, Submitted, Correct and
+   Skipped 1234), because a folder of real matches reaches them and every
+   figure widens the line. The fixture's own one-problem line fits from 925px;
+   a contract gated there would clip Avg loss off a large quiz between the two.
+   A media query cannot read a custom property, so the number is written in
+   the query itself, once, and this comment is its name and citation.
+
+   Above it: one line's height, stated as the line's own (1lh), and nowrap is
+   part of the contract, not a style — a fixed-height element that could wrap
+   would clip its second line. The accuracy suffix's slot is reserved from the
+   first render by the invisible widest form ScorePanel renders until the first
+   submission (visibility, never display — the width must be taken), so the
+   review state moves nothing. The folder name is already bounded by the app's
+   one middle cut (NameTruncation), shared with the locator chip. */
+.score-panel-suffix-reserve {
+    display: none;
+}
+
+@media (min-width: 1065px) {
+    .score-panel {
+        height: 1lh;
+        white-space: nowrap;
+        overflow: hidden;
+    }
+
+    .score-panel-suffix-reserve {
+        display: inline;
+        visibility: hidden;
+    }
+}
+
 .status-legend {
     /* One fixed line: .small's 0.875rem at a 1.4rem slab. */
     height: 1.4rem;
@@ -476,8 +519,8 @@ h1:focus {
     flex-shrink: 1;
 }
 
-/* The file name is middle-truncated in C# first (ProblemLocator's
-   MaxVisibleNameLength — CSS can only elide an end, and the end of a match file
+/* The file name is middle-truncated in C# first (NameTruncation, the app's one
+   middle cut, shared with the score panel — CSS can only elide an end, and the end of a match file
    name is usually the half that tells two of them apart). This max-width caps
    how wide that already-shortened name may draw when the row has room to spare;
    the end-ellipsis below it is what takes over when the row has not, trimming
