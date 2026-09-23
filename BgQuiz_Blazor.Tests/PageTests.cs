@@ -9791,9 +9791,11 @@ public class PageTests : BunitContext
 
         var cut = Render<SettingsPage>();
 
+        // One question, three answers: a stored random side is the Random
+        // radio, whatever side is stored beneath it.
         Assert.False(cut.Find("#settingsSideRight").HasAttribute("checked"));
-        Assert.True(cut.Find("#settingsSideLeft").HasAttribute("checked"));
-        Assert.True(cut.Find("#settingsRandomizeSide").HasAttribute("checked"));
+        Assert.False(cut.Find("#settingsSideLeft").HasAttribute("checked"));
+        Assert.True(cut.Find("#settingsSideRandom").HasAttribute("checked"));
         Assert.True(cut.Find("#settingsKeepNavFolded").HasAttribute("checked"));
         Assert.False(cut.Find("#settingsMaximizeBoard").HasAttribute("checked"));
         Assert.True(cut.Find("#settingsDepthFirst").HasAttribute("checked"));
@@ -9937,12 +9939,51 @@ public class PageTests : BunitContext
         // fresh visit's state is pinned, the counterpart to the stored-false pin
         // in Settings_RendersEveryControl_ReflectingTheStoredValues.
         Assert.True(control.HasAttribute("checked"));
-        Assert.Same(
-            control.Closest("fieldset"),
-            cut.Find("#settingsRandomizeSide").Closest("fieldset"));
+        Assert.True(control.Closest("fieldset")!.Contains(cut.Find("#settingsSideRandom")));
         Assert.Contains(
             "Make the board as large as possible while you answer",
             Normalize(control.Closest("fieldset")!.TextContent));
+    }
+
+    [Fact]
+    public async Task Settings_Side_IsOneQuestionWithThreeAnswers_AndRandomKeepsTheStoredSide()
+    {
+        // halheinrich/backgammon#52, presentation only. Right and Left set the
+        // side and turn randomising off; Random turns it on and leaves the
+        // stored side alone — so after Left, then Random, the stored side is
+        // still Left, not the default Right.
+        WithController();
+        var cut = Render<SettingsPage>();
+        var radios = new[] { "#settingsSideRight", "#settingsSideLeft", "#settingsSideRandom" };
+        string Checked() => Assert.Single(radios, id => cut.Find(id).HasAttribute("checked"));
+
+        Assert.All(radios, id => Assert.Equal("homeBoardSide", cut.Find(id).GetAttribute("name")));
+        Assert.Equal("#settingsSideRight", Checked()); // the fresh default
+
+        await cut.Find("#settingsSideLeft").ChangeAsync(new() { Value = true });
+        Assert.False(Settings().HomeBoardOnRight);
+        Assert.False(Settings().RandomizeSidePerProblem);
+        Assert.Equal("#settingsSideLeft", Checked());
+
+        await cut.Find("#settingsSideRandom").ChangeAsync(new() { Value = true });
+        Assert.True(Settings().RandomizeSidePerProblem);
+        Assert.False(Settings().HomeBoardOnRight); // the side survives beneath Random
+        Assert.Equal("#settingsSideRandom", Checked());
+        Assert.Contains("Each problem draws its own side",
+            Normalize(cut.Find("#settingsSideRandom").ParentElement!.TextContent));
+        Assert.DoesNotContain("applies whenever this is off", cut.Markup);
+
+        await cut.Find("#settingsSideRight").ChangeAsync(new() { Value = true });
+        Assert.True(Settings().HomeBoardOnRight);
+        Assert.False(Settings().RandomizeSidePerProblem);
+        Assert.Equal("#settingsSideRight", Checked());
+
+        // And back through Random to Left: Left is what comes back, the side
+        // stored before Random — Random wrote no side of its own.
+        await cut.Find("#settingsSideLeft").ChangeAsync(new() { Value = true });
+        await cut.Find("#settingsSideRandom").ChangeAsync(new() { Value = true });
+        Assert.False(Settings().HomeBoardOnRight);
+        Assert.Empty(cut.FindAll("#settingsRandomizeSide"));
     }
 
     [Fact]
@@ -9989,7 +10030,7 @@ public class PageTests : BunitContext
         await cut.Find("#settingsSideLeft").ChangeAsync(new() { Value = true });
         Assert.False(Settings().HomeBoardOnRight);
 
-        await cut.Find("#settingsRandomizeSide").ChangeAsync(new() { Value = true });
+        await cut.Find("#settingsSideRandom").ChangeAsync(new() { Value = true });
         Assert.True(Settings().RandomizeSidePerProblem);
 
         await cut.Find("#settingsKeepNavFolded").ChangeAsync(new() { Value = true });
@@ -10448,7 +10489,7 @@ public class PageTests : BunitContext
         // Together…
         Assert.Same(fieldset, hiddenLevel.Closest("fieldset"));
         // …and apart from the board's, which owns the side and maximize rows.
-        Assert.NotSame(fieldset, cut.Find("#settingsRandomizeSide").Closest("fieldset"));
+        Assert.False(fieldset.Contains(cut.Find("#settingsSideRandom")));
         Assert.NotSame(fieldset, cut.Find("#settingsMaximizeBoard").Closest("fieldset"));
         // …and apart from the navigation panel's.
         Assert.NotSame(fieldset, cut.Find("#settingsKeepNavFolded").Closest("fieldset"));

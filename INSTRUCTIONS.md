@@ -2445,12 +2445,18 @@ The asymmetry is pinned three times over: at the service seam
   to itself. Its way back is the shared `ReturnControl` (§ `Settings`).
 - **`Settings.razor`** — the user settings page (issue
   halheinrich/backgammon#30 leg 1), a plain view over `QuizSettings` (§ that
-  section for the contracts). Radios for the home-board side, checkboxes for
-  randomize-per-problem, maximize-while-answering and keep-nav-folded; every
+  section for the contracts). The home-board side is **one question with
+  three answers** (halheinrich/backgammon#52): Right, Left and Random radios
+  in one `homeBoardSide` group, over the unchanged two stored fields — Right
+  and Left set `HomeBoardOnRight` and clear `RandomizeSidePerProblem`; Random
+  sets `RandomizeSidePerProblem` and leaves the stored side alone, so a round
+  trip through Random returns the user's side. Presentation only: no
+  migration, and `EffectiveHomeBoardOnRight` stays the one composition point.
+  Checkboxes for maximize-while-answering and keep-nav-folded; every
   control writes straight through, recording and persisting on the spot (the
   fold's *visible* effect defers by one navigation — § `QuizSettings`; the
-  page's job in that split is the fine print that says so). The board's three
-  rows share one fieldset; the fold's is its own. **No Apply button — pinned
+  page's job in that split is the fine print that says so). The board's side
+  and maximize rows share one fieldset; the fold's is its own. **No Apply button — pinned
   as a design constraint, not a coincidence:** an Apply is the front end of
   the draft/commit lifetime split behind finding (AK)'s wedge. The only page
   state is whether hydration landed, which gates the controls so none can

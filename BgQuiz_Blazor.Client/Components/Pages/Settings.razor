@@ -29,38 +29,43 @@
         <fieldset class="mb-4">
             <legend class="h5">The board</legend>
 
+            @* One question, three answers (issue halheinrich/backgammon#52).
+               Presentation only: the stored model is still two fields —
+               HomeBoardOnRight and RandomizeSidePerProblem — composed at the one
+               point QuizSettings.EffectiveHomeBoardOnRight. Right and Left set the
+               side and turn randomising off; Random turns it on and leaves the
+               stored side alone, so a round trip through Random gives back the
+               side the user had chosen, not a default. *@
             <fieldset class="mb-3">
                 <legend class="form-label mb-1">Your home board is on the</legend>
                 <div class="form-check">
                     <input class="form-check-input" type="radio" name="homeBoardSide"
                            id="settingsSideRight"
-                           checked="@UserSettings.HomeBoardOnRight"
-                           @onchange="@(() => SetHomeBoardOnRightAsync(true))" />
+                           checked="@(!UserSettings.RandomizeSidePerProblem && UserSettings.HomeBoardOnRight)"
+                           @onchange="@(() => ChooseFixedSideAsync(homeBoardOnRight: true))" />
                     <label class="form-check-label" for="settingsSideRight">Right</label>
                 </div>
                 <div class="form-check">
                     <input class="form-check-input" type="radio" name="homeBoardSide"
                            id="settingsSideLeft"
-                           checked="@(!UserSettings.HomeBoardOnRight)"
-                           @onchange="@(() => SetHomeBoardOnRightAsync(false))" />
+                           checked="@(!UserSettings.RandomizeSidePerProblem && !UserSettings.HomeBoardOnRight)"
+                           @onchange="@(() => ChooseFixedSideAsync(homeBoardOnRight: false))" />
                     <label class="form-check-label" for="settingsSideLeft">Left</label>
                 </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="homeBoardSide"
+                           id="settingsSideRandom"
+                           checked="@UserSettings.RandomizeSidePerProblem"
+                           @onchange="ChooseRandomSideAsync" />
+                    <label class="form-check-label" for="settingsSideRandom">Random</label>
+                    <div class="form-text">
+                        In real play the side is not yours to choose, and a position you
+                        have seen before is harder to recognise mirrored. Each problem
+                        draws its own side, and keeps it while you answer and read the
+                        solution.
+                    </div>
+                </div>
             </fieldset>
-
-            <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="settingsRandomizeSide"
-                       checked="@UserSettings.RandomizeSidePerProblem"
-                       @onchange="@(e => SetRandomizeSidePerProblemAsync((bool)e.Value!))" />
-                <label class="form-check-label" for="settingsRandomizeSide">
-                    Use a random side for each problem
-                </label>
-            </div>
-            <div class="form-text">
-                In real play the side is not yours to choose, and a position you
-                have seen before is harder to recognise mirrored. Each problem
-                draws its own side, and keeps it while you answer and read the
-                solution. The choice above applies whenever this is off.
-            </div>
 
             @* The maximize mode (issue halheinrich/backgammon#41), and the ONLY control for it — ruled
                (SPEC-quiz-view.md §3, fork D): no on-page toggle on the quiz

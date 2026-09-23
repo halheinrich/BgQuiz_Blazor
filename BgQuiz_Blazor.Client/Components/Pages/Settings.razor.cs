@@ -62,11 +62,23 @@ public partial class Settings : ComponentBase
         _hydrated = true;
     }
 
-    private Task SetHomeBoardOnRightAsync(bool value) =>
-        UserSettings.SetHomeBoardOnRightAsync(value);
+    /// <summary>
+    /// The Right or Left answer to the side question: that side, and no
+    /// randomising. Both stored fields move, since the radio group states one
+    /// answer, never a side beside a separate random switch.
+    /// </summary>
+    private async Task ChooseFixedSideAsync(bool homeBoardOnRight)
+    {
+        await UserSettings.SetHomeBoardOnRightAsync(homeBoardOnRight);
+        await UserSettings.SetRandomizeSidePerProblemAsync(false);
+    }
 
-    private Task SetRandomizeSidePerProblemAsync(bool value) =>
-        UserSettings.SetRandomizeSidePerProblemAsync(value);
+    /// <summary>
+    /// The Random answer: randomise per problem, and leave the stored side
+    /// untouched — it is the user's preference, which Right or Left returns to.
+    /// </summary>
+    private Task ChooseRandomSideAsync() =>
+        UserSettings.SetRandomizeSidePerProblemAsync(true);
 
     private Task SetMaximizeBoardWhileAnsweringAsync(bool value) =>
         UserSettings.SetMaximizeBoardWhileAnsweringAsync(value);
