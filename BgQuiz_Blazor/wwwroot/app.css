@@ -382,11 +382,14 @@ h1:focus {
 
    The buttons never shrink: a control narrowed until its label clips is a worse
    outcome than a shortened file name, and Bootstrap's own sizing is what keeps
-   them tappable. Below the desktop band the two text chips run out of width to
-   give and the cluster overflows its line rather than wrapping — the deliberate
-   price of "never grows", and the reason the shrink order puts the two
-   recoverable things (a copied XGID, a hovered file name) ahead of the two that
-   are not (the numbers, the controls). */
+   them tappable. The shrink order puts the two recoverable things (a copied
+   XGID, a hovered file name) ahead of the two that are not (the numbers, the
+   controls). Below 641px — where §2's law and the fixed-height contract do not
+   exist — the cluster no longer shrinks at all: it wraps onto its own line
+   (the max-width rule below; §4, ruled 2026-09-22, issue
+   halheinrich/backgammon#236), because there the chips run out of width to
+   give and a cluster held on the answer instruments' line overflowed leftward
+   over them — a tap on Continue reached the XGID copy button. */
 .action-row-tail {
     flex: 1 1 0;
     min-width: 0;
@@ -395,6 +398,18 @@ h1:focus {
 
 .action-row-tail > .btn {
     flex: none;
+}
+
+/* Below 641px the tail wraps onto its own line (SPEC-quiz-view.md §4, ruled
+   2026-09-22, issue halheinrich/backgammon#236): a full-width item on the
+   wrapping .action-row lands on a line of its own, right-aligned by the rule
+   above, every control full size. The row grows there, which is allowed — the
+   fixed-height contract is measured at and above 641px, where nothing here
+   applies. */
+@media (max-width: 640px) {
+    .action-row-tail {
+        flex: 1 0 100%;
+    }
 }
 
 /* XGID badge — an in-flow badge in the quiz page's action row, never on the

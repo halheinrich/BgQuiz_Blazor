@@ -2302,6 +2302,15 @@ The asymmetry is pinned three times over: at the service seam
     `flex-basis: auto` is max-content — so a contents-sized cluster puts itself
     on a second line, and an auto margin cannot prevent it. That is why the
     `ms-auto` this replaced had to go rather than be kept beside the new rules.
+  - **Below 641px the cluster wraps onto its own line instead**
+    (`SPEC-quiz-view.md` §4, ruled 2026-09-22, halheinrich/backgammon#236): a
+    `@media (max-width: 640px)` rule gives it `flex: 1 0 100%`, so on the
+    wrapping row it is a full-width item on a line of its own, right-aligned,
+    every control full size. Nothing changes at or above 641px, where the
+    fixed-height contract is measured. Before it, the cluster overflowed
+    leftward over the answer instruments at 375×812 and Continue's centre hit
+    the XGID copy button; `PhoneWidthActionRowTests` pins that Continue is
+    what its centre hits and that a click on it advances.
   - **The shrink order is weights, not breakpoints**
     (`AppCss_TailChips_ShrinkInTheRuledOrder`): the badge's `flex-shrink: 1000`
     against the locator's `1` empties the XGID text — down to a floor spelled as
