@@ -239,8 +239,9 @@
                and Skip enable on CanSubmit / CanContinue / CanSkip, the
                page-owned gates — one expression each. The spacebar
                (halheinrich/backgammon#149, amended by
-               halheinrich/backgammon#200) reads CanContinue and CanSkip and
-               calls the same ContinueAsync / SkipAsync these buttons do, so
+               halheinrich/backgammon#200) reads CanContinue, CanSubmit and
+               CanSkip, in that order, and calls the same ContinueAsync /
+               Submit / SkipAsync these buttons do, so
                the keyboard can never enable what a button shows disabled, nor
                act differently from it.
 

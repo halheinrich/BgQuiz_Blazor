@@ -2201,20 +2201,29 @@ The asymmetry is pinned three times over: at the service seam
   remainder, unchanged. `Done` and `Stats` render their own `ScorePanel` with
   their own parameters and are untouched.
 
-  **The spacebar presses Continue at review and Skip while answering**
-  (halheinrich/backgammon#149, always on, no setting; amended by
-  halheinrich/backgammon#200, ruled 2026-09-23). Skip whenever Skip is
-  available — nothing entered, a play half built, or a complete answer
-  alike — and **Space never submits**: Submit is the button's, and the
-  dice's for a checker play. Nothing while the controller is busy. The key
-  owns neither half of either case: *whether* it acts is the button's own
-  gate (`CanContinue`, `CanSkip` — the one expression each that the
-  buttons' `disabled` also reads), and *what* it does is the button's own
-  method (`ContinueAsync`, `SkipAsync`), called by the `[JSInvokable]`
-  `HandleSpaceKeyAsync`, which adds no condition and no action of its own.
-  So the key and the button cannot differ — same busy gating, same skip
-  recorded, same advance. Don't route the key to the controller directly or
-  give it a gate of its own; either is a second owner.
+  **The spacebar presses Continue at review, and Submit or Skip while
+  answering** (halheinrich/backgammon#149, always on, no setting; amended
+  by halheinrich/backgammon#200, ruled 2026-09-23 and amended 2026-09-24).
+  **Submit when Submit is lit** — a complete checker play, or a cube action
+  chosen — **and Skip otherwise**: nothing entered, a play half built, or a
+  cube with no action chosen. Nothing while the controller is busy. The key
+  owns neither half of any case: *whether* it acts is the button's own
+  gate (`CanContinue`, `CanSubmit`, `CanSkip` — the one expression each
+  that the buttons' `disabled` also reads), and *what* it does is the
+  button's own method (`ContinueAsync`, `Submit`, `SkipAsync`), called by
+  the `[JSInvokable]` `HandleSpaceKeyAsync`, which adds no condition and no
+  action of its own. Submit is tested before Skip because the ruling says
+  so — `CanSubmit` is lit only where `CanSkip` is — not because the key has
+  a gate. So the key and the button cannot differ — same busy gating, same
+  answer scored or skip recorded, same composition-notice retirement, same
+  advance. Don't route the key to the controller directly or give it a
+  gate of its own; either is a second owner. The handler does end with
+  `StateHasChanged`, which is the framework's half of a click, not the
+  key's own action: Blazor re-renders after every UI event a component
+  handles, and a JS-invoked callback gets no such render. Without it, a
+  Space submit left the composition notice on screen, because `Submit`
+  retires it after the controller's state change has already rendered
+  (`Quiz_Space_AndTheSubmitButton_ShareOneAction` pins it).
   `wwwroot/js/quizKeys.js` — imported as an `IJSObjectReference` on the
   first render, detached and disposed with the page (`IAsyncDisposable`) —
   decides *eligibility* in the browser, synchronously, from the event alone:
@@ -2222,15 +2231,16 @@ The asymmetry is pinned three times over: at the service seam
   (typing surfaces, buttons and links, checkboxes; radios only when already
   checked, so a pill still selects; anything inside an open `<dialog>` — the
   review's notes overlay, halheinrich/backgammon#31). `preventDefault` only
-  when it fires. A quick second Space after Continue skips the next problem
-  unseen; that double tap is accepted by ruling, with no guard.
+  when it fires. A quick second Space after Submit continues past the
+  solution unread, and one after Continue skips the next problem unseen;
+  both double taps are accepted by ruling, with no guard.
   The callback's name travels with the reference (`nameof`), so it is
   spelled once. It is the app's first `[JSInvokable]`, and the e2e suite
   against the trimmed AOT publish is what proves it survives
   (`KeyboardShortcutTests`); no trim warning arose. Help says so in two
-  sentences, never as an inventory: one beside Submit / Skip (naming the
-  one surprise — Space skips even a finished answer) and one beside the
-  review's dice-click sentence.
+  sentences, never as an inventory: one beside Submit / Skip (Submit once
+  the answer is complete, Skip before then) and one beside the review's
+  dice-click sentence.
 
   **The keyboard module marks its readiness** (halheinrich/backgammon#198).
   Attached, `quizKeys.js` sets `QuizKeysMark.AttachedAttribute` on the
@@ -4154,6 +4164,21 @@ public (see Pitfalls). The externally visible surface is the route map:
   runtime — where the re-execute above dresses the 404 in the styled NotFound
   page, so it doesn't even look bare. `BetaOnboardingTests` is the only thing
   that catches it.
+- **`quizKeys.js` keeps one set of module-level state, so a late `detach`
+  from an old Quiz page would also detach a newer one.** The module is
+  imported once per document, and every Quiz page instance shares that
+  instance: `attach` overwrites the one `dotNetRef` / `listener` /
+  `markName`, and `detach` clears whatever is there, with no check that
+  the caller is the page that attached. A Show-stats round trip creates a
+  new page per visit. The hazard is unreachable today only because the old
+  page is disposed first: its `DisposeAsync` sends `detach` before the new
+  page's first render has even imported the module, let alone attached.
+  Anything that breaks that order would leave the newer page silently
+  deaf, its readiness mark gone too: two Quiz pages live at once, a
+  disposal deferred or awaited behind other work, or a second caller of
+  `detach`. The umbrella
+  deferred a fix (2026-09-24, halheinrich/backgammon#200); until one lands,
+  a change to either side of that order revisits this entry.
 
 ## Subproject-internal next steps
 

@@ -6,10 +6,10 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <summary>
 /// The spacebar, in a real browser (issue <c>halheinrich/backgammon#149</c>,
 /// ruled 2026-09-02: always on, no setting; amended by
-/// <c>halheinrich/backgammon#200</c>, ruled 2026-09-23). Space presses
-/// Continue on the solution view and Skip while answering — Skip whenever Skip
-/// is available, a complete answer included, so Space never submits — and
-/// only when focus is on nothing that consumes space itself. The state rule is
+/// <c>halheinrich/backgammon#200</c>, ruled 2026-09-23 and amended
+/// 2026-09-24). Space presses Continue on the solution view, and while
+/// answering Submit when Submit is lit and Skip otherwise — and only when
+/// focus is on nothing that consumes space itself. The state rule is
 /// unit-pinned through the page's callback; what only a browser can judge is
 /// the half in front of it: which presses reach the page at all, decided by
 /// <c>quizKeys.js</c> from the real event and the real focus, and whether the
@@ -36,7 +36,10 @@ namespace BgQuiz_Blazor.E2eTests;
 /// A skip is read off the score panel on <c>Done</c> — <c>Skipped</c> up and
 /// <c>Submitted</c> still zero — because the fixtures here are one problem
 /// long, so skipping the problem ends the run. That pair is the whole claim:
-/// the answer was moved past, not scored.
+/// the answer was moved past, not scored. A submit is read the same way, one
+/// step later: the solution view first, then a second Space — the double tap
+/// the ruling accepts — continues to <c>Done</c> with the answer scored and
+/// nothing skipped.
 /// </para>
 ///
 /// <para>
@@ -100,6 +103,34 @@ public sealed class KeyboardShortcutTests : E2eTestBase
         await Expect(body).ToContainTextAsync(ExpectedText.Submitted(0));
     }
 
+    /// <summary>A checker play scores on <c>Done</c> as one decision.</summary>
+    private const int CheckerPlayDecisions = 1;
+
+    /// <summary>A cube answer scores on <c>Done</c> as two decisions, the double and the take.</summary>
+    private const int CubeAnswerDecisions = 2;
+
+    /// <summary>
+    /// The one-problem run answered by a Space press: the solution view on
+    /// the same page — then, the accepted double tap, a second Space from the
+    /// body continues to <c>Done</c>, with the answer's
+    /// <paramref name="decisions"/> submitted and nothing skipped. Focus is on
+    /// the body for the second press whatever it was on for the first: the
+    /// review render removes every answering control.
+    /// </summary>
+    private async Task ExpectSubmittedThenContinuedBySpaceAsync(int decisions)
+    {
+        await Expect(ContinueButton).ToBeVisibleAsync();
+        await ExpectUrlAsync("/quiz");
+        Assert.Equal("body", await ActiveElementAsync());
+
+        await Page.Keyboard.PressAsync("Space");
+
+        await ExpectUrlAsync("/done");
+        var body = Page.Locator("body");
+        await Expect(body).ToContainTextAsync(ExpectedText.Submitted(decisions));
+        await Expect(body).ToContainTextAsync(ExpectedText.Skipped(0));
+    }
+
     [Fact]
     public async Task AtReview_WithFocusOnThePage_SpaceContinues()
     {
@@ -123,24 +154,21 @@ public sealed class KeyboardShortcutTests : E2eTestBase
     }
 
     [Fact]
-    public async Task WhileAnsweringACube_SpaceFromACheckedPill_Skips_AndDoesNotSubmit()
+    public async Task WhileAnsweringACube_SpaceFromACheckedPill_Submits()
     {
         await StartQuizOnAsync(CubeFixture);
 
         // The answer chosen by clicking — one pill is a complete pair since
         // halheinrich/backgammon#187 — which leaves focus on the pill clicked:
         // a CHECKED radio, where space does nothing natively, so the shortcut
-        // may have it. Submit is lit: this is the complete-answer case, where
-        // Space used to submit.
+        // may have it. Submit is lit, so Space submits.
         await NoDoublePill.CheckAsync();
         await Expect(SubmitButton).ToBeEnabledAsync();
         Assert.Equal("radio checked", await ActiveElementAsync());
 
         await Page.Keyboard.PressAsync("Space");
 
-        // Skipped, the chosen answer with it: no review was ever shown, and the
-        // run's totals say moved past rather than scored.
-        await ExpectSkippedUnsubmittedAsync();
+        await ExpectSubmittedThenContinuedBySpaceAsync(CubeAnswerDecisions);
     }
 
     [Fact]
@@ -161,11 +189,10 @@ public sealed class KeyboardShortcutTests : E2eTestBase
     }
 
     [Fact]
-    public async Task WhileAnsweringACheckerPlay_SpaceWithTheWholePlayEntered_Skips_AndDoesNotSubmit()
+    public async Task WhileAnsweringACheckerPlay_SpaceWithTheWholePlayEntered_Submits()
     {
-        // The one surprise the ruling carries for users of v1.11.0, on the
-        // problem kind where it bites hardest: a whole play built on the board,
-        // Submit lit, and Space moves past it unscored.
+        // The case the 2026-09-24 amendment turned back: a whole play built on
+        // the board, Submit lit, and Space scores it.
         await StartQuizOnAsync(CheckerFixture);
 
         // The fixture's 6-5 is entered as QuizFlowTests enters it: one-click
@@ -179,17 +206,44 @@ public sealed class KeyboardShortcutTests : E2eTestBase
 
         await Page.Keyboard.PressAsync("Space");
 
+        await ExpectSubmittedThenContinuedBySpaceAsync(CheckerPlayDecisions);
+    }
+
+    [Fact]
+    public async Task WhileAnsweringACheckerPlay_SpaceWithAPlayHalfBuilt_Skips()
+    {
+        // Half the fixture's 6-5 entered — 24/18, the leftmost die — so the
+        // board has moved but Submit is still dark, and Space skips. The
+        // press comes from the body, as in the whole-play scenario. The board
+        // changing is asserted, not assumed: Submit is dark before the click
+        // too, so without it a click that never landed would make this the
+        // nothing-entered case and pass unseen. Read off the whole diagram,
+        // not its hit-region <svg>: that overlay never changes, and the
+        // checkers are drawn beside it.
+        await StartQuizOnAsync(CheckerFixture);
+        var board = Page.Locator(".board-container .bg-diagram");
+        string before = await board.InnerHTMLAsync();
+
+        await ClickBoardPointAsync(24);
+        await Expect(board).Not.ToHaveJSPropertyAsync("innerHTML", before);
+        await Expect(SubmitButton).ToBeDisabledAsync();
+        Assert.Equal("body", await ActiveElementAsync());
+
+        await Page.Keyboard.PressAsync("Space");
+
         await ExpectSkippedUnsubmittedAsync();
     }
 
     [Fact]
-    public async Task OnAFocusedUncheckedPill_SpaceSelectsIt_AndDoesNotSkip()
+    public async Task OnAFocusedUncheckedPill_SpaceSelectsIt_AndDoesNotSubmit()
     {
         // The other side of the radio carve-out: space on an UNCHECKED focused
         // radio must still select it — the browser's own behaviour, which the
         // filter must not pre-empt. So the shortcut yields, and the selection
-        // changes the answer without skipping it; the next press, now from a
-        // checked pill, is the one that reaches the page — and skips.
+        // changes the answer without submitting the old one (Submit is lit
+        // throughout, so a shortcut that fired would submit No double); the
+        // next press, now from a checked pill, is the one that reaches the
+        // page — and submits.
         await StartQuizOnAsync(CubeFixture);
         await NoDoublePill.CheckAsync();
         await DoubleTakePill.FocusAsync();
@@ -198,9 +252,9 @@ public sealed class KeyboardShortcutTests : E2eTestBase
 
         await Page.Keyboard.PressAsync("Space");
 
-        // Selected by the browser, not skipped by the shortcut: the answer
-        // moved to Double / Take (Submit still lit) and the page is still
-        // answering the same problem.
+        // Selected by the browser, not submitted by the shortcut: the answer
+        // moved to Double / Take (Submit still lit, so still answering) on
+        // the same page.
         await Expect(DoubleTakePill).ToBeCheckedAsync();
         await Expect(NoDoublePill).Not.ToBeCheckedAsync();
         await Expect(SubmitButton).ToBeEnabledAsync();
@@ -209,7 +263,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
 
         await Page.Keyboard.PressAsync("Space");
 
-        await ExpectSkippedUnsubmittedAsync();
+        await ExpectSubmittedThenContinuedBySpaceAsync(CubeAnswerDecisions);
     }
 
     [Fact]
@@ -296,8 +350,8 @@ public sealed class KeyboardShortcutTests : E2eTestBase
         await Page.Keyboard.PressAsync("Space");
 
         // Nothing skipped: still answering the one problem. The positive half
-        // is every other scenario here — the same press, listener attached,
-        // skips.
+        // is the nothing-entered scenarios here — the same press, listener
+        // attached, skips.
         await Expect(SubmitButton).ToBeVisibleAsync();
         await ExpectUrlAsync("/quiz");
         // A round trip through the page after the press: any error the

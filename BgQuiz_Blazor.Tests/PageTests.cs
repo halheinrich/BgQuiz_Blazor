@@ -4901,10 +4901,11 @@ public class PageTests : BunitContext
 
     // -----------------------------------------------------------------------
     //  The spacebar (halheinrich/backgammon#149, amended by
-    //  halheinrich/backgammon#200): Continue on the solution view, Skip while
-    //  answering whenever Skip is available — a complete answer included — and
-    //  never Submit. The page's [JSInvokable] callback reads the buttons' own
-    //  gates and calls the buttons' own methods. Driven by calling the
+    //  halheinrich/backgammon#200, 2026-09-23 and 2026-09-24): Continue on the
+    //  solution view; while answering, Submit when Submit is lit — a complete
+    //  play, or a cube action chosen — and Skip otherwise. The page's
+    //  [JSInvokable] callback reads the buttons' own gates and calls the
+    //  buttons' own methods. Driven by calling the
     //  callback: which presses reach it — key, modifiers, repeat, focus — is
     //  the browser-side filter's business and the e2e suite's
     //  (KeyboardShortcutTests); here the question is what the page does once a
@@ -4936,6 +4937,38 @@ public class PageTests : BunitContext
         Assert.Empty(c.History);
         Assert.Empty(c.CubeHistory);
         Assert.False(ButtonNamed(cut, "Skip").HasAttribute("disabled"));
+    }
+
+    /// <summary>
+    /// The play two board clicks build on <see cref="TestFixtures.TwoChoiceDecision"/>'s
+    /// (3, 1): the 8-point takes the leftmost die, 8/5, and the 6-point the
+    /// die that is left, 6/5. A fixture that should <i>score</i> a clicked
+    /// play lists it as a candidate; otherwise the submit is off-list, which
+    /// the controller counts as a skip.
+    /// </summary>
+    private static Play ClickedPlay() => Play.Create(new(8, 5), new(6, 5));
+
+    /// <summary>Build <see cref="ClickedPlay"/> on the board by its two clicks.</summary>
+    private static async Task ClickTheWholePlayAsync(IRenderedComponent<QuizPage> cut)
+    {
+        await ClickPointAsync(cut, 8);
+        await ClickPointAsync(cut, 6);
+    }
+
+    /// <summary>
+    /// The answer submitted and nothing else: the controller is still on
+    /// <paramref name="answered"/>, now in review, with one answer scored and
+    /// no skip counted — and the page shows the solution view, Continue lit.
+    /// Which answer was scored is the caller's to pin, per kind.
+    /// </summary>
+    private static void AssertSubmittedOn(
+        QuizController c, IRenderedComponent<QuizPage> cut, BgDecisionData answered)
+    {
+        Assert.Same(answered, c.Current);
+        Assert.NotNull(c.Review);
+        Assert.Equal(0, c.SkippedCount);
+        Assert.Equal(1, c.History.Count + c.CubeHistory.Count);
+        Assert.False(ButtonNamed(cut, "Continue").HasAttribute("disabled"));
     }
 
     [Fact]
@@ -5008,25 +5041,25 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_Space_WithTheWholePlayEntered_Skips_AndDoesNotSubmit()
+    public async Task Quiz_Space_WithTheWholePlayEntered_Submits()
     {
-        // The case the 2026-09-23 ruling changed: Space used to submit here.
-        var first = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
-        var second = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        // The case the 2026-09-24 amendment restored: e387faa skipped here,
+        // and Hal's trial of it is what ruled Submit back onto the key.
+        var first = TestFixtures.TwoChoiceDecision(ClickedPlay(), AltPlay());
+        var second = TestFixtures.TwoChoiceDecision(ClickedPlay(), AltPlay());
         var c = WithController(first, second);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
-        // Both dice played by clicks — the 8-point, then the 6-point with the
-        // die that is left (a legal move for either die) — completes the play,
-        // which lights Submit.
-        await ClickPointAsync(cut, 8);
-        await ClickPointAsync(cut, 6);
+        // Both dice played by clicks completes the play, which lights Submit.
+        await ClickTheWholePlayAsync(cut);
         Assert.False(ButtonNamed(cut, "Submit").HasAttribute("disabled"));
 
         await PressSpaceAsync(cut);
 
-        AssertSkippedTo(c, cut, first, second);
+        // Scored as the play on the board, on the problem it was built for.
+        AssertSubmittedOn(c, cut, first);
+        Assert.Equal(ClickedPlay(), Assert.Single(c.History).UserPlay);
     }
 
     [Fact]
@@ -5048,7 +5081,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_Space_OnACubeWithAnActionChosen_Skips_AndDoesNotSubmit()
+    public async Task Quiz_Space_OnACubeWithAnActionChosen_Submits()
     {
         var first = TestFixtures.CubeDecision();
         var second = TestFixtures.CubeDecision(away: 3);
@@ -5063,9 +5096,10 @@ public class PageTests : BunitContext
 
         await PressSpaceAsync(cut);
 
-        // Skipped, the choice with it: the next problem starts with no pill lit.
-        AssertSkippedTo(c, cut, first, second);
-        Assert.Empty(cut.FindAll("input[checked]"));
+        // Scored as the pair the pill stands for: the choice on screen is the
+        // answer of record.
+        AssertSubmittedOn(c, cut, first);
+        Assert.Equal(CubeClaimPair.NoDoubleTake, Assert.Single(c.CubeHistory).UserDecision);
     }
 
     [Fact]
@@ -5096,6 +5130,48 @@ public class PageTests : BunitContext
         Assert.Null(c.Review);
         cut.Render();
         Assert.True(ButtonNamed(cut, "Skip").HasAttribute("disabled"));
+
+        await PressSpaceAsync(cut);
+
+        source.ReleaseNext();
+        await skip;
+        Assert.False(c.IsBusy);
+        Assert.Equal(1, c.SkippedCount);
+        Assert.Equal(2, c.ProblemNumber);
+        Assert.Empty(c.History);
+    }
+
+    [Fact]
+    public async Task Quiz_Space_WhileBusyWithAPlayLatched_DoesNothing()
+    {
+        // The busy half of CanSubmit, now that Space reads it. The busy flip
+        // that opens every transition fires StateChanged, which clears both
+        // latches, so the one way a complete answer is latched inside the
+        // window is a play completed on the board after the flip — the entry
+        // is still on screen, since the page is still answering. That is the
+        // state staged here, and CanSubmit's busy term is then the only thing
+        // holding Submit dark. Both readers again: the rendered Submit button
+        // (the live half — drop the term and it lights up), and the callback,
+        // whose press must leave the run one skip on and nothing scored. As
+        // with Skip, the callback half cannot fail on the busy term alone —
+        // the controller's gate no-ops a submit inside a transition.
+        var first = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = WithGatedController(out var source, out _,
+            first,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var start = c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        source.ReleaseNext();
+        await start;
+        var cut = Render<QuizPage>();
+
+        var skip = cut.InvokeAsync(() => c.SkipCurrentAsync());   // suspends at the gated advance
+        Assert.True(c.IsBusy);
+        Assert.Null(c.Review);
+        await cut.InvokeAsync(() =>
+            cut.FindComponent<BackgammonPlayEntry>().Instance.OnPlayCompleted.InvokeAsync(BestPlay()));
+        cut.Render();
+        Assert.True(ButtonNamed(cut, "Submit").HasAttribute("disabled"));
 
         await PressSpaceAsync(cut);
 
@@ -5187,6 +5263,56 @@ public class PageTests : BunitContext
         // One skip counted, one problem on, nothing scored, still answering.
         Assert.Equal((1, 1, 0, true), byButton);
         Assert.Equal(byButton, bySpace);
+    }
+
+    [Fact]
+    public async Task Quiz_Space_AndTheSubmitButton_ShareOneAction()
+    {
+        // Hal's 2026-09-24 amendment on halheinrich/backgammon#200: what
+        // submitting does has one owner, the Submit button's own method, and
+        // Space calls it. The page's Submit does more than hand the answer to
+        // the controller — the first submitted answer also retires the mix
+        // composition notice — so that effect is in the snapshot: a key
+        // handler that went to the controller directly would score the same
+        // answer and leave the notice up, and this is where the parting
+        // shows. The two gestures are taken on two identical runs, the second
+        // a restart, because the notice retires once per composition and a
+        // restart composes afresh.
+        var c = WithWeighableController(out var sink,
+            TestFixtures.TwoChoiceDecision(ClickedPlay(), AltPlay()));
+        sink.CanWeightMix = true;
+        sink.CurrentDocument = ProblemStatsDocument.Empty;
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
+        var cut = Render<QuizPage>();
+
+        (int Scored, int Skipped, bool Answering, bool Notice) Snapshot() =>
+            (c.History.Count + c.CubeHistory.Count, c.SkippedCount, c.Review is null,
+             ShowsNoticeSaying(cut, "Your quiz has"));
+
+        // The whole play, built on the board the same way before each gesture.
+        async Task EnterTheWholePlayAsync()
+        {
+            await ClickTheWholePlayAsync(cut);
+            Assert.False(ButtonNamed(cut, "Submit").HasAttribute("disabled"));
+        }
+
+        await EnterTheWholePlayAsync();
+        var beforeClick = Snapshot();
+        await ButtonNamed(cut, "Submit").ClickAsync(new());
+        var byButton = (beforeClick, Snapshot());
+
+        await cut.InvokeAsync(() => c.RestartAsync());
+        await EnterTheWholePlayAsync();
+        var beforeSpace = Snapshot();
+        await PressSpaceAsync(cut);
+        var bySpace = (beforeSpace, Snapshot());
+
+        // From answering with the notice up and nothing scored, to one answer
+        // scored, no skip, the solution on screen and the notice retired —
+        // both ways. Asserted as one pair so a failure prints both gestures'
+        // results side by side.
+        var expected = ((0, 0, true, true), (1, 0, false, false));
+        Assert.Equal((expected, expected), (byButton, bySpace));
     }
 
     [Fact]
