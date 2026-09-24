@@ -2201,13 +2201,20 @@ The asymmetry is pinned three times over: at the service seam
   remainder, unchanged. `Done` and `Stats` render their own `ScorePanel` with
   their own parameters and are untouched.
 
-  **The spacebar performs the primary action** (halheinrich/backgammon#149;
-  always on, no setting). Continue at review, Submit while answering once a
-  complete answer has enabled it, nothing while the controller is busy —
-  the rule a dice click already follows. The page owns it twice over:
-  `CanSubmit` / `CanContinue` are the one expression each that both the
-  buttons' `disabled` and the `[JSInvokable]` `PerformPrimaryActionAsync`
-  read, so the keyboard cannot enable what the button shows disabled; and
+  **The spacebar presses Continue at review and Skip while answering**
+  (halheinrich/backgammon#149, always on, no setting; amended by
+  halheinrich/backgammon#200, ruled 2026-09-23). Skip whenever Skip is
+  available — nothing entered, a play half built, or a complete answer
+  alike — and **Space never submits**: Submit is the button's, and the
+  dice's for a checker play. Nothing while the controller is busy. The key
+  owns neither half of either case: *whether* it acts is the button's own
+  gate (`CanContinue`, `CanSkip` — the one expression each that the
+  buttons' `disabled` also reads), and *what* it does is the button's own
+  method (`ContinueAsync`, `SkipAsync`), called by the `[JSInvokable]`
+  `HandleSpaceKeyAsync`, which adds no condition and no action of its own.
+  So the key and the button cannot differ — same busy gating, same skip
+  recorded, same advance. Don't route the key to the controller directly or
+  give it a gate of its own; either is a second owner.
   `wwwroot/js/quizKeys.js` — imported as an `IJSObjectReference` on the
   first render, detached and disposed with the page (`IAsyncDisposable`) —
   decides *eligibility* in the browser, synchronously, from the event alone:
@@ -2215,12 +2222,32 @@ The asymmetry is pinned three times over: at the service seam
   (typing surfaces, buttons and links, checkboxes; radios only when already
   checked, so a pill still selects; anything inside an open `<dialog>` — the
   review's notes overlay, halheinrich/backgammon#31). `preventDefault` only
-  when it fires.
+  when it fires. A quick second Space after Continue skips the next problem
+  unseen; that double tap is accepted by ruling, with no guard.
   The callback's name travels with the reference (`nameof`), so it is
   spelled once. It is the app's first `[JSInvokable]`, and the e2e suite
   against the trimmed AOT publish is what proves it survives
-  (`KeyboardShortcutTests`); no trim warning arose. Help says so in one
-  sentence beside each dice-click sentence, never as an inventory.
+  (`KeyboardShortcutTests`); no trim warning arose. Help says so in two
+  sentences, never as an inventory: one beside Submit / Skip (naming the
+  one surprise — Space skips even a finished answer) and one beside the
+  review's dice-click sentence.
+
+  **The keyboard module marks its readiness** (halheinrich/backgammon#198).
+  Attached, `quizKeys.js` sets `QuizKeysMark.AttachedAttribute` on the
+  document element; detaching removes it. (In-app navigation also strips it —
+  enhanced navigation merges the server's `<html>`, which has no mark — so a
+  "gone after leaving" check pins nothing about detach; the removal is pinned
+  by calling `detach` directly, `KeyboardShortcutTests.Detaching_…`.) On a
+  cold fetch of the module the page is fully rendered before the listener
+  exists, and a browser test cannot retry a key press, so every e2e scenario
+  that presses a key waits for the mark first
+  (`E2eTestBase.ExpectKeyboardShortcutReadyAsync`). The
+  name has one owner: the page hands it to `attach` alongside the callback's
+  name, so the module never spells it, and the e2e project compiles
+  `QuizKeysMark.cs` by link — its one exception to independent literals,
+  safe because a handshake that breaks fails loudly rather than passing.
+  Keep that file free of anything else; all of it lands in the test
+  assembly.
 
   **The XGID has one home: the bottom row** (`SPEC-quiz-view.md` §4's
   2026-08-13 amendment, issue `halheinrich/backgammon#98`). `XgidLabel` — the
@@ -3135,7 +3162,9 @@ the native directory picker or its permission prompts, so the base injects a
 fake `window.showDirectoryPicker` — a scripted directory handle over the real
 fixture's bytes, `getFileHandle`, `createWritable` capturing writes, scripted
 permissions. The faking stops at the browser-API boundary: the app ships **no
-test seams**, and everything from `folderAccess.js` inward — BgFolderAccess_Razor's
+test seams** on this path (its one seam anywhere is the keyboard module's
+readiness mark — see the spacebar rule, halheinrich/backgammon#198), and
+everything from `folderAccess.js` inward — BgFolderAccess_Razor's
 module now, served from its `_content` path — runs for real; this suite is
 that hoisted module's **only real-wire proof** (the lib's own tests script the
 interop, never the browser). If

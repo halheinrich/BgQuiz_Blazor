@@ -13,7 +13,9 @@ namespace BgQuiz_Blazor.E2eTests;
 /// permissions) over the real committed cube fixture's bytes.
 ///
 /// <para>
-/// The faking stops at the browser-API boundary — the app ships no test seams,
+/// The faking stops at the browser-API boundary — the app ships no test seams
+/// on this path (its one seam anywhere is the quiz page's keyboard readiness
+/// mark, halheinrich/backgammon#198, which has nothing to do with folders),
 /// and everything from the app's own <c>folderAccess.js</c> module inward runs
 /// for real. If the module's use of the File System Access surface ever drifts
 /// from what the fake mirrors, the pick fails visibly and the scenarios fail

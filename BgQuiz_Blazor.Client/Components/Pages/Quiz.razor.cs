@@ -111,7 +111,8 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// clear on any controller transition (submit / advance / redo / restart) via
 /// <see cref="HandleStateChanged"/>; the play latch also clears on undo. The
 /// gate itself is <see cref="CanSubmit"/>, one member read by both Submit
-/// buttons and by the spacebar.
+/// buttons. The spacebar does not read it: Space skips, never submits (see
+/// below).
 /// </para>
 ///
 /// <para>
@@ -224,21 +225,29 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// <b>The spacebar performs the primary action</b> (issue
-/// <c>halheinrich/backgammon#149</c>, ruled 2026-09-02: always on, no setting).
-/// Space does what clicking the dice already does — Continue at review, Submit
-/// while answering once a complete answer has enabled it, nothing while the
-/// controller is busy — so the shortcut is a second spelling of an existing
-/// unconditional rule, not a new one. The rule is
-/// <see cref="PerformPrimaryActionAsync"/>, and it reads the same two gates the
-/// buttons render from, <see cref="CanSubmit"/> and <see cref="CanContinue"/>:
-/// one expression each, so the keyboard can never enable what the button shows
-/// disabled. Which presses reach it is decided in the browser, by
-/// <c>wwwroot/js/quizKeys.js</c>, from the event alone (Space, unmodified, not a
-/// repeat, focus on nothing that consumes space — see the module's comment for
-/// the filter); this is the app's first JS-invokable callback, attached on the
-/// first render and detached on disposal, which is why the page is
-/// <see cref="IAsyncDisposable"/> now.
+/// <b>The spacebar presses Continue or Skip</b> (issue
+/// <c>halheinrich/backgammon#149</c>, ruled 2026-09-02: always on, no setting;
+/// amended by <c>halheinrich/backgammon#200</c>, ruled 2026-09-23). On the
+/// solution view Space presses Continue, as clicking the dice does. While
+/// answering it presses Skip whenever Skip is available — with nothing
+/// entered, with a play half built, and with a complete answer alike — and it
+/// never submits: Submit is the button's, and the dice's for a checker play.
+/// While the controller is busy it does nothing. The rule is
+/// <see cref="HandleSpaceKeyAsync"/>, and it owns neither half of either
+/// branch: <i>whether</i> Space acts is the button's own gate
+/// (<see cref="CanContinue"/>, <see cref="CanSkip"/>), and <i>what</i> it does
+/// is the button's own method (<see cref="ContinueAsync"/>,
+/// <see cref="SkipAsync"/>), so the key and the button can never differ in
+/// busy gating, in what is recorded, or in how the run advances. Which presses
+/// reach it is decided in the browser, by <c>wwwroot/js/quizKeys.js</c>, from
+/// the event alone (Space, unmodified, not a repeat, focus on nothing that
+/// consumes space — see the module's comment for the filter); this is the
+/// app's first JS-invokable callback, attached on the first render and
+/// detached on disposal, which is why the page is
+/// <see cref="IAsyncDisposable"/>. Attached, the module sets
+/// <see cref="QuizKeysMark.AttachedAttribute"/> on the document element — the
+/// readiness signal the browser tests wait on before they press
+/// (<c>halheinrich/backgammon#198</c>).
 /// </para>
 /// </summary>
 public partial class Quiz : ComponentBase, IAsyncDisposable
@@ -393,47 +402,51 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
 
         _keys = keys;
         _self = DotNetObjectReference.Create(this);
-        // The callback's name travels with the reference so it is spelled
-        // exactly once, here; the module never restates it.
-        await _keys.InvokeVoidAsync("attach", _self, nameof(PerformPrimaryActionAsync));
+        // The callback's name and the readiness mark's name travel with the
+        // reference so each is spelled exactly once, on this side; the module
+        // never restates either.
+        await _keys.InvokeVoidAsync(
+            "attach", _self, nameof(HandleSpaceKeyAsync), QuizKeysMark.AttachedAttribute);
     }
 
     /// <summary>
-    /// The primary action, as the spacebar asks for it
-    /// (<c>halheinrich/backgammon#149</c>): Continue at review, Submit while
-    /// answering once <see cref="CanSubmit"/> holds, nothing otherwise — the
-    /// same rule a dice click follows, spelled over the same two gates the
-    /// buttons render from. Public and <see cref="JSInvokableAttribute"/>
-    /// because the module invokes it by name through the
-    /// <see cref="DotNetObjectReference{TValue}"/> the attach handed over;
-    /// nothing else calls it. Eligibility of the press itself (key, modifiers,
-    /// focus) was settled in the browser before this runs.
+    /// What a Space press does, once the browser has found it eligible
+    /// (<c>halheinrich/backgammon#149</c> as amended by
+    /// <c>halheinrich/backgammon#200</c>): at review, what the Continue button
+    /// does; while answering, what the Skip button does; nothing when neither
+    /// button would act. It adds no condition and no action of its own — each
+    /// branch is a button's gate guarding that button's method — so the key
+    /// cannot enable what a button shows disabled, nor do anything a click
+    /// would not. In particular it never submits, however complete the answer.
+    /// Public and <see cref="JSInvokableAttribute"/> because the module invokes
+    /// it by name through the <see cref="DotNetObjectReference{TValue}"/> the
+    /// attach handed over; nothing else calls it. Eligibility of the press
+    /// itself (key, modifiers, repeat, focus) was settled in the browser
+    /// before this runs.
     /// </summary>
     [JSInvokable]
-    public async Task PerformPrimaryActionAsync()
+    public async Task HandleSpaceKeyAsync()
     {
         if (CanContinue)
         {
             await ContinueAsync();
         }
-        else if (CanSubmit)
+        else if (CanSkip)
         {
-            Submit();
+            await SkipAsync();
         }
     }
 
     /// <summary>
-    /// <b>The one gate on Submit</b>, read by both Submit buttons and by
-    /// <see cref="PerformPrimaryActionAsync"/>: the page is answering (no
-    /// review to read), the controller is not mid-transition, and a complete
-    /// answer is latched — the play from <see cref="HandlePlayCompleted"/> or
-    /// the cube pair from the radios' <c>@bind-Value</c>. The two latches are
-    /// mutually exclusive per problem (only one answer instrument renders, and
-    /// both clear on every transition), so "either is set" is "this problem's
-    /// answer is complete" without the gate needing to know the kind. It used
-    /// to be two inline expressions, one per button; the keyboard made a
-    /// second reader of the rule, and a second reader is what a single member
-    /// is for.
+    /// <b>The one gate on Submit</b>, read by both Submit buttons: the page is
+    /// answering (no review to read), the controller is not mid-transition,
+    /// and a complete answer is latched — the play from
+    /// <see cref="HandlePlayCompleted"/> or the cube pair from the radios'
+    /// <c>@bind-Value</c>. The two latches are mutually exclusive per problem
+    /// (only one answer instrument renders, and both clear on every
+    /// transition), so "either is set" is "this problem's answer is complete"
+    /// without the gate needing to know the kind. The spacebar read it too
+    /// until <c>halheinrich/backgammon#200</c> took Submit off the key.
     /// </summary>
     private bool CanSubmit =>
         Controller.Review is null
@@ -441,14 +454,29 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
         && (_completedCube is not null || _completedPlay is not null);
 
     /// <summary>
-    /// The gate on Continue, beside <see cref="CanSubmit"/> for the same
-    /// reader: there is a review to leave and the controller is not busy.
-    /// The two are exclusive by construction — a review is either there or
-    /// not — which is what lets <see cref="PerformPrimaryActionAsync"/> pick
-    /// one action without a third case.
+    /// <b>The one gate on Continue</b>, read by the Continue button and by
+    /// <see cref="HandleSpaceKeyAsync"/>: there is a review to leave and the
+    /// controller is not busy.
     /// </summary>
     private bool CanContinue =>
         Controller.Review is not null && !Controller.IsBusy;
+
+    /// <summary>
+    /// <b>The one gate on Skip</b>, read by both Skip buttons and by
+    /// <see cref="HandleSpaceKeyAsync"/>: the page is answering (no review to
+    /// read) and the controller is not busy. Nothing about the answer enters
+    /// it — Skip is offered with nothing entered, with a play half built, and
+    /// with a complete answer alike, and so, by ruling, is Space. It is
+    /// exclusive with <see cref="CanContinue"/> by construction — a review is
+    /// either there or not — which is what lets the key handler pick one
+    /// action without a third case. For the buttons the review term restates
+    /// what their placement already guarantees (they render only in the
+    /// answering branches); it is spelled anyway so the gate means "Skip is
+    /// available" on its own, for a reader with no branch around it, rather
+    /// than leaning on the order of the key handler's two cases.
+    /// </summary>
+    private bool CanSkip =>
+        Controller.Review is null && !Controller.IsBusy;
 
     /// <summary>
     /// The side this problem's board renders on, for <b>every</b> branch below.
@@ -803,11 +831,22 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Continue — the Continue button's action, the review dice click's, and
+    /// the spacebar's at review (<see cref="HandleSpaceKeyAsync"/>).
+    /// </summary>
     private async Task ContinueAsync()
     {
         await Controller.ContinueAsync();
     }
 
+    /// <summary>
+    /// Skip — the Skip buttons' action, and the spacebar's while answering
+    /// (<see cref="HandleSpaceKeyAsync"/>, <c>halheinrich/backgammon#200</c>).
+    /// The one owner of what skipping does: the key calls this method rather
+    /// than the controller, so a change here reaches the key and the buttons
+    /// together.
+    /// </summary>
     private async Task SkipAsync()
     {
         await Controller.SkipCurrentAsync();

@@ -25,7 +25,9 @@
          published artifact over HTTP in a real browser — the one layer bUnit
          (components in isolation) and the WebApplicationFactory wire tests
          (host pipeline in-process) are both structurally blind to. Every
-         expectation here is an independent literal for that same reason.
+         expectation here is an independent literal for that same reason
+         (the one linked app file below is a readiness handshake, not an
+         expectation).
 
          The two references below are FIXTURE PRODUCERS, and that is the whole
          of their licence (halheinrich/backgammon#125). A real .xg match file
@@ -44,6 +46,18 @@
          is a latent break. -->
     <ProjectReference Include="..\..\BgDataTypes_Lib\BgDataTypes_Lib\BgDataTypes_Lib.csproj" />
     <ProjectReference Include="..\..\ConvertXgToJson_Lib\ConvertXgToJson_Lib\ConvertXgToJson_Lib.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The one app source file this suite compiles, by link and not by
+         reference (halheinrich/backgammon#198): the name of the attribute the
+         quiz page's keyboard module sets once its Space listener is attached.
+         Scenarios wait on it before pressing a key. It is a handshake, not an
+         expectation — nothing a user reads — so the independent-literal rule
+         above does not reach it, and every way of breaking it fails loudly
+         (the file's own summary says how). The file holds that one constant
+         and must stay that way. -->
+    <Compile Include="..\BgQuiz_Blazor.Client\Components\Pages\QuizKeysMark.cs" Link="QuizKeysMark.cs" />
   </ItemGroup>
 
   <ItemGroup>

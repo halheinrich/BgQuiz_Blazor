@@ -37,6 +37,7 @@ using HelpPage = BgQuiz_Blazor.Client.Components.Pages.Help;
 // re-open the Quiz namespace/type ambiguity the aliases above exist to close.
 using HelpSections = BgQuiz_Blazor.Client.Components.Pages.HelpSections;
 using HelpEntry = BgQuiz_Blazor.Client.Components.Pages.HelpEntry;
+using QuizKeysMark = BgQuiz_Blazor.Client.Components.Pages.QuizKeysMark;
 using SettingsPage = BgQuiz_Blazor.Client.Components.Pages.Settings;
 using ScorePanelComponent = BgQuiz_Blazor.Client.Components.Pages.ScorePanel;
 using MixPanelComponent = BgQuiz_Blazor.Client.Components.Pages.MixPanel;
@@ -4899,20 +4900,46 @@ public class PageTests : BunitContext
     }
 
     // -----------------------------------------------------------------------
-    //  The spacebar's primary action (halheinrich/backgammon#149). The page's
-    //  [JSInvokable] callback applies the state rule over the same gates the
-    //  buttons render from. Driven by calling the callback: which presses reach
-    //  it — key, modifiers, focus — is the browser-side filter's business and
-    //  the e2e suite's (KeyboardShortcutTests); here the question is what the
-    //  page does once a press has reached it.
+    //  The spacebar (halheinrich/backgammon#149, amended by
+    //  halheinrich/backgammon#200): Continue on the solution view, Skip while
+    //  answering whenever Skip is available — a complete answer included — and
+    //  never Submit. The page's [JSInvokable] callback reads the buttons' own
+    //  gates and calls the buttons' own methods. Driven by calling the
+    //  callback: which presses reach it — key, modifiers, repeat, focus — is
+    //  the browser-side filter's business and the e2e suite's
+    //  (KeyboardShortcutTests); here the question is what the page does once a
+    //  press has reached it, in every state the page can be in.
     // -----------------------------------------------------------------------
 
-    /// <summary>The primary action as the keyboard module would invoke it, on the renderer's thread.</summary>
+    /// <summary>A Space press as the keyboard module would deliver it, on the renderer's thread.</summary>
     private static Task PressSpaceAsync(IRenderedComponent<QuizPage> cut) =>
-        cut.InvokeAsync(() => cut.Instance.PerformPrimaryActionAsync());
+        cut.InvokeAsync(() => cut.Instance.HandleSpaceKeyAsync());
+
+    /// <summary>The rendered button captioned <paramref name="caption"/>, found fresh.</summary>
+    private static AngleSharp.Dom.IElement ButtonNamed(IRenderedComponent<QuizPage> cut, string caption) =>
+        cut.FindAll("button").First(b => b.TextContent.Trim() == caption);
+
+    /// <summary>
+    /// The skip recorded and the run advanced, with nothing scored: the
+    /// controller moved from <paramref name="skipped"/> to
+    /// <paramref name="next"/>, counted one skip, and holds no submission of
+    /// either kind — so no review was entered on the way, whatever answer was
+    /// on the board.
+    /// </summary>
+    private static void AssertSkippedTo(
+        QuizController c, IRenderedComponent<QuizPage> cut, BgDecisionData skipped, BgDecisionData next)
+    {
+        Assert.Equal(1, c.SkippedCount);
+        Assert.Same(next, c.Current);
+        Assert.NotSame(skipped, c.Current);
+        Assert.Null(c.Review);
+        Assert.Empty(c.History);
+        Assert.Empty(c.CubeHistory);
+        Assert.False(ButtonNamed(cut, "Skip").HasAttribute("disabled"));
+    }
 
     [Fact]
-    public async Task Quiz_PrimaryAction_AtReview_Continues()
+    public async Task Quiz_Space_OnTheSolutionView_Continues()
     {
         var first = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var second = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
@@ -4921,72 +4948,177 @@ public class PageTests : BunitContext
         c.SubmitPlay(BestPlay());
         Assert.NotNull(c.Review);
         var cut = Render<QuizPage>();
-        Assert.Contains("Continue", cut.Markup);
+
+        // Positive precondition: the solution view, where Continue is lit and
+        // Skip is not offered at all.
+        Assert.False(ButtonNamed(cut, "Continue").HasAttribute("disabled"));
+        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Skip");
 
         await PressSpaceAsync(cut);
 
-        // Exactly what Continue does: the review is left and the next problem
-        // is up for answering.
+        // Exactly what Continue does: the review is left, the next problem is
+        // up for answering, and nothing was counted as skipped — the answered
+        // problem stays answered.
         Assert.Null(c.Review);
         Assert.Same(second, c.Current);
+        Assert.Equal(0, c.SkippedCount);
+        Assert.Single(c.History);
         Assert.Contains("Submit", cut.Markup);
     }
 
     [Fact]
-    public async Task Quiz_PrimaryAction_WhileAnsweringWithNoAnswer_DoesNothing()
+    public async Task Quiz_Space_WithNothingEntered_Skips()
     {
-        var c = WithController(TestFixtures.CubeDecision());
+        var first = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var second = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = WithController(first, second);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        var problem = c.Current;
         var cut = Render<QuizPage>();
 
-        // Positive precondition: the page is answering, and Submit is rendered
-        // dark — the same gate the callback is about to read.
-        var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
-        Assert.True(submit.HasAttribute("disabled"));
+        // Positive precondition: answering a checker play with nothing on the
+        // board — Submit dark, Skip lit.
+        Assert.True(ButtonNamed(cut, "Submit").HasAttribute("disabled"));
+        Assert.False(ButtonNamed(cut, "Skip").HasAttribute("disabled"));
 
         await PressSpaceAsync(cut);
 
-        // Nothing was submitted and nothing advanced: no review, same problem,
-        // Submit still dark.
+        AssertSkippedTo(c, cut, first, second);
+    }
+
+    [Fact]
+    public async Task Quiz_Space_WithAPlayHalfBuilt_Skips()
+    {
+        var first = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var second = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = WithController(first, second);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+        var boardBefore = cut.Find(".bg-play-entry").InnerHtml;
+
+        // One click on the 8-point commits one move of the (3,1) and leaves the
+        // other die to play (one-click source-advance): the board changed, and
+        // the play is not complete, so Submit stays dark.
+        await ClickPointAsync(cut, 8);
+        Assert.NotEqual(boardBefore, cut.Find(".bg-play-entry").InnerHtml);
+        Assert.True(ButtonNamed(cut, "Submit").HasAttribute("disabled"));
+
+        await PressSpaceAsync(cut);
+
+        AssertSkippedTo(c, cut, first, second);
+    }
+
+    [Fact]
+    public async Task Quiz_Space_WithTheWholePlayEntered_Skips_AndDoesNotSubmit()
+    {
+        // The case the 2026-09-23 ruling changed: Space used to submit here.
+        var first = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var second = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = WithController(first, second);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        // Both dice played by clicks — the 8-point, then the 6-point with the
+        // die that is left (a legal move for either die) — completes the play,
+        // which lights Submit.
+        await ClickPointAsync(cut, 8);
+        await ClickPointAsync(cut, 6);
+        Assert.False(ButtonNamed(cut, "Submit").HasAttribute("disabled"));
+
+        await PressSpaceAsync(cut);
+
+        AssertSkippedTo(c, cut, first, second);
+    }
+
+    [Fact]
+    public async Task Quiz_Space_OnACubeWithNoActionChosen_Skips()
+    {
+        var first = TestFixtures.CubeDecision();
+        var second = TestFixtures.CubeDecision(away: 3);
+        var c = WithController(first, second);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        Assert.Empty(cut.FindAll("input[checked]"));
+        Assert.True(ButtonNamed(cut, "Submit").HasAttribute("disabled"));
+        Assert.False(ButtonNamed(cut, "Skip").HasAttribute("disabled"));
+
+        await PressSpaceAsync(cut);
+
+        AssertSkippedTo(c, cut, first, second);
+    }
+
+    [Fact]
+    public async Task Quiz_Space_OnACubeWithAnActionChosen_Skips_AndDoesNotSubmit()
+    {
+        var first = TestFixtures.CubeDecision();
+        var second = TestFixtures.CubeDecision(away: 3);
+        var c = WithController(first, second);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        // Chosen the way the user chooses — a change on the radio — so the
+        // page's @bind-Value latch is set and Submit is lit.
+        await SelectCubeRadioAsync(cut, "No double");
+        Assert.False(ButtonNamed(cut, "Submit").HasAttribute("disabled"));
+
+        await PressSpaceAsync(cut);
+
+        // Skipped, the choice with it: the next problem starts with no pill lit.
+        AssertSkippedTo(c, cut, first, second);
+        Assert.Empty(cut.FindAll("input[checked]"));
+    }
+
+    [Fact]
+    public async Task Quiz_Space_WhileBusyAnswering_DoesNothing()
+    {
+        // The busy half of CanSkip, in the window where it decides anything: a
+        // Skip already in flight, frozen at the gated advance, with the page
+        // still answering (no review). Both readers of the gate are pinned: the
+        // rendered Skip button (the live half — drop the busy term and it
+        // lights up), and the callback, whose press inside the window must
+        // leave the run exactly one skip on after the release. The callback
+        // half cannot fail on the busy term alone — the controller's own
+        // transition gate would no-op a second skip — which is why the button
+        // half is here.
+        var first = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = WithGatedController(out var source, out _,
+            first,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var start = c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        source.ReleaseNext();
+        await start;
+        var cut = Render<QuizPage>();
+        Assert.False(ButtonNamed(cut, "Skip").HasAttribute("disabled"));
+
+        var skip = cut.InvokeAsync(() => c.SkipCurrentAsync());   // suspends at the gated advance
+        Assert.True(c.IsBusy);
         Assert.Null(c.Review);
-        Assert.Same(problem, c.Current);
-        Assert.Empty(c.CubeHistory);
-        Assert.True(cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").HasAttribute("disabled"));
-    }
-
-    [Fact]
-    public async Task Quiz_PrimaryAction_WhileAnsweringWithACompleteAnswer_Submits()
-    {
-        var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        var cut = Render<QuizPage>();
-        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
-        Assert.False(cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").HasAttribute("disabled"));
+        cut.Render();
+        Assert.True(ButtonNamed(cut, "Skip").HasAttribute("disabled"));
 
         await PressSpaceAsync(cut);
 
-        // Submitted as the Submit button would have: scored, and the page is
-        // at review with the answer of record.
-        Assert.NotNull(c.Review);
-        Assert.Single(c.CubeHistory);
-        Assert.Contains("Continue", cut.Markup);
+        source.ReleaseNext();
+        await skip;
+        Assert.False(c.IsBusy);
+        Assert.Equal(1, c.SkippedCount);
+        Assert.Equal(2, c.ProblemNumber);
+        Assert.Empty(c.History);
     }
 
     [Fact]
-    public async Task Quiz_PrimaryAction_WhileBusy_DoesNothing()
+    public async Task Quiz_Space_WhileBusyOnTheSolutionView_DoesNothing()
     {
-        // The busy third of the rule, in the one window where it decides
+        // The busy half of CanContinue, in the one window where it decides
         // anything: a Continue whose stats fold is still pending. Every gated
         // transition flips IsBusy and fires StateChanged before it does
-        // anything else, and the page clears its answer latches on every
-        // StateChanged — so during any other busy window the gates are already
-        // false for want of an answer, and the busy term is idle. Here the
-        // review is still on screen while the fold waits, so CanContinue's busy
-        // term is the only thing holding Continue dark, and both readers of
-        // the gate are pinned: the rendered button (the live half — drop the
-        // term and it lights up), and the callback, whose press inside the
-        // window must leave the run exactly one problem on after the release.
+        // anything else, so the review is still on screen while the fold waits,
+        // and CanContinue's busy term is the only thing holding Continue dark.
+        // Both readers of the gate are pinned: the rendered button (the live
+        // half — drop the term and it lights up), and the callback, whose press
+        // inside the window must leave the run exactly one problem on after the
+        // release.
         var c = WithGatedController(out var source, out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -5002,7 +5134,7 @@ public class PageTests : BunitContext
         Assert.True(c.IsBusy);
         Assert.NotNull(c.Review);
         cut.Render();
-        Assert.True(cut.FindAll("button").First(b => b.TextContent.Trim() == "Continue").HasAttribute("disabled"));
+        Assert.True(ButtonNamed(cut, "Continue").HasAttribute("disabled"));
 
         await PressSpaceAsync(cut);
 
@@ -5013,22 +5145,69 @@ public class PageTests : BunitContext
         Assert.False(c.IsFinished);
         Assert.Null(c.Review);
         Assert.Equal(2, c.ProblemNumber);
+        Assert.Equal(0, c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task Quiz_Space_AndTheSkipButton_ShareOneAction()
+    {
+        // Hal's 2026-09-23 ruling on halheinrich/backgammon#200: what skipping
+        // does has one owner, the Skip button's own method, and Space calls it.
+        // So the two gestures, taken on identical states of one run, must move
+        // it identically — and move it the way a skip does. A change to the
+        // button's skip path therefore reaches both halves here; a key handler
+        // that grew its own route to the controller would part from the button
+        // the moment that path changed, and this is where the parting shows.
+        var problems = Enumerable.Range(0, 3)
+            .Select(_ => TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()))
+            .ToArray();
+        var c = WithController(problems);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var cut = Render<QuizPage>();
+
+        (int Skipped, int Problem, int Scored, bool Answering) Snapshot() =>
+            (c.SkippedCount, c.ProblemNumber, c.History.Count + c.CubeHistory.Count, c.Review is null);
+
+        static (int, int, int, bool) Delta(
+            (int Skipped, int Problem, int Scored, bool Answering) before,
+            (int Skipped, int Problem, int Scored, bool Answering) after) =>
+            (after.Skipped - before.Skipped, after.Problem - before.Problem,
+             after.Scored - before.Scored, after.Answering);
+
+        var beforeClick = Snapshot();
+        await ButtonNamed(cut, "Skip").ClickAsync(new());
+        var byButton = Delta(beforeClick, Snapshot());
+        Assert.Same(problems[1], c.Current);
+
+        var beforeSpace = Snapshot();
+        await PressSpaceAsync(cut);
+        var bySpace = Delta(beforeSpace, Snapshot());
+        Assert.Same(problems[2], c.Current);
+
+        // One skip counted, one problem on, nothing scored, still answering.
+        Assert.Equal((1, 1, 0, true), byButton);
+        Assert.Equal(byButton, bySpace);
     }
 
     [Fact]
     public async Task Quiz_KeyboardModule_AttachesOnFirstRender_AndDetachesOnDispose()
     {
         // The wiring, at the seam the browser sees: the module is asked to
-        // attach once, with the page's reference and the callback's name, and
-        // to detach when the page goes — a listener left on the document
-        // would keep invoking a disposed page after every Show-stats round trip.
+        // attach once, with the page's reference, the callback's name and the
+        // readiness mark's name (halheinrich/backgammon#198) — both names
+        // handed over so the module spells neither — and to detach when the
+        // page goes: a listener left on the document would keep invoking a
+        // disposed page after every Show-stats round trip, and a mark left
+        // behind would tell the browser tests a listener was there.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty);
         var cut = Render<QuizPage>();
 
         var attach = _quizKeys.VerifyInvoke("attach");
+        Assert.Equal(3, attach.Arguments.Count);
         Assert.IsType<DotNetObjectReference<QuizPage>>(attach.Arguments[0]);
-        Assert.Equal(nameof(QuizPage.PerformPrimaryActionAsync), attach.Arguments[1]);
+        Assert.Equal(nameof(QuizPage.HandleSpaceKeyAsync), attach.Arguments[1]);
+        Assert.Equal(QuizKeysMark.AttachedAttribute, attach.Arguments[2]);
         _quizKeys.VerifyNotInvoke("detach");
 
         await DisposeComponentsAsync();

@@ -235,11 +235,14 @@
 
                Transition-driving buttons disable while the controller is busy
                (the gate would no-op them anyway — this is the honest mirror);
-               Show stats stays enabled: it only navigates. The primary button's
-               enablement is CanSubmit / CanContinue, the page-owned gates the
-               spacebar shortcut reads too (halheinrich/backgammon#149) — one
-               expression, so the keyboard can never enable what the button
-               shows disabled.
+               Show stats stays enabled: it only navigates. Submit, Continue
+               and Skip enable on CanSubmit / CanContinue / CanSkip, the
+               page-owned gates — one expression each. The spacebar
+               (halheinrich/backgammon#149, amended by
+               halheinrich/backgammon#200) reads CanContinue and CanSkip and
+               calls the same ContinueAsync / SkipAsync these buttons do, so
+               the keyboard can never enable what a button shows disabled, nor
+               act differently from it.
 
                "End quiz" (issue halheinrich/backgammon#57) closes the trailing cluster, after Show
                stats — the far end of the row, as far from the buttons a user
@@ -318,7 +321,7 @@
                             @onclick="Submit">
                         Submit
                     </button>
-                    <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
+                    <button class="btn btn-outline-secondary" disabled="@(!CanSkip)"
                             @onclick="SkipAsync">
                         Skip
                     </button>
@@ -329,7 +332,7 @@
                             @onclick="Submit">
                         Submit
                     </button>
-                    <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
+                    <button class="btn btn-outline-secondary" disabled="@(!CanSkip)"
                             @onclick="SkipAsync">
                         Skip
                     </button>

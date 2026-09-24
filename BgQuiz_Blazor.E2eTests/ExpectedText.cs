@@ -182,6 +182,9 @@ internal static class ExpectedText
     /// <summary>The score panel's submitted count (<c>ScorePanel.razor</c>).</summary>
     internal static string Submitted(int count) => $"Submitted: {count}";
 
+    /// <summary>The score panel's skipped count (<c>ScorePanel.razor</c>).</summary>
+    internal static string Skipped(int count) => $"Skipped: {count}";
+
     /// <summary>Done's navigation back to setup (<c>Done.razor</c>).</summary>
     internal const string BackToSetupButton = "Back to setup";
 

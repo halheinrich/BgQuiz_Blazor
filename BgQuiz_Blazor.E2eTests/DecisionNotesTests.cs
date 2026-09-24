@@ -125,7 +125,11 @@ public sealed class DecisionNotesTests : E2eTestBase
         // press Continue behind the overlay (quizKeys.js's focus filter). The
         // absence is made to mean something by what follows — had the press
         // continued, the review this control belongs to would be gone before
-        // the next line could find it.
+        // the next line could find it. The listener has to be attached for that
+        // to mean anything — an absence over no listener passes for free — so
+        // the press waits for the keyboard module's readiness mark first
+        // (halheinrich/backgammon#198).
+        await ExpectKeyboardShortcutReadyAsync();
         await Page.Keyboard.PressAsync(" ");
         await Expect(NotesDialog).ToBeVisibleAsync();
 

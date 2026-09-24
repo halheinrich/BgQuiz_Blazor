@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using BgQuiz_Blazor.Client.Components.Pages;
 using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
 
@@ -134,8 +135,9 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// the stats-persistence suite's fake <c>window.showDirectoryPicker</c>:
     /// Playwright cannot drive the native File System Access prompts, so the
     /// FS-Access path is exercised by faking the <i>browser API</i> — never the
-    /// app, which ships no test seams — and letting the app's real JS module
-    /// run against the fake handles.
+    /// app, which ships no test seams on this path (its one seam anywhere is
+    /// the keyboard module's readiness mark, <see cref="QuizKeysMark"/>) — and
+    /// letting the app's real JS module run against the fake handles.
     /// </summary>
     protected virtual string? ContextInitScript => null;
 
@@ -692,6 +694,28 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </summary>
     protected Task ExpectUrlAsync(string path) =>
         Expect(Page).ToHaveURLAsync(BaseUrl + path);
+
+    /// <summary>
+    /// The quiz page's readiness mark (halheinrich/backgammon#198): present on
+    /// the document element exactly while the keyboard module's Space listener
+    /// is attached. The name is the app's own constant, compiled in by link —
+    /// see <see cref="QuizKeysMark"/> for why that is safe here and nowhere
+    /// else in this suite.
+    /// </summary>
+    protected ILocator KeyboardShortcutMark =>
+        Page.Locator($"html[{QuizKeysMark.AttachedAttribute}]");
+
+    /// <summary>
+    /// Wait until the quiz page's Space listener is attached. Every scenario
+    /// calls this on the quiz page before its first key press: the page
+    /// imports the module after its first render, so on a cold fetch the
+    /// controls are all there while a press is still inert, and a press is
+    /// not a retrying assertion — it happens once, whether anything is
+    /// listening or not. Rendered controls prove nothing about the listener;
+    /// the mark is set by the code that adds it.
+    /// </summary>
+    protected Task ExpectKeyboardShortcutReadyAsync() =>
+        Expect(KeyboardShortcutMark).ToBeAttachedAsync();
 
     // -----------------------------------------------------------------------
     //  Retrying measurement — the form the smoke gate owes its geometry pins

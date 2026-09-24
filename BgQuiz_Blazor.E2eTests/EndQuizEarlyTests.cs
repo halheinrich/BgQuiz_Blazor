@@ -64,7 +64,7 @@ public sealed class EndQuizEarlyTests : E2eTestBase
         // double and the take), and the abandoned problem counts among the
         // problems shown, exactly as a skipped one does.
         await Expect(body).ToContainTextAsync(ExpectedText.Submitted(2));
-        await Expect(body).ToContainTextAsync("Skipped: 1");
+        await Expect(body).ToContainTextAsync(ExpectedText.Skipped(1));
         await Expect(body).ToContainTextAsync("Total problems shown: 2");
     }
 
@@ -93,7 +93,7 @@ public sealed class EndQuizEarlyTests : E2eTestBase
         // The reviewed answer counted, and nothing was recorded as skipped on
         // top of it — the problem was answered, not abandoned.
         await Expect(body).ToContainTextAsync(ExpectedText.Submitted(2));
-        await Expect(body).ToContainTextAsync("Skipped: 0");
+        await Expect(body).ToContainTextAsync(ExpectedText.Skipped(0));
         await Expect(body).ToContainTextAsync(ExpectedText.TotalProblemsShown(1));
     }
 }
