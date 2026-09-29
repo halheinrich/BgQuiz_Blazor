@@ -1,5 +1,6 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using BgDataTypes_Lib;
 using BgFolderAccess_Razor;
@@ -17,13 +18,22 @@ using XgFilter_Lib.Filtering;
 /// are parsed entirely client-side and never leave the browser.
 ///
 /// <para>
-/// <b>Re-iterability.</b> The source holds the file <em>bytes</em>
-/// (<see cref="PickedFile.Bytes"/>), not open streams, and mints a fresh
-/// <see cref="MemoryStream"/> positioned at zero for every
+/// <b>Re-iterability.</b> The source holds the picked files' buffered
+/// <em>bytes</em> (<see cref="PickedFile.Bytes"/>), not open streams, and
+/// opens a fresh read of each (<see cref="PickedFile.OpenRead"/>, positioned at
+/// zero, sharing the bytes without copying them) for every
 /// <see cref="EnumerateAsync"/> call. The stream iterator reads each stream
 /// exactly once, forward (see <see cref="XgFileStream"/>); buffering up front
 /// is what lets a Restart re-enumerate the same set without the streams having
 /// been consumed.
+/// </para>
+///
+/// <para>
+/// <b>The ranking is the quiz's.</b> Which play is best — and so whether a
+/// decision's player "erred by more than x" — is a ranking's
+/// (<c>SPEC-scoring.md</c> §2a), and the iterator filters under the one it is
+/// constructed with. The source takes the caller's rather than any default, so
+/// the pool is drawn under the ranking the quiz scores with.
 /// </para>
 ///
 /// <para>
@@ -37,18 +47,22 @@ using XgFilter_Lib.Filtering;
 /// </summary>
 internal sealed class WasmUploadedProblemSetSource : IProblemSetSource
 {
-    private readonly IReadOnlyList<PickedFile> _files;
+    private readonly ImmutableArray<PickedFile> _files;
     private readonly FilteredDecisionIterator _iterator;
     private readonly TimeProvider _clock;
 
     /// <summary>
     /// Construct a source over <paramref name="files"/> applying
-    /// <paramref name="filters"/> on each enumeration. Per-file read failures in
-    /// the underlying iterator are logged through a logger created from
-    /// <paramref name="loggerFactory"/>.
+    /// <paramref name="filters"/> under <paramref name="ranking"/> on each
+    /// enumeration. Per-file read failures in the underlying iterator are logged
+    /// through a logger created from <paramref name="loggerFactory"/>.
     /// </summary>
     /// <param name="files">The buffered picked files (bytes + extension-bearing names).</param>
     /// <param name="filters">The filter pipeline applied on every enumeration.</param>
+    /// <param name="ranking">
+    /// The quiz's ranking — the one the filters' error range reads a player's
+    /// error under. The iterator refuses an undefined one.
+    /// </param>
     /// <param name="loggerFactory">Creates the inner iterator's logger (the factory keeps the inner type out of this contract).</param>
     /// <param name="clock">
     /// The monotonic time source pacing the enumeration's cooperative yields
@@ -58,16 +72,23 @@ internal sealed class WasmUploadedProblemSetSource : IProblemSetSource
     /// yield policy.
     /// </param>
     /// <exception cref="ArgumentNullException">
-    /// <paramref name="files"/>, <paramref name="filters"/>,
-    /// <paramref name="loggerFactory"/>, or <paramref name="clock"/> is null.
+    /// <paramref name="filters"/>, <paramref name="loggerFactory"/>, or
+    /// <paramref name="clock"/> is null.
+    /// </exception>
+    /// <exception cref="ArgumentException"><paramref name="files"/> is a default array.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="ranking"/> is not a defined ranking — the iterator's
+    /// refusal, raised here at construction.
     /// </exception>
     public WasmUploadedProblemSetSource(
-        IReadOnlyList<PickedFile> files,
+        ImmutableArray<PickedFile> files,
         DecisionFilterSet filters,
+        PlayRanking ranking,
         ILoggerFactory loggerFactory,
         TimeProvider clock)
     {
-        ArgumentNullException.ThrowIfNull(files);
+        if (files.IsDefault)
+            throw new ArgumentException("A default array holds no files; none is an empty one.", nameof(files));
         ArgumentNullException.ThrowIfNull(filters);
         ArgumentNullException.ThrowIfNull(loggerFactory);
         ArgumentNullException.ThrowIfNull(clock);
@@ -75,12 +96,13 @@ internal sealed class WasmUploadedProblemSetSource : IProblemSetSource
         _files = files;
         _iterator = new FilteredDecisionIterator(
             filters,
+            ranking,
             loggerFactory.CreateLogger<FilteredDecisionIterator>());
         _clock = clock;
     }
 
     /// <inheritdoc />
-    public string Name => _files.Count switch
+    public string Name => _files.Length switch
     {
         0 => "No files",
         1 => _files[0].FileName,
@@ -94,12 +116,12 @@ internal sealed class WasmUploadedProblemSetSource : IProblemSetSource
     public async IAsyncEnumerable<BgDecisionData> EnumerateAsync(
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        // Fresh MemoryStreams per enumeration keep the source re-iterable: the
+        // A fresh read per enumeration keeps the source re-iterable: the
         // iterator reads each stream once, forward, from position zero, so the
         // buffered bytes must back a new stream on every pass. The caller owns
         // disposal; wrapping in `using` here would dispose the streams before the
         // lazy iterator reads them, so they are intentionally left to GC.
-        var streams = _files.Select(f => new XgFileStream(f.FileName, new MemoryStream(f.Bytes)));
+        var streams = _files.Select(f => new XgFileStream(f.FileName, f.OpenRead()));
 
         // Time-budgeted cooperative yielding (one gate per enumeration; the
         // budget window starts here): frequent enough that the browser can

@@ -10,7 +10,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 
 /// <summary>
 /// Quiz page: renders the current decision against the scoped
-/// <see cref="QuizController"/>, routing the board region by <c>Decision.IsCube</c>
+/// <see cref="QuizController"/>, routing the board region by the record's kind
 /// — checker plays to <see cref="BackgammonPlayEntry"/> (click-driven assembly),
 /// cube decisions to a board-only <see cref="BackgammonDiagram"/> whose answer is
 /// entered by the <see cref="BackgammonCubeActions"/> radios in the action row —
@@ -79,16 +79,26 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// <b>Marking the user's answer.</b> The solution request is built from the
-/// answered decision via <see cref="DiagramRequest.Builder"/>'s
-/// <c>From(position, decision, descriptive, DiagramMode.Solution)</c>, then the
-/// user's marks are overridden from <see cref="QuizController.Review"/>:
-/// <c>UserPlayIndex</c> for a checker play (the matched candidate index, or
-/// <c>-1</c> off-list so no marker draws), or <c>UserDoubleError</c> /
-/// <c>UserTakeError</c> for a cube decision (the two per-half losses driving the
-/// "Actual" banner, read off the scored submission the review carries).
-/// <c>FromDecisionData</c> is not used here because it would default those
-/// marks from the <c>.xg</c>-recorded player rather than the quiz user.
+/// <b>Every board is the decision's own request, under the run's ranking.</b>
+/// The answering board, the play entry and the solution are all
+/// <see cref="DiagramRequest.ForDecision"/> over the current record, with
+/// <see cref="QuizController.Ranking"/> — the ranking the run filters and
+/// scores with (SPEC-scoring.md §2a) — so the solution's best play, order and
+/// rank numbers are the ones the verdict beside it was scored against, and no
+/// producer default stands in. The request holds the record and copies nothing
+/// out of it; this page varies only its options (the mode, the side, the hide
+/// ceiling, the † mark).
+/// </para>
+///
+/// <para>
+/// <b>Marking the user's answer.</b> The record's own recorded play draws the
+/// primary <c>*</c>; the quiz user's answer is the secondary <c>†</c>,
+/// <see cref="DiagramRequest.SecondaryPlayIndex"/>, set from the review's
+/// <see cref="ProblemReview.Play.CandidateIndex"/> — the candidate the play is,
+/// scored or not, and none off the list, so no mark draws. A cube review
+/// marks nothing: the panel's "Actual" line is the recorded players' actions,
+/// read off the record, and the quiz user's answer is named by the verdict
+/// line instead.
 /// </para>
 ///
 /// <para>
@@ -105,7 +115,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// always holds the latest answer. Gating Submit on the field being non-null is
 /// therefore gating it on <i>a pill chosen</i>, lit from the first click. The
 /// Too good pill is offered exactly where the producer says the verdict can
-/// occur (<see cref="BgDecisionData.CanBeTooGood"/>, passed through as
+/// occur (<see cref="CubeDecision.CanBeTooGood"/>, passed through as
 /// <c>OfferTooGood</c>; withheld at a money position under Jacoby with the cube
 /// centred) — this page reads that fact and never re-derives it. Both fields
 /// clear on any controller transition (submit / advance / redo / restart) via
@@ -208,12 +218,14 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// <b>The solution's depth treatment</b> (issues
-/// <c>halheinrich/backgammon#150</c> and <c>halheinrich/backgammon#66</c>). Two
-/// user settings choose how the review's candidate list is ordered and whether
-/// its shallowly analyzed plays are shown at all. Both are producer options that
-/// <see cref="BuildSolutionRequest"/> passes through from
-/// <see cref="QuizSettings"/>; neither is a page concern beyond that, and
-/// neither reaches the answering board, which is
+/// <c>halheinrich/backgammon#150</c>, <c>halheinrich/backgammon#282</c> and
+/// <c>halheinrich/backgammon#66</c>). The ranking orders and numbers the
+/// review's candidate list, and it is the run's, never read from the settings
+/// here — a ranking changed mid-run reaches the next run, so the list and the
+/// verdict cannot disagree. The hide ceiling, which changes no score, is the
+/// user's live setting (<see cref="QuizSettings.MaximumHiddenCandidateAnalysisLevel"/>),
+/// passed through unchanged. Neither is a page concern beyond that, and the
+/// ceiling never reaches the answering board, which is
 /// <see cref="DiagramMode.Problem"/> and has no candidate list to treat.
 /// </para>
 ///
@@ -570,74 +582,59 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// </summary>
     private DiagramOptions BoardOptions => MaximizedAnswering ? BoardOnlyCanvas : FullCanvas;
 
-    private DiagramRequest BuildRenderRequest(BgDataTypes_Lib.BgDecisionData current) =>
-        // DiagramMode.Problem hides the analysis panel (the candidate list is the
-        // answer the quiz is grading). FromDecisionData is the single canonical
-        // data → renderer mapping; using it avoids drift on new fields.
-        DiagramRequest.FromDecisionData(current, DiagramMode.Problem, HomeBoardOnRight);
+    /// <summary>
+    /// The answering request — for the cube's board-only diagram and the play
+    /// entry alike: the decision's own request under the run's ranking, in
+    /// <see cref="DiagramMode.Problem"/> (the request's default), which hides
+    /// the analysis panel, since the candidate list is the answer the quiz is
+    /// grading. The entry draws its working board from it
+    /// (<see cref="DiagramRequest.WithWorkingBoard"/>, the entry's own doing),
+    /// with the decision's presentation.
+    /// </summary>
+    private DiagramRequest BuildRenderRequest(BgDecisionData current) =>
+        DiagramRequest.ForDecision(current, Controller.Ranking) with
+        {
+            HomeBoardOnRight = HomeBoardOnRight,
+        };
 
     /// <summary>
-    /// Build the review-state solution request: the original answered position
-    /// with the filled analysis panel (<see cref="DiagramMode.Solution"/>).
+    /// Build the review-state solution request: the answered decision's own
+    /// request under the run's ranking, with the filled analysis panel
+    /// (<see cref="DiagramMode.Solution"/>).
     /// <para>
     /// For a checker play the primary <c>*</c> marks the <em>.xg-recorded played
-    /// move</em> and the secondary <c>†</c> marks the <em>quiz user's answer</em>.
-    /// <c>Builder.From</c> already sources <c>UserPlayIndex</c> (the <c>*</c>)
-    /// from <c>decision.UserPlayIndex</c>, so only
-    /// <see cref="DiagramRequest.SecondaryPlayIndex"/> (the <c>†</c>) is set
-    /// here, from the answered candidate index. The producer suppresses the
-    /// <c>†</c> when it coincides with the recorded play, and an off-list answer
-    /// (index <c>-1</c>) draws no <c>†</c> at all.
+    /// move</em> — the record's own, which the request reads — and the
+    /// secondary <c>†</c> marks the <em>quiz user's answer</em>,
+    /// <see cref="DiagramRequest.SecondaryPlayIndex"/>, set from the review's
+    /// <see cref="ProblemReview.Play.CandidateIndex"/>. The producer suppresses
+    /// the <c>†</c> when it coincides with the recorded play, and an off-list
+    /// answer — no candidate, so no index — draws no <c>†</c> at all. A cube
+    /// review sets no mark (see the type's remarks).
     /// </para>
     /// <para>
-    /// For a cube decision the two per-half equity losses drive the "Actual"
-    /// banner row instead.
-    /// </para>
-    /// <para>
-    /// Both answer kinds then carry the user's depth treatment — the candidate
-    /// ordering and the hidden-depth ceiling. This is the only request that
-    /// does: <see cref="BuildRenderRequest"/> builds a
-    /// <see cref="DiagramMode.Problem"/> request, whose panel is blank because
-    /// the candidate list is the answer being graded.
+    /// Both answer kinds carry the hidden-depth ceiling, assigned
+    /// unconditionally rather than behind a branch: untouched, its value is the
+    /// producer's own default (null), which the producer defines as hiding
+    /// nothing — so passing the default IS passing nothing, and there is no
+    /// "leave it alone" path that could drift from the "set it" one. The
+    /// ceiling means itself — the user picks a level off the producer's own
+    /// ladder and it travels here unchanged, which is the point of the
+    /// producer's inclusive-hide shape (halheinrich/backgammon#66). The order
+    /// is the run's ranking, which <see cref="BuildRenderRequest"/> states too,
+    /// though its <see cref="DiagramMode.Problem"/> panel draws no list.
     /// </para>
     /// </summary>
-    private DiagramRequest BuildSolutionRequest(
-        BgDataTypes_Lib.BgDecisionData current, ProblemReview review)
+    private DiagramRequest BuildSolutionRequest(BgDecisionData current, ProblemReview review)
     {
-        var builder = DiagramRequest.Builder.From(
-            current.Position, current.Decision, current.Descriptive, DiagramMode.Solution,
-            HomeBoardOnRight);
-
-        switch (review)
+        var request = BuildRenderRequest(current) with
         {
-            case ProblemReview.Play play:
-                // * (UserPlayIndex, already set by Builder.From from the
-                // .xg-recorded play) marks the played move; † marks the quiz
-                // answer. The producer suppresses † when it equals the recorded
-                // play, and an off-list answer (index -1) draws no †.
-                builder.SecondaryPlayIndex = play.UserPlayIndex;
-                break;
-            case ProblemReview.Cube cube:
-                // The two per-half equity losses drive the "Actual" banner row.
-                builder.UserDoubleError = cube.Submission.DoublerEquityLoss;
-                builder.UserTakeError = cube.Submission.TakerEquityLoss;
-                break;
-        }
+            Mode = DiagramMode.Solution,
+            MaximumHiddenCandidateAnalysisLevel = Settings.MaximumHiddenCandidateAnalysisLevel,
+        };
 
-        // The depth treatment, assigned unconditionally rather than behind a
-        // branch: with either setting untouched its value is the producer's own
-        // default (Equity / null), which the producer defines as the untouched
-        // rendering — so passing the default IS passing nothing, and there is no
-        // "leave it alone" path that could drift from the "set it" one. What the
-        // ordering checkbox means stays in QuizSettings; the hide ceiling means
-        // itself — the user picks a level off the producer's own ladder and it
-        // travels here unchanged, which is the point of the producer's
-        // inclusive-hide shape (halheinrich/backgammon#66).
-        builder.CandidateOrdering = Settings.EffectiveCandidateOrdering;
-        builder.MaximumHiddenCandidateAnalysisLevel =
-            Settings.MaximumHiddenCandidateAnalysisLevel;
-
-        return builder.Build();
+        return review is ProblemReview.Play play
+            ? request with { SecondaryPlayIndex = play.CandidateIndex }
+            : request;
     }
 
     /// <summary>
@@ -673,15 +670,43 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// <summary>The scored half of <see cref="VerdictText"/>, per answer kind.</summary>
     private static string ScoredVerdict(ProblemReview review) => review switch
     {
-        ProblemReview.Play { OffList: true } =>
-            "Off list — your play wasn't among the analyzed candidates. The best play is shown above.",
-        ProblemReview.Play { IsCorrect: true } =>
-            "Correct — you found the best play.",
-        ProblemReview.Play p =>
-            $"Not best — your play lost {p.EquityLoss:0.0000} equity. The best play is shown above.",
+        ProblemReview.Play play => PlayVerdict(play),
         ProblemReview.Cube c => CubeVerdict(c.Submission),
         _ => string.Empty,
     };
+
+    /// <summary>
+    /// The review of a play the run's ranking does not score —
+    /// <c>SPEC-scoring.md</c> §2a's text, verbatim (ruled 2026-09-26 on
+    /// <c>halheinrich/backgammon#282</c>). Only depth first leaves a candidate
+    /// unscored, which is why the sentence may name its ranking.
+    /// </summary>
+    internal const string NotScoredVerdict =
+        "Not scored under depth-first ranking: this play was analysed less deeply than the best play, and at that depth it rated higher.";
+
+    /// <summary>
+    /// The checker-play verdict, one per outcome of the producer's scoring
+    /// (<see cref="PlaySubmission"/>): correct, or not best with its error; not
+    /// scored, in the ruled words; or off the list.
+    ///
+    /// <para>
+    /// <b>Off the list, it names the play</b> (<c>halheinrich/backgammon#274</c>:
+    /// "When a play is not on the list, show what that play is"). The play is
+    /// spelled by the producer's one notation,
+    /// <see cref="BgDataTypes_Lib.Play.ToNotation"/> — the formatter the
+    /// candidate list above is written by — so the reader can compare the two
+    /// at a glance and see what the app read their clicks as. It is named in
+    /// the verdict and nowhere else: marking it on the diagram, or listing it
+    /// among the candidates, is a separate ruling.
+    /// </para>
+    /// </summary>
+    private static string PlayVerdict(ProblemReview.Play review) => review.Submission.Match(
+        scored: submitted => submitted.IsCorrect
+            ? "Correct — you found the best play."
+            : $"Not best — your play lost {submitted.EquityLoss:0.0000} equity. The best play is shown above.",
+        notScored: _ => NotScoredVerdict,
+        offList: () =>
+            $"Off list — your play, {review.UserPlay.ToNotation()}, wasn't among the analyzed candidates. The best play is shown above.");
 
     /// <summary>
     /// The cube verdict: one segment per half, each named for what the user
@@ -757,20 +782,22 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// <summary>
     /// Legend for the solution diagram's play markers, listing only the markers
     /// actually drawn: <c>*</c> the .xg-recorded played move (present when the
-    /// decision carries a recorded play) and <c>†</c> the quiz answer (present
-    /// only when it is on-list and differs from the recorded play — the same
+    /// decision records a play) and <c>†</c> the quiz answer (present only when
+    /// it is a candidate and differs from the recorded play — the same
     /// suppression the renderer applies to <see cref="DiagramRequest.SecondaryPlayIndex"/>).
     /// Returns <c>null</c> when no play marker shows (cube reviews, or a play
-    /// review with neither a recorded move nor a distinct on-list answer).
+    /// review with neither a recorded move nor a distinct listed answer).
     /// </summary>
-    private static string? SolutionLegend(ProblemReview review, DecisionData decision)
+    private static string? SolutionLegend(ProblemReview review, BgDecisionData decision)
     {
-        if (review is not ProblemReview.Play play) return null;
+        if (review is not ProblemReview.Play play || decision is not CheckerPlayDecision checkerPlay)
+            return null;
 
+        var recorded = checkerPlay.Decision.UserPlayIndex;
         var parts = new List<string>(2);
-        if (decision.UserPlayIndex >= 0)
+        if (recorded is not null)
             parts.Add("* played");
-        if (play.UserPlayIndex >= 0 && play.UserPlayIndex != decision.UserPlayIndex)
+        if (play.CandidateIndex is int answer && answer != recorded)
             parts.Add("† your answer");
 
         return parts.Count > 0 ? string.Join(" · ", parts) : null;
@@ -786,23 +813,26 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// not rendered at all, which is the one place that invariance is
     /// deliberately crossed.
     /// </summary>
-    private static string StatusText(ProblemReview? review, DecisionData decision) =>
+    private static string StatusText(ProblemReview? review, BgDecisionData decision) =>
         review is not null
             ? VerdictText(review)
-            : decision.IsCube
-                ? "Pick the cube decision, then Submit."
-                : "Click the board to build your play, then Submit.";
+            : decision.Match(
+                checkerPlay: _ => "Click the board to build your play, then Submit.",
+                cube: _ => "Pick the cube decision, then Submit.");
 
     /// <summary>
     /// Bootstrap alert colour for the status strip's verdict band: outcome
-    /// colouring at review, a quiet neutral tone while answering.
+    /// colouring at review, a quiet neutral tone while answering. The two
+    /// unscored play outcomes share the warning tone: each is a skip of record
+    /// (SPEC-scoring.md §2 and §2a), neither right nor wrong.
     /// </summary>
     private static string StatusVerdictColor(ProblemReview? review) => review switch
     {
         null => "alert-secondary",
-        ProblemReview.Play { OffList: true } => "alert-warning",
-        ProblemReview.Play { IsCorrect: true } => "alert-success",
-        ProblemReview.Play => "alert-danger",
+        ProblemReview.Play play => play.Submission.Match(
+            scored: submitted => submitted.IsCorrect ? "alert-success" : "alert-danger",
+            notScored: _ => "alert-warning",
+            offList: () => "alert-warning"),
         ProblemReview.Cube { Submission: { DoublerCorrect: true, TakerCorrect: true } } => "alert-success",
         ProblemReview.Cube => "alert-danger",
         _ => "alert-secondary",
@@ -930,7 +960,7 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     ///
     /// <para>
     /// Dropping the term is safe on both counts the branch already settles: the
-    /// enclosing <c>!IsCube</c> branch guarantees an entry is rendered, and a
+    /// enclosing checker-play branch guarantees an entry is rendered, and a
     /// click can only arrive after that render assigned the ref. Undo on an
     /// entry with nothing entered is a documented no-op in the producer, so
     /// always-enabled is honest rather than a promise the click discovers is

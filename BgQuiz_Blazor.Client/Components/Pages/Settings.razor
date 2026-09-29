@@ -96,13 +96,16 @@
             </div>
         </fieldset>
 
-        @* The depth treatment (issues halheinrich/backgammon#150 and
-           halheinrich/backgammon#66). Its OWN fieldset rather than the board's:
-           both settings change the analysis panel the solution view puts beside
-           the board, and neither touches the board itself. The page groups by
-           the thing that moves — which is the whole reason the maximize row's
-           placement is worth pinning — so filing these under "The board" would
-           cost that grouping its meaning.
+        @* The depth treatment (issues halheinrich/backgammon#150,
+           halheinrich/backgammon#282 and halheinrich/backgammon#66). Its OWN
+           fieldset rather than the board's: both settings change the analysis
+           panel the solution view puts beside the board, and neither touches
+           the board itself. The page groups by the thing that moves — which is
+           the whole reason the maximize row's placement is worth pinning — so
+           filing these under "The board" would cost that grouping its meaning.
+           The first also decides how checker plays are scored (SPEC-scoring.md
+           §2a: the sorting setting is the ranking), which its description
+           says; the panel is still where a reader sees it at work.
 
            Two controls and not one grouped control: they are independent
            (either, both, or neither is a real choice) and nothing composes them.
@@ -125,16 +128,23 @@
                     Sort the analysis by depth first
                 </label>
             </div>
-            @* Leads with what changes, then rules out the two misreadings the
-               change invites: that equity order is gone (it still breaks ties),
-               and that the numbers move with the rows (they do not — a play
-               keeps its own rank and markers wherever it lands). *@
+            @* Leads with what changes and rules out the one misreading it
+               invites — that equity order is gone (it still breaks ties) —
+               then says what SPEC-scoring.md §2a rules the description must:
+               that the setting decides the best play, not only the order
+               ("The setting's own description says that it decides the best
+               play and the order, not only the order"). So it names the
+               scoring consequence, the order and rank numbers that follow the
+               ranking, the play the ranking does not score, and when a change
+               applies — at the next quiz, since a quiz has one ranking. *@
             <div class="form-text">
-                In the solution, the plays are listed most deeply analyzed first
-                instead of best equity first — so a play you rolled out sits at the
-                top rather than wherever its equity leaves it. Plays analyzed to the
-                same depth keep their equity order, and every play keeps its own
-                rank number and markers as it moves.
+                The most deeply analyzed plays rank first, and plays analyzed to the
+                same depth keep their equity order — so a play you rolled out sits at
+                the top rather than wherever its equity leaves it. This ranking
+                decides which play is best, not only the order: your answer is scored
+                against the top play, and the solution lists and numbers the plays by
+                it. A play analyzed less deeply than the best play that rated higher
+                is not scored. A change takes effect from the next quiz you start.
             </div>
 
             @* The empty option is the default and says what it does ("Hide

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using BgFolderAccess_Razor;
 using BgQuiz_Blazor.Client.Quiz;
 
@@ -117,13 +118,30 @@ public class PickedProblemFolderTests
     }
 
     [Fact]
-    public void Set_NullArguments_Throw()
+    public void Set_NullName_Throws()
     {
         var folder = new PickedProblemFolder();
         Assert.Throws<ArgumentNullException>(
             () => folder.Set(null!, [File()], FolderWriteCapability.Enabled, []));
-        Assert.Throws<ArgumentNullException>(
-            () => folder.Set("Corpus", null!, FolderWriteCapability.Enabled, []));
+    }
+
+    [Fact]
+    public void Set_DefaultArrays_AreRefused()
+    {
+        // A default ImmutableArray holds nothing at all — "none" is an empty
+        // one — so the holder refuses it as the pick outcome's own records do,
+        // naming the parameter, rather than storing an array every reader would
+        // throw on.
+        var folder = new PickedProblemFolder();
+
+        var files = Assert.Throws<ArgumentException>(
+            () => folder.Set("Corpus", default, FolderWriteCapability.Enabled, []));
+        var truncations = Assert.Throws<ArgumentException>(
+            () => folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, default));
+
+        Assert.Equal("files", files.ParamName);
+        Assert.Equal("truncations", truncations.ParamName);
+        Assert.False(folder.HasFiles); // nothing was stored
     }
 
     // -----------------------------------------------------------------------
@@ -135,11 +153,13 @@ public class PickedProblemFolderTests
     {
         var folder = new PickedProblemFolder();
         folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []);
-        var parsed = new List<BgDataTypes_Lib.BgDecisionData>();
+        ImmutableArray<BgDataTypes_Lib.BgDecisionData> parsed = [TestFixtures.CubeDecision()];
 
         folder.StoreParsed(folder.PickGeneration, parsed);
 
-        Assert.Same(parsed, folder.ParsedDecisions);
+        // The very array stored — ImmutableArray's == compares the array it
+        // wraps — so the cache is the parse, not a copy of it.
+        Assert.True(folder.ParsedDecisions == parsed, "the cache is not the stored parse");
     }
 
     [Fact]
@@ -187,10 +207,11 @@ public class PickedProblemFolderTests
     }
 
     [Fact]
-    public void StoreParsed_NullDecisions_Throws()
+    public void StoreParsed_DefaultDecisions_Throws()
     {
         var folder = new PickedProblemFolder();
-        Assert.Throws<ArgumentNullException>(
-            () => folder.StoreParsed(folder.PickGeneration, null!));
+        var refused = Assert.Throws<ArgumentException>(
+            () => folder.StoreParsed(folder.PickGeneration, default));
+        Assert.Equal("decisions", refused.ParamName);
     }
 }

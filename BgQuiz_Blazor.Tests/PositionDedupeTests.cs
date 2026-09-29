@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using BgDataTypes_Lib;
 using BgFolderAccess_Razor;
 using BgGame_Lib;
@@ -60,7 +61,7 @@ public class PositionDedupeTests
     /// identical, ids distinct. Throws when the fixture is absent; see the class
     /// remarks for why this must not skip.
     /// </summary>
-    private static IReadOnlyList<PickedFile> TwoNamedCopies()
+    private static ImmutableArray<PickedFile> TwoNamedCopies()
     {
         if (!File.Exists(FixturePath))
         {
@@ -72,7 +73,7 @@ public class PositionDedupeTests
                 FixturePath);
         }
 
-        var bytes = File.ReadAllBytes(FixturePath);
+        ImmutableArray<byte> bytes = [.. File.ReadAllBytes(FixturePath)];
         return [new PickedFile(FirstCopyName, bytes), new PickedFile(SecondCopyName, bytes)];
     }
 
@@ -98,7 +99,7 @@ public class PositionDedupeTests
     private static Task<List<BgDecisionData>> UndedupedAsync(
         PickedProblemFolder picked, FilterConfig config) =>
         CollectAsync(new CachedProblemSetSource(
-            picked, config.Build(), NullLoggerFactory.Instance, TimeProvider.System));
+            picked, config.Build(), PlayRanking.Equity, NullLoggerFactory.Instance, TimeProvider.System));
 
     private static async Task<List<BgDecisionData>> CollectAsync(IProblemSetSource src)
     {
@@ -133,7 +134,7 @@ public class PositionDedupeTests
             new FakeProblemStatsSink(),
             TimeProvider.System);
 
-        Assert.Equal(QuizStartOutcome.Started, await controller.StartAsync(EarlyMoves, QuizMix.Empty));
+        Assert.Equal(QuizStartOutcome.Started, await controller.StartAsync(EarlyMoves, QuizMix.Empty, PlayRanking.Equity));
 
         // Drain the whole quiz through the surface a user drives — no cap, so
         // "what the quiz serves" is the entire deduped pool. Skipping is the
@@ -172,7 +173,7 @@ public class PositionDedupeTests
             "Premise broken: the two copies no longer yield content-equal decisions.");
 
         var factory = FactoryOver(picked, shuffle);
-        var drawn = await CollectAsync(factory(new FilterConfig().Build(), QuizMix.Empty).Source);
+        var drawn = await CollectAsync(factory(new FilterConfig().Build(), PlayRanking.Equity, QuizMix.Empty).Source);
 
         Assert.NotEmpty(drawn);
         var xgids = drawn.Select(d => d.Xgid).ToList();
@@ -206,7 +207,7 @@ public class PositionDedupeTests
         // than satisfied here (SPEC-stats-identity.md §4) and nothing about the
         // lifetime record can move this outcome.
         var factory = FactoryOver(picked, new ShuffleOption());
-        var drawn = await CollectAsync(factory(EarlyMoves.Build(), QuizMix.Empty).Source);
+        var drawn = await CollectAsync(factory(EarlyMoves.Build(), PlayRanking.Equity, QuizMix.Empty).Source);
         var survivor = Assert.Single(
             drawn, d => string.Equals(d.Xgid, contested.Key, StringComparison.Ordinal));
         Assert.Equal(FirstCopyName, survivor.Id.Filename);
@@ -241,7 +242,7 @@ public class PositionDedupeTests
         var controller = new QuizController(
             FactoryOver(picked, shuffle), new FakeProblemStatsSink(), TimeProvider.System);
 
-        var summary = await controller.SummarizeMatchesAsync(EarlyMoves);
+        var summary = await controller.SummarizeMatchesAsync(EarlyMoves, PlayRanking.Equity);
 
         // The accounting identity, stated without assuming what the identity
         // key collapses: every filtered record either survives into the pool or

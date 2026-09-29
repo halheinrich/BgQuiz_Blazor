@@ -1,83 +1,107 @@
 using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
+using BgMoveGen;
 
 namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
-/// The one invariant <see cref="TestFixtures"/> asserts about itself, pinned so
-/// it cannot lapse silently: <b>every decision fixture in that file is a real
-/// position with a derivable <see cref="ProblemKey"/></b>
-/// (<see cref="TestFixtures.KeyOf"/>'s documented premise). Tests that mean to
-/// exercise the no-key rung build their malformed record where they use it.
+/// What <see cref="TestFixtures"/> asserts about itself, pinned so it cannot
+/// lapse silently.
 ///
 /// <para>
-/// This matters because the rung is silent by design: a fixture that loses its
-/// key does not throw where it is built — dedupe passes it through unmerged and
-/// stats decline to record it — so a whole suite can go on running against
-/// problems the app has quietly stopped keying. That is exactly what the
-/// Jacoby-in-money-keys change did here (halheinrich/backgammon#120): the money
-/// fixtures fell off the key, and what surfaced it was the handful of tests that
-/// happen to ask for a key, not the many that merely need one to exist.
+/// <b>Every play a fixture holds is legal from its position.</b> The records
+/// hold every candidate to the play rule — a play that cannot be played from
+/// the position is refused where the record is built — but that rule leaves
+/// the dice to the move generator (<c>BoardState.IsSamePlay</c>'s remarks), so
+/// a fixture could still list a play no roll produces. The fixtures once did
+/// (<c>8/5 8/5</c> on a 3-1), and a play matched them only because plays were
+/// compared by encoding. Plays compare by the position they reach now, and a
+/// fixture is only a scenario if a board could really be played into it — so
+/// each candidate here must be one of the plays the generator makes for the
+/// fixture's roll.
+/// </para>
+///
+/// <para>
+/// <b>What is no longer pinned here, and why.</b> This class used to pin that
+/// every fixture had a derivable <see cref="ProblemKey"/>, because the no-key
+/// rung was silent and a fixture could fall off it unnoticed (the
+/// Jacoby-in-money-keys change once did exactly that). Every record has a key
+/// now, by the producer's guarantee (SPEC-stats-identity.md §2, amended
+/// 2026-09-27): the rung is unreachable, so its pins went with it.
 /// </para>
 /// </summary>
 public class TestFixtureContractTests
 {
-    public static TheoryData<string, BgDecisionData> EveryDecisionFixture() => new()
+    public static TheoryData<string, CheckerPlayDecision> EveryCheckerPlayFixture() => new()
     {
-        { "money play", TestFixtures.TwoChoiceDecision(Play.Create(new(8, 5)), Play.Create(new(13, 10))) },
-        { "match play", TestFixtures.TwoChoiceDecision(Play.Create(new(8, 5)), Play.Create(new(13, 10)), away: 3) },
-        { "money cube", TestFixtures.CubeDecision() },
-        { "match cube", TestFixtures.CubeDecision(away: 3) },
+        { "money play", TestFixtures.TwoChoiceDecision(TestFixtures.OpeningBest(), TestFixtures.OpeningAlternative()) },
+        { "match play", TestFixtures.TwoChoiceDecision(TestFixtures.OpeningBest(), TestFixtures.OpeningAlternative(), away: 3) },
+        { "depth split", TestFixtures.DepthSplitDecision() },
         { "one-click play", TestFixtures.OneClickPlayDecision() },
+        { "forced play", TestFixtures.ForcedPlayDecision() },
+        { "forced double", TestFixtures.ForcedDoubleDecision() },
+        { "forced bear-off", TestFixtures.ForcedBearOffDecision() },
         { "pass position", TestFixtures.PassDecision() },
     };
 
     [Theory]
-    [MemberData(nameof(EveryDecisionFixture))]
-    public void EveryDecisionFixture_HasADerivableProblemKey(string which, BgDecisionData fixture)
+    [MemberData(nameof(EveryCheckerPlayFixture))]
+    public void EveryCandidate_IsALegalPlayOfItsRoll(string which, CheckerPlayDecision fixture)
     {
-        Assert.True(
-            ProblemKey.TryDerive(fixture, out _),
-            $"The '{which}' fixture has no derivable ProblemKey.");
+        var start = new BoardState(fixture.Board);
+        var legal = MoveGenerator.GeneratePlays(start, fixture.Dice.High, fixture.Dice.Low);
+
+        foreach (var candidate in fixture.Decision.Plays)
+        {
+            Assert.True(
+                start.IndexOfSamePlay(candidate.Play, legal) >= 0,
+                $"The '{which}' fixture lists {candidate.Notation}, which no {fixture.Dice} makes from its position.");
+        }
     }
 
     [Fact]
-    public void MoneyFixture_WithoutItsJacobyStamp_HasNoKeyAtAll()
+    public void TheOpeningHelpers_AreLegalAndNotTheSamePlay()
     {
-        // Non-vacuity for the stamp: the money fixtures derive a key *because*
-        // they say which Jacoby rule they mean. Strip that one fact from an
-        // otherwise identical record and the key is gone — so the stamp is
-        // load-bearing rather than decoration that happens to be true today.
-        var stamped = TestFixtures.CubeDecision();
-        Assert.NotNull(stamped.Position.IsJacoby);   // the premise, asserted
-        Assert.True(ProblemKey.TryDerive(stamped, out _));
+        // The three plays the controller and page suites submit: each is legal
+        // for the opening 3-1, and no two are the same play — so a submission of
+        // one can never match another's candidate, whichever way it is encoded.
+        var start = new BoardState(BoardPosition.Standard);
+        var legal = MoveGenerator.GeneratePlays(start, 3, 1);
+        Play[] helpers =
+        [
+            TestFixtures.OpeningBest(),
+            TestFixtures.OpeningAlternative(),
+            TestFixtures.OpeningUnlisted(),
+            TestFixtures.DepthSplitThirdPlay(),
+        ];
 
-        var unstamped = Unstamped(stamped);
+        foreach (var play in helpers)
+            Assert.True(start.IndexOfSamePlay(play, legal) >= 0, $"{play.ToNotation()} is not legal for 3-1.");
 
-        Assert.False(ProblemKey.TryDerive(unstamped, out _));
-    }
-
-    [Fact]
-    public void MatchFixture_CarriesNoJacobyStamp()
-    {
-        // The other half of the rule: off money the fact is meaningless, so a
-        // match fixture asserts no answer to a question its score never poses.
-        Assert.Null(TestFixtures.CubeDecision(away: 3).Position.IsJacoby);
-        Assert.Null(TestFixtures
-            .TwoChoiceDecision(Play.Create(new(8, 5)), Play.Create(new(13, 10)), away: 3)
-            .Position.IsJacoby);
+        for (int i = 0; i < helpers.Length; i++)
+            for (int j = i + 1; j < helpers.Length; j++)
+                Assert.False(start.IsSamePlay(helpers[i], helpers[j]),
+                    $"{helpers[i].ToNotation()} and {helpers[j].ToNotation()} are one play.");
     }
 
     [Fact]
     public void MoneyFixtures_DifferingOnlyInTheJacobyRule_AreDifferentProblems()
     {
-        // …and the stamp reaches identity, which is why it had to be said. Two
-        // money records alike in every other fact are two different problems,
-        // pinned without restating the producer's key grammar: the claim is that
-        // the fact separates them, not how it is spelled.
+        // The Jacoby rule reaches identity: two money records alike in every
+        // other fact are two different problems, pinned without restating the
+        // producer's key grammar — the claim is that the fact separates them,
+        // not how it is spelled.
         var jacobyOn = TestFixtures.CubeDecision();
-        var jacobyOff = WithJacoby(jacobyOn, false);
+        var jacobyOff = TestRecords.Cube(
+            id: jacobyOn.Id,
+            position: TestRecords.Position(
+                cubeSize: jacobyOn.Position.CubeSize,
+                cubeOwner: jacobyOn.Position.CubeOwner,
+                session: TestRecords.MoneySession(isJacoby: false)),
+            decision: jacobyOn.Decision,
+            descriptive: jacobyOn.Descriptive);
 
-        Assert.NotEqual(TestFixtures.KeyOf(jacobyOn), TestFixtures.KeyOf(jacobyOff));
+        Assert.NotEqual(ProblemKey.From(jacobyOn), ProblemKey.From(jacobyOff));
     }
 
     [Fact]
@@ -102,24 +126,21 @@ public class TestFixtureContractTests
 
         // The premise: they really do differ on all three, so the equality
         // below is about the key ignoring them, not about them being alike.
-        Assert.NotEqual(here.Descriptive.SourceFile, there.Descriptive.SourceFile);
-        Assert.NotEqual(here.Descriptive.Game, there.Descriptive.Game);
-        Assert.NotEqual(here.Descriptive.MoveNumber, there.Descriptive.MoveNumber);
+        Assert.NotEqual(here.SourceFile, there.SourceFile);
+        Assert.NotEqual(here.Game, there.Game);
+        Assert.NotEqual(here.MoveNumber, there.MoveNumber);
 
-        Assert.Equal(TestFixtures.KeyOf(here), TestFixtures.KeyOf(there));
+        Assert.Equal(ProblemKey.From(here), ProblemKey.From(there));
     }
 
     [Fact]
     public void AnXgpAndAnXgRecordOfTheSamePosition_AreTheSameProblem()
     {
-        // The other axis of the same claim, and the one the locator's .xgp
-        // branch makes worth stating (SPEC-quiz-view.md §4 ruling (ii)): the
-        // chip now reads the record's IDENTITY KIND to decide what to display,
-        // so it is worth pinning that the kind reaches display and stops there.
-        // The same position exported as a standalone .xgp and met inside its
-        // match carries two different DecisionIds — that asymmetry is by design
-        // (see DecisionId) — and remains one problem to the stats document, so
-        // answering it in one form counts against the other.
+        // The other axis of the same claim: the same position exported as a
+        // standalone .xgp and met inside its match carries two different
+        // DecisionIds — that asymmetry is by design (see DecisionId), and it is
+        // what the locator shows — and remains one problem to the stats
+        // document, so answering it in one form counts against the other.
         var standalone = TestFixtures.CubeDecision(
             location: TestFixtures.SourceLocation.OnePosition("position.xgp"));
         var inMatch = TestFixtures.CubeDecision(
@@ -130,32 +151,6 @@ public class TestFixtureContractTests
         Assert.IsType<XgpDecisionId>(standalone.Id);
         Assert.IsType<XgDecisionId>(inMatch.Id);
 
-        Assert.Equal(TestFixtures.KeyOf(standalone), TestFixtures.KeyOf(inMatch));
+        Assert.Equal(ProblemKey.From(standalone), ProblemKey.From(inMatch));
     }
-
-    private static BgDecisionData Unstamped(BgDecisionData decision) =>
-        WithJacoby(decision, null);
-
-    /// <summary>
-    /// <paramref name="decision"/> with its Jacoby fact replaced and every other
-    /// fact carried over — the only way to vary one fact of a fixture, since
-    /// <c>PositionData</c> is init-only and not a record.
-    /// </summary>
-    private static BgDecisionData WithJacoby(BgDecisionData decision, bool? isJacoby) => new()
-    {
-        Id = decision.Id,
-        Xgid = decision.Xgid,
-        Position = new PositionData
-        {
-            Mop = decision.Position.Mop,
-            OnRollNeeds = decision.Position.OnRollNeeds,
-            OpponentNeeds = decision.Position.OpponentNeeds,
-            IsCrawford = decision.Position.IsCrawford,
-            CubeSize = decision.Position.CubeSize,
-            CubeOwner = decision.Position.CubeOwner,
-            IsJacoby = isJacoby,
-        },
-        Decision = decision.Decision,
-        Descriptive = decision.Descriptive,
-    };
 }

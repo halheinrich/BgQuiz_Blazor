@@ -1,3 +1,4 @@
+using BgDataTypes_Lib;
 using BgFolderAccess_Razor;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
@@ -651,7 +652,9 @@ public partial class Home : ComponentBase, IDisposable
         // first render — and it gets there only through Start, long after this
         // read has landed. Kicking off from the entry point rather than from the
         // consumer is what keeps the board free of a hydration render gate; the
-        // call is idempotent, so Quiz awaiting the same task costs nothing.
+        // call is idempotent, so Quiz awaiting the same task costs nothing. This
+        // page reads one setting itself, the ranking it hands the count and the
+        // Start, and awaits the same task where it does (UserRankingAsync).
         await Settings.EnsureHydratedAsync();
 
         if (await Marker.WasLiveAsync() && !Controller.HasStarted)
@@ -909,7 +912,7 @@ public partial class Home : ComponentBase, IDisposable
             return;
         }
 
-        if (outcome.Files.Count == 0)
+        if (outcome.Files.IsEmpty)
         {
             // Already clear — EndCurrentSetupAsync ran at the click and nothing
             // since could have set it. Re-stated so this shared landing carries
@@ -1157,7 +1160,7 @@ public partial class Home : ComponentBase, IDisposable
         {
             try
             {
-                var summary = await Controller.SummarizeMatchesAsync(cfg);
+                var summary = await Controller.SummarizeMatchesAsync(cfg, await UserRankingAsync());
                 if (requestId != _countRequestId) return; // superseded — discard
                 _matchSummary = summary;
             }
@@ -1205,7 +1208,7 @@ public partial class Home : ComponentBase, IDisposable
         _mixRefused = false;
         try
         {
-            var outcome = await Controller.StartAsync(cfg, mix, ignoreMix);
+            var outcome = await Controller.StartAsync(cfg, mix, await UserRankingAsync(), ignoreMix);
 
             // Overlapped gesture: the transition gate ignored this call, so
             // this handler must change nothing — the in-flight Start owns any
@@ -1261,6 +1264,22 @@ public partial class Home : ComponentBase, IDisposable
             // failure, etc. Surface to the user rather than faulting the app.
             _startError = ex.Message;
         }
+    }
+
+    /// <summary>
+    /// The user's ranking, as the count and the Start hand it to the controller
+    /// (<see cref="QuizSettings.Ranking"/>; SPEC-scoring.md §2a). Both read it
+    /// through this, so the count describes the pool the Start will draw under
+    /// the same ranking, and each awaits the settings' one hydration first: the
+    /// task is idempotent and complete long before either gesture in practice,
+    /// but a pick made while the first read was still in flight could otherwise
+    /// count under the default rather than the stored choice — awaiting makes
+    /// that ordering structural instead of a timing argument.
+    /// </summary>
+    private async Task<PlayRanking> UserRankingAsync()
+    {
+        await Settings.EnsureHydratedAsync();
+        return Settings.Ranking;
     }
 
     /// <summary>

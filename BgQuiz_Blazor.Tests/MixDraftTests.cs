@@ -201,7 +201,7 @@ public class MixDraftTests : BunitContext
         await draft.EnsureHydratedAsync();
 
         // Projected in wire order, buffers rendered for editing.
-        Assert.Equal(2, draft.Rows.Count);
+        Assert.Equal(2, draft.Rows.Length);
         Assert.Equal(QuizCategoryKind.GotWrong, draft.Rows[0].Kind);
         Assert.Equal(QuizCategoryKind.SeenFewerThan, draft.Rows[1].Kind);
         Assert.Equal("3", draft.Rows[1].ParamText);

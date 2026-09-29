@@ -1,5 +1,6 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using System.Collections.Immutable;
 using BgDataTypes_Lib;
 using BgGame_Lib;
 using BgMoveGen;
@@ -74,6 +75,19 @@ using XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
+/// <b>One quiz, one ranking</b> (SPEC-scoring.md §2a). Which checker play is
+/// best — and so every play's error, whether a play is scored at all, the
+/// problem filter's "erred by more than x", and the solution's order and rank
+/// numbers — is a ranking's. The caller hands the user's setting in at
+/// <see cref="StartAsync"/> / <see cref="RestartAsync"/>, and the run keeps it
+/// as <see cref="Ranking"/> until the next one begins: the pool is filtered
+/// under it, every play is scored under it, and the pages draw the answering
+/// board, the entry and the solution with it. No producer's default stands in
+/// anywhere, and a setting changed mid-run reaches the next run rather than
+/// splitting this one between two rankings.
+/// </para>
+///
+/// <para>
 /// Decision-type policy: the user's <see cref="FilterConfig.DecisionType"/>
 /// choice governs which decisions the quiz admits — checker plays, cube
 /// decisions, or both. The controller adds no decision-type filter of its
@@ -119,8 +133,6 @@ internal sealed class QuizController : IAsyncDisposable
     private readonly ProblemSetSourceFactory _sourceFactory;
     private readonly IProblemStatsSink _statsSink;
     private readonly TimeProvider _clock;
-    private readonly List<SubmittedPlay> _history = [];
-    private readonly List<SubmittedCubeAction> _cubeHistory = [];
 
     /// <summary>
     /// The current problem's <i>answer of record</i> — the submission that
@@ -148,6 +160,7 @@ internal sealed class QuizController : IAsyncDisposable
     private AnswerOfRecord? _answerOfRecord;
 
     private DecisionFilterSet? _filterPipeline;
+    private PlayRanking? _ranking;
     private QuizMix _mix = QuizMix.Empty;
     private IProblemSetSource? _source;
     private MixedProblemSetSource? _mixedSource;
@@ -216,34 +229,59 @@ internal sealed class QuizController : IAsyncDisposable
     /// </summary>
     public bool RandomHomeBoardOnRight { get; private set; }
 
+    /// <summary>
+    /// The run's ranking — the one it was started or restarted with, kept until
+    /// the next run begins (SPEC-scoring.md §2a; see the class docs' "one quiz,
+    /// one ranking"). Every ranking-dependent operation of the run reads it: the
+    /// pool's filter, scoring, and the pages' diagrams and play entry. A refused
+    /// Start or Restart leaves it as it was, as it leaves every other part of
+    /// the run.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// No quiz has been started, so there is no run and no ranking — read it
+    /// only while <see cref="HasStarted"/>. No page can: each shows a problem
+    /// only once a quiz has started.
+    /// </exception>
+    public PlayRanking Ranking => _ranking ?? throw new InvalidOperationException(
+        "No quiz has been started, so there is no quiz ranking.");
+
     /// <summary>Cumulative running score. Resets on <see cref="StartAsync"/> / <see cref="RestartAsync"/>.</summary>
     public QuizScore Score { get; private set; } = QuizScore.Empty;
 
     /// <summary>
-    /// The in-list checker-play <i>answers of record</i>, one per problem
+    /// The scored checker-play <i>answers of record</i>, one per problem
     /// answered with one. Practice submissions never append here
-    /// (SPEC-scoring.md §2), so entries only ever accumulate.
+    /// (SPEC-scoring.md §2), so within a run entries only ever accumulate.
+    ///
+    /// <para>
+    /// <b>An immutable array</b> (halheinrich/backgammon#273's collection
+    /// rider): each answer replaces it with one entry more, so a reference
+    /// taken before an answer — or before a Restart empties it — keeps the
+    /// entries it had, and no cast can write the controller's record.
+    /// </para>
     /// </summary>
-    public IReadOnlyList<SubmittedPlay> History => _history;
+    public ImmutableArray<SubmittedPlay> History { get; private set; } = [];
 
     /// <summary>
     /// The cube-decision <i>answers of record</i>, one per problem answered
-    /// with one — the cube half of the same rule <see cref="History"/> states.
+    /// with one — the cube half of the same rule <see cref="History"/> states,
+    /// immutable the same way.
     /// </summary>
-    public IReadOnlyList<SubmittedCubeAction> CubeHistory => _cubeHistory;
+    public ImmutableArray<SubmittedCubeAction> CubeHistory { get; private set; } = [];
 
     /// <summary>True once the underlying source has been fully consumed.</summary>
     public bool IsFinished { get; private set; }
 
     /// <summary>
-    /// Count of user-driven non-scoring outcomes: explicit Skip-button clicks
-    /// plus off-list submissions. Auto-skipped no-choice positions (the user
-    /// never saw them) are excluded — see
-    /// <see cref="HasNoPlayChoice"/>.
+    /// Count of user-driven non-scoring outcomes: explicit Skip-button clicks,
+    /// off-list submissions, and plays the run's ranking does not score
+    /// (SPEC-scoring.md §2a: "a skip of record that folds nothing").
+    /// Auto-skipped no-choice positions (the user never saw them) are excluded
+    /// — see <see cref="HasNoPlayChoice"/>.
     ///
     /// <para>
     /// A skip is an answer of record, so it only ever increases within a run:
-    /// <see cref="RedoAsync"/> after an off-list submission leaves the skip
+    /// <see cref="RedoAsync"/> after an unscored submission leaves the skip
     /// standing (SPEC-scoring.md §2), and a problem that already holds an
     /// answer of record cannot add a second outcome here.
     /// </para>
@@ -329,10 +367,17 @@ internal sealed class QuizController : IAsyncDisposable
 
     /// <summary>
     /// Begin a fresh quiz against <paramref name="userConfig"/> and
-    /// <paramref name="mix"/>. Materializes the user's <see cref="FilterConfig"/>
-    /// into a <see cref="DecisionFilterSet"/> owned entirely by this controller
-    /// and advances to the first non-pass problem. Resets score / histories /
-    /// skipped-count.
+    /// <paramref name="mix"/>, under <paramref name="ranking"/>. Materializes
+    /// the user's <see cref="FilterConfig"/> into a <see cref="DecisionFilterSet"/>
+    /// owned entirely by this controller and advances to the first non-pass
+    /// problem. Resets score / histories / skipped-count.
+    ///
+    /// <para>
+    /// <b>The ranking is the run's from here on</b> (<see cref="Ranking"/>): the
+    /// pool is filtered under it and every play is scored under it. It is
+    /// required rather than defaulted, so a caller holding the user's setting
+    /// cannot fall back to the producers' default by omission.
+    /// </para>
     ///
     /// <para>
     /// <b>Mix ownership mirrors filter ownership.</b> The mix is user config
@@ -360,10 +405,13 @@ internal sealed class QuizController : IAsyncDisposable
     /// <paramref name="userConfig"/> contains a malformed value — propagated
     /// from <see cref="FilterConfig.Build"/>.
     /// </exception>
-    public async Task<QuizStartOutcome> StartAsync(FilterConfig userConfig, QuizMix mix, bool ignoreMix = false)
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="ranking"/> is not a defined ranking.</exception>
+    public async Task<QuizStartOutcome> StartAsync(
+        FilterConfig userConfig, QuizMix mix, PlayRanking ranking, bool ignoreMix = false)
     {
         ArgumentNullException.ThrowIfNull(userConfig);
         ArgumentNullException.ThrowIfNull(mix);
+        RefuseUndefined(ranking);
 
         // Build a fresh, controller-owned pipeline from the immutable DTO. The
         // user's DecisionType choice governs decision-type admission; the
@@ -376,7 +424,7 @@ internal sealed class QuizController : IAsyncDisposable
         if (!await TryBeginTransitionAsync()) return QuizStartOutcome.Busy;
         try
         {
-            return await ResetAndAdvanceAsync(pipeline, mix, ignoreMix);
+            return await ResetAndAdvanceAsync(pipeline, ranking, mix, ignoreMix);
         }
         finally
         {
@@ -386,12 +434,21 @@ internal sealed class QuizController : IAsyncDisposable
 
     /// <summary>
     /// Summarize the decisions in the picked corpus that match
-    /// <paramref name="userConfig"/>, bucketed by the kind of answer each one
-    /// calls for — the pre-Start affordance that tells the user what their
-    /// filters selected, and what that selection is made of. Builds the same
-    /// controller-owned pipeline <see cref="StartAsync"/> would
-    /// (<see cref="FilterConfig.Build"/>) and folds a source from the injected
-    /// <see cref="ProblemSetSourceFactory"/> over a <b>throwaway</b> enumerator.
+    /// <paramref name="userConfig"/> under <paramref name="ranking"/>, bucketed
+    /// by the kind of answer each one calls for — the pre-Start affordance that
+    /// tells the user what their filters selected, and what that selection is
+    /// made of. Builds the same controller-owned pipeline
+    /// <see cref="StartAsync"/> would (<see cref="FilterConfig.Build"/>) and
+    /// folds a source from the injected <see cref="ProblemSetSourceFactory"/>
+    /// over a <b>throwaway</b> enumerator.
+    ///
+    /// <para>
+    /// <b>The ranking is the one a Start would take</b>: the caller passes the
+    /// user's setting, as it will at Start, because "erred by more than x" is
+    /// read under a ranking and a count under another would describe a pool the
+    /// quiz does not draw. It touches no run, so it changes no
+    /// <see cref="Ranking"/>.
+    /// </para>
     ///
     /// <para>
     /// <b>The match count is <see cref="AnswerTypeDistribution.Total"/>.</b>
@@ -437,12 +494,9 @@ internal sealed class QuizController : IAsyncDisposable
     ///
     /// <para>
     /// <b>Classification is the producer's.</b> Each decision is folded via
-    /// <see cref="AnswerTypeDistribution.Add"/>, which keys a cube decision by
-    /// its analysis-declared best pair; nothing here re-derives an answer type
-    /// from equities. Note the fold takes
-    /// <see cref="BgDecisionData.Decision"/> — the composite forwards
-    /// <see cref="BgDecisionData.IsCube"/> but not the best-pair halves, so the
-    /// inner <see cref="DecisionData"/> is what carries the classification.
+    /// <see cref="AnswerTypeDistribution.Add"/>, which matches on the record's
+    /// kind and keys a cube decision by its analysis-declared best pair;
+    /// nothing here re-derives an answer type from equities.
     /// </para>
     ///
     /// <para>
@@ -463,16 +517,18 @@ internal sealed class QuizController : IAsyncDisposable
     /// <paramref name="userConfig"/> contains a malformed value — propagated
     /// from <see cref="FilterConfig.Build"/>.
     /// </exception>
-    public async Task<MatchSummary> SummarizeMatchesAsync(FilterConfig userConfig)
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="ranking"/> is not a defined ranking.</exception>
+    public async Task<MatchSummary> SummarizeMatchesAsync(FilterConfig userConfig, PlayRanking ranking)
     {
         ArgumentNullException.ThrowIfNull(userConfig);
+        RefuseUndefined(ranking);
 
         var pipeline = userConfig.Build();
-        var composed = _sourceFactory(pipeline, QuizMix.Empty);
+        var composed = _sourceFactory(pipeline, ranking, QuizMix.Empty);
 
         var distribution = AnswerTypeDistribution.Empty;
         await foreach (var decision in composed.Source.EnumerateAsync())
-            distribution = distribution.Add(decision.Decision);
+            distribution = distribution.Add(decision);
         return new MatchSummary(distribution, composed.GetDuplicatesCollapsed());
     }
 
@@ -493,29 +549,28 @@ internal sealed class QuizController : IAsyncDisposable
     /// </para>
     ///
     /// <para>
-    /// Matching is by canonical play equality: the submitted play is compared
-    /// to each candidate's <see cref="PlayCandidate.Play"/> via
-    /// <see cref="Play.Equals(Play)"/> in list order; the first match scores.
-    /// Equality is order- and decomposition-insensitive but hit-sensitive, so
-    /// a play entered as decomposed hops (e.g. 13/10, 10/8) matches its
-    /// combined candidate (13/8) while a play whose intermediate hop hits does
-    /// not match a non-hitting candidate.
-    /// <see cref="PlayCandidate.EquityLoss"/> <c>== 0.0</c> identifies
-    /// best-play candidates (the established convention — multiple may share
-    /// zero loss; <see cref="DecisionData.BestPlayIndex"/> is the canonical
-    /// representative when one is needed).
+    /// <b>Scoring is the producer's, in one call, under the run's ranking.</b>
+    /// <see cref="PlaySubmission.Score"/> finds the candidate the play is —
+    /// by identity from the decision's own position, whatever encoding the
+    /// board entry produced; how plays compare is stated once, on
+    /// <see cref="BoardState.IsSamePlay"/>, and not here — and reads that
+    /// candidate's error under <see cref="Ranking"/>, so the matched candidate,
+    /// the error and the verdict come out together and cannot disagree. This
+    /// method only files the outcome.
     /// </para>
     ///
     /// <para>
-    /// Off-list submission (the user assembled a structurally-legal play that
-    /// doesn't appear in the analyzer's candidate list) counts as a skip
-    /// rather than a scoring miss — there is no equity-loss to record. This
-    /// is rare on well-analyzed positions and signals an analysis omission
-    /// rather than a user error. As a skip it is still the problem's answer of
-    /// record, so a redo after one leaves the skip standing (§2). It still
-    /// produces a <see cref="Review"/>
-    /// (<see cref="ProblemReview.Play.OffList"/> true, index <c>-1</c>) so the
-    /// user sees the best play on the solution diagram.
+    /// <b>Three outcomes, two of them skips.</b> A scored play is the answer of
+    /// record: it joins <see cref="History"/> and <see cref="Score"/>, and folds
+    /// as the run advances. A play the ranking does not score — under depth
+    /// first, a candidate analysed less deeply than the best that rated higher —
+    /// and an off-list play, one no candidate is, are each a skip of record
+    /// that folds nothing (SPEC-scoring.md §2 and §2a): <see cref="SkippedCount"/>
+    /// counts it, and a redo after one leaves it standing. Every outcome still
+    /// produces a <see cref="Review"/> carrying the producer's outcome whole and
+    /// the play as entered, so the user sees the solution, what the verdict
+    /// was, and — off the list — which play the app read
+    /// (halheinrich/backgammon#274).
     /// </para>
     ///
     /// <para>
@@ -523,6 +578,11 @@ internal sealed class QuizController : IAsyncDisposable
     /// already in the review state (<see cref="Review"/> set — Continue first).
     /// </para>
     /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// <see cref="Current"/> is a cube decision, which is answered with
+    /// <see cref="SubmitCubeAction"/> — a caller bug, since the page routes each
+    /// kind to its own answer instrument.
+    /// </exception>
     public void SubmitPlay(Play play)
     {
         // The IsBusy guard closes the stale window a pending Continue/Skip
@@ -531,57 +591,35 @@ internal sealed class QuizController : IAsyncDisposable
         // a problem the quiz is moving past.
         if (IsBusy || Current is null || IsFinished || Review is not null) return;
 
+        if (Current is not CheckerPlayDecision decision)
+            throw new InvalidOperationException(
+                "The current problem is a cube decision; answer it with SubmitCubeAction.");
+
         // SPEC-scoring.md §2: this is a practice submission exactly when the
         // problem already holds an answer of record. Read before the record is
-        // written below, and once, so both branches classify the same way.
+        // written below, and once, so every outcome classifies the same way.
         var practice = _answerOfRecord is not null;
 
-        int? matchedIdx = null;
-        var plays = Current.Decision.Plays;
-        for (int i = 0; i < plays.Count; i++)
+        // Scored either way — a practice submission is scored to be shown, just
+        // not to be kept, and one scoring is what keeps the two readings
+        // identical.
+        var outcome = PlaySubmission.Score(play, decision, Ranking);
+        if (!practice)
         {
-            if (plays[i].Play.Equals(play))
+            if (outcome.TryGetScored(out var submitted))
             {
-                matchedIdx = i;
-                break;
-            }
-        }
-
-        if (matchedIdx is int idx)
-        {
-            var candidate = plays[idx];
-            // Scored either way — a practice submission is scored to be shown,
-            // just not to be kept, and one scoring is what keeps the two
-            // readings identical.
-            var submitted = new SubmittedPlay(
-                KeyFor(Current),
-                play,
-                idx,
-                candidate.EquityLoss,
-                candidate.EquityLoss == 0.0);
-            if (!practice)
-            {
-                _history.Add(submitted);
+                History = History.Add(submitted);
                 Score = Score.Plus(submitted);
                 _answerOfRecord = new AnswerOfRecord.Play(submitted);
             }
-            Review = new ProblemReview.Play(idx, submitted.EquityLoss, submitted.IsCorrect, OffList: false)
+            else
             {
-                IsPractice = practice,
-            };
-        }
-        else
-        {
-            if (!practice)
-            {
+                // Not scored, or off the list: a skip of record (§2, §2a).
                 SkippedCount++;
                 _answerOfRecord = new AnswerOfRecord.Skip();
             }
-            Review = new ProblemReview.Play(UserPlayIndex: -1, EquityLoss: 0.0, IsCorrect: false, OffList: true)
-            {
-                IsPractice = practice,
-            };
         }
+        Review = new ProblemReview.Play(outcome, play) { IsPractice = practice };
 
         StateChanged?.Invoke();
     }
@@ -605,7 +643,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// (SPEC-scoring.md §3; halheinrich/backgammon#86). The scoring is the
     /// producer's, reached through its one factory:
     /// <see cref="SubmittedCubeAction.From"/> reads the position's derived
-    /// truth (<see cref="DecisionData.BestClaimPair"/>) and both per-half
+    /// truth (<see cref="CubeDecisionData.BestClaimPair"/>) and both per-half
     /// equity losses off the analysed decision together, and the record
     /// derives per-half correctness from the two pairs — claim vs. claim on
     /// the doubler half, so a no-double answer to a too-good position scores
@@ -617,8 +655,16 @@ internal sealed class QuizController : IAsyncDisposable
     /// the incoherent (no double, pass) cell included: it is a selectable
     /// answer by ruling, never best, and scored per half like any other. The
     /// whole scored submission is carried on <see cref="ProblemReview.Cube"/>,
-    /// which drives the solution diagram's "Actual" banner and the verdict
-    /// line.
+    /// which drives the verdict line.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The key is the record's own</b> (<see cref="ProblemKey.From"/>). Every
+    /// record has one (SPEC-stats-identity.md §2, amended 2026-09-27), so the
+    /// submission always names its problem and always folds; the producer's
+    /// factory still takes the key from its caller for a cube
+    /// (halheinrich/backgammon#285), which is why it is derived here rather than
+    /// there.
     /// </para>
     ///
     /// <para>
@@ -626,48 +672,35 @@ internal sealed class QuizController : IAsyncDisposable
     /// already in the review state (<see cref="Review"/> set — Continue first).
     /// </para>
     /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// <see cref="Current"/> is a checker-play decision, which is answered with
+    /// <see cref="SubmitPlay"/> — a caller bug, since the page routes each kind
+    /// to its own answer instrument.
+    /// </exception>
     public void SubmitCubeAction(CubeClaimPair answer)
     {
         // Same IsBusy rationale as SubmitPlay: mid-advance the state guards
         // read stale-pass, so the gate is the guard that actually holds.
         if (IsBusy || Current is null || IsFinished || Review is not null) return;
 
+        if (Current is not CubeDecision decision)
+            throw new InvalidOperationException(
+                "The current problem is a checker-play decision; answer it with SubmitPlay.");
+
         // SPEC-scoring.md §2, as in SubmitPlay: of record only the first time.
         var practice = _answerOfRecord is not null;
 
-        var submitted = SubmittedCubeAction.From(KeyFor(Current), answer, Current.Decision);
+        var submitted = SubmittedCubeAction.From(ProblemKey.From(decision), answer, decision.Decision);
         if (!practice)
         {
-            _cubeHistory.Add(submitted);
+            CubeHistory = CubeHistory.Add(submitted);
             Score = Score.Plus(submitted);
             _answerOfRecord = new AnswerOfRecord.Cube(submitted);
         }
-        Review = new ProblemReview.Cube(submitted)
-        {
-            IsPractice = practice,
-        };
+        Review = new ProblemReview.Cube(submitted) { IsPractice = practice };
 
         StateChanged?.Invoke();
     }
-
-    /// <summary>
-    /// The content identity stamped on a submission — the problem's
-    /// <see cref="ProblemKey"/>, or <see langword="null"/> on the ratified
-    /// no-key rung (SPEC-stats-identity.md §2), where the record's facts are
-    /// malformed or degenerate and a derivation would have to guess. Null is
-    /// carried, never substituted for: the submission still scores the session
-    /// exactly as any other, and only the lifetime record abstains — the
-    /// producer's document performs that skip, so nothing here branches on it.
-    ///
-    /// <para>
-    /// The one derivation site in this app, over the producer's single factory:
-    /// the two submit paths differ in everything except which problem they
-    /// answer, and a key assembled twice is a key that can be assembled two
-    /// ways.
-    /// </para>
-    /// </summary>
-    private static ProblemKey? KeyFor(BgDecisionData problem) =>
-        ProblemKey.TryDerive(problem, out var key) ? key : null;
 
     /// <summary>
     /// Re-open the just-reviewed problem for <i>practice</i>: leave review and
@@ -729,9 +762,10 @@ internal sealed class QuizController : IAsyncDisposable
     /// those differ, and §2 rules the practice submission discarded. The other
     /// side of the same rule is that an answer of record the run never advances
     /// past — abandoned in review by a tab close, or by a Start/Restart that
-    /// resets without continuing — never folds. Off-list submissions are of
-    /// record as skips and fold nothing (producer contract: skips and off-list
-    /// plays aren't lifetime submissions). The fold happens before
+    /// resets without continuing — never folds. An off-list play, and a play
+    /// the run's ranking does not score, are of record as skips and fold
+    /// nothing (producer contract: neither yields a submission to fold). The
+    /// fold happens before
     /// <see cref="AdvanceAsync"/>, so the final problem's answer folds before
     /// <see cref="IsFinished"/> flips.
     /// </para>
@@ -870,13 +904,24 @@ internal sealed class QuizController : IAsyncDisposable
 
     /// <summary>
     /// Restart the quiz from the beginning of the source using the stored
-    /// filter pipeline and mix. Always re-attempts the stored mix unless
+    /// filter pipeline and mix, under <paramref name="ranking"/>. Always
+    /// re-attempts the stored mix unless
     /// <paramref name="ignoreMix"/> — the per-run override for a refused
     /// weighted restart, mirroring <see cref="StartAsync"/> — so the mix
     /// applies again whenever stats allow. With a mix active this is a fresh
     /// composition against the stats document <i>as it stands now</i>, this
     /// quiz's folds included (the provider is resolved per enumeration — the
     /// deliberate Restart-recomposes semantics).
+    ///
+    /// <para>
+    /// <b>The ranking is the caller's, not the stored one.</b> A restart is a new
+    /// run, and a run takes the ranking the user's setting names when it begins
+    /// — so a setting changed since the last run applies here, as it would to a
+    /// Start (SPEC-scoring.md §2a: it applies to what is scored after it is
+    /// set). The filter pipeline and the mix are the run's configuration and
+    /// are replayed; the ranking is the user's setting and is re-read, the way
+    /// the caller re-reads the mix's visibility for <paramref name="ignoreMix"/>.
+    /// </para>
     ///
     /// <para>
     /// Restarting a never-started controller <b>throws</b>: there is no prior
@@ -890,8 +935,14 @@ internal sealed class QuizController : IAsyncDisposable
     /// </para>
     /// </summary>
     /// <exception cref="InvalidOperationException">No quiz has been started.</exception>
-    public async Task<QuizStartOutcome> RestartAsync(bool ignoreMix = false)
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="ranking"/> is not a defined ranking.</exception>
+    public async Task<QuizStartOutcome> RestartAsync(PlayRanking ranking, bool ignoreMix = false)
     {
+        // A malformed argument is refused before the gate, as StartAsync
+        // refuses a malformed config: it is a caller bug, not an outcome, and
+        // nothing may have begun when it surfaces.
+        RefuseUndefined(ranking);
+
         // The gate is checked before the never-started throw: a Restart
         // overlapping an in-flight transition is a UI double-gesture (an
         // outcome, no-op'd like every overlap), not the caller bug the throw
@@ -903,7 +954,7 @@ internal sealed class QuizController : IAsyncDisposable
             if (_filterPipeline is null)
                 throw new InvalidOperationException(
                     "RestartAsync requires a prior successful StartAsync — no quiz has been started.");
-            return await ResetAndAdvanceAsync(_filterPipeline, _mix, ignoreMix);
+            return await ResetAndAdvanceAsync(_filterPipeline, ranking, _mix, ignoreMix);
         }
         finally
         {
@@ -951,16 +1002,32 @@ internal sealed class QuizController : IAsyncDisposable
     }
 
     /// <summary>
+    /// Refuse a ranking that names none of <see cref="PlayRanking"/>'s members,
+    /// at the controller's own door. Every producer operation the ranking
+    /// reaches refuses such a value too, but only once the run is under way —
+    /// after the stats bind and the committed config — so a start given one
+    /// would fail half-reset. Refusing it here, before anything begins, keeps
+    /// a malformed argument a caller bug that changes nothing, as a malformed
+    /// filter config is.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="ranking"/> is not a defined ranking.</exception>
+    private static void RefuseUndefined(PlayRanking ranking)
+    {
+        if (!Enum.IsDefined(ranking))
+            throw new ArgumentOutOfRangeException(nameof(ranking), ranking, "Not a defined play ranking.");
+    }
+
+    /// <summary>
     /// Fold the current problem's answer of record into the lifetime-stats
     /// sink — the one encoding of SPEC-scoring.md §2's "what folds", shared by
     /// the three exits that advance the run past a problem
     /// (<see cref="ContinueAsync"/>, <see cref="SkipCurrentAsync"/>,
     /// <see cref="EndQuizAsync"/>). It reads <c>_answerOfRecord</c> and never
     /// <see cref="Review"/>: after a practice cycle the displayed review is the
-    /// practice submission's, and §2 rules that one discarded. A skip — today
-    /// an off-list play — is of record and folds nothing (producer contract:
-    /// skips and off-list plays aren't lifetime submissions); an unanswered
-    /// problem holds no record and this is a no-op.
+    /// practice submission's, and §2 rules that one discarded. A skip — an
+    /// off-list play, or one the run's ranking does not score — is of record
+    /// and folds nothing (producer contract: neither yields a submission to
+    /// fold); an unanswered problem holds no record and this is a no-op.
     /// </summary>
     private async Task FoldAnswerOfRecordAsync()
     {
@@ -1002,12 +1069,13 @@ internal sealed class QuizController : IAsyncDisposable
     ///
     /// <para>
     /// The stored config (<see cref="_filterPipeline"/> / <see cref="_mix"/>)
-    /// commits only past the refusal checks, so a refused Start never
-    /// retargets what a later Restart re-runs.
+    /// and the run's <see cref="Ranking"/> commit only past the refusal
+    /// checks, so a refused Start never retargets what a later Restart re-runs,
+    /// and a running quiz keeps the ranking it is being scored under.
     /// </para>
     /// </summary>
     private async Task<QuizStartOutcome> ResetAndAdvanceAsync(
-        DecisionFilterSet pipeline, QuizMix mix, bool ignoreMix)
+        DecisionFilterSet pipeline, PlayRanking ranking, QuizMix mix, bool ignoreMix)
     {
         // The composition this run actually uses: the override runs one quiz
         // as passthrough while the stored mix stays what the user configured.
@@ -1028,11 +1096,12 @@ internal sealed class QuizController : IAsyncDisposable
             return QuizStartOutcome.MixRequiresStats;
 
         _filterPipeline = pipeline;
+        _ranking = ranking;
         _mix = mix;
 
         await DisposeEnumeratorAsync();
 
-        var inner = _sourceFactory(pipeline, effectiveMix).Source;
+        var inner = _sourceFactory(pipeline, ranking, effectiveMix).Source;
         // A blank mix wires no composition layer at all — the settled
         // passthrough default. An active mix composes via the producer's
         // decorator; holding the typed reference is what surfaces
@@ -1044,8 +1113,8 @@ internal sealed class QuizController : IAsyncDisposable
         _enumerator = _source.EnumerateAsync().GetAsyncEnumerator();
 
         Score = QuizScore.Empty;
-        _history.Clear();
-        _cubeHistory.Clear();
+        History = [];
+        CubeHistory = [];
         SkippedCount = 0;
         ProblemNumber = 0;
         IsFinished = false;
@@ -1151,12 +1220,13 @@ internal sealed class QuizController : IAsyncDisposable
     ///
     /// <para>
     /// <b>Counted by list length, on the producer's distinctness contract.</b>
-    /// <see cref="MoveGenerator.GeneratePlays"/> emits each legal play exactly
-    /// once, distinct under <see cref="CanonicalPlay"/> equivalence —
-    /// BgDataTypes_Lib's play-equivalence SSOT — so <c>legal.Count == 1</c>
-    /// <i>is</i> the forced test. The list is also never empty: the
-    /// no-legal-play sentinel is a one-element list holding the empty
-    /// <see cref="Play"/>, so the pass case needs no branch of its own.
+    /// <see cref="MoveGenerator.GeneratePlays"/> holds exactly one play per
+    /// distinct position a legal play reaches — its own doc states the contract
+    /// and says a consumer may read <c>Count == 1</c> as "no choice" — so
+    /// <c>legal.Count == 1</c> <i>is</i> the forced test. The list is also
+    /// never empty: the no-legal-play sentinel is a one-element list holding
+    /// the empty <see cref="Play"/>, so the pass case needs no branch of its
+    /// own.
     /// </para>
     ///
     /// <para>
@@ -1166,24 +1236,22 @@ internal sealed class QuizController : IAsyncDisposable
     /// die paid for it. That was a consumer-side workaround for a producer
     /// defect (halheinrich/backgammon#140's verdict), and it is retired now the
     /// producer is fixed (halheinrich/backgammon#141). Since the count is only
-    /// as honest as that contract, <c>CanonicalPlayEquivalenceTests</c> pins it
+    /// as honest as that contract, <c>GeneratedPlayDistinctnessTests</c> pins it
     /// from this side: a producer regression is caught at the layer where the
     /// miscount would silently happen, not left to be inferred from an
     /// over-quizzed run.
     /// </para>
+    ///
+    /// <para>
+    /// <b>Only a checker-play decision can offer no choice.</b> A cube decision
+    /// is always shown; it has no roll to generate plays from, and the kind is
+    /// the record's type, so the question is asked of checker plays alone.
+    /// </para>
     /// </summary>
-    private static bool HasNoPlayChoice(BgDecisionData data)
-    {
-        // Cube decisions are always shown — never auto-skipped. They carry no
-        // dice ([0, 0] by the data-layer invariant), which would otherwise hit
-        // the no-legal-play sentinel below and silently skip every cube
-        // position.
-        if (data.Decision.IsCube) return false;
-
-        var board = BoardState.FromMop(data.Position.Mop);
-        var dice = data.Decision.Dice;
-        return MoveGenerator.GeneratePlays(board, dice[0], dice[1]).Count == 1;
-    }
+    private static bool HasNoPlayChoice(BgDecisionData data) =>
+        data is CheckerPlayDecision checkerPlay
+        && MoveGenerator.GeneratePlays(
+            new BoardState(checkerPlay.Board), checkerPlay.Dice.High, checkerPlay.Dice.Low).Count == 1;
 
     /// <summary>
     /// What the current problem's answer of record <i>is</i> — the closed set
@@ -1206,7 +1274,7 @@ internal sealed class QuizController : IAsyncDisposable
         private AnswerOfRecord() { }
 
         /// <summary>
-        /// An in-list checker play: scored into <see cref="Score"/>, carried in
+        /// A scored checker play: scored into <see cref="Score"/>, carried in
         /// <see cref="History"/>, folds into the lifetime record.
         /// </summary>
         public sealed record Play(SubmittedPlay Submission) : AnswerOfRecord;
@@ -1218,8 +1286,9 @@ internal sealed class QuizController : IAsyncDisposable
         public sealed record Cube(SubmittedCubeAction Submission) : AnswerOfRecord;
 
         /// <summary>
-        /// A skip — today only an off-list play, the one submission that
-        /// answers a problem without scoring it. Of record all the same
+        /// A skip — an off-list play, or a play the run's ranking does not
+        /// score (SPEC-scoring.md §2a), the submissions that answer a problem
+        /// without scoring it. Of record all the same
         /// (§2: "skip is of record"), which is what keeps a redo from
         /// un-doing it; it counts in <see cref="SkippedCount"/> and folds
         /// nothing. The Skip button never reaches here — it advances without
@@ -1246,6 +1315,13 @@ internal sealed class QuizController : IAsyncDisposable
 /// </para>
 ///
 /// <para>
+/// The <paramref name="ranking"/> is the run's (<see cref="QuizController.Ranking"/>),
+/// or for a pre-Start count the one a Start would take: the filters read a
+/// player's error under it (SPEC-scoring.md §2a), so the pool a stack yields is
+/// the pool under that ranking, and a stack must never pick one of its own.
+/// </para>
+///
+/// <para>
 /// The <paramref name="mix"/> is the run's <i>effective</i> composition config,
 /// passed for one reason: shuffle arbitration. An active mix owns presentation
 /// order through <see cref="QuizMix.RandomOrder"/>, so the factory must not
@@ -1255,7 +1331,8 @@ internal sealed class QuizController : IAsyncDisposable
 /// never wires the composition layer itself; that stays with the controller.
 /// </para>
 /// </summary>
-internal delegate ComposedProblemSource ProblemSetSourceFactory(DecisionFilterSet filters, QuizMix mix);
+internal delegate ComposedProblemSource ProblemSetSourceFactory(
+    DecisionFilterSet filters, PlayRanking ranking, QuizMix mix);
 
 /// <summary>
 /// The result of <see cref="QuizController.StartAsync"/> /

@@ -152,8 +152,8 @@ public class PageTests : BunitContext
     /// <summary>The sessionStorage key <see cref="QuizLiveMarker"/> reads/writes.</summary>
     private const string QuizLiveKey = "bgquiz.quizLive";
 
-    private static Play BestPlay() => Play.Create(new(8, 5), new(8, 5));
-    private static Play AltPlay() => Play.Create(new(13, 11), new(11, 8));
+    private static Play BestPlay() => TestFixtures.OpeningBest();
+    private static Play AltPlay() => TestFixtures.OpeningAlternative();
 
     /// <summary>
     /// A one-file <see cref="FolderPickOutcome"/> for scripting
@@ -165,13 +165,13 @@ public class PageTests : BunitContext
         string folderName = "Corpus", string fileName = "match.xg",
         FolderWriteCapability capability = FolderWriteCapability.Enabled,
         params PickTruncation[] truncations) =>
-        new(Cancelled: false, folderName, [new PickedFile(fileName, [1, 2, 3])], capability, truncations);
+        new(Cancelled: false, folderName, [new PickedFile(fileName, [1, 2, 3])], capability, [.. truncations]);
 
     private QuizController WithController(params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
         var controller = new QuizController(
-            (_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System);
+            (_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -190,7 +190,7 @@ public class PageTests : BunitContext
     {
         var fake = new FakeProblemSetSource(items);
         var controller = new QuizController(
-            (_, _) => TestFixtures.Composed(fake, duplicatesCollapsed),
+            (_, _, _) => TestFixtures.Composed(fake, duplicatesCollapsed),
             new FakeProblemStatsSink(), TimeProvider.System);
         Services.AddSingleton(controller);
         return controller;
@@ -226,7 +226,7 @@ public class PageTests : BunitContext
         params PickTruncation[] truncations)
     {
         var folder = new PickedProblemFolder();
-        folder.Set(folderName, [new PickedFile(fileName, [1, 2, 3])], capability, truncations);
+        folder.Set(folderName, [new PickedFile(fileName, [1, 2, 3])], capability, [.. truncations]);
         if (withStatsHistory) _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
         Services.AddSingleton(folder);
         return folder;
@@ -243,7 +243,7 @@ public class PageTests : BunitContext
     {
         var decision = TestFixtures.TwoChoiceDecision(play, AltPlay());
         var doc = ProblemStatsDocument.Empty.Plus(
-            new SubmittedPlay(TestFixtures.KeyOf(decision), play, 0, 0.0, IsCorrect: true),
+            TestFixtures.Scored(decision, play, PlayRanking.Equity),
             TimeProvider.System);
         return JsonSerializer.Serialize(doc, QuizStatsFile.DocumentTypeInfo);
     }
@@ -381,7 +381,7 @@ public class PageTests : BunitContext
     {
         var fake = new FakeProblemSetSource(items);
         sink = new FakeProblemStatsSink();
-        var controller = new QuizController((_, _) => TestFixtures.Composed(fake), sink, TimeProvider.System);
+        var controller = new QuizController((_, _, _) => TestFixtures.Composed(fake), sink, TimeProvider.System);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -495,7 +495,7 @@ public class PageTests : BunitContext
         DecisionFilterSet? capturedPipeline = null;
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         var controller = new QuizController(
-            (set, _) => { capturedPipeline = set; return TestFixtures.Composed(fake); },
+            (set, _, _) => { capturedPipeline = set; return TestFixtures.Composed(fake); },
             new FakeProblemStatsSink(), TimeProvider.System);
         Services.AddSingleton(controller);
         WithPickedFolder(); // satisfy the folder gate so Start is clickable
@@ -517,8 +517,8 @@ public class PageTests : BunitContext
         Assert.NotNull(capturedPipeline);
         var aliceData = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), onRoll: "Alice");
         var bobData = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), onRoll: "Bob");
-        Assert.True(capturedPipeline.Matches(aliceData));
-        Assert.False(capturedPipeline.Matches(bobData));
+        Assert.True(capturedPipeline.Matches(aliceData.ViewFor(PlayRanking.Equity)));
+        Assert.False(capturedPipeline.Matches(bobData.ViewFor(PlayRanking.Equity)));
     }
 
     [Fact]
@@ -541,7 +541,7 @@ public class PageTests : BunitContext
         Assert.True(folder.HasFiles);
         var file = Assert.Single(folder.Files);
         Assert.Equal("match.xg", file.FileName);
-        Assert.Equal([1, 2, 3], file.Bytes);
+        Assert.Equal(new byte[] { 1, 2, 3 }, file.Bytes.ToArray());
         Assert.Equal("Corpus", folder.FolderName);
     }
 
@@ -2383,7 +2383,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         Assert.True(c.HasStarted && !c.IsFinished);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
@@ -2422,7 +2422,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithAppliedFilter();
         WithShuffleOption();
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts → finished
         Assert.True(c.IsFinished);
@@ -3078,7 +3078,7 @@ public class PageTests : BunitContext
         // observable — SummarizeMatchesAsync enumerates the source once per call.
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         Services.AddSingleton(
-            new QuizController((_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System));
+            new QuizController((_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System));
         WithAppliedFilter();
         WithShuffleOption();
         _folderAccess.NextPickOutcome = OneFileOutcome();
@@ -3252,7 +3252,7 @@ public class PageTests : BunitContext
     private QuizController WithControllerWhoseSourceFails(StrongBox<bool> failing)
     {
         var controller = new QuizController(
-            (_, _) => failing.Value
+            (_, _, _) => failing.Value
                 ? throw new InvalidOperationException("source failed")
                 : TestFixtures.Composed(new FakeProblemSetSource([])),
             new FakeProblemStatsSink(), TimeProvider.System);
@@ -3260,59 +3260,19 @@ public class PageTests : BunitContext
         return controller;
     }
 
-    [Fact]
-    public async Task Home_StartClick_UnstampedMoneyRecord_ShowsFolderLoadErrorNamingTheFile()
-    {
-        // The pool-composition guard's one user-facing surface
-        // (SPEC-stats-identity.md §2, amended 2026-08-24; issue
-        // halheinrich/backgammon#142): a money record that doesn't state its
-        // Jacoby rule fails the folder load. It fails by throwing, and the
-        // EXISTING start-error banner is where that lands — no new notice class
-        // — so what the user reads is the exception message verbatim, naming
-        // the file. This is the pin that the copy travels the whole way; the
-        // guard's own behaviour is JacobyStampedProblemSetSourceTests'.
-        //
-        // The malformed record is built in RenderWithAFailingStartAsync, per
-        // the rule TestFixtureContractTests states: a keyless fixture must
-        // never live in the shared TestFixtures library.
-        var cut = await RenderWithAFailingStartAsync();
-        var nav = Services.GetRequiredService<BunitNavigationManager>();
-
-        var banner = NoticeSaying(cut, "Could not start quiz").ShouldBe(
-            NoticeKind.Error, NoticeAnnouncement.Assertive, dismissible: true, "class").Content;
-        Assert.Contains("money-session.xg", banner.TextContent);
-        Assert.Contains("Jacoby", banner.TextContent);
-        Assert.EndsWith("/", nav.Uri);   // stayed on Home; no quiz to navigate to
-        Assert.Null(Services.GetRequiredService<QuizController>().Current); // and nothing from the folder was served
-    }
+    /// <summary>The message the failing source of <see cref="RenderWithAFailingStartAsync"/> throws.</summary>
+    private const string StartFailure = "The folder's source could not be built.";
 
     /// <summary>
-    /// Stage Home with a folder whose one record fails the pool-composition
-    /// guard — a money record that doesn't state its Jacoby rule — and click
-    /// Start, so every Start throws the same message: the start error's
-    /// reachable path. The malformed record is built here and nowhere else.
+    /// Stage Home over a controller whose source fails to build on every call,
+    /// and click Start, so every Start throws the same message: the start
+    /// error's reachable path. The count fails the same way, which leaves it
+    /// unknown and Start live — the state a Start reaches the banner from.
     /// </summary>
     private async Task<IRenderedComponent<HomePage>> RenderWithAFailingStartAsync()
     {
-        var unstamped = new BgDecisionData
-        {
-            Id = new XgDecisionId("money-session.xg", Game: 1, MoveNumber: 4, IsCube: true),
-            Position = new PositionData
-            {
-                Mop = TestFixtures.StandardMop(),
-                OnRollNeeds = 0,
-                OpponentNeeds = 0,
-            },
-            Decision = new DecisionData
-            {
-                IsCube = true,
-                NoDoubleEquity = 0.5,
-                DoubleTakeEquity = 0.7,
-            },
-        };
         Services.AddSingleton(new QuizController(
-            (_, _) => TestFixtures.Composed(
-                new JacobyStampedProblemSetSource(new FakeProblemSetSource([unstamped]))),
+            (_, _, _) => throw new InvalidOperationException(StartFailure),
             new FakeProblemStatsSink(), TimeProvider.System));
         WithPickedFolder();
         WithAppliedFilter();
@@ -3322,6 +3282,23 @@ public class PageTests : BunitContext
         await ApplyFiltersAsync(cut);
         await StartButton(cut).ClickAsync(new());
         return cut;
+    }
+
+    [Fact]
+    public async Task Home_StartClick_SourceFails_ShowsTheStartErrorVerbatim()
+    {
+        // The start error's one surface: a Start that throws lands on the
+        // banner, whose content is the exception message verbatim behind its
+        // own "Could not start quiz" lead, and the page stays on Home with no
+        // quiz served.
+        var cut = await RenderWithAFailingStartAsync();
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        var banner = NoticeSaying(cut, "Could not start quiz").ShouldBe(
+            NoticeKind.Error, NoticeAnnouncement.Assertive, dismissible: true, "class").Content;
+        Assert.Contains(StartFailure, banner.TextContent);
+        Assert.EndsWith("/", nav.Uri);
+        Assert.Null(Services.GetRequiredService<QuizController>().Current);
     }
 
     [Theory]
@@ -3349,7 +3326,7 @@ public class PageTests : BunitContext
 
         await StartButton(cut).ClickAsync(new());
 
-        Assert.Contains("money-session.xg", NoticeSaying(cut, "Could not start quiz").Content.TextContent);
+        Assert.Contains(StartFailure, NoticeSaying(cut, "Could not start quiz").Content.TextContent);
     }
 
     [Fact]
@@ -3560,7 +3537,7 @@ public class PageTests : BunitContext
         // reload, so no notice fires; the marker is also left in place for a real
         // later reload (VerifyNotInvoke on removeItem).
         var controller = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await controller.StartAsync(new FilterConfig(), QuizMix.Empty); // HasStarted true
+        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity); // HasStarted true
         // (empty PickedProblemFolder comes from the fixture default)
         WithAppliedFilter();
         WithShuffleOption();
@@ -3659,7 +3636,7 @@ public class PageTests : BunitContext
     {
         var fake = new FakeProblemSetSource(items);
         var controller = new QuizController(
-            (_, _) => TestFixtures.Composed(shuffle.Enabled ? new ShuffledProblemSetSource(fake, seed: 42) : fake),
+            (_, _, _) => TestFixtures.Composed(shuffle.Enabled ? new ShuffledProblemSetSource(fake, seed: 42) : fake),
             new FakeProblemStatsSink(), TimeProvider.System);
         Services.AddSingleton(controller);
         return controller;
@@ -3794,7 +3771,7 @@ public class PageTests : BunitContext
         // F placement: the version string is a Home-only footer — the quiz view
         // must not carry it.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
 
@@ -3820,7 +3797,7 @@ public class PageTests : BunitContext
     public async Task Quiz_AlreadyFinished_RedirectsToDone()
     {
         var c = WithController(); // empty source → exhausts immediately
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         Assert.True(c.IsFinished);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
@@ -3837,7 +3814,7 @@ public class PageTests : BunitContext
         // so the composition carrying a score panel beside the answer controls has
         // to be asked for by name.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await NormalViewAsync();
 
         var cut = Render<QuizPage>();
@@ -3862,7 +3839,7 @@ public class PageTests : BunitContext
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<QuizPage>();
@@ -3882,7 +3859,7 @@ public class PageTests : BunitContext
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         Assert.NotNull(c.Review);
 
@@ -3903,7 +3880,7 @@ public class PageTests : BunitContext
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
         var labels = cut.FindAll(".action-row button")
@@ -3936,7 +3913,7 @@ public class PageTests : BunitContext
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await NormalViewAsync();
 
         var cut = Render<QuizPage>();
@@ -3955,9 +3932,9 @@ public class PageTests : BunitContext
         // total — the indicator degrades to the bare position.
         var fake = new FakeProblemSetSource(
             [TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())], countKnown: false);
-        var c = new QuizController((_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System);
+        var c = new QuizController((_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System);
         Services.AddSingleton(c);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await NormalViewAsync();
 
         var cut = Render<QuizPage>();
@@ -3975,9 +3952,9 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink, seen, unseen);
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty.Plus(
-            new SubmittedPlay(TestFixtures.KeyOf(seen), BestPlay(), 0, 0.0, IsCorrect: true),
+            TestFixtures.Scored(seen, BestPlay(), PlayRanking.Equity),
             TimeProvider.System);
-        await c.StartAsync(new FilterConfig(), NeverSeenMix());
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(), PlayRanking.Equity);
         await NormalViewAsync();
 
         var cut = Render<QuizPage>();
@@ -4021,9 +3998,8 @@ public class PageTests : BunitContext
             case QuizStatsStatus.WriteFailed:
                 access.WriteException = new JSException("write refused");
                 await store.BeginQuizAsync();
-                await store.RecordAsync(new SubmittedPlay(
-                    TestFixtures.KeyOf(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())),
-                    Play.Create(new(8, 5)), 0, 0.0, true));
+                await store.RecordAsync(TestFixtures.Scored(
+                    TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()), BestPlay(), PlayRanking.Equity));
                 break;
         }
 
@@ -4086,7 +4062,7 @@ public class PageTests : BunitContext
         // outcome (polite), states the file was not changed, and the quiz
         // renders normally beneath it.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await WithStatsStoreInStatusAsync(QuizStatsStatus.LoadFailed);
 
         var cut = Render<QuizPage>();
@@ -4104,7 +4080,7 @@ public class PageTests : BunitContext
         // A mid-quiz write failure is a failure (assertive, the error kind) but
         // must not block the quiz — the answering UI still renders.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
 
         var cut = Render<QuizPage>();
@@ -4120,7 +4096,7 @@ public class PageTests : BunitContext
         // Over-trigger guard: a healthy (or Disabled) stats context renders no
         // stats notice at all.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
 
@@ -4146,7 +4122,7 @@ public class PageTests : BunitContext
         // around the name is version-agnostic by construction — "an earlier
         // version … set aside as X" says nothing about which — so only X varies.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await WithRetiredStatsStoreAsync(retiredSchemaVersion);
 
         var cut = Render<QuizPage>();
@@ -4171,7 +4147,7 @@ public class PageTests : BunitContext
         // this one can be showing while a degrade notice is too, so dismissing
         // it must not depend on there being no other.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await WithRetiredStatsStoreAsync();
 
         var cut = Render<QuizPage>();
@@ -4184,7 +4160,7 @@ public class PageTests : BunitContext
     private async Task FinishAQuizAsync()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts → IsFinished
     }
@@ -4294,7 +4270,7 @@ public class PageTests : BunitContext
         // One occurrence, one dismissal: the notice the user closed mid-quiz is
         // the same notice Done would show, so it does not come back there.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await WithStatsStoreInStatusAsync(StatusOf(degrade));
 
         var quiz = Render<QuizPage>();
@@ -4311,7 +4287,7 @@ public class PageTests : BunitContext
     public async Task Done_StatsRetiredNotice_DismissedOnTheQuizPage_StaysDismissedOnDone()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await WithRetiredStatsStoreAsync();
 
         var quiz = Render<QuizPage>();
@@ -4355,7 +4331,7 @@ public class PageTests : BunitContext
         // Mirrored across both retired versions too — the two pages must not be
         // able to disagree about which file this run set aside.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
         await WithRetiredStatsStoreAsync(retiredSchemaVersion);
@@ -4377,7 +4353,7 @@ public class PageTests : BunitContext
     {
         // The absence half, keyed on the same wording the present half asserts.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
 
@@ -4418,7 +4394,7 @@ public class PageTests : BunitContext
         // fire, and neither may the merged file's name appear as if it were
         // a set-aside. Keyed on the same wording the present half asserts.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await WithFoldedStatsStoreAsync();
 
         var cut = Render<QuizPage>();
@@ -4434,7 +4410,7 @@ public class PageTests : BunitContext
     public async Task Done_StatsFolded_ShowsNoRestartNotice()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
         await WithFoldedStatsStoreAsync();
@@ -4455,7 +4431,7 @@ public class PageTests : BunitContext
         // nothing pending — so the reassurance is words, and words only exist if
         // something asserts they are there.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
 
@@ -4473,7 +4449,7 @@ public class PageTests : BunitContext
         // in general and useless to a user whose write just failed, so it stands
         // down rather than softening the alert.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
         await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
@@ -4550,7 +4526,7 @@ public class PageTests : BunitContext
         // Restart was removed from the answering-state row; only Home/Done's
         // own Restart affordances (unrelated to this page) remain in the app.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
 
@@ -4561,7 +4537,7 @@ public class PageTests : BunitContext
     public async Task Quiz_ReviewState_RestartButtonAbsent()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
@@ -4574,7 +4550,7 @@ public class PageTests : BunitContext
     public async Task Quiz_SubmitButton_DisabledBeforePlayCompleted()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
 
@@ -4588,7 +4564,7 @@ public class PageTests : BunitContext
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = WithController(d1, d2);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
         var skipButton = cut.FindAll("button").First(b => b.TextContent.Trim() == "Skip");
@@ -4602,7 +4578,7 @@ public class PageTests : BunitContext
     public async Task Quiz_FinishedAfterContinue_RedirectsToDone()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
@@ -4627,7 +4603,7 @@ public class PageTests : BunitContext
         var c = WithController(
             TestFixtures.CubeDecision(),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
@@ -4658,7 +4634,7 @@ public class PageTests : BunitContext
         // the cube answer is entered by BackgammonCubeActions living *inside* the
         // action row beside Submit / Skip — not on the board.
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
 
@@ -4686,7 +4662,7 @@ public class PageTests : BunitContext
     public async Task Quiz_CubeSubmit_DisabledBeforeCubeCompleted()
     {
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
 
@@ -4702,7 +4678,7 @@ public class PageTests : BunitContext
         // Submit, and the Submit click routes to SubmitCubeAction, scoring both
         // halves into the Double and Take score segments.
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
@@ -4720,12 +4696,13 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Quiz_ProblemWithXgid_RendersXgidTextAndCopyButton()
     {
-        // The decision carries an XGID, so the answering view renders it as
-        // selectable text plus a copy button in the bottom row.
-        const string xgid = "XGID=-b----E-C---eE---c-e----B-:0:0:1:00:0:0:0:0:10";
-        var c = WithController(
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: xgid));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        // Every decision carries its XGID — derived from the record — so the
+        // answering view renders it as selectable text plus a copy button in
+        // the bottom row.
+        var decision = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var xgid = decision.Xgid;
+        var c = WithController(decision);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
 
@@ -4748,26 +4725,14 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_ProblemWithoutXgid_HidesXgidLabel()
-    {
-        // Empty XGID (the fixture default) renders no badge at all.
-        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-
-        var cut = Render<QuizPage>();
-
-        Assert.DoesNotContain("xgid-label", cut.Markup);
-    }
-
-    [Fact]
     public async Task Quiz_SolutionViewWithXgid_RendersXgidText()
     {
         // Coverage check for the second phase: after Submit the page flips to the
         // solution-review view, which must still surface the same XGID.
-        const string xgid = "XGID=-b----E-C---eE---c-e----B-:1:1:1:00:5:3:0:7:10";
-        var c = WithController(
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: xgid));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var decision = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 5);
+        var xgid = decision.Xgid;
+        var c = WithController(decision);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
@@ -4787,13 +4752,13 @@ public class PageTests : BunitContext
         // SVG draws both marks and the legend names both.
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), recordedPlayIndex: 0));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await cut.InvokeAsync(() => c.SubmitPlay(AltPlay())); // answer = candidate 1
 
         var diagram = cut.FindComponent<BackgammonDiagram>();
-        Assert.Equal(0, diagram.Instance.Request!.Decision.UserPlayIndex);   // * = recorded
+        Assert.Equal(0, Assert.IsType<CheckerPlayDecision>(diagram.Instance.Request!.Decision).Decision.UserPlayIndex);   // * = recorded
         Assert.Equal(1, diagram.Instance.Request!.SecondaryPlayIndex);       // † = answer
 
         // SVG shows both marks (diagram markup excludes the page-level legend).
@@ -4813,13 +4778,13 @@ public class PageTests : BunitContext
         // single * — the SVG shows no † and the legend omits the answer half.
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), recordedPlayIndex: 0));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await cut.InvokeAsync(() => c.SubmitPlay(BestPlay())); // answer = candidate 0 = recorded
 
         var diagram = cut.FindComponent<BackgammonDiagram>();
-        Assert.Equal(0, diagram.Instance.Request!.Decision.UserPlayIndex);
+        Assert.Equal(0, Assert.IsType<CheckerPlayDecision>(diagram.Instance.Request!.Decision).Decision.UserPlayIndex);
         Assert.Equal(0, diagram.Instance.Request!.SecondaryPlayIndex);
 
         Assert.Contains("*", diagram.Markup);
@@ -4832,27 +4797,146 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Quiz_SolutionView_OffListAnswer_MarksOnlyStar()
     {
-        // An off-list answer isn't in the candidate list (review index -1), so
-        // SecondaryPlayIndex is -1 and no † is drawn — only the recorded * shows.
+        // An off-list answer isn't in the candidate list (the review has no
+        // candidate), so SecondaryPlayIndex is null and no † is drawn — only
+        // the recorded * shows.
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), recordedPlayIndex: 0));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
-        // A play matching neither candidate → off-list.
-        await cut.InvokeAsync(() => c.SubmitPlay(Play.Create(new(24, 23), new(23, 21))));
+        // A legal play matching neither candidate → off-list.
+        await cut.InvokeAsync(() => c.SubmitPlay(TestFixtures.OpeningUnlisted()));
         var review = Assert.IsType<ProblemReview.Play>(c.Review);
-        Assert.True(review.OffList);
+        Assert.Equal(PlaySubmissionKind.OffList, review.Submission.Kind);
 
         var diagram = cut.FindComponent<BackgammonDiagram>();
-        Assert.Equal(0, diagram.Instance.Request!.Decision.UserPlayIndex);
-        Assert.Equal(-1, diagram.Instance.Request!.SecondaryPlayIndex);
+        Assert.Equal(0, Assert.IsType<CheckerPlayDecision>(diagram.Instance.Request!.Decision).Decision.UserPlayIndex);
+        Assert.Null(diagram.Instance.Request!.SecondaryPlayIndex);
 
         Assert.Contains("*", diagram.Markup);
         Assert.DoesNotContain("†", diagram.Markup);
 
         Assert.Contains("* played", cut.Markup);
         Assert.DoesNotContain("† your answer", cut.Markup);
+    }
+
+    // -----------------------------------------------------------------------
+    //  The play verdicts the ranking rulings reword (SPEC-scoring.md §2a;
+    //  halheinrich/backgammon#274). The copy is pinned as independent
+    //  literals — never the app's own constants, so emptying one fails here.
+    // -----------------------------------------------------------------------
+
+    /// <summary>The status strip's verdict band, whitespace-normalized.</summary>
+    private static string VerdictBand(IRenderedComponent<QuizPage> cut) =>
+        Normalize(cut.Find(".status-verdict-text").TextContent);
+
+    /// <summary>SPEC-scoring.md §2a's not-scored review, verbatim as ruled.</summary>
+    private const string NotScoredVerdictText =
+        "Not scored under depth-first ranking: this play was analysed less deeply than the best play, "
+        + "and at that depth it rated higher.";
+
+    [Fact]
+    public async Task Quiz_Review_APlayTheRankingDoesNotScore_ReadsTheRuledText_OnItsMarkedRow()
+    {
+        // Under depth first the 3-ply 8/5 6/5 rated higher than the rollout at a
+        // shallower depth, so it is not scored, and its review reads the ruled
+        // sentence exactly. It is a skip of record, so it takes the skip's
+        // warning tone, not a verdict's; and it IS a candidate, so the solution
+        // marks its row with the † the user's answer always gets there.
+        var c = WithController(TestFixtures.DepthSplitDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.DepthFirst);
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitPlay(TestFixtures.OpeningBest()));
+
+        Assert.Equal(NotScoredVerdictText, VerdictBand(cut));
+        Assert.Contains("alert-warning", cut.Find(".status-verdict").ClassList);
+        Assert.Equal(1, SolutionRequest(cut).SecondaryPlayIndex);
+        Assert.Contains("† your answer", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_TheSamePlayUnderEquity_IsTheCorrectVerdict()
+    {
+        // The counterpart that makes the pin above about the ranking: the same
+        // record and the same play, started under equity, is the best play.
+        var c = WithController(TestFixtures.DepthSplitDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitPlay(TestFixtures.OpeningBest()));
+
+        Assert.Equal("Correct — you found the best play.", VerdictBand(cut));
+        Assert.Contains("alert-success", cut.Find(".status-verdict").ClassList);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_OffListPlay_NamesThePlay_InTheCandidateListsNotation()
+    {
+        // halheinrich/backgammon#274: "When a play is not on the list, show what
+        // that play is." The user entered 24/21 21/20 as two single-die hops;
+        // the verdict names it as the candidate list would write it — one
+        // checker's route joined, 24/20 — because the one formatter both use is
+        // the producer's (Play.ToNotation). A local spelling of the hops would
+        // read "24/21 21/20" and fail here.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitPlay(Play.Create(new(24, 21), new(21, 20))));
+
+        Assert.Equal(
+            "Off list — your play, 24/20, wasn't among the analyzed candidates. The best play is shown above.",
+            VerdictBand(cut));
+        Assert.Contains("alert-warning", cut.Find(".status-verdict").ClassList);
+    }
+
+    [Fact]
+    public async Task Home_CountAndStart_HandTheControllerTheSettingsRanking()
+    {
+        // The setting reaches the run through Home's two calls: the count is
+        // taken under it and the Start starts the run under it. DepthFirst, so
+        // a call that left the producers' default standing would fail.
+        var handed = new List<PlayRanking>();
+        var fake = new FakeProblemSetSource([TestFixtures.DepthSplitDecision()]);
+        var controller = new QuizController(
+            (_, ranking, _) => { handed.Add(ranking); return TestFixtures.Composed(fake); },
+            new FakeProblemStatsSink(), TimeProvider.System);
+        Services.AddSingleton(controller);
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+        await Settings().EnsureHydratedAsync();
+        await Settings().SetSortAnalysisByDepthFirstAsync(true);
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+        Assert.Equal([PlayRanking.DepthFirst], handed);    // the count
+
+        await StartButton(cut).ClickAsync(new());
+
+        Assert.Equal(PlayRanking.DepthFirst, controller.Ranking);
+        Assert.Equal([PlayRanking.DepthFirst, PlayRanking.DepthFirst], handed);
+    }
+
+    [Fact]
+    public async Task Done_Restart_RunsUnderTheSettingsRankingAsItStandsNow()
+    {
+        // A restart is a new run, so it takes the setting as it stands when
+        // Restart is clicked — not the ranking the finished run began with.
+        var c = WithController(TestFixtures.DepthSplitDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+        Assert.True(c.IsFinished);
+        await Settings().SetSortAnalysisByDepthFirstAsync(true);
+
+        var cut = Render<DonePage>();
+        var restart = cut.FindAll("button").First(b => b.TextContent.Trim().StartsWith("Restart"));
+        await restart.ClickAsync(new());
+
+        Assert.Equal(PlayRanking.DepthFirst, c.Ranking);
     }
 
     [Fact]
@@ -4868,7 +4952,7 @@ public class PageTests : BunitContext
         // view, so this test fails.
         var decision = TestFixtures.OneClickPlayDecision();
         var c = WithController(decision);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         // Answering state — not yet in review.
@@ -4946,7 +5030,7 @@ public class PageTests : BunitContext
     /// play lists it as a candidate; otherwise the submit is off-list, which
     /// the controller counts as a skip.
     /// </summary>
-    private static Play ClickedPlay() => Play.Create(new(8, 5), new(6, 5));
+    private static Play ClickedPlay() => TestFixtures.OpeningBest();
 
     /// <summary>Build <see cref="ClickedPlay"/> on the board by its two clicks.</summary>
     private static async Task ClickTheWholePlayAsync(IRenderedComponent<QuizPage> cut)
@@ -4967,7 +5051,7 @@ public class PageTests : BunitContext
         Assert.Same(answered, c.Current);
         Assert.NotNull(c.Review);
         Assert.Equal(0, c.SkippedCount);
-        Assert.Equal(1, c.History.Count + c.CubeHistory.Count);
+        Assert.Equal(1, c.History.Length + c.CubeHistory.Length);
         Assert.False(ButtonNamed(cut, "Continue").HasAttribute("disabled"));
     }
 
@@ -4977,7 +5061,7 @@ public class PageTests : BunitContext
         var first = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var second = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = WithController(first, second);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         Assert.NotNull(c.Review);
         var cut = Render<QuizPage>();
@@ -5005,7 +5089,7 @@ public class PageTests : BunitContext
         var first = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var second = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = WithController(first, second);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         // Positive precondition: answering a checker play with nothing on the
@@ -5024,7 +5108,7 @@ public class PageTests : BunitContext
         var first = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var second = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = WithController(first, second);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
         var boardBefore = cut.Find(".bg-play-entry").InnerHtml;
 
@@ -5048,7 +5132,7 @@ public class PageTests : BunitContext
         var first = TestFixtures.TwoChoiceDecision(ClickedPlay(), AltPlay());
         var second = TestFixtures.TwoChoiceDecision(ClickedPlay(), AltPlay());
         var c = WithController(first, second);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         // Both dice played by clicks completes the play, which lights Submit.
@@ -5059,7 +5143,7 @@ public class PageTests : BunitContext
 
         // Scored as the play on the board, on the problem it was built for.
         AssertSubmittedOn(c, cut, first);
-        Assert.Equal(ClickedPlay(), Assert.Single(c.History).UserPlay);
+        Assert.True(new BoardState(first.Board).IsSamePlay(ClickedPlay(), Assert.Single(c.History).UserPlay));
     }
 
     [Fact]
@@ -5068,7 +5152,7 @@ public class PageTests : BunitContext
         var first = TestFixtures.CubeDecision();
         var second = TestFixtures.CubeDecision(away: 3);
         var c = WithController(first, second);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         Assert.Empty(cut.FindAll("input[checked]"));
@@ -5086,7 +5170,7 @@ public class PageTests : BunitContext
         var first = TestFixtures.CubeDecision();
         var second = TestFixtures.CubeDecision(away: 3);
         var c = WithController(first, second);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         // Chosen the way the user chooses — a change on the radio — so the
@@ -5119,7 +5203,7 @@ public class PageTests : BunitContext
             first,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        var start = c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var start = c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         source.ReleaseNext();
         await start;
         var cut = Render<QuizPage>();
@@ -5160,7 +5244,7 @@ public class PageTests : BunitContext
             first,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        var start = c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var start = c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         source.ReleaseNext();
         await start;
         var cut = Render<QuizPage>();
@@ -5198,7 +5282,7 @@ public class PageTests : BunitContext
         var c = WithGatedController(out var source, out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        var start = c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var start = c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         source.ReleaseNext();
         await start;
         c.SubmitPlay(BestPlay());
@@ -5238,11 +5322,11 @@ public class PageTests : BunitContext
             .Select(_ => TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()))
             .ToArray();
         var c = WithController(problems);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         (int Skipped, int Problem, int Scored, bool Answering) Snapshot() =>
-            (c.SkippedCount, c.ProblemNumber, c.History.Count + c.CubeHistory.Count, c.Review is null);
+            (c.SkippedCount, c.ProblemNumber, c.History.Length + c.CubeHistory.Length, c.Review is null);
 
         static (int, int, int, bool) Delta(
             (int Skipped, int Problem, int Scored, bool Answering) before,
@@ -5282,11 +5366,11 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(ClickedPlay(), AltPlay()));
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
-        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5), PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         (int Scored, int Skipped, bool Answering, bool Notice) Snapshot() =>
-            (c.History.Count + c.CubeHistory.Count, c.SkippedCount, c.Review is null,
+            (c.History.Length + c.CubeHistory.Length, c.SkippedCount, c.Review is null,
              ShowsNoticeSaying(cut, "Your quiz has"));
 
         // The whole play, built on the board the same way before each gesture.
@@ -5301,7 +5385,7 @@ public class PageTests : BunitContext
         await ButtonNamed(cut, "Submit").ClickAsync(new());
         var byButton = (beforeClick, Snapshot());
 
-        await cut.InvokeAsync(() => c.RestartAsync());
+        await cut.InvokeAsync(() => c.RestartAsync(PlayRanking.Equity));
         await EnterTheWholePlayAsync();
         var beforeSpace = Snapshot();
         await PressSpaceAsync(cut);
@@ -5326,7 +5410,7 @@ public class PageTests : BunitContext
         // disposed page after every Show-stats round trip, and a mark left
         // behind would tell the browser tests a listener was there.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         var attach = _quizKeys.VerifyInvoke("attach");
@@ -5353,7 +5437,7 @@ public class PageTests : BunitContext
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = WithController(d1, d2);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
@@ -5375,7 +5459,7 @@ public class PageTests : BunitContext
         // re-open the exact same problem for practice — back to the answering
         // view, with the answer of record left standing (SPEC-scoring.md §2).
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
         var current = c.Current;
 
@@ -5408,7 +5492,7 @@ public class PageTests : BunitContext
         // retry that follows is practice — reviewed, but leaving the answer of
         // record (the FIRST answer) alone in CubeHistory and in the score.
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
@@ -5450,7 +5534,7 @@ public class PageTests : BunitContext
         // answer of record's own review carries no such clause — which is what
         // makes the marking mean something.
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
@@ -5487,7 +5571,7 @@ public class PageTests : BunitContext
         // and lights Submit, and what is submitted is exactly the pair the
         // pill spells. Driven through the real radios, as the user does it.
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         Assert.True(cut.Find("button.btn-primary").HasAttribute("disabled"));   // nothing chosen yet
@@ -5511,7 +5595,7 @@ public class PageTests : BunitContext
         // state; this pins that the same instance carries over AND starts
         // clean, so a defensive key cannot creep back unremarked.
         var c = WithController(TestFixtures.CubeDecision(), TestFixtures.CubeDecision(away: 3));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
         var firstRow = cut.FindComponent<BackgammonCubeActions>().Instance;
 
@@ -5541,7 +5625,7 @@ public class PageTests : BunitContext
         // e2e suite already pins the same absence on the committed money
         // fixture; this pins the pass-through at the page.
         var c = WithController(TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         var captions = cut.FindAll(".bg-cube-actions label").Select(l => l.TextContent.Trim()).ToList();
@@ -5558,7 +5642,7 @@ public class PageTests : BunitContext
         // money cube is the one that differs from the withheld case in exactly
         // one fact.)
         var c = WithController(TestFixtures.CubeDecision(cubeOwner: CubeOwner.OnRoll));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         var captions = cut.FindAll(".bg-cube-actions label").Select(l => l.TextContent.Trim()).ToList();
@@ -5579,7 +5663,7 @@ public class PageTests : BunitContext
         // No double pill's implied Take is wrong on the taker half as well,
         // and the line says so with its own loss.
         var c = WithController(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.NoDoubleTake));
@@ -5604,7 +5688,7 @@ public class PageTests : BunitContext
         // line names No double as the truth. Its implied Pass is wrong on the
         // taker half against a take.
         var c = WithController(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 0.9));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.TooGoodPass));
@@ -5625,7 +5709,7 @@ public class PageTests : BunitContext
         // as such — the Too good pill is the (TooGood, Pass) pair — it is
         // correct on both halves and coloured as a hit.
         var c = WithController(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.TooGoodPass));
@@ -5646,7 +5730,7 @@ public class PageTests : BunitContext
         // first with the explanation trailing — driven through the controller
         // here because no pill spells it.
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.NoDoublePass));
@@ -5666,7 +5750,7 @@ public class PageTests : BunitContext
         // plainly wrong coherent answer (Double / Pass on a No double / Take
         // position) gets its two per-half verdicts and nothing more.
         var c = WithController(TestFixtures.CubeDecision(noDoubleEquity: 0.8, doubleTakeEquity: 0.7));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.DoublePass));
@@ -5684,7 +5768,7 @@ public class PageTests : BunitContext
         // in the two-group era would promise a second choice the row no longer
         // has.
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await Settings().SetMaximizeBoardWhileAnsweringAsync(false);
         var cut = Render<QuizPage>();
 
@@ -5701,7 +5785,7 @@ public class PageTests : BunitContext
         // null it via HandleStateChanged, so the next problem starts with Submit
         // disabled and no radio checked (the previous answer never carries over).
         var c = WithController(TestFixtures.CubeDecision(), TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         // Disabled until an answer is selected.
@@ -5727,7 +5811,7 @@ public class PageTests : BunitContext
         // checked, Submit disabled) — HandleStateChanged nulls _completedCube on
         // both the submit and the continue transitions.
         var c = WithController(TestFixtures.CubeDecision(), TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
@@ -5755,7 +5839,7 @@ public class PageTests : BunitContext
         // produces a genuinely fresh entry.
         var decision = TestFixtures.OneClickPlayDecision();
         var c = WithController(decision);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         var firstEntry = cut.FindComponent<BackgammonPlayEntry>().Instance;
@@ -5786,7 +5870,7 @@ public class PageTests : BunitContext
         // is the start of assembly and the exact moment that failed.
         var decision = TestFixtures.OneClickPlayDecision();
         var c = WithController(decision);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         Assert.False(UndoButton(cut, "Undo last").HasAttribute("disabled"));
@@ -5816,7 +5900,7 @@ public class PageTests : BunitContext
         // The "Show stats" affordance must be reachable regardless of
         // Controller.Review — it's present in both action rows.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         Assert.Contains("Show stats", cut.Markup);
@@ -5840,13 +5924,15 @@ public class PageTests : BunitContext
         // can shrink rather than wrap. The nowrap is the load-bearing half of
         // that and is asserted here; the ms-auto this replaced is gone.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         var tail = cut.Find(".action-row-tail");
         AssertClusterCannotWrap(tail);
 
-        var tailButtons = tail.QuerySelectorAll("button");
+        // The cluster's own buttons — its direct children — not the copy
+        // button nested inside the XGID badge, which every record now carries.
+        var tailButtons = tail.Children.Where(child => child.LocalName == "button").ToList();
         Assert.Equal("Show stats", tailButtons[0].TextContent.Trim());
         Assert.Equal("End quiz", tailButtons[^1].TextContent.Trim());
     }
@@ -5855,7 +5941,7 @@ public class PageTests : BunitContext
     public async Task Quiz_ReviewState_ShowStatsButton_OpensTheTrailingCluster()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
         await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
         Assert.NotNull(c.Review);
@@ -5863,7 +5949,9 @@ public class PageTests : BunitContext
         var tail = cut.Find(".action-row-tail");
         AssertClusterCannotWrap(tail);
 
-        var tailButtons = tail.QuerySelectorAll("button");
+        // The cluster's own buttons — its direct children — not the copy
+        // button nested inside the XGID badge, which every record now carries.
+        var tailButtons = tail.Children.Where(child => child.LocalName == "button").ToList();
         Assert.Equal("Show stats", tailButtons[0].TextContent.Trim());
         Assert.Equal("End quiz", tailButtons[^1].TextContent.Trim());
     }
@@ -5879,7 +5967,7 @@ public class PageTests : BunitContext
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = WithController(d1, d2);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var quizCut = Render<QuizPage>();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
@@ -6009,7 +6097,7 @@ public class PageTests : BunitContext
         var c = WithController(
             TestFixtures.CubeDecision(comment: CubeNote),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 3, comment: PlayNote));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await (maximized ? MaximizedViewAsync() : NormalViewAsync());
         var cut = Render<QuizPage>();
 
@@ -6032,7 +6120,7 @@ public class PageTests : BunitContext
         // else. The order is read off the row's children, because "after Redo,
         // before the tail" is a claim about position that presence cannot make.
         var c = WithController(TestFixtures.CubeDecision(comment: CubeNote));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await SubmitCubeThroughPageAsync(cut);
@@ -6059,7 +6147,7 @@ public class PageTests : BunitContext
         // A problem without notes has no control, and the row is exactly what
         // it was before notes existed. Positive precondition: this IS review.
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await SubmitCubeThroughPageAsync(cut);
@@ -6079,7 +6167,7 @@ public class PageTests : BunitContext
         var c = WithController(
             TestFixtures.CubeDecision(comment: CubeNote),
             TestFixtures.CubeDecision(away: 3, comment: CubeNote));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await SubmitCubeThroughPageAsync(cut);
@@ -6120,7 +6208,7 @@ public class PageTests : BunitContext
     public async Task Done_RendersFinalScoreAndBothButtons()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts → IsFinished
 
@@ -6145,7 +6233,7 @@ public class PageTests : BunitContext
         // live-quiz marker — a subsequent boot must not misread a finished quiz
         // as one a reload interrupted.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts → IsFinished
 
@@ -6160,7 +6248,7 @@ public class PageTests : BunitContext
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
         c.SubmitPlay(BestPlay());
@@ -6191,7 +6279,7 @@ public class PageTests : BunitContext
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
         c.SubmitPlay(BestPlay());
@@ -6209,7 +6297,7 @@ public class PageTests : BunitContext
     public async Task Done_BackToSetupClick_NavigatesHome()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
 
@@ -6232,7 +6320,7 @@ public class PageTests : BunitContext
         var c = WithController(
             TestFixtures.CubeDecision(),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitCubeAction(CubeClaimPair.DoubleTake);
         await c.ContinueAsync();
         c.SubmitPlay(BestPlay());
@@ -6261,7 +6349,7 @@ public class PageTests : BunitContext
         // user's mockup, "Problem folder: 'xg'   Detailed evaluation so far".
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         var folder = WithPickedFolder("xg");
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
 
@@ -6279,7 +6367,7 @@ public class PageTests : BunitContext
         // copy), so a pick cleared mid-quiz leaves nothing to name: no caption,
         // and the heading exactly as it was. The fixture's holder is empty.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
 
@@ -6327,7 +6415,7 @@ public class PageTests : BunitContext
     public async Task Stats_QuizFinished_RedirectsToDone()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts -> finished
         var nav = Services.GetRequiredService<BunitNavigationManager>();
@@ -6346,7 +6434,7 @@ public class PageTests : BunitContext
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         Assert.False(c.IsFinished);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
@@ -6374,7 +6462,7 @@ public class PageTests : BunitContext
     public async Task Stats_BackToQuizClick_NavigatesToQuiz()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<StatsPage>();
@@ -6408,7 +6496,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         var folder = WithPickedFolder("xg");
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
 
         var cut = Render<StatsPage>();
@@ -6423,7 +6511,7 @@ public class PageTests : BunitContext
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
 
         var cut = Render<StatsPage>();
@@ -7146,7 +7234,7 @@ public class PageTests : BunitContext
         // The finished quiz has no answering state to return to — the same half of
         // the predicate Stats redirects to /done on — so the way back is Home's.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts → finished
         Assert.True(c.IsFinished);
@@ -7160,7 +7248,7 @@ public class PageTests : BunitContext
     public async Task Help_MidQuiz_BackToQuizClick_NavigatesToQuiz()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         Assert.True(c.HasStarted && !c.IsFinished);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
@@ -7189,7 +7277,11 @@ public class PageTests : BunitContext
     //  green if it were not rendered at all.
     // -----------------------------------------------------------------------
 
-    private const string SampleXgid = "XGID=-b----E-C---eE---c-e----B-:0:0:1:42:0:0:0:1:10";
+    /// <summary>
+    /// The XGID of the problem on screen — the record's own, derived from its
+    /// facts, which is what the badge must show and the board must not.
+    /// </summary>
+    private string CurrentXgid => Services.GetRequiredService<QuizController>().Current!.Xgid;
 
     /// <summary>
     /// The badge's home, asserted as one place: exactly one badge on the page,
@@ -7208,14 +7300,14 @@ public class PageTests : BunitContext
     /// missing, and the present half fails loudly if the badge's class is
     /// renamed.
     /// </remarks>
-    private static void AssertXgidIsInTheBottomRowOnly(IRenderedComponent<QuizPage> cut)
+    private void AssertXgidIsInTheBottomRowOnly(IRenderedComponent<QuizPage> cut)
     {
         var badge = Assert.Single(cut.FindAll(".xgid-label"));
         Assert.Contains("action-row-tail", badge.ParentElement!.ClassList);
         Assert.NotNull(badge.Closest(".board-chrome"));
 
         Assert.Empty(cut.FindAll(".board-container .xgid-label"));
-        Assert.DoesNotContain(SampleXgid, cut.Find(".board-container").InnerHtml);
+        Assert.DoesNotContain(CurrentXgid, cut.Find(".board-container").InnerHtml);
     }
 
     [Fact]
@@ -7226,20 +7318,20 @@ public class PageTests : BunitContext
         // its own, in Quiz_Maximized_Xgid_KeepsItsBottomRowHome_AnsweringAndReview.
         // Left to the default this would have quietly moved to the maximized side
         // when halheinrich/backgammon#113 flipped it, leaving the other side uncovered.
-        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: SampleXgid));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await NormalViewAsync();
         var cut = Render<QuizPage>();
 
         AssertXgidIsInTheBottomRowOnly(cut);
-        Assert.Contains(SampleXgid, cut.Find(".action-row-tail").TextContent);
+        Assert.Contains(CurrentXgid, cut.Find(".action-row-tail").TextContent);
     }
 
     [Fact]
     public async Task Quiz_CubeAnswering_Xgid_RendersInTheBottomRow_NotOnTheBoard()
     {
-        var c = WithController(TestFixtures.CubeDecision(xgid: SampleXgid));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         AssertXgidIsInTheBottomRowOnly(cut);
@@ -7248,8 +7340,8 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Quiz_Review_Xgid_RendersInTheBottomRow_NotOnTheBoard()
     {
-        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: SampleXgid));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
         await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
         Assert.NotNull(c.Review);
@@ -7303,11 +7395,11 @@ public class PageTests : BunitContext
         TestFixtures.SourceLocation.InMatch("gobetzu_Brian Sposit_10082026_43811643.xg", 3, 12);
 
     /// <summary>
-    /// The other source shape — a standalone position file, whose synthetic
-    /// coordinates the chip must not show (<c>SPEC-quiz-view.md</c> §4 ruling
-    /// (ii)). Named the way eXtreme Gammon names its own exports, so the pin
-    /// reads as the misdescription it exists to prevent: this file's own name
-    /// says game 2, move 37.
+    /// The other source shape — a standalone position file, which belongs to
+    /// no game, so the record states no coordinates (<c>SPEC-quiz-view.md</c> §4
+    /// ruling (ii); halheinrich/backgammon#124). Named the way eXtreme Gammon
+    /// names its own exports, so the pin reads as the misdescription a number
+    /// here would be: this file's own name says game 2, move 37.
     /// </summary>
     private static TestFixtures.SourceLocation SampleOnePositionLocation =>
         TestFixtures.SourceLocation.OnePosition("match35253054_2_37.xgp");
@@ -7319,8 +7411,8 @@ public class PageTests : BunitContext
         // §4's ruling is a BOTH-modes claim, and this is the pin standing on
         // the Normal side of it.
         var c = WithController(TestFixtures.TwoChoiceDecision(
-            BestPlay(), AltPlay(), xgid: SampleXgid, location: SampleLocation));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+            BestPlay(), AltPlay(), location: SampleLocation));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await NormalViewAsync();
         var cut = Render<QuizPage>();
 
@@ -7341,9 +7433,8 @@ public class PageTests : BunitContext
         // The cube branch renders a board-only diagram and a wider action row;
         // §4 gives the chip one home across both problem kinds, not one per
         // kind — per-kind chrome is exactly what §2's invariance forbids.
-        var c = WithController(TestFixtures.CubeDecision(
-            xgid: SampleXgid, location: SampleLocation));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var c = WithController(TestFixtures.CubeDecision(location: SampleLocation));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         AssertLocatorIsInTheBottomRowOnly(cut);
@@ -7353,8 +7444,8 @@ public class PageTests : BunitContext
     public async Task Quiz_Review_Locator_RendersInTheBottomRow_NotOnTheBoard()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(
-            BestPlay(), AltPlay(), xgid: SampleXgid, location: SampleLocation));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+            BestPlay(), AltPlay(), location: SampleLocation));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
         await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
         Assert.NotNull(c.Review);
@@ -7366,14 +7457,14 @@ public class PageTests : BunitContext
     public async Task Quiz_OnePositionSource_Locator_NamesTheFileAndNumbersNothing()
     {
         // §4's ruling (ii), through the page rather than only the component:
-        // the chip's suppression depends on the record's identity KIND, and the
-        // page is where that identity is bound. A binding that passed the
-        // Descriptive category, or nothing at all, would leave the component's
-        // own pins green and put "Game 1 · Move 1" back on a file whose name
-        // says game 2, move 37.
+        // the record states no game and no move for a standalone position
+        // (halheinrich/backgammon#124), and the page is where the record's
+        // numbers are bound to the chip. A binding that read them from anywhere
+        // else would leave the component's own pins green and could put a
+        // number back on a file whose name says game 2, move 37.
         var c = WithController(TestFixtures.TwoChoiceDecision(
-            BestPlay(), AltPlay(), xgid: SampleXgid, location: SampleOnePositionLocation));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+            BestPlay(), AltPlay(), location: SampleOnePositionLocation));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         AssertLocatorIsInTheBottomRowOnly(cut);
@@ -7384,10 +7475,9 @@ public class PageTests : BunitContext
         Assert.Equal("match352…054_2_37", cut.Find(".problem-locator-file").TextContent);
         Assert.Empty(cut.FindAll(".problem-locator-where"));
 
-        // …and the numbers really were there to be shown, so the absence above
-        // is the ruling working and not an unstamped record.
-        Assert.Equal(1, c.Current!.Descriptive.Game);
-        Assert.Equal(1, c.Current!.Descriptive.MoveNumber);
+        // …and the absence above is the record's own: it states no numbers.
+        Assert.Null(c.Current!.Game);
+        Assert.Null(c.Current!.MoveNumber);
     }
 
     [Fact]
@@ -7401,8 +7491,8 @@ public class PageTests : BunitContext
         // is somewhere in the tail") is what catches the chip being inserted
         // past a button, which is the way that mitigation actually erodes.
         var c = WithController(TestFixtures.TwoChoiceDecision(
-            BestPlay(), AltPlay(), xgid: SampleXgid, location: SampleLocation));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+            BestPlay(), AltPlay(), location: SampleLocation));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         var tail = cut.Find(".action-row-tail");
@@ -7423,8 +7513,8 @@ public class PageTests : BunitContext
         // what keeps the two states' row heights equal by construction, which
         // the board's flex remainder depends on — the claim the old two-row
         // arrangement had to make by hand ("add the button to BOTH rows").
-        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: SampleXgid));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         Assert.Single(cut.FindAll(".board-chrome > .action-row"));
@@ -7459,39 +7549,12 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_NoXgidAndNoLocator_TrailingClusterStillCannotWrap()
-    {
-        // BOTH of the cluster's leading components render nothing on a record
-        // that carries neither fact — XgidLabel for an empty XGID, and (since
-        // issue halheinrich/backgammon#115) ProblemLocator for a record that
-        // locates nothing. This is the emptiest the cluster ever gets, and its
-        // layout contract has to survive it.
-        //
-        // Re-keyed twice over from Quiz_NoXgid_TrailingClusterKeepsItsMsAuto.
-        // The fixture half: the old pin still passed, but on a record that had
-        // quietly acquired a SECOND nothing-rendering component, so it was no
-        // longer pinning the state it names. The claim half: there is no
-        // ms-auto to keep — §4's ruling (i) replaced the auto margin with
-        // "take the leftover width and right-align inside it", because an auto
-        // margin cannot stop a contents-sized cluster from deciding the row's
-        // line breaks. Keeping the old assertion would have pinned a utility
-        // class that no longer positions anything.
-        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        var cut = Render<QuizPage>();
-
-        Assert.Empty(cut.FindAll(".xgid-label"));
-        Assert.Empty(cut.FindAll(".problem-locator"));
-        AssertClusterCannotWrap(cut.Find(".action-row-tail"));
-    }
-
-    [Fact]
     public async Task Quiz_BoardContainer_RendersBeforeChrome()
     {
         // Board-on-top: .board-container precedes .board-chrome in source order,
         // which the width-driven layout relies on (board first, chrome below).
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         var markup = cut.Markup;
@@ -7525,7 +7588,7 @@ public class PageTests : BunitContext
     public async Task Quiz_PlayAnswering_StatusStrip_ShowsNeutralPrompt()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await NormalViewAsync();
         var cut = Render<QuizPage>();
 
@@ -7540,7 +7603,7 @@ public class PageTests : BunitContext
     public async Task Quiz_CubeAnswering_StatusStrip_ShowsNeutralPrompt()
     {
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await NormalViewAsync();
         var cut = Render<QuizPage>();
 
@@ -7558,7 +7621,7 @@ public class PageTests : BunitContext
         // the legend names both markers and the verdict is the not-best line.
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), recordedPlayIndex: 0));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await cut.InvokeAsync(() => c.SubmitPlay(AltPlay()));
@@ -7588,7 +7651,7 @@ public class PageTests : BunitContext
         // (three values, so "incorrect" alone leaves two); the taker half does
         // not (two values, so it already implies the other).
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.TooGoodPass));
@@ -7623,7 +7686,7 @@ public class PageTests : BunitContext
         // to be on the page at once for an ordering to mean anything, and
         // Maximized view — the default since halheinrich/backgammon#113 — renders only one of them.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await NormalViewAsync();
         var cut = Render<QuizPage>();
 
@@ -7660,7 +7723,7 @@ public class PageTests : BunitContext
     public async Task Quiz_CubeAnswering_SubmitIsTheOnlyLargeBoldButton()
     {
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         AssertOnlyThePrimaryIsLarge(Render<QuizPage>(), "Submit");
     }
 
@@ -7669,7 +7732,7 @@ public class PageTests : BunitContext
     {
         // Beside Skip and the two Undos — the widest set of non-primaries.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         AssertOnlyThePrimaryIsLarge(Render<QuizPage>(), "Submit");
     }
 
@@ -7677,7 +7740,7 @@ public class PageTests : BunitContext
     public async Task Quiz_Review_ContinueIsTheOnlyLargeBoldButton()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         Assert.NotNull(c.Review);
         AssertOnlyThePrimaryIsLarge(Render<QuizPage>(), "Continue");
@@ -7710,7 +7773,7 @@ public class PageTests : BunitContext
         // board in Normal view, which §5 says this rider must not do — and Normal
         // view is therefore the composition this is asserted in, by name.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await NormalViewAsync();
         var cut = Render<QuizPage>();
 
@@ -7776,7 +7839,7 @@ public class PageTests : BunitContext
         // suppressing chrome frees height the width-bound 16:9 canvas cannot use,
         // and cropping the canvas without freeing height wastes the crop.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await MaximizedViewAsync();
 
         var cut = Render<QuizPage>();
@@ -7800,7 +7863,7 @@ public class PageTests : BunitContext
         // radios with the rest of the chrome would strand the user on exactly the
         // decisions the cube fixtures cover.
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await MaximizedViewAsync();
 
         var cut = Render<QuizPage>();
@@ -7826,7 +7889,7 @@ public class PageTests : BunitContext
         // not a check — so this asserts the derivation, in the state that would
         // fault if it were ever loosened.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await MaximizedViewAsync();
 
         var cut = Render<QuizPage>();
@@ -7851,8 +7914,8 @@ public class PageTests : BunitContext
         // suppression, so the badge rides with it — and then still sits in the
         // same place one Submit later, which is the "never teleports between
         // modes" half.
-        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), xgid: SampleXgid));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await MaximizedViewAsync();
 
         var cut = Render<QuizPage>();
@@ -7880,8 +7943,8 @@ public class PageTests : BunitContext
         // answering view" is this ruling's load-bearing half; the Submit below
         // then pins that it does not teleport when the composition normalizes.
         var c = WithController(TestFixtures.TwoChoiceDecision(
-            BestPlay(), AltPlay(), xgid: SampleXgid, location: SampleLocation));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+            BestPlay(), AltPlay(), location: SampleLocation));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await MaximizedViewAsync();
 
         var cut = Render<QuizPage>();
@@ -7912,7 +7975,7 @@ public class PageTests : BunitContext
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await MaximizedViewAsync();
 
         var cut = Render<QuizPage>();
@@ -7948,7 +8011,7 @@ public class PageTests : BunitContext
         // the assertion below reads as "the opt-out landed", not "nobody has
         // touched this".
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await NormalViewAsync();
 
         var cut = Render<QuizPage>();
@@ -7968,7 +8031,7 @@ public class PageTests : BunitContext
         // report degraded recording, which must be seen. Dismissibility is the
         // answer to the space they cost, not suppression.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
         await MaximizedViewAsync();
 
@@ -9236,7 +9299,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink, d);
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty.Plus(
-            new SubmittedPlay(TestFixtures.KeyOf(d), BestPlay(), 0, 0.0, IsCorrect: true),
+            TestFixtures.Scored(d, BestPlay(), PlayRanking.Equity),
             TimeProvider.System);
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithAppliedFilter(new FilterConfig());
@@ -9453,7 +9516,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
-        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5), PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
 
@@ -9480,7 +9543,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("c.xgp"), away: 3));
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
-        await c.StartAsync(new FilterConfig(), SplitMix(quizLength: 2));
+        await c.StartAsync(new FilterConfig(), SplitMix(quizLength: 2), PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
 
@@ -9507,7 +9570,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("c.xgp"), away: 3));
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
-        await c.StartAsync(new FilterConfig(), SplitMix()); // no length
+        await c.StartAsync(new FilterConfig(), SplitMix(), PlayRanking.Equity); // no length
 
         var cut = Render<QuizPage>();
 
@@ -9529,7 +9592,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
-        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5), PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
         Assert.Contains("Your quiz has 1 problem", cut.Markup);
@@ -9553,7 +9616,7 @@ public class PageTests : BunitContext
         var c = WithWeighableController(out var sink, TestFixtures.CubeDecision());
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
-        await c.StartAsync(new FilterConfig(), NeverSeenMix()); // capless
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(), PlayRanking.Equity); // capless
 
         var cut = Render<QuizPage>();
         NoticeSaying(cut, "Your quiz has").ShouldBe(
@@ -9577,7 +9640,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
-        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5), PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
         await SubmitPlayThroughPageAsync(cut, BestPlay());
@@ -9598,7 +9661,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2));
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
-        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5), PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
         Assert.Contains("Your quiz has", cut.Markup);
@@ -9626,7 +9689,7 @@ public class PageTests : BunitContext
         // keyboard and screen-reader semantics. The component owns both; this
         // pins that the page's binding records what either gesture reports.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await WithStatsStoreInStatusAsync(StatusOf(degrade));
 
         var cut = Render<QuizPage>();
@@ -9642,7 +9705,7 @@ public class PageTests : BunitContext
         // gesture and returning re-instantiates this page. A dismissal the user
         // made must not come back with it.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
 
         var cut = Render<QuizPage>();
@@ -9660,7 +9723,7 @@ public class PageTests : BunitContext
         // transition — and that run still records nothing, which the user has not
         // been told. BeginQuizAsync mints the occurrence, so the notice returns.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var store = await WithStatsStoreInStatusAsync(QuizStatsStatus.LoadFailed);
 
         var cut = Render<QuizPage>();
@@ -9686,7 +9749,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
-        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5), PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
         NoticeSaying(cut, "Your quiz has").Dismiss(gesture);
@@ -9707,7 +9770,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
-        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5));
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 5), PlayRanking.Equity);
         await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
 
         var cut = Render<QuizPage>();
@@ -9748,7 +9811,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
-        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 1));
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(quizLength: 1), PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
 
@@ -9768,7 +9831,7 @@ public class PageTests : BunitContext
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
         var c = Services.GetRequiredService<QuizController>();
-        await c.StartAsync(new FilterConfig(), NeverSeenMix());
+        await c.StartAsync(new FilterConfig(), NeverSeenMix(), PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts the one-problem source → finished
         Assert.True(c.IsFinished);
@@ -9911,7 +9974,7 @@ public class PageTests : BunitContext
         var gated = new GatedProblemSetSource(items);
         source = gated;
         sink = new FakeProblemStatsSink();
-        var controller = new QuizController((_, _) => TestFixtures.Composed(gated), sink, TimeProvider.System);
+        var controller = new QuizController((_, _, _) => TestFixtures.Composed(gated), sink, TimeProvider.System);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -10044,7 +10107,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         source.ReleaseNext();
-        await controller.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         controller.SubmitPlay(BestPlay());
 
         var cut = Render<QuizPage>();
@@ -10090,7 +10153,7 @@ public class PageTests : BunitContext
         var controller = WithGatedController(out var source, out _,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         source.ReleaseNext();
-        await controller.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         WithPickedFolder();
 
         var cut = Render<DonePage>();
@@ -10505,7 +10568,7 @@ public class PageTests : BunitContext
         // but nothing on the page pointed at it, so a user who changed the board
         // side mid-quiz was left with the browser's Back button and a guess.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         Assert.True(c.HasStarted && !c.IsFinished);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
@@ -10551,7 +10614,7 @@ public class PageTests : BunitContext
         // is exactly why Stats redirects to /done on it — so the way back is
         // Home's.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync(); // exhausts → finished
         Assert.True(c.IsFinished);
@@ -10578,7 +10641,7 @@ public class PageTests : BunitContext
     public async Task Quiz_BoardSide_PlayAnsweringBranch_FollowsTheSetting()
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         Assert.True(RenderedBoardSide(Render<QuizPage>()));   // default: home board right
 
@@ -10594,7 +10657,7 @@ public class PageTests : BunitContext
         // branch's — which is exactly how a setting ends up honored in some views
         // and not others.
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         Assert.True(RenderedBoardSide(Render<QuizPage>()));
 
@@ -10608,7 +10671,7 @@ public class PageTests : BunitContext
         // The third branch, and the one built through Builder.From rather than
         // FromDecisionData.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await Settings().SetHomeBoardOnRightAsync(false);
 
         var cut = Render<QuizPage>();
@@ -10626,7 +10689,7 @@ public class PageTests : BunitContext
         // stops mattering. Asserted against the roll rather than against a
         // literal side — the roll is unseeded on purpose.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await Settings().SetHomeBoardOnRightAsync(true);
         await Settings().SetRandomizeSidePerProblemAsync(true);
 
@@ -10645,7 +10708,7 @@ public class PageTests : BunitContext
         // Redo — which returns to the answering state on the SAME problem — must
         // not either. Both would read as the board moving under the user.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await Settings().SetRandomizeSidePerProblemAsync(true);
 
         var cut = Render<QuizPage>();
@@ -10685,40 +10748,38 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Quiz_Solution_DepthSettingsOff_AsksTheProducerForNothing()
     {
-        // The default state, stated as what the producer is asked for. Both
-        // options carry their own default value, which the producer defines as
-        // the untouched rendering — so a user who never opens Settings gets the
-        // review they got before this leg existed, byte for byte.
-        //
-        // This is also the pin that makes the unconditional assignment in
-        // BuildSolutionRequest safe: it asserts that "assigned from a settings
-        // projection" and "never mentioned" are the same request.
+        // The default state, stated as what the producer is asked for: the run's
+        // ranking — Equity, the setting's default — and no ceiling, the
+        // producer's own default, which it defines as hiding nothing. So a user
+        // who never opens Settings gets the review they got before either
+        // option existed.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
         Assert.NotNull(c.Review);
 
-        Assert.Equal(CandidateOrdering.Equity, SolutionRequest(cut).CandidateOrdering);
+        Assert.Equal(PlayRanking.Equity, SolutionRequest(cut).Ranking);
         Assert.Null(SolutionRequest(cut).MaximumHiddenCandidateAnalysisLevel);
     }
 
     [Fact]
-    public async Task Quiz_Solution_DepthFirstOn_AsksForDepthFirstOrdering()
+    public async Task Quiz_Solution_IsDrawnUnderTheRunsRanking()
     {
-        // Setting → request, for the ordering half. The floor is asserted to
-        // stay null in the same breath: the two settings are independent, and a
-        // wiring that fed one checkbox to both options would otherwise pass a
-        // test that only looked at the option it was meant to move.
-        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        await Settings().SetSortAnalysisByDepthFirstAsync(true);
+        // The run's ranking → the solution request (SPEC-scoring.md §2a: "The
+        // diagram orders and numbers the candidates by the same definition").
+        // Under DepthFirst, on the fixture where the rankings part, so a request
+        // that fell back to the producers' default would fail. The ceiling is
+        // asserted to stay null in the same breath: the two are independent,
+        // and a wiring that fed one setting to both would otherwise pass.
+        var c = WithController(TestFixtures.DepthSplitDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.DepthFirst);
 
         var cut = Render<QuizPage>();
-        await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+        await cut.InvokeAsync(() => c.SubmitPlay(TestFixtures.OpeningAlternative()));
 
-        Assert.Equal(CandidateOrdering.DepthFirst, SolutionRequest(cut).CandidateOrdering);
+        Assert.Equal(PlayRanking.DepthFirst, SolutionRequest(cut).Ranking);
         Assert.Null(SolutionRequest(cut).MaximumHiddenCandidateAnalysisLevel);
     }
 
@@ -10743,74 +10804,99 @@ public class PageTests : BunitContext
         // "show only rollouts" needs a ceiling at the TOP of the ladder, which
         // an inclusive-show floor has no member to express.
         //
-        // The ordering is asserted to stay put in the same breath: the two
-        // settings are independent, and a wiring that fed the dropdown to both
-        // options would otherwise pass a test that only looked at the one it was
-        // meant to move.
+        // The ranking is asserted to stay put in the same breath: the two are
+        // independent, and a wiring that fed the dropdown to both would
+        // otherwise pass a test that only looked at the one it was meant to
+        // move.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await Settings().SetMaximumHiddenCandidateAnalysisLevelAsync(level);
 
         var cut = Render<QuizPage>();
         await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
 
         Assert.Equal(level, SolutionRequest(cut).MaximumHiddenCandidateAnalysisLevel);
-        Assert.Equal(CandidateOrdering.Equity, SolutionRequest(cut).CandidateOrdering);
+        Assert.Equal(PlayRanking.Equity, SolutionRequest(cut).Ranking);
     }
 
     [Fact]
     public async Task Quiz_Solution_CubeReview_CarriesTheDepthTreatmentToo()
     {
-        // The second quiz mode. A cube review runs the other branch of
-        // BuildSolutionRequest (the two equity losses instead of the secondary
-        // play index), and a treatment applied inside that switch rather than
-        // after it would reach plays only — honored in one view and not the
-        // other, exactly the failure Quiz_BoardSide_CubeAnsweringBranch guards
-        // against for the board side.
+        // The second quiz mode. A cube review takes the other branch of
+        // BuildSolutionRequest (no † to set), and a treatment applied inside that
+        // branch rather than beside it would reach plays only — honored in one
+        // view and not the other, exactly the failure
+        // Quiz_BoardSide_CubeAnsweringBranch guards against for the board side.
+        // A cube states the run's ranking too, as every decision's request does.
         var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        await Settings().SetSortAnalysisByDepthFirstAsync(true);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.DepthFirst);
         await Settings().SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.XgRollerPlusPlus);
 
         var cut = Render<QuizPage>();
         await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.TooGoodPass));
         Assert.NotNull(c.Review);
 
-        Assert.Equal(CandidateOrdering.DepthFirst, SolutionRequest(cut).CandidateOrdering);
+        Assert.Equal(PlayRanking.DepthFirst, SolutionRequest(cut).Ranking);
         Assert.Equal(
             AnalysisLevel.XgRollerPlusPlus,
             SolutionRequest(cut).MaximumHiddenCandidateAnalysisLevel);
     }
 
     [Fact]
-    public async Task Quiz_AnsweringBoard_NeverCarriesTheDepthTreatment()
+    public async Task Quiz_PlayEntry_IsTheDecisionsOwnRequest_UnderTheRunsRanking_WithoutTheCeiling()
     {
-        // The site the treatment must NOT reach, asserted with both settings on
-        // so it cannot pass by their being off. The answering board is a
-        // DiagramMode.Problem request: its panel is blank because the candidate
-        // list is the answer being graded, so ordering or filtering a list that
-        // is not drawn is meaningless — and a ceiling stamped on the problem view
-        // would be a standing invitation to leak it into the panel later.
-        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
-        await Settings().SetSortAnalysisByDepthFirstAsync(true);
+        // The play entry is handed the checker-play decision's own request
+        // (DiagramRequest.ForDecision, which BgDiag_Razor's entry requires) and
+        // the run's ranking, as every decision's request states one — under
+        // DepthFirst, so a default standing in would fail. The ceiling must NOT
+        // reach it, asserted with the ceiling on so it cannot pass by its being
+        // off: the answering board is a DiagramMode.Problem request whose panel
+        // is blank because the candidate list is the answer being graded, and a
+        // ceiling stamped on the problem view would be a standing invitation to
+        // leak it into the panel later.
+        var decision = TestFixtures.DepthSplitDecision();
+        var c = WithController(decision);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.DepthFirst);
         await Settings().SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.XgRollerPlusPlus);
 
         var cut = Render<QuizPage>();
         Assert.Null(c.Review); // answering
 
         var request = cut.FindComponent<BackgammonPlayEntry>().Instance.Request!;
+        Assert.Same(decision, request.Decision);
         Assert.Equal(DiagramMode.Problem, request.Mode);
-        Assert.Equal(CandidateOrdering.Equity, request.CandidateOrdering);
+        Assert.Equal(PlayRanking.DepthFirst, request.Ranking);
         Assert.Null(request.MaximumHiddenCandidateAnalysisLevel);
     }
 
     [Fact]
-    public async Task Quiz_Solution_DepthTreatment_TakesHoldOnTheSettingsRoundTrip()
+    public async Task Quiz_CubeAnsweringBoard_IsTheDecisionsOwnRequest_UnderTheRunsRanking()
     {
-        // Changed mid-quiz, in force on return — the round trip the Settings
-        // page's own "Back to quiz" affordance exists for, and the only way a
-        // user can reach these controls without ending the run.
+        // The cube's answering board is the same kind of request — the
+        // decision's own, in Problem mode, stating the run's ranking.
+        var decision = TestFixtures.CubeDecision();
+        var c = WithController(decision);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.DepthFirst);
+
+        var cut = Render<QuizPage>();
+        Assert.Null(c.Review); // answering
+
+        var request = cut.FindComponent<BackgammonDiagram>().Instance.Request!;
+        Assert.Same(decision, request.Decision);
+        Assert.Equal(DiagramMode.Problem, request.Mode);
+        Assert.Equal(PlayRanking.DepthFirst, request.Ranking);
+    }
+
+    [Fact]
+    public async Task Quiz_Solution_CeilingTakesHoldOnTheSettingsRoundTrip_TheRankingAtTheNextRun()
+    {
+        // Changed mid-quiz, on the round trip the Settings page's own "Back to
+        // quiz" affordance exists for — and the two settings part here, by
+        // ruling. The hide ceiling changes no score, so it is in force on
+        // return. The ranking decides the best play and every score, and one
+        // quiz has one ranking (SPEC-scoring.md §2a), so the run keeps the one
+        // it began with — its solutions and its verdicts cannot disagree — and
+        // the new ranking reaches the next run, here a Restart.
         //
         // Re-rendered rather than asserted in place, deliberately: QuizSettings
         // publishes no Changed event (its contract defers that until a real
@@ -10820,21 +10906,34 @@ public class PageTests : BunitContext
         // the same app-scoped controller and settings. That is exactly what a
         // second Render is here, and it is how every Quiz_BoardSide_* scenario
         // observes the same contract.
-        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty);
+        var c = WithController(TestFixtures.DepthSplitDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await cut.InvokeAsync(() => c.SubmitPlay(BestPlay()));
         Assert.NotNull(c.Review);
-        Assert.Equal(CandidateOrdering.Equity, SolutionRequest(cut).CandidateOrdering);
+        Assert.Equal(PlayRanking.Equity, SolutionRequest(cut).Ranking);
+        Assert.Null(SolutionRequest(cut).MaximumHiddenCandidateAnalysisLevel);
 
-        // Off to Settings, tick the box, and back — the review is still the one
-        // the user left, because the controller outlives the page.
+        // Off to Settings, tick the box and pick a ceiling, and back — the
+        // review is still the one the user left, because the controller
+        // outlives the page.
         await Settings().SetSortAnalysisByDepthFirstAsync(true);
+        await Settings().SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.Ply2);
 
         var returned = Render<QuizPage>();
         Assert.NotNull(c.Review);
-        Assert.Equal(CandidateOrdering.DepthFirst, SolutionRequest(returned).CandidateOrdering);
+        Assert.Equal(PlayRanking.Equity, SolutionRequest(returned).Ranking);          // the run's
+        Assert.Equal(AnalysisLevel.Ply2, SolutionRequest(returned).MaximumHiddenCandidateAnalysisLevel);
+        Assert.Equal("Correct — you found the best play.", VerdictBand(returned));   // and it agrees
+
+        // The next run takes the setting — the one Done's Restart hands over.
+        await c.RestartAsync(Settings().Ranking);
+        await returned.InvokeAsync(() => c.SubmitPlay(BestPlay()));
+
+        var nextRun = Render<QuizPage>();
+        Assert.Equal(PlayRanking.DepthFirst, SolutionRequest(nextRun).Ranking);
+        Assert.Equal(NotScoredVerdictText, VerdictBand(nextRun));
     }
 
     [Fact]
@@ -10875,22 +10974,34 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public void Settings_DepthFirst_SaysWhatMoves_AndWhatDoesNot()
+    public void Settings_DepthFirst_SaysItDecidesTheBestPlay_NotOnlyTheOrder()
     {
-        // The label, plus the two misreadings the fine print exists to rule out:
-        // that equity order is gone (it still breaks ties within a depth), and
-        // that the rank numbers travel with the rows (they do not — a play keeps
-        // its own rank and markers wherever it lands). Keyed on the fieldset's
-        // text so a rewording that drops either claim fails here rather than
-        // going vacuously green.
+        // SPEC-scoring.md §2a, ruled 2026-09-26 on halheinrich/backgammon#282:
+        // "The setting's own description says that it decides the best play and
+        // the order, not only the order." The description is pinned whole — an
+        // exact sentence cannot go vacuously green on a rewording, as a
+        // fragment could — beside the label, which is unchanged. It says what
+        // moves (the most deeply analyzed first, equity within a depth), that it
+        // decides the best play and so the scoring, that the solution's order
+        // and numbers follow it, what is not scored, and when a change applies.
         WithController();
 
         var cut = Render<SettingsPage>();
 
-        var fieldset = Normalize(cut.Find("#settingsDepthFirst").Closest("fieldset")!.TextContent);
-        Assert.Contains("Sort the analysis by depth first", fieldset);
-        Assert.Contains("keep their equity order", fieldset);
-        Assert.Contains("keeps its own rank number and markers", fieldset);
+        var depthFirst = cut.Find("#settingsDepthFirst");
+        Assert.Equal(
+            "Sort the analysis by depth first",
+            Normalize(cut.Find("label[for='settingsDepthFirst']").TextContent));
+        var description = depthFirst.Closest(".form-check")!.NextElementSibling!;
+        Assert.Contains("form-text", description.ClassList);
+        Assert.Equal(
+            "The most deeply analyzed plays rank first, and plays analyzed to the same depth keep "
+            + "their equity order — so a play you rolled out sits at the top rather than wherever its "
+            + "equity leaves it. This ranking decides which play is best, not only the order: your "
+            + "answer is scored against the top play, and the solution lists and numbers the plays by "
+            + "it. A play analyzed less deeply than the best play that rated higher is not scored. A "
+            + "change takes effect from the next quiz you start.",
+            Normalize(description.TextContent));
     }
 
     [Fact]
@@ -10910,8 +11021,8 @@ public class PageTests : BunitContext
         // page makes; a hand-rolled map or a bare ToString fails on both.
         //
         // Unknown must not appear at any price. It is outside the rigor scale
-        // (clause (a)), and DiagramRequest.Builder.Build throws on it, so an
-        // Unknown option would be a selectable crash.
+        // (clause (a)), and a DiagramRequest refuses it, so an Unknown option
+        // would be a selectable crash.
         WithController();
 
         var cut = Render<SettingsPage>();

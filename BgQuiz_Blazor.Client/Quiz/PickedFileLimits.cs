@@ -1,5 +1,6 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using System.Collections.Immutable;
 using BgFolderAccess_Razor;
 
 /// <summary>
@@ -58,10 +59,22 @@ internal static class PickedFileLimits
 
     /// <summary>
     /// The per-extension file-count caps: the pick's problem-file kinds and what
-    /// each one admits, in the order any per-type report reads them. File count
-    /// is only a cost proxy <i>within</i> one format, so each extension
-    /// truncates at its own cap independently and a mixed folder can admit its
-    /// full quota of both.
+    /// each one admits, <b>in this order: <c>.xg</c>, then <c>.xgp</c></b> —
+    /// match files first, the format a folder is most often made of, and the
+    /// order every per-type report reads them in. File count is only a cost
+    /// proxy <i>within</i> one format, so each extension truncates at its own
+    /// cap independently and a mixed folder can admit its full quota of both.
+    ///
+    /// <para>
+    /// <b>The order is a stated fact, so the table is an array.</b>
+    /// <see cref="FolderPickLimits"/> keeps its table in the order it is handed
+    /// ("the ctor's order, by position"), and that order reaches the user: the
+    /// lib hands the table to its JS module in it, and the module's left-behind
+    /// report — the truncation notice's lines — follows it. A dictionary
+    /// documents no enumeration order at all, so an array, whose order is its
+    /// positions, is what lets this sentence be true. Immutable, because it is
+    /// one shared instance (halheinrich/backgammon#273's collection rider).
+    /// </para>
     ///
     /// <para>
     /// This table is the values half of the registered
@@ -75,12 +88,11 @@ internal static class PickedFileLimits
     /// the figure the pick applied.
     /// </para>
     /// </summary>
-    internal static IReadOnlyDictionary<string, int> MaxFileCounts { get; } =
-        new Dictionary<string, int>(StringComparer.Ordinal)
-        {
-            [XgExtension] = MaxXgFileCount,
-            [XgpExtension] = MaxXgpFileCount,
-        }.AsReadOnly();
+    internal static ImmutableArray<KeyValuePair<string, int>> MaxFileCounts { get; } =
+    [
+        new(XgExtension, MaxXgFileCount),
+        new(XgpExtension, MaxXgpFileCount),
+    ];
 
     /// <summary>
     /// <see cref="MaxFileBytes"/> expressed in whole mebibytes — the human-facing

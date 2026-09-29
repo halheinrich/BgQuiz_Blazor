@@ -26,7 +26,14 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   uses the **unseeded** ctor — the seeded one is test-only),
   `DistinctPositionProblemSetSource` (the content-identity dedupe decorator at
   the bottom of the composition — one item per distinct `ProblemKey`, first
-  occurrence surviving; keyless items pass through unmerged), `SubmittedPlay`,
+  occurrence surviving), `PlaySubmission` with `PlaySubmissionKind` — **the
+  one place a submitted play is scored** (`PlaySubmission.Score(play,
+  decision, ranking)`: the candidate the play is, found by identity from the
+  decision's position, and its error under the ranking, derived together;
+  `Scored` yields a `SubmittedPlay`, `NotScored` and `OffList` are skips) —
+  `SubmittedPlay` (no public constructor; its identity is the problem and the
+  play, which this app does not use as application semantics, and nor does it
+  use `PlaySubmission`'s — halheinrich/backgammon#287),
   `SubmittedCubeAction` (claim-typed since `halheinrich/backgammon#86`: the
   user's and the derived-truth `CubeClaimPair`s plus the two per-half losses,
   per-half correctness **derived** claim-vs-claim / action-vs-action — built
@@ -49,52 +56,56 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   via `QuizScore.Plus`; the stats store folds finalized submissions via the
   document's `Plus`. Producer behavior — the per-enumeration reshuffle, the
   fold contracts — lives in BgGame_Lib's own INSTRUCTIONS.md.
-- **BgDataTypes_Lib** — data types. `BgDecisionData`, `Play`,
-  `PlayCandidate`, `BoardState`, `CubeAction`, `CubeClaim` (the three-valued
+- **BgDataTypes_Lib** — data types. `BgDecisionData` and its two sealed
+  kinds, `CheckerPlayDecision` and `CubeDecision` (the page routes by the
+  record's kind, and each answer instrument takes its own), `Play` (no
+  equality: play identity is `BoardState.IsSamePlay`'s, from a starting
+  position, and `Play.ToNotation()` is the one spelling — the off-list verdict
+  names a play through it, halheinrich/backgammon#274), `PlayCandidate`,
+  `PlayRanking` (the ranking — `Equity`, the default, or `DepthFirst`; the
+  quiz's sorting setting is the ranking, SPEC-scoring §2a), `BoardState` and
+  `BoardPosition`, `CubeAction`, `CubeClaim` (the three-valued
   doubler claim — `NoDouble` / `Double` / `TooGood` — SPEC-scoring §3),
   `CubeClaimPair` (the two-part cube answer, claim × taker; a closed 3×2 of
   which the **four reachable pairs** — NoDoubleTake, DoubleTake, DoublePass,
   TooGoodPass — are the option set since SPEC-scoring §3's 2026-09-02
   amendment, `halheinrich/backgammon#187`; `TooGoodTake` is a retired
   verdict and the incoherent `NoDoublePass`, named by `IsIncoherent`, is
-  never offered), `BgDecisionData.CanBeTooGood` (the producer's
+  never offered), `CubeDecision.CanBeTooGood` (the producer's
   offerability fact: false only at money / Jacoby / cube-centred; the
   quiz page passes it through, never re-derives it),
   `CubeClaimExtensions.ToCubeAction` (the one claim→action collapse),
-  `ProblemKey` (content identity; `TryDerive` is the one factory — the
-  controller stamps every submission through it, and `false` is the no-key
-  rung, never a guess). **A money record (`0`-away/`0`-away) with no
-  `PositionData.IsJacoby` is on that rung** — the money key spells the rule.
-  The rung itself is *silent* by design, so a fixture or corpus that stops
-  being keyed just stops being recorded, and `TestFixtureContractTests` is why
-  that cannot happen to a fixture here unnoticed. **This one rung case no
-  longer reaches a quiz silently, though**: since
-  `halheinrich/backgammon#142` a money record without the fact fails the
-  folder load at pool composition, naming the file
-  (`JacobyStampedProblemSetSource`, § Source construction —
-  `../SPEC-stats-identity.md` §2, amended 2026-08-24). Every *other* rung case
-  (unstamped dice, empty board, missing `Xgid`) is unchanged: no key,
-  pass-through unmerged, not recorded, nothing said. The matcher
-  compares the submitted `Play` against each `PlayCandidate.Play` by canonical
-  `Play` equality; cube scoring never reads an equity here — the producer's
-  `SubmittedCubeAction.From` reads `DecisionData.BestClaimPair` (the one
-  derivation site of the truth claim) and `DoublerActionError` /
-  `TakerActionError` for it.
+  `ProblemKey` (content identity; `ProblemKey.From` is the one factory, and it
+  is total: **every record has a key**, because a decision position has a
+  checker of each side on the board or bar — the producer's invariant,
+  `../SPEC-stats-identity.md` §2 as amended 2026-09-27 — so this app relies on
+  a key rather than guarding against its absence, and never builds or accepts
+  a decision position a side has left). The record's `Game` and `MoveNumber`
+  are `null` for a standalone `.xgp` position (halheinrich/backgammon#124),
+  and its `SourceFile` and `Xgid` are derived. A played checker play is
+  matched and scored by the producer (`PlaySubmission.Score`, above); cube
+  scoring never reads an equity here — the producer's
+  `SubmittedCubeAction.From` reads `CubeDecisionData.BestClaimPair` (the one
+  derivation site of the truth claim) and the per-half errors for it.
 - **BgMoveGen** — `MoveGenerator.GeneratePlays`, used by the controller's
   no-play-choice auto-skip detection.
-- **BgDiag_Razor** — `BackgammonPlayEntry` (click-driven play assembly),
+- **BgDiag_Razor** — `BackgammonPlayEntry` (click-driven play assembly over
+  a checker-play decision's own request, `DiagramRequest.ForDecision`, which
+  it requires),
   `BackgammonCubeActions` (the board-free cube answer row: one radio group
   over the four reachable pairs, on the `@bind-Value` convention over
   `CubeClaimPair?` — null only while untouched, every pill a complete pair —
   with a required `OfferTooGood` the page feeds from
-  `BgDecisionData.CanBeTooGood`) + the underlying `BackgammonDiagram`
+  `CubeDecision.CanBeTooGood`) + the underlying `BackgammonDiagram`
   (read-only board view, used for both the review diagram and the
   cube-answering board).
-- **BackgammonDiagram_Lib** — `DiagramRequest` + `DiagramOptions`. The
-  answering view uses `DiagramRequest.FromDecisionData(…, DiagramMode.Problem)`
-  (Problem mode blanks the analysis panel, so it never leaks the answer); the
-  review view uses `DiagramRequest.Builder.From(…, DiagramMode.Solution)` and
-  overrides the user marks (§ Pages → Quiz). `DiagramOptions.Aspect` carries the
+- **BackgammonDiagram_Lib** — `DiagramRequest` + `DiagramOptions`. Every
+  board the quiz draws is a decision's own request,
+  `DiagramRequest.ForDecision(record, ranking)` under the run's ranking,
+  varied with `with`: the answering views keep its default
+  `DiagramMode.Problem` (which blanks the analysis panel, so it never leaks
+  the answer); the review sets `Mode = Solution`, the hide ceiling and the †
+  mark (`SecondaryPlayIndex`) (§ Pages → Quiz). `DiagramOptions.Aspect` carries the
   canvas preset: the producer's default everywhere except maximized answering,
   which asks for **`AspectPreset.BoardOnly`** — the panel allocation **and the
   title strip** dropped, so the canvas is the board proper alone (the strip
@@ -108,7 +119,13 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   referenced (see Pitfalls).
 - **XgFilter_Lib** — `DecisionFilterSet`, `FilterConfig`,
   `DecisionTypeFilter` / `DecisionTypeOption` (materialized from the user's
-  decision-type choice; the controller adds no filter of its own).
+  decision-type choice; the controller adds no filter of its own), and
+  `FilteredDecisionIterator`, which the in-browser parse runs and which takes
+  the ranking as a required argument. A filter holds no ranking: it reads the
+  one the view it is handed was built for, so the parse-once layer filters
+  each record through `record.ViewFor(ranking)` under the quiz's ranking —
+  which is what makes "erred by more than x" the player's error under the
+  quiz's setting (SPEC-scoring §2a).
 - **XgFilter_Razor** — `FilterSurface.razor`, the one composite hosted on `/`:
   it owns `FilterPanel` (`XgFilter_Razor.Components.Internal` — banned from
   host use, host tests included) and its saved-filters mount of the public
@@ -142,8 +159,11 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   picked/active slot file I/O, the two-slot isolation model, and the
   picked-slot writability probe `ProbePickedFileWritabilityAsync` /
   `PickedFileWritability`), `FolderWriteCapability`, `FolderPickOutcome` / `PickedFile` /
-  `PickTruncation`, and `FolderPickLimits` — the host-supplied caps
-  configuration `Program.cs` builds from `PickedFileLimits`' values (the
+  `PickTruncation` (immutable records: a pick's files and truncations are
+  immutable arrays, and a file's bytes are `ImmutableArray<byte>`, read
+  through `PickedFile.OpenRead()` without a copy), and `FolderPickLimits` —
+  the host-supplied caps configuration `Program.cs` builds from
+  `PickedFileLimits`' table, which it keeps in the order it is handed (the
   numbers stay host policy; the lib ships none). Its `folderAccess.js` ships as
   the lib's static web asset
   (`_content/BgFolderAccess_Razor/js/folderAccess.js`); this app authors no
@@ -163,6 +183,11 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `BgQuiz_Blazor.Tests` **only** (it carries bunit; no product project may
   reference it, and the umbrella's member gate fails one that does). Its
   bunit and AngleSharp versions are the floor for this repository's.
+  **`BgDataTypes_Lib.TestSupport`** — `TestRecords`, the producer's record
+  builders and the one way a test here builds a decision record, so no
+  fixture restates the records' construction rules; referenced by
+  `BgQuiz_Blazor.Tests` **only** (the assembly declares itself unsupported on
+  the browser platform, so a product project using it fails the build).
 - **ConvertXgToJson_Lib** — picked up transitively via the filter pipeline
   (parses the user's browser-picked `.xg` / `.xgp` bytes in-browser, via
   `FilteredDecisionIterator.IterateXgStreamDiagrams`).
@@ -204,8 +229,8 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   `ProblemReview`, the displayed review; `MatchSummary`, the pre-Start pool
   and what its dedupe collapsed.
 - **The source stack** — `Quiz/`: `WasmUploadedProblemSetSource` (the
-  in-browser parse), `CachedProblemSetSource` (parse once),
-  `JacobyStampedProblemSetSource` (the pool-composition guard),
+  in-browser parse), `CachedProblemSetSource` (parse once, filter per Start
+  under the quiz's ranking),
   `PickedFolderSourceFactory` (the one statement of the layer order) and
   `ComposedProblemSource` (its product: the stack plus the dedupe's collapse
   reader).
@@ -237,12 +262,15 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
 
 **`BgQuiz_Blazor.Tests/`** — xUnit over both app projects, with bUnit for
 components and `WebApplicationFactory` for the host pipeline. Areas: the
-controller (its behaviour, the transition-gate overlap suite, and the
-canonical-play equivalence the no-play-choice skip stands on); the source
+controller (its behaviour, the transition-gate overlap suite, the
+generated-play distinctness the no-play-choice skip stands on, and
+halheinrich/backgammon#273's own case read from the real match file,
+`PlayIdentityRealFileTests`); the source
 stack, each layer and the real composition; the stores, settings, mix
 state and wording; the pages and components; the host's 404 pipeline. The doubles and
-fixtures sit beside them: `TestFixtures`, hand-built decisions whose
-key-derivability `TestFixtureContractTests` pins; fake and gated sources, a
+fixtures sit beside them: `TestFixtures`, decisions built through the
+producer's `TestRecords`, whose plays `TestFixtureContractTests` holds to
+legal plays of their rolls; fake and gated sources, a
 scriptable folder-access double and a recording stats sink;
 `RetiredStatsFixture`, the stats files this build does not simply read.
 
@@ -292,7 +320,8 @@ referencing no app project. Three areas:
                           producer-composited) + "N match" count +
                           MixPanel (Enabled picks only) + "Shuffle order"
                           checkbox + Start Quiz button
-                          on Start: Controller.StartAsync(filters, mix) — binds
+                          on Start: Controller.StartAsync(filters, mix,
+                          the setting's ranking) — binds
                           the lifetime-stats context and, for a non-blank mix,
                           composes from lifetime stats (or REFUSES — the
                           actionable notice with "Start without mix") — then
@@ -300,7 +329,7 @@ referencing no app project. Three areas:
 
 /quiz    Quiz.razor    → per problem: answering → review → advance
                           "Show stats" (both states) → Nav→/stats
-                          answering (Review null), routed by Decision.IsCube:
+                          answering (Review null), routed by the record's kind:
                             checker → BackgammonPlayEntry
                                       + Submit / Skip / Undo last / Undo all
                             cube    → board-only BackgammonDiagram
@@ -331,11 +360,14 @@ referencing no app project. Three areas:
 
 Scoped DI lifetime (see Pitfalls: resets on full reload, not on in-app
 navigation). The controller holds the active `IProblemSetSource`
-enumerator, the running `QuizScore`, the per-problem `SubmittedPlay`
-(`History`) and `SubmittedCubeAction` (`CubeHistory`) histories — kept
-separate because the two scored-result types are distinct shapes; a unified
+enumerator, the run's `Ranking`, the running `QuizScore`, the per-problem
+`SubmittedPlay` (`History`) and `SubmittedCubeAction` (`CubeHistory`)
+histories — immutable arrays, each answer replacing its history with one
+entry more (halheinrich/backgammon#273's collection rider); kept separate
+because the two scored-result types are distinct shapes, and a unified
 history would force consumers to type-test — and a `SkippedCount` for
-non-scoring outcomes (off-list submissions, explicit Skip). Pages observe
+non-scoring outcomes (off-list submissions, plays the ranking does not
+score, explicit Skip). Pages observe
 transitions via `StateChanged`: each gated async transition (below) fires it
 exactly twice — busy-on, then busy-off with the end state in place — and the
 synchronous mutators (Submit, Redo) fire it once.
@@ -374,9 +406,13 @@ the fake sink's `RecordGate`.
   **synchronous** (the only `await` was the advance, now deferred): they score
   the answer, set `Review`, and fire `StateChanged` **without advancing** —
   `Current` still points at the answered problem. No-ops outside answering
-  (guarding against double-scoring).
-- **`Review`** — a closed `ProblemReview` record (`Play` / `Cube`) carrying
-  exactly the marks the solution diagram needs. Non-null marks the state.
+  (guarding against double-scoring). Each answers its own kind — a play a
+  `CheckerPlayDecision`, a pair a `CubeDecision` — and the other kind is a
+  caller bug that throws `InvalidOperationException`, since the page routes
+  each kind to its own instrument.
+- **`Review`** — a closed `ProblemReview` class hierarchy (`Play` / `Cube`)
+  carrying the producer's scored outcome whole and what the review needs to
+  mark and name the answer. Non-null marks the state.
 - **`RedoAsync`** — **not** the inverse of Submit: it re-opens the problem for
   *practice* and clears `Review`, back to *answering* on the same `Current`,
   changing nothing that was recorded. `History` / `CubeHistory`, `Score`,
@@ -415,34 +451,49 @@ the fake sink's `RecordGate`.
   partial score is simply the score of the problems answered.
 
 `ProblemReview` lives in `BgQuiz_Blazor.Client` (not BgGame_Lib): it is
-per-app UI state, and adding it to the submodule would cross the boundary. Its
-`Play` carries the matched candidate index (`-1` off-list); its `Cube` wraps
-the scored `SubmittedCubeAction` whole (user pair, truth pair, both losses,
-derived correctness — copying the fields out would put a second spelling of
-the derived correctness beside the producer's). The Quiz page maps these onto
-`UserPlayIndex` / `UserDoubleError` + `UserTakeError` so the diagram marks the
-*quiz user's* answer, not the .xg-recorded player's. It is the **displayed**
-review, which
-after a redo is not the answer of record — `IsPractice` (init-only, defaulted
-false) rides on the record type itself rather than beside it in the controller,
-so a review and its practice status cannot be assigned apart and drift.
+per-app UI state, and adding it to the submodule would cross the boundary.
+Both its variants wrap the producer's scored outcome whole: its `Play` the
+`PlaySubmission` (scored, not scored, or off-list) plus the play as entered,
+which the off-list verdict names; its `Cube` the scored `SubmittedCubeAction`
+(user pair, truth pair, both losses, derived correctness). Copying fields
+out would put a second spelling of what the producer derives together beside
+the producer's. `ProblemReview.Play.CandidateIndex` — the scored or
+not-scored candidate, none off the list — is what the Quiz page sets as the
+solution's † mark (`SecondaryPlayIndex`), so the diagram marks the *quiz
+user's* answer beside the .xg-recorded player's `*`. It is a closed **class**
+hierarchy, not records: nothing compares reviews, and a record's generated
+equality would reach the `Play` (whose `Equals` throws) and `PlaySubmission`'s
+equality, which halheinrich/backgammon#287 leaves unsettled for skips and
+this app does not use. It is the **displayed** review, which after a redo is
+not the answer of record — `IsPractice` (init-only, defaulted false) rides on
+the review itself rather than beside it in the controller, so a review and its
+practice status cannot be assigned apart and drift.
 
 **Source construction is factory-injected.** The controller takes a
-`ProblemSetSourceFactory` delegate (`(DecisionFilterSet, QuizMix) →
-ComposedProblemSource` — the stack plus its collapse-magnitude reader).
-`PickedFolderSourceFactory.Create` builds the production one and is the
-**single statement of the layer stack**; `Program.cs` registers it scoped by
-resolving the app-scoped ingredients and handing them over. The stack,
+`ProblemSetSourceFactory` delegate (`(DecisionFilterSet, PlayRanking,
+QuizMix) → ComposedProblemSource` — the stack plus its collapse-magnitude
+reader). `PickedFolderSourceFactory.Create` builds the production one and is
+the **single statement of the layer stack**; `Program.cs` registers it scoped
+by resolving the app-scoped ingredients and handing them over. The stack,
 innermost first:
 
 1. `CachedProblemSetSource` over the pick — the parse-once layer (see its
-   section).
-2. `JacobyStampedProblemSetSource` — the pool-composition guard (below).
-3. `DistinctPositionProblemSetSource` — content-identity dedupe, always on.
-4. `ShuffledProblemSetSource` — only when `mix.IsPassthrough &&
+   section), which filters each cached record through its view for the
+   ranking the delegate is handed.
+2. `DistinctPositionProblemSetSource` — content-identity dedupe, always on.
+3. `ShuffledProblemSetSource` — only when `mix.IsPassthrough &&
    shuffle.Enabled`. The mix parameter exists for exactly that one rule —
    **shuffle arbitration** (see Pitfalls). The factory never wires the
    composition layer itself (that is the controller's — below).
+
+**The ranking is an argument, never a holder the factory reads** (SPEC-scoring
+§2a: "The problem filter's 'erred by more than x' uses the player's error
+under the same setting"). The controller hands the factory the run's ranking
+(or, for a pre-Start count, the one a Start would take), so the pool is
+filtered under the ranking the quiz is scored under; a factory that looked the
+setting up for itself could read another. `PickedFolderSourceFactoryTests`
+pins it through the real composition, under both rankings, on a record whose
+recorded play the error range admits under one and not the other.
 
 Every holder is read at **invocation** time (`StartAsync`), not at DI
 registration, so choices made before Start take effect. Future alternatives
@@ -460,44 +511,16 @@ source reorders needs `ShuffledProblemSetSource`'s seeded ctor, which
 production deliberately does not use, so that test keeps a hand-built stack
 rather than a permutation that flakes on the identity.
 
-**The pool-composition guard: a money record must state its Jacoby rule**
-(`JacobyStampedProblemSetSource`; issue `halheinrich/backgammon#142`,
-ratifying `../SPEC-stats-identity.md` §2's 2026-08-24 amendment). A money
-record (`0`-away/`0`-away) carrying no `PositionData.IsJacoby` has no
-`ProblemKey` — the money key spells that rule — so it would quiz normally and
-be recorded nowhere. The guard drains the pool once, before anything is
-yielded, and throws when it finds one; Home's existing start-error banner
-renders the message, which is `FolderPickDisplay.MalformedForQuizzing` over
-the offending file.
-
-- **Why this rung alone fails loud.** Its siblings (unstamped dice, empty
-  board, missing `Xgid`) describe data a producer can plausibly emit, so
-  silence there is robustness. The in-tree converter cannot write *this* shape
-  at all, so silence tolerated exactly one thing — a converter defect — while
-  the user lost lifetime stats for every money position and was never told.
-- **Boundary-only.** The wire stays tolerant (`PositionData.IsJacoby` is
-  still `bool?`; a data type cannot name a file), `ProblemKey.TryDerive`,
-  dedupe and the stats fold keep their degrade rungs beneath this boundary,
-  and report-only tools keep fail-open-and-count. A folder that loads composes
-  exactly the pool it composed before.
-- **Beneath the dedupe on purpose.** The layer above collapses content-equal
-  copies to one survivor, which would hide the other files those copies came
-  from — and naming files is the whole product here.
-- **It names the first file and counts the rest** (`"…and 3 other files"`),
-  not a list: reaching this state means a converting parser wrote a whole
-  folder that way, and a banner-length list of names says nothing the first
-  name and the count do not. The name comes from the record's `DecisionId`,
-  not `Descriptive.SourceFile` — the id is `required` with a validated
-  non-null `Filename`, and an error whose job is to name a file must never be
-  the one with no name to give.
-- **Testing it needs a synthesized record**, because no producer emits this
-  shape and `TestFixtureContractTests` forbids keyless fixtures living in
-  `TestFixtures` — so `JacobyStampedProblemSetSourceTests` builds its own, and
-  drives the *real* composition by seeding the holder's parse cache
-  (`PickedProblemFolder.StoreParsed`) so the parse-once layer adopts records
-  instead of reading picked bytes. There is deliberately no e2e scenario: the
-  e2e corpus is real XG bytes (committed `.xgp` files, a synthesized `.xg`
-  match), and no bytes the converter reads produce this.
+**No pool-composition guard any more.** A money record that stated no Jacoby
+rule used to fail the folder load at this layer (`JacobyStampedProblemSetSource`,
+halheinrich/backgammon#142, ratifying `../SPEC-stats-identity.md` §2's
+2026-08-24 amendment), because it had no `ProblemKey` and would have quizzed
+unrecorded. That shape can no longer be built: every money session states its
+rule, and every record has a key (the same section's 2026-09-27 amendment —
+"The money-without-Jacoby fail-loud of 2026-08-24 has nothing left to catch").
+So the guard, its message (`FolderPickDisplay.MalformedForQuizzing`) and their
+tests went, as a guard the invariant has made unreachable does. Home's
+start-error banner stays: it is the catch-all for any Start that throws.
 
 **Position dedupe sits beneath shuffle and mix** (issue
 `halheinrich/backgammon#84`). A quiz could serve the same position twice:
@@ -525,9 +548,9 @@ notice tally deduped supply.
   positions collapse is unknowable before enumeration.
 
 **Mix ownership mirrors filter ownership, and a weighted start can be
-refused.** `StartAsync(FilterConfig, QuizMix, bool ignoreMix = false)` takes
-the caller's effective mix beside the filter config — user config in at
-Start, stored for Restart, no caller-set mutation — and returns a
+refused.** `StartAsync(FilterConfig, QuizMix, PlayRanking, bool ignoreMix =
+false)` takes the caller's effective mix beside the filter config — user
+config in at Start, stored for Restart, no caller-set mutation — and returns a
 `QuizStartOutcome`. For a
 non-blank *effective* mix (the stored mix, unless the per-run `ignoreMix`
 override), `ResetAndAdvanceAsync` wires the producer's `MixedProblemSetSource`
@@ -547,7 +570,9 @@ bind yielded no document. Since halheinrich/backgammon#87 the refusal is a **bac
 outcome**: the host offers no way to build a mix where `CanWeightMix` is false,
 so what is left reachable is a bind that fails *after* the pick looked
 capable — a stats file that changed or turned unparseable in between. Either refusal returns `MixRequiresStats` having touched **no quiz
-state** (see Pitfalls). `RestartAsync(bool ignoreMix = false)` re-attempts the
+state** (see Pitfalls). `RestartAsync(PlayRanking ranking, bool ignoreMix =
+false)` — a new run, so it takes the setting's ranking as it stands, as a
+Start does, while it replays the stored filters — re-attempts the
 stored mix, and **the caller decides whether to**: since
 `halheinrich/backgammon#5` `Done` passes `ignoreMix: !MixVisibility.IsVisible`,
 so a restart weights exactly when the panel does — one rule, no special case
@@ -591,13 +616,15 @@ emitted through `FilterSurface.OnFilterConfigChanged`), not a runtime
 pipeline, which it owns end-to-end — no shared mutable state ever exists
 between page and controller. The `ProblemSetSourceFactory` delegate still
 takes the runtime `DecisionFilterSet` (the source's contract is the runtime
-pipeline; the controller is the authority on assembling it), plus the run's
-effective `QuizMix` for shuffle arbitration. It returns a
+pipeline; the controller is the authority on assembling it), the run's
+ranking, and the run's effective `QuizMix` for shuffle arbitration. It returns a
 `ComposedProblemSource` — the stack to enumerate paired with a reader for the
 dedupe layer's collapse magnitude (§ It counts deduped positions).
 
-**Pre-Start match summary.** `SummarizeMatchesAsync(FilterConfig)` reports
-what a config would admit, as a `MatchSummary`. It builds the same
+**Pre-Start match summary.** `SummarizeMatchesAsync(FilterConfig,
+PlayRanking)` reports what a config would admit under a ranking, as a
+`MatchSummary` — Home passes the setting's ranking, the one its Start will
+take, since "erred by more than x" is read under it. It builds the same
 controller-owned pipeline `StartAsync` would and folds a source from the
 factory over a **throwaway** enumerator, so the shared enumerator, `Current`,
 `Score`, and the histories are never touched and a summary is safe against a
@@ -628,10 +655,9 @@ dedupe layer reports `0` honestly instead of fabricating one.
 producer's fold contract (every `Add` increments exactly one bucket) makes the
 pool's size fall out of the same pass that classifies it, so "how many match"
 and "what kinds are they" have **one** encoding — a second way to ask the
-question is a second answer waiting to disagree. The fold takes
-`BgDecisionData.Decision`: the composite forwards `IsCube` but not
-`BestDoublerAction` / `BestTakerAction`, so folding it would misbucket every
-cube decision (BgGame_Lib's Pitfalls carry the trap). Classification is never
+question is a second answer waiting to disagree. The fold takes the record
+itself and matches on its kind, keying a cube decision by its category's
+`BestClaimPair`. Classification is never
 re-derived here — a cube decision buckets once, on the analysis's declared
 best pair, deliberately unlike the two-half convention `QuizScore` and
 `ProblemStats` use for *answers*.
@@ -659,7 +685,7 @@ reachable verdicts are exactly the four coherent pairs, and the answer row
 offers exactly those — `NoDoubleTake`, `DoubleTake`, `DoublePass`,
 `TooGoodPass` — each pill a complete pair; the too-good pill is withheld
 where the producer says the verdict cannot occur,
-`BgDecisionData.CanBeTooGood`, false only for money under Jacoby with the
+`CubeDecision.CanBeTooGood`, false only for money under Jacoby with the
 cube centred, passed through as the row's `OfferTooGood` and never
 re-derived here).
 `SubmitCubeAction(CubeClaimPair)` always scores both halves (no off-list /
@@ -667,7 +693,7 @@ skip path, unlike plays; it accepts any pair — the incoherent `NoDoublePass`
 cell is no longer offered by the row but still scores per half if it arrives)
 through the producer's one factory,
 `SubmittedCubeAction.From(key, answer, decision)`: it reads the derived truth
-(`DecisionData.BestClaimPair`) and both per-half losses off the one decision,
+(`CubeDecisionData.BestClaimPair`) and both per-half losses off the one decision,
 and the record derives correctness **claim vs. claim** on the doubler half —
 so a no-double answered to a too-good position scores incorrect at +0.000, the
 ruled "right action, wrong reason" verdict, and so does a too-good answered to
@@ -691,11 +717,13 @@ exactly one legal play, whether that play moves nothing (a pass — the
 no-legal-play sentinel, see Pitfalls) or moves something (a forced checker
 play). Either way the position poses no question, so it is silently skipped —
 never shown, never counted toward `SkippedCount`, nothing folded to stats.
-Cube decisions are excluded by the guard on the rule's first line (Pitfalls).
+Only a `CheckerPlayDecision` is asked: a cube decision is the other kind, has
+no roll, and is always shown.
 
 Distinctness is the **producer's** contract, so list length is the test.
-`GeneratePlays` emits each legal play exactly once, canonically distinct, and
-never returns an empty list — so `legal.Count == 1` *is* the forced test, and
+`GeneratePlays` holds exactly one play per distinct position a legal play
+reaches (its own doc states the contract) and never returns an empty list —
+so `legal.Count == 1` *is* the forced test, and
 the pass case needs no branch of its own (the no-legal-play sentinel is one
 entry, see Pitfalls). The rule once compared every entry against the first,
 because a two-die bear-off came back twice — one play, two candidates, since a
@@ -703,7 +731,7 @@ bear-off move encodes as `(point, 0)` whichever die paid. That was a
 consumer-side workaround for a producer defect
 (`halheinrich/backgammon#140`'s verdict), retired once the producer was fixed
 (`halheinrich/backgammon#141`). Since the count is only as honest as that
-contract, `CanonicalPlayEquivalenceTests` pins it from this side — a producer
+contract, `GeneratedPlayDistinctnessTests` pins it from this side — a producer
 regression is caught where the miscount would silently happen, rather than
 inferred from an over-quizzed run — and `TestFixtures` holds the boards.
 
@@ -712,28 +740,49 @@ umbrella's corpus is forced or a pass, so the pre-Start match count ("decisions
 that match") and the number of problems a run actually shows genuinely
 diverge.
 
-**Off-list submission.** `SubmitPlay(Play)` matches the user's play against
-`Current.Decision.Plays` by canonical `Play` equality (order- and
-decomposition-insensitive, hit-sensitive — decomposed hops match their
-combined listing; an intermediate hit stays off-list against a non-hitting
-candidate). An in-list match contributes to the score: `EquityLoss == 0.0` is
-the "best play" test (multiple candidates may share zero loss). An off-list
-match counts as a skip — `SkippedCount++`, no history entry, score unchanged
-(semantics in Pitfalls). Either way a `Review` (`OffList` true, index `-1`) is
-set so the user still sees the best play on the solution diagram.
+**Checker-play scoring: one ranking, the producer's identity.** A submitted
+play is scored by the producer's one operation,
+`PlaySubmission.Score(play, decision, Ranking)`, under the run's ranking
+(SPEC-scoring §2a — "The quiz's play-sorting setting is the ranking. It
+decides which play is best, the order and the rank numbers, and every
+checker-play error is measured against that best play"). It finds the
+candidate the play is by identity from the decision's position — how two plays
+compare is stated once, on `BoardState.IsSamePlay`, and not restated here — so
+whatever encoding the board entry produced finds its candidate (the case of
+halheinrich/backgammon#273: a hit marked on the other checker making the same
+point), and reads that candidate's error under the ranking, together. Three
+outcomes:
+
+- **Scored** — a `SubmittedPlay`: the answer of record, into `History` and
+  `Score`, folding as the run advances. Its `IsCorrect` (error exactly 0) is the
+  producer's one verdict.
+- **Not scored** — under depth first, a candidate analysed less deeply than the
+  best that rated higher: "a skip of record that folds nothing" (§2a).
+- **Off list** — no candidate is this play: a skip of record too.
+
+A skip counts in `SkippedCount`, adds no history entry, leaves the score
+unchanged and folds nothing (semantics in Pitfalls). Every outcome sets a
+`Review` carrying the producer's outcome and the play as entered, so the user
+sees the solution, the not-scored candidate's row is marked †, and the
+off-list verdict names the play (§ Pages → Quiz). The app never compares plays
+or submissions itself: `PlaySubmission`'s equality for its skip outcomes is
+unsettled (halheinrich/backgammon#287) and is not application semantics here.
 
 ### `WasmUploadedProblemSetSource` — the in-browser source
 
 Wraps `XgFilter_Lib.FilteredDecisionIterator.IterateXgStreamDiagrams`
 (both `*.xg` match files and `*.xgp` position files). The constructor takes
-`(IReadOnlyList<PickedFile> files, DecisionFilterSet filters, ILoggerFactory)`
-and builds a single `FilteredDecisionIterator` held for the source's
-lifetime; `ILoggerFactory` is preferred over `ILogger<…>` so the source's
-contract doesn't leak the inner type. The files are parsed **entirely in the
+`(ImmutableArray<PickedFile> files, DecisionFilterSet filters, PlayRanking
+ranking, ILoggerFactory, TimeProvider)` and builds a single
+`FilteredDecisionIterator` held for the source's lifetime — handed the
+caller's ranking, which the iterator requires and refuses when undefined;
+`ILoggerFactory` is preferred over `ILogger<…>` so the source's contract
+doesn't leak the inner type. The files are parsed **entirely in the
 browser** and never leave it.
 
-**Re-iterability.** The source holds the file *bytes* (`PickedFile.Bytes`),
-not open streams, and mints a fresh `MemoryStream` at position zero for every
+**Re-iterability.** The source holds the file *bytes* (`PickedFile.Bytes`,
+immutable), not open streams, and opens a fresh read of each at position zero
+(`PickedFile.OpenRead()`, sharing the bytes without a copy) for every
 `EnumerateAsync` call (wrapped in an `XgFileStream` carrying the
 extension-bearing name) — the stream iterator reads each stream exactly once,
 forward, so buffering up front is what lets a Restart re-enumerate.
@@ -764,10 +813,20 @@ milliseconds.
   **drops** a store whose pick has been superseded (see Pitfalls).
 - **Unfiltered cache, per-Start filters.** The cached parse applies **no
   filters** so any filter config reuses it; each enumeration re-filters via
-  `DecisionFilterSet.Matches` — exactly equivalent to filtering during the
-  parse, because the iterator's other hooks are contractually pure early-exit
-  hints (see Pitfalls). `CachedProblemSetSourceTests` pins the equivalence
-  shape-level over the rotating corpus.
+  `DecisionFilterSet.Matches(record.ViewFor(ranking))` — each record through
+  its view for the quiz's ranking, since "erred by more than x" is a
+  ranking's — exactly equivalent to filtering during the parse, because the
+  iterator's other hooks are contractually pure early-exit hints (see
+  Pitfalls). `CachedProblemSetSourceTests` pins the equivalence shape-level
+  over the rotating corpus. **The cache is no ranking's**: the records the
+  parse yields depend on none, so one parse serves Starts under either ranking;
+  the parse is still handed the source's ranking, because the iterator requires
+  one and a quiz never lets a producer default stand in.
+- **An immutable parse.** The cache is an `ImmutableArray` the parse builds and
+  hands the holder whole — it used to be the parse's own `List`, handed out
+  live behind a read-only interface (halheinrich/backgammon#273's collection
+  rider). Parse counting in the tests rides the parse's per-file skip warning,
+  through the logger factory the source is handed.
 - **Staleness.** Files + generation are captured at construction (factory
   invocation = Start time, the read-live-at-Start discipline); the holder's
   cache is consulted only while the generation still matches, and the source
@@ -1057,8 +1116,13 @@ and the two pick-time verdicts
 about them — `FolderWriteCapability` and `Truncations`. `Home.razor` writes it
 (`Set` / `Clear`); the `ProblemSetSourceFactory` reads it to build a
 `CachedProblemSetSource`; `QuizStatsStore` reads `Capability` at its
-Start-time bind. Files are buffered byte arrays (read out of the browser once
-at pick time) so the source can re-enumerate on Restart. Carrying the
+Start-time bind. Files are buffered bytes (read out of the browser once at
+pick time) so the source can re-enumerate on Restart. **Every collection it
+holds is an immutable array** — `Files` and `Truncations` are the pick
+outcome's own, and `ParsedDecisions` the parse's — and `Set` / `StoreParsed`
+refuse a default array, as the outcome records do (halheinrich/backgammon#273's
+collection rider: the holder used to keep whatever list it was handed, the
+parse cache being the parse's own live `List`). Carrying the
 capability here (not in a component field) keeps Home's stats status notice
 alive across navigate-back — the same holder-vs-field rationale as the start
 gate, and the reason `Truncations` sits beside it: both describe the folder
@@ -1101,6 +1165,16 @@ file counts `MaxXgFileCount` (500) / `MaxXgpFileCount` (2000), tabled as
 Host **policy**, not machinery: `Program.cs` builds BgFolderAccess_Razor's one
 registered `FolderPickLimits` from this table, and the lib enforces it (the
 lib ships no numbers — each host's values encode its own cost model).
+
+**The table's order is stated: `.xg`, then `.xgp`.** `FolderPickLimits` keeps
+its table in the order it is handed ("the ctor's order, by position"), hands
+it to its JS module in that order, and the module's left-behind report — the
+truncation notice's lines — follows it. So `MaxFileCounts` is an
+`ImmutableArray<KeyValuePair<string, int>>`, whose order is its positions: the
+dictionary it used to be documented no enumeration order at all
+(halheinrich/backgammon#273; BgFolderAccess_Razor's immutable pick records).
+The trimmed e2e run is what proves the caps argument handed to
+`FolderPickLimits` at runtime (§ The e2e smoke gate).
 
 **The counts are per format because count is only a cost proxy within one
 format** (issue halheinrich/backgammon#59): an `.xgp` is one position, an
@@ -1410,7 +1484,9 @@ draft (see Pitfalls: load-bearing).
 **`MixDraft`** (Quiz/) is the app-scoped edit state behind the panel — and,
 while the panel is visible, the mix that runs: rows (kind / parameter text / percent
 text, read-only outside — every write goes through an async mutator so
-`Changed` fires and the write-through runs), the Random-order toggle, the
+`Changed` fires and the write-through runs; `Rows` is an immutable array each
+add, removal, reorder and reload replaces, so no reader can write the list
+through a cast — halheinrich/backgammon#273's collection rider), the Random-order toggle, the
 length buffer, the picker's canonical kind order, validation
 (`ValidationError`), `Build()` (**zero rows ⇒ `Empty`, never null**;
 unbuildable ⇒ null), and the hydration lifecycle (`EnsureHydratedAsync` /
@@ -1720,9 +1796,10 @@ side by side in that section, and a documented pair reading `Key` /
 The app-scoped service behind `Settings.razor`, owning **seven** settings and
 the one `localStorage` entry (`xg_quizSettings`) they persist in: the
 home-board side, whether that side re-rolls per problem, whether the board is
-maximized while answering, how the solution's candidate list is ordered, which
-shallow evaluations are hidden from it, **whether quizzes are drawn by the
-weighted mix**, and whether the navigation panel stays folded. (The count said
+maximized while answering, **the ranking** (which play is best — and so the
+scoring and the solution's order), which shallow evaluations are hidden from
+the solution, **whether quizzes are drawn by the weighted mix**, and whether
+the navigation panel stays folded. (The count said
 four until 2026-09-07: the depth-treatment pair arrived with
 `halheinrich/backgammon#150`/`halheinrich/backgammon#66` without updating it,
 and the mix setting made the drift worth correcting rather than extending.)
@@ -1731,7 +1808,7 @@ becomes *visible* is a separate question, and the fold answers it differently
 (§ The fold it cannot apply itself, below).
 **Defaults state the product's answers, not the app's history** — home board
 right (the producer's own `DiagramRequest.HomeBoardOnRight` default), no
-randomization, panel unfolded, equity ordering, nothing hidden, **the weighted
+randomization, panel unfolded, the equity ranking, nothing hidden, **the weighted
 mix off**, and **the board maximized while answering**. All but the last
 reproduce the app that shipped before this page existed; the maximize default
 deliberately does not (§ The maximize-board setting).
@@ -1800,6 +1877,28 @@ print states the ratified consequence (the board is deliberately a different
 size while answering than while reading), so a user who sees the board move
 reads the feature working rather than a bug — the same posture the fold row
 takes toward its deferral.
+
+**The ranking** (`SortAnalysisByDepthFirst`, wire `sortAnalysisByDepthFirst`,
+default off) — SPEC-scoring §2a, ruled 2026-09-26 on
+halheinrich/backgammon#282: "The quiz's play-sorting setting is the ranking. It
+decides which play is best, the order and the rank numbers, and every
+checker-play error is measured against that best play." It began as the
+review's ordering (halheinrich/backgammon#150); the ruling made it the ranking,
+so the stored field kept its name and its meaning (true is depth first) and a
+saved choice reads as before, now deciding scoring too. It is exposed twice,
+as the side is: the stored `bool` the checkbox binds to, and
+`QuizSettings.Ranking`, the producers' `PlayRanking` the pages hand the
+controller. **It is read where a quiz begins and nowhere else** — Home's count
+and Start, Done's Restart — and the controller keeps the run's ranking for the
+whole run and passes it to every ranking-dependent operation (the pool's
+filter, scoring, the diagrams and the play entry). So **one quiz has one
+ranking**: a change made mid-quiz reaches the next run, and a running quiz's
+solutions and verdicts cannot disagree (the Settings description says "A change
+takes effect from the next quiz you start"). No producer's default stands in for
+it anywhere; off is `PlayRanking.Equity`, the producers' default too, which is
+why the pins that prove the setting reaches each operation run under
+`DepthFirst`. The setting never re-scores: what the lifetime record already
+holds stays as it was (§2a).
 
 **The side, and the roll.** `QuizController.RandomHomeBoardOnRight` is a coin
 flip taken **unconditionally**, beside the assignment of `Current` and after
@@ -2128,19 +2227,25 @@ The asymmetry is pinned three times over: at the service seam
   two halves and the fieldset-independence; `MidQuizNavigationTests` drives the
   round trip in a browser.
 - **`Quiz.razor`** — mirrors the controller's three-state flow, branching on
-  `Controller.Review`. **Answering** (`Review` null): routes the board region
-  by `Current.Decision.IsCube` over
-  `DiagramRequest.FromDecisionData(Current, DiagramMode.Problem)` — checker
-  decisions to `BackgammonPlayEntry` (click-driven play assembly; strict on
-  decision type, so the route must be exact — see Pitfalls), cube decisions to
-  a **board-only** `BackgammonDiagram` (the cube answer is not entered on the
-  board). Submit is a synchronous handler gated on the relevant answer being
+  `Controller.Review`. **Every board is the decision's own request under the
+  run's ranking** — `DiagramRequest.ForDecision(Current, Controller.Ranking)`,
+  varied with `with` — so the solution's best play, order and rank numbers are
+  the ones the verdict beside it was scored against, the answering board and
+  the play entry are handed the same ranking, and no producer default stands
+  in (SPEC-scoring §2a). The ranking is the run's, never the live setting's:
+  a change made mid-quiz reaches the next run. **Answering** (`Review` null):
+  routes the board region by the record's kind over that request, in its
+  default `DiagramMode.Problem` — a `CheckerPlayDecision` to
+  `BackgammonPlayEntry` (click-driven play assembly, which requires a
+  checker-play decision's own request and refuses any other — see Pitfalls), a
+  `CubeDecision` to a **board-only** `BackgammonDiagram` (the cube answer is not
+  entered on the board). Submit is a synchronous handler gated on the relevant answer being
   held: a play via `OnPlayCompleted` → `_completedPlay`; a cube via the
   `BackgammonCubeActions` four-pair row in the action row, whose
   `@bind-Value` keeps `_completedCube` current — null until a pill is
   chosen, and every pill is a complete pair, so the Submit gate lights on
   the first click; re-fires on every change thereafter, so the user can
-  revise before Submit. The row's `OfferTooGood` is the record's
+  revise before Submit. The row's `OfferTooGood` is the cube record's
   `CanBeTooGood`, passed through. Both fields reset on every transition,
   which clears the row outright — it holds no state the pair does not
   express, so the `@key` remount of the two-group era is gone (see
@@ -2166,11 +2271,25 @@ The asymmetry is pinned three times over: at the service seam
   utilities beside them still do the layout. **Review** (`Review`
   set): a read-only `BackgammonDiagram` in `DiagramMode.Solution` plus
   Continue / Redo — then Notes, when the decision carries a comment (below) —
-  / Show stats, built with `DiagramRequest.Builder.From(...)`
-  and then the user's marks overridden from `Review` — `UserPlayIndex` for a
-  play (`-1` off-list draws no marker), or `UserDoubleError` / `UserTakeError`
-  for a cube. `FromDecisionData` is **not** used here: it defaults those marks
-  from the .xg-recorded player, not the quiz user. The review diagram's
+  / Show stats: the same request with `Mode = DiagramMode.Solution`, the user's
+  hide ceiling (the live setting — hiding a row changes no score), and, for a
+  play, the quiz user's answer as the † mark (`SecondaryPlayIndex`) from
+  `Review.CandidateIndex` — the scored or the not-scored candidate, none off
+  the list, so no † draws; the record's own recorded play is the `*`. A cube
+  review marks nothing on the board: the panel's "Actual" line is the
+  recorded players' actions, read off the record, and it always was — the
+  per-half losses the page used to set beside it never reached that line —
+  while the quiz user's pair is named by the verdict. **The play verdicts** are
+  the producer's outcome, read by its case: correct; not best, with the error;
+  **not scored** — SPEC-scoring §2a's text verbatim, "Not scored under
+  depth-first ranking: this play was analysed less deeply than the best play,
+  and at that depth it rated higher." (`Quiz.NotScoredVerdict`); and **off
+  list, naming the play** — "Off list — your play, 24/20, wasn't among the
+  analyzed candidates. The best play is shown above.", the play spelled by
+  the producer's `Play.ToNotation()`, the one formatter the candidate list
+  uses (halheinrich/backgammon#274, within its named scope: the verdict names
+  the play, and nothing else marks it). The two unscored outcomes share the
+  skip's warning tone. The review diagram's
   `OnDiceClicked` is bound to the same `ContinueAsync` handler as Continue
   (safe under the transition gate). Redo falls back to the answering branch on
   the same problem; no explicit reset or `@key` is needed (see Pitfalls). A
@@ -2363,11 +2482,15 @@ The asymmetry is pinned three times over: at the service seam
     grows", and no page-level horizontal scrollbar appears at any width down to
     400px.
   - **An `.xgp` source shows its file name and no numbers** (§4 ruling (ii)).
-    The discriminant is the record's `DecisionId` *kind* — `XgpDecisionId` keys
-    on a bare filename precisely because there are no within-file coordinates —
-    read as a type, never sniffed from the extension and never parsed out of the
-    id's canonical string. The converter's synthetic `Game 1 · Move 1` on such
-    records is a producer wart, booked separately; do not work around it here.
+    A standalone position belongs to no game, so the producer states its game
+    and move number as "not applicable" — `BgDecisionData.Game` and
+    `MoveNumber` are `null`, derived from the record's `DecisionId`
+    (halheinrich/backgammon#124) — and the chip binds the record's numbers and
+    says nothing in their place. It used to carry a workaround instead: the
+    converter stamped every such record `Game 1 · Move 1` off a synthetic game
+    header, and the chip read the identity's kind to suppress the stamp. The
+    producer no longer states the numbers, so the workaround went with them;
+    the chip reads no identity kind and never sniffs the extension.
   - **The move number was verified against XG, not against the converter.** XG
     exports a single position as `<match>_<game>_<move>.xgp`; reading the parent
     `.xg` through the converter, the only decision whose XGID matches
@@ -3581,17 +3704,19 @@ public (see Pitfalls). The externally visible surface is the route map:
   per-tab liveness flag.) The controller-side `HasStarted` guard in
   `Home.OnInitializedAsync` is the complementary defence, suppressing the
   notice on in-app navigation back mid-quiz.
-- **Cube decisions carry `Dice == [0, 0]` — never auto-skip them.**
-  `HasNoPlayChoice` runs `MoveGenerator.GeneratePlays` on the dice, and a cube
-  decision's `[0, 0]` produces the no-legal-play sentinel — so without the
-  `if (data.Decision.IsCube) return false;` guard at the top, every cube
-  decision is silently auto-skipped and the whole cube feature is invisible.
-  The guard is the first line; don't remove it.
-- **`BackgammonPlayEntry` is strict on decision type.** It throws
-  `NotImplementedException` on a cube decision, so `Quiz.razor`'s checker
-  route must be exact — a cube decision reaching it fails loudly at render.
-  The cube route renders a plain read-only `BackgammonDiagram` (no such
-  guard); routing by `IsCube` stays page-side.
+- **Only a checker-play decision can offer no play choice.** `HasNoPlayChoice`
+  asks `MoveGenerator.GeneratePlays` of a `CheckerPlayDecision`'s board and
+  roll, and answers false for anything else — a cube decision is the other
+  kind, has no roll at all, and is always shown. (It used to carry a `[0, 0]`
+  roll that, fed to the generator, produced the no-legal-play sentinel and
+  silently skipped every cube; the kinds being types is what retired that
+  guard, not a check.)
+- **`BackgammonPlayEntry` takes only a checker-play decision's own request.**
+  It refuses any other — a cube decision's, a board's, a working board's —
+  with an `ArgumentException` naming `Request` at render, so `Quiz.razor`'s
+  route by the record's kind must be exact. The cube route renders a plain
+  read-only `BackgammonDiagram` (no such guard); routing by kind stays
+  page-side.
 - **`BackgammonCubeActions.ValueChanged` is `[EditorRequired]`.** Omitting the
   `@bind-Value="_completedCube"` binding surfaces as `RZ2012` (→ error under
   `-warnaserror`), not a silent splat — unlike the play side's
@@ -3609,11 +3734,11 @@ public (see Pitfalls). The externally visible surface is the route map:
   `Quiz_CubeActions_ChosenThenSkip_NextProblemStartsClean_WithoutARemount`
   pins the same instance carrying over clean. Gating Submit on
   `_completedCube is null` is correct as is — that is "a pill chosen".
-- **`OfferTooGood` is `[EditorRequired]` and the page feeds it
-  `current.CanBeTooGood`, never a re-derivation.** The producer derives
-  the offerability fact once, on the record, from money / Jacoby / cube
-  owner together; a page-side `IsMoneyGame && IsJacoby == true && …` would
-  be a second spelling of that rule and drift the day it changes. Note the
+- **`OfferTooGood` is `[EditorRequired]` and the page feeds it the cube
+  record's `CanBeTooGood`, never a re-derivation.** The producer derives
+  the offerability fact once, on the record, from the session's Jacoby rule
+  and the cube owner together; a page-side test of those facts would be a
+  second spelling of that rule and drift the day it changes. Note the
   default `TestFixtures.CubeDecision()` is money, Jacoby on, cube **turned**
   (`CubeOwner.OnRoll`), so it offers the too-good pill; pass `cubeOwner:
   CubeOwner.Centered` for the withheld case.
@@ -3673,10 +3798,13 @@ public (see Pitfalls). The externally visible surface is the route map:
   not to re-widen the app type. The pages, in turn, **cannot** go internal:
   the router discovers routable components by scanning the assembly's *public*
   (`ExportedTypes`) surface — framework-required, not a missed narrowing.
-- **Off-list submission semantics.** A structurally-legal play absent from the
-  analyzer's candidate list counts as a skip, not a scoring miss — rare on
+- **Unscored submission semantics.** A legal play that is no candidate — the
+  producer's `OffList`, found by identity from the position, so no encoding of
+  a listed play is ever one — counts as a skip, not a scoring miss: rare on
   well-analyzed positions, and a signal of an analysis omission rather than
-  user error. Don't expect every user-submitted play to land in `History`.
+  user error. So does a candidate the run's ranking does not score (under depth
+  first, one analysed less deeply than the best that rated higher; SPEC-scoring
+  §2a). Don't expect every user-submitted play to land in `History`.
 - **Pass-position sentinel is not empty-list.** `MoveGenerator.GeneratePlays`
   signals "no legal play" with `count == 1 && plays[0].Count == 0`
   (a single zero-move Play, dice forfeited). Code that gates on
@@ -3715,8 +3843,9 @@ public (see Pitfalls). The externally visible surface is the route map:
   lifetime record**, an invariant that held for free while Continue was the only
   route to Done, and which Done's own "nothing here needs saving" line states to
   the user. A fourth fold site needs that same argument; a *silent* one would
-  break the line. Skips, off-list plays, practice submissions, and auto-skipped
-  no-choice positions never reach the sink at all (producer contract, plus §2).
+  break the line. Skips, off-list plays, plays the ranking does not score,
+  practice submissions, and auto-skipped no-choice positions never reach the
+  sink at all (producer contract, plus §2 and §2a).
 - **Never clear or rewrite the stored `QuizMix` outside the write-through.**
   The persisted mix (`xg_quizMix`) outlives any session that can't honor it: a
   refused weighted start, the per-run "Start/Restart without mix" override, a

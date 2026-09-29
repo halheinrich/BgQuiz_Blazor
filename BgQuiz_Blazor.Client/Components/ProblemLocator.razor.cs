@@ -1,4 +1,3 @@
-using BgDataTypes_Lib;
 using Microsoft.AspNetCore.Components;
 
 namespace BgQuiz_Blazor.Client.Components;
@@ -14,14 +13,30 @@ namespace BgQuiz_Blazor.Client.Components;
 /// to the position in eXtreme Gammon.
 ///
 /// <para>
-/// <b>Display only.</b> Every string it renders is read straight off the
-/// record's <c>DescriptiveData</c> as the converter stamped it; nothing is
-/// re-derived from the XGID or the <c>DecisionId</c>, and none of these facts
+/// <b>Display only.</b> Every fact it renders is the record's as the producer
+/// states it — <c>BgDecisionData.SourceFile</c>, <c>Game</c> and
+/// <c>MoveNumber</c>, each derived from the record's identity, the one place
+/// they are stored; nothing is re-derived here, and none of these facts
 /// enters <c>ProblemKey</c>, the dedupe, or the stats document —
 /// <c>SPEC-stats-identity.md</c> keys by content and dropped file position
 /// deliberately. There is no money-versus-match branch here either, by the
 /// same ruling: a locator that appeared only for money would be a second
 /// place encoding what counts as money, on a display surface.
+/// </para>
+///
+/// <para>
+/// <b>A standalone position has no coordinates, and the chip says nothing in
+/// their place</b> (<c>SPEC-quiz-view.md</c> §4 ruling (ii), issue
+/// <c>halheinrich/backgammon#115</c>; the producer's half,
+/// <c>halheinrich/backgammon#124</c>). An <c>.xgp</c> file holds one position,
+/// which belongs to no game, so the producer states its game and move numbers
+/// as "not applicable" — <see langword="null"/> — and the chip shows the file
+/// name alone: the file <i>is</i> the locator. The converter used to stamp such
+/// a record <c>Game 1 · Move 1</c> off a synthetic single-game header, true of
+/// the file and false of the position (XG's own export names one
+/// <c>match_2_37.xgp</c>), and this component carried a workaround that read
+/// the identity's kind to suppress it. The producer no longer states the
+/// numbers, so the workaround went with them.
 /// </para>
 ///
 /// <para>
@@ -69,83 +84,45 @@ public partial class ProblemLocator : ComponentBase
 
     /// <summary>
     /// The originating file name including its extension, as
-    /// <c>DescriptiveData.SourceFile</c> stamps it (no directory). Null or
-    /// blank — a source that recorded no name — hides the name half; callers
-    /// need not branch.
+    /// <c>BgDecisionData.SourceFile</c> states it (no directory). Every record
+    /// names its file; null or blank — a caller with no name to give — hides
+    /// the name half, so callers need not branch.
     /// </summary>
     [Parameter, EditorRequired]
     public string? SourceFile { get; set; }
 
     /// <summary>
     /// The 1-based game number within the source, from
-    /// <c>DescriptiveData.Game</c>. Below 1 means unstamped, and hides the
+    /// <c>BgDecisionData.Game</c>; <see langword="null"/> — "not applicable" —
+    /// for a standalone position, which belongs to no game. Null hides the
     /// coordinates half together with <see cref="MoveNumber"/>.
     /// </summary>
     [Parameter, EditorRequired]
-    public int Game { get; set; }
+    public int? Game { get; set; }
 
     /// <summary>
     /// The 1-based move number within the game, from
-    /// <c>DescriptiveData.MoveNumber</c>. A cube decision carries the number
-    /// of the play it precedes, which is the number eXtreme Gammon shows for
-    /// that cube — verified against XG's own
+    /// <c>BgDecisionData.MoveNumber</c>; <see langword="null"/> for a
+    /// standalone position, as <see cref="Game"/> is. A cube decision carries
+    /// the number of the play it precedes, which is the number eXtreme Gammon
+    /// shows for that cube — verified against XG's own
     /// <c>match_game_move.xgp</c> export naming rather than against the
     /// converter that stamps it (see <c>INSTRUCTIONS.md</c>).
     /// </summary>
     [Parameter, EditorRequired]
-    public int MoveNumber { get; set; }
-
-    /// <summary>
-    /// The record's stamped identity. Only its <b>kind</b> is read, and only
-    /// to answer one question: does this source have within-file coordinates
-    /// at all? See <see cref="SourceIsOnePosition"/>. Nothing is ever parsed
-    /// out of it, and none of the displayed strings come from it.
-    /// </summary>
-    [Parameter, EditorRequired]
-    public DecisionId? Source { get; set; }
+    public int? MoveNumber { get; set; }
 
     /// <summary>Whether the record names a file to show.</summary>
     private bool HasFileName => !string.IsNullOrWhiteSpace(SourceFile);
 
     /// <summary>
-    /// Whether the source is a <b>standalone position file</b> — one position,
-    /// exported by eXtreme Gammon on its own — in which case the file <i>is</i>
-    /// the locator and there is nothing within it to number
-    /// (<c>SPEC-quiz-view.md</c> §4 ruling (ii), issue
-    /// <c>halheinrich/backgammon#115</c>).
-    ///
-    /// <para>
-    /// This is not cosmetic. An <c>.xgp</c> carries a synthetic single-game
-    /// header, so the converter stamps <i>every</i> such record
-    /// <c>Game 1 · Move 1</c> — true of the file and false of the position:
-    /// XG's own export names them <c>match_2_37.xgp</c> and the position
-    /// really is game 2, move 37 of its match. Showing 1 · 1 would mislead by
-    /// implicature on the one surface whose whole job is to locate the
-    /// problem. (The wire's synthetic numbers are a producer wart, booked
-    /// separately; nothing here touches the producer.)
-    /// </para>
-    ///
-    /// <para>
-    /// The discriminant is the identity's <b>type</b>, read as a fact:
-    /// <see cref="XgpDecisionId"/> keys on a bare filename precisely
-    /// <i>because</i> there are no within-file coordinates to key on, whereas
-    /// <see cref="XgDecisionId"/> carries the game/move tuple. Sniffing the
-    /// file name's extension would be a second place encoding what an
-    /// <c>.xgp</c> is, and parsing the id's canonical string would be a second
-    /// reader of a grammar the producer owns. A source of any other shape —
-    /// including none supplied — is treated as carrying coordinates, and the
-    /// unstamped rung below still hides them when the record has none.
-    /// </para>
+    /// Whether the record states both coordinates. Both or neither: half a
+    /// pair locates nothing, and a lone "Game 3" would read as a move number to
+    /// anyone scanning the row. The producer states the two together — both
+    /// for a decision in a game, neither for a standalone position — so the
+    /// "neither" half is how a standalone position shows its file name alone.
     /// </summary>
-    private bool SourceIsOnePosition => Source is XgpDecisionId;
-
-    /// <summary>
-    /// Whether the record carries both coordinates, and they mean something.
-    /// Both or neither: half a pair locates nothing, and a lone "Game 3" would
-    /// read as a move number to anyone scanning the row.
-    /// </summary>
-    private bool HasCoordinates =>
-        !SourceIsOnePosition && Game >= 1 && MoveNumber >= 1;
+    private bool HasCoordinates => Game is not null && MoveNumber is not null;
 
     /// <summary>The coordinates, in the reader's terms.</summary>
     private string WhereText =>

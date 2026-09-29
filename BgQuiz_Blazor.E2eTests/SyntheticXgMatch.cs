@@ -78,9 +78,10 @@ internal static class SyntheticXgMatch
     /// <summary>
     /// Games recorded before the one holding the cube decision. One, so the
     /// coordinates the chip shows are <b>non-degenerate</b>: an <c>.xgp</c>'s
-    /// synthetic header stamps every record <c>Game 1 · Move 1</c>, and a
-    /// fixture that also read 1 · 1 could not tell the two branches of ruling
-    /// (ii) apart.
+    /// synthetic header used to stamp every record <c>Game 1 · Move 1</c>
+    /// (a standalone position states none now, halheinrich/backgammon#124),
+    /// and numbers that are neither 1 nor each other are what make a pin on
+    /// them read the record's facts rather than a default.
     /// </summary>
     private const int GamesBeforeTheCubeGame = 1;
 

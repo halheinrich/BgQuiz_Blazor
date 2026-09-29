@@ -42,17 +42,22 @@ public class QuizStatsStoreTests
     /// only thing that separates records now that identity is content, not
     /// provenance (the file a decision came from is no longer part of it).
     /// </summary>
-    private static ProblemKey PlayKey(int problem = 0) =>
-        TestFixtures.KeyOf(TestFixtures.TwoChoiceDecision(
-            Play.Create(new(8, 5)), Play.Create(new(13, 10)), away: problem));
+    private static ProblemKey PlayKey(int problem = 0) => ProblemKey.From(PlayProblem(problem));
+
+    /// <summary>The checker-play problem <paramref name="problem"/> names — see <see cref="PlayKey"/>.</summary>
+    private static CheckerPlayDecision PlayProblem(int problem) =>
+        TestFixtures.TwoChoiceDecision(
+            TestFixtures.OpeningBest(), TestFixtures.OpeningAlternative(), away: problem);
 
     /// <summary>The cube analog of <see cref="PlayKey"/>; a cube key never collides with a play key (no dice field).</summary>
     private static ProblemKey CubeKey(int problem = 0) =>
-        TestFixtures.KeyOf(TestFixtures.CubeDecision(away: problem));
+        ProblemKey.From(TestFixtures.CubeDecision(away: problem));
 
     private static SubmittedPlay PlaySubmission(int problem = 0, bool correct = true) =>
-        new(PlayKey(problem), Play.Create(new(8, 5)), 0,
-            correct ? 0.0 : 0.05, correct);
+        TestFixtures.Scored(
+            PlayProblem(problem),
+            correct ? TestFixtures.OpeningBest() : TestFixtures.OpeningAlternative(),
+            PlayRanking.Equity);
 
     private static SubmittedCubeAction CubeSubmission(int problem = 0) =>
         SubmittedCubeAction.From(
@@ -855,31 +860,6 @@ public class QuizStatsStoreTests
         Assert.NotNull(written);
         Assert.Equal(2, written.Count);
         Assert.Contains(PlayKey(1), written.Problems.Keys);
-    }
-
-    [Fact]
-    public async Task Record_NoKeySubmission_ScoresTheSessionButIsAbsentFromTheDocument()
-    {
-        // The no-key rung's consumer end (SPEC-stats-identity.md §2): a
-        // submission carrying no key never reaches the lifetime record. The
-        // store neither blocks it nor branches on it — the producer's document
-        // performs the skip, and the surrounding folds are untouched by it.
-        var fake = new FakeFolderAccess();
-        var store = MakeStore(fake);
-        await store.BeginQuizAsync();
-
-        await store.RecordAsync(new SubmittedPlay(
-            null, Play.Create(new(8, 5)), 0, 0.0, IsCorrect: true));
-
-        var afterNoKey = JsonSerializer.Deserialize<ProblemStatsDocument>(fake.Writes[^1]);
-        Assert.NotNull(afterNoKey);
-        Assert.Equal(0, afterNoKey.Count);
-
-        // …and a keyed submission either side of it still records normally.
-        await store.RecordAsync(PlaySubmission());
-        var written = JsonSerializer.Deserialize<ProblemStatsDocument>(fake.Writes[^1]);
-        Assert.NotNull(written);
-        Assert.Equal(PlayKey(), Assert.Single(written.Problems).Key);
     }
 
     [Fact]

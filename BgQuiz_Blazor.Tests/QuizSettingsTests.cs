@@ -139,22 +139,21 @@ public class QuizSettingsTests : BunitContext
     // -----------------------------------------------------------------------
 
     [Theory]
-    [InlineData(false, CandidateOrdering.Equity)]
-    [InlineData(true, CandidateOrdering.DepthFirst)]
-    public async Task DepthFirstSetting_ProjectsToTheRequestsCandidateOrdering(
-        bool depthFirst, CandidateOrdering expected)
+    [InlineData(false, PlayRanking.Equity)]
+    [InlineData(true, PlayRanking.DepthFirst)]
+    public async Task DepthFirstSetting_ProjectsToTheQuizRanking(
+        bool depthFirst, PlayRanking expected)
     {
-        // Off is the producer's Equity — its OWN default, which it defines as
-        // the caller's list order rendered unchanged. That equality is what
-        // lets the call site assign this unconditionally instead of branching
-        // on the setting; if off ever stopped meaning Equity, the "passing the
-        // default is passing nothing" claim in Quiz.BuildSolutionRequest would
-        // become false and this is where it fails.
+        // The sorting setting IS the ranking (SPEC-scoring.md §2a): off is the
+        // producers' Equity, on is DepthFirst, and this projection is the one
+        // place the choice becomes what the controller is started with. Both
+        // rows matter — Equity is also every producer's default, so the off row
+        // alone could not tell this projection from a caller that never asked.
         var settings = NewSettings();
 
         await settings.SetSortAnalysisByDepthFirstAsync(depthFirst);
 
-        Assert.Equal(expected, settings.EffectiveCandidateOrdering);
+        Assert.Equal(expected, settings.Ranking);
     }
 
     [Fact]
@@ -310,15 +309,15 @@ public class QuizSettingsTests : BunitContext
     [Fact]
     public void FreshSettings_AskTheProducerForNothing()
     {
-        // The defaults restated as what the RENDERER is asked for, which is the
-        // form the no-visual-change promise actually takes: a user who never
-        // opens the Settings page produces a request carrying the producer's own
-        // Equity/null, i.e. one indistinguishable from a request built before
-        // either option existed. Deliberately separate from the bool defaults
-        // above — those would stay green if a projection were inverted.
+        // The defaults restated as what the PRODUCERS are handed, which is the
+        // form the no-change promise actually takes: a user who never opens the
+        // Settings page starts every quiz under the producers' own Equity
+        // ranking and hides nothing — scored and drawn exactly as before either
+        // option existed. Deliberately separate from the bool defaults above —
+        // those would stay green if a projection were inverted.
         var settings = NewSettings();
 
-        Assert.Equal(CandidateOrdering.Equity, settings.EffectiveCandidateOrdering);
+        Assert.Equal(PlayRanking.Equity, settings.Ranking);
         Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
     }
 
@@ -573,7 +572,7 @@ public class QuizSettingsTests : BunitContext
         await settings.EnsureHydratedAsync();
 
         Assert.False(settings.SortAnalysisByDepthFirst);
-        Assert.Equal(CandidateOrdering.Equity, settings.EffectiveCandidateOrdering);
+        Assert.Equal(PlayRanking.Equity, settings.Ranking);
         Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
 
         Assert.False(settings.HomeBoardOnRight);
@@ -586,8 +585,9 @@ public class QuizSettingsTests : BunitContext
     public async Task Hydrate_StoredDepthTreatment_SurvivesIntoWhatTheProducerIsAsked()
     {
         // The round trip that matters to the user: the choice they made last
-        // session is what the renderer is asked for this session. The ordering is
-        // pinned through its projection rather than its bool, because the bool
+        // session is what the quiz is started with this session — a stored
+        // depth-first choice keeps meaning depth first, now as the ranking. The
+        // ranking is pinned through its projection rather than its bool, because the bool
         // round-tripping is already asserted above and would stay green if the
         // projection stopped reading it. The ceiling has no projection to go
         // stale — it IS what the producer is asked for.
@@ -599,7 +599,7 @@ public class QuizSettingsTests : BunitContext
 
         await settings.EnsureHydratedAsync();
 
-        Assert.Equal(CandidateOrdering.DepthFirst, settings.EffectiveCandidateOrdering);
+        Assert.Equal(PlayRanking.DepthFirst, settings.Ranking);
         Assert.Equal(AnalysisLevel.XgRoller, settings.MaximumHiddenCandidateAnalysisLevel);
     }
 

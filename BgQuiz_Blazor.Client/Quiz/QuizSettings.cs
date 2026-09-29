@@ -1,6 +1,7 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
 using System.Buffers;
+using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
 using BackgammonDiagram_Lib;
@@ -12,8 +13,9 @@ using XgFilter_Razor;
 /// The per-app (Scoped, one-per-tab in WASM) <b>user settings</b> the
 /// <c>Settings</c> page edits: which side the home board renders on, whether
 /// that side is re-rolled per problem, whether the board is maximized while the
-/// user answers, how the solution's candidate list is ordered and which shallow
-/// evaluations are left out of it, whether quizzes are drawn by the weighted
+/// user answers, which ranking decides the best checker play (and so the
+/// solution's candidate order) and which shallow evaluations are left out of
+/// the solution's list, whether quizzes are drawn by the weighted
 /// mix, and whether the navigation panel stays folded. Every setting is recorded and persisted the
 /// moment it is changed — there is no Apply gesture anywhere in this service.
 /// When each becomes <i>visible</i> is a separate question, and the fold answers
@@ -45,16 +47,18 @@ using XgFilter_Razor;
 ///
 /// <para>
 /// <b>The producer's vocabulary is spoken here, never at a call site.</b> Two of
-/// these settings mean a producer type: the review diagram's candidate ordering
-/// and the depth ceiling below which candidates are hidden (issues
-/// <c>halheinrich/backgammon#150</c> and <c>halheinrich/backgammon#66</c>). They
-/// are deliberately shaped differently, and the difference is the whole lesson.
-/// The ordering is a <b>checkbox</b>, so it is exposed twice — the stored
-/// <c>bool</c> the control binds to, and the <see cref="DiagramRequest"/>-shaped
-/// projection the request is built from
-/// (<see cref="EffectiveCandidateOrdering"/>) — for the reason
-/// <see cref="EffectiveHomeBoardOnRight"/> exists: the rule that turns a choice
-/// into what the renderer is asked for belongs in exactly one place.
+/// these settings mean a producer type: the ranking, which decides the best
+/// checker play and with it every play's error and the solution's order
+/// (<c>SPEC-scoring.md</c> §2a, issue <c>halheinrich/backgammon#282</c>; it began
+/// as the review's ordering, <c>halheinrich/backgammon#150</c>), and the depth
+/// ceiling below which candidates are hidden (<c>halheinrich/backgammon#66</c>).
+/// They are deliberately shaped differently, and the difference is the whole
+/// lesson. The ranking is a <b>checkbox</b>, so it is exposed twice — the stored
+/// <c>bool</c> the control binds to, and the producer's
+/// <see cref="PlayRanking"/> the quiz is started with (<see cref="Ranking"/>) —
+/// for the reason <see cref="EffectiveHomeBoardOnRight"/> exists: the rule that
+/// turns a choice into what the producers are handed belongs in exactly one
+/// place.
 /// </para>
 ///
 /// <para>
@@ -156,19 +160,25 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// <see cref="AnalysisLevel.Unknown"/> is the one exclusion, and it is the
     /// producer's rule rather than a UI preference: clause (a) of the level
     /// contract puts Unknown <i>outside</i> the rigor scale — it means "level
-    /// not recorded", so it is never a threshold, and
-    /// <see cref="DiagramRequest.Builder.Build"/> rejects it outright. "Hide
-    /// nothing" is spelled <c>null</c>, never Unknown.
+    /// not recorded", so it is never a threshold, and a
+    /// <see cref="DiagramRequest"/> refuses it where
+    /// <see cref="DiagramRequest.MaximumHiddenCandidateAnalysisLevel"/> is set.
+    /// "Hide nothing" is spelled <c>null</c>, never Unknown.
     /// </para>
     ///
     /// <para>
     /// This is the dropdown's whole content and the only place the offered set
     /// is decided: the page renders it and <see cref="LevelFromToken"/> is bound
-    /// by it, so neither can drift from the other or from the enum.
+    /// by it, so neither can drift from the other or from the enum. An
+    /// immutable array, because every reader shares the one instance: an array
+    /// behind a read-only interface could be cast back and written, and a
+    /// write would change both the page's options and what
+    /// <see cref="SetMaximumHiddenCandidateAnalysisLevelAsync"/> accepts
+    /// (halheinrich/backgammon#273's collection rider).
     /// </para>
     /// </summary>
-    public static IReadOnlyList<AnalysisLevel> HideableLevels { get; } =
-        Enum.GetValues<AnalysisLevel>().Where(l => l != AnalysisLevel.Unknown).ToArray();
+    public static ImmutableArray<AnalysisLevel> HideableLevels { get; } =
+        [.. Enum.GetValues<AnalysisLevel>().Where(l => l != AnalysisLevel.Unknown)];
 
     /// <summary>
     /// The global the <c>navFold.js</c> applier publishes — the only way to move
@@ -239,17 +249,28 @@ internal sealed class QuizSettings(IJSRuntime js)
         DefaultMaximizeBoardWhileAnswering;
 
     /// <summary>
-    /// True when the user wants the solution's candidate list ordered by how
-    /// deeply each play was analyzed rather than by equity — the reviewer's ask
-    /// behind issue <c>halheinrich/backgammon#150</c>. Someone who rolls out the
-    /// best play of each thematic category then has to hunt those rollouts back
-    /// out of an equity order that scatters them; depth-first puts the analysis
-    /// they came to read at the top.
+    /// True when the user wants the checker plays ranked by how deeply each was
+    /// analyzed before their equity — the reviewer's ask behind issue
+    /// <c>halheinrich/backgammon#150</c>. Someone who rolls out the best play of
+    /// each thematic category then has to hunt those rollouts back out of an
+    /// equity order that scatters them; depth-first puts the analysis they came
+    /// to read at the top.
     ///
     /// <para>
-    /// The stored choice only. What the request carries is
-    /// <see cref="EffectiveCandidateOrdering"/>, and no call site maps between
-    /// the two.
+    /// <b>It is the ranking, not only the order</b> (<c>SPEC-scoring.md</c> §2a,
+    /// ruled 2026-09-26 on <c>halheinrich/backgammon#282</c>): the play-sorting
+    /// setting decides which play is best, the solution's order and rank
+    /// numbers, and every checker play's error — so under depth first a play is
+    /// scored against the deepest analysis's best, and a shallower play that
+    /// rated higher is not scored at all. What it began as, a review ordering,
+    /// is one of its consequences.
+    /// </para>
+    ///
+    /// <para>
+    /// The stored choice only. What the quiz is started with is
+    /// <see cref="Ranking"/>, and no call site maps between the two. The field's
+    /// wire name and meaning are unchanged from the ordering era — true is depth
+    /// first — so a stored choice keeps meaning what the user chose.
     /// </para>
     /// </summary>
     public bool SortAnalysisByDepthFirst { get; private set; } =
@@ -356,21 +377,32 @@ internal sealed class QuizSettings(IJSRuntime js)
         RandomizeSidePerProblem ? randomSide : HomeBoardOnRight;
 
     /// <summary>
-    /// <see cref="SortAnalysisByDepthFirst"/> as the review request's
-    /// <see cref="DiagramRequest.CandidateOrdering"/> — the
-    /// <see cref="EffectiveHomeBoardOnRight"/> discipline applied to a setting
-    /// whose two answers are a producer enum.
+    /// <see cref="SortAnalysisByDepthFirst"/> as the producers'
+    /// <see cref="PlayRanking"/> — <b>the quiz's one ranking</b>
+    /// (<c>SPEC-scoring.md</c> §2a: "BgQuiz holds the setting and passes it to
+    /// everything above"). The <see cref="EffectiveHomeBoardOnRight"/>
+    /// discipline applied to a setting whose two answers are a producer enum.
     ///
     /// <para>
-    /// Off is <see cref="CandidateOrdering.Equity"/>, which the producer defines
-    /// as the caller's list order rendered unchanged. So a request built from
-    /// this with the setting off is byte-identical to one that never mentioned
-    /// ordering, and the call site needs no "leave it alone" branch — passing
-    /// the default <i>is</i> passing nothing.
+    /// <b>Read where a quiz begins, and nowhere else.</b> The pages hand this to
+    /// <see cref="QuizController.StartAsync"/>,
+    /// <see cref="QuizController.RestartAsync"/> and
+    /// <see cref="QuizController.SummarizeMatchesAsync"/>, and the controller
+    /// passes the run's ranking to every producer operation whose meaning
+    /// depends on one — the problem filter, scoring, and the diagrams, answering
+    /// board and entry included. One quiz has one ranking, so a change made
+    /// mid-quiz takes effect at the next Start or Restart, and nothing already
+    /// scored is scored again.
+    /// </para>
+    ///
+    /// <para>
+    /// Off is <see cref="PlayRanking.Equity"/>, the producers' own default —
+    /// which is exactly why no producer's default may stand in for this: the two
+    /// agree only while the setting is off.
     /// </para>
     /// </summary>
-    public CandidateOrdering EffectiveCandidateOrdering =>
-        SortAnalysisByDepthFirst ? CandidateOrdering.DepthFirst : CandidateOrdering.Equity;
+    public PlayRanking Ranking =>
+        SortAnalysisByDepthFirst ? PlayRanking.DepthFirst : PlayRanking.Equity;
 
     /// <summary>
     /// The <see cref="MaximumHiddenCandidateAnalysisLevel"/> token vocabulary's
@@ -468,9 +500,11 @@ internal sealed class QuizSettings(IJSRuntime js)
     }
 
     /// <summary>
-    /// Record the depth-first ordering choice, applying and persisting
-    /// immediately. Like every setting but the fold there is nothing to defer:
-    /// the next solution the user reads is built from the new value.
+    /// Record the depth-first ranking choice, persisting immediately. It takes
+    /// effect where a quiz begins — the next Start or Restart — because a quiz
+    /// has one ranking (see <see cref="Ranking"/>); a quiz already running keeps
+    /// the ranking it began with, so its scores and its solutions never
+    /// disagree.
     /// </summary>
     public Task SetSortAnalysisByDepthFirstAsync(bool value)
     {
@@ -492,8 +526,10 @@ internal sealed class QuizSettings(IJSRuntime js)
     }
 
     /// <summary>
-    /// Record the hide ceiling, applying and persisting immediately — the same
-    /// non-deferral as <see cref="SetSortAnalysisByDepthFirstAsync"/>.
+    /// Record the hide ceiling, applying and persisting immediately. Like every
+    /// setting but the fold and the ranking there is nothing to defer: the next
+    /// solution the user reads is drawn with the new value, and hiding a row
+    /// changes no score.
     /// </summary>
     /// <param name="value">
     /// A member of <see cref="HideableLevels"/>, or <c>null</c> to hide nothing.
@@ -504,7 +540,7 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// unusable argument — the others take a <c>bool</c>, which has no invalid
     /// value — and refusing it is what keeps
     /// <see cref="MaximumHiddenCandidateAnalysisLevel"/> unable to hold anything
-    /// <see cref="DiagramRequest.Builder.Build"/> would throw on. Unreachable
+    /// a <see cref="DiagramRequest"/> would refuse. Unreachable
     /// from the Settings page, whose every option comes from
     /// <see cref="HideableLevels"/> and is read back through
     /// <see cref="LevelFromToken"/>; that is what a guard should look like.
@@ -684,9 +720,10 @@ internal sealed class QuizSettings(IJSRuntime js)
             maximizeBoardWhileAnswering =
                 ReadBool(root, MaximizeBoardWhileAnsweringField, DefaultMaximizeBoardWhileAnswering);
             // Both absent from every payload written before the depth treatment,
-            // and both defaulting to "untreated" — so an entry from an older
-            // build restores to exactly today's rendering, which is what lets
-            // these ship with no migration and no version stamp.
+            // and both defaulting to "untreated" — the equity ranking, nothing
+            // hidden — so an entry from an older build restores to exactly
+            // today's scoring and rendering, which is what lets these ship with
+            // no migration and no version stamp.
             sortAnalysisByDepthFirst =
                 ReadBool(root, SortAnalysisByDepthFirstField, DefaultSortAnalysisByDepthFirst);
             maximumHiddenCandidateAnalysisLevel = ReadLevel(

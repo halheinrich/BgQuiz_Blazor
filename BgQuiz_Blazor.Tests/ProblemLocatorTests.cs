@@ -1,4 +1,3 @@
-using BgDataTypes_Lib;
 using BgQuiz_Blazor.Client.Components;
 using Bunit;
 
@@ -22,25 +21,17 @@ namespace BgQuiz_Blazor.Tests;
 public class ProblemLocatorTests : BunitContext
 {
     /// <summary>
-    /// A multi-decision <c>.xg</c> source — the shape that <i>has</i> within-file
-    /// coordinates. Spelled with the same file name the <c>SourceFile</c>
-    /// argument carries, because a record whose identity and provenance
-    /// disagreed about the file would not be a record this app can produce.
+    /// The chip over a record's three facts. The defaults are a decision in a
+    /// game — the shape with coordinates; a standalone position passes
+    /// <see langword="null"/> for both numbers, as the producer states them
+    /// (halheinrich/backgammon#124).
     /// </summary>
-    private static DecisionId FromMatch(string sourceFile) =>
-        new XgDecisionId(sourceFile, Game: 3, MoveNumber: 12, IsCube: false);
-
-    /// <summary>A standalone <c>.xgp</c> position — no coordinates to have.</summary>
-    private static DecisionId FromOnePosition(string sourceFile) =>
-        new XgpDecisionId(sourceFile);
-
     private IRenderedComponent<ProblemLocator> Locator(
-        string? sourceFile, int game = 3, int moveNumber = 12, DecisionId? source = null) =>
+        string? sourceFile, int? game = 3, int? moveNumber = 12) =>
         Render<ProblemLocator>(p => p
             .Add(c => c.SourceFile, sourceFile)
             .Add(c => c.Game, game)
-            .Add(c => c.MoveNumber, moveNumber)
-            .Add(c => c.Source, source ?? FromMatch(sourceFile ?? "match.xg")));
+            .Add(c => c.MoveNumber, moveNumber));
 
     /// <summary>The visible, shortened name — the aria-hidden twin.</summary>
     private static string VisibleName(IRenderedComponent<ProblemLocator> cut) =>
@@ -147,9 +138,9 @@ public class ProblemLocatorTests : BunitContext
     }
 
     [Theory]
-    [InlineData(0, 12)]   // unstamped game
-    [InlineData(3, 0)]    // unstamped move
-    public void PartialCoordinates_ShowNeither(int game, int moveNumber)
+    [InlineData(null, 12)]   // no game
+    [InlineData(3, null)]    // no move
+    public void PartialCoordinates_ShowNeither(int? game, int? moveNumber)
     {
         // Both or neither: half a pair locates nothing, and a lone "Game 3"
         // would read as a move number to anyone scanning the row.
@@ -168,67 +159,50 @@ public class ProblemLocatorTests : BunitContext
         // The XgidLabel contract, restated for this chip: a record that locates
         // nothing produces no element, so a host may bind it unconditionally —
         // and so the cluster's ms-auto may not live on it.
-        var cut = Locator(sourceFile, game: 0, moveNumber: 0);
+        var cut = Locator(sourceFile, game: null, moveNumber: null);
 
         Assert.Empty(cut.Markup.Trim());
     }
 
     [Fact]
-    public void MatchSource_ShowsTheCoordinates()
+    public void DecisionInAGame_ShowsTheFileAndItsCoordinates()
     {
-        // The .xg branch of SPEC-quiz-view.md §4's ruling (ii): a multi-decision
-        // source has real within-file coordinates, verified against XG's own
+        // The .xg branch of SPEC-quiz-view.md §4's ruling (ii): a decision in a
+        // match has real within-file coordinates, verified against XG's own
         // <match>_<game>_<move>.xgp export naming, so the chip shows them.
-        var cut = Locator("match.xg", source: FromMatch("match.xg"));
+        var cut = Locator("match.xg", game: 3, moveNumber: 12);
 
         Assert.Equal("match", VisibleName(cut));
         Assert.Equal("Game 3 · Move 12", cut.Find(".problem-locator-where").TextContent);
     }
 
     [Fact]
-    public void OnePositionSource_ShowsTheFileNameAlone()
+    public void StandalonePosition_ShowsTheFileNameAlone()
     {
-        // The .xgp branch. The record still CARRIES coordinates — the converter
-        // stamps every standalone position Game 1 · Move 1 off a synthetic game
-        // header — and they are exactly what must not be shown: XG's own export
-        // names such a file "match_2_37.xgp", so 1 · 1 would contradict the file
-        // name sitting beside it. The file is the locator; there is nothing
-        // within it to number.
-        //
-        // Note the coordinates passed in are the app's real ones, not zeroes:
-        // this pin fails if the suppression is quietly resting on the unstamped
-        // rung rather than on the source's kind.
-        var cut = Locator("match_2_37.xgp", game: 1, moveNumber: 1,
-                          source: FromOnePosition("match_2_37.xgp"));
+        // The .xgp branch. A standalone position belongs to no game, so the
+        // producer states its game and move as "not applicable" — null — and
+        // the chip says nothing in their place (halheinrich/backgammon#124): the
+        // file is the locator, and XG's own export names such a file
+        // "match_2_37.xgp", so no number could be true beside it.
+        var cut = Locator("match_2_37.xgp", game: null, moveNumber: null);
 
         Assert.Equal("match_2_37", VisibleName(cut));
         Assert.Empty(cut.FindAll(".problem-locator-where"));
     }
 
     [Fact]
-    public void OnePositionSource_IsDiscriminatedByKind_NotByExtension()
+    public void Coordinates_FollowTheRecordsNumbers_NotTheFileExtension()
     {
-        // The ruled discriminant, pinned as such. These two records disagree on
-        // ONLY the identity's type — same name, same numbers — so a component
-        // that sniffed the ".xgp" in the file name, or parsed the id's canonical
-        // string, would answer the same way for both and fail here. (The pairing
-        // is deliberately impossible in production; that is what makes it a
-        // clean instrument for the claim.)
+        // What decides whether coordinates show is whether the record states
+        // them, and nothing else: the chip reads no identity kind any more, and
+        // it never sniffs the extension. These two disagree on ONLY the numbers
+        // — same name — so a component that answered from the ".xgp" in the
+        // name would answer the same way for both and fail here. (The first
+        // pairing is impossible in production; that is what makes it a clean
+        // instrument for the claim.)
         const string name = "ambiguous.xgp";
 
-        Assert.NotEmpty(Locator(name, source: FromMatch(name)).FindAll(".problem-locator-where"));
-        Assert.Empty(Locator(name, source: FromOnePosition(name)).FindAll(".problem-locator-where"));
-    }
-
-    [Fact]
-    public void OnePositionSource_WithNoFileName_RendersNothingAtAll()
-    {
-        // The two suppressions compose: an .xgp shows its name, so an .xgp with
-        // no name has nothing left to show — and must not fall back to the
-        // synthetic numbers it is still carrying.
-        var cut = Locator(null, game: 1, moveNumber: 1,
-                          source: FromOnePosition("unnamed.xgp"));
-
-        Assert.Empty(cut.Markup.Trim());
+        Assert.NotEmpty(Locator(name, game: 3, moveNumber: 12).FindAll(".problem-locator-where"));
+        Assert.Empty(Locator(name, game: null, moveNumber: null).FindAll(".problem-locator-where"));
     }
 }

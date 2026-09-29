@@ -24,7 +24,7 @@
     </div>
     <div class="card-body">
 
-        @if (Draft.Rows.Count == 0)
+        @if (Draft.Rows.IsEmpty)
         {
             <p class="text-muted small">
                 No mix: the quiz takes every matching problem, as usual. Add a
@@ -41,7 +41,7 @@
             </p>
         }
 
-        @for (var i = 0; i < Draft.Rows.Count; i++)
+        @for (var i = 0; i < Draft.Rows.Length; i++)
         {
             var row = Draft.Rows[i];
             var index = i; // capture per iteration for the lambdas below
@@ -83,7 +83,7 @@
                     <button type="button" class="btn btn-outline-secondary" title="Move up"
                             disabled="@(index == 0)" @onclick="() => Draft.MoveRowAsync(index, -1)">↑</button>
                     <button type="button" class="btn btn-outline-secondary" title="Move down"
-                            disabled="@(index == Draft.Rows.Count - 1)" @onclick="() => Draft.MoveRowAsync(index, +1)">↓</button>
+                            disabled="@(index == Draft.Rows.Length - 1)" @onclick="() => Draft.MoveRowAsync(index, +1)">↓</button>
                     @* Removing the last row is an edit like any other now: the
                        blank draft builds the blank mix, which the write-through
                        persists — no auto-commit path, nothing gates Start,
@@ -108,7 +108,7 @@
                     @onclick="Draft.AddRowAsync">
                 Add category
             </button>
-            @if (Draft.Rows.Count > 0)
+            @if (!Draft.Rows.IsEmpty)
             {
                 <span class="small @(Draft.PercentSum == 100 ? "text-muted" : "text-danger")">
                     Total: @Draft.PercentSum% @(Draft.PercentSum == 100 ? "" : "— must reach 100%")
@@ -118,7 +118,7 @@
 
         <div class="mb-2 form-check form-switch">
             <input class="form-check-input" type="checkbox" id="mixRandomOrder"
-                   checked="@Draft.RandomOrder" disabled="@(Draft.Rows.Count == 0)"
+                   checked="@Draft.RandomOrder" disabled="@(Draft.Rows.IsEmpty)"
                    @onchange="e => Draft.SetRandomOrderAsync(e.Value is true)" />
             <label class="form-check-label" for="mixRandomOrder">
                 Random order
@@ -130,12 +130,12 @@
             <label class="form-label" for="mixQuizLength">
                 Quiz length
                 <small class="text-muted">
-                    (blank = every problem the categories reach@(Draft.Rows.Count == 0 ? "; needs at least one category" : ""))
+                    (blank = every problem the categories reach@(Draft.Rows.IsEmpty ? "; needs at least one category" : ""))
                 </small>
             </label>
             <input class="form-control" style="max-width:140px" id="mixQuizLength"
                    type="number" min="1" placeholder="No cap"
-                   disabled="@(Draft.Rows.Count == 0)"
+                   disabled="@(Draft.Rows.IsEmpty)"
                    value="@Draft.LengthText"
                    @oninput="e => Draft.SetLengthTextAsync(e.Value?.ToString() ?? string.Empty)" />
         </div>

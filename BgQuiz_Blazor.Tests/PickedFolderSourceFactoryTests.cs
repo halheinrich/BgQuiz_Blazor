@@ -1,4 +1,5 @@
-﻿using BgDataTypes_Lib;
+﻿using System.Collections.Immutable;
+using BgDataTypes_Lib;
 using BgFolderAccess_Razor;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
@@ -30,18 +31,20 @@ public class PickedFolderSourceFactoryTests
                 "..", "..", "..", "..", "..", "TestData", "xg"));
 
     /// <summary>Up to <paramref name="take"/> corpus files read into memory as picked files.</summary>
-    private static IReadOnlyList<PickedFile> CorpusFiles(int take = 3)
+    private static ImmutableArray<PickedFile> CorpusFiles(int take = 3)
     {
         if (!Directory.Exists(CorpusDirectory)) return [];
-        return Directory.EnumerateFiles(CorpusDirectory, "*.xg")
-            .Concat(Directory.EnumerateFiles(CorpusDirectory, "*.xgp"))
-            .Take(take)
-            .Select(p => new PickedFile(Path.GetFileName(p), File.ReadAllBytes(p)))
-            .ToList();
+        return
+        [
+            .. Directory.EnumerateFiles(CorpusDirectory, "*.xg")
+                .Concat(Directory.EnumerateFiles(CorpusDirectory, "*.xgp"))
+                .Take(take)
+                .Select(p => new PickedFile(Path.GetFileName(p), [.. File.ReadAllBytes(p)])),
+        ];
     }
 
     /// <summary>A holder standing on <paramref name="files"/>, as a landed pick would leave it.</summary>
-    private static PickedProblemFolder HolderOver(IReadOnlyList<PickedFile> files)
+    private static PickedProblemFolder HolderOver(ImmutableArray<PickedFile> files)
     {
         var picked = new PickedProblemFolder();
         picked.Set("corpus", files, FolderWriteCapability.BrowserUnsupported, []);
@@ -87,12 +90,12 @@ public class PickedFolderSourceFactoryTests
         // The whole path Program.cs wires: the registered composition over the
         // picked set drives QuizController.StartAsync to a first problem.
         var files = CorpusFiles();
-        if (files.Count == 0) return; // corpus may be empty in CI
+        if (files.IsEmpty) return; // corpus may be empty in CI
 
         var factory = FactoryOver(HolderOver(files), new ShuffleOption());
         var controller = new QuizController(factory, new FakeProblemStatsSink(), TimeProvider.System);
 
-        await controller.StartAsync(new FilterConfig(), QuizMix.Empty);
+        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         Assert.True(controller.HasStarted);
         // A real corpus yields at least one non-pass decision; if every decision
@@ -111,7 +114,7 @@ public class PickedFolderSourceFactoryTests
         // non-blank mix, the factory hands back the unshuffled stack:
         // enumeration order equals the shuffle-OFF order.
         var files = CorpusFiles();
-        if (files.Count == 0) return;
+        if (files.IsEmpty) return;
 
         var picked = HolderOver(files);
         var shuffle = new ShuffleOption();
@@ -124,11 +127,11 @@ public class PickedFolderSourceFactoryTests
         // and the corpus repeats early positions across matches, so a raw-parse
         // baseline would differ here for a reason that has nothing to do with
         // shuffle arbitration.
-        var plainOrder = await CollectAllAsync(factory(new DecisionFilterSet(), QuizMix.Empty));
+        var plainOrder = await CollectAllAsync(factory(new DecisionFilterSet(), PlayRanking.Equity, QuizMix.Empty));
         if (plainOrder.Count < 2) return; // suppression unobservable over <2 items
 
         shuffle.Set(true);
-        var underMixOrder = await CollectAllAsync(factory(new DecisionFilterSet(), activeMix));
+        var underMixOrder = await CollectAllAsync(factory(new DecisionFilterSet(), PlayRanking.Equity, activeMix));
 
         Assert.Equal(plainOrder.Select(d => d.Id), underMixOrder.Select(d => d.Id));
     }
@@ -146,26 +149,58 @@ public class PickedFolderSourceFactoryTests
         // against the real thing by the sibling test above; what this one adds
         // is that a wrapped source reorders at all.
         var files = CorpusFiles();
-        if (files.Count == 0) return;
+        if (files.IsEmpty) return;
 
         var picked = HolderOver(files);
         var shuffle = new ShuffleOption();
-        ProblemSetSourceFactory seededFactory = (filters, mix) =>
+        ProblemSetSourceFactory seededFactory = (filters, ranking, mix) =>
         {
             IProblemSetSource inner = new CachedProblemSetSource(
-                picked, filters, NullLoggerFactory.Instance, TimeProvider.System);
+                picked, filters, ranking, NullLoggerFactory.Instance, TimeProvider.System);
             return TestFixtures.Composed(
                 mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner, seed: 42) : inner);
         };
 
-        var unshuffledOrder = await CollectAllAsync(seededFactory(new DecisionFilterSet(), QuizMix.Empty));
+        var unshuffledOrder = await CollectAllAsync(seededFactory(new DecisionFilterSet(), PlayRanking.Equity, QuizMix.Empty));
         if (unshuffledOrder.Count < 2) return; // can't observe a shuffle over <2 items
 
         shuffle.Set(true);
-        var shuffledOrder = await CollectAllAsync(seededFactory(new DecisionFilterSet(), QuizMix.Empty));
+        var shuffledOrder = await CollectAllAsync(seededFactory(new DecisionFilterSet(), PlayRanking.Equity, QuizMix.Empty));
 
         Assert.Equal(unshuffledOrder.Count, shuffledOrder.Count);
         Assert.NotEqual(unshuffledOrder, shuffledOrder); // order differs (seeded, so deterministic)
+    }
+
+    // -----------------------------------------------------------------------
+    //  The ranking reaches the filter (SPEC-scoring.md §2a)
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(PlayRanking.Equity, 1)]
+    [InlineData(PlayRanking.DepthFirst, 0)]
+    public async Task ErrorRange_ReadsThePlayersErrorUnderTheRankingTheFactoryIsHanded(
+        PlayRanking ranking, int expected)
+    {
+        // "The problem filter's 'erred by more than x' uses the player's error
+        // under the same setting" (SPEC-scoring.md §2a). The record's recorded
+        // play is the rollout: under equity it lost 0.05 to the 3-ply best, so
+        // an ErrorMin of 0.01 admits it; under depth first it IS the best, error
+        // 0, and the filter refuses it. Driven through the production
+        // composition — Create, over the real parse-once layer, whose cache is
+        // seeded so it adopts the record instead of parsing bytes — so each row
+        // fails if any layer between the delegate's argument and the filter
+        // pass dropped the ranking for a default of its own: the DepthFirst row
+        // would then admit the record, and a DepthFirst default would fail the
+        // Equity row.
+        var picked = HolderOver([new PickedFile("seeded.xg", [1])]);
+        picked.StoreParsed(
+            picked.PickGeneration, [TestFixtures.DepthSplitDecision(recordedPlayIndex: 0)]);
+        var factory = FactoryOver(picked, new ShuffleOption());
+        var erredMoreThanAHundredth = new FilterConfig { ErrorMin = 0.01 }.Build();
+
+        var pool = await CollectAllAsync(factory(erredMoreThanAHundredth, ranking, QuizMix.Empty));
+
+        Assert.Equal(expected, pool.Count);
     }
 
     private static async Task<List<BgDecisionData>> CollectAllAsync(ComposedProblemSource composed)

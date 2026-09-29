@@ -26,15 +26,10 @@ using Microsoft.Extensions.Logging;
 /// <list type="number">
 /// <item><see cref="CachedProblemSetSource"/> over the pick — the parse-once
 /// layer that parses the picked files unfiltered on the first Start and serves
-/// every later Start/Restart by filtering the cached decisions (the cache slot
-/// rides <see cref="PickedProblemFolder"/>, so a re-pick or Clear invalidates
-/// it by construction). See its own section in INSTRUCTIONS.md.</item>
-/// <item><see cref="JacobyStampedProblemSetSource"/> — the pool-composition
-/// guard: a money record that does not state its Jacoby rule fails the folder
-/// load, naming the file, instead of quizzing unkeyed and uncounted
-/// (<c>../SPEC-stats-identity.md</c> §2, amended 2026-08-24; issue
-/// <c>halheinrich/backgammon#142</c>). Beneath the dedupe on purpose — see that
-/// type for why, and for why this rung alone fails loud.</item>
+/// every later Start/Restart by filtering the cached decisions under the
+/// quiz's ranking (the cache slot rides <see cref="PickedProblemFolder"/>, so a
+/// re-pick or Clear invalidates it by construction). See its own section in
+/// INSTRUCTIONS.md.</item>
 /// <item><see cref="DistinctPositionProblemSetSource"/> — one item per distinct
 /// position, always. See the placement rule below.</item>
 /// <item><see cref="ShuffledProblemSetSource"/>, conditionally — see the
@@ -101,6 +96,14 @@ using Microsoft.Extensions.Logging;
 /// </para>
 ///
 /// <para>
+/// <b>The ranking is an argument, not a holder read.</b> The delegate takes the
+/// run's ranking beside its filters, because the controller holds the run's one
+/// ranking and scores with it: the pool must be filtered under the ranking the
+/// quiz is scored under, and a ranking this factory looked up for itself could
+/// be another one (<c>SPEC-scoring.md</c> §2a).
+/// </para>
+///
+/// <para>
 /// <b>Read live at invocation, not at registration.</b> Every holder is read
 /// inside the returned delegate — which the controller invokes at
 /// <c>StartAsync</c> — so a pick or a shuffle toggle made before Start takes
@@ -132,11 +135,10 @@ internal static class PickedFolderSourceFactory
         ArgumentNullException.ThrowIfNull(loggerFactory);
         ArgumentNullException.ThrowIfNull(clock);
 
-        return (filters, mix) =>
+        return (filters, ranking, mix) =>
         {
             var deduped = new DistinctPositionProblemSetSource(
-                new JacobyStampedProblemSetSource(
-                    new CachedProblemSetSource(picked, filters, loggerFactory, clock)));
+                new CachedProblemSetSource(picked, filters, ranking, loggerFactory, clock));
             IProblemSetSource composed = mix.IsPassthrough && shuffle.Enabled
                 ? new ShuffledProblemSetSource(deduped)
                 : deduped;

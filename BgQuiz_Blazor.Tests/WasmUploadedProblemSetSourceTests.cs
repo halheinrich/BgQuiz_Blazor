@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using BgDataTypes_Lib;
 using BgGame_Lib;
 using BgFolderAccess_Razor;
@@ -23,43 +24,59 @@ public class WasmUploadedProblemSetSourceTests
                 "..", "..", "..", "..", "..", "TestData", "xg"));
 
     /// <summary>Up to <paramref name="take"/> corpus files read into memory as picked files.</summary>
-    private static IReadOnlyList<PickedFile> CorpusFiles(int take = 3)
+    private static ImmutableArray<PickedFile> CorpusFiles(int take = 3)
     {
         if (!Directory.Exists(CorpusDirectory)) return [];
-        return Directory.EnumerateFiles(CorpusDirectory, "*.xg")
-            .Concat(Directory.EnumerateFiles(CorpusDirectory, "*.xgp"))
-            .Take(take)
-            .Select(p => new PickedFile(Path.GetFileName(p), File.ReadAllBytes(p)))
-            .ToList();
+        return
+        [
+            .. Directory.EnumerateFiles(CorpusDirectory, "*.xg")
+                .Concat(Directory.EnumerateFiles(CorpusDirectory, "*.xgp"))
+                .Take(take)
+                .Select(p => new PickedFile(Path.GetFileName(p), [.. File.ReadAllBytes(p)])),
+        ];
     }
 
     private static WasmUploadedProblemSetSource MakeSource(
-        IReadOnlyList<PickedFile> files, DecisionFilterSet? filters = null) =>
-        new(files, filters ?? new DecisionFilterSet(), NullLoggerFactory.Instance, TimeProvider.System);
+        ImmutableArray<PickedFile> files, DecisionFilterSet? filters = null) =>
+        new(files, filters ?? new DecisionFilterSet(), PlayRanking.Equity,
+            NullLoggerFactory.Instance, TimeProvider.System);
 
     // -----------------------------------------------------------------------
     //  Construction
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void Ctor_NullFiles_Throws() =>
-        Assert.Throws<ArgumentNullException>(() =>
-            new WasmUploadedProblemSetSource(null!, new DecisionFilterSet(), NullLoggerFactory.Instance, TimeProvider.System));
+    public void Ctor_DefaultFiles_Throws() =>
+        // A default array holds no files at all — not even none, which is an
+        // empty one — so it is refused rather than read as an empty pick.
+        Assert.Throws<ArgumentException>(() =>
+            new WasmUploadedProblemSetSource(
+                default, new DecisionFilterSet(), PlayRanking.Equity, NullLoggerFactory.Instance, TimeProvider.System));
 
     [Fact]
     public void Ctor_NullFilters_Throws() =>
         Assert.Throws<ArgumentNullException>(() =>
-            new WasmUploadedProblemSetSource([], null!, NullLoggerFactory.Instance, TimeProvider.System));
+            new WasmUploadedProblemSetSource(
+                [], null!, PlayRanking.Equity, NullLoggerFactory.Instance, TimeProvider.System));
+
+    [Fact]
+    public void Ctor_UndefinedRanking_Throws() =>
+        // The iterator's own refusal, surfacing where this source is built.
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new WasmUploadedProblemSetSource(
+                [], new DecisionFilterSet(), (PlayRanking)99, NullLoggerFactory.Instance, TimeProvider.System));
 
     [Fact]
     public void Ctor_NullLoggerFactory_Throws() =>
         Assert.Throws<ArgumentNullException>(() =>
-            new WasmUploadedProblemSetSource([], new DecisionFilterSet(), null!, TimeProvider.System));
+            new WasmUploadedProblemSetSource(
+                [], new DecisionFilterSet(), PlayRanking.Equity, null!, TimeProvider.System));
 
     [Fact]
     public void Ctor_NullClock_Throws() =>
         Assert.Throws<ArgumentNullException>(() =>
-            new WasmUploadedProblemSetSource([], new DecisionFilterSet(), NullLoggerFactory.Instance, null!));
+            new WasmUploadedProblemSetSource(
+                [], new DecisionFilterSet(), PlayRanking.Equity, NullLoggerFactory.Instance, null!));
 
     // -----------------------------------------------------------------------
     //  Name / Count
@@ -110,14 +127,14 @@ public class WasmUploadedProblemSetSourceTests
     public async Task EnumerateAsync_OverCorpus_YieldsAtLeastOneDecision()
     {
         var files = CorpusFiles();
-        if (files.Count == 0) return; // corpus may be empty in CI
+        if (files.IsEmpty) return; // corpus may be empty in CI
 
         var src = MakeSource(files);
         var count = 0;
         await foreach (var d in src.EnumerateAsync())
         {
             Assert.NotNull(d.Position);
-            Assert.NotNull(d.Decision);
+            Assert.NotNull(d.Descriptive);
             if (++count >= 3) break;
         }
         Assert.True(count > 0);
@@ -126,11 +143,11 @@ public class WasmUploadedProblemSetSourceTests
     [Fact]
     public async Task EnumerateAsync_IsReIterable()
     {
-        // Buffered bytes + fresh MemoryStreams per call: a second enumeration must
+        // Buffered bytes + a fresh read per call: a second enumeration must
         // succeed even though the first read the streams to completion. This is
         // what makes Restart work.
         var files = CorpusFiles();
-        if (files.Count == 0) return;
+        if (files.IsEmpty) return;
 
         var src = MakeSource(files);
 
@@ -145,7 +162,7 @@ public class WasmUploadedProblemSetSourceTests
     public async Task EnumerateAsync_HonoursFilterSet()
     {
         var files = CorpusFiles();
-        if (files.Count == 0) return;
+        if (files.IsEmpty) return;
 
         // Composed through FilterConfig.Build() — the intent surface. The
         // concrete filter classes are internal to XgFilter_Lib, so naming a

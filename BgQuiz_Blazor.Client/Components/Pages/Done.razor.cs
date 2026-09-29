@@ -57,8 +57,8 @@ public partial class Done : ComponentBase
         }
 
         // Restart reads the mix's visibility, half of which is a stored
-        // setting, so this page must not render its Restart affordances over an
-        // unhydrated QuizSettings. In practice Home has always hydrated it —
+        // setting, and the ranking, which is one, so this page must not render
+        // its Restart affordances over an unhydrated QuizSettings. In practice Home has always hydrated it —
         // reaching Done requires a Start, and Start happens there — but the
         // call is idempotent and already complete by now, so awaiting it costs
         // no render pass and turns a claim about page ordering into something
@@ -129,7 +129,9 @@ public partial class Done : ComponentBase
     {
         _mixRefused = false;
 
-        var outcome = await Controller.RestartAsync(ignoreMix);
+        // The ranking is the user's setting as it stands now: a restart is a new
+        // run, and a run takes its ranking where it begins (SPEC-scoring.md §2a).
+        var outcome = await Controller.RestartAsync(Settings.Ranking, ignoreMix);
 
         // Overlapped gesture: the transition gate ignored this call — change
         // nothing; the in-flight Restart owns any navigation and notices.

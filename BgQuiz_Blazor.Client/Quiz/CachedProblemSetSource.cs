@@ -1,5 +1,6 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using BgDataTypes_Lib;
 using BgGame_Lib;
@@ -22,6 +23,18 @@ using XgFilter_Lib.Filtering;
 /// the slot's only writer. The cached parse is <b>unfiltered</b> so any
 /// filter config reuses it; the per-Start filters re-apply here, per
 /// enumeration, via <see cref="DecisionFilterSet.Matches"/>.
+/// </para>
+///
+/// <para>
+/// <b>The filter pass is the quiz's ranking's; the cache is no ranking's.</b>
+/// A record is filtered through its view for the ranking this source was built
+/// with (<see cref="BgDecisionData.ViewFor"/>), because "erred by more than x"
+/// reads the player's error, and which play is best is a ranking's
+/// (<c>SPEC-scoring.md</c> §2a). The parse itself filters nothing, and the
+/// records it yields depend on no ranking, so one cached parse serves every
+/// Start whatever ranking each is started with. The parse is still handed this
+/// source's ranking — the iterator requires one, and a quiz's operations take
+/// its ranking, never a producer's default.
 /// </para>
 ///
 /// <para>
@@ -65,25 +78,29 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
 {
     private readonly PickedProblemFolder _folder;
     private readonly DecisionFilterSet _filters;
+    private readonly PlayRanking _ranking;
     private readonly TimeProvider _clock;
     private readonly WasmUploadedProblemSetSource _inner;
     private readonly int _generation;
-    private IReadOnlyList<BgDecisionData>? _decisions;
+    private ImmutableArray<BgDecisionData>? _decisions;
 
     /// <summary>
     /// Construct a source over <paramref name="folder"/>'s current pick,
-    /// applying <paramref name="filters"/> on each enumeration. The picked
-    /// files and generation are captured now; the parse itself is deferred to
-    /// the first enumeration.
+    /// applying <paramref name="filters"/> under <paramref name="ranking"/> on
+    /// each enumeration. The picked files and generation are captured now; the
+    /// parse itself is deferred to the first enumeration.
     /// </summary>
     /// <param name="folder">The picked-folder holder — supplies the files and carries the cross-Start parse cache.</param>
     /// <param name="filters">The filter pipeline applied on every enumeration (over the cached, unfiltered parse).</param>
+    /// <param name="ranking">The quiz's ranking, which each record's filter view is built for.</param>
     /// <param name="loggerFactory">Forwarded to the parsing inner source for its per-file failure logging.</param>
     /// <param name="clock">Monotonic pacing clock for the cooperative yields (production: the DI system clock).</param>
-    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
+    /// <exception cref="ArgumentNullException">Any reference argument is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="ranking"/> is not a defined ranking.</exception>
     public CachedProblemSetSource(
         PickedProblemFolder folder,
         DecisionFilterSet filters,
+        PlayRanking ranking,
         ILoggerFactory loggerFactory,
         TimeProvider clock)
     {
@@ -92,10 +109,14 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
 
         _folder = folder;
         _filters = filters;
+        _ranking = ranking;
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         // The inner source both parses (unfiltered) and owns the naming rule;
-        // its ctor re-validates loggerFactory/clock.
-        _inner = new WasmUploadedProblemSetSource(folder.Files, new DecisionFilterSet(), loggerFactory, clock);
+        // its ctor re-validates loggerFactory/clock, and its iterator refuses
+        // an undefined ranking — here, at construction, rather than at the
+        // first view built in the filter pass.
+        _inner = new WasmUploadedProblemSetSource(
+            folder.Files, new DecisionFilterSet(), ranking, loggerFactory, clock);
         _generation = folder.PickGeneration;
     }
 
@@ -115,7 +136,7 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
         foreach (var decision in decisions)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (_filters.Matches(decision))
+            if (_filters.Matches(decision.ViewFor(_ranking)))
             {
                 yield return decision;
             }
@@ -132,22 +153,24 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
     /// back to the holder, which drops it if the pick has been superseded. A
     /// cancelled parse stores nothing (no partial caches).
     /// </summary>
-    private async ValueTask<IReadOnlyList<BgDecisionData>> GetOrParseAsync(
+    private async ValueTask<ImmutableArray<BgDecisionData>> GetOrParseAsync(
         CancellationToken cancellationToken)
     {
         if (_decisions is { } own) return own;
 
         if (_folder.PickGeneration == _generation && _folder.ParsedDecisions is { } cached)
         {
-            return _decisions = cached;
+            _decisions = cached;
+            return cached;
         }
 
-        var parsed = new List<BgDecisionData>();
+        var parsing = ImmutableArray.CreateBuilder<BgDecisionData>();
         await foreach (var decision in _inner.EnumerateAsync(cancellationToken))
         {
-            parsed.Add(decision);
+            parsing.Add(decision);
         }
 
+        var parsed = parsing.ToImmutable();
         _decisions = parsed;
         _folder.StoreParsed(_generation, parsed);
         return parsed;

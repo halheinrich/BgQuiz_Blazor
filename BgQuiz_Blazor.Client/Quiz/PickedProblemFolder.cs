@@ -1,5 +1,6 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using System.Collections.Immutable;
 using BgDataTypes_Lib;
 using BgFolderAccess_Razor;
 
@@ -10,9 +11,9 @@ using BgFolderAccess_Razor;
 /// <see cref="Truncations"/> the count caps imposed. The
 /// <see cref="PickedFile"/>s are BgFolderAccess_Razor's: extension-bearing
 /// names (the producer's <c>DecisionId</c> stamping discriminates the format
-/// from them — see <c>XgFileStream.FileName</c>) over fully-buffered bytes,
-/// from which a fresh <c>MemoryStream</c> is minted per enumeration so the
-/// source stays re-iterable.
+/// from them — see <c>XgFileStream.FileName</c>) over fully-buffered,
+/// immutable bytes, which <see cref="PickedFile.OpenRead"/> reads afresh for
+/// each enumeration so the source stays re-iterable.
 ///
 /// <para>
 /// Lifetime: <b>Scoped</b> — in the WebAssembly client that resolves to one
@@ -26,9 +27,9 @@ using BgFolderAccess_Razor;
 /// </para>
 ///
 /// <para>
-/// The files are buffered byte arrays rather than open handles: bytes are read
-/// once at pick time, so the source can re-enumerate (Restart) by minting
-/// fresh <c>MemoryStream</c>s. The folder's browser-side directory handle is
+/// The files are buffered bytes rather than open handles: bytes are read once
+/// at pick time, so the source can re-enumerate (Restart) by opening a fresh
+/// read of them each time. The folder's browser-side directory handle is
 /// <i>not</i> here — it lives in the JS module behind
 /// <see cref="IFolderAccess"/> (handles can't cross the interop boundary),
 /// in the <i>picked</i> slot this holder mirrors.
@@ -41,11 +42,20 @@ using BgFolderAccess_Razor;
 /// phase and out of scope by design — reload-reset matches
 /// <see cref="QuizController"/>.
 /// </para>
+///
+/// <para>
+/// <b>Every collection it holds is immutable</b> (halheinrich/backgammon#273's
+/// collection rider): the files and truncations are the pick outcome's own
+/// immutable arrays, and the parse cache is an immutable array too. A holder
+/// that kept whatever list it was handed would hand a caller's live list back
+/// out behind a read-only interface, and the parse cache used to be exactly
+/// that — the parsing source's own <see cref="List{T}"/>.
+/// </para>
 /// </summary>
 internal sealed class PickedProblemFolder
 {
     /// <summary>The picked folder's top-level problem files; empty until a folder is picked.</summary>
-    public IReadOnlyList<PickedFile> Files { get; private set; } = [];
+    public ImmutableArray<PickedFile> Files { get; private set; } = [];
 
     /// <summary>The picked folder's leaf name; null until a folder is picked.</summary>
     public string? FolderName { get; private set; }
@@ -67,10 +77,10 @@ internal sealed class PickedProblemFolder
     /// (cancelled, empty) keep their per-visit flags on the page precisely because
     /// they describe a gesture that left nothing behind to describe.
     /// </summary>
-    public IReadOnlyList<PickTruncation> Truncations { get; private set; } = [];
+    public ImmutableArray<PickTruncation> Truncations { get; private set; } = [];
 
     /// <summary>True once a folder with at least one problem file has been picked.</summary>
-    public bool HasFiles => Files.Count > 0;
+    public bool HasFiles => !Files.IsEmpty;
 
     /// <summary>
     /// Monotonic pick counter, bumped by every <see cref="Set"/> and
@@ -121,7 +131,7 @@ internal sealed class PickedProblemFolder
     /// exactly equivalent to filtering during the parse. Written only by
     /// <c>CachedProblemSetSource</c> via <see cref="StoreParsed"/>.
     /// </summary>
-    public IReadOnlyList<BgDecisionData>? ParsedDecisions { get; private set; }
+    public ImmutableArray<BgDecisionData>? ParsedDecisions { get; private set; }
 
     /// <summary>
     /// Store the unfiltered parse of the pick identified by
@@ -130,10 +140,10 @@ internal sealed class PickedProblemFolder
     /// that parsed the old files keeps its own reference, but a stale parse
     /// must never masquerade as the cache of the <i>new</i> pick.
     /// </summary>
-    /// <exception cref="ArgumentNullException"><paramref name="decisions"/> is null.</exception>
-    public void StoreParsed(int pickGeneration, IReadOnlyList<BgDecisionData> decisions)
+    /// <exception cref="ArgumentException"><paramref name="decisions"/> is a default array, which holds no decisions at all.</exception>
+    public void StoreParsed(int pickGeneration, ImmutableArray<BgDecisionData> decisions)
     {
-        ArgumentNullException.ThrowIfNull(decisions);
+        RefuseDefault(decisions, nameof(decisions));
         if (pickGeneration != PickGeneration) return;
         ParsedDecisions = decisions;
     }
@@ -156,7 +166,7 @@ internal sealed class PickedProblemFolder
     /// page re-instantiated by in-app navigation re-derives the same label
     /// from this persisted holder rather than from a transient component field.
     /// </summary>
-    public string? Summary => Files.Count switch
+    public string? Summary => Files.Length switch
     {
         0 => null,
         1 => $"{DisplayName} — 1 problem file",
@@ -176,19 +186,20 @@ internal sealed class PickedProblemFolder
     /// <see cref="Truncations"/>. Taken here rather than defaulted so a caller
     /// that has the fact cannot drop it on the floor.
     /// </param>
-    /// <exception cref="ArgumentNullException">
-    /// <paramref name="folderName"/>, <paramref name="files"/> or
-    /// <paramref name="truncations"/> is null.
+    /// <exception cref="ArgumentNullException"><paramref name="folderName"/> is null.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="files"/> or <paramref name="truncations"/> is a default
+    /// array; "none" is an empty one.
     /// </exception>
     public void Set(
         string folderName,
-        IReadOnlyList<PickedFile> files,
+        ImmutableArray<PickedFile> files,
         FolderWriteCapability capability,
-        IReadOnlyList<PickTruncation> truncations)
+        ImmutableArray<PickTruncation> truncations)
     {
         ArgumentNullException.ThrowIfNull(folderName);
-        ArgumentNullException.ThrowIfNull(files);
-        ArgumentNullException.ThrowIfNull(truncations);
+        RefuseDefault(files, nameof(files));
+        RefuseDefault(truncations, nameof(truncations));
         FolderName = folderName;
         Files = files;
         Capability = capability;
@@ -212,5 +223,16 @@ internal sealed class PickedProblemFolder
         ParsedDecisions = null;
         PickGeneration++;
         PickOccurrence = new object();
+    }
+
+    /// <summary>
+    /// Refuse a default <see cref="ImmutableArray{T}"/>, which holds nothing at
+    /// all — not even "none", which is an empty array — the way the pick
+    /// outcome's own records refuse one.
+    /// </summary>
+    private static void RefuseDefault<T>(ImmutableArray<T> array, string paramName)
+    {
+        if (array.IsDefault)
+            throw new ArgumentException("A default array holds nothing; none is an empty one.", paramName);
     }
 }

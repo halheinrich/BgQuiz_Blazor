@@ -1,277 +1,262 @@
 using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 
 namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
-/// Hand-crafted <see cref="BgDecisionData"/> values for controller and page
-/// tests. Controller tests don't need physically legal plays — only the play's
-/// canonical shape matters for the equality matcher. The <i>boards</i> of the
-/// auto-skip fixtures are the exception and are exact: what
-/// <c>MoveGenerator.GeneratePlays</c> derives from the Mop and the dice is the
-/// whole fact <c>QuizController.HasNoPlayChoice</c> reads, so a fixture meant to
-/// skip (or meant not to) is only staging that scenario if its board really
-/// admits the play count it claims.
+/// The decisions controller and page tests quiz on, built through the
+/// producer's own record builders (<see cref="TestRecords"/>) — the one way a
+/// test builds a record, so no fixture here restates the records' construction
+/// rules (halheinrich/backgammon#273).
+///
+/// <para>
+/// <b>Every play in them is legal from its position</b> — makeable with its
+/// roll, not merely valid by the records' play rule, which leaves the dice to
+/// the move generator. The fixtures once listed plays no roll could produce
+/// (<c>8/5 8/5</c> on a 3-1), which matched only because play equality was a
+/// comparison of encodings; plays are compared by the position they reach
+/// now, so a fixture's plays must be ones a board could actually be played
+/// into. <c>TestFixtureContractTests</c> holds every fixture to that. The
+/// <i>boards</i> of the auto-skip fixtures are exact too: what
+/// <c>MoveGenerator.GeneratePlays</c> derives from the board and the dice is
+/// the whole fact <c>QuizController.HasNoPlayChoice</c> reads.
+/// </para>
+///
+/// <para>
+/// <b>Every fixture is a decision position</b> — a checker of each side on the
+/// board or bar — because no other record can be built
+/// (<c>PositionData</c>'s invariant; SPEC-stats-identity.md §2, amended
+/// 2026-09-27). So every fixture has a <see cref="ProblemKey"/>, by the
+/// producer's guarantee: a test takes one with <see cref="ProblemKey.From"/>.
+/// </para>
 /// </summary>
 internal static class TestFixtures
 {
     /// <summary>
-    /// Where a fixture's decision sits in its source, as the converter stamps
-    /// it: the file name (with extension, no directory), the 1-based game
-    /// number, and the 1-based move number. The three travel together because
-    /// they are one fact — a file name with no coordinates locates a file, not
-    /// a problem — and they are passed as one parameter so a caller cannot set
-    /// two of them and forget the third.
-    ///
-    /// <para>
-    /// <b>It also fixes the record's identity shape</b>, through
-    /// <see cref="ToId"/>, and that is the point of the two factories rather
-    /// than a constructor. A real record's <c>DecisionId</c> and its
-    /// <c>DescriptiveData</c> cannot disagree about where it came from —
-    /// <c>SPEC-quiz-view.md</c> §4's ruling (ii) reads the <i>identity's</i>
-    /// kind to decide whether the coordinates mean anything — so a fixture that
-    /// let a caller pair an <c>.xgp</c> identity with match coordinates would be
-    /// staging a record the app cannot produce, and any pin standing on it
-    /// would be proving something about nothing.
-    /// </para>
+    /// Where a fixture's decision sits in its source: a file, and — for a
+    /// decision inside a match — its game and move. The record states these
+    /// through its identity alone (<c>BgDecisionData.SourceFile</c>,
+    /// <c>Game</c> and <c>MoveNumber</c> derive from its <see cref="DecisionId"/>),
+    /// so a location is exactly the identity it builds; it exists so a test
+    /// states the place and leaves the identity's kind half — cube or play —
+    /// to the fixture that knows which it is building.
     ///
     /// <para>
     /// Nothing here is content identity: <c>ProblemKey</c> derives from the
     /// position and the decision alone, which
     /// <c>TestFixtureContractTests.FixturesDifferingOnlyInWhereTheyCameFrom_AreTheSameProblem</c>
-    /// pins across both shapes. These values exist so a test can drive
-    /// <c>ProblemLocator</c> through the real page; leaving the parameter unset
-    /// leaves the record exactly as every fixture had it before the locator
-    /// existed, so a test that says nothing about provenance still renders no
-    /// chip.
+    /// pins across both shapes.
     /// </para>
     /// </summary>
     internal sealed record SourceLocation
     {
-        private SourceLocation(string sourceFile, int game, int moveNumber, bool onePosition)
+        private readonly int? _game;
+        private readonly int? _moveNumber;
+
+        private SourceLocation(string sourceFile, int? game, int? moveNumber)
         {
             SourceFile = sourceFile;
-            Game = game;
-            MoveNumber = moveNumber;
-            IsOnePosition = onePosition;
+            _game = game;
+            _moveNumber = moveNumber;
         }
 
         /// <summary>
         /// A decision inside a multi-game <c>.xg</c> match — the shape that has
-        /// real within-file coordinates, and the one whose numbers agree with
-        /// what eXtreme Gammon shows for the position.
+        /// within-file coordinates, and the one whose numbers agree with what
+        /// eXtreme Gammon shows for the position.
         /// </summary>
         public static SourceLocation InMatch(string sourceFile, int game, int moveNumber) =>
-            new(sourceFile, game, moveNumber, onePosition: false);
+            new(sourceFile, game, moveNumber);
 
         /// <summary>
-        /// A standalone <c>.xgp</c> position file. The coordinates are fixed at
-        /// <c>1, 1</c> because that is what the converter really stamps on every
-        /// such record — off a synthetic single-game header — and a fixture that
-        /// invented different ones would let a pin pass on a value the wire
-        /// never produces.
+        /// A standalone <c>.xgp</c> position file, which belongs to no game and
+        /// so has no coordinates at all (halheinrich/backgammon#124).
         /// </summary>
-        public static SourceLocation OnePosition(string sourceFile) =>
-            new(sourceFile, 1, 1, onePosition: true);
+        public static SourceLocation OnePosition(string sourceFile) => new(sourceFile, null, null);
 
         /// <summary>Originating file name, with extension and no directory.</summary>
         public string SourceFile { get; }
 
-        /// <summary>1-based game number within the source.</summary>
-        public int Game { get; }
-
-        /// <summary>1-based move number within the game.</summary>
-        public int MoveNumber { get; }
-
-        /// <summary>Whether the source file holds this one position and no more.</summary>
-        public bool IsOnePosition { get; }
-
         /// <summary>
         /// The identity a real record drawn from here would carry — the
-        /// producer's own two shapes, chosen by this location's own kind.
+        /// producer's own two shapes, chosen by this location's kind.
         /// </summary>
         public DecisionId ToId(bool isCube) =>
-            IsOnePosition
-                ? new XgpDecisionId(SourceFile)
-                : new XgDecisionId(SourceFile, Game, MoveNumber, isCube);
+            _game is int game && _moveNumber is int moveNumber
+                ? new XgDecisionId(SourceFile, game, moveNumber, isCube)
+                : new XgpDecisionId(SourceFile);
     }
 
-    /// <summary>Standard backgammon starting position (Mop array, 26 entries).</summary>
-    public static int[] StandardMop()
-    {
-        var m = new int[26];
-        m[6] = 5;  m[8] = 3;  m[13] = 5;  m[24] = 2;
-        m[19] = -5; m[17] = -3; m[12] = -5; m[1] = -2;
-        return m;
-    }
+    /// <summary>The identity every fixture carries unless the test states one: a standalone position.</summary>
+    private static readonly DecisionId DefaultId = new XgpDecisionId("test.xgp");
 
     /// <summary>
-    /// Pass-position Mop: on-roll player on the bar against a fully closed
-    /// opponent home board (points 19-24 each have two opponent checkers).
-    /// Combined with any dice, <c>MoveGenerator.GeneratePlays</c> returns
-    /// zero plays — no entry square exists.
+    /// The score context for <paramref name="away"/>: 0 is a money session
+    /// under the Jacoby rule (XG's default), anything else a match of that
+    /// length with both players that many away — its opening score. The away
+    /// scores take part in <see cref="ProblemKey"/> identity and leave move
+    /// generation untouched, which is what makes <paramref name="away"/> the
+    /// way to build <i>content-distinct</i> fixtures that play alike.
     /// </summary>
-    public static int[] ClosedOutMop()
-    {
-        var m = new int[26];
-        m[25] = 1;
-        for (int p = 19; p <= 24; p++) m[p] = -2;
-        return m;
-    }
+    private static Session SessionFor(int away) =>
+        away == 0
+            ? TestRecords.MoneySession()
+            : TestRecords.MatchSession(length: away, onRollNeeds: away, opponentNeeds: away);
 
     /// <summary>
-    /// The content identity of <paramref name="decision"/>, through the
-    /// producer's single derivation factory — the only way a test may obtain a
-    /// <see cref="ProblemKey"/>. Hand-assembling a canonical string here would
-    /// be a second derivation site that can disagree with the app's, which is
-    /// exactly what the type's one-factory rule forbids.
+    /// The descriptive category for a record identified by <paramref name="id"/>:
+    /// the player names, the comment, and the standard-start fact a game has
+    /// and a standalone position does not (the records refuse a mismatch).
+    /// </summary>
+    private static DescriptiveData Describe(DecisionId id, string onRoll, string opp, string? comment) =>
+        TestRecords.Descriptive(
+            onRollName: onRoll,
+            opponentName: opp,
+            isStandardStart: id is XgpDecisionId ? null : true,
+            comment: comment);
+
+    /// <summary>
+    /// The opening 3-1's best play, <c>8/5 6/5</c> — the default best
+    /// candidate of <see cref="TwoChoiceDecision"/>.
+    /// </summary>
+    public static Play OpeningBest() => Play.Create(new(8, 5), new(6, 5));
+
+    /// <summary>
+    /// A second legal play of the opening 3-1, <c>13/10 6/5</c> — the default
+    /// second candidate of <see cref="TwoChoiceDecision"/>.
+    /// </summary>
+    public static Play OpeningAlternative() => Play.Create(new(13, 10), new(6, 5));
+
+    /// <summary>
+    /// A legal play of the opening 3-1 that <see cref="TwoChoiceDecision"/>
+    /// never lists, <c>24/20</c> — so submitting it is an off-list play.
+    /// </summary>
+    public static Play OpeningUnlisted() => Play.Create(new(24, 21), new(21, 20));
+
+    /// <summary>
+    /// Deterministic two-candidate checker play: the opening 3-1 from the
+    /// standard start, <paramref name="play1"/> the best (equity 0) and
+    /// <paramref name="play2"/> worse by <paramref name="play2Loss"/>. Both are
+    /// analysed at the same depth, so the two rankings agree on everything —
+    /// which is what lets the many tests about quiz flow say nothing about the
+    /// ranking; <see cref="DepthSplitDecision"/> is the fixture where they part.
+    /// Both plays must be legal for a 3-1 from the standard start (the three
+    /// <c>Opening…</c> helpers are).
     ///
     /// <para>
-    /// Throws when the fixture has no derivable key: every fixture in this file
-    /// carries real, physically-possible facts, so an underivable one is a
-    /// broken fixture rather than a scenario. Tests that mean to exercise the
-    /// no-key rung build the malformed record where they use it and pass
-    /// <see langword="null"/> themselves.
-    /// </para>
-    /// </summary>
-    public static ProblemKey KeyOf(BgDecisionData decision) =>
-        ProblemKey.TryDerive(decision, out var key)
-            ? key
-            : throw new InvalidOperationException(
-                "Fixture has no derivable ProblemKey — its facts are malformed or degenerate.");
-
-    /// <summary>
-    /// The provenance category the general factories stamp: the player names
-    /// they were always given, plus <paramref name="location"/> when the caller
-    /// supplied one. One helper rather than two initializers, so the play and
-    /// cube fixtures cannot come to disagree about what an unset location
-    /// means — and the answer is the record's own defaults (no file name,
-    /// game 0, move 0), which <c>ProblemLocator</c> reads as "locates nothing".
+    /// <paramref name="recordedPlayIndex"/> is the .xg-recorded played move (the
+    /// solution diagram's <c>*</c>); null — the default — records none.
+    /// <paramref name="id"/> overrides the decision's identity; otherwise
+    /// <paramref name="location"/> supplies one, and failing both it is a
+    /// standalone position. <paramref name="away"/> picks the score (see
+    /// <see cref="SessionFor"/>): 0 is money, the default.
     /// <paramref name="comment"/> is the decision's XG comment, the text
-    /// <c>DecisionNotes</c> displays (<c>halheinrich/backgammon#31</c>); the
-    /// factories default it to empty — the record's own default, and "no
-    /// notes" — so a test that says nothing about notes renders no control.
-    /// </summary>
-    private static DescriptiveData Describe(
-        string onRoll, string opp, SourceLocation? location, string comment) =>
-        new()
-        {
-            OnRollName = onRoll,
-            OpponentName = opp,
-            SourceFile = location?.SourceFile,
-            Game = location?.Game ?? 0,
-            MoveNumber = location?.MoveNumber ?? 0,
-            Comment = comment,
-        };
-
-    /// <summary>
-    /// Deterministic two-candidate decision: <c>play1</c> at zero loss (best),
-    /// <c>play2</c> at <paramref name="play2Loss"/>. Standard Mop, dice (3,1)
-    /// for the pass-detection step (not pass — standard start has many plays
-    /// for 3-1). <paramref name="recordedPlayIndex"/> is the .xg-recorded played
-    /// move (the solution diagram's <c>*</c>); defaults to <c>-1</c> (no recorded
-    /// play) so existing callers are unaffected. <paramref name="id"/> overrides the
-    /// decision's stable identity for tests that pin how <c>BgDecisionData.Id</c>
-    /// flows through submissions; defaults to a shared placeholder.
-    /// <paramref name="location"/> stamps where the decision came from (see
-    /// <see cref="SourceLocation"/>); unset leaves the record locating nothing,
-    /// which is what every fixture said before <c>ProblemLocator</c> existed.
-    /// <paramref name="away"/> sets both sides' away score (0 = money game) —
-    /// the discriminator for tests needing <i>content-distinct</i> problems.
-    /// Away scores participate in <see cref="ProblemKey"/> identity, and unlike
-    /// the board or the dice they leave move generation untouched, so a fixture
-    /// varied this way stays exactly as playable as the default one.
-    ///
-    /// <para>
-    /// At the default <c>0</c> the fixture is a <b>money</b> position, and money
-    /// is the one score whose key spells the Jacoby rule — an unstamped money
-    /// record has no key at all (the no-key rung) — so the fixture says which
-    /// rule it means. It means Jacoby on; the value is arbitrary here, the stamp
-    /// is not. Off money the fact is meaningless, so match fixtures stay
-    /// unstamped rather than carrying noise, and the stamp is derived from
-    /// <paramref name="away"/> rather than passed in so two fixtures with the
-    /// same score cannot disagree about it.
+    /// <c>DecisionNotes</c> displays (<c>halheinrich/backgammon#31</c>); null —
+    /// the default — is "no notes".
     /// </para>
     /// </summary>
-    public static BgDecisionData TwoChoiceDecision(
+    public static CheckerPlayDecision TwoChoiceDecision(
         Play play1, Play play2, double play2Loss = 0.05, string onRoll = "Alice",
-        string opp = "Bob", string xgid = "", int recordedPlayIndex = -1,
+        string opp = "Bob", int? recordedPlayIndex = null,
         DecisionId? id = null, int away = 0, SourceLocation? location = null,
-        string comment = "")
+        string? comment = null)
     {
-        return new BgDecisionData
-        {
-            Id = id ?? location?.ToId(isCube: false) ?? new XgpDecisionId("test.xgp"),
-            Xgid = xgid,
-            Position = new PositionData
-            {
-                Mop = StandardMop(),
-                OnRollNeeds = away,
-                OpponentNeeds = away,
-                IsJacoby = away == 0 ? true : null,
-            },
-            Decision = new DecisionData
-            {
-                Dice = [3, 1],
-                Plays =
+        var identity = id ?? location?.ToId(isCube: false) ?? DefaultId;
+        return TestRecords.CheckerPlay(
+            id: identity,
+            position: TestRecords.Position(session: SessionFor(away)),
+            decision: TestRecords.CheckerPlayData(
+                dice: [3, 1],
+                plays:
                 [
-                    new PlayCandidate { Play = play1, EquityLoss = 0.0, MoveNotation = "best" },
-                    new PlayCandidate { Play = play2, EquityLoss = play2Loss, MoveNotation = "alt" },
+                    TestRecords.Candidate(play: play1, equity: 0.0),
+                    TestRecords.Candidate(play: play2, equity: -play2Loss),
                 ],
-                BestPlayIndex = 0,
-                UserPlayIndex = recordedPlayIndex,
-            },
-            Descriptive = Describe(onRoll, opp, location, comment),
-        };
+                userPlayIndex: recordedPlayIndex),
+            descriptive: Describe(identity, onRoll, opp, comment));
     }
 
     /// <summary>
-    /// Deterministic cube decision. With the defaults
+    /// The fixture where the two rankings part (SPEC-scoring.md §2a): the
+    /// opening 3-1 with three candidates, stored in this order —
+    /// <list type="number">
+    /// <item><see cref="OpeningAlternative"/>, <c>13/10 6/5</c>, rolled out
+    /// (1296 trials, 3-ply), equity 0.00;</item>
+    /// <item><see cref="OpeningBest"/>, <c>8/5 6/5</c>, a 3-ply evaluation,
+    /// equity +0.05;</item>
+    /// <item><c>24/23 13/10</c>, a 3-ply evaluation, equity −0.10.</item>
+    /// </list>
+    /// Under <see cref="PlayRanking.Equity"/> the 3-ply <c>8/5 6/5</c> is best,
+    /// the rollout loses 0.05 and <c>24/23 13/10</c> 0.15. Under
+    /// <see cref="PlayRanking.DepthFirst"/> the rollout is best, <c>24/23
+    /// 13/10</c> loses 0.10, and <c>8/5 6/5</c> — analysed less deeply than the
+    /// best and rating higher there — is <b>not scored</b>. So every pin that
+    /// runs on it tells the two rankings apart, and would fail if its path fell
+    /// back to the producers' default, <see cref="PlayRanking.Equity"/>.
+    /// <paramref name="recordedPlayIndex"/> is the .xg-recorded play, which the
+    /// problem filter's error range reads; null — the default — records none.
+    /// </summary>
+    public static CheckerPlayDecision DepthSplitDecision(int away = 0, int? recordedPlayIndex = null) =>
+        TestRecords.CheckerPlay(
+            id: DefaultId,
+            position: TestRecords.Position(session: SessionFor(away)),
+            decision: TestRecords.CheckerPlayData(
+                dice: [3, 1],
+                plays:
+                [
+                    TestRecords.Candidate(
+                        play: OpeningAlternative(), equity: 0.0,
+                        analysisMode: AnalysisMode.Rollout, rolloutTrials: 1296),
+                    TestRecords.Candidate(play: OpeningBest(), equity: 0.05),
+                    TestRecords.Candidate(play: DepthSplitThirdPlay(), equity: -0.10),
+                ],
+                userPlayIndex: recordedPlayIndex),
+            descriptive: Describe(DefaultId, "Alice", "Bob", comment: null));
+
+    /// <summary>
+    /// <see cref="DepthSplitDecision"/>'s third candidate, <c>24/23 13/10</c>:
+    /// scored under both rankings, with a different error under each.
+    /// </summary>
+    public static Play DepthSplitThirdPlay() => Play.Create(new(24, 23), new(13, 10));
+
+    /// <summary>
+    /// Deterministic cube decision in the opening position. With the defaults
     /// (<paramref name="noDoubleEquity"/> 0.5, <paramref name="doubleTakeEquity"/>
     /// 0.7) the best answer is (<c>Double</c>, <c>Take</c>) at zero loss on both
     /// halves; the opposite answer loses
     /// <c>doubleTakeEquity - noDoubleEquity</c> (0.20) on the doubler half and
-    /// <c>1 - doubleTakeEquity</c> (0.30) on the taker half. Dice are left at the
-    /// data-layer cube invariant ([0, 0]). <paramref name="id"/> overrides the
-    /// decision's stable identity for tests that pin how <c>BgDecisionData.Id</c>
-    /// flows through submissions; defaults to a shared placeholder.
-    /// <paramref name="away"/> discriminates content identity exactly as on
-    /// <see cref="TwoChoiceDecision"/>, and <paramref name="location"/> is
-    /// display-only — and supplies the matching identity — exactly as there.
+    /// <c>1 - doubleTakeEquity</c> (0.30) on the taker half. The record states no
+    /// played action. <paramref name="id"/>, <paramref name="location"/>,
+    /// <paramref name="away"/> and <paramref name="comment"/> mean what they do
+    /// on <see cref="TwoChoiceDecision"/>.
     /// <paramref name="cubeOwner"/> defaults to <see cref="CubeOwner.OnRoll"/>
-    /// (a turned cube), so the default money fixture — Jacoby on, as
-    /// <paramref name="away"/> 0 stamps it — offers Too good; pass
-    /// <see cref="CubeOwner.Centered"/> to build the one position where the
-    /// producer withholds it (<see cref="BgDecisionData.CanBeTooGood"/>: money
-    /// under Jacoby with the cube in the middle).
+    /// (a turned cube, on 2), so the default money fixture — Jacoby on, as
+    /// <paramref name="away"/> 0 states it — offers Too good; pass
+    /// <see cref="CubeOwner.Centered"/> (a cube on 1) to build the one position
+    /// where the producer withholds it (<see cref="CubeDecision.CanBeTooGood"/>:
+    /// money under Jacoby with the cube in the middle).
     /// </summary>
-    public static BgDecisionData CubeDecision(
+    public static CubeDecision CubeDecision(
         double noDoubleEquity = 0.5, double doubleTakeEquity = 0.7,
-        string onRoll = "Alice", string opp = "Bob", string xgid = "",
+        string onRoll = "Alice", string opp = "Bob",
         DecisionId? id = null, int away = 0, SourceLocation? location = null,
-        CubeOwner cubeOwner = CubeOwner.OnRoll, string comment = "")
+        CubeOwner cubeOwner = CubeOwner.OnRoll, string? comment = null)
     {
-        return new BgDecisionData
-        {
-            Id = id ?? location?.ToId(isCube: true) ?? new XgpDecisionId("test.xgp"),
-            Xgid = xgid,
-            Position = new PositionData
-            {
-                Mop = StandardMop(),
-                OnRollNeeds = away,
-                OpponentNeeds = away,
-                IsJacoby = away == 0 ? true : null,
-                CubeOwner = cubeOwner,
-            },
-            Decision = new DecisionData
-            {
-                IsCube = true,
-                NoDoubleEquity = noDoubleEquity,
-                DoubleTakeEquity = doubleTakeEquity,
-            },
-            Descriptive = Describe(onRoll, opp, location, comment),
-        };
+        var identity = id ?? location?.ToId(isCube: true) ?? DefaultId;
+        return TestRecords.Cube(
+            id: identity,
+            position: TestRecords.Position(
+                cubeSize: cubeOwner == CubeOwner.Centered ? 1 : 2,
+                cubeOwner: cubeOwner,
+                session: SessionFor(away)),
+            decision: TestRecords.CubeData(
+                noDoubleEquity: noDoubleEquity,
+                doubleTakeEquity: doubleTakeEquity,
+                userDoublerAction: null,
+                userTakerAction: null),
+            descriptive: Describe(identity, onRoll, opp, comment));
     }
 
     /// <summary>
@@ -282,8 +267,8 @@ internal static class TestFixtures
     /// move long: 12/6 and 9/3. Clicking the 12-pt therefore completes a whole
     /// play in a single click — a deterministic completion through
     /// <c>BackgammonPlayEntry</c> with no ambiguous click ordering to hand-pick.
-    /// The lone candidate is 12/6 at zero loss, so a completed submit scores as
-    /// correct — used to exercise the dice-click → submit wire end-to-end.
+    /// The lone candidate is 12/6, so a completed submit scores as correct —
+    /// used to exercise the dice-click → submit wire end-to-end.
     ///
     /// <para>
     /// <b>Two legal plays is the load-bearing property, not a detail.</b> A
@@ -293,35 +278,10 @@ internal static class TestFixtures
     /// can no longer be shown at all. Anything staged here to drive the play
     /// entry <i>through the controller</i> must offer a choice.
     /// </para>
-    ///
-    /// <para>
-    /// Money, like every unscored fixture here, so it stamps the Jacoby rule for
-    /// the reason <see cref="TwoChoiceDecision"/> does: this file's fixtures are
-    /// real positions, and a real money position with no stamp would silently be
-    /// the no-key rung instead.
-    /// </para>
     /// </summary>
-    public static BgDecisionData OneClickPlayDecision(
-        string onRoll = "Alice", string opp = "Bob")
-    {
-        return new BgDecisionData
-        {
-            Id = new XgpDecisionId("test.xgp"),
-            Position = new PositionData { Mop = TwoLegalPlaysMop(), IsJacoby = true },
-            Decision = new DecisionData
-            {
-                Dice = [6, 5],
-                Plays =
-                [
-                    // The entry's completed 12/6 play matches this candidate by
-                    // canonical Play equality ((12, 6)).
-                    new PlayCandidate { Play = [new(12, 6)], EquityLoss = 0.0, MoveNotation = "12/6" },
-                ],
-                BestPlayIndex = 0,
-            },
-            Descriptive = new DescriptiveData { OnRollName = onRoll, OpponentName = opp },
-        };
-    }
+    public static CheckerPlayDecision OneClickPlayDecision(
+        string onRoll = "Alice", string opp = "Bob") =>
+        OneCandidate(DefaultId, TwoLegalPlaysBoard(), [6, 5], Play.Create(new(12, 6)), onRoll, opp);
 
     /// <summary>
     /// The <see cref="OneClickPlayDecision"/> board: two legal plays, 12/6 and
@@ -329,7 +289,7 @@ internal static class TestFixtures
     /// to take the second away — one board, one blocker apart, so the pair
     /// differs in exactly the fact the skip rule reads.
     /// </summary>
-    private static int[] TwoLegalPlaysMop()
+    private static int[] TwoLegalPlaysCounts()
     {
         var m = new int[26];
         m[12] = 1; m[9] = 1;
@@ -337,29 +297,20 @@ internal static class TestFixtures
         return m;
     }
 
+    private static BoardPosition TwoLegalPlaysBoard() => new(TwoLegalPlaysCounts());
+
     /// <summary>
-    /// Forced non-double: <see cref="TwoLegalPlaysMop"/> with the 3-pt blocked
+    /// Forced non-double: <see cref="TwoLegalPlaysBoard"/> with the 3-pt blocked
     /// too, so 9/3 is gone and 12/6 is the only legal play on a (6,5). The play
     /// <i>moves something</i> — the case halheinrich/backgammon#140 is about,
     /// and the one <see cref="PassDecision"/> does not cover. The controller
     /// must auto-skip it exactly as it skips a pass.
     /// </summary>
-    public static BgDecisionData ForcedPlayDecision()
+    public static CheckerPlayDecision ForcedPlayDecision()
     {
-        var m = TwoLegalPlaysMop();
+        var m = TwoLegalPlaysCounts();
         m[3] = -2;
-        return new BgDecisionData
-        {
-            Id = new XgpDecisionId("forced.xgp"),
-            Position = new PositionData { Mop = m, IsJacoby = true },
-            Decision = new DecisionData
-            {
-                Dice = [6, 5],
-                Plays = [new PlayCandidate { Play = [new(12, 6)], EquityLoss = 0.0, MoveNotation = "12/6" }],
-                BestPlayIndex = 0,
-            },
-            Descriptive = new DescriptiveData { OnRollName = "Alice", OpponentName = "Bob" },
-        };
+        return OneCandidate(new XgpDecisionId("forced.xgp"), new BoardPosition(m), [6, 5], Play.Create(new(12, 6)));
     }
 
     /// <summary>
@@ -369,30 +320,21 @@ internal static class TestFixtures
     /// take a different generation path through BgMoveGen than the non-double
     /// <see cref="ForcedPlayDecision"/> exercises, which is why both are staged.
     /// </summary>
-    public static BgDecisionData ForcedDoubleDecision()
+    public static CheckerPlayDecision ForcedDoubleDecision()
     {
         var m = new int[26];
         m[24] = 1;
         m[12] = -2;
-        return new BgDecisionData
-        {
-            Id = new XgpDecisionId("forced-double.xgp"),
-            Position = new PositionData { Mop = m, IsJacoby = true },
-            Decision = new DecisionData
-            {
-                Dice = [6, 6],
-                Plays = [new PlayCandidate { Play = [new(24, 18)], EquityLoss = 0.0, MoveNotation = "24/18" }],
-                BestPlayIndex = 0,
-            },
-            Descriptive = new DescriptiveData { OnRollName = "Alice", OpponentName = "Bob" },
-        };
+        return OneCandidate(new XgpDecisionId("forced-double.xgp"), new BoardPosition(m), [6, 6], Play.Create(new(24, 18)));
     }
 
     /// <summary>
-    /// A forced bear-off: on-roll checkers on the 5- and 4-points and nothing
-    /// else, dice (6,5). Both come off whichever die pays for which, and a
-    /// bear-off move encodes as <c>(point, 0)</c> either way, so the roll admits
-    /// one legal play — the position offers no choice and must auto-skip.
+    /// A forced bear-off: on-roll checkers on the 5- and 4-points, dice (6,5),
+    /// and an opponent checker back on the on-roll player's 24-point, out of
+    /// the way. Both on-roll checkers come off whichever die pays for which,
+    /// and a bear-off move encodes as <c>(point, 0)</c> either way, so the roll
+    /// admits one legal play — the position offers no choice and must
+    /// auto-skip.
     ///
     /// <para>
     /// Not an arbitrary forced position. It is the one board whose candidate
@@ -402,53 +344,85 @@ internal static class TestFixtures
     /// while counting canonical plays rather than list entries
     /// (halheinrich/backgammon#140). Kept staged where the controller can be
     /// driven over it, so the skip is pinned end-to-end on the shape most
-    /// likely to regress.
+    /// likely to regress. The opponent checker is what makes it a decision
+    /// position — the board it replaced had the opponent borne off entirely,
+    /// which no record can stand on now.
     /// </para>
     /// </summary>
-    public static BgDecisionData ForcedBearOffDecision()
+    public static CheckerPlayDecision ForcedBearOffDecision()
     {
         var m = new int[26];
         m[5] = 1; m[4] = 1;
-        return new BgDecisionData
-        {
-            Id = new XgpDecisionId("forced-bearoff.xgp"),
-            Position = new PositionData { Mop = m, IsJacoby = true },
-            Decision = new DecisionData
-            {
-                Dice = [6, 5],
-                Plays =
-                [
-                    new PlayCandidate
-                    {
-                        Play = [new(5, 0), new(4, 0)], EquityLoss = 0.0, MoveNotation = "5/off 4/off",
-                    },
-                ],
-                BestPlayIndex = 0,
-            },
-            Descriptive = new DescriptiveData { OnRollName = "Alice", OpponentName = "Bob" },
-        };
+        m[24] = -1;
+        return OneCandidate(
+            new XgpDecisionId("forced-bearoff.xgp"), new BoardPosition(m), [6, 5],
+            Play.Create(new(5, 0), new(4, 0)));
     }
 
     /// <summary>
-    /// Pass-position decision — controller must auto-skip silently. Money, and
-    /// stamped for the same reason <see cref="OneClickPlayDecision"/> is: nothing
-    /// asks this fixture for its key today, and an unstamped one would quietly
-    /// stop having one.
+    /// Pass-position decision — the controller must auto-skip it silently. The
+    /// on-roll player is on the bar against a fully closed opponent board
+    /// (points 19–24 two each), so no roll enters; the one candidate is the
+    /// pass, the empty play.
     /// </summary>
-    public static BgDecisionData PassDecision()
+    public static CheckerPlayDecision PassDecision()
     {
-        return new BgDecisionData
-        {
-            Id = new XgpDecisionId("test.xgp"),
-            Position = new PositionData { Mop = ClosedOutMop(), IsJacoby = true },
-            Decision = new DecisionData
-            {
-                Dice = [1, 2],
-                Plays = [],
-            },
-            Descriptive = new DescriptiveData { OnRollName = "Alice", OpponentName = "Bob" },
-        };
+        var m = new int[26];
+        m[25] = 1;
+        for (int p = 19; p <= 24; p++) m[p] = -2;
+        return OneCandidate(DefaultId, new BoardPosition(m), [1, 2], []);
     }
+
+    /// <summary>
+    /// A money-session checker play off <paramref name="board"/> with
+    /// <paramref name="dice"/>, listing <paramref name="candidates"/> in that
+    /// order, each 0.05 worse than the one before — so the first is the best
+    /// under either ranking (they share one depth). For a test whose subject
+    /// is a particular position — a hit, a point made on a blot — that the
+    /// opening 3-1 cannot stage. Every candidate must be legal for the roll
+    /// from the board.
+    /// </summary>
+    public static CheckerPlayDecision CheckerPlayOn(
+        BoardPosition board, IReadOnlyList<int> dice, params Play[] candidates) =>
+        TestRecords.CheckerPlay(
+            id: DefaultId,
+            position: TestRecords.Position(mop: board, session: SessionFor(0)),
+            decision: TestRecords.CheckerPlayData(
+                dice: dice,
+                plays: [.. candidates.Select((play, i) => TestRecords.Candidate(play: play, equity: -0.05 * i))],
+                userPlayIndex: null),
+            descriptive: Describe(DefaultId, "Alice", "Bob", comment: null));
+
+    /// <summary>A money-session checker play off <paramref name="board"/> with one candidate, <paramref name="play"/>.</summary>
+    private static CheckerPlayDecision OneCandidate(
+        DecisionId id, BoardPosition board, IReadOnlyList<int> dice, Play play,
+        string onRoll = "Alice", string opp = "Bob") =>
+        TestRecords.CheckerPlay(
+            id: id,
+            position: TestRecords.Position(mop: board, session: SessionFor(0)),
+            decision: TestRecords.CheckerPlayData(
+                dice: dice,
+                plays: [TestRecords.Candidate(play: play, equity: 0.0)],
+                userPlayIndex: null),
+            descriptive: Describe(id, onRoll, opp, comment: null));
+
+    /// <summary>
+    /// The scored submission of <paramref name="play"/> against
+    /// <paramref name="decision"/> under <paramref name="ranking"/> — the one way
+    /// a test gets a <see cref="SubmittedPlay"/>, since the producer's scoring
+    /// (<see cref="PlaySubmission.Score"/>) is the one way anything does: the
+    /// candidate, the error, the verdict and the key come out of it together.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// <paramref name="play"/> does not score under <paramref name="ranking"/> —
+    /// a skip, which yields no submission; a test wanting one scores the play
+    /// itself.
+    /// </exception>
+    public static SubmittedPlay Scored(CheckerPlayDecision decision, Play play, PlayRanking ranking) =>
+        PlaySubmission.Score(play, decision, ranking).TryGetScored(out var submitted)
+            ? submitted
+            : throw new InvalidOperationException(
+                $"{play.ToNotation()} does not score against this fixture under {ranking}.");
 
     /// <summary>
     /// A <see cref="ComposedProblemSource"/> over <paramref name="source"/> —

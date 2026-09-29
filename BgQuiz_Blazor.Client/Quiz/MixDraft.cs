@@ -1,5 +1,6 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using System.Collections.Immutable;
 using System.Globalization;
 using BgGame_Lib;
 using Microsoft.JSInterop;
@@ -103,10 +104,22 @@ internal sealed class MixDraft(IJSRuntime js)
         public string PercentText { get; internal set; }
     }
 
-    private readonly List<Row> _rows = [];
+    private ImmutableArray<Row> _rows = [];
 
-    /// <summary>The draft rows, in draw order (order is contractual).</summary>
-    public IReadOnlyList<Row> Rows => _rows;
+    /// <summary>
+    /// The draft rows, in draw order (order is contractual).
+    ///
+    /// <para>
+    /// <b>An immutable array</b> (halheinrich/backgammon#273's collection rider):
+    /// every add, removal, reorder and reload replaces it rather than editing it
+    /// in place, so no reader — the panel, a test — can write the draft's list
+    /// through a cast, and a reference read before an edit keeps the rows it
+    /// had. A row's own buffers are still edited in place, through the
+    /// mutators below, which is what <see cref="Row"/>'s internal setters are
+    /// for.
+    /// </para>
+    /// </summary>
+    public ImmutableArray<Row> Rows => _rows;
 
     /// <summary>The Random-order toggle; on is the blank builder's default.</summary>
     public bool RandomOrder { get; private set; } = true;
@@ -247,7 +260,7 @@ internal sealed class MixDraft(IJSRuntime js)
 
     private void ClearCore()
     {
-        _rows.Clear();
+        _rows = [];
         RandomOrder = true;
         LengthText = string.Empty;
     }
@@ -266,7 +279,7 @@ internal sealed class MixDraft(IJSRuntime js)
     public Task AddRowAsync()
     {
         var kind = NextUnusedKind();
-        _rows.Add(new Row(kind, DefaultParamText(kind), string.Empty));
+        _rows = _rows.Add(new Row(kind, DefaultParamText(kind), string.Empty));
         RebalancePercentsEvenly();
         return MutatedAsync();
     }
@@ -281,8 +294,8 @@ internal sealed class MixDraft(IJSRuntime js)
     /// </summary>
     public Task RemoveRowAsync(int index)
     {
-        _rows.RemoveAt(index);
-        if (_rows.Count > 0) RebalancePercentsEvenly();
+        _rows = _rows.RemoveAt(index);
+        if (!_rows.IsEmpty) RebalancePercentsEvenly();
         return MutatedAsync();
     }
 
@@ -290,8 +303,9 @@ internal sealed class MixDraft(IJSRuntime js)
     public Task MoveRowAsync(int index, int delta)
     {
         var target = index + delta;
-        if (target < 0 || target >= _rows.Count) return Task.CompletedTask;
-        (_rows[index], _rows[target]) = (_rows[target], _rows[index]);
+        if (target < 0 || target >= _rows.Length) return Task.CompletedTask;
+        var moving = _rows[index];
+        _rows = _rows.SetItem(index, _rows[target]).SetItem(target, moving);
         return MutatedAsync();
     }
 
@@ -353,7 +367,7 @@ internal sealed class MixDraft(IJSRuntime js)
     {
         get
         {
-            if (_rows.Count == 0) return null;
+            if (_rows.IsEmpty) return null;
 
             var categories = new HashSet<QuizCategory>();
             foreach (var row in _rows)
@@ -394,7 +408,7 @@ internal sealed class MixDraft(IJSRuntime js)
     {
         try
         {
-            var entries = new List<QuizMixEntry>(_rows.Count);
+            var entries = new List<QuizMixEntry>(_rows.Length);
             foreach (var row in _rows)
             {
                 if (!TryBuildCategory(row, out var category, out _)) return null;
@@ -552,9 +566,9 @@ internal sealed class MixDraft(IJSRuntime js)
     /// </summary>
     private void RebalancePercentsEvenly()
     {
-        var share = 100 / _rows.Count;
-        var remainder = 100 % _rows.Count;
-        for (var i = 0; i < _rows.Count; i++)
+        var share = 100 / _rows.Length;
+        var remainder = 100 % _rows.Length;
+        for (var i = 0; i < _rows.Length; i++)
             _rows[i].PercentText = (share + (i < remainder ? 1 : 0))
                 .ToString(CultureInfo.InvariantCulture);
     }
@@ -566,14 +580,10 @@ internal sealed class MixDraft(IJSRuntime js)
     /// </summary>
     private void Project(QuizMix mix)
     {
-        _rows.Clear();
-        foreach (var entry in mix.Entries)
-        {
-            _rows.Add(new Row(
-                entry.Category.Kind,
-                ParamTextFor(entry.Category),
-                entry.Percent.ToString(CultureInfo.InvariantCulture)));
-        }
+        _rows = [.. mix.Entries.Select(entry => new Row(
+            entry.Category.Kind,
+            ParamTextFor(entry.Category),
+            entry.Percent.ToString(CultureInfo.InvariantCulture)))];
         RandomOrder = mix.RandomOrder;
         LengthText = mix.QuizLength?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
     }

@@ -37,6 +37,13 @@
          reference it. Its bunit and AngleSharp versions are the floor for
          this repository's (Directory.Packages.props). -->
     <ProjectReference Include="..\..\BgUiPrimitives_Razor\BgUiPrimitives_Razor.TestSupport\BgUiPrimitives_Razor.TestSupport.csproj" />
+    <!-- The record builders (TestRecords): the one way a test builds a
+         decision record, owned by the producer that owns the records'
+         construction rules, so no fixture here restates them
+         (halheinrich/backgammon#273). Test projects only — the assembly
+         declares itself unsupported on the browser platform, so a product
+         project using it fails the build. -->
+    <ProjectReference Include="..\..\BgDataTypes_Lib\BgDataTypes_Lib.TestSupport\BgDataTypes_Lib.TestSupport.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -173,7 +173,7 @@
                                    Options="BoardOptions"
                                    OnDiceClicked="ContinueAsync" />
             }
-            else if (current.Decision.IsCube)
+            else if (current is CubeDecision)
             {
                 @* Cube answering: the board region is board-only. The cube answer
                    is entered by the BackgammonCubeActions radios in the action row
@@ -285,7 +285,7 @@
                        leaving this branch, which unmounts it. *@
                     <DecisionNotes Comment="@current.Descriptive.Comment" />
                 }
-                else if (current.Decision.IsCube)
+                else if (current is CubeDecision cube)
                 {
                     @* The cube answer lives here in the chrome, beside its own
                        Submit / Skip — the board region above is board-only. One
@@ -299,7 +299,7 @@
                        Quiz.razor.cs).
 
                        OfferTooGood passes the producer's offerability fact
-                       through (BgDecisionData.CanBeTooGood): whether Too good
+                       through (CubeDecision.CanBeTooGood): whether Too good
                        can be right at this position is derived once, on the
                        record, from money / Jacoby / cube-centred together, and
                        this page never re-derives it from those fields.
@@ -317,7 +317,7 @@
                        that keeps a @key off the play entry — see the Redo
                        remarks in Quiz.razor.cs). *@
                     <BackgammonCubeActions @bind-Value="_completedCube"
-                                           OfferTooGood="current.CanBeTooGood" />
+                                           OfferTooGood="cube.CanBeTooGood" />
                     <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanSubmit)"
                             @onclick="Submit">
                         Submit
@@ -344,7 +344,7 @@
                        re-renders this page during click-by-click assembly,
                        so they stayed disabled until the play completed. The
                        branch already guarantees an entry is rendered
-                       (!IsCube), and a click can only land after the ref is
+                       (a checker play), and a click can only land after the ref is
                        assigned, so the null term tested nothing this branch
                        had not already established. See UndoLast. *@
                     <button class="btn btn-outline-secondary"
@@ -388,23 +388,23 @@
                    It follows the XGID because the two together are the position's
                    provenance, and precedes the buttons because End quiz still
                    keeps the far end. Its three facts are bound one by one rather
-                   than by handing the component the whole Descriptive category:
-                   what this chip displays IS its contract, and a wider parameter
-                   would let it grow a fourth fact without a ruling. Display
-                   only — none of them reaches ProblemKey, the dedupe or the
-                   stats document (see ProblemLocator, and SPEC-stats-identity.md
-                   for why file position is deliberately not identity).
+                   than by handing the component the whole record: what this
+                   chip displays IS its contract, and a wider parameter would
+                   let it grow a fourth fact without a ruling. Display only —
+                   none of them reaches ProblemKey, the dedupe or the stats
+                   document (see ProblemLocator, and SPEC-stats-identity.md for
+                   why file position is deliberately not identity).
 
-                   Source is the record's identity, and only its KIND is read:
-                   a standalone .xgp position has no within-file coordinates to
-                   show, and the converter's synthetic ones would misdescribe it
-                   (§4's ruling (ii) — see ProblemLocator.SourceIsOnePosition). *@
+                   The game and move numbers are the record's as the producer
+                   states them: null for a standalone .xgp position, which
+                   belongs to no game (halheinrich/backgammon#124), so the chip
+                   shows the file name alone there and says nothing in their
+                   place. *@
                 <div class="action-row-tail d-flex flex-nowrap gap-2 align-items-center">
                     <XgidLabel Xgid="@current.Xgid" />
-                    <ProblemLocator SourceFile="@current.Descriptive.SourceFile"
-                                    Game="current.Descriptive.Game"
-                                    MoveNumber="current.Descriptive.MoveNumber"
-                                    Source="current.Id" />
+                    <ProblemLocator SourceFile="@current.SourceFile"
+                                    Game="current.Game"
+                                    MoveNumber="current.MoveNumber" />
                     <button class="btn btn-outline-secondary" @onclick="ShowStats">
                         Show stats
                     </button>
@@ -436,10 +436,10 @@
             {
                 <div class="status-strip">
                     <div class="status-legend text-muted small">
-                        @(review is not null ? SolutionLegend(review, current.Decision) : null)
+                        @(review is not null ? SolutionLegend(review, current) : null)
                     </div>
                     <div class="status-verdict alert @StatusVerdictColor(review)" role="status">
-                        <span class="status-verdict-text">@StatusText(review, current.Decision)</span>
+                        <span class="status-verdict-text">@StatusText(review, current)</span>
                     </div>
                 </div>
             }
