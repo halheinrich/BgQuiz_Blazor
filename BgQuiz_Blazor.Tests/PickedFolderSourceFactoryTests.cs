@@ -1,4 +1,4 @@
-﻿using System.Collections.Immutable;
+using System.Collections.Immutable;
 using BgDataTypes_Lib;
 using BgFolderAccess_Razor;
 using BgGame_Lib;
