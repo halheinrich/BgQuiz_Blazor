@@ -157,7 +157,6 @@ public class QuizControllerOverlapTests
         await first;
 
         Assert.Equal(1, sink.TotalFolds);
-        Assert.Single(c.History);
         Assert.Equal(1, c.Score.PlayDecisions.Submitted);
         Assert.Null(c.Review);
         Assert.NotNull(c.Current);
@@ -197,17 +196,24 @@ public class QuizControllerOverlapTests
 
         var pending = c.ContinueAsync(); // suspends at the gated advance
 
+        // Wait for the window the gate exists for. The pending Continue's
+        // continuation runs on its own schedule; once the review is gone it has
+        // moved on from the problem and is waiting on the source, and it cannot
+        // go further until this test releases one. There the state guards
+        // stale-pass — the outgoing problem is back in its answering state — so
+        // an ungated submission would be taken, as practice on a completed
+        // problem, and put a review up over a problem the run is leaving.
+        Assert.True(
+            SpinWait.SpinUntil(() => c.Review is null, TimeSpan.FromSeconds(10)),
+            "The pending Continue never reached the gated advance.");
+
         c.SubmitPlay(BestPlay());        // must no-op — the outgoing problem is not re-scorable
 
-        // History is only ever touched by Submit/Redo, both busy-gated, so
-        // this holds deterministically even while the advance is in flight.
-        // (Review is cleared by the pending Continue's own continuation at an
-        // indeterminate point, so it is only asserted after completion.)
-        Assert.Single(c.History);
+        Assert.Null(c.Review);           // no review went up: the submission was refused
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
 
         source.ReleaseNext();
         await pending;
-        Assert.Single(c.History);
         Assert.Null(c.Review);
         Assert.Equal(1, c.Score.PlayDecisions.Submitted);
     }
@@ -220,9 +226,9 @@ public class QuizControllerOverlapTests
         // complete, the advance would land, and the user would be answering the
         // NEXT problem with no visible break. The busy gate refuses it.
         //
-        // Review is the observable, not History: since halheinrich/backgammon#152
-        // a Redo pops nothing, so asserting History alone would pass with the
-        // gate deleted.
+        // Review is the observable, not the score: since halheinrich/backgammon#152
+        // a Redo changes nothing of record, so asserting the score alone would
+        // pass with the gate deleted.
         var c = MakeGated(out var source, out var sink, out _, Decision(), Decision());
         source.ReleaseNext();
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
@@ -236,13 +242,13 @@ public class QuizControllerOverlapTests
         await c.RedoAsync();             // must no-op
 
         Assert.NotNull(c.Review);        // not re-opened — the pending Continue owns the flow
-        Assert.Single(c.History);
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
 
         foldGate.SetResult();
         source.ReleaseNext();
         await pending;
         Assert.Equal(1, sink.TotalFolds);
-        Assert.Single(c.History);
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
         Assert.Null(c.Review);
     }
 

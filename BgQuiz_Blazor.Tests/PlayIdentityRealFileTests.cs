@@ -129,11 +129,12 @@ public class PlayIdentityRealFileTests
         controller.SubmitPlay(entered);
 
         Assert.Equal(0, controller.SkippedCount);                       // not an off-list skip
-        var submitted = Assert.Single(controller.History);
-        Assert.Equal(0, submitted.MatchedCandidateIndex);               // the candidate XG recorded
-        Assert.True(submitted.IsCorrect);                               // and it was the best play
         var review = Assert.IsType<ProblemReview.Play>(controller.Review);
         Assert.Equal(PlaySubmissionKind.Scored, review.Submission.Kind);
+        Assert.True(review.Submission.TryGetScored(out var submitted));
+        Assert.Equal(0, submitted.MatchedCandidateIndex);               // the candidate XG recorded
+        Assert.True(submitted.IsCorrect);                               // and it was the best play
+        Assert.Equal(1, controller.Score.PlayDecisions.Correct);        // and it is what the score counts
     }
 
     private static List<Move> Moves(Play play)

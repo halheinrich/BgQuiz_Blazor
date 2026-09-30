@@ -97,10 +97,11 @@ using Microsoft.Extensions.Logging;
 ///
 /// <para>
 /// <b>The ranking is an argument, not a holder read.</b> The delegate takes the
-/// run's ranking beside its filters, because the controller holds the run's one
-/// ranking and scores with it: the pool must be filtered under the ranking the
-/// quiz is scored under, and a ranking this factory looked up for itself could
-/// be another one (<c>SPEC-scoring.md</c> §2a).
+/// run's ranking beside its filters, because the run owns its one ranking and
+/// scores with it, and the controller hands that same ranking here: the pool
+/// must be filtered under the ranking the quiz is scored under, and a ranking
+/// this factory looked up for itself could be another one
+/// (<c>SPEC-scoring.md</c> §2a).
 /// </para>
 ///
 /// <para>

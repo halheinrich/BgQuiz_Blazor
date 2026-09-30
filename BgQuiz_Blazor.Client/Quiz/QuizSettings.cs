@@ -369,9 +369,10 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// </summary>
     /// <param name="randomSide">
     /// The current problem's roll — <see cref="QuizController.RandomHomeBoardOnRight"/>,
-    /// which the controller takes unconditionally per problem and holds steady
-    /// across submit, review, and redo. Passing it in is what keeps the
-    /// controller free of any knowledge of this service.
+    /// which the controller takes unconditionally for each problem it presents
+    /// and the run keeps with that problem, so it holds steady across submit,
+    /// review, and redo. Passing it in is what keeps the controller and the run
+    /// free of any knowledge of this service.
     /// </param>
     public bool EffectiveHomeBoardOnRight(bool randomSide) =>
         RandomizeSidePerProblem ? randomSide : HomeBoardOnRight;
@@ -387,12 +388,13 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// <b>Read where a quiz begins, and nowhere else.</b> The pages hand this to
     /// <see cref="QuizController.StartAsync"/>,
     /// <see cref="QuizController.RestartAsync"/> and
-    /// <see cref="QuizController.SummarizeMatchesAsync"/>, and the controller
-    /// passes the run's ranking to every producer operation whose meaning
-    /// depends on one — the problem filter, scoring, and the diagrams, answering
-    /// board and entry included. One quiz has one ranking, so a change made
-    /// mid-quiz takes effect at the next Start or Restart, and nothing already
-    /// scored is scored again.
+    /// <see cref="QuizController.SummarizeMatchesAsync"/>. A Start or Restart
+    /// begins a run under it, and that run owns it from then on
+    /// (<see cref="QuizRun.Ranking"/>): every producer operation whose meaning
+    /// depends on a ranking — the problem filter, scoring, and the diagrams,
+    /// answering board and entry included — reads the run's. One quiz has one
+    /// ranking, so a change made mid-quiz takes effect at the next Start or
+    /// Restart, and nothing already scored is scored again.
     /// </para>
     ///
     /// <para>

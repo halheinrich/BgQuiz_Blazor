@@ -4,21 +4,23 @@ using BgGame_Lib;
 
 /// <summary>
 /// The scored outcome of a just-submitted problem — the <i>displayed
-/// review</i>, held by <see cref="QuizController.Review"/> between Submit and
-/// Continue. It carries exactly what the review surfaces need to mark and
-/// name the user's answer: for a checker play, the producer's scored outcome
-/// (<see cref="PlaySubmission"/>) and the play the user submitted; for a cube
-/// decision, the scored submission itself — the user's claim pair, the derived
-/// truth pair, and the two per-half equity losses.
+/// review</i>, held by the run (<see cref="QuizRun.Review"/>, surfaced as
+/// <see cref="QuizController.Review"/>) from Submit until the run leaves the
+/// problem or returns to its decision. It carries exactly what the review
+/// surfaces need to mark and name the user's answer: for a checker play, the
+/// producer's scored outcome (<see cref="PlaySubmission"/>) and the play the
+/// user submitted; for a cube decision, the scored submission itself — the
+/// user's claim pair, the derived truth pair, and the two per-half equity
+/// losses.
 ///
 /// <para>
 /// <b>Displayed, not of record.</b> Every submission produces one of these,
 /// including the practice submissions of a redo cycle (SPEC-scoring.md §2:
 /// practice still reviews — "discarded" governs the record, not the pixels).
-/// What <i>counts</i> is the answer of record, which the controller holds
-/// privately and apart from this; <see cref="IsPractice"/> is the one bit of
-/// that split this type carries, so a review and its practice status can never
-/// be assigned separately and drift.
+/// What <i>counts</i> is the problem's disposition, which the run holds apart
+/// from this (<see cref="ProblemDisposition"/>); <see cref="IsPractice"/> is
+/// the one fact of that split this type carries, so a review and its practice
+/// status can never be assigned separately and drift.
 /// </para>
 ///
 /// <para>
@@ -53,16 +55,28 @@ internal abstract class ProblemReview
 
     /// <summary>
     /// True when this review shows a <i>practice</i> submission — one made
-    /// after <see cref="QuizController.RedoAsync"/> re-opened a problem that
-    /// already holds an answer of record (SPEC-scoring.md §2). Such a
-    /// submission is discarded as if it never happened: no session score, no
-    /// history entry, no lifetime fold. It is still scored and shown, because
-    /// seeing how the retry scored is the point of the gesture; this flag is
-    /// what lets the page say so.
+    /// against a problem that was already completed, answered or skipped
+    /// (SPEC-scoring.md §2; SPEC-quiz-history.md §3): today, after
+    /// <see cref="QuizController.RedoAsync"/> re-opened it. Such a
+    /// submission is discarded as if it never happened: no session score,
+    /// nothing of record, no lifetime fold. It is still scored and shown,
+    /// because seeing how the retry scored is the point of the gesture; this
+    /// flag is what lets the page say so.
+    ///
+    /// <para>
+    /// <b>A fact about this submission, not a second record of the
+    /// problem.</b> Whether the <i>next</i> submission would be live is never
+    /// stored — the run reads it off the problem's disposition
+    /// (<see cref="QuizRun.IsLive"/>). What this review keeps is what that
+    /// reading was when its own submission was made, which the disposition
+    /// cannot say afterwards: a skip of record carries no submission, so a
+    /// review of the play that caused it and a review of a later practice play
+    /// look the same from the record.
+    /// </para>
     ///
     /// <para>
     /// <c>init</c>-only and defaulted false: the fact is known exactly where a
-    /// review is constructed (the controller's submit paths), and nothing may
+    /// review is constructed (the run's submit transitions), and nothing may
     /// re-badge a review afterwards.
     /// </para>
     /// </summary>
@@ -147,8 +161,7 @@ internal abstract class ProblemReview
         /// on the record from the two pairs, so a review can never state a
         /// result that disagrees with the answer it describes. For a practice
         /// submission this record exists to be shown and is recorded nowhere;
-        /// for the answer of record it is the same instance the controller
-        /// keeps.
+        /// for the answer of record it is the same instance the run keeps.
         /// </summary>
         public SubmittedCubeAction Submission { get; }
     }

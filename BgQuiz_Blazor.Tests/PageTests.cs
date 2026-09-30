@@ -4686,7 +4686,6 @@ public class PageTests : BunitContext
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
 
-        Assert.Single(c.CubeHistory);
         Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
         Assert.Equal(1, c.Score.DoubleDecisions.Correct);
         Assert.Equal(1, c.Score.TakeDecisions.Submitted);
@@ -4973,9 +4972,8 @@ public class PageTests : BunitContext
         // Controller scored and entered review — the dice click submitted the
         // matched best play, exactly as a Submit-button click would.
         Assert.NotNull(c.Review);
-        Assert.Single(c.History);
-        Assert.True(c.History[0].IsCorrect);
         Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.Equal(1, c.Score.Total.Correct);
 
         // The page flipped to the solution view: Continue present, Submit gone.
         var buttons = cut.FindAll("button").Select(b => b.TextContent.Trim()).ToList();
@@ -5007,7 +5005,7 @@ public class PageTests : BunitContext
     /// <summary>
     /// The skip recorded and the run advanced, with nothing scored: the
     /// controller moved from <paramref name="skipped"/> to
-    /// <paramref name="next"/>, counted one skip, and holds no submission of
+    /// <paramref name="next"/>, counted one skip, and scored no answer of
     /// either kind — so no review was entered on the way, whatever answer was
     /// on the board.
     /// </summary>
@@ -5018,8 +5016,7 @@ public class PageTests : BunitContext
         Assert.Same(next, c.Current);
         Assert.NotSame(skipped, c.Current);
         Assert.Null(c.Review);
-        Assert.Empty(c.History);
-        Assert.Empty(c.CubeHistory);
+        Assert.Equal(0, AnswersOfRecord(c));
         Assert.False(ButtonNamed(cut, "Skip").HasAttribute("disabled"));
     }
 
@@ -5031,6 +5028,15 @@ public class PageTests : BunitContext
     /// the controller counts as a skip.
     /// </summary>
     private static Play ClickedPlay() => TestFixtures.OpeningBest();
+
+    /// <summary>
+    /// How many problems hold an answer of record, read off the score the run
+    /// derives from that record: one play decision per checker play answered,
+    /// one double decision per cube position answered (a cube answer scores a
+    /// take decision too, which would count the position twice).
+    /// </summary>
+    private static int AnswersOfRecord(QuizController c) =>
+        c.Score.PlayDecisions.Submitted + c.Score.DoubleDecisions.Submitted;
 
     /// <summary>Build <see cref="ClickedPlay"/> on the board by its two clicks.</summary>
     private static async Task ClickTheWholePlayAsync(IRenderedComponent<QuizPage> cut)
@@ -5051,7 +5057,7 @@ public class PageTests : BunitContext
         Assert.Same(answered, c.Current);
         Assert.NotNull(c.Review);
         Assert.Equal(0, c.SkippedCount);
-        Assert.Equal(1, c.History.Length + c.CubeHistory.Length);
+        Assert.Equal(1, AnswersOfRecord(c));
         Assert.False(ButtonNamed(cut, "Continue").HasAttribute("disabled"));
     }
 
@@ -5079,7 +5085,7 @@ public class PageTests : BunitContext
         Assert.Null(c.Review);
         Assert.Same(second, c.Current);
         Assert.Equal(0, c.SkippedCount);
-        Assert.Single(c.History);
+        Assert.Equal(1, AnswersOfRecord(c));
         Assert.Contains("Submit", cut.Markup);
     }
 
@@ -5143,7 +5149,9 @@ public class PageTests : BunitContext
 
         // Scored as the play on the board, on the problem it was built for.
         AssertSubmittedOn(c, cut, first);
-        Assert.True(new BoardState(first.Board).IsSamePlay(ClickedPlay(), Assert.Single(c.History).UserPlay));
+        var scored = Assert.IsType<ProblemReview.Play>(c.Review);
+        Assert.Equal(PlaySubmissionKind.Scored, scored.Submission.Kind);
+        Assert.True(new BoardState(first.Board).IsSamePlay(ClickedPlay(), scored.UserPlay));
     }
 
     [Fact]
@@ -5183,7 +5191,8 @@ public class PageTests : BunitContext
         // Scored as the pair the pill stands for: the choice on screen is the
         // answer of record.
         AssertSubmittedOn(c, cut, first);
-        Assert.Equal(CubeClaimPair.NoDoubleTake, Assert.Single(c.CubeHistory).UserDecision);
+        Assert.Equal(
+            CubeClaimPair.NoDoubleTake, Assert.IsType<ProblemReview.Cube>(c.Review).Submission.UserDecision);
     }
 
     [Fact]
@@ -5222,7 +5231,7 @@ public class PageTests : BunitContext
         Assert.False(c.IsBusy);
         Assert.Equal(1, c.SkippedCount);
         Assert.Equal(2, c.ProblemNumber);
-        Assert.Empty(c.History);
+        Assert.Equal(0, AnswersOfRecord(c));
     }
 
     [Fact]
@@ -5264,7 +5273,7 @@ public class PageTests : BunitContext
         Assert.False(c.IsBusy);
         Assert.Equal(1, c.SkippedCount);
         Assert.Equal(2, c.ProblemNumber);
-        Assert.Empty(c.History);
+        Assert.Equal(0, AnswersOfRecord(c));
     }
 
     [Fact]
@@ -5326,7 +5335,7 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
 
         (int Skipped, int Problem, int Scored, bool Answering) Snapshot() =>
-            (c.SkippedCount, c.ProblemNumber, c.History.Length + c.CubeHistory.Length, c.Review is null);
+            (c.SkippedCount, c.ProblemNumber, AnswersOfRecord(c), c.Review is null);
 
         static (int, int, int, bool) Delta(
             (int Skipped, int Problem, int Scored, bool Answering) before,
@@ -5370,7 +5379,7 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
 
         (int Scored, int Skipped, bool Answering, bool Notice) Snapshot() =>
-            (c.History.Length + c.CubeHistory.Length, c.SkippedCount, c.Review is null,
+            (AnswersOfRecord(c), c.SkippedCount, c.Review is null,
              ShowsNoticeSaying(cut, "Your quiz has"));
 
         // The whole play, built on the board the same way before each gesture.
@@ -5473,7 +5482,8 @@ public class PageTests : BunitContext
 
         Assert.Null(c.Review);
         Assert.Same(current, c.Current);
-        Assert.Single(c.CubeHistory); // the record stands — it was never popped
+        Assert.Equal(1, c.Score.DoubleDecisions.Submitted); // the record stands — it was never popped
+        Assert.Equal(2, c.Score.Total.Correct);             // and it is still the answer submitted
 
         var buttons = cut.FindAll("button").Select(b => b.TextContent.Trim()).ToList();
         Assert.Contains("Submit", buttons);
@@ -5490,7 +5500,7 @@ public class PageTests : BunitContext
         // transition, so the radios render unselected on the way back regardless
         // of remounting. This pins that: after Redo no radio is checked, and the
         // retry that follows is practice — reviewed, but leaving the answer of
-        // record (the FIRST answer) alone in CubeHistory and in the score.
+        // record (the FIRST answer) alone in the score.
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
@@ -5499,8 +5509,8 @@ public class PageTests : BunitContext
         Assert.NotEmpty(cut.FindAll("input[checked]")); // first answer selected a radio
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
-        Assert.NotNull(c.Review);
-        var recorded = c.CubeHistory[0];
+        var recorded = Assert.IsType<ProblemReview.Cube>(c.Review).Submission;
+        var scored = c.Score;
 
         var redo = cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo");
         await redo.ClickAsync(new());
@@ -5519,10 +5529,14 @@ public class PageTests : BunitContext
         Assert.True(practice.IsPractice);
         Assert.Equal(CubeClaimPair.NoDoublePass, practice.Submission.UserDecision);
 
-        Assert.Same(recorded, Assert.Single(c.CubeHistory));
+        // The practice pair is wrong on both halves and the first is right on
+        // both, so a score that still reads two correct is the first answer's.
+        Assert.NotSame(recorded, practice.Submission);
         Assert.Equal(CubeClaimPair.DoubleTake, recorded.UserDecision);
+        Assert.Equal(scored, c.Score);
         Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
         Assert.Equal(1, c.Score.TakeDecisions.Submitted);
+        Assert.Equal(2, c.Score.Total.Correct);
     }
 
     [Fact]
@@ -5581,7 +5595,9 @@ public class PageTests : BunitContext
         Assert.NotEmpty(cut.FindAll("input[checked]"));
         Assert.False(cut.Find("button.btn-primary").HasAttribute("disabled"));
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
-        Assert.Equal(CubeClaimPair.NoDoubleTake, Assert.Single(c.CubeHistory).UserDecision);
+        Assert.Equal(
+            CubeClaimPair.NoDoubleTake, Assert.IsType<ProblemReview.Cube>(c.Review).Submission.UserDecision);
+        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
     }
 
     [Fact]

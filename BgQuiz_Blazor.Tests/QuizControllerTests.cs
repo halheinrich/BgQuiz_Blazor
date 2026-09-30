@@ -90,6 +90,34 @@ public class QuizControllerTests
         return play;
     }
 
+    /// <summary>The scored submission a cube review shows, asserting the review is of a cube answer.</summary>
+    private static SubmittedCubeAction CubeReview(ProblemReview? review) =>
+        Assert.IsType<ProblemReview.Cube>(review).Submission;
+
+    // -----------------------------------------------------------------------
+    //  Reading the record through the controller
+    //
+    //  The per-problem record is the run's (QuizRun; SPEC-quiz-history.md §7),
+    //  and the controller shows no list of it: what it shows is the score and
+    //  the skip count the run derives from that record, the review of the
+    //  submission just made, and — in the fake sink — what folded. So a pin
+    //  here reads the record one of three ways:
+    //
+    //   * how many answers are of record: the score's own counts, which are
+    //     the record's by derivation (one play decision per checker-play
+    //     answer of record; one double and one take per cube answer);
+    //   * what an answer of record is: the review taken straight after the
+    //     live submission, which carries the very submission the run recorded
+    //     (QuizRunTests pins that identity), or the submission the sink was
+    //     handed when the run advanced past the problem;
+    //   * that a record stands: the score it produced, unchanged — a practice
+    //     answer of a different value would move it — and its instance
+    //     reaching the sink.
+    //
+    //  The record itself — each problem's disposition, by instance — is pinned
+    //  where it lives, in QuizRunTests.
+    // -----------------------------------------------------------------------
+
     // -----------------------------------------------------------------------
     //  Construction
     // -----------------------------------------------------------------------
@@ -117,7 +145,7 @@ public class QuizControllerTests
         Assert.Null(c.Current);
         Assert.Null(c.Name);
         Assert.Equal(QuizScore.Empty, c.Score);
-        Assert.Empty(c.History);
+        Assert.Null(c.Review);
         Assert.Equal(0, c.SkippedCount);
         Assert.Equal(0, c.ProblemNumber);
         Assert.Null(c.ProblemCount);
@@ -370,8 +398,7 @@ public class QuizControllerTests
 
         c.SubmitPlay(BestPlay());
 
-        Assert.Single(c.History);
-        var first = c.History[0];
+        var first = ScoredReview(c.Review);
         Assert.True(first.IsCorrect);
         Assert.Equal(0.0, first.EquityLoss);
         Assert.Equal(0, first.MatchedCandidateIndex);
@@ -388,10 +415,10 @@ public class QuizControllerTests
 
         c.SubmitPlay(AltPlay());
 
-        Assert.Single(c.History);
-        Assert.False(c.History[0].IsCorrect);
-        Assert.Equal(0.05, c.History[0].EquityLoss, 6);
-        Assert.Equal(1, c.History[0].MatchedCandidateIndex);
+        var first = ScoredReview(c.Review);
+        Assert.False(first.IsCorrect);
+        Assert.Equal(0.05, first.EquityLoss, 6);
+        Assert.Equal(1, first.MatchedCandidateIndex);
         Assert.Equal(1, c.Score.Total.Submitted);
         Assert.Equal(0, c.Score.Total.Correct);
         Assert.Equal(0.05, c.Score.Total.TotalEquityLoss, 6);
@@ -422,9 +449,9 @@ public class QuizControllerTests
     [Fact]
     public async Task SubmitPlay_OffList_CountsAsSkip_SetsOffListReview()
     {
-        // Off-list: counted as a skip (no History entry, score unchanged), but a
-        // Review is still produced — the off-list outcome, no candidate (no
-        // marker drawn) — so the user sees the best play on the solution
+        // Off-list: counted as a skip (no answer of record, score unchanged),
+        // but a Review is still produced — the off-list outcome, no candidate
+        // (no marker drawn) — so the user sees the best play on the solution
         // diagram, and it carries the play as entered, which the verdict names
         // (halheinrich/backgammon#274).
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -432,7 +459,6 @@ public class QuizControllerTests
 
         c.SubmitPlay(UnknownPlay());
 
-        Assert.Empty(c.History);
         Assert.Equal(QuizScore.Empty, c.Score);
         Assert.Equal(1, c.SkippedCount);
         var review = OffListReview(c.Review);
@@ -483,8 +509,8 @@ public class QuizControllerTests
         c.SubmitPlay(AltPlay());
 
         Assert.Same(reviewBefore, c.Review); // unchanged
-        Assert.Single(c.History);
         Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.Equal(1, c.Score.Total.Correct); // and still the first answer's
     }
 
     [Fact]
@@ -511,7 +537,7 @@ public class QuizControllerTests
 
         c.SubmitPlay(BestPlay());
 
-        Assert.Empty(c.History);
+        Assert.Equal(QuizScore.Empty, c.Score);
         Assert.Equal(0, c.SkippedCount);
         Assert.Null(c.Review);
     }
@@ -525,10 +551,11 @@ public class QuizControllerTests
         await c.ContinueAsync(); // exhausts → IsFinished
         Assert.True(c.IsFinished);
 
-        var historyBefore = c.History.Length;
+        var scoreBefore = c.Score;
         c.SubmitPlay(BestPlay());
 
-        Assert.Equal(historyBefore, c.History.Length);
+        Assert.Equal(scoreBefore, c.Score);
+        Assert.Null(c.Review);
     }
 
     [Fact]
@@ -551,21 +578,23 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task SubmitPlay_CarriesProblemKeyIntoHistory()
+    public async Task SubmitPlay_CarriesProblemKeyIntoTheFold()
     {
         // Wire: the submitted play must carry the answered problem's CONTENT
-        // identity into History, so the lifetime fold keys on the problem rather
-        // than on where the record came from. A distinctive per-problem key pins
-        // the actual carry — a placeholder key would fail this equality. (The
-        // producer derives it from the scored record itself; this is the
-        // consumer's end of that wire.)
+        // identity into the answer of record, so the lifetime fold keys on the
+        // problem rather than on where the record came from. A distinctive
+        // per-problem key pins the actual carry — a placeholder key would fail
+        // this equality. (The producer derives it from the scored record
+        // itself; this is the consumer's end of that wire, read where the wire
+        // ends: on the submission the sink is handed.)
         var problem = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 7);
-        var c = Make(problem);
+        var c = MakeWithSink(out var sink, problem);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
 
-        Assert.Equal(ProblemKey.From(problem), c.History[^1].ProblemKey);
+        Assert.Equal(ProblemKey.From(problem), Assert.Single(sink.Plays).ProblemKey);
     }
 
     // -----------------------------------------------------------------------
@@ -592,9 +621,10 @@ public class QuizControllerTests
 
         c.SubmitPlay(Play.Create(new(13, 10), new(10, 9)));        // 13/10, 10/9
 
-        Assert.Single(c.History);
-        Assert.Equal(0, c.History[0].MatchedCandidateIndex);       // matched the combined candidate
-        Assert.True(c.History[0].IsCorrect);
+        var scored = ScoredReview(c.Review);
+        Assert.Equal(0, scored.MatchedCandidateIndex);             // matched the combined candidate
+        Assert.True(scored.IsCorrect);
+        Assert.Equal(1, c.Score.PlayDecisions.Correct);            // and it is what the score counts
         Assert.Equal(0, c.SkippedCount);                           // scored, not skipped off-list
         Assert.Equal(0, Assert.IsType<ProblemReview.Play>(c.Review).CandidateIndex);
     }
@@ -615,7 +645,8 @@ public class QuizControllerTests
 
         c.SubmitPlay(Play.Create(new(13, -10), new(10, 8)));        // matches the hitting one only
 
-        Assert.Equal(1, Assert.Single(c.History).MatchedCandidateIndex);
+        Assert.Equal(1, ScoredReview(c.Review).MatchedCandidateIndex);
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
     }
 
     [Fact]
@@ -637,9 +668,10 @@ public class QuizControllerTests
         c.SubmitPlay(Play.Create(new(8, -3), new(7, 3)));           // 8/3* 7/3, as entered
 
         Assert.Equal(0, c.SkippedCount);
-        var submitted = Assert.Single(c.History);
+        var submitted = ScoredReview(c.Review);
         Assert.Equal(0, submitted.MatchedCandidateIndex);
         Assert.True(submitted.IsCorrect);
+        Assert.Equal(1, c.Score.PlayDecisions.Correct);
     }
 
     /// <summary>One on-roll checker on the 13-point, an opposing blot on the 10 and two opposing checkers on the 20.</summary>
@@ -684,10 +716,11 @@ public class QuizControllerTests
 
         c.SubmitPlay(TestFixtures.OpeningAlternative());
 
-        var submitted = Assert.Single(c.History);
+        var submitted = ScoredReview(c.Review);
         Assert.Equal(ranking, submitted.Ranking);
         Assert.Equal(correct, submitted.IsCorrect);
         Assert.Equal(loss, submitted.EquityLoss, 6);
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
         Assert.Equal(correct ? 1 : 0, c.Score.PlayDecisions.Correct);
     }
 
@@ -720,7 +753,6 @@ public class QuizControllerTests
 
         c.SubmitPlay(TestFixtures.OpeningBest());
 
-        Assert.Empty(c.History);
         Assert.Equal(QuizScore.Empty, c.Score);
         Assert.Equal(1, c.SkippedCount);
         var review = Assert.IsType<ProblemReview.Play>(c.Review);
@@ -745,7 +777,7 @@ public class QuizControllerTests
         c.SubmitPlay(TestFixtures.OpeningAlternative());   // practice: the best, discarded
 
         Assert.Equal(1, c.SkippedCount);
-        Assert.Empty(c.History);
+        Assert.Equal(QuizScore.Empty, c.Score);
         Assert.True(ScoredReview(c.Review).IsCorrect);     // what is displayed
     }
 
@@ -791,7 +823,8 @@ public class QuizControllerTests
 
         Assert.Equal(PlayRanking.DepthFirst, handed());
         Assert.Equal(PlayRanking.DepthFirst, c.Ranking);
-        Assert.True(Assert.Single(c.History).IsCorrect); // the rollout is best under depth first
+        Assert.True(ScoredReview(c.Review).IsCorrect); // the rollout is best under depth first
+        Assert.Equal(1, c.Score.PlayDecisions.Correct);
     }
 
     [Fact]
@@ -873,7 +906,7 @@ public class QuizControllerTests
         Assert.Throws<InvalidOperationException>(() => c.SubmitCubeAction(CubeClaimPair.DoubleTake));
 
         Assert.Null(c.Review);
-        Assert.Empty(c.CubeHistory);
+        Assert.Equal(QuizScore.Empty, c.Score);
     }
 
     // -----------------------------------------------------------------------
@@ -888,8 +921,7 @@ public class QuizControllerTests
 
         c.SubmitCubeAction(CubeClaimPair.DoubleTake);
 
-        Assert.Single(c.CubeHistory);
-        var sub = c.CubeHistory[0];
+        var sub = CubeReview(c.Review);
         Assert.True(sub.DoublerCorrect);
         Assert.True(sub.TakerCorrect);
         Assert.Equal(0.0, sub.DoublerEquityLoss, 6);
@@ -903,7 +935,6 @@ public class QuizControllerTests
         Assert.Equal(1, c.Score.TakeDecisions.Correct);
         Assert.Equal(0, c.Score.PlayDecisions.Submitted);
         Assert.Equal(2, c.Score.Total.Submitted);
-        Assert.Empty(c.History);
     }
 
     [Fact]
@@ -914,7 +945,7 @@ public class QuizControllerTests
 
         c.SubmitCubeAction(CubeClaimPair.NoDoublePass);
 
-        var sub = c.CubeHistory[0];
+        var sub = CubeReview(c.Review);
         Assert.False(sub.DoublerCorrect);
         Assert.False(sub.TakerCorrect);
         Assert.Equal(0.20, sub.DoublerEquityLoss, 6);
@@ -927,18 +958,19 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task SubmitCubeAction_CarriesProblemKeyIntoCubeHistory()
+    public async Task SubmitCubeAction_CarriesProblemKeyIntoTheFold()
     {
         // Wire: the cube submission must carry the answered problem's content
-        // identity into CubeHistory — the cube analog of
-        // SubmitPlay_CarriesProblemKeyIntoHistory. Distinctive key pins the carry.
+        // identity into the answer of record — the cube analog of
+        // SubmitPlay_CarriesProblemKeyIntoTheFold. Distinctive key pins the carry.
         var problem = TestFixtures.CubeDecision(away: 7);
-        var c = Make(problem);
+        var c = MakeWithSink(out var sink, problem);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         c.SubmitCubeAction(CubeClaimPair.DoubleTake);
+        await c.ContinueAsync();
 
-        Assert.Equal(ProblemKey.From(problem), c.CubeHistory[^1].ProblemKey);
+        Assert.Equal(ProblemKey.From(problem), Assert.Single(sink.Cubes).ProblemKey);
     }
 
     [Fact]
@@ -962,8 +994,10 @@ public class QuizControllerTests
         Assert.False(review.Submission.DoublerCorrect);
         Assert.False(review.Submission.TakerCorrect);
         // The review carries the scored record itself — the same instance the
-        // history holds — so its per-half verdicts cannot drift from the record.
-        Assert.Same(c.CubeHistory[0], review.Submission);
+        // run holds as the answer of record — so its per-half verdicts cannot
+        // drift from the record: the score it produced is these two losses.
+        Assert.Equal(review.Submission.DoublerEquityLoss, c.Score.DoubleDecisions.TotalEquityLoss, 6);
+        Assert.Equal(review.Submission.TakerEquityLoss, c.Score.TakeDecisions.TotalEquityLoss, 6);
     }
 
     [Fact]
@@ -983,7 +1017,7 @@ public class QuizControllerTests
 
         c.SubmitCubeAction(CubeClaimPair.NoDoubleTake);
 
-        var sub = Assert.Single(c.CubeHistory);
+        var sub = CubeReview(c.Review);
         Assert.Equal(CubeClaimPair.TooGoodPass, sub.BestDecision);
         Assert.False(sub.DoublerCorrect);
         Assert.Equal(0.0, sub.DoublerEquityLoss, 6);
@@ -1011,12 +1045,14 @@ public class QuizControllerTests
 
         c.SubmitCubeAction(CubeClaimPair.TooGoodPass);
 
-        var sub = Assert.Single(c.CubeHistory);
+        var sub = CubeReview(c.Review);
         Assert.Equal(CubeClaimPair.NoDoubleTake, sub.BestDecision);
         Assert.False(sub.DoublerCorrect);
         Assert.Equal(0.0, sub.DoublerEquityLoss, 6);
         Assert.False(sub.TakerCorrect);
         Assert.Equal(0.1, sub.TakerEquityLoss, 6);
+        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
+        Assert.Equal(0, c.Score.Total.Correct);
     }
 
     [Fact]
@@ -1031,7 +1067,7 @@ public class QuizControllerTests
 
         c.SubmitCubeAction(CubeClaimPair.TooGoodPass);
 
-        var sub = Assert.Single(c.CubeHistory);
+        var sub = CubeReview(c.Review);
         Assert.True(sub.DoublerCorrect);
         Assert.True(sub.TakerCorrect);
         Assert.Equal(2, c.Score.Total.Correct);
@@ -1042,7 +1078,7 @@ public class QuizControllerTests
     {
         // The submission is SubmittedCubeAction.From(key, answer, decision) —
         // never reassembled by hand. The factory reads truth and both losses off
-        // the one decision, so this pins that the record the controller keeps
+        // the one decision, so this pins that the record the run keeps
         // equals what the factory builds for the same inputs, field for field.
         var problem = TestFixtures.CubeDecision(noDoubleEquity: 0.8, doubleTakeEquity: 0.7, away: 5);
         var c = Make(problem);
@@ -1052,7 +1088,7 @@ public class QuizControllerTests
 
         var expected = SubmittedCubeAction.From(
             ProblemKey.From(problem), CubeClaimPair.DoublePass, problem.Decision);
-        Assert.Equal(expected, Assert.Single(c.CubeHistory));
+        Assert.Equal(expected, CubeReview(c.Review));
     }
 
     [Fact]
@@ -1066,7 +1102,7 @@ public class QuizControllerTests
 
         c.SubmitCubeAction(CubeClaimPair.NoDoublePass);
 
-        var sub = Assert.Single(c.CubeHistory);
+        var sub = CubeReview(c.Review);
         Assert.True(sub.UserDecision.IsIncoherent);
         Assert.False(sub.DoublerCorrect);
         Assert.False(sub.TakerCorrect);
@@ -1102,7 +1138,8 @@ public class QuizControllerTests
         c.SubmitCubeAction(CubeClaimPair.NoDoublePass);
 
         Assert.Same(reviewBefore, c.Review);
-        Assert.Single(c.CubeHistory);
+        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
+        Assert.Equal(2, c.Score.Total.Correct); // and still the first answer's
     }
 
     [Fact]
@@ -1127,7 +1164,6 @@ public class QuizControllerTests
 
         c.SubmitCubeAction(CubeClaimPair.DoubleTake);
 
-        Assert.Empty(c.CubeHistory);
         Assert.Equal(QuizScore.Empty, c.Score);
         Assert.Null(c.Review);
     }
@@ -1141,26 +1177,27 @@ public class QuizControllerTests
         await c.ContinueAsync(); // exhausts
         Assert.True(c.IsFinished);
 
-        var countBefore = c.CubeHistory.Length;
+        var scoreBefore = c.Score;
         c.SubmitCubeAction(CubeClaimPair.DoubleTake);
 
-        Assert.Equal(countBefore, c.CubeHistory.Length);
+        Assert.Equal(scoreBefore, c.Score);
+        Assert.Null(c.Review);
     }
 
     [Fact]
-    public async Task RestartAsync_ClearsCubeHistoryAndReview()
+    public async Task RestartAsync_ClearsTheCubeScoreAndReview()
     {
         var c = Make(
             TestFixtures.CubeDecision(),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         c.SubmitCubeAction(CubeClaimPair.DoubleTake);
-        Assert.Single(c.CubeHistory);
+        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
         Assert.NotNull(c.Review);
 
         await c.RestartAsync(PlayRanking.Equity);
 
-        Assert.Empty(c.CubeHistory);
+        Assert.Equal(QuizScore.Empty, c.Score);
         Assert.Null(c.Review);
     }
 
@@ -1179,7 +1216,6 @@ public class QuizControllerTests
         await c.RedoAsync();
 
         Assert.Same(current, c.Current);
-        Assert.Empty(c.History);
         Assert.Equal(QuizScore.Empty, c.Score);
         Assert.Equal(0, c.SkippedCount);
         Assert.False(c.IsFinished);
@@ -1189,27 +1225,31 @@ public class QuizControllerTests
     public async Task RedoAsync_AfterCorrectPlay_LeavesTheAnswerOfRecordStanding()
     {
         // SPEC-scoring.md §2: redo re-opens the problem, never the record. Only
-        // Review clears — History, Score and SkippedCount are exactly as the
-        // first submission left them.
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        // Review clears — Score and SkippedCount are exactly as the first
+        // submission left them, and it is that submission which folds.
+        var c = MakeWithSink(out var sink, TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var current = c.Current;
 
         c.SubmitPlay(BestPlay());
-        Assert.Single(c.History);
-        Assert.Equal(1, c.Score.Total.Submitted);
         Assert.NotNull(c.Review);
-        var recorded = c.History[0];
+        var recorded = ScoredReview(c.Review);
+        var scored = c.Score;
+        Assert.Equal(1, scored.Total.Submitted);
 
         await c.RedoAsync();
 
-        Assert.Same(recorded, Assert.Single(c.History));
+        Assert.Equal(scored, c.Score);
         Assert.Equal(1, c.Score.Total.Submitted);
         Assert.Equal(1, c.Score.Total.Correct);
         Assert.Equal(0, c.SkippedCount);
         Assert.Null(c.Review);
         Assert.Same(current, c.Current); // unchanged — same problem, answering state
         Assert.False(c.IsFinished);
+
+        // The record is still the first submission itself: moving on folds it.
+        await c.SkipCurrentAsync();
+        Assert.Same(recorded, Assert.Single(sink.Plays));
     }
 
     [Fact]
@@ -1221,12 +1261,11 @@ public class QuizControllerTests
         var current = c.Current;
 
         c.SubmitPlay(AltPlay());
-        Assert.Single(c.History);
+        Assert.Equal(1, c.Score.Total.Submitted);
         Assert.Equal(0.05, c.Score.Total.TotalEquityLoss, 6);
 
         await c.RedoAsync();
 
-        Assert.Single(c.History);
         Assert.Equal(1, c.Score.Total.Submitted);
         Assert.Equal(0.05, c.Score.Total.TotalEquityLoss, 6);
         Assert.Null(c.Review);
@@ -1244,13 +1283,12 @@ public class QuizControllerTests
 
         c.SubmitPlay(UnknownPlay());
         Assert.Equal(1, c.SkippedCount);
-        Assert.Empty(c.History);
+        Assert.Equal(QuizScore.Empty, c.Score);
         OffListReview(c.Review);
 
         await c.RedoAsync();
 
         Assert.Equal(1, c.SkippedCount);
-        Assert.Empty(c.History);
         Assert.Equal(QuizScore.Empty, c.Score); // an off-list play never scored
         Assert.Null(c.Review);
         Assert.Same(current, c.Current);
@@ -1270,7 +1308,6 @@ public class QuizControllerTests
         c.SubmitPlay(BestPlay());    // practice: on-list, correct, and discarded
 
         Assert.Equal(1, c.SkippedCount);
-        Assert.Empty(c.History);
         Assert.Equal(QuizScore.Empty, c.Score);
         Assert.True(ScoredReview(c.Review).IsCorrect); // still reviewed
     }
@@ -1278,27 +1315,31 @@ public class QuizControllerTests
     [Fact]
     public async Task RedoAsync_AfterCubeSubmission_LeavesTheAnswerOfRecordStanding()
     {
-        var c = Make(TestFixtures.CubeDecision());
+        var c = MakeWithSink(out var sink, TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var current = c.Current;
 
         c.SubmitCubeAction(CubeClaimPair.DoubleTake);
-        Assert.Single(c.CubeHistory);
         Assert.Equal(2, c.Score.Total.Submitted); // one Double + one Take
-        var recorded = c.CubeHistory[0];
+        var recorded = CubeReview(c.Review);
+        var scored = c.Score;
 
         await c.RedoAsync();
 
-        Assert.Same(recorded, Assert.Single(c.CubeHistory));
+        Assert.Equal(scored, c.Score);
         Assert.Equal(2, c.Score.Total.Submitted);
         Assert.Null(c.Review);
         Assert.Same(current, c.Current);
+
+        // The record is still the first submission itself: moving on folds it.
+        await c.SkipCurrentAsync();
+        Assert.Same(recorded, Assert.Single(sink.Cubes));
     }
 
     [Fact]
     public async Task RedoAsync_AfterCubeSubmission_LeavesEarlierPlaySegmentIntact()
     {
-        // Interleaved history across a redo: neither segment moves. The play
+        // Interleaved answers across a redo: neither segment moves. The play
         // answered and continued past stays folded into PlayDecisions, and the
         // cube problem's own answer of record stays in DoubleDecisions /
         // TakeDecisions — redo touches no score segment at all.
@@ -1312,13 +1353,11 @@ public class QuizControllerTests
         Assert.Same(cube, c.Current);
 
         c.SubmitCubeAction(CubeClaimPair.NoDoublePass); // wrong
-        Assert.Single(c.CubeHistory);
+        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
 
         await c.RedoAsync();
 
-        Assert.Single(c.CubeHistory);
-        Assert.Single(c.History); // play segment untouched
-        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted); // play segment untouched
         Assert.Equal(0.05, c.Score.PlayDecisions.TotalEquityLoss, 6);
         Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
         Assert.Equal(1, c.Score.TakeDecisions.Submitted);
@@ -1339,8 +1378,7 @@ public class QuizControllerTests
         await c.RedoAsync();
         c.SubmitPlay(BestPlay()); // practice: correct, and discarded
 
-        var recorded = Assert.Single(c.History);
-        Assert.False(recorded.IsCorrect);
+        // One answer of record, and it is the first: not correct, 0.05 lost.
         Assert.Equal(1, c.Score.Total.Submitted);
         Assert.Equal(0, c.Score.Total.Correct);
         Assert.Equal(0.05, c.Score.Total.TotalEquityLoss, 6);
@@ -1356,13 +1394,13 @@ public class QuizControllerTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         c.SubmitPlay(AltPlay()); // of record
-        var recorded = c.History[0];
+        var scored = c.Score;
 
         for (var cycle = 0; cycle < 5; cycle++)
         {
             await c.RedoAsync();
             c.SubmitPlay(cycle % 2 == 0 ? BestPlay() : AltPlay());
-            Assert.Same(recorded, Assert.Single(c.History));
+            Assert.Equal(scored, c.Score);
             Assert.Equal(1, c.Score.Total.Submitted);
             Assert.Equal(0, c.Score.Total.Correct);
             Assert.Equal(0.05, c.Score.Total.TotalEquityLoss, 6);
@@ -1384,7 +1422,7 @@ public class QuizControllerTests
         c.SubmitPlay(UnknownPlay()); // practice: off-list
 
         Assert.Equal(0, c.SkippedCount);
-        Assert.Single(c.History);
+        Assert.Equal(1, c.Score.Total.Submitted);
         Assert.Equal(1, c.Score.Total.Correct);
         OffListReview(c.Review); // still reviewed
     }
@@ -1404,7 +1442,6 @@ public class QuizControllerTests
         await c.RedoAsync();
         c.SubmitCubeAction(CubeClaimPair.DoubleTake); // practice
 
-        Assert.Single(c.CubeHistory);
         Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
         Assert.Equal(1, c.Score.TakeDecisions.Submitted);
         Assert.Equal(recordedDoubleCorrect, c.Score.DoubleDecisions.Correct);
@@ -1568,7 +1605,6 @@ public class QuizControllerTests
 
         await c.EndQuizAsync();           // quitting on problem 2, unanswered
 
-        Assert.Single(c.History);
         Assert.Equal(1, c.Score.PlayDecisions.Submitted);
         Assert.Equal(1, c.Score.PlayDecisions.Correct);
         Assert.Equal(1, c.SkippedCount);
@@ -1591,7 +1627,6 @@ public class QuizControllerTests
 
         Assert.True(c.IsFinished);
         Assert.Null(c.Review);
-        Assert.Single(c.History);
         Assert.Equal(1, c.Score.PlayDecisions.Submitted);
         Assert.Equal(0, c.SkippedCount);
     }
@@ -1612,7 +1647,7 @@ public class QuizControllerTests
 
         c.SubmitPlay(AltPlay());
         Assert.Equal(0, sink.TotalFolds); // submit alone still folds nothing
-        var submitted = c.History[^1];
+        var submitted = ScoredReview(c.Review);
 
         await c.EndQuizAsync();
 
@@ -1623,9 +1658,9 @@ public class QuizControllerTests
     [Fact]
     public async Task EndQuizAsync_FromReview_OfAnOffListPlay_FoldsNothing()
     {
-        // The off-list carve-out rides along unchanged: that submission added no
-        // history entry, so there is nothing to fold — and the skip it already
-        // recorded must not be double-counted by the abandon branch.
+        // The off-list carve-out rides along unchanged: that submission is a
+        // skip of record and left no answer, so there is nothing to fold — and
+        // the skip it already recorded must not be counted again by the end.
         var c = MakeWithSink(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -1680,7 +1715,7 @@ public class QuizControllerTests
         await c.EndQuizAsync();
 
         Assert.Equal(0, c.SkippedCount);
-        Assert.Single(c.History);
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
     }
 
     [Fact]
@@ -1754,7 +1789,7 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task RestartAsync_ResetsScoreAndHistory()
+    public async Task RestartAsync_ResetsScoreAndSkippedCount()
     {
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
@@ -1763,13 +1798,12 @@ public class QuizControllerTests
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
         await c.SkipCurrentAsync();
-        Assert.Single(c.History);
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
         Assert.Equal(1, c.SkippedCount);
 
         await c.RestartAsync(PlayRanking.Equity);
 
         Assert.Equal(QuizScore.Empty, c.Score);
-        Assert.Empty(c.History);
         Assert.Equal(0, c.SkippedCount);
         Assert.False(c.IsFinished);
         Assert.NotNull(c.Current);
@@ -1912,7 +1946,7 @@ public class QuizControllerTests
     public async Task SummarizeMatchesAsync_DoesNotDisturbLiveQuiz()
     {
         // The throwaway-enumerator guarantee: summarizing mid-quiz touches no
-        // live state — Current, Score, the histories, and IsFinished all survive.
+        // live state — Current, Score, the skip count and IsFinished all survive.
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -1921,14 +1955,14 @@ public class QuizControllerTests
         await c.ContinueAsync(); // now on the second problem, one scored
         var currentIdBefore = c.Current!.Id;
         var scoreBefore = c.Score;
-        var historyBefore = c.History.Length;
+        var skippedBefore = c.SkippedCount;
 
         var summary = await c.SummarizeMatchesAsync(new FilterConfig(), PlayRanking.Equity);
 
         Assert.Equal(2, summary.AnswerTypes.Total);
         Assert.Equal(currentIdBefore, c.Current!.Id);
         Assert.Equal(scoreBefore, c.Score);
-        Assert.Equal(historyBefore, c.History.Length);
+        Assert.Equal(skippedBefore, c.SkippedCount);
         Assert.False(c.IsFinished);
     }
 
@@ -1963,7 +1997,7 @@ public class QuizControllerTests
     public async Task SubmitThenContinue_Play_FoldsExactlyTheSubmittedPlayOnce()
     {
         // Fold happens on Continue (leaving review), not at Submit — and folds
-        // the same submission object History carries.
+        // the very submission the live review showed, which is the record's.
         var c = MakeWithSink(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -1971,12 +2005,63 @@ public class QuizControllerTests
 
         c.SubmitPlay(AltPlay());
         Assert.Equal(0, sink.TotalFolds); // submit alone must not fold
-        var submitted = c.History[^1];
+        var submitted = ScoredReview(c.Review);
 
         await c.ContinueAsync();
 
         Assert.Same(submitted, Assert.Single(sink.Plays));
         Assert.Empty(sink.Cubes);
+    }
+
+    [Fact]
+    public async Task ContinueAsync_FoldsWhileTheReviewIsStillOnScreen()
+    {
+        // The order inside an advance: the fold is awaited before the run moves
+        // on from the problem, so a slow stats write leaves the review up, with
+        // its buttons showing busy, rather than a fresh decision on a problem
+        // the run is leaving. Read from inside the fold itself.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        c.SubmitPlay(BestPlay());
+        var shown = c.Review;
+        Assert.NotNull(shown);
+
+        ProblemReview? duringFold = null;
+        var busyDuringFold = false;
+        sink.OnRecording = () => (duringFold, busyDuringFold) = (c.Review, c.IsBusy);
+
+        await c.ContinueAsync();
+
+        Assert.Same(shown, duringFold);
+        Assert.True(busyDuringFold);
+        Assert.Null(c.Review); // and gone once the advance has landed
+    }
+
+    [Fact]
+    public async Task EndQuizAsync_FoldsBeforeTheRunEnds()
+    {
+        // The same order on the terminal exit: the answer folds while the run
+        // is still the live one, its review on screen, and only then does the
+        // quiz read as finished.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        c.SubmitPlay(BestPlay());
+        var shown = c.Review;
+        Assert.NotNull(shown);
+
+        ProblemReview? duringFold = null;
+        bool? finishedDuringFold = null;
+        sink.OnRecording = () => (duringFold, finishedDuringFold) = (c.Review, c.IsFinished);
+
+        await c.EndQuizAsync();
+
+        Assert.Same(shown, duringFold);
+        Assert.False(finishedDuringFold);
+        Assert.True(c.IsFinished);
     }
 
     [Fact]
@@ -1987,7 +2072,7 @@ public class QuizControllerTests
 
         c.SubmitCubeAction(CubeClaimPair.DoubleTake);
         Assert.Equal(0, sink.TotalFolds);
-        var submitted = c.CubeHistory[^1];
+        var submitted = CubeReview(c.Review);
 
         await c.ContinueAsync();
 
@@ -2008,7 +2093,7 @@ public class QuizControllerTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         c.SubmitPlay(AltPlay());  // of record: incorrect
-        var recorded = c.History[^1];
+        var recorded = ScoredReview(c.Review);
         await c.RedoAsync();
         c.SubmitPlay(BestPlay()); // practice: correct
         Assert.True(ScoredReview(c.Review).IsCorrect); // what is displayed
@@ -2030,7 +2115,7 @@ public class QuizControllerTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         c.SubmitPlay(AltPlay());
-        var recorded = c.History[^1];
+        var recorded = ScoredReview(c.Review);
         for (var cycle = 0; cycle < 4; cycle++)
         {
             await c.RedoAsync();
@@ -2052,7 +2137,7 @@ public class QuizControllerTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         c.SubmitCubeAction(CubeClaimPair.NoDoublePass);
-        var recorded = c.CubeHistory[^1];
+        var recorded = CubeReview(c.Review);
         await c.RedoAsync();
         c.SubmitCubeAction(CubeClaimPair.DoubleTake);
 
@@ -2074,7 +2159,7 @@ public class QuizControllerTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         c.SubmitPlay(AltPlay());  // of record: incorrect
-        var recorded = c.History[^1];
+        var recorded = ScoredReview(c.Review);
         await c.RedoAsync();
         c.SubmitPlay(BestPlay()); // practice: correct
 
@@ -2099,7 +2184,7 @@ public class QuizControllerTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         c.SubmitPlay(BestPlay());
-        var recorded = c.History[^1];
+        var recorded = ScoredReview(c.Review);
         await c.RedoAsync();
         Assert.Null(c.Review); // answering again, nothing submitted this cycle
 
@@ -2107,7 +2192,7 @@ public class QuizControllerTests
 
         Assert.Same(recorded, Assert.Single(sink.Plays));
         Assert.Equal(0, c.SkippedCount);
-        Assert.Single(c.History);
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
     }
 
     [Fact]
@@ -2124,7 +2209,7 @@ public class QuizControllerTests
         var first = c.Current;
 
         c.SubmitPlay(BestPlay());
-        var recorded = c.History[^1];
+        var recorded = ScoredReview(c.Review);
         await c.RedoAsync();
 
         await c.SkipCurrentAsync();
@@ -2139,10 +2224,9 @@ public class QuizControllerTests
     {
         // The fold must select by the answer of RECORD, not by the shape of the
         // displayed review. Here the two disagree hardest: the record is a skip
-        // (no history entry at all) while the review on screen is an on-list
-        // scored play. A fold keyed on the review would reach for a history
-        // entry this problem never made — folding the previous problem's, or
-        // throwing on an empty list.
+        // (no answer of record at all) while the review on screen is an on-list
+        // scored play. A fold keyed on the review would fold a submission this
+        // problem never recorded.
         var c = MakeWithSink(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -2194,7 +2278,7 @@ public class QuizControllerTests
         await c.RestartAsync(PlayRanking.Equity);
 
         Assert.Equal(0, sink.TotalFolds);
-        Assert.Empty(c.History); // and the run genuinely restarted
+        Assert.Equal(QuizScore.Empty, c.Score); // and the run genuinely restarted
     }
 
     [Fact]
@@ -2214,14 +2298,14 @@ public class QuizControllerTests
         await c.RestartAsync(PlayRanking.Equity);
 
         Assert.Equal(0, sink.TotalFolds);
-        Assert.Empty(c.History);
+        Assert.Equal(QuizScore.Empty, c.Score);
     }
 
     [Fact]
     public async Task OffListSubmitThenContinue_FoldsNothing()
     {
         // Producer contract: off-list plays are skips, never lifetime
-        // submissions — there is no history entry to fold.
+        // submissions — there is no answer of record to fold.
         var c = MakeWithSink(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
@@ -2305,7 +2389,7 @@ public class QuizControllerTests
     {
         // The gated async transitions each fire exactly twice — busy-on (so
         // pages render the busy affordances before the churn) and busy-off
-        // (delivering the end state; AdvanceAsync itself no longer fires).
+        // (delivering the end state; PresentNextAsync itself fires nothing).
         // The synchronous Submit fires once as before.
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
@@ -2559,11 +2643,12 @@ public class QuizControllerTests
     [Fact]
     public async Task ProblemNumber_CountsConsumedStreamSlots_PassPositionsIncluded()
     {
-        // The counter's settled convention: N is the consumed stream slot,
+        // The number's settled convention: N is the consumed stream slot,
         // commensurable with ProblemCount (which also counts slots). The pass
         // position in slot 2 is consumed-but-never-presented, so the second
-        // presented problem reads slot 3 — and N lands exactly on M at the
-        // stream's end rather than the quiz finishing below its stated total.
+        // presented problem reads slot 3 — and N lands exactly on M on the
+        // stream's last slot rather than the quiz finishing below its stated
+        // total.
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1);
         var pass = TestFixtures.PassDecision();
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2);
@@ -2577,10 +2662,14 @@ public class QuizControllerTests
         await c.SkipCurrentAsync();
         Assert.Same(d2, c.Current);
         Assert.Equal(3, c.ProblemNumber); // slot 2 consumed silently
+        Assert.Equal(c.ProblemCount, c.ProblemNumber); // N == M on the stream's last slot
 
+        // N is the number of the problem on screen (SPEC-quiz-history.md §5),
+        // and a finished run has none: the total stands, the number goes.
         await c.SkipCurrentAsync();
         Assert.True(c.IsFinished);
-        Assert.Equal(3, c.ProblemNumber); // N == M at stream end
+        Assert.Equal(0, c.ProblemNumber);
+        Assert.Equal(3, c.ProblemCount);
     }
 
     [Fact]

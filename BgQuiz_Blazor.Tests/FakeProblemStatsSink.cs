@@ -66,6 +66,14 @@ internal sealed class FakeProblemStatsSink : IProblemStatsSink
     /// </summary>
     public Task RecordGate { get; set; } = Task.CompletedTask;
 
+    /// <summary>
+    /// Scriptable observation point: called as a fold begins, on the caller's
+    /// own thread and before <see cref="RecordGate"/> is awaited. A test sets
+    /// it to read what the controller shows at the moment it folds — from
+    /// inside the fold, so there is no window to race.
+    /// </summary>
+    public Action? OnRecording { get; set; }
+
     public Task BeginQuizAsync()
     {
         BeginQuizCallCount++;
@@ -74,12 +82,14 @@ internal sealed class FakeProblemStatsSink : IProblemStatsSink
 
     public async Task RecordAsync(SubmittedPlay play)
     {
+        OnRecording?.Invoke();
         await RecordGate;
         Plays.Add(play);
     }
 
     public async Task RecordAsync(SubmittedCubeAction cube)
     {
+        OnRecording?.Invoke();
         await RecordGate;
         Cubes.Add(cube);
     }

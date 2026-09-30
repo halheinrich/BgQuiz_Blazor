@@ -1,28 +1,47 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
-using System.Collections.Immutable;
 using BgDataTypes_Lib;
 using BgGame_Lib;
 using BgMoveGen;
 using XgFilter_Lib.Filtering;
 
 /// <summary>
-/// Per-app quiz state machine. Owns the active <see cref="IProblemSetSource"/>
-/// enumerator, the running <see cref="QuizScore"/>, and the per-problem
-/// <see cref="SubmittedPlay"/> / <see cref="SubmittedCubeAction"/> histories.
-/// Pages observe state via <see cref="StateChanged"/> and drive transitions via
+/// The quiz's orchestrator, one per app. It owns what a run needs from outside
+/// itself — the active <see cref="IProblemSetSource"/> and its one live
+/// enumerator, the busy gate, the lifetime-stats sink — and holds the current
+/// <see cref="QuizRun"/>, to which everything about the run itself is
+/// delegated: the problems presented, the problem on screen, what is of record
+/// for each, the totals and the ranking. Pages observe state via
+/// <see cref="StateChanged"/> and drive transitions via
 /// <see cref="StartAsync"/> / <see cref="SubmitPlay"/> /
 /// <see cref="SubmitCubeAction"/> / <see cref="RedoAsync"/> /
 /// <see cref="ContinueAsync"/> / <see cref="SkipCurrentAsync"/> /
 /// <see cref="EndQuizAsync"/> / <see cref="RestartAsync"/>.
 ///
 /// <para>
+/// <b>The run is the model; this is what drives it.</b>
+/// <c>SPEC-quiz-history.md</c> (halheinrich/backgammon#8) is the model of a
+/// run, and <see cref="QuizRun"/> implements the whole of it as pure, immutable
+/// state — moving back and forth through the presented problems included.
+/// Every property here that describes the run reads it off the current run and
+/// keeps no copy, and every transition here replaces the run with the one the
+/// run's own transition returns. What this type adds is the part a pure model
+/// cannot do: draw the next problem from the source, decide which drawn
+/// positions are shown, take each board's side roll, fold answers into the
+/// lifetime record, and refuse a gesture that arrives mid-transition.
+/// <b>It wires the part of the model today's page uses</b> — a run that only
+/// moves forward, with Redo as its one return to a decision — so the cursor
+/// here is always on the frontier; the navigation controls are
+/// <c>SPEC-quiz-history.md</c> §2's and arrive with their own leg.
+/// </para>
+///
+/// <para>
 /// <b>Three-state per-problem flow.</b> Each problem moves through
 /// <i>answering</i> → <i>review</i> → <i>advance</i>. Submit
 /// (<see cref="SubmitPlay"/> / <see cref="SubmitCubeAction"/>) scores the answer
 /// and sets <see cref="Review"/> without advancing — the page flips to a static
-/// solution view. <see cref="ContinueAsync"/> then clears <see cref="Review"/>
-/// and pulls the next problem. Skip (<see cref="SkipCurrentAsync"/>) bypasses
+/// solution view. <see cref="ContinueAsync"/> then moves on from the problem
+/// and pulls the next one. Skip (<see cref="SkipCurrentAsync"/>) bypasses
 /// review and advances immediately. The split lets the page show the filled
 /// analysis panel (the same view the PPTX exporter renders in
 /// <c>DiagramMode.Solution</c>) before moving on. <see cref="RedoAsync"/> is the
@@ -34,15 +53,12 @@ using XgFilter_Lib.Filtering;
 ///
 /// <para>
 /// <b>The answer of record, and the displayed review.</b> The first submission
-/// against a problem is its answer of record — final for <see cref="Score"/>
-/// and for the lifetime fold the moment it is made. <see cref="RedoAsync"/>
-/// re-opens the problem for practice, and every later submission against it is
-/// discarded as if it never happened: scored and shown, but no score effect, no
-/// history entry, no fold, unboundedly many times. So the controller holds the
-/// answer of record privately, apart from the displayed <see cref="Review"/>;
-/// after a practice cycle the two differ, and it is the record that folds. A
-/// skip is of record too, and a redo after one leaves it standing. This is
-/// SPEC-scoring.md §2 (ratified 2026-08-26), which is the model — read it
+/// against a problem is its answer of record, and every later one is practice:
+/// scored and shown, and recorded nowhere. The run holds that record — each
+/// presented problem's <see cref="ProblemDisposition"/> — apart from the
+/// displayed <see cref="Review"/>, so after a practice cycle the two differ,
+/// and it is the record that <see cref="Score"/> reads and that folds. The
+/// rules are SPEC-scoring.md §2 and SPEC-quiz-history.md §1 and §3 — read them
 /// there, not from this summary.
 /// </para>
 ///
@@ -79,12 +95,13 @@ using XgFilter_Lib.Filtering;
 /// best — and so every play's error, whether a play is scored at all, the
 /// problem filter's "erred by more than x", and the solution's order and rank
 /// numbers — is a ranking's. The caller hands the user's setting in at
-/// <see cref="StartAsync"/> / <see cref="RestartAsync"/>, and the run keeps it
-/// as <see cref="Ranking"/> until the next one begins: the pool is filtered
-/// under it, every play is scored under it, and the pages draw the answering
-/// board, the entry and the solution with it. No producer's default stands in
-/// anywhere, and a setting changed mid-run reaches the next run rather than
-/// splitting this one between two rankings.
+/// <see cref="StartAsync"/> / <see cref="RestartAsync"/>, which begin a new
+/// run under it; the run owns it from then on and no transition changes it
+/// (<see cref="QuizRun.Ranking"/>, read here as <see cref="Ranking"/>). The
+/// pool is filtered under it, every play is scored under it, and the pages draw
+/// the answering board, the entry and the solution with it. No producer's
+/// default stands in anywhere, and a setting changed mid-run reaches the next
+/// run rather than splitting this one between two rankings.
 /// </para>
 ///
 /// <para>
@@ -103,7 +120,8 @@ using XgFilter_Lib.Filtering;
 /// per-answer fold as the run advances past a problem
 /// (<see cref="ContinueAsync"/>, <see cref="SkipCurrentAsync"/> and
 /// <see cref="EndQuizAsync"/>, through one shared
-/// <see cref="FoldAnswerOfRecordAsync"/>). The
+/// <see cref="FoldAnswerOfRecordAsync"/>). The run holds the record; folding
+/// it is this type's, since the sink is outside the run. The
 /// sink never throws for stats trouble, so quiz flow is independent of
 /// whether stats are recording.
 /// </para>
@@ -135,32 +153,17 @@ internal sealed class QuizController : IAsyncDisposable
     private readonly TimeProvider _clock;
 
     /// <summary>
-    /// The current problem's <i>answer of record</i> — the submission that
-    /// counts (SPEC-scoring.md §2) — or null while the problem is unanswered.
-    /// Set by the first submission against a problem and never rewritten:
-    /// every later submission on the same problem is practice, displayed
-    /// through <see cref="Review"/> and discarded.
-    ///
-    /// <para>
-    /// This is the "of record vs displayed review" split §2 names: after a
-    /// practice cycle <see cref="Review"/> shows the practice submission while
-    /// this still holds the original, which is what folds. It also <i>is</i>
-    /// the answered/unanswered fact for the current problem — the submit
-    /// paths read it to classify, and the forward exits read it to decide
-    /// between folding an answer and counting an abandonment.
-    /// </para>
-    ///
-    /// <para>
-    /// Bound to <see cref="Current"/>, so it is cleared wherever the run leaves
-    /// the problem: <see cref="AdvanceAsync"/> (Continue / Skip / Start /
-    /// Restart) and <see cref="EndQuizAsync"/>. <see cref="RedoAsync"/>
-    /// deliberately leaves it — redo re-opens the problem, never the record.
-    /// </para>
+    /// The current run, or null before the first Start. It is immutable, so
+    /// every transition below replaces it with the run its own transition
+    /// returns, and a Start or Restart that is refused — or that fails before
+    /// its new run is in place — leaves the one here, its ranking and its
+    /// record included, exactly as it was. Everything this type reports about
+    /// the run is read off it on each call; nothing about the run is kept
+    /// beside it.
     /// </summary>
-    private AnswerOfRecord? _answerOfRecord;
+    private QuizRun? _run;
 
     private DecisionFilterSet? _filterPipeline;
-    private PlayRanking? _ranking;
     private QuizMix _mix = QuizMix.Empty;
     private IProblemSetSource? _source;
     private MixedProblemSetSource? _mixedSource;
@@ -176,48 +179,58 @@ internal sealed class QuizController : IAsyncDisposable
     /// <summary>Source name once started; null otherwise.</summary>
     public string? Name => _source?.Name;
 
-    /// <summary>The decision currently being shown to the user; null before start or after finish.</summary>
-    public BgDecisionData? Current { get; private set; }
+    /// <summary>
+    /// The decision currently being shown to the user — the problem under the
+    /// run's cursor (<see cref="QuizRun.Cursor"/>); null before start, until
+    /// the first problem is presented, and after finish.
+    /// </summary>
+    public BgDecisionData? Current => _run?.Cursor?.Problem;
 
     /// <summary>
     /// The scored outcome of the last submission against <see cref="Current"/>
-    /// — the <i>displayed review</i>. Set by Submit and cleared by
-    /// <see cref="ContinueAsync"/> / <see cref="RedoAsync"/> (and on start /
-    /// restart). Non-null marks the <i>review</i> state: <see cref="Current"/>
-    /// still points at the answered problem, and the page shows the solution
-    /// view rather than the entry form. Null in the <i>answering</i> state and
-    /// after finish.
+    /// — the <i>displayed review</i>, the run's (<see cref="QuizRun.Review"/>).
+    /// Set by Submit and gone once the run leaves the problem or returns to its
+    /// decision (<see cref="ContinueAsync"/> / <see cref="RedoAsync"/>, and on
+    /// start / restart). Non-null marks the <i>review</i> state:
+    /// <see cref="Current"/> still points at the answered problem, and the
+    /// page shows the solution view rather than the entry form. Null in the
+    /// <i>answering</i> state and after finish.
     ///
     /// <para>
     /// <b>Displayed, not necessarily of record.</b> A practice submission gets
     /// the normal review — seeing how the retry scored is the point of the
     /// gesture — and says so through
     /// <see cref="ProblemReview.IsPractice"/>. What counts, and what folds, is
-    /// the answer of record the controller holds privately (SPEC-scoring.md
-    /// §2). Nothing outside may read this property as "the answer".
+    /// the answer of record, which the run holds as the problem's disposition
+    /// (SPEC-scoring.md §2). Nothing outside may read this property as "the
+    /// answer".
     /// </para>
     /// </summary>
-    public ProblemReview? Review { get; private set; }
+    public ProblemReview? Review => _run?.Review;
 
     /// <summary>
-    /// A fresh coin flip taken for each problem the user is actually shown,
-    /// offered to the presentation layer as the per-problem home-board side.
+    /// The coin flip taken for the problem on screen, offered to the
+    /// presentation layer as the per-problem home-board side. False while no
+    /// problem is on screen, where it carries no meaning: which side is
+    /// "default" is the settings service's decision, not this type's.
     ///
     /// <para>
-    /// <b>Rolled unconditionally</b>, at the one place <see cref="Current"/> is
-    /// assigned — so it reads as per-shown-problem (auto-skipped no-choice
-    /// positions take no roll, exactly as they take no board) and so the controller needs
-    /// no knowledge of whether the user asked for randomization at all. Whether
-    /// this value is used is settings policy, composed in exactly one place
-    /// outside the controller (<c>QuizSettings.EffectiveHomeBoardOnRight</c>).
+    /// <b>Rolled here, kept by the run.</b> <see cref="PresentNextAsync"/>
+    /// takes one roll for each problem it presents — unconditionally, so this
+    /// type needs no knowledge of whether the user asked for randomization, and
+    /// only for a problem the user is shown, so an auto-skipped no-choice
+    /// position takes no roll, exactly as it takes no board — and hands it to
+    /// the run, which holds it with the problem for the life of the run
+    /// (<see cref="PresentedProblem.RandomHomeBoardOnRight"/>;
+    /// SPEC-quiz-history.md §5). The run rolls nothing itself. Whether the
+    /// value is used is settings policy, composed in exactly one place outside
+    /// both (<c>QuizSettings.EffectiveHomeBoardOnRight</c>).
     /// </para>
     ///
     /// <para>
-    /// <b>Held steady for the whole encounter.</b> Nothing but an advance rolls
-    /// it, so a problem shows the same side while being answered and in its
-    /// solution review, and <see cref="RedoAsync"/> — which clears
-    /// <see cref="Review"/> on the same <see cref="Current"/> — cannot flip the
-    /// board under the user.
+    /// <b>One problem, one side.</b> A problem shows the same side while being
+    /// answered, in its solution review, and after <see cref="RedoAsync"/>
+    /// returns to its decision — the board cannot flip under the user.
     /// </para>
     ///
     /// <para>
@@ -227,69 +240,59 @@ internal sealed class QuizController : IAsyncDisposable
     /// concern.
     /// </para>
     /// </summary>
-    public bool RandomHomeBoardOnRight { get; private set; }
+    public bool RandomHomeBoardOnRight => _run?.Cursor?.RandomHomeBoardOnRight ?? false;
 
     /// <summary>
-    /// The run's ranking — the one it was started or restarted with, kept until
-    /// the next run begins (SPEC-scoring.md §2a; see the class docs' "one quiz,
-    /// one ranking"). Every ranking-dependent operation of the run reads it: the
-    /// pool's filter, scoring, and the pages' diagrams and play entry. A refused
-    /// Start or Restart leaves it as it was, as it leaves every other part of
-    /// the run.
+    /// The run's ranking (<see cref="QuizRun.Ranking"/>) — the one it was
+    /// started or restarted with, which the run owns and no transition changes
+    /// (SPEC-scoring.md §2a; SPEC-quiz-history.md §7; see the class docs' "one
+    /// quiz, one ranking"). Every ranking-dependent operation of the run reads
+    /// it: the pool's filter, scoring, and the pages' diagrams and play entry.
+    /// A refused Start or Restart begins no run, so the run under way keeps
+    /// its own.
     /// </summary>
     /// <exception cref="InvalidOperationException">
     /// No quiz has been started, so there is no run and no ranking — read it
     /// only while <see cref="HasStarted"/>. No page can: each shows a problem
     /// only once a quiz has started.
     /// </exception>
-    public PlayRanking Ranking => _ranking ?? throw new InvalidOperationException(
+    public PlayRanking Ranking => _run?.Ranking ?? throw new InvalidOperationException(
         "No quiz has been started, so there is no quiz ranking.");
 
-    /// <summary>Cumulative running score. Resets on <see cref="StartAsync"/> / <see cref="RestartAsync"/>.</summary>
-    public QuizScore Score { get; private set; } = QuizScore.Empty;
-
     /// <summary>
-    /// The scored checker-play <i>answers of record</i>, one per problem
-    /// answered with one. Practice submissions never append here
-    /// (SPEC-scoring.md §2), so within a run entries only ever accumulate.
-    ///
-    /// <para>
-    /// <b>An immutable array</b> (halheinrich/backgammon#273's collection
-    /// rider): each answer replaces it with one entry more, so a reference
-    /// taken before an answer — or before a Restart empties it — keeps the
-    /// entries it had, and no cast can write the controller's record.
-    /// </para>
+    /// The session score, derived by the run from its answers of record
+    /// (<see cref="QuizRun.Score"/>) on each read; empty before start. A new
+    /// run — <see cref="StartAsync"/> / <see cref="RestartAsync"/> — starts
+    /// from nothing.
     /// </summary>
-    public ImmutableArray<SubmittedPlay> History { get; private set; } = [];
+    public QuizScore Score => _run?.Score ?? QuizScore.Empty;
 
     /// <summary>
-    /// The cube-decision <i>answers of record</i>, one per problem answered
-    /// with one — the cube half of the same rule <see cref="History"/> states,
-    /// immutable the same way.
+    /// True once the run has ended (<see cref="QuizRun.IsEnded"/>): the source
+    /// was fully consumed, or the user ended the quiz.
     /// </summary>
-    public ImmutableArray<SubmittedCubeAction> CubeHistory { get; private set; } = [];
-
-    /// <summary>True once the underlying source has been fully consumed.</summary>
-    public bool IsFinished { get; private set; }
+    public bool IsFinished => _run is { IsEnded: true };
 
     /// <summary>
-    /// Count of user-driven non-scoring outcomes: explicit Skip-button clicks,
-    /// off-list submissions, and plays the run's ranking does not score
-    /// (SPEC-scoring.md §2a: "a skip of record that folds nothing").
+    /// Count of user-driven non-scoring outcomes, derived by the run from its
+    /// skips of record (<see cref="QuizRun.SkippedCount"/>) on each read:
+    /// explicit Skip-button clicks, off-list submissions, plays the run's
+    /// ranking does not score (SPEC-scoring.md §2a: "a skip of record that
+    /// folds nothing"), and a problem left unanswered when the quiz was ended.
     /// Auto-skipped no-choice positions (the user never saw them) are excluded
     /// — see <see cref="HasNoPlayChoice"/>.
     ///
     /// <para>
-    /// A skip is an answer of record, so it only ever increases within a run:
+    /// A skip is of record, so it only ever increases within a run:
     /// <see cref="RedoAsync"/> after an unscored submission leaves the skip
-    /// standing (SPEC-scoring.md §2), and a problem that already holds an
-    /// answer of record cannot add a second outcome here.
+    /// standing (SPEC-scoring.md §2), and a problem that already holds
+    /// something of record cannot add a second outcome here.
     /// </para>
     /// </summary>
-    public int SkippedCount { get; private set; }
+    public int SkippedCount => _run?.SkippedCount ?? 0;
 
-    /// <summary>True when a quiz is in progress (active or finished).</summary>
-    public bool HasStarted => _source is not null;
+    /// <summary>True when a quiz is in progress (active or finished): there is a run.</summary>
+    public bool HasStarted => _run is not null;
 
     /// <summary>
     /// True while an async transition (Start / Restart / Continue / Skip /
@@ -321,38 +324,35 @@ internal sealed class QuizController : IAsyncDisposable
     public MixComposition? LastComposition => _mixedSource?.LastComposition;
 
     /// <summary>
-    /// The 1-based position of <see cref="Current"/> within the quiz stream:
-    /// how many decisions have been consumed from the source so far,
-    /// auto-skipped no-choice positions included. Zero before the first
-    /// advance; reset by Start / Restart; untouched by Redo (same problem).
-    ///
-    /// <para>
-    /// <b>Counts consumed stream slots, not presentations — deliberately.</b>
-    /// Every total a page can show against it (<see cref="ProblemCount"/>)
-    /// counts the stream — a composition's
-    /// <see cref="MixComposition.DrawnCount"/> or a source's
-    /// <see cref="IProblemSetSource.Count"/> — and a no-choice position
-    /// occupies a stream slot even though <see cref="AdvanceAsync"/> resolves
-    /// it without presenting. Counting consumed slots keeps the two
-    /// commensurable: "problem N of M" never exceeds M, and N lands exactly on
-    /// M when the stream ends. The accepted trade-off is that an auto-skip
-    /// shows as a gap in the presented sequence (problem 3 follows problem 1
-    /// when slot 2 offered no play choice) — honest about the slot having been
-    /// in the quiz — rather than a presented-only N that ends below M.
-    /// </para>
+    /// The N of "Problem N of M": the 1-based stream slot of
+    /// <see cref="Current"/>, read off the run's cursor
+    /// (<see cref="PresentedProblem.StreamSlot"/>, which owns the convention —
+    /// consumed stream slots, auto-skipped no-choice positions included, so an
+    /// auto-skip shows as a gap and N never exceeds <see cref="ProblemCount"/>).
+    /// Zero while no problem is on screen: before the first is presented, and
+    /// after finish. Untouched by Redo (same problem).
     /// </summary>
-    public int ProblemNumber { get; private set; }
+    public int ProblemNumber => _run?.Cursor?.StreamSlot ?? 0;
 
     /// <summary>
-    /// Total number of problems in the active quiz stream, when knowable:
-    /// the composition's <see cref="MixComposition.DrawnCount"/> for a
-    /// weighted quiz, the source's declared
-    /// <see cref="IProblemSetSource.Count"/> for a passthrough run. Null
-    /// before start, or when a passthrough source streams without a count.
-    /// Auto-skipped no-choice positions are included — the stream-slot
-    /// convention shared with <see cref="ProblemNumber"/>.
+    /// The M of "Problem N of M": the total number of slots in the run's
+    /// problem stream, once established and held by the run
+    /// (<see cref="QuizRun.ProblemCount"/>). Null before start, and for as
+    /// long as no total is known — a passthrough source that streams without a
+    /// count never supplies one, and the page then shows N alone.
+    ///
+    /// <para>
+    /// <b>This type supplies it; the run never asks the source</b>
+    /// (SPEC-quiz-history.md §5). A source that declares its size
+    /// (<see cref="IProblemSetSource.Count"/>) is read when the run begins; a
+    /// weighted quiz learns its size by composing, so its
+    /// <see cref="MixComposition.DrawnCount"/> is handed over once the first
+    /// draw has produced it. Either way it counts the stream, auto-skipped
+    /// no-choice positions included — the convention it shares with
+    /// <see cref="ProblemNumber"/>.
+    /// </para>
     /// </summary>
-    public int? ProblemCount => LastComposition?.DrawnCount ?? _source?.Count;
+    public int? ProblemCount => _run?.ProblemCount;
 
     /// <summary>
     /// Raised after every state transition so observing pages can re-render.
@@ -369,14 +369,16 @@ internal sealed class QuizController : IAsyncDisposable
     /// Begin a fresh quiz against <paramref name="userConfig"/> and
     /// <paramref name="mix"/>, under <paramref name="ranking"/>. Materializes
     /// the user's <see cref="FilterConfig"/> into a <see cref="DecisionFilterSet"/>
-    /// owned entirely by this controller and advances to the first non-pass
-    /// problem. Resets score / histories / skipped-count.
+    /// owned entirely by this controller, begins a new <see cref="QuizRun"/> —
+    /// nothing presented, nothing of record, so an empty score and no skips —
+    /// and advances to the first problem that offers a play choice.
     ///
     /// <para>
-    /// <b>The ranking is the run's from here on</b> (<see cref="Ranking"/>): the
-    /// pool is filtered under it and every play is scored under it. It is
-    /// required rather than defaulted, so a caller holding the user's setting
-    /// cannot fall back to the producers' default by omission.
+    /// <b>The ranking is the new run's, for its whole life</b>
+    /// (<see cref="Ranking"/>): the pool is filtered under it and every play is
+    /// scored under it. It is required rather than defaulted, so a caller
+    /// holding the user's setting cannot fall back to the producers' default by
+    /// omission.
     /// </para>
     ///
     /// <para>
@@ -462,10 +464,9 @@ internal sealed class QuizController : IAsyncDisposable
     ///
     /// <para>
     /// <b>Touches no live quiz state.</b> The source and its enumerator are
-    /// local — the shared <c>_enumerator</c>, <see cref="Current"/>,
-    /// <see cref="Score"/>, and the histories are never read or written — so a
-    /// count is safe to run against a controller with a quiz already in
-    /// progress. It deliberately does <b>not</b> take the transition gate: it
+    /// local — the shared <c>_enumerator</c> and the current run are never read
+    /// or written — so a count is safe to run against a controller with a quiz
+    /// already in progress. It deliberately does <b>not</b> take the transition gate: it
     /// owns no shared enumerator to protect (the callers serialize Apply
     /// against Start on their side).
     /// </para>
@@ -539,38 +540,28 @@ internal sealed class QuizController : IAsyncDisposable
     /// advancing. <see cref="ContinueAsync"/> moves to the next problem.
     ///
     /// <para>
-    /// <b>The first submission against a problem is its answer of record</b>
-    /// (SPEC-scoring.md §2): it alone reaches <see cref="History"/> /
-    /// <see cref="SkippedCount"/>, <see cref="Score"/>, and the lifetime fold.
+    /// <b>The run scores it and files it</b> (<see cref="QuizRun.SubmitPlay"/>,
+    /// which owns both rules). The first submission against a problem is its
+    /// answer of record (SPEC-scoring.md §2): it alone reaches
+    /// <see cref="Score"/> / <see cref="SkippedCount"/> and the lifetime fold.
     /// A submission made after <see cref="RedoAsync"/> re-opened the problem is
     /// practice — scored the same way and reviewed the same way, so the user
-    /// sees how the retry did, and then discarded. Everything below describes
-    /// the scoring, which is identical for both.
+    /// sees how the retry did, and recorded nowhere.
     /// </para>
     ///
     /// <para>
-    /// <b>Scoring is the producer's, in one call, under the run's ranking.</b>
-    /// <see cref="PlaySubmission.Score"/> finds the candidate the play is —
-    /// by identity from the decision's own position, whatever encoding the
-    /// board entry produced; how plays compare is stated once, on
-    /// <see cref="BoardState.IsSamePlay"/>, and not here — and reads that
-    /// candidate's error under <see cref="Ranking"/>, so the matched candidate,
-    /// the error and the verdict come out together and cannot disagree. This
-    /// method only files the outcome.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Three outcomes, two of them skips.</b> A scored play is the answer of
-    /// record: it joins <see cref="History"/> and <see cref="Score"/>, and folds
-    /// as the run advances. A play the ranking does not score — under depth
-    /// first, a candidate analyzed less deeply than the best that rated higher —
-    /// and an off-list play, one no candidate is, are each a skip of record
-    /// that folds nothing (SPEC-scoring.md §2 and §2a): <see cref="SkippedCount"/>
-    /// counts it, and a redo after one leaves it standing. Every outcome still
-    /// produces a <see cref="Review"/> carrying the producer's outcome whole and
-    /// the play as entered, so the user sees the solution, what the verdict
-    /// was, and — off the list — which play the app read
-    /// (halheinrich/backgammon#274).
+    /// <b>Three outcomes, two of them skips.</b> Scoring is the producer's
+    /// (<see cref="PlaySubmission.Score"/>), under the run's ranking. A scored
+    /// play is the answer of record: it counts in <see cref="Score"/>, and
+    /// folds as the run advances. A play the ranking does not score — under
+    /// depth first, a candidate analyzed less deeply than the best that rated
+    /// higher — and an off-list play, one no candidate is, are each a skip of
+    /// record that folds nothing (SPEC-scoring.md §2 and §2a):
+    /// <see cref="SkippedCount"/> counts it, and a redo after one leaves it
+    /// standing. Every outcome still produces a <see cref="Review"/> carrying
+    /// the producer's outcome whole and the play as entered, so the user sees
+    /// the solution, what the verdict was, and — off the list — which play the
+    /// app read (halheinrich/backgammon#274).
     /// </para>
     ///
     /// <para>
@@ -585,42 +576,14 @@ internal sealed class QuizController : IAsyncDisposable
     /// </exception>
     public void SubmitPlay(Play play)
     {
-        // The IsBusy guard closes the stale window a pending Continue/Skip
-        // opens: mid-advance, Review is already null and Current still points
-        // at the outgoing problem, so without it a submit would double-score
-        // a problem the quiz is moving past.
-        if (IsBusy || Current is null || IsFinished || Review is not null) return;
+        // The IsBusy guard closes the window a pending Continue/Skip opens:
+        // mid-advance, Review is already gone and Current still points at the
+        // outgoing problem, so the run would take a submission there (as
+        // practice — the problem is completed) and the advance would then
+        // land over its review.
+        if (IsBusy || _run is not { IsAnswering: true } run) return;
 
-        if (Current is not CheckerPlayDecision decision)
-            throw new InvalidOperationException(
-                "The current problem is a cube decision; answer it with SubmitCubeAction.");
-
-        // SPEC-scoring.md §2: this is a practice submission exactly when the
-        // problem already holds an answer of record. Read before the record is
-        // written below, and once, so every outcome classifies the same way.
-        var practice = _answerOfRecord is not null;
-
-        // Scored either way — a practice submission is scored to be shown, just
-        // not to be kept, and one scoring is what keeps the two readings
-        // identical.
-        var outcome = PlaySubmission.Score(play, decision, Ranking);
-        if (!practice)
-        {
-            if (outcome.TryGetScored(out var submitted))
-            {
-                History = History.Add(submitted);
-                Score = Score.Plus(submitted);
-                _answerOfRecord = new AnswerOfRecord.Play(submitted);
-            }
-            else
-            {
-                // Not scored, or off the list: a skip of record (§2, §2a).
-                SkippedCount++;
-                _answerOfRecord = new AnswerOfRecord.Skip();
-            }
-        }
-        Review = new ProblemReview.Play(outcome, play) { IsPractice = practice };
-
+        _run = run.SubmitPlay(play);
         StateChanged?.Invoke();
     }
 
@@ -631,7 +594,8 @@ internal sealed class QuizController : IAsyncDisposable
     /// advancing. <see cref="ContinueAsync"/> moves to the next problem.
     ///
     /// <para>
-    /// Of record only the first time, exactly as <see cref="SubmitPlay"/>
+    /// The run scores it and files it (<see cref="QuizRun.SubmitCubeAction"/>):
+    /// of record only the first time, exactly as <see cref="SubmitPlay"/>
     /// describes (SPEC-scoring.md §2); a post-redo submission is practice, and
     /// the scoring below is what both get.
     /// </para>
@@ -639,7 +603,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// <para>
     /// A cube position is two independent atomic decisions — the doubler's
     /// three-valued <i>claim</i> (no double / double / too good) and the
-    /// taker's response if doubled — so this always scores both halves
+    /// taker's response if doubled — so both halves are always scored
     /// (SPEC-scoring.md §3; halheinrich/backgammon#86). The scoring is the
     /// producer's, reached through its one factory:
     /// <see cref="SubmittedCubeAction.From"/> reads the position's derived
@@ -648,23 +612,14 @@ internal sealed class QuizController : IAsyncDisposable
     /// derives per-half correctness from the two pairs — claim vs. claim on
     /// the doubler half, so a no-double answer to a too-good position scores
     /// incorrect at +0.000 (the ruled "right action, wrong reason" verdict).
-    /// Nothing here reads an equity or compares an action: assembling the
-    /// record by hand is how an answer, a truth and a loss from different
+    /// Nothing in this app reads an equity or compares an action: assembling
+    /// the record by hand is how an answer, a truth and a loss from different
     /// decisions once could mix. Unlike <see cref="SubmitPlay"/> there is no
     /// off-list / skip path — every cube answer is a complete, scorable pair,
     /// the incoherent (no double, pass) cell included: it is a selectable
     /// answer by ruling, never best, and scored per half like any other. The
     /// whole scored submission is carried on <see cref="ProblemReview.Cube"/>,
     /// which drives the verdict line.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>The key is the record's own</b> (<see cref="ProblemKey.From"/>). Every
-    /// record has one (SPEC-stats-identity.md §2, amended 2026-09-27), so the
-    /// submission always names its problem and always folds; the producer's
-    /// factory still takes the key from its caller for a cube
-    /// (halheinrich/backgammon#285), which is why it is derived here rather than
-    /// there.
     /// </para>
     ///
     /// <para>
@@ -679,26 +634,11 @@ internal sealed class QuizController : IAsyncDisposable
     /// </exception>
     public void SubmitCubeAction(CubeClaimPair answer)
     {
-        // Same IsBusy rationale as SubmitPlay: mid-advance the state guards
-        // read stale-pass, so the gate is the guard that actually holds.
-        if (IsBusy || Current is null || IsFinished || Review is not null) return;
+        // Same IsBusy rationale as SubmitPlay: mid-advance the run would take
+        // the submission, so the gate is the guard that actually holds.
+        if (IsBusy || _run is not { IsAnswering: true } run) return;
 
-        if (Current is not CubeDecision decision)
-            throw new InvalidOperationException(
-                "The current problem is a checker-play decision; answer it with SubmitPlay.");
-
-        // SPEC-scoring.md §2, as in SubmitPlay: of record only the first time.
-        var practice = _answerOfRecord is not null;
-
-        var submitted = SubmittedCubeAction.From(ProblemKey.From(decision), answer, decision.Decision);
-        if (!practice)
-        {
-            CubeHistory = CubeHistory.Add(submitted);
-            Score = Score.Plus(submitted);
-            _answerOfRecord = new AnswerOfRecord.Cube(submitted);
-        }
-        Review = new ProblemReview.Cube(submitted) { IsPractice = practice };
-
+        _run = run.SubmitCubeAction(answer);
         StateChanged?.Invoke();
     }
 
@@ -708,21 +648,21 @@ internal sealed class QuizController : IAsyncDisposable
     /// problem, changing nothing that was recorded (SPEC-scoring.md §2).
     ///
     /// <para>
-    /// <b>Only the problem re-opens, never the record.</b> The answer of record
-    /// — <see cref="History"/> / <see cref="CubeHistory"/>, <see cref="Score"/>,
-    /// <see cref="SkippedCount"/>, and what will fold into the lifetime record
-    /// — stands exactly as the first submission left it, a skip included. The
-    /// submission that follows is practice: scored and reviewed so the user can
-    /// see how the retry did, then discarded as if it never happened. Cycles
-    /// are unbounded and each is equally recordless.
+    /// <b>Only the problem re-opens, never the record.</b> What is of record
+    /// for the problem — and so <see cref="Score"/>, <see cref="SkippedCount"/>
+    /// and what will fold into the lifetime record — stands exactly as the
+    /// first submission left it, a skip included. The submission that follows
+    /// is practice: scored and reviewed so the user can see how the retry did,
+    /// then discarded as if it never happened. Cycles are unbounded and each is
+    /// equally recordless.
     /// </para>
     ///
     /// <para>
-    /// So the whole method is: clear <see cref="Review"/>.
-    /// <see cref="Current"/>, the source enumerator, and
-    /// <see cref="IsFinished"/> are untouched, and so — deliberately — is
-    /// <c>_answerOfRecord</c>, which is what makes the next submission read as
-    /// practice.
+    /// So the whole transition is the run's <see cref="QuizRun.Redo"/>: the
+    /// review goes and the decision is back on screen. <see cref="Current"/>,
+    /// the source enumerator and <see cref="IsFinished"/> are untouched, and so
+    /// is the problem's disposition — which, being completed, is what makes the
+    /// next submission read as practice.
     /// </para>
     ///
     /// <para>
@@ -736,16 +676,16 @@ internal sealed class QuizController : IAsyncDisposable
         // already leaving — the fold completes, the advance lands, and the user
         // is answering the NEXT problem with no visible break. The gate refuses
         // it; the in-flight transition owns the flow.
-        if (IsBusy || Review is null) return Task.CompletedTask;
+        if (IsBusy || _run is not { Review: not null } run) return Task.CompletedTask;
 
-        Review = null;
+        _run = run.Redo();
         StateChanged?.Invoke();
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Leave the <i>review</i> state and advance to the next problem, clearing
-    /// <see cref="Review"/>. No-op outside the review state (when
+    /// Leave the <i>review</i> state and advance to the next problem, which
+    /// discards <see cref="Review"/>. No-op outside the review state (when
     /// <see cref="Review"/> is null). This is the <i>advancing</i> exit from
     /// review — <see cref="RedoAsync"/> is the backward one and
     /// <see cref="EndQuizAsync"/> the terminal one; exhausting the source here
@@ -754,32 +694,29 @@ internal sealed class QuizController : IAsyncDisposable
     /// <para>
     /// <b>Lifetime-stats fold point.</b> The problem's <i>answer of record</i>
     /// folds into the <see cref="IProblemStatsSink"/> here, as the run advances
-    /// past the problem — SPEC-scoring.md §2's fold trigger, of which this is
-    /// one of three sites (with <see cref="SkipCurrentAsync"/> and
+    /// past the problem — the advance-time trigger this build still uses (its
+    /// move to the first submission is ruled and pending: SPEC-scoring.md §2).
+    /// This is one of three sites (with <see cref="SkipCurrentAsync"/> and
     /// <see cref="EndQuizAsync"/>), all through the one shared
     /// <see cref="FoldAnswerOfRecordAsync"/>. What folds is the answer of
     /// record, never the displayed <see cref="Review"/>: after a practice cycle
     /// those differ, and §2 rules the practice submission discarded. The other
-    /// side of the same rule is that an answer of record the run never advances
-    /// past — abandoned in review by a tab close, or by a Start/Restart that
-    /// resets without continuing — never folds. An off-list play, and a play
-    /// the run's ranking does not score, are of record as skips and fold
-    /// nothing (producer contract: neither yields a submission to fold). The
-    /// fold happens before
-    /// <see cref="AdvanceAsync"/>, so the final problem's answer folds before
-    /// <see cref="IsFinished"/> flips.
+    /// side of the same trigger is that an answer of record the run never
+    /// advances past — abandoned in review by a tab close, or by a
+    /// Start/Restart that begins a new run without continuing — never folds.
+    /// An off-list play, and a play the run's ranking does not score, are of
+    /// record as skips and fold nothing (neither yields a submission to fold).
+    /// The fold happens before the run moves on, so the final problem's answer
+    /// folds before <see cref="IsFinished"/> flips.
     /// </para>
     /// </summary>
     public async Task ContinueAsync()
     {
-        if (Review is null) return;
+        if (_run is not { Review: not null }) return;
         if (!await TryBeginTransitionAsync()) return;
         try
         {
-            await FoldAnswerOfRecordAsync();
-
-            Review = null;
-            await AdvanceAsync();
+            await MoveOnAsync();
         }
         finally
         {
@@ -791,64 +728,56 @@ internal sealed class QuizController : IAsyncDisposable
     /// End the run here, at the user's request, and finish with the score of
     /// what they answered — the quiz-side exit a run that has served its purpose
     /// needs (issue halheinrich/backgammon#57). A real transition, not a navigation: only the
-    /// controller can retire the enumerator and flip <see cref="IsFinished"/>,
+    /// controller can end the run and retire the enumerator,
     /// and doing it anywhere else would leave a live quiz behind a Done page.
     /// No-op before start and after finish, and gated like every other async
     /// transition (an overlapping gesture no-ops rather than queueing).
     ///
     /// <para>
-    /// <b>An unanswered problem is abandoned.</b> With no answer of record,
-    /// whatever the user had entered is discarded and the problem records
-    /// nothing — the same non-scoring outcome an explicit
-    /// <see cref="SkipCurrentAsync"/> records, reusing
-    /// <see cref="SkippedCount"/> rather than inventing a category for it, so
-    /// Done's "problems shown" still counts a problem the user actually saw.
-    /// There is no partial-answer path and no new scoring path: a play half
-    /// assembled on the board was never a submission, and <c>BackgammonPlayEntry</c>
-    /// exposes nothing that would let one be salvaged — the same producer gap the
-    /// Quiz page's Undo enablement records.
+    /// <b>What ending does to the record is the run's</b>
+    /// (<see cref="QuizRun.End"/>; SPEC-quiz-history.md §4). <b>An unanswered
+    /// problem is abandoned:</b> with nothing of record, whatever the user had
+    /// entered is discarded and the problem is completed as a skip of record —
+    /// the same non-scoring outcome an explicit <see cref="SkipCurrentAsync"/>
+    /// records, counted in <see cref="SkippedCount"/> rather than in a category
+    /// of its own, so Done's "problems shown" still counts a problem the user
+    /// actually saw. There is no partial-answer path and no new scoring path: a
+    /// play half assembled on the board was never a submission, and
+    /// <c>BackgammonPlayEntry</c> exposes nothing that would let one be
+    /// salvaged — the same producer gap the Quiz page's Undo enablement
+    /// records.
     /// </para>
     ///
     /// <para>
     /// <b>An answered problem stands, and folds.</b> Ending on a problem that
     /// holds an answer of record is a forward exit, not an abandonment: the
-    /// answer was submitted, scored into <see cref="Score"/>, and read — so it
+    /// answer was submitted, counted in <see cref="Score"/>, and read — so it
     /// stays in the partial score and folds into the
     /// <see cref="IProblemStatsSink"/> exactly as <see cref="ContinueAsync"/>
     /// would fold it, through the one shared
     /// <see cref="FoldAnswerOfRecordAsync"/>, and nothing is counted as skipped
-    /// on top of it. The branch keys on the <i>record</i>, not on
+    /// on top of it. Both halves key on the <i>record</i>, not on
     /// <see cref="Review"/>: a run ended mid-practice-cycle (redone, not yet
     /// re-answered) is showing no review and has still answered the problem.
     /// That is what keeps the standing invariant true: <i>every answer visible
     /// on Done has reached the lifetime record</i>, which until this method
     /// existed held only because Continue was the sole route there — and which
     /// Done's "nothing here needs saving" line states to the user. No
-    /// double-fold hazard rides along: the fold happens once, and the record is
-    /// cleared with <see cref="Current"/> below.
+    /// double-fold hazard rides along: the fold happens once, and an ended run
+    /// accepts no further transition.
     /// </para>
     /// </summary>
     public async Task EndQuizAsync()
     {
-        if (!HasStarted || IsFinished) return;
+        if (_run is not { IsEnded: false }) return;
         if (!await TryBeginTransitionAsync()) return;
         try
         {
-            if (_answerOfRecord is not null)
-            {
-                await FoldAnswerOfRecordAsync();
-            }
-            else if (Current is not null)
-            {
-                SkippedCount++;
-            }
+            // Before the run ends, so that — as on Continue — the review is
+            // still on screen while the fold is awaited.
+            await FoldAnswerOfRecordAsync();
 
-            Review = null;
-            Current = null;
-            // The run leaves the problem here without an advance, so this is
-            // the one clear that AdvanceAsync does not perform.
-            _answerOfRecord = null;
-            IsFinished = true;
+            _run = _run.End();
             // The run is over, so the one live enumerator is released here
             // rather than waiting for the next Start's reset — safe precisely
             // because the gate guarantees no MoveNextAsync is in flight.
@@ -867,34 +796,26 @@ internal sealed class QuizController : IAsyncDisposable
     /// <see cref="Review"/> is showing.
     ///
     /// <para>
-    /// <b>Two answering states reach this, and they part on the record.</b>
-    /// On an unanswered problem the skip <i>is</i> the answer of record
-    /// (SPEC-scoring.md §2): <see cref="SkippedCount"/> counts it and nothing
-    /// folds. Mid-practice-cycle — <see cref="RedoAsync"/> re-opened an
-    /// already-answered problem and the user leaves rather than re-answering —
-    /// the problem is answered, so this is the run advancing past it: the
-    /// answer of record folds, and no skip is counted on top of it. Counting
-    /// one would double-count a problem that was answered, and skipping the
-    /// fold would strand an answer that Done still shows — the invariant
-    /// <see cref="EndQuizAsync"/> states.
+    /// <b>Two answering states reach this, and they part on the record</b> —
+    /// which is the run's rule for moving on (<see cref="QuizRun.Next"/>;
+    /// SPEC-quiz-history.md §4). On an unanswered problem the skip <i>is</i>
+    /// what is of record (SPEC-scoring.md §2): <see cref="SkippedCount"/>
+    /// counts it and nothing folds. Mid-practice-cycle —
+    /// <see cref="RedoAsync"/> re-opened an already-answered problem and the
+    /// user leaves rather than re-answering — the problem is completed, so this
+    /// is the run advancing past it: the answer of record folds, and no skip is
+    /// counted on top of it. Counting one would double-count a problem that was
+    /// answered, and skipping the fold would strand an answer that Done still
+    /// shows — the invariant <see cref="EndQuizAsync"/> states.
     /// </para>
     /// </summary>
     public async Task SkipCurrentAsync()
     {
-        if (Current is null || IsFinished || Review is not null) return;
+        if (_run is not { IsAnswering: true }) return;
         if (!await TryBeginTransitionAsync()) return;
         try
         {
-            if (_answerOfRecord is not null)
-            {
-                await FoldAnswerOfRecordAsync();
-            }
-            else
-            {
-                SkippedCount++;
-            }
-
-            await AdvanceAsync();
+            await MoveOnAsync();
         }
         finally
         {
@@ -918,9 +839,11 @@ internal sealed class QuizController : IAsyncDisposable
     /// run, and a run takes the ranking the user's setting names when it begins
     /// — so a setting changed since the last run applies here, as it would to a
     /// Start (SPEC-scoring.md §2a: it applies to what is scored after it is
-    /// set). The filter pipeline and the mix are the run's configuration and
-    /// are replayed; the ranking is the user's setting and is re-read, the way
-    /// the caller re-reads the mix's visibility for <paramref name="ignoreMix"/>.
+    /// set). The filter pipeline and the mix are the quiz's stored
+    /// configuration and are replayed; the ranking is the user's setting and is
+    /// re-read, the way the caller re-reads the mix's visibility for
+    /// <paramref name="ignoreMix"/>. The restarted quiz is a new
+    /// <see cref="QuizRun"/>; the run it replaces is simply let go.
     /// </para>
     ///
     /// <para>
@@ -992,8 +915,8 @@ internal sealed class QuizController : IAsyncDisposable
     /// Release the transition gate (always via <c>finally</c>, so a faulted
     /// transition never wedges it) and fire <see cref="StateChanged"/> with
     /// the transition's end state in place — the single completion signal for
-    /// every gated transition (<see cref="AdvanceAsync"/> itself no longer
-    /// fires; all its callers are gated).
+    /// every gated transition (<see cref="PresentNextAsync"/> itself fires
+    /// nothing; all its callers are gated).
     /// </summary>
     private void EndTransition()
     {
@@ -1018,34 +941,70 @@ internal sealed class QuizController : IAsyncDisposable
     }
 
     /// <summary>
-    /// Fold the current problem's answer of record into the lifetime-stats
-    /// sink — the one encoding of SPEC-scoring.md §2's "what folds", shared by
-    /// the three exits that advance the run past a problem
-    /// (<see cref="ContinueAsync"/>, <see cref="SkipCurrentAsync"/>,
-    /// <see cref="EndQuizAsync"/>). It reads <c>_answerOfRecord</c> and never
-    /// <see cref="Review"/>: after a practice cycle the displayed review is the
-    /// practice submission's, and §2 rules that one discarded. A skip — an
-    /// off-list play, or one the run's ranking does not score — is of record
-    /// and folds nothing (producer contract: neither yields a submission to
-    /// fold); an unanswered problem holds no record and this is a no-op.
+    /// ▶ as today's page reaches it — Continue from a review, Skip from a
+    /// decision: take the run's step to "the next problem"
+    /// (<see cref="QuizRun.Next"/>) and, where that step moves on from the
+    /// frontier, do the two things only this type can — fold the frontier's
+    /// answer of record, and bring the problem the run is now owed.
+    ///
+    /// <para>
+    /// <b>The order is the contract.</b> The step is computed first and taken
+    /// second: the run is immutable, so asking it what ▶ comes to changes
+    /// nothing, and the fold is awaited while the current run — its review
+    /// still on screen — is the one the pages see. That is what keeps a review
+    /// up, with its buttons showing busy, for as long as a slow stats write
+    /// takes. Then the step is taken, and the source is asked.
+    /// </para>
+    ///
+    /// <para>
+    /// Nothing here moves the cursor behind the frontier, so today the step
+    /// always moves on from it. The other half of the run's rule — ▶ behind the
+    /// frontier goes to the next presented problem, recording and folding
+    /// nothing — is honoured all the same, so this method stays right when the
+    /// navigation controls arrive. Until they do, nothing can reach that branch
+    /// through this type; the rule itself is pinned on the run.
+    /// </para>
+    /// </summary>
+    private async Task MoveOnAsync()
+    {
+        var moved = _run!.Next(out var bringsNewProblem);
+        if (!bringsNewProblem)
+        {
+            _run = moved;
+            return;
+        }
+
+        await FoldAnswerOfRecordAsync();
+        _run = moved;
+        await PresentNextAsync();
+    }
+
+    /// <summary>
+    /// Fold the frontier's answer of record into the lifetime-stats sink — the
+    /// one encoding of "what folds", shared by the three exits that advance the
+    /// run past its frontier (<see cref="ContinueAsync"/>,
+    /// <see cref="SkipCurrentAsync"/>, <see cref="EndQuizAsync"/>). It reads the
+    /// problem's disposition and never <see cref="Review"/>: after a practice
+    /// cycle the displayed review is the practice submission's, and
+    /// SPEC-scoring.md §2 rules that one discarded. A skip — the Skip gesture,
+    /// an off-list play, or a play the run's ranking does not score — is of
+    /// record and carries no submission, so it folds nothing; an unresolved
+    /// problem holds nothing of record, and a run with nothing presented has no
+    /// frontier, and for both this is a no-op.
     /// </summary>
     private async Task FoldAnswerOfRecordAsync()
     {
-        switch (_answerOfRecord)
+        if (_run?.Frontier is { } frontier && frontier.Disposition.TryGetAnswer(out var answer))
         {
-            case AnswerOfRecord.Play play:
-                await _statsSink.RecordAsync(play.Submission);
-                break;
-            case AnswerOfRecord.Cube cube:
-                await _statsSink.RecordAsync(cube.Submission);
-                break;
-                // AnswerOfRecord.Skip, and null: nothing of record to fold.
+            await answer.Match(
+                play: submission => _statsSink.RecordAsync(submission),
+                cube: submission => _statsSink.RecordAsync(submission));
         }
     }
 
     /// <summary>
     /// The one shared path under Start and Restart: refusal checks, the
-    /// lifetime-stats bind, pipeline (re)assembly, state reset, and the
+    /// lifetime-stats bind, pipeline (re)assembly, the new run, and the
     /// advance to the first showable problem.
     ///
     /// <para>
@@ -1059,8 +1018,9 @@ internal sealed class QuizController : IAsyncDisposable
     /// including the stats bind — happens. Stage 2 runs after the bind:
     /// a context that bound without a document (unreadable stats file)
     /// refuses before any quiz state is touched, so the prior quiz — its
-    /// enumerator, score, histories, <see cref="Current"/>, and
-    /// <see cref="IsFinished"/> — survives a refused Start/Restart intact;
+    /// enumerator and its run, which is its record, its score, its ranking,
+    /// <see cref="Current"/> and <see cref="IsFinished"/> — survives a refused
+    /// Start/Restart intact;
     /// the only <see cref="StateChanged"/> firings are the enclosing gate's
     /// two busy flips, which deliver unchanged quiz state. The stage-2
     /// re-bind itself is the one residual side effect (see the Pitfalls in
@@ -1069,9 +1029,15 @@ internal sealed class QuizController : IAsyncDisposable
     ///
     /// <para>
     /// The stored config (<see cref="_filterPipeline"/> / <see cref="_mix"/>)
-    /// and the run's <see cref="Ranking"/> commit only past the refusal
-    /// checks, so a refused Start never retargets what a later Restart re-runs,
-    /// and a running quiz keeps the ranking it is being scored under.
+    /// commits only past the refusal checks, so a refused Start never retargets
+    /// what a later Restart re-runs. <b>The new run replaces the old one in a
+    /// single assignment, once its source stands</b>: it is begun from
+    /// <paramref name="ranking"/> — the setting the caller read — the source is
+    /// built under the run's ranking, not the argument's, and only then does
+    /// the run become the current one. So there is no moment at which one run
+    /// is scored under another's ranking, and nothing of the old run is reset
+    /// field by field: the new run starts with nothing presented and nothing of
+    /// record, which is what an empty score and no skips are.
     /// </para>
     /// </summary>
     private async Task<QuizStartOutcome> ResetAndAdvanceAsync(
@@ -1096,12 +1062,15 @@ internal sealed class QuizController : IAsyncDisposable
             return QuizStartOutcome.MixRequiresStats;
 
         _filterPipeline = pipeline;
-        _ranking = ranking;
         _mix = mix;
 
         await DisposeEnumeratorAsync();
 
-        var inner = _sourceFactory(pipeline, ranking, effectiveMix).Source;
+        // The new run, from the setting the caller read. From here on the
+        // ranking is read off the run, the source's included.
+        var run = QuizRun.Begin(ranking);
+
+        var inner = _sourceFactory(pipeline, run.Ranking, effectiveMix).Source;
         // A blank mix wires no composition layer at all — the settled
         // passthrough default. An active mix composes via the producer's
         // decorator; holding the typed reference is what surfaces
@@ -1112,21 +1081,12 @@ internal sealed class QuizController : IAsyncDisposable
         _source = _mixedSource ?? inner;
         _enumerator = _source.EnumerateAsync().GetAsyncEnumerator();
 
-        Score = QuizScore.Empty;
-        History = [];
-        CubeHistory = [];
-        SkippedCount = 0;
-        ProblemNumber = 0;
-        IsFinished = false;
-        Current = null;
-        Review = null;
-        // No problem is showing, so this carries no meaning until the advance
-        // below rolls one. Cleared to the CLR default rather than to a side:
-        // which side is "default" is the settings service's decision, not this
-        // type's, and a run must not inherit the previous run's last roll.
-        RandomHomeBoardOnRight = false;
+        // A source that declares its size states the run's total now. A
+        // composing one declares none — its size is known only once it has
+        // composed — and PresentNextAsync hands that over after the first draw.
+        _run = _source.Count is { } total ? run.WithProblemCount(total) : run;
 
-        await AdvanceAsync();
+        await PresentNextAsync();
         return QuizStartOutcome.Started;
     }
 
@@ -1144,41 +1104,60 @@ internal sealed class QuizController : IAsyncDisposable
             "The mix composition layer is wired but the stats sink holds no document — " +
             "a weighted start should have been refused.");
 
-    private async Task AdvanceAsync()
+    /// <summary>
+    /// Bring the run the problem it is owed — its first, or the one after a
+    /// frontier it has moved on from: draw from the source until a position
+    /// offers a play choice and present it, or end the run when the source has
+    /// none left. This is the whole of what the run is told about the source:
+    /// which problem is shown, how many slots were passed over silently on the
+    /// way to it, the side rolled for its board, and the stream's total once
+    /// the first draw has established one.
+    ///
+    /// <para>
+    /// Callers that fold do so before calling in. Start and Restart
+    /// deliberately do not — they begin a new run instead — which is how an
+    /// answer abandoned in review never reaches the lifetime record under the
+    /// advance-time trigger.
+    /// </para>
+    /// </summary>
+    private async Task PresentNextAsync()
     {
-        if (_enumerator is null) return;
+        if (_enumerator is null || _run is null) return;
 
-        // The run is leaving whatever problem was showing, so its answer of
-        // record goes with it — the single clear behind Continue, Skip, Start
-        // and Restart. Callers that fold do so before calling in; Start and
-        // Restart deliberately do not, which is how an answer abandoned in
-        // review never reaches the lifetime record (SPEC-scoring.md §2).
-        _answerOfRecord = null;
+        // Stream slots drawn and passed over on the way to the next problem:
+        // local to this one advance. The run turns it into the problem's slot
+        // number, so no counter of the stream is kept here.
+        var silentlySkipped = 0;
 
         while (true)
         {
-            if (!await _enumerator.MoveNextAsync())
+            var drew = await _enumerator.MoveNextAsync();
+
+            // A composing source assigns its telemetry before its first yield,
+            // so the first draw — even one that finds the composition empty —
+            // is what establishes a weighted run's total.
+            if (_run.ProblemCount is null && LastComposition is { } composition)
+                _run = _run.WithProblemCount(composition.DrawnCount);
+
+            if (!drew)
             {
-                Current = null;
-                IsFinished = true;
+                _run = _run.End();
                 break;
             }
-
-            // A stream slot is consumed whether or not it presents — pass
-            // positions included, per ProblemNumber's documented convention.
-            ProblemNumber++;
 
             var next = _enumerator.Current;
             if (HasNoPlayChoice(next))
             {
-                // Auto-skip silently — the user never saw this position.
+                // Auto-skip silently — the user never saw this position, so it
+                // never enters the run; it still occupied a stream slot.
+                silentlySkipped++;
                 continue;
             }
 
-            Current = next;
-            // Beside the assignment, and after the no-choice skip above: one
-            // roll per problem the user actually sees. See the property.
-            RandomHomeBoardOnRight = Random.Shared.Next(2) == 0;
+            // One roll per problem the user actually sees, taken here and
+            // handed over: the run keeps it, and rolls nothing itself. See
+            // RandomHomeBoardOnRight.
+            _run = _run.Present(next, silentlySkipped, randomHomeBoardOnRight: Random.Shared.Next(2) == 0);
             break;
         }
         // No StateChanged here: every caller runs inside the transition gate,
@@ -1252,51 +1231,6 @@ internal sealed class QuizController : IAsyncDisposable
         data is CheckerPlayDecision checkerPlay
         && MoveGenerator.GeneratePlays(
             new BoardState(checkerPlay.Board), checkerPlay.Dice.High, checkerPlay.Dice.Low).Count == 1;
-
-    /// <summary>
-    /// What the current problem's answer of record <i>is</i> — the closed set
-    /// of outcomes a first submission can produce (SPEC-scoring.md §2), and
-    /// with it everything the lifetime fold needs. Controller-private: the
-    /// record is deliberately not observable, and the split it implements is
-    /// visible outside only as <see cref="ProblemReview.IsPractice"/> on the
-    /// displayed review.
-    ///
-    /// <para>
-    /// It carries the submission itself rather than a pointer into
-    /// <see cref="History"/> / <see cref="CubeHistory"/>: "the last entry in
-    /// the matching history" stopped being a safe reading of "the answer of
-    /// record" the moment a later submission could exist without appending
-    /// one.
-    /// </para>
-    /// </summary>
-    private abstract record AnswerOfRecord
-    {
-        private AnswerOfRecord() { }
-
-        /// <summary>
-        /// A scored checker play: scored into <see cref="Score"/>, carried in
-        /// <see cref="History"/>, folds into the lifetime record.
-        /// </summary>
-        public sealed record Play(SubmittedPlay Submission) : AnswerOfRecord;
-
-        /// <summary>
-        /// A cube pair: scored into <see cref="Score"/>, carried in
-        /// <see cref="CubeHistory"/>, folds into the lifetime record.
-        /// </summary>
-        public sealed record Cube(SubmittedCubeAction Submission) : AnswerOfRecord;
-
-        /// <summary>
-        /// A skip — an off-list play, or a play the run's ranking does not
-        /// score (SPEC-scoring.md §2a), the submissions that answer a problem
-        /// without scoring it. Of record all the same
-        /// (§2: "skip is of record"), which is what keeps a redo from
-        /// un-doing it; it counts in <see cref="SkippedCount"/> and folds
-        /// nothing. The Skip button never reaches here — it advances without
-        /// entering review, so the problem it skips is behind the run before
-        /// any record could be read.
-        /// </summary>
-        public sealed record Skip : AnswerOfRecord;
-    }
 }
 
 /// <summary>

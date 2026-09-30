@@ -52,10 +52,12 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `JsonException`, and a genuine document in **any** schema below the current
   one throws the `RetiredStatsSchemaException` subtype the store retires on,
   carrying the version it declared).
-  The controller talks to the source through `IProblemSetSource` and scores
-  via `QuizScore.Plus`; the stats store folds finalized submissions via the
-  document's `Plus`. Producer behavior — the per-enumeration reshuffle, the
-  fold contracts — lives in BgGame_Lib's own INSTRUCTIONS.md.
+  The controller talks to the source through `IProblemSetSource`; the run
+  (`QuizRun`) scores each submission through the producer's operations and
+  derives the session score via `QuizScore.Plus`; the stats store folds
+  finalized submissions via the document's `Plus`. Producer behavior — the
+  per-enumeration reshuffle, the fold contracts — lives in BgGame_Lib's own
+  INSTRUCTIONS.md.
 - **BgDataTypes_Lib** — data types. `BgDecisionData` and its two sealed
   kinds, `CheckerPlayDecision` and `CubeDecision` (the page routes by the
   record's kind, and each answer instrument takes its own), `Play` (no
@@ -224,7 +226,9 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   (app identity: the version and the beta feedback address) and
   `ILLink.LinkAttributes.xml` (the member-pinned dispositions of the
   framework trim warnings a publish would otherwise fail on).
-- **The quiz** — `Quiz/`: `QuizController`, the per-app state machine, with
+- **The quiz** — `Quiz/`: `QuizRun`, the run as pure state, with its record
+  types `PresentedProblem`, `ProblemDisposition` and `AnswerOfRecord`;
+  `QuizController`, the per-app orchestrator that holds the current run, with
   its `ProblemSetSourceFactory` delegate and `QuizStartOutcome`;
   `ProblemReview`, the displayed review; `MatchSummary`, the pre-Start pool
   and what its dedupe collapsed.
@@ -261,7 +265,8 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   `wwwroot/js/quizKeys.js` is the quiz page's Space-shortcut module.
 
 **`BgQuiz_Blazor.Tests/`** — xUnit over both app projects, with bUnit for
-components and `WebApplicationFactory` for the host pipeline. Areas: the
+components and `WebApplicationFactory` for the host pipeline. Areas: the run
+model, driven as pure state with no source, sink or page; the
 controller (its behaviour, the transition-gate overlap suite, the
 generated-play distinctness the no-play-choice skip stands on, and
 halheinrich/backgammon#273's own case read from the real match file,
@@ -356,18 +361,83 @@ referencing no app project. Three areas:
                           never redirects.
 ```
 
-### `QuizController` — per-app state machine
+### `QuizRun` — the run, as pure state
+
+One run of the quiz: the problems presented, where the user is among them,
+what is of record for each, and the ranking they are scored under. **The
+model is `../SPEC-quiz-history.md`** (ratified 2026-09-24, amended
+2026-09-30; halheinrich/backgammon#8), implemented whole and enforced by the
+type, with `../SPEC-scoring.md` §2 and §2a for what counts and how a play is
+scored. The rules are read there and not restated here; this section is how
+the type holds them.
+
+- **What it owns.** The presented sequence (`Presented`), the cursor
+  (`Cursor`, the problem on screen) and the frontier (`Frontier`, the
+  furthest presented). Each entry is a `PresentedProblem`: the decision, its
+  stream slot, the board side it was given, and its `ProblemDisposition` —
+  `Unresolved`, `Answered` (carrying the `AnswerOfRecord`, a scored play or a
+  scored cube pair, read through `Match`) or `Skipped`, which is one instance
+  holding nothing, whatever caused the skip. Also the run's `Ranking`, the
+  review on screen (`Review`), and the stream's total when one is known
+  (`ProblemCount`).
+- **What it derives, and never stores.** `IsLive` (the cursor is on the
+  unresolved frontier), `Score` and `SkippedCount` are computed from the
+  dispositions on every read. No live/practice flag, score field or skip
+  counter exists beside them, in the run or in the controller — so a practice
+  submission, which writes no disposition, cannot move a total, and nothing
+  has to be kept in step. `ProblemReview.IsPractice` is a fact about one past
+  submission, not a second record of the problem: a skip keeps no submission,
+  so the record cannot say afterwards which play a review is of.
+- **Immutable.** Every transition returns the run that follows and leaves the
+  one it was called on as it was. The controller holds the current run and
+  replaces it whole, which is what makes "a refused Start leaves the running
+  quiz untouched" one missing assignment rather than a list of fields.
+- **The transitions.** `Present` · `SubmitPlay` / `SubmitCubeAction` ·
+  `Redo` · `Next` (▶, which reports whether a new problem is now owed) ·
+  `GoToFirst` / `GoBack` / `GoToLast` (⏮ ◀ ⏭) · `End` · `WithProblemCount`.
+  One the state does not allow throws `InvalidOperationException` — a caller
+  bug. The gestures a user can repeat or mistime are the controller's to
+  no-op, which it does by reading the state first (`IsAnswering`, `Review`,
+  `IsEnded`; `CanGoBack` / `CanGoToLast` are there for the navigation
+  controls).
+- **Scoring is inside it.** `SubmitPlay` calls `PlaySubmission.Score` and
+  `SubmitCubeAction` calls `SubmittedCubeAction.From`, against the problem
+  under the cursor and under the run's own ranking. Both are pure functions of
+  things the run holds, so no caller can pair an answer with another problem
+  or another ranking — "one quiz, one ranking" is structural.
+- **What it is told, because it never asks.** It reads no source, sink,
+  clock or random number. The controller hands it each problem with the two
+  facts only the orchestration has — how many stream slots were passed over
+  silently on the way (from which the run derives the problem's slot, so no
+  counter of the stream exists anywhere), and the side rolled for its board —
+  and the total, when and if the source establishes one. `ProblemCount` is
+  unknown until then, which is a valid state, and stable after: a second,
+  different total is refused.
+- **Nothing on screen once it has ended.** `End` clears the cursor, so
+  `Current` is null and `ProblemNumber` zero on a finished quiz; the record
+  and the totals stand for Done to read.
+
+**Only the forward half is wired.** The controller never moves the cursor
+back, so ⏮ ◀ ⏭ — and ▶ behind the frontier — have no caller yet; the
+navigation controls are `SPEC-quiz-history.md` §2's and arrive with their own
+leg. `Redo` is today's return to a decision and is retired with the Redo
+button by that leg. The lifetime fold is not the run's at all: the sink is
+outside it, and the controller folds (§ `QuizController`).
+
+### `QuizController` — the per-app orchestrator
 
 Scoped DI lifetime (see Pitfalls: resets on full reload, not on in-app
-navigation). The controller holds the active `IProblemSetSource`
-enumerator, the run's `Ranking`, the running `QuizScore`, the per-problem
-`SubmittedPlay` (`History`) and `SubmittedCubeAction` (`CubeHistory`)
-histories — immutable arrays, each answer replacing its history with one
-entry more (halheinrich/backgammon#273's collection rider); kept separate
-because the two scored-result types are distinct shapes, and a unified
-history would force consumers to type-test — and a `SkippedCount` for
-non-scoring outcomes (off-list submissions, plays the ranking does not
-score, explicit Skip). Pages observe
+navigation). The controller holds what a run needs from outside itself — the
+active `IProblemSetSource` and its one live enumerator, the busy gate, the
+stats sink — and the current `QuizRun` (§ `QuizRun`), to which everything
+about the run is delegated. Every run-describing property it exposes
+(`Current`, `Review`, `Score`, `SkippedCount`, `Ranking`, `IsFinished`,
+`ProblemNumber` / `ProblemCount`, `RandomHomeBoardOnRight`) is read off the
+current run on each call; it keeps no copy of any, and there is no list of
+past answers on it — the record is the run's presented sequence. What it
+adds is what a pure model cannot do: draw the next problem, decide which
+drawn positions are shown, take each board's roll, fold answers into the
+lifetime record, and refuse a gesture that lands mid-transition. Pages observe
 transitions via `StateChanged`: each gated async transition (below) fires it
 exactly twice — busy-on, then busy-off with the end state in place — and the
 synchronous mutators (Submit, Redo) fire it once.
@@ -391,7 +461,7 @@ busy affordances from it) flips on inside the gate's check-and-set,
 busy state can paint before the transition's churn begins (the sources'
 time-budgeted yields keep paints possible during the churn itself); a
 `try`/`finally` releases the gate on completion *and* failure, firing
-`StateChanged` again — the single completion signal (`AdvanceAsync` itself
+`StateChanged` again — the single completion signal (`PresentNextAsync` itself
 fires none). Overlapped Start/Restart return `QuizStartOutcome.Busy`, which
 callers treat as do-nothing; overlapped Continue/Skip return silently. The
 never-started `RestartAsync` throw is checked *inside* the gate — an overlap
@@ -400,55 +470,67 @@ is an outcome (Busy), not the caller bug the throw exists for.
 the fake sink's `RecordGate`.
 
 **Three-state per-problem flow.** Each problem moves through *answering* →
-*review* → *advance*, surfaced via `Current` and the nullable `Review`:
+*review* → *advance*, surfaced via `Current` and the nullable `Review`. Each
+gesture below is the controller's gate and orchestration around one run
+transition, named in brackets; what the transition does to the record is the
+run's rule (§ `QuizRun`):
 
-- **Submit** — `SubmitPlay(Play)` / `SubmitCubeAction(CubeClaimPair)` are
-  **synchronous** (the only `await` was the advance, now deferred): they score
-  the answer, set `Review`, and fire `StateChanged` **without advancing** —
-  `Current` still points at the answered problem. No-ops outside answering
-  (guarding against double-scoring). Each answers its own kind — a play a
-  `CheckerPlayDecision`, a pair a `CubeDecision` — and the other kind is a
-  caller bug that throws `InvalidOperationException`, since the page routes
-  each kind to its own instrument.
+- **Submit** — `SubmitPlay(Play)` / `SubmitCubeAction(CubeClaimPair)`
+  [`QuizRun.SubmitPlay` / `SubmitCubeAction`] are **synchronous** (the only
+  `await` was the advance, now deferred): the run scores the answer and shows
+  its `Review`, and `StateChanged` fires **without advancing** — `Current`
+  still points at the answered problem. No-ops outside answering. Each answers
+  its own kind — a play a `CheckerPlayDecision`, a pair a `CubeDecision` — and
+  the other kind is a caller bug that throws `InvalidOperationException`,
+  since the page routes each kind to its own instrument.
 - **`Review`** — a closed `ProblemReview` class hierarchy (`Play` / `Cube`)
   carrying the producer's scored outcome whole and what the review needs to
   mark and name the answer. Non-null marks the state.
-- **`RedoAsync`** — **not** the inverse of Submit: it re-opens the problem for
-  *practice* and clears `Review`, back to *answering* on the same `Current`,
-  changing nothing that was recorded. `History` / `CubeHistory`, `Score`,
-  `SkippedCount`, the enumerator and `IsFinished` are all untouched. The
+- **`RedoAsync`** [`QuizRun.Redo`] — **not** the inverse of Submit: it
+  re-opens the problem for *practice*, back to *answering* on the same
+  `Current`, changing nothing that was recorded. The record — and so `Score`
+  and `SkippedCount` — the enumerator and `IsFinished` are all untouched. The
   submission that follows is practice — scored and reviewed, then discarded
   (SPEC-scoring.md §2). No-op outside review.
-- **`ContinueAsync`** — the forward exit from review: folds the **answer of
-  record** into the `IProblemStatsSink` (see Pitfalls: as the run advances past
-  the problem, never at Submit), clears `Review`, and advances. Exhausting the
-  source here flips `IsFinished` — after the fold, so the final answer records.
-  No-op outside review.
-- **`SkipCurrentAsync`** — bypasses review and advances immediately, but only
-  from answering (no-op while a `Review` is showing). Which answering state
-  matters: on an unanswered problem the skip is the answer of record
-  (`SkippedCount++`, nothing folds); mid-practice-cycle the problem is already
-  answered, so this is the run advancing past it — the answer of record folds
-  and no skip is counted.
-- **`EndQuizAsync`** — the user's own exit from the run (issue
+- **`ContinueAsync`** [`QuizRun.Next`, then `Present` or `End`] — the forward
+  exit from review: folds the **answer of record** into the
+  `IProblemStatsSink` (see Pitfalls: as the run advances past the problem,
+  never at Submit), moves on, and brings the next problem. Exhausting the
+  source here flips `IsFinished` — after the fold, so the final answer
+  records. No-op outside review.
+- **`SkipCurrentAsync`** [the same three] — bypasses review and advances
+  immediately, but only from answering (no-op while a `Review` is showing).
+  Which answering state matters, and the run decides it: on an unanswered
+  problem the skip is what is of record (counted in `SkippedCount`, nothing
+  folds); mid-practice-cycle the problem is already answered, so this is the
+  run advancing past it — the answer of record folds and no skip is counted.
+- **`EndQuizAsync`** [`QuizRun.End`] — the user's own exit from the run (issue
   halheinrich/backgammon#57), and the one path that leaves the three-state flow
   rather than moving through it: it finishes where it stands, with problems still
   unread. `IsFinished` flips, `Current` and `Review` clear, and the live
   enumerator is released early (safe because the gate guarantees no
   `MoveNextAsync` is in flight). No-op before start and after finish. **Two
-  settled semantics, no new scoring path,** parting on the *answer of record*
-  rather than on `Review`: with **no** record the problem showing is
+  settled semantics, no new scoring path,** parting on the *record*
+  rather than on `Review`: with **nothing** of record the problem showing is
   **abandoned** — any in-progress input is discarded, it records no answer, and
-  it takes the same non-scoring outcome an explicit Skip records
-  (`SkippedCount++`), so Done's "problems shown" still counts a problem the user
-  saw; **with** one the answer **stands and folds**, because it was submitted,
+  it is completed as the same skip of record an explicit Skip leaves, so
+  Done's "problems shown" still counts a problem the user
+  saw; **with** an answer of record it **stands and folds**, because it was submitted,
   scored, and read — whether the review is still showing or a redo re-opened the
   problem for practice. Folding goes through the same `FoldAnswerOfRecordAsync`
   Continue uses — which is what preserves the standing invariant that **every
   answer visible on Done has reached the lifetime record** (Done states it to the
   user; see Pitfalls). The run is a **completed quiz**, ruled: `/done` is
-  unchanged, with no ended-early wording and no controller flag for one — the
+  unchanged, with no ended-early wording and no flag for one — the
   partial score is simply the score of the problems answered.
+
+**The order inside an advance is load-bearing.** `MoveOnAsync` asks the run
+what ▶ comes to *before* taking the step — the run is immutable, so asking
+changes nothing — folds while the run with its review is still the current
+one, and only then replaces the run and draws from the source. So a slow
+stats write leaves the review on screen with its buttons showing busy, never
+a fresh decision on a problem the run is leaving. `EndQuizAsync` keeps the
+same order: fold, then end.
 
 `ProblemReview` lives in `BgQuiz_Blazor.Client` (not BgGame_Lib): it is
 per-app UI state, and adding it to the submodule would cross the boundary.
@@ -466,8 +548,9 @@ equality would reach the `Play` (whose `Equals` throws) and `PlaySubmission`'s
 equality, which halheinrich/backgammon#287 leaves unsettled for skips and
 this app does not use. It is the **displayed** review, which after a redo is
 not the answer of record — `IsPractice` (init-only, defaulted false) rides on
-the review itself rather than beside it in the controller, so a review and its
-practice status cannot be assigned apart and drift.
+the review itself rather than beside it in the run, so a review and its
+practice status cannot be assigned apart and drift. The run builds it, in its
+submit transitions, and holds it until the problem is left.
 
 **Source construction is factory-injected.** The controller takes a
 `ProblemSetSourceFactory` delegate (`(DecisionFilterSet, PlayRanking,
@@ -591,14 +674,18 @@ composition at all, and the notice block is gated on the composition's
 existence, so the no-framing case falls out structurally. A refused start
 replaces no active-run state, `LastComposition` included, so a running quiz
 keeps its framing behind a refusal.
-`ProblemNumber` / `ProblemCount` drive the "Problem N of M" indicator:
-N is the 1-based **consumed stream slot** of `Current` (auto-skipped
-no-choice positions included; reset by Start/Restart, untouched by Redo) and M is the
-composition's `DrawnCount` (weighted) or the source's declared `Count`
-(passthrough; null when streaming — the page then shows "Problem N" alone).
-Slot-counting is the settled convention: both numbers count the stream, so N
-never exceeds M and lands exactly on M at exhaustion; the accepted trade-off —
-an auto-skip shows as a gap — is documented on `ProblemNumber`.
+`ProblemNumber` / `ProblemCount` drive the "Problem N of M" indicator, and
+both are the run's (`../SPEC-quiz-history.md` §5). N is the 1-based **consumed
+stream slot** of `Current` (`PresentedProblem.StreamSlot`: auto-skipped
+no-choice positions included; untouched by Redo; zero while no problem is on
+screen). M is the run's `ProblemCount`, which the controller hands over and
+the run never looks up: the source's declared `Count` when the run begins
+(passthrough; null when streaming — the page then shows "Problem N" alone),
+or the composition's `DrawnCount` once a weighted run's first draw has
+produced it. Slot-counting is the settled convention: both numbers count the
+stream, so N never exceeds M and lands exactly on M on the stream's last
+slot; the accepted trade-off — an auto-skip shows as a gap — is documented on
+`PresentedProblem.StreamSlot`.
 
 **Lifetime-stats sink is ctor-injected.** The controller's second dependency
 is the `IProblemStatsSink` (production: `QuizStatsStore`), driven at exactly
@@ -607,8 +694,9 @@ path under Start *and* Restart, so the stats context binds there and nowhere
 else — and **the exits that advance the run past a problem** fold via
 `RecordAsync`, through the one shared `FoldAnswerOfRecordAsync` (`ContinueAsync`,
 `SkipCurrentAsync` and `EndQuizAsync`; there is one encoding of what folds, not
-three). The sink never throws for stats trouble, so quiz flow is independent of
-whether stats are recording.
+three), which reads the frontier's disposition off the run and folds the
+answer of record it carries, if it carries one. The sink never throws for
+stats trouble, so quiz flow is independent of whether stats are recording.
 
 **Filter ownership.** `StartAsync` takes a `FilterConfig` (the wire DTO
 emitted through `FilterSurface.OnFilterConfigChanged`), not a runtime
@@ -626,8 +714,8 @@ PlayRanking)` reports what a config would admit under a ranking, as a
 `MatchSummary` — Home passes the setting's ranking, the one its Start will
 take, since "erred by more than x" is read under it. It builds the same
 controller-owned pipeline `StartAsync` would and folds a source from the
-factory over a **throwaway** enumerator, so the shared enumerator, `Current`,
-`Score`, and the histories are never touched and a summary is safe against a
+factory over a **throwaway** enumerator, so the shared enumerator and the
+current run are never touched and a summary is safe against a
 live quiz; it deliberately takes **no** transition gate (no shared enumerator
 to protect, and callers serialize Apply against Start on their side). The pass
 is a byproduct of the source's in-memory `Matches` filter and it **warms the
@@ -709,14 +797,16 @@ trailing explanation. The solution diagram's `Best:` banner beside it is
 recomposed over claims and spelled by the same label home, so the two read the
 claim alike — see **Cube wording** above.
 
-**No-play-choice auto-skip.** Each `AdvanceAsync` step pulls the next
+**No-play-choice auto-skip.** `PresentNextAsync` pulls each next
 decision and tests it with `HasNoPlayChoice`, which runs
 `MoveGenerator.GeneratePlays(board, d1, d2)` over the record's own board and
 dice. **One rule, both cases** (`halheinrich/backgammon#140`): the roll admits
 exactly one legal play, whether that play moves nothing (a pass — the
 no-legal-play sentinel, see Pitfalls) or moves something (a forced checker
 play). Either way the position poses no question, so it is silently skipped —
-never shown, never counted toward `SkippedCount`, nothing folded to stats.
+never shown, so it never enters the run: not counted toward `SkippedCount`,
+nothing folded to stats. It did occupy a stream slot, which the run is told
+with the next problem presented (§ `QuizRun`).
 Only a `CheckerPlayDecision` is asked: a cube decision is the other kind, has
 no roll, and is always shown.
 
@@ -742,7 +832,8 @@ diverge.
 
 **Checker-play scoring: one ranking, the producer's identity.** A submitted
 play is scored by the producer's one operation,
-`PlaySubmission.Score(play, decision, Ranking)`, under the run's ranking
+`PlaySubmission.Score(play, decision, Ranking)`, which the run calls with its
+own ranking
 (SPEC-scoring §2a — "The quiz's play-sorting setting is the ranking. It
 decides which play is best, the order and the rank numbers, and every
 checker-play error is measured against that best play"). It finds the
@@ -753,14 +844,14 @@ halheinrich/backgammon#273: a hit marked on the other checker making the same
 point), and reads that candidate's error under the ranking, together. Three
 outcomes:
 
-- **Scored** — a `SubmittedPlay`: the answer of record, into `History` and
-  `Score`, folding as the run advances. Its `IsCorrect` (error exactly 0) is the
+- **Scored** — a `SubmittedPlay`: the answer of record, counted in `Score`,
+  folding as the run advances. Its `IsCorrect` (error exactly 0) is the
   producer's one verdict.
 - **Not scored** — under depth first, a candidate analyzed less deeply than the
   best that rated higher: "a skip of record that folds nothing" (§2a).
 - **Off list** — no candidate is this play: a skip of record too.
 
-A skip counts in `SkippedCount`, adds no history entry, leaves the score
+A skip counts in `SkippedCount`, carries no submission, leaves the score
 unchanged and folds nothing (semantics in Pitfalls). Every outcome sets a
 `Review` carrying the producer's outcome and the play as entered, so the user
 sees the solution, the not-scored candidate's row is marked †, and the
@@ -1889,8 +1980,9 @@ saved choice reads as before, now deciding scoring too. It is exposed twice,
 as the side is: the stored `bool` the checkbox binds to, and
 `QuizSettings.Ranking`, the producers' `PlayRanking` the pages hand the
 controller. **It is read where a quiz begins and nowhere else** — Home's count
-and Start, Done's Restart — and the controller keeps the run's ranking for the
-whole run and passes it to every ranking-dependent operation (the pool's
+and Start, Done's Restart — each of which begins a new run under it. The run
+owns its ranking from then on (§ `QuizRun`), and every ranking-dependent
+operation reads the run's (the pool's
 filter, scoring, the diagrams and the play entry). So **one quiz has one
 ranking**: a change made mid-quiz reaches the next run, and a running quiz's
 solutions and verdicts cannot disagree (the Settings description says "A change
@@ -1901,10 +1993,13 @@ why the pins that prove the setting reaches each operation run under
 holds stays as it was (§2a).
 
 **The side, and the roll.** `QuizController.RandomHomeBoardOnRight` is a coin
-flip taken **unconditionally**, beside the assignment of `Current` and after
-the pass-skip — one roll per problem the user actually sees, held steady across
-submit, review and Redo, reset per run, never persisted, so the controller
-knows nothing about settings. The composition rule lives in exactly one member,
+flip the controller takes **unconditionally** for each problem it presents,
+after the pass-skip — one roll per problem the user actually sees — and hands
+to the run, which keeps it with that problem for the life of the run
+(`PresentedProblem.RandomHomeBoardOnRight`; `../SPEC-quiz-history.md` §5): held
+steady across submit, review and Redo, never persisted, and the run rolls
+nothing itself. So neither knows anything about settings. The composition
+rule lives in exactly one member,
 `QuizSettings.EffectiveHomeBoardOnRight(randomSide)`, reaching the renderer
 through a single `Quiz.HomeBoardOnRight` property that both request builders
 read — so the three render branches (play answering, cube answering, solution)
@@ -3518,7 +3613,8 @@ succeeds.
 
 This is an application, not a library — no exported types or HTTP endpoints,
 and the `.Client` assembly enforces that at the type level: **every plain-C#
-client type is `internal`** (the controller and its outcome enum, all the
+client type is `internal`** (the run model and its record types, the
+controller and its outcome enum, all the
 scoped holders and services, the storage adapter,
 the file/wording SSOTs, the sources, `ProblemReview`, and the
 `ProblemSetSourceFactory` delegate — the `.Client` project's non-component
@@ -3804,7 +3900,8 @@ public (see Pitfalls). The externally visible surface is the route map:
   well-analyzed positions, and a signal of an analysis omission rather than
   user error. So does a candidate the run's ranking does not score (under depth
   first, one analyzed less deeply than the best that rated higher; SPEC-scoring
-  §2a). Don't expect every user-submitted play to land in `History`.
+  §2a). Don't expect every user-submitted play to become an answer of record:
+  these two complete the problem as a skip, which keeps no submission at all.
 - **Pass-position sentinel is not empty-list.** `MoveGenerator.GeneratePlays`
   signals "no legal play" with `count == 1 && plays[0].Count == 0`
   (a single zero-move Play, dice forfeited). Code that gates on
@@ -3827,11 +3924,15 @@ public (see Pitfalls). The externally visible surface is the route map:
   on `Controller.StartAsync` and `Home.razor` banners them.
 - **Lifetime stats fold as the run advances past a problem, never at Submit,
   and what folds is the answer of record.** The model is SPEC-scoring.md §2
-  (ratified 2026-08-26) — read it there. What it means here: the *first*
+  (ratified 2026-08-26) — read it there; its 2026-09-24 amendment moves the
+  trigger to the first submission with the navigation arc
+  (halheinrich/backgammon#8), and until that lands this entry describes the
+  code. What it means here: the *first*
   submission against a problem is final for `Score` and for the fold the moment
   it is made; `RedoAsync` re-opens the problem for practice, and the practice
   submissions are discarded as if they never happened, so `Review` (the
-  displayed review) and `_answerOfRecord` (what folds) genuinely differ after a
+  displayed review) and the problem's disposition in the run (what folds)
+  genuinely differ after a
   redo. Folding at Submit would still be wrong, for a new reason: `Score` and
   `ProblemStatsDocument` are per-problem-once, and the fold's *trigger* is the
   run advancing past the problem. The deliberate flip side is unchanged — an
@@ -3950,7 +4051,8 @@ public (see Pitfalls). The externally visible surface is the route map:
   with a surface-specific lead-in.
 - **A refused weighted start touches no quiz state — check the outcome before
   `IsFinished`.** `StartAsync`/`RestartAsync` returning `MixRequiresStats`
-  leaves the prior quiz (enumerator, scores, `Current`, `IsFinished`) and the
+  leaves the prior quiz (its enumerator and its run — record, score, ranking,
+  `Current`, `IsFinished`) and the
   stored config exactly as they were; the only `StateChanged` firings are the
   gate's two busy flips. Callers must branch on the outcome *first*: Home's
   empty-result check reads `IsFinished`, which after a refusal is stale state
@@ -3963,7 +4065,7 @@ public (see Pitfalls). The externally visible surface is the route map:
   mid-transition gesture safe; page-level debouncing would duplicate the
   rule and rot. Two load-bearing details: the gate's post-set yield (the
   busy-paint pitfall below owns why it must survive), and
-  `AdvanceAsync` deliberately fires no `StateChanged` — the gate's busy-off
+  `PresentNextAsync` deliberately fires no `StateChanged` — the gate's busy-off
   fire is the completion signal, so re-adding a fire there double-renders
   every transition and breaks the pinned fire counts.
 - **A busy state raised immediately before the work it describes never
@@ -4350,8 +4452,9 @@ public (see Pitfalls). The externally visible surface is the route map:
 - **Done-page retrospective.** Per-problem review ships *in-quiz*; what's
   missing is a *post-quiz* retrospective on Done — the four-way
   `ScoreBreakdown` reports only aggregates, with no way to revisit
-  individual problems after finishing. A scrollable list of the `History` /
-  `CubeHistory` entries (each re-rendering its solution diagram) would close
+  individual problems after finishing. A scrollable list of the run's
+  presented problems (`QuizRun.Presented` — each entry holds its decision and
+  its disposition, so its solution diagram can be re-rendered) would close
   the loop.
 - **e2e too-good coverage.** The `TooGoodTake` verdict is retired
   (SPEC-scoring §3's 2026-09-02 amendment, `halheinrich/backgammon#187`):
