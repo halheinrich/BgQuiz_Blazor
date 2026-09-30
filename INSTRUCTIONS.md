@@ -756,7 +756,7 @@ outcomes:
 - **Scored** — a `SubmittedPlay`: the answer of record, into `History` and
   `Score`, folding as the run advances. Its `IsCorrect` (error exactly 0) is the
   producer's one verdict.
-- **Not scored** — under depth first, a candidate analysed less deeply than the
+- **Not scored** — under depth first, a candidate analyzed less deeply than the
   best that rated higher: "a skip of record that folds nothing" (§2a).
 - **Off list** — no candidate is this play: a skip of record too.
 
@@ -2282,7 +2282,7 @@ The asymmetry is pinned three times over: at the service seam
   while the quiz user's pair is named by the verdict. **The play verdicts** are
   the producer's outcome, read by its case: correct; not best, with the error;
   **not scored** — SPEC-scoring §2a's text verbatim, "Not scored under
-  depth-first ranking: this play was analysed less deeply than the best play,
+  depth-first ranking: this play was analyzed less deeply than the best play,
   and at that depth it rated higher." (`Quiz.NotScoredVerdict`); and **off
   list, naming the play** — "Off list — your play, 24/20, wasn't among the
   analyzed candidates. The best play is shown above.", the play spelled by
@@ -3803,7 +3803,7 @@ public (see Pitfalls). The externally visible surface is the route map:
   a listed play is ever one — counts as a skip, not a scoring miss: rare on
   well-analyzed positions, and a signal of an analysis omission rather than
   user error. So does a candidate the run's ranking does not score (under depth
-  first, one analysed less deeply than the best that rated higher; SPEC-scoring
+  first, one analyzed less deeply than the best that rated higher; SPEC-scoring
   §2a). Don't expect every user-submitted play to land in `History`.
 - **Pass-position sentinel is not empty-list.** `MoveGenerator.GeneratePlays`
   signals "no legal play" with `count == 1 && plays[0].Count == 0`

@@ -4833,7 +4833,7 @@ public class PageTests : BunitContext
 
     /// <summary>SPEC-scoring.md §2a's not-scored review, verbatim as ruled.</summary>
     private const string NotScoredVerdictText =
-        "Not scored under depth-first ranking: this play was analysed less deeply than the best play, "
+        "Not scored under depth-first ranking: this play was analyzed less deeply than the best play, "
         + "and at that depth it rated higher.";
 
     [Fact]

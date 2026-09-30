@@ -139,7 +139,7 @@ internal static class TestFixtures
     /// Deterministic two-candidate checker play: the opening 3-1 from the
     /// standard start, <paramref name="play1"/> the best (equity 0) and
     /// <paramref name="play2"/> worse by <paramref name="play2Loss"/>. Both are
-    /// analysed at the same depth, so the two rankings agree on everything —
+    /// analyzed at the same depth, so the two rankings agree on everything —
     /// which is what lets the many tests about quiz flow say nothing about the
     /// ranking; <see cref="DepthSplitDecision"/> is the fixture where they part.
     /// Both plays must be legal for a 3-1 from the standard start (the three
@@ -191,7 +191,7 @@ internal static class TestFixtures
     /// Under <see cref="PlayRanking.Equity"/> the 3-ply <c>8/5 6/5</c> is best,
     /// the rollout loses 0.05 and <c>24/23 13/10</c> 0.15. Under
     /// <see cref="PlayRanking.DepthFirst"/> the rollout is best, <c>24/23
-    /// 13/10</c> loses 0.10, and <c>8/5 6/5</c> — analysed less deeply than the
+    /// 13/10</c> loses 0.10, and <c>8/5 6/5</c> — analyzed less deeply than the
     /// best and rating higher there — is <b>not scored</b>. So every pin that
     /// runs on it tells the two rankings apart, and would fail if its path fell
     /// back to the producers' default, <see cref="PlayRanking.Equity"/>.

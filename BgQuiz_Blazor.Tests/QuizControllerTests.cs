@@ -610,7 +610,7 @@ public class QuizControllerTests
         var c = Make(TestFixtures.CheckerPlayOn(
             SoleCheckerOn13FacingABlotOn10(), [3, 2],
             Play.Create(new(13, 11), new(11, 8)),                   // candidate 13/8, no hit
-            Play.Create(new(13, -10), new(10, 8))));                // 13/10*/8, analysed apart
+            Play.Create(new(13, -10), new(10, 8))));                // 13/10*/8, analyzed apart
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         c.SubmitPlay(Play.Create(new(13, -10), new(10, 8)));        // matches the hitting one only
@@ -710,7 +710,7 @@ public class QuizControllerTests
     [Fact]
     public async Task SubmitPlay_APlayTheRankingDoesNotScore_IsASkipOfRecordThatFoldsNothing()
     {
-        // Under depth first the 3-ply 8/5 6/5 was analysed less deeply than the
+        // Under depth first the 3-ply 8/5 6/5 was analyzed less deeply than the
         // best and rated higher there, so it is not scored: "a skip of record
         // that folds nothing" (SPEC-scoring.md §2a). The review still shows it,
         // as the candidate it is — the solution's † row — with the not-scored

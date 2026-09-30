@@ -40,26 +40,57 @@ namespace BgQuiz_Blazor.Tests;
 [Trait("Category", "RequiresFixtureFiles")]
 public class PlayIdentityRealFileTests
 {
-    private const string FixtureName = "Shimodaira-Suzuki 2010 Japan Open Final #1.xg";
+    /// <summary>
+    /// The start of the match file's name: specific enough to name one match
+    /// export, and short of the export's own numbering suffix, which the
+    /// umbrella's reference check would read as a bare issue reference. The
+    /// fixture is found by it (<see cref="FixturePath"/>), not spelled here.
+    /// </summary>
+    private const string FixtureNamePrefix = "Shimodaira-Suzuki 2010 Japan Open Final";
 
-    private static string FixturePath =>
+    /// <summary>The match file's extension: the fixture is an XG match, not a position.</summary>
+    private const string FixtureExtension = ".xg";
+
+    private static string FixtureDirectory =>
         Path.GetFullPath(
             Path.Combine(AppContext.BaseDirectory,
-                "..", "..", "..", "..", "..", "TestData", "FixtureFiles", FixtureName));
+                "..", "..", "..", "..", "..", "TestData", "FixtureFiles"));
+
+    /// <summary>
+    /// The one <c>.xg</c> in <see cref="FixtureDirectory"/> whose name starts
+    /// with <see cref="FixtureNamePrefix"/>. Exactly one must match: none means
+    /// the fixture is missing, and more than one means the prefix no longer
+    /// names the file this case was reported against — both fail loudly.
+    /// </summary>
+    private static string FixturePath
+    {
+        get
+        {
+            var matches = Directory.Exists(FixtureDirectory)
+                ? Directory.EnumerateFiles(FixtureDirectory, FixtureNamePrefix + "*")
+                    .Where(path => string.Equals(Path.GetExtension(path), FixtureExtension, StringComparison.OrdinalIgnoreCase))
+                    .ToList()
+                : [];
+
+            if (matches.Count == 0)
+            {
+                throw new FileNotFoundException(
+                    $"The halheinrich/backgammon#273 real-file case needs the FixtureFiles match file whose name " +
+                    $"starts '{FixtureNamePrefix}'. TestData/FixtureFiles is append-only so pinned tests may " +
+                    "name files in it; this test fails loudly rather than skipping, because a repro that " +
+                    "skips has stopped existing.",
+                    FixtureDirectory);
+            }
+
+            return Assert.Single(matches);
+        }
+    }
 
     /// <summary>The reported decision: game 4, move 33, the checker play.</summary>
     private static async Task<CheckerPlayDecision> ReportedDecisionAsync()
     {
-        if (!File.Exists(FixturePath))
-        {
-            throw new FileNotFoundException(
-                $"The halheinrich/backgammon#273 real-file case needs the FixtureFiles fixture '{FixtureName}'. " +
-                "TestData/FixtureFiles is append-only so pinned tests may name files in it; this test " +
-                "fails loudly rather than skipping, because a repro that skips has stopped existing.",
-                FixturePath);
-        }
-
-        ImmutableArray<PickedFile> files = [new PickedFile(FixtureName, [.. File.ReadAllBytes(FixturePath)])];
+        var path = FixturePath;
+        ImmutableArray<PickedFile> files = [new PickedFile(Path.GetFileName(path), [.. File.ReadAllBytes(path)])];
         var source = new WasmUploadedProblemSetSource(
             files, new DecisionFilterSet(), PlayRanking.Equity, NullLoggerFactory.Instance, TimeProvider.System);
 

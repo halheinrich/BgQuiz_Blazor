@@ -563,7 +563,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// <b>Three outcomes, two of them skips.</b> A scored play is the answer of
     /// record: it joins <see cref="History"/> and <see cref="Score"/>, and folds
     /// as the run advances. A play the ranking does not score — under depth
-    /// first, a candidate analysed less deeply than the best that rated higher —
+    /// first, a candidate analyzed less deeply than the best that rated higher —
     /// and an off-list play, one no candidate is, are each a skip of record
     /// that folds nothing (SPEC-scoring.md §2 and §2a): <see cref="SkippedCount"/>
     /// counts it, and a redo after one leaves it standing. Every outcome still

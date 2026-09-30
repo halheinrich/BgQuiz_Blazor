@@ -682,7 +682,7 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// unscored, which is why the sentence may name its ranking.
     /// </summary>
     internal const string NotScoredVerdict =
-        "Not scored under depth-first ranking: this play was analysed less deeply than the best play, and at that depth it rated higher.";
+        "Not scored under depth-first ranking: this play was analyzed less deeply than the best play, and at that depth it rated higher.";
 
     /// <summary>
     /// The checker-play verdict, one per outcome of the producer's scoring
