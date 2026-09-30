@@ -380,14 +380,25 @@ the type holds them.
   holding nothing, whatever caused the skip. Also the run's `Ranking`, the
   review on screen (`Review`), and the stream's total when one is known
   (`ProblemCount`).
-- **What it derives, and never stores.** `IsLive` (the cursor is on the
-  unresolved frontier), `Score` and `SkippedCount` are computed from the
-  dispositions on every read. No live/practice flag, score field or skip
-  counter exists beside them, in the run or in the controller — so a practice
-  submission, which writes no disposition, cannot move a total, and nothing
-  has to be kept in step. `ProblemReview.IsPractice` is a fact about one past
-  submission, not a second record of the problem: a skip keeps no submission,
-  so the record cannot say afterwards which play a review is of.
+- **Two things write a disposition, and ▶ is not one.** A live submission
+  completes the problem under the cursor; the run finishing (`End`, whether
+  the user ends the quiz or the source runs out) converts every problem still
+  `Unresolved` to `Skipped`. ▶ and every other move complete nothing — so the
+  Skip button *defers* a problem: it stays `Unresolved` behind the frontier
+  once the next problem is presented, open to a live answer, and several can
+  be unresolved at once. A finished run holds none.
+- **What it derives, and never stores.** `IsLive` (the problem under the
+  cursor is unresolved, wherever it is in the sequence), `Score` (the answers
+  of record) and `SkippedCount` (the skips of record plus the unresolved
+  problems behind the frontier — so a deferred problem counts once the next
+  problem lands, not at the press, and stops counting if it is answered live)
+  are computed from the dispositions and the sequence on every read. No
+  live/practice flag, score field, skip counter, skip cause or "Skip was
+  pressed" mark exists beside them, in the run or in the controller — so a
+  practice submission, which writes no disposition, cannot move a total, and
+  nothing has to be kept in step. `ProblemReview.IsPractice` is a fact about
+  one past submission, not a second record of the problem: a skip keeps no
+  submission, so the record cannot say afterwards which play a review is of.
 - **Immutable.** Every transition returns the run that follows and leaves the
   one it was called on as it was. The controller holds the current run and
   replaces it whole, which is what makes "a refused Start leaves the running
@@ -420,9 +431,13 @@ the type holds them.
 **Only the forward half is wired.** The controller never moves the cursor
 back, so ⏮ ◀ ⏭ — and ▶ behind the frontier — have no caller yet; the
 navigation controls are `SPEC-quiz-history.md` §2's and arrive with their own
-leg. `Redo` is today's return to a decision and is retired with the Redo
-button by that leg. The lifetime fold is not the run's at all: the sink is
-outside it, and the controller folds (§ `QuizController`).
+leg. Until then nothing reaches a deferred problem: a problem the Skip button
+leaves stays unresolved behind the frontier, counted in `SkippedCount`, until
+the run finishes and converts it — so, once a gesture has landed, the numbers
+a user sees are the ones the controller showed before the run model. `Redo`
+is today's return to a decision and is retired with the Redo button by that
+leg. The lifetime fold is not the run's at all: the sink is outside it, and
+the controller folds (§ `QuizController`).
 
 ### `QuizController` — the per-app orchestrator
 
@@ -500,9 +515,14 @@ run's rule (§ `QuizRun`):
   records. No-op outside review.
 - **`SkipCurrentAsync`** [the same three] — bypasses review and advances
   immediately, but only from answering (no-op while a `Review` is showing).
-  Which answering state matters, and the run decides it: on an unanswered
-  problem the skip is what is of record (counted in `SkippedCount`, nothing
-  folds); mid-practice-cycle the problem is already answered, so this is the
+  It completes nothing: on an unanswered problem nothing is of record and
+  nothing folds, and the problem is *deferred* — still the unresolved
+  frontier while the source is asked, then behind the new frontier and
+  counted in `SkippedCount` once the next problem lands; if the source has
+  none, the run finishes and finishing converts it, counted the same. So the
+  count does not rise at the press (`SPEC-quiz-history.md` §5's ruled
+  transient difference, visible only if a page renders while the draw is
+  pending). Mid-practice-cycle the problem is already answered, so this is the
   run advancing past it — the answer of record folds and no skip is counted.
 - **`EndQuizAsync`** [`QuizRun.End`] — the user's own exit from the run (issue
   halheinrich/backgammon#57), and the one path that leaves the three-state flow
@@ -513,8 +533,9 @@ run's rule (§ `QuizRun`):
   settled semantics, no new scoring path,** parting on the *record*
   rather than on `Review`: with **nothing** of record the problem showing is
   **abandoned** — any in-progress input is discarded, it records no answer, and
-  it is completed as the same skip of record an explicit Skip leaves, so
-  Done's "problems shown" still counts a problem the user
+  the run finishing converts it to a skip of record, as it converts every
+  problem the Skip button deferred, so Done's "problems shown" still counts a
+  problem the user
   saw; **with** an answer of record it **stands and folds**, because it was submitted,
   scored, and read — whether the review is still showing or a redo re-opened the
   problem for practice. Folding goes through the same `FoldAnswerOfRecordAsync`
@@ -695,7 +716,11 @@ else — and **the exits that advance the run past a problem** fold via
 `RecordAsync`, through the one shared `FoldAnswerOfRecordAsync` (`ContinueAsync`,
 `SkipCurrentAsync` and `EndQuizAsync`; there is one encoding of what folds, not
 three), which reads the frontier's disposition off the run and folds the
-answer of record it carries, if it carries one. The sink never throws for
+answer of record it carries, if it carries one. Reading the frontier alone is
+right only while nothing moves the cursor back: a deferred problem answered
+live on a return would be behind the frontier and out of the fold's reach,
+which is why the navigation leg moves the fold to the first submission before
+it adds any way back (`../SPEC-quiz-history.md` §7). The sink never throws for
 stats trouble, so quiz flow is independent of whether stats are recording.
 
 **Filter ownership.** `StartAsync` takes a `FilterConfig` (the wire DTO

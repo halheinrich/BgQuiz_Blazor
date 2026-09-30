@@ -277,19 +277,31 @@ internal sealed class QuizController : IAsyncDisposable
     public bool IsFinished => _run is { IsEnded: true };
 
     /// <summary>
-    /// Count of user-driven non-scoring outcomes, derived by the run from its
-    /// skips of record (<see cref="QuizRun.SkippedCount"/>) on each read:
-    /// explicit Skip-button clicks, off-list submissions, plays the run's
-    /// ranking does not score (SPEC-scoring.md §2a: "a skip of record that
-    /// folds nothing"), and a problem left unanswered when the quiz was ended.
-    /// Auto-skipped no-choice positions (the user never saw them) are excluded
-    /// — see <see cref="HasNoPlayChoice"/>.
+    /// Count of user-driven non-scoring outcomes, derived by the run on each
+    /// read (<see cref="QuizRun.SkippedCount"/>, which owns the rule;
+    /// SPEC-quiz-history.md §5): the skips of record — off-list submissions,
+    /// plays the run's ranking does not score (SPEC-scoring.md §2a: "a skip of
+    /// record that folds nothing"), and every problem still unanswered when the
+    /// quiz finished — plus the problems the Skip button moved on from, which
+    /// stay unresolved behind the frontier. Auto-skipped no-choice positions
+    /// (the user never saw them) are excluded — see
+    /// <see cref="HasNoPlayChoice"/>.
     ///
     /// <para>
-    /// A skip is of record, so it only ever increases within a run:
-    /// <see cref="RedoAsync"/> after an unscored submission leaves the skip
-    /// standing (SPEC-scoring.md §2), and a problem that already holds
-    /// something of record cannot add a second outcome here.
+    /// <b>A Skip counts when the next problem lands</b>, not at the press: the
+    /// problem is deferred, not completed, and it joins the count once another
+    /// problem is presented beyond it — or, if the source has none, when the
+    /// run finishes and converts it. While the draw is pending the count is
+    /// unchanged.
+    /// </para>
+    ///
+    /// <para>
+    /// A skip of record stands: <see cref="RedoAsync"/> after an unscored
+    /// submission leaves it counted (SPEC-scoring.md §2). A deferred problem's
+    /// count is provisional — a live answer on returning to it would take it
+    /// out of this count and into <see cref="Score"/> — but nothing this type
+    /// wires today moves the cursor back, so here the count only ever rises
+    /// within a run.
     /// </para>
     /// </summary>
     public int SkippedCount => _run?.SkippedCount ?? 0;
@@ -580,10 +592,13 @@ internal sealed class QuizController : IAsyncDisposable
     public void SubmitPlay(Play play)
     {
         // The IsBusy guard closes the window a pending Continue/Skip opens:
-        // mid-advance, Review is already gone and Current still points at the
-        // outgoing problem, so the run would take a submission there (as
-        // practice — the problem is completed) and the advance would then
-        // land over its review.
+        // mid-advance no review is showing and Current still points at the
+        // outgoing problem, so the run would take a submission there. Behind a
+        // pending Skip that problem is still unresolved, so the submission
+        // would be live: an answer of record on a problem the user has moved
+        // on from, written after this advance's fold point and so never
+        // folded. Behind a pending Continue it would be practice, and the
+        // advance would land over its review.
         if (IsBusy || _run is not { IsAnswering: true } run) return;
 
         _run = run.SubmitPlay(play);
@@ -737,13 +752,14 @@ internal sealed class QuizController : IAsyncDisposable
     /// transition (an overlapping gesture no-ops rather than queueing).
     ///
     /// <para>
-    /// <b>What ending does to the record is the run's</b>
-    /// (<see cref="QuizRun.End"/>; SPEC-quiz-history.md §4). <b>An unanswered
-    /// problem is abandoned:</b> with nothing of record, whatever the user had
-    /// entered is discarded and the problem is completed as a skip of record —
-    /// the same non-scoring outcome an explicit <see cref="SkipCurrentAsync"/>
-    /// records, counted in <see cref="SkippedCount"/> rather than in a category
-    /// of its own, so Done's "problems shown" still counts a problem the user
+    /// <b>What finishing does to the record is the run's</b>
+    /// (<see cref="QuizRun.End"/>; SPEC-quiz-history.md §4), and it is the same
+    /// whether the user ends the quiz here or the source runs out: every
+    /// problem still unresolved becomes a skip of record. <b>An unanswered
+    /// problem is abandoned:</b> whatever the user had entered is discarded and
+    /// the problem is counted in <see cref="SkippedCount"/>, as every problem
+    /// the Skip button moved on from already is, rather than in a category of
+    /// its own — so Done's "problems shown" still counts a problem the user
     /// actually saw. There is no partial-answer path and no new scoring path: a
     /// play half assembled on the board was never a submission, and
     /// <c>BackgammonPlayEntry</c> exposes nothing that would let one be
@@ -793,23 +809,37 @@ internal sealed class QuizController : IAsyncDisposable
     }
 
     /// <summary>
-    /// Advance past the current problem without answering it here: a skip.
-    /// Bypasses review and advances immediately. No-op outside the
-    /// <i>answering</i> state — before start, after finish, or while a
-    /// <see cref="Review"/> is showing.
+    /// Move on from the current problem without answering it here. Bypasses
+    /// review and advances immediately. No-op outside the <i>answering</i>
+    /// state — before start, after finish, or while a <see cref="Review"/> is
+    /// showing.
     ///
     /// <para>
-    /// <b>Two answering states reach this, and they part on the record</b> —
-    /// which is the run's rule for moving on (<see cref="QuizRun.Next"/>;
-    /// SPEC-quiz-history.md §4). On an unanswered problem the skip <i>is</i>
-    /// what is of record (SPEC-scoring.md §2): <see cref="SkippedCount"/>
-    /// counts it and nothing folds. Mid-practice-cycle —
-    /// <see cref="RedoAsync"/> re-opened an already-answered problem and the
-    /// user leaves rather than re-answering — the problem is completed, so this
-    /// is the run advancing past it: the answer of record folds, and no skip is
-    /// counted on top of it. Counting one would double-count a problem that was
-    /// answered, and skipping the fold would strand an answer that Done still
-    /// shows — the invariant <see cref="EndQuizAsync"/> states.
+    /// <b>Skip completes nothing</b> — the run's rule for moving on
+    /// (<see cref="QuizRun.Next"/>; SPEC-quiz-history.md §1, §4). The problem
+    /// keeps whatever disposition it has, and the two answering states that
+    /// reach this method differ in just that.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>On an unanswered problem the Skip defers it.</b> It stays unresolved
+    /// while the source is asked for the next problem, and nothing folds. If
+    /// one is presented, the deferred problem is then behind the frontier and
+    /// <see cref="SkippedCount"/> counts it from that moment — not from the
+    /// press, so the count is unchanged while the draw is pending. If the
+    /// source has none, the run finishes and finishing converts it to a skip
+    /// of record, counted the same. A deferred problem is still open to a live
+    /// answer, but nothing wired here goes back to one.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Mid-practice-cycle</b> — <see cref="RedoAsync"/> re-opened an
+    /// already-answered problem and the user leaves rather than re-answering —
+    /// the problem is completed, so this is the run advancing past it: the
+    /// answer of record folds, and no skip is counted on top of it. Counting
+    /// one would double-count a problem that was answered, and skipping the
+    /// fold would strand an answer that Done still shows — the invariant
+    /// <see cref="EndQuizAsync"/> states.
     /// </para>
     /// </summary>
     public async Task SkipCurrentAsync()
@@ -989,11 +1019,20 @@ internal sealed class QuizController : IAsyncDisposable
     /// <see cref="SkipCurrentAsync"/>, <see cref="EndQuizAsync"/>). It reads the
     /// problem's disposition and never <see cref="Review"/>: after a practice
     /// cycle the displayed review is the practice submission's, and
-    /// SPEC-scoring.md §2 rules that one discarded. A skip — the Skip gesture,
-    /// an off-list play, or a play the run's ranking does not score — is of
-    /// record and carries no submission, so it folds nothing; an unresolved
-    /// problem holds nothing of record, and a run with nothing presented has no
-    /// frontier, and for both this is a no-op.
+    /// SPEC-scoring.md §2 rules that one discarded. A skip of record — an
+    /// off-list play, or a play the run's ranking does not score — carries no
+    /// submission, so it folds nothing; an unresolved problem, which is what
+    /// the Skip gesture leaves, holds nothing of record; and a run with nothing
+    /// presented has no frontier. For all three this is a no-op.
+    ///
+    /// <para>
+    /// It reads the frontier because, with nothing here moving the cursor back,
+    /// the frontier is the one problem an answer can be given on and the one
+    /// the run advances past. An earlier, deferred problem answered on return
+    /// is out of this method's reach by construction; the navigation leg moves
+    /// the fold to the first submission before it adds any way back
+    /// (SPEC-quiz-history.md §7).
+    /// </para>
     /// </summary>
     private async Task FoldAnswerOfRecordAsync()
     {
@@ -1144,6 +1183,9 @@ internal sealed class QuizController : IAsyncDisposable
 
             if (!drew)
             {
+                // The source has no further problem, so the run finishes — and
+                // finishing is what converts a frontier the user skipped, still
+                // unresolved, into a skip of record. The rule is the run's.
                 _run = _run.End();
                 break;
             }

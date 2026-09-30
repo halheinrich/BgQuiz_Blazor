@@ -9,16 +9,20 @@ using System.Diagnostics.CodeAnalysis;
 internal enum ProblemDispositionKind
 {
     /// <summary>
-    /// Nothing of record yet. Only a run's frontier can be here, and it is not
-    /// the same as "on screen": the cursor may sit on an earlier problem while
-    /// the frontier stays unresolved.
+    /// No answer of record, and no solution has been exposed. It is not the
+    /// same as "on screen", and it is not confined to a run's frontier: a
+    /// problem the user moved on from without answering stays here, behind the
+    /// frontier, until it is answered or the run finishes.
     /// </summary>
     Unresolved = 1,
 
     /// <summary>Completed with an answer of record (SPEC-scoring.md §2).</summary>
     Answered = 2,
 
-    /// <summary>Completed as a skip of record.</summary>
+    /// <summary>
+    /// Completed as a skip of record: its solution was shown without an answer
+    /// that scores, or the run finished with it unresolved.
+    /// </summary>
     Skipped = 3,
 }
 
@@ -30,12 +34,22 @@ internal enum ProblemDispositionKind
 /// totals, are read off it and stored nowhere beside it.
 ///
 /// <para>
-/// <b>A skip carries no cause and no submission.</b> The Skip button, an
-/// off-list play, a play the ranking does not score (SPEC-scoring.md §2a) and
-/// End quiz on an unresolved frontier all complete a problem the same way, so
-/// there is one <see cref="Skipped"/> and it holds nothing. If a later
-/// requirement needs the cause or the play, that requirement is ruled first
-/// (SPEC-quiz-history.md §1).
+/// <b>What decides is whether the problem has been completed and its solution
+/// exposed</b>, not whether the user once pressed a control called Skip. The
+/// Skip gesture completes nothing: it leaves the problem
+/// <see cref="Unresolved"/>, and a submission made on returning to it is live.
+/// A problem becomes <see cref="Skipped"/> in two ways only — a submission
+/// whose review shows the solution without scoring (an off-list play, or a play
+/// the ranking does not score, SPEC-scoring.md §2a), and the run finishing
+/// while the problem is still unresolved.
+/// </para>
+///
+/// <para>
+/// <b>A skip carries no cause and no submission.</b> Both ways complete a
+/// problem alike, so there is one <see cref="Skipped"/> and it holds nothing;
+/// nor is there a "solution seen" mark, which is what being completed already
+/// says. If a later requirement needs the cause or the play, that requirement
+/// is ruled first (SPEC-quiz-history.md §1).
 /// </para>
 ///
 /// <para>
@@ -54,10 +68,13 @@ internal sealed class ProblemDisposition
         _answer = answer;
     }
 
-    /// <summary>Nothing of record yet — the state every problem is presented in.</summary>
+    /// <summary>
+    /// Nothing of record yet and no solution exposed — the state every problem
+    /// is presented in, and stays in until it is answered or the run finishes.
+    /// </summary>
     public static ProblemDisposition Unresolved { get; } = new(ProblemDispositionKind.Unresolved, null);
 
-    /// <summary>Completed as a skip of record, whatever brought it about.</summary>
+    /// <summary>Completed as a skip of record, whichever of the two ways brought it about.</summary>
     public static ProblemDisposition Skipped { get; } = new(ProblemDispositionKind.Skipped, null);
 
     /// <summary>Completed with <paramref name="answer"/> as the answer of record.</summary>

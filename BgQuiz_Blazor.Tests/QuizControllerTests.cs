@@ -1562,6 +1562,43 @@ public class QuizControllerTests
         Assert.NotNull(c.Review);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SkipCurrentAsync_OnTheLastAvailableProblem_FinishesTheRunWithItCountedAsSkipped(bool aPassFollows)
+    {
+        // Natural exhaustion with a deferred final problem (SPEC-quiz-history.md
+        // §4 and §5, amended 2026-09-30). Skip completes nothing, and the source
+        // has no problem to present beyond this one, so the run finishes — and
+        // finishing, not End quiz, is what converts a problem still unresolved.
+        // Unconverted, it would be the unresolved frontier of a finished run,
+        // which the count leaves out; converted, it is a skip of record and
+        // counted, beside the answered work before it, and it folds nothing.
+        // A trailing position passed over silently makes the problem the last
+        // available one without being the source's last item: there the run
+        // learns it has nothing left only by drawing past it.
+        var items = new List<BgDecisionData>
+        {
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+        };
+        if (aPassFollows) items.Add(TestFixtures.PassDecision());
+        var c = MakeWithSink(out var sink, [.. items]);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        c.SubmitPlay(BestPlay());
+        await c.ContinueAsync();
+        var folded = Assert.Single(sink.Plays);
+
+        await c.SkipCurrentAsync();
+
+        Assert.True(c.IsFinished);
+        Assert.Null(c.Current);
+        Assert.Equal(1, c.SkippedCount);
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
+        Assert.Same(folded, Assert.Single(sink.Plays));
+        Assert.Empty(sink.Cubes);
+    }
+
     // -----------------------------------------------------------------------
     //  EndQuizAsync — the user's own exit from a run (issue halheinrich/backgammon#57)
     // -----------------------------------------------------------------------
@@ -1592,9 +1629,10 @@ public class QuizControllerTests
     {
         // The scoring half of the ruling. What was answered stands — that is the
         // partial score Done shows — and the problem showing when the user quit
-        // is abandoned: it records no answer and takes the same non-scoring
-        // outcome an explicit Skip records, so Done's "problems shown" still
-        // counts a problem the user actually saw.
+        // is abandoned: it records no answer, and the run finishing converts it
+        // to a skip of record, counted as every problem the Skip button moved on
+        // from is counted — so Done's "problems shown" still counts a problem
+        // the user actually saw.
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
@@ -1732,6 +1770,35 @@ public class QuizControllerTests
         await c.EndQuizAsync();
 
         Assert.Equal(1, c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task EndQuizAsync_AfterSkips_CountsEveryDeferredProblemAndTheAbandonedOne()
+    {
+        // Several problems unresolved at once, as the Skip button now leaves
+        // them: the two it moved on from, deferred behind the frontier and
+        // counted from the moment the next problem landed, and the frontier the
+        // user quits on. Ending converts all three to skips of record
+        // (QuizRun.End, where the conversion is pinned problem by problem); the
+        // count the user sees rises by the abandoned problem alone — the same
+        // numbers the controller showed before a Skip deferred anything.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.SkipCurrentAsync();
+        await c.SkipCurrentAsync();
+        Assert.Equal(2, c.SkippedCount);
+        Assert.Equal(3, c.ProblemNumber);
+
+        await c.EndQuizAsync();
+
+        Assert.True(c.IsFinished);
+        Assert.Equal(3, c.SkippedCount);
+        Assert.Equal(QuizScore.Empty, c.Score);
+        Assert.Equal(0, sink.TotalFolds);
     }
 
     [Fact]

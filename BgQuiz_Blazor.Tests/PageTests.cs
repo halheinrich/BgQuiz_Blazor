@@ -5003,11 +5003,11 @@ public class PageTests : BunitContext
         cut.FindAll("button").First(b => b.TextContent.Trim() == caption);
 
     /// <summary>
-    /// The skip recorded and the run advanced, with nothing scored: the
+    /// The skip landed and the run advanced, with nothing scored: the
     /// controller moved from <paramref name="skipped"/> to
-    /// <paramref name="next"/>, counted one skip, and scored no answer of
-    /// either kind — so no review was entered on the way, whatever answer was
-    /// on the board.
+    /// <paramref name="next"/>, counts the problem it left as one skip —
+    /// deferred, behind the new frontier — and scored no answer of either kind,
+    /// so no review was entered on the way, whatever answer was on the board.
     /// </summary>
     private static void AssertSkippedTo(
         QuizController c, IRenderedComponent<QuizPage> cut, BgDecisionData skipped, BgDecisionData next)

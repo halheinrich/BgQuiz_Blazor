@@ -15,10 +15,21 @@ namespace BgQuiz_Blazor.Tests;
 /// <para>
 /// Most of what is pinned here no page reaches yet: <see cref="QuizController"/>
 /// wires a run that only moves forward. That is the point of the suite — the
-/// cursor moving back and forth, practice on every completed problem, End quiz
-/// from an earlier problem, the board's side on return — has to hold before
-/// the navigation controls are built on it. What the controller does wire is
-/// pinned a second time, through it, by <see cref="QuizControllerTests"/>.
+/// cursor moving back and forth, a deferred problem answered live on return,
+/// practice on every completed problem, the run finishing from an earlier
+/// problem, the board's roll on return — has to hold before the navigation
+/// controls are built on it. What the controller does wire is pinned a second
+/// time, through it, by <see cref="QuizControllerTests"/>.
+/// </para>
+///
+/// <para>
+/// <b>The rule the dispositions turn on</b> (Hal, 2026-09-30, withdrawing the
+/// 2026-09-24 ruling that a skipped problem is practice): what completes a
+/// problem is a submission, or the run finishing — never ▶. Moving on from an
+/// unanswered problem <i>defers</i> it: it stays unresolved behind the
+/// frontier, counts as a provisional skip, and takes a live answer if the user
+/// comes back. "Skipped" below always means skipped <i>of record</i>; "deferred"
+/// means unresolved and behind the frontier.
 /// </para>
 /// </summary>
 public class QuizRunTests
@@ -52,11 +63,11 @@ public class QuizRunTests
     }
 
     /// <summary>
-    /// The staged run most of the navigation pins stand on. Three problems
-    /// presented: the first <b>answered</b> with the second-best play (so its
-    /// record costs 0.05 and a correct practice answer would show), the second
-    /// <b>skipped</b>, and the third — the frontier — <b>unresolved</b> and on
-    /// screen.
+    /// The staged run most of the navigation pins stand on: one problem in each
+    /// disposition. Three presented — the first <b>answered</b> with the
+    /// second-best play (so its record costs 0.05 and a correct practice answer
+    /// would show), the second <b>skipped of record</b> by an off-list play,
+    /// and the third — the frontier — <b>unresolved</b> and on screen.
     /// </summary>
     private static QuizRun ThreePresented(
         out CheckerPlayDecision answered, out CheckerPlayDecision skipped, out CheckerPlayDecision unresolved)
@@ -66,15 +77,38 @@ public class QuizRunTests
         unresolved = PlayProblem(3);
 
         var run = Show(Begin(), answered).SubmitPlay(Alt());
-        run = MoveOnTo(run, skipped);
+        run = MoveOnTo(run, skipped).SubmitPlay(OffList());
         run = MoveOnTo(run, unresolved);
 
-        Assert.Equal(3, run.Presented.Length);
+        Assert.Equal(
+            new[] { ProblemDispositionKind.Answered, ProblemDispositionKind.Skipped, ProblemDispositionKind.Unresolved },
+            Kinds(run));
         Assert.Same(run.Presented[2], run.Cursor);
         return run;
     }
 
     private static QuizRun ThreePresented() => ThreePresented(out _, out _, out _);
+
+    /// <summary>
+    /// The staged run the deferral pins stand on. Three problems presented and
+    /// <b>none completed</b>: the user pressed ▶ on the first and on the second
+    /// without answering, so both are deferred — unresolved, behind the
+    /// frontier — and the third, the frontier, is unresolved and on screen.
+    /// </summary>
+    private static QuizRun TwoDeferred()
+    {
+        var run = Show(Begin(), PlayProblem(1));
+        run = MoveOnTo(run, PlayProblem(2));
+        run = MoveOnTo(run, PlayProblem(3));
+
+        Assert.All(Kinds(run), kind => Assert.Equal(ProblemDispositionKind.Unresolved, kind));
+        Assert.Same(run.Presented[2], run.Cursor);
+        return run;
+    }
+
+    /// <summary>The kind of every presented problem's disposition, in order.</summary>
+    private static ProblemDispositionKind[] Kinds(QuizRun run) =>
+        [.. run.Presented.Select(problem => problem.Disposition.Kind)];
 
     /// <summary>The scored submission a play review shows — the producer's outcome read by its case, never compared.</summary>
     private static SubmittedPlay ScoredReview(ProblemReview? review)
@@ -211,24 +245,39 @@ public class QuizRunTests
     }
 
     [Fact]
-    public void Present_OverAnUnresolvedFrontier_IsRefused()
+    public void Present_OverAnUnresolvedFrontier_DefersIt_UnresolvedBehindTheNewFrontier()
     {
-        // Only the frontier may be unresolved: a new problem over an unresolved
-        // one would leave an unresolved problem behind the frontier.
-        var run = Show(Begin(), PlayProblem(1));
+        // Ruling 2 (2026-09-30): moving on from an unanswered problem does not
+        // complete it. The new problem becomes the frontier, and the one left
+        // behind is still unresolved — the state the withdrawn invariant "only
+        // the frontier may be unresolved" used to refuse.
+        var first = PlayProblem(1);
+        var second = PlayProblem(2);
+        var run = Show(Begin(), first);
 
-        Assert.Throws<InvalidOperationException>(() => Show(run, PlayProblem(2)));
+        run = Show(run.Next(out _), second);
+
+        Assert.Equal(2, run.Presented.Length);
+        Assert.Same(first, run.Presented[0].Problem);
+        Assert.Same(ProblemDisposition.Unresolved, run.Presented[0].Disposition);
+        Assert.Same(second, run.Frontier!.Problem);
+        Assert.Same(ProblemDisposition.Unresolved, run.Frontier.Disposition);
+        Assert.Same(run.Frontier, run.Cursor);
+        Assert.True(run.IsLive);
     }
 
-    [Fact]
-    public void Present_WithTheCursorBehindTheFrontier_IsRefused()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Present_WithTheCursorBehindTheFrontier_IsRefused(bool frontierCompleted)
     {
         // "Navigation never presents an unseen problem early": only moving on
-        // at the frontier brings a new problem. The frontier here is completed,
-        // so the cursor's position is the one thing refusing it.
-        var run = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(Best()), PlayProblem(2)).SubmitPlay(Best());
+        // at the frontier brings a new problem. Whether the frontier is
+        // completed makes no difference; the cursor's position is what refuses.
+        var run = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(Best()), PlayProblem(2));
+        if (frontierCompleted) run = run.SubmitPlay(Best());
         run = run.GoBack();
-        Assert.True(run.Frontier!.Disposition.IsCompleted);
+        Assert.Equal(frontierCompleted, run.Frontier!.Disposition.IsCompleted);
 
         Assert.Throws<InvalidOperationException>(() => Show(run, PlayProblem(3)));
     }
@@ -247,34 +296,44 @@ public class QuizRunTests
     }
 
     [Fact]
-    public void OnlyTheFrontier_IsEverUnresolved()
+    public void SeveralProblems_MayBeUnresolvedAtOnce()
     {
-        // Walked through every way the run moves: at each step, every problem
-        // behind the frontier holds something of record.
-        static void AssertOnlyTheFrontierMayBeUnresolved(QuizRun run)
-        {
-            for (var i = 0; i < run.Presented.Length - 1; i++)
-                Assert.True(run.Presented[i].Disposition.IsCompleted, $"Problem {i} is behind the frontier and unresolved.");
-        }
+        // Ruling 8 (2026-09-30): "The frontier means the furthest problem
+        // presented, not the sole unresolved problem." Three presented, none
+        // answered: all three are unresolved, and the frontier is simply the
+        // last of them.
+        var run = TwoDeferred();
 
+        Assert.Equal(3, run.Presented.Count(problem => !problem.Disposition.IsCompleted));
+        Assert.Same(run.Presented[2], run.Frontier);
+
+        // Moving the cursor among them completes none of them.
+        var walked = run.GoToFirst().Next(out _).GoToLast().GoBack();
+        AssertRecordUnchanged(run, walked);
+        Assert.Equal(3, walked.Presented.Count(problem => !problem.Disposition.IsCompleted));
+    }
+
+    [Fact]
+    public void OnlyASubmissionOrTheRunFinishing_CompletesAProblem()
+    {
+        // §1, "What completes a problem": walked through every other way the
+        // run moves — ▶ on the frontier, a new presentation, ⏮ ◀ ▶ ⏭ — and no
+        // disposition is ever written. Then the two things that do write one.
         var run = Show(Begin(), PlayProblem(1));
-        AssertOnlyTheFrontierMayBeUnresolved(run);
+        run = Show(run.Next(out _), CubeProblem(2));
+        run = Show(run.Next(out _), PlayProblem(3));
+        run = run.GoToFirst().Next(out _).GoBack().GoToLast().GoBack();
+        Assert.All(Kinds(run), kind => Assert.Equal(ProblemDispositionKind.Unresolved, kind));
 
-        run = MoveOnTo(run, CubeProblem(2));                       // ▶ on an unresolved frontier
-        AssertOnlyTheFrontierMayBeUnresolved(run);
+        run = run.SubmitCubeAction(CubeClaimPair.DoubleTake);          // a live submission, on the middle problem
+        Assert.Equal(
+            new[] { ProblemDispositionKind.Unresolved, ProblemDispositionKind.Answered, ProblemDispositionKind.Unresolved },
+            Kinds(run));
 
-        run = MoveOnTo(run.SubmitCubeAction(CubeClaimPair.DoubleTake), PlayProblem(3));
-        AssertOnlyTheFrontierMayBeUnresolved(run);
-
-        run = run.GoToFirst();                                     // the frontier left unresolved behind the cursor's back
-        AssertOnlyTheFrontierMayBeUnresolved(run);
-        Assert.False(run.Frontier!.Disposition.IsCompleted);
-
-        run = run.SubmitPlay(Best()).GoToLast();                   // practice on the way
-        AssertOnlyTheFrontierMayBeUnresolved(run);
-
-        run = run.End();
-        Assert.All(run.Presented, problem => Assert.True(problem.Disposition.IsCompleted));
+        run = run.End();                                               // and the run finishing
+        Assert.Equal(
+            new[] { ProblemDispositionKind.Skipped, ProblemDispositionKind.Answered, ProblemDispositionKind.Skipped },
+            Kinds(run));
     }
 
     // -----------------------------------------------------------------------
@@ -357,31 +416,34 @@ public class QuizRunTests
 
     public enum SkipCause
     {
-        TheSkipGesture,
         AnOffListPlay,
         APlayTheRankingDoesNotScore,
-        EndQuiz,
+        EndQuizOnTheProblem,
+        TheSourceRunningOutAfterTheSkipGesture,
     }
 
     [Theory]
-    [InlineData(SkipCause.TheSkipGesture)]
     [InlineData(SkipCause.AnOffListPlay)]
     [InlineData(SkipCause.APlayTheRankingDoesNotScore)]
-    [InlineData(SkipCause.EndQuiz)]
+    [InlineData(SkipCause.EndQuizOnTheProblem)]
+    [InlineData(SkipCause.TheSourceRunningOutAfterTheSkipGesture)]
     public void ASkipOfRecord_CarriesNoCauseAndNoSubmission(SkipCause cause)
     {
-        // Ruling 1 (2026-09-30): every way of completing a problem without an
-        // answer writes the same state. Whatever caused it, the disposition is
-        // the one Skipped, holding nothing — so nothing downstream can come to
-        // depend on a cause or a play the model does not keep.
+        // Every way a problem is completed without an answer writes the same
+        // state: a submission whose review shows the solution without scoring,
+        // and the run finishing on it, by End quiz or because the source ran
+        // out. Whatever caused it, the disposition is the one Skipped, holding
+        // nothing — so nothing downstream can come to depend on a cause or a
+        // play the model does not keep. (The Skip gesture on its own is not in
+        // the list: it completes nothing — see the ▶ pins.)
         var run = Show(Begin(PlayRanking.DepthFirst), TestFixtures.DepthSplitDecision());
 
         run = cause switch
         {
-            SkipCause.TheSkipGesture => run.Next(out _),
             SkipCause.AnOffListPlay => run.SubmitPlay(OffList()),
             SkipCause.APlayTheRankingDoesNotScore => run.SubmitPlay(Best()),
-            SkipCause.EndQuiz => run.End(),
+            SkipCause.EndQuizOnTheProblem => run.End(),
+            SkipCause.TheSourceRunningOutAfterTheSkipGesture => run.Next(out _).End(),
             _ => throw new ArgumentOutOfRangeException(nameof(cause)),
         };
 
@@ -440,21 +502,31 @@ public class QuizRunTests
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void IsLive_OnlyOnTheUnresolvedFrontier_WhereverTheCursorHasBeen()
+    public void IsLive_OnEveryUnresolvedProblem_AndOnNoCompletedOne()
     {
-        // "Unresolved" is not "on screen": with the cursor on an earlier
-        // problem the frontier stays unresolved, and live is read off the
-        // problem under the cursor each time — there is no flag to go stale.
-        var run = ThreePresented();
+        // Ruling 5 (2026-09-30): "submission to Unresolved = live; submission
+        // to Answered or Skipped = practice." Live is read off the problem
+        // under the cursor each time — where it sits in the sequence does not
+        // enter into it, and there is no flag to go stale. Four problems, in
+        // order: answered, skipped of record, deferred, and the frontier.
+        var run = MoveOnTo(ThreePresented(), PlayProblem(4));
+        Assert.Equal(
+            new[]
+            {
+                ProblemDispositionKind.Answered, ProblemDispositionKind.Skipped,
+                ProblemDispositionKind.Unresolved, ProblemDispositionKind.Unresolved,
+            },
+            Kinds(run));
+        Assert.True(run.IsLive);                  // the unresolved frontier
+
+        run = run.GoBack();                       // the deferred problem, behind the frontier
         Assert.True(run.IsLive);
 
-        run = run.GoBack();                       // on the skipped problem
+        run = run.GoBack();                       // the problem skipped of record
         Assert.False(run.IsLive);
-        Assert.Same(ProblemDisposition.Unresolved, run.Frontier!.Disposition);
 
-        run = run.GoToFirst();                    // on the answered problem
+        run = run.GoToFirst();                    // the answered problem
         Assert.False(run.IsLive);
-        Assert.Same(ProblemDisposition.Unresolved, run.Frontier!.Disposition);
 
         run = run.GoToLast();                     // back on the frontier, still unresolved
         Assert.True(run.IsLive);
@@ -572,11 +644,13 @@ public class QuizRunTests
     }
 
     [Fact]
-    public void AnEarlierProblem_IsPractice_WhetherItWasAnsweredOrSkipped()
+    public void ACompletedProblem_ReturnedTo_IsPractice_WhetherAnsweredOrSkippedOfRecord()
     {
         // The behaviour no page reaches yet: returning to a completed problem
-        // by moving the cursor. Both completed dispositions are practice, and
-        // the frontier the user walked away from is still unresolved after.
+        // by moving the cursor. Both completed dispositions are practice —
+        // ruling 3: an off-list play's review showed the solution, so returning
+        // to it is practice — and the frontier the user walked away from is
+        // still unresolved after.
         var staged = ThreePresented();
 
         var onSkipped = staged.GoBack().SubmitPlay(Best());
@@ -590,6 +664,106 @@ public class QuizRunTests
         AssertRecordUnchanged(staged, onAnswered);
 
         Assert.Same(ProblemDisposition.Unresolved, onAnswered.Frontier!.Disposition);
+    }
+
+    // -----------------------------------------------------------------------
+    //  §1, §3 · A deferred problem: unresolved behind the frontier, and live
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void ADeferredProblem_AnsweredOnReturn_IsLive_AndBecomesAnswered()
+    {
+        // Ruling 6 (2026-09-30): "If a deferred Unresolved problem is later
+        // answered live, it becomes Answered. The provisional skip does not
+        // stand: the problem is counted once, its answer contributes to score
+        // … and the session skip count drops."
+        var deferred = TwoDeferred();
+        Assert.Equal(2, deferred.SkippedCount);
+        Assert.Equal(QuizScore.Empty, deferred.Score);
+
+        var answered = deferred.GoToFirst().SubmitPlay(Alt());
+
+        // Of record, not practice: the review says so, and the record is the
+        // very submission it shows.
+        var review = Assert.IsType<ProblemReview.Play>(answered.Review);
+        Assert.False(review.IsPractice);
+        Assert.Same(ScoredReview(review), PlayOfRecord(answered.Presented[0]));
+        Assert.False(answered.IsLive);
+
+        // Counted once: out of the skip count, into the score.
+        Assert.Equal(1, answered.SkippedCount);
+        Assert.Equal(1, answered.Score.PlayDecisions.Submitted);
+        Assert.Equal(0.05, answered.Score.PlayDecisions.TotalEquityLoss, 6);
+
+        // Nothing else moved: the other deferred problem and the frontier are
+        // as they were, and no problem was presented.
+        Assert.Equal(
+            new[] { ProblemDispositionKind.Answered, ProblemDispositionKind.Unresolved, ProblemDispositionKind.Unresolved },
+            Kinds(answered));
+        Assert.Same(deferred.Presented[1], answered.Presented[1]);
+        Assert.Same(deferred.Presented[2], answered.Presented[2]);
+
+        // And from here it is a completed problem like any other: practice.
+        var practised = answered.Redo().SubmitPlay(Best());
+        Assert.True(practised.Review!.IsPractice);
+        AssertRecordUnchanged(answered, practised);
+    }
+
+    [Fact]
+    public void ADeferredProblem_AnsweredOffTheList_BecomesASkipOfRecord_AndStaysCounted()
+    {
+        // The live submission that does not score: its review showed the
+        // solution, so the problem is completed — as a skip of record. The
+        // count it was provisionally in is the count it stays in, once.
+        var deferred = TwoDeferred();
+
+        var skipped = deferred.GoBack().SubmitPlay(OffList());
+
+        var review = Assert.IsType<ProblemReview.Play>(skipped.Review);
+        Assert.False(review.IsPractice);
+        Assert.Equal(PlaySubmissionKind.OffList, review.Submission.Kind);
+        Assert.Same(ProblemDisposition.Skipped, skipped.Presented[1].Disposition);
+        Assert.Equal(2, skipped.SkippedCount);
+        Assert.Equal(QuizScore.Empty, skipped.Score);
+
+        // Completed now, so a scored answer on it is practice and changes nothing.
+        var practised = skipped.Redo().SubmitPlay(Best());
+        Assert.True(practised.Review!.IsPractice);
+        AssertRecordUnchanged(skipped, practised);
+    }
+
+    [Fact]
+    public void ADeferredCubeProblem_AnsweredOnReturn_IsLive_AndBecomesAnswered()
+    {
+        var cube = CubeProblem(1);
+        var deferred = MoveOnTo(Show(Begin(), cube), PlayProblem(2));
+        Assert.Equal(1, deferred.SkippedCount);
+
+        var answered = deferred.GoBack().SubmitCubeAction(CubeClaimPair.DoubleTake);
+
+        var review = Assert.IsType<ProblemReview.Cube>(answered.Review);
+        Assert.False(review.IsPractice);
+        Assert.Same(review.Submission, CubeOfRecord(answered.Presented[0]));
+        Assert.Equal(0, answered.SkippedCount);
+        Assert.Equal(1, answered.Score.DoubleDecisions.Correct);
+        Assert.Equal(1, answered.Score.TakeDecisions.Correct);
+        Assert.Same(ProblemDisposition.Unresolved, answered.Frontier!.Disposition);
+    }
+
+    [Fact]
+    public void Next_OnADeferredProblem_GoesToTheNextPresentedProblem_AndChangesNothing()
+    {
+        // §4, live answering behind the frontier: ▶ "goes to the next problem;
+        // this one stays unresolved". It is already counted, and stays counted.
+        var deferred = TwoDeferred().GoToFirst();
+        Assert.True(deferred.IsLive);
+
+        var moved = deferred.Next(out var bringsNewProblem);
+
+        Assert.False(bringsNewProblem);
+        Assert.Same(moved.Presented[1], moved.Cursor);
+        Assert.True(moved.IsLive);
+        AssertRecordUnchanged(deferred, moved);
     }
 
     // -----------------------------------------------------------------------
@@ -621,21 +795,28 @@ public class QuizRunTests
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void Next_OnTheUnresolvedFrontier_RecordsTheSkip_AndOwesANewProblem()
+    public void Next_OnTheUnresolvedFrontier_CompletesNothing_AndOwesANewProblem()
     {
+        // Ruling 2 (2026-09-30): "Skip button: does not complete the problem.
+        // It leaves that presented problem Unresolved while orchestration
+        // advances the source." And ruling 7's timing: during that pending
+        // window the problem is still the frontier, so it is not yet a
+        // provisional skip and the count is unchanged — nothing in the run
+        // says a press happened.
         var run = Show(Begin(), PlayProblem(1));
 
         var moved = run.Next(out var bringsNewProblem);
 
         Assert.True(bringsNewProblem);
-        Assert.Same(ProblemDisposition.Skipped, moved.Frontier!.Disposition);
-        Assert.Equal(1, moved.SkippedCount);
+        Assert.Same(ProblemDisposition.Unresolved, moved.Frontier!.Disposition);
+        Assert.Equal(0, moved.SkippedCount);
+        Assert.Single(moved.Presented);
 
-        // Until the new problem arrives the completed frontier stays on screen,
-        // as a decision.
+        // Until the new problem arrives the frontier stays on screen, as the
+        // decision it was: still answering, still live.
         Assert.Same(moved.Frontier, moved.Cursor);
         Assert.True(moved.IsAnswering);
-        Assert.False(moved.IsLive);
+        Assert.True(moved.IsLive);
     }
 
     [Fact]
@@ -891,7 +1072,7 @@ public class QuizRunTests
     }
 
     // -----------------------------------------------------------------------
-    //  §4 · End quiz acts on the frontier, not the cursor
+    //  §4 · A finished run contains no unresolved problem
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -907,31 +1088,87 @@ public class QuizRunTests
         Assert.Equal(staged.Score, ended.Score);
     }
 
-    [Fact]
-    public void End_FromAnEarlierProblem_StillCompletesTheUnresolvedFrontier()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void End_ConvertsEveryUnresolvedProblem_WhereverTheCursorIs(int cursor)
     {
-        // Ruling 6 (2026-09-30): the frontier becomes a skip of record "even
-        // when the user is currently viewing a past problem" — and the problem
-        // they were viewing is left exactly as it was.
-        var staged = ThreePresented();
-        var onFirst = staged.GoToFirst();
-        Assert.NotSame(onFirst.Frontier, onFirst.Cursor);
+        // Ruling 4 (2026-09-30): "every remaining Unresolved problem becomes
+        // Skipped of record." Three unresolved at once — two deferred and the
+        // frontier — and the run is ended from each of them in turn: finishing
+        // acts on the run, not on the problem being viewed.
+        var run = TwoDeferred();
+        for (var at = 2; at > cursor; at--) run = run.GoBack();
+        Assert.Same(run.Presented[cursor], run.Cursor);
 
-        var ended = onFirst.End();
+        var ended = run.End();
 
-        Assert.Same(ProblemDisposition.Skipped, ended.Frontier!.Disposition);
+        Assert.True(ended.IsEnded);
+        Assert.All(ended.Presented, problem => Assert.Same(ProblemDisposition.Skipped, problem.Disposition));
+        Assert.Equal(3, ended.SkippedCount);
+        Assert.Equal(QuizScore.Empty, ended.Score);
+    }
+
+    [Fact]
+    public void End_FromAnEarlierProblem_ConvertsTheUnresolved_AndLeavesTheCompletedAsTheyWere()
+    {
+        // The mixed run, ended while the user is viewing the first problem: the
+        // answered one, the one skipped of record and a deferred one's later
+        // live answer all stand; only what was still unresolved is converted.
+        var staged = MoveOnTo(ThreePresented(), PlayProblem(4));      // answered, skipped, deferred, frontier
+        var answeredLate = staged.GoBack().SubmitPlay(Best());        // the deferred problem, answered live
+        var recorded = PlayOfRecord(answeredLate.Presented[2]);
+
+        var ended = answeredLate.GoToFirst().End();
+
+        Assert.Equal(
+            new[]
+            {
+                ProblemDispositionKind.Answered, ProblemDispositionKind.Skipped,
+                ProblemDispositionKind.Answered, ProblemDispositionKind.Skipped,
+            },
+            Kinds(ended));
         Assert.Same(staged.Presented[0].Disposition, ended.Presented[0].Disposition);
         Assert.Same(staged.Presented[1].Disposition, ended.Presented[1].Disposition);
-        Assert.Equal(staged.SkippedCount + 1, ended.SkippedCount);
+        Assert.Same(recorded, PlayOfRecord(ended.Presented[2]));
+        Assert.Equal(2, ended.SkippedCount);
+        Assert.Equal(2, ended.Score.PlayDecisions.Submitted);
+    }
+
+    [Fact]
+    public void TheSourceRunningOut_AfterSkipOnTheLastProblem_FinishesWithItSkippedOfRecord()
+    {
+        // Hal's example for ruling 4: "the user presses Skip on the last
+        // available problem. That problem remains Unresolved while
+        // orchestration asks for another problem; if the source is exhausted,
+        // no new frontier is presented and the run ends. The deferred problem
+        // must still become Skipped of record." End quiz is one way of
+        // finishing, not the owner of the conversion.
+        var run = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(Best()), PlayProblem(2));
+
+        var pending = run.Next(out var bringsNewProblem);             // Skip on the last problem
+        Assert.True(bringsNewProblem);
+        Assert.Same(ProblemDisposition.Unresolved, pending.Frontier!.Disposition);
+        Assert.Equal(0, pending.SkippedCount);                        // not yet behind any frontier
+
+        var ended = pending.End();                                    // the source had nothing further
+
+        Assert.True(ended.IsEnded);
+        Assert.Equal(
+            new[] { ProblemDispositionKind.Answered, ProblemDispositionKind.Skipped },
+            Kinds(ended));
+        Assert.Equal(1, ended.SkippedCount);
+        Assert.Equal(1, ended.Score.PlayDecisions.Submitted);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void End_WithACompletedFrontier_AddsNothing(bool fromAnEarlierProblem)
+    public void End_WithEveryProblemCompleted_AddsNothing(bool fromAnEarlierProblem)
     {
-        // "If the frontier is already complete, End Quiz adds nothing" — from
-        // its own review, or from an earlier problem with a practice review up.
+        // "Completed problems get nothing added" — ended from the frontier's
+        // own review, or from an earlier problem with a practice review up.
         var completed = ThreePresented().SubmitPlay(Alt());
         var from = fromAnEarlierProblem ? completed.GoToFirst().SubmitPlay(Best()) : completed;
 
@@ -1043,27 +1280,87 @@ public class QuizRunTests
         var playOfRecord = PlayOfRecord(run.Cursor!);
         run = MoveOnTo(run, cube).SubmitCubeAction(CubeClaimPair.NoDoublePass);
         var cubeOfRecord = CubeOfRecord(run.Cursor!);
-        run = MoveOnTo(run, PlayProblem(3)).Next(out _);             // and a skip, which scores nothing
+        run = MoveOnTo(run, PlayProblem(3)).SubmitPlay(OffList());   // a skip of record, which scores nothing
+        run = MoveOnTo(run, PlayProblem(4));
+        run = MoveOnTo(run, PlayProblem(5));                         // and a deferred problem, which scores nothing either
 
         Assert.Equal(QuizScore.Empty.Plus(playOfRecord).Plus(cubeOfRecord), run.Score);
         Assert.Equal(1, run.Score.PlayDecisions.Submitted);
         Assert.Equal(1, run.Score.DoubleDecisions.Submitted);
         Assert.Equal(1, run.Score.TakeDecisions.Submitted);
         Assert.Equal(0.05, run.Score.PlayDecisions.TotalEquityLoss, 6);
-        Assert.Equal(1, run.SkippedCount);
+        Assert.Equal(2, run.SkippedCount);
     }
 
     [Fact]
-    public void SkippedCount_CountsEverySkipOfRecord_AndNothingElse()
+    public void SkippedCount_IsTheSkipsOfRecord_PlusTheUnresolvedProblemsBehindTheFrontier()
     {
-        var run = Show(Begin(), PlayProblem(1)).SubmitPlay(OffList());   // a skip by an off-list play
-        run = MoveOnTo(run, PlayProblem(2));
-        run = MoveOnTo(run, PlayProblem(3)).SubmitPlay(Best());          // a skip by ▶, then an answer
+        // Ruling 7 (2026-09-30), read literally and followed step by step
+        // through one run: "completed Skipped problems + Unresolved problems
+        // behind the frontier".
+        var run = Show(Begin(), PlayProblem(1));
+        Assert.Equal(0, run.SkippedCount);                  // the unresolved frontier is not counted
+
+        run = run.Next(out _);
+        Assert.Equal(0, run.SkippedCount);                  // ▶ pressed, nothing landed: still the frontier
+
+        run = Show(run, PlayProblem(2));
+        Assert.Equal(1, run.SkippedCount);                  // the first is now deferred, behind the frontier
+
+        run = run.SubmitPlay(OffList());
+        Assert.Equal(2, run.SkippedCount);                  // a skip of record beside it
+
+        run = MoveOnTo(run, PlayProblem(3)).SubmitPlay(Best());
+        Assert.Equal(2, run.SkippedCount);                  // an answer adds nothing
+
         run = MoveOnTo(run, PlayProblem(4));
+        Assert.Equal(2, run.SkippedCount);                  // nor does the new unresolved frontier
 
-        Assert.Equal(2, run.SkippedCount);                               // the unresolved frontier is not one
+        run = run.GoToFirst();
+        Assert.Equal(2, run.SkippedCount);                  // moving the cursor changes nothing
 
-        Assert.Equal(3, run.End().SkippedCount);                         // until the run ends on it
+        run = run.SubmitPlay(Best());
+        Assert.Equal(1, run.SkippedCount);                  // the deferred problem, answered live: the count drops
+        Assert.Equal(2, run.Score.PlayDecisions.Submitted);
+
+        run = run.End();
+        Assert.Equal(2, run.SkippedCount);                  // finishing converts the frontier, and counts it
+        Assert.Equal(
+            new[]
+            {
+                ProblemDispositionKind.Answered, ProblemDispositionKind.Skipped,
+                ProblemDispositionKind.Answered, ProblemDispositionKind.Skipped,
+            },
+            Kinds(run));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SkippedCount_IsUnchangedWhileTheNextProblemIsPending_AndRisesWhenTheAdvanceLands(bool sourceHasAnother)
+    {
+        // Hal's timing ruling on ruling 7 (2026-09-30): "A deferred problem
+        // joins SkippedCount only when it is behind the frontier — normally
+        // when the next problem is presented — or when the run finishes and
+        // finalizes it." And: "Do not add state to mean 'Skip was pressed but
+        // the advance has not landed' merely to reproduce the old immediate
+        // increment." So the pressed-and-pending run is
+        // indistinguishable, in everything it reports, from the run before
+        // the press — and both ways the advance can land count the problem.
+        var before = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(OffList()), PlayProblem(2));
+        Assert.Equal(1, before.SkippedCount);
+
+        var pending = before.Next(out var bringsNewProblem);
+
+        Assert.True(bringsNewProblem);
+        Assert.Equal(1, pending.SkippedCount);
+        Assert.Same(pending.Frontier, pending.Cursor);
+        Assert.True(pending.IsLive);
+        AssertRecordUnchanged(before, pending);
+
+        var landed = sourceHasAnother ? Show(pending, PlayProblem(3)) : pending.End();
+
+        Assert.Equal(2, landed.SkippedCount);
     }
 
     [Fact]
@@ -1075,8 +1372,8 @@ public class QuizRunTests
         var cube = CubeProblem(2);
         var run = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(Alt()), cube)
             .SubmitCubeAction(CubeClaimPair.NoDoublePass);
-        run = MoveOnTo(run, PlayProblem(3));
-        var staged = MoveOnTo(run, PlayProblem(4));                      // answered, answered, skipped, unresolved
+        run = MoveOnTo(run, PlayProblem(3)).SubmitPlay(OffList());
+        var staged = MoveOnTo(run, PlayProblem(4));                      // answered, answered, skipped of record, unresolved
         var score = staged.Score;
         var skipped = staged.SkippedCount;
 
@@ -1136,7 +1433,7 @@ public class QuizRunTests
         AssertTheCursorShows(2);
         run = run.GoBack();
         AssertTheCursorShows(1);
-        run = run.SubmitPlay(Best());                 // through a practice review…
+        run = run.SubmitPlay(Best());                 // through the deferred problem's live answer…
         AssertTheCursorShows(1);
         run = run.GoToFirst();
         AssertTheCursorShows(0);

@@ -20,11 +20,14 @@ using BgGame_Lib;
 ///   <i>cursor</i> — the problem on screen (<see cref="Cursor"/>) — and the
 ///   <i>frontier</i>, the furthest problem presented (<see cref="Frontier"/>).</item>
 ///   <item>Each problem's <see cref="ProblemDisposition"/>, the one record of
-///   what counts for it. Whether a submission is live or practice
-///   (<see cref="IsLive"/>) and the running totals (<see cref="Score"/>,
-///   <see cref="SkippedCount"/>) are derived from the dispositions on every
-///   read and stored nowhere, so neither can drift from the record and a
-///   practice submission cannot move them.</item>
+///   what counts for it. Only a live submission and the run finishing write
+///   one; ▶ and the other moves never do, so a problem the user moves on from
+///   unanswered stays unresolved, and several can be unresolved at once.
+///   Whether a submission is live or practice (<see cref="IsLive"/>) and the
+///   running totals (<see cref="Score"/>, <see cref="SkippedCount"/>) are
+///   derived from the dispositions on every read and stored nowhere, so
+///   neither can drift from the record and a practice submission cannot move
+///   them.</item>
 ///   <item>The run's <see cref="Ranking"/>, fixed when the run begins — which is
 ///   what makes "one quiz, one ranking" (SPEC-scoring.md §2a) a fact of the
 ///   type rather than an agreement between its callers.</item>
@@ -134,7 +137,10 @@ internal sealed class QuizRun
     /// <summary>
     /// The presented sequence: every problem shown to the user in this run, in
     /// the order shown. A position passed over silently was never shown, so it
-    /// is not here. Only the last entry, the frontier, can be unresolved.
+    /// is not here. Any number of its problems may be unresolved while the run
+    /// is active — the frontier, and every earlier problem the user moved on
+    /// from without completing; none is once the run has ended
+    /// (<see cref="End"/>).
     /// </summary>
     public ImmutableArray<PresentedProblem> Presented => _presented;
 
@@ -146,8 +152,10 @@ internal sealed class QuizRun
 
     /// <summary>
     /// The frontier — the furthest problem presented — or null before the
-    /// first. It is the only problem that can be unresolved, and it need not be
-    /// the one on screen.
+    /// first. It means "furthest", nothing more (SPEC-quiz-history.md §1): it
+    /// need not be the problem on screen, it need not be unresolved, and it is
+    /// not the only problem that can be. It changes only when a new problem is
+    /// presented.
     /// </summary>
     public PresentedProblem? Frontier => _presented.IsEmpty ? null : _presented[^1];
 
@@ -164,7 +172,8 @@ internal sealed class QuizRun
 
     /// <summary>
     /// True once the run is over — ended by the user or by the source running
-    /// out. Every presented problem is then completed and nothing is on screen;
+    /// out. Every presented problem is then completed — a finished run holds no
+    /// unresolved problem (SPEC-quiz-history.md §4) — and nothing is on screen;
     /// the record and the totals stand for the summary to read.
     /// </summary>
     public bool IsEnded { get; }
@@ -174,11 +183,13 @@ internal sealed class QuizRun
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// True when the problem on screen is the unresolved frontier — the one
-    /// place a submission is <i>live</i>, and the one place ▶ records a skip.
-    /// On any completed problem, answered or skipped, a submission is practice
+    /// True when the problem on screen is unresolved, so a submission here is
+    /// <i>live</i> — of record. That is the frontier while it is unresolved,
+    /// and equally any earlier problem the user deferred and has come back to.
+    /// On a completed problem, answered or skipped, a submission is practice
     /// (SPEC-quiz-history.md §3). Read off the cursor's disposition on every
-    /// call: there is no live/practice flag to fall out of step with it.
+    /// call: there is no live/practice flag to fall out of step with it, and
+    /// where the problem sits in the sequence does not enter into it.
     /// </summary>
     public bool IsLive => Cursor is { Disposition.IsCompleted: false };
 
@@ -215,21 +226,43 @@ internal sealed class QuizRun
     }
 
     /// <summary>
-    /// How many presented problems were completed as a skip of record — the
-    /// Skip gesture, an off-list play, a play the ranking does not score, or a
-    /// problem left unresolved when the run ended. Derived from the
-    /// dispositions on each read, as <see cref="Score"/> is. A position passed
-    /// over silently was never presented and is not counted.
+    /// The session's skip count: the problems completed as a skip of record,
+    /// plus the unresolved problems behind the frontier
+    /// (SPEC-quiz-history.md §5). Derived from the dispositions and the
+    /// sequence on each read, as <see cref="Score"/> is; nothing is stored to
+    /// compute it. A position passed over silently was never presented and is
+    /// not counted.
+    ///
+    /// <para>
+    /// <b>A deferred problem is a provisional skip.</b> It counts from the
+    /// moment a later problem is presented, which is what puts it behind the
+    /// frontier, and for as long as it stays unresolved. Answered live later,
+    /// it stops counting here and its answer reaches <see cref="Score"/>
+    /// instead, so the problem is counted once. Left unresolved until the run
+    /// ends, it is converted to a skip of record and goes on counting.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The unresolved frontier is not counted</b>, and that includes the
+    /// moment after ▶ has been pressed on it and before the next problem
+    /// arrives: nothing records that a press happened, so until a problem is
+    /// presented beyond it the frontier is simply a problem not yet answered.
+    /// </para>
     /// </summary>
     public int SkippedCount
     {
         get
         {
             var skipped = 0;
-            foreach (var problem in _presented)
+            var frontier = _presented.Length - 1;
+            for (var i = 0; i < _presented.Length; i++)
             {
-                if (problem.Disposition.Kind == ProblemDispositionKind.Skipped)
+                var kind = _presented[i].Disposition.Kind;
+                if (kind == ProblemDispositionKind.Skipped
+                    || (kind == ProblemDispositionKind.Unresolved && i < frontier))
+                {
                     skipped++;
+                }
             }
             return skipped;
         }
@@ -268,11 +301,17 @@ internal sealed class QuizRun
     /// <para>
     /// <b>Only moving on at the frontier presents a new problem</b>
     /// (SPEC-quiz-history.md §1). So this is accepted as the run's first
-    /// presentation, or with the cursor on a completed frontier — where
-    /// <see cref="Next"/> leaves it, having recorded the skip if there was one
-    /// to record. With the cursor on an earlier problem it would show an unseen
-    /// problem early, and over an unresolved frontier it would leave a second
-    /// unresolved problem behind; both are refused.
+    /// presentation, or with the cursor on the frontier — where
+    /// <see cref="Next"/> leaves it. With the cursor on an earlier problem it
+    /// would show an unseen problem early, and is refused.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>It completes nothing.</b> The frontier it moves on from keeps the
+    /// disposition it has. If that is unresolved, the problem is now deferred:
+    /// still unresolved, behind the new frontier, open to a live answer if the
+    /// user comes back to it — and, from this moment, counted in
+    /// <see cref="SkippedCount"/> until it is answered.
     /// </para>
     /// </summary>
     /// <param name="problem">The decision to show.</param>
@@ -290,8 +329,7 @@ internal sealed class QuizRun
     /// <exception cref="ArgumentNullException"><paramref name="problem"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="silentlySkippedBefore"/> is negative.</exception>
     /// <exception cref="InvalidOperationException">
-    /// The run has ended, the cursor is not on the frontier, or the frontier is
-    /// unresolved.
+    /// The run has ended, or the cursor is not on the frontier.
     /// </exception>
     public QuizRun Present(BgDecisionData problem, int silentlySkippedBefore, bool randomHomeBoardOnRight)
     {
@@ -305,9 +343,6 @@ internal sealed class QuizRun
             if (_cursor != _presented.Length - 1)
                 throw new InvalidOperationException(
                     "A new problem is presented only by moving on at the frontier; the cursor is on an earlier problem.");
-            if (!frontier.Disposition.IsCompleted)
-                throw new InvalidOperationException(
-                    "The frontier is unresolved: move on from it first, so that it is completed before a new problem is presented.");
             previousSlot = frontier.StreamSlot;
         }
 
@@ -336,14 +371,16 @@ internal sealed class QuizRun
     ///
     /// <para>
     /// <b>Live, it writes the record; practice, it writes nothing</b>
-    /// (SPEC-quiz-history.md §3, SPEC-scoring.md §2). On the unresolved
-    /// frontier a scored play becomes the answer of record, and a play the
-    /// ranking does not score, or one that is no candidate, completes the
-    /// problem as a skip of record (SPEC-scoring.md §2a). On a completed
-    /// problem the submission is scored and reviewed the same way, the review
-    /// is marked as practice (<see cref="ProblemReview.IsPractice"/>), and the
-    /// disposition — and so the totals — stand untouched. Which it is was read
-    /// off the disposition, before anything was written.
+    /// (SPEC-quiz-history.md §3, SPEC-scoring.md §2). On an unresolved problem
+    /// — the frontier, or an earlier one the user deferred — a scored play
+    /// becomes the answer of record, and a play the ranking does not score, or
+    /// one that is no candidate, completes the problem as a skip of record
+    /// (SPEC-scoring.md §2a), because its review shows the solution. On a
+    /// completed problem the submission is scored and reviewed the same way,
+    /// the review is marked as practice
+    /// (<see cref="ProblemReview.IsPractice"/>), and the disposition — and so
+    /// the totals — stand untouched. Which it is was read off the disposition,
+    /// before anything was written.
     /// </para>
     /// </summary>
     /// <exception cref="InvalidOperationException">
@@ -362,7 +399,7 @@ internal sealed class QuizRun
         var review = new ProblemReview.Play(outcome, play) { IsPractice = practice };
         if (practice) return WithReview(review);
 
-        return WithFrontierCompleted(
+        return WithCursorCompleted(
             outcome.TryGetScored(out var submitted)
                 ? ProblemDisposition.Answered(AnswerOfRecord.Of(submitted))
                 : ProblemDisposition.Skipped,
@@ -403,7 +440,7 @@ internal sealed class QuizRun
         var review = new ProblemReview.Cube(submitted) { IsPractice = practice };
         return practice
             ? WithReview(review)
-            : WithFrontierCompleted(ProblemDisposition.Answered(AnswerOfRecord.Of(submitted)), review);
+            : WithCursorCompleted(ProblemDisposition.Answered(AnswerOfRecord.Of(submitted)), review);
     }
 
     /// <summary>
@@ -431,17 +468,22 @@ internal sealed class QuizRun
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// ▶ — "the next problem", from either view state.
+    /// ▶ — "the next problem", from either view state. <b>It completes
+    /// nothing</b>, wherever it is pressed (SPEC-quiz-history.md §1): the
+    /// problem it leaves keeps the disposition it has, and an unresolved one
+    /// stays unresolved.
     ///
     /// <para>
     /// <b>Behind the frontier</b> the cursor moves to the next presented
-    /// problem and nothing is recorded. <b>On the frontier</b> the user is
-    /// moving on to a problem not yet presented: an unresolved frontier is
-    /// completed as a skip of record, the review is discarded, and
+    /// problem. <b>On the frontier</b> the user is moving on to a problem not
+    /// yet presented: the review, if one is showing, is discarded, and
     /// <paramref name="bringsNewProblem"/> tells the caller that it now owes
     /// the run either the next problem (<see cref="Present"/>) or, if the
     /// source has none, the end (<see cref="End"/>). Until one of them arrives
-    /// the completed frontier stays on screen.
+    /// the frontier stays the frontier and stays on screen — nothing in the run
+    /// says a press happened. An unresolved frontier left this way is
+    /// <i>deferred</i> once <see cref="Present"/> puts a problem beyond it;
+    /// if the run ends instead, ending converts it.
     /// </para>
     /// </summary>
     /// <param name="bringsNewProblem">
@@ -451,18 +493,14 @@ internal sealed class QuizRun
     /// <exception cref="InvalidOperationException">No problem is on screen.</exception>
     public QuizRun Next(out bool bringsNewProblem)
     {
-        var from = RequireCursor();
+        RequireCursor();
         bringsNewProblem = _cursor == _presented.Length - 1;
-        if (!bringsNewProblem) return WithCursor(_cursor + 1);
-
-        return from.Disposition.IsCompleted
-            ? WithCursor(_cursor)
-            : WithFrontierCompleted(ProblemDisposition.Skipped, review: null);
+        return WithCursor(bringsNewProblem ? _cursor : _cursor + 1);
     }
 
     /// <summary>
-    /// ⏮ — land on the first problem presented. Leaves whatever is of record
-    /// as it is, an unresolved frontier included.
+    /// ⏮ — land on the first problem presented. Leaves every disposition as it
+    /// is, the unresolved ones included.
     /// </summary>
     /// <exception cref="InvalidOperationException">There is no earlier problem (<see cref="CanGoBack"/>).</exception>
     public QuizRun GoToFirst()
@@ -472,8 +510,8 @@ internal sealed class QuizRun
     }
 
     /// <summary>
-    /// ◀ — land on the problem before the cursor. Leaves whatever is of record
-    /// as it is, an unresolved frontier included.
+    /// ◀ — land on the problem before the cursor. Leaves every disposition as
+    /// it is, the unresolved ones included.
     /// </summary>
     /// <exception cref="InvalidOperationException">There is no earlier problem (<see cref="CanGoBack"/>).</exception>
     public QuizRun GoBack()
@@ -492,14 +530,16 @@ internal sealed class QuizRun
     }
 
     /// <summary>
-    /// End the run — the End quiz gesture, and what the orchestration does when
-    /// the source has no next problem to bring.
+    /// Finish the run — however it finishes: the End quiz gesture, or the
+    /// orchestration finding that the source has no next problem to bring.
     ///
     /// <para>
-    /// <b>It acts on the frontier, not the cursor</b> (SPEC-quiz-history.md
-    /// §4): an unresolved frontier becomes a skip of record, wherever the user
-    /// happens to be looking, and a completed frontier gets nothing added. So
-    /// every problem presented is accounted for in the ended run. Nothing is on
+    /// <b>A finished run contains no unresolved problem</b>
+    /// (SPEC-quiz-history.md §4). Every problem still unresolved — the
+    /// frontier, and any the user deferred, wherever the cursor happens to be —
+    /// becomes a skip of record; completed problems get nothing added. The
+    /// conversion is this transition's, not any one caller's, so both ways of
+    /// finishing leave every presented problem accounted for. Nothing is on
     /// screen afterwards.
     /// </para>
     /// </summary>
@@ -507,9 +547,12 @@ internal sealed class QuizRun
     public QuizRun End()
     {
         RefuseWhenEnded();
-        var presented = Frontier is { Disposition.IsCompleted: false } frontier
-            ? _presented.SetItem(_presented.Length - 1, frontier.With(ProblemDisposition.Skipped))
-            : _presented;
+        var presented = _presented;
+        for (var i = 0; i < presented.Length; i++)
+        {
+            if (!presented[i].Disposition.IsCompleted)
+                presented = presented.SetItem(i, presented[i].With(ProblemDisposition.Skipped));
+        }
         return new QuizRun(Ranking, ProblemCount, presented, NoCursor, review: null, isEnded: true);
     }
 
@@ -530,14 +573,16 @@ internal sealed class QuizRun
         new(Ranking, ProblemCount, _presented, _cursor, review, IsEnded);
 
     /// <summary>
-    /// The run with its frontier completed as <paramref name="disposition"/> —
-    /// the one place a disposition is ever written, and only ever over an
-    /// unresolved frontier, so nothing of record is rewritten.
+    /// The run with the problem on screen completed as
+    /// <paramref name="disposition"/>, its <paramref name="review"/> showing —
+    /// what a live submission comes to. With <see cref="End"/>, one of the two
+    /// places a disposition is written, and both write only over an unresolved
+    /// problem, so nothing of record is ever rewritten.
     /// </summary>
-    private QuizRun WithFrontierCompleted(ProblemDisposition disposition, ProblemReview? review) =>
+    private QuizRun WithCursorCompleted(ProblemDisposition disposition, ProblemReview review) =>
         new(
             Ranking, ProblemCount,
-            _presented.SetItem(_presented.Length - 1, _presented[^1].With(disposition)),
+            _presented.SetItem(_cursor, _presented[_cursor].With(disposition)),
             _cursor, review, IsEnded);
 
     private void RefuseWhenEnded()
