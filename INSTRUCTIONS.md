@@ -1998,7 +1998,10 @@ after the pass-skip — one roll per problem the user actually sees — and hand
 to the run, which keeps it with that problem for the life of the run
 (`PresentedProblem.RandomHomeBoardOnRight`; `../SPEC-quiz-history.md` §5): held
 steady across submit, review and Redo, never persisted, and the run rolls
-nothing itself. So neither knows anything about settings. The composition
+nothing itself. What is stable is the roll, not the side: the side drawn is
+the roll plus the current setting, so changing the setting may change it —
+deliberately — while returning to a problem never does. So neither the
+controller nor the run knows anything about settings. The composition
 rule lives in exactly one member,
 `QuizSettings.EffectiveHomeBoardOnRight(randomSide)`, reaching the renderer
 through a single `Quiz.HomeBoardOnRight` property that both request builders

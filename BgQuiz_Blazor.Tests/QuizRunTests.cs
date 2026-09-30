@@ -1094,13 +1094,18 @@ public class QuizRunTests
     }
 
     // -----------------------------------------------------------------------
-    //  §5 · The board side survives the life of the run
+    //  §5 · Each problem's orientation choice is stable for the life of the run
+    //
+    //  What the run keeps is the roll. The side a page draws is the roll plus
+    //  the user's current setting (QuizSettings.EffectiveHomeBoardOnRight,
+    //  pinned with the settings), so it may change when the setting does; it
+    //  never changes because the user came back to the problem.
     // -----------------------------------------------------------------------
 
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void TheBoardSide_IsTheOneHandedInWhenTheProblemWasPresented(bool side)
+    public void TheRoll_IsTheOneHandedInWhenTheProblemWasPresented(bool side)
     {
         // Both values, so neither can pass by being a default: the run rolls
         // nothing and keeps what it was given.
@@ -1110,11 +1115,13 @@ public class QuizRunTests
     }
 
     [Fact]
-    public void TheBoardSide_OfEachProblem_IsTheSameOnEveryReturnToIt()
+    public void TheRoll_OfEachProblem_IsTheSameOnEveryReturnToIt()
     {
-        // Ruling 7 (2026-09-30): "Returning to a problem must not randomly flip
-        // its board." Three problems with sides right, left, right — adjacent
-        // ones differ, so a side read off the wrong entry would show.
+        // Hal, 2026-09-30, as corrected: "Each presented problem owns a stable
+        // random orientation choice for the life of the run. … Returning to a
+        // problem does not re-roll it." Three problems rolled right, left,
+        // right — adjacent ones differ, so a roll read off the wrong entry
+        // would show.
         bool[] sides = [true, false, true];
         var run = Show(Begin(), PlayProblem(1), sides[0]).SubmitPlay(Best());
         run = MoveOnTo(run, PlayProblem(2), sides[1]);

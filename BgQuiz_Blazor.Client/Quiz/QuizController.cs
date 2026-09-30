@@ -228,9 +228,12 @@ internal sealed class QuizController : IAsyncDisposable
     /// </para>
     ///
     /// <para>
-    /// <b>One problem, one side.</b> A problem shows the same side while being
-    /// answered, in its solution review, and after <see cref="RedoAsync"/>
-    /// returns to its decision — the board cannot flip under the user.
+    /// <b>One problem, one roll.</b> The roll is the same while the problem is
+    /// being answered, in its solution review, and after
+    /// <see cref="RedoAsync"/> returns to its decision, so the board does not
+    /// flip under the user of its own accord. The side actually drawn is the
+    /// roll plus the current setting, so it can change if the user changes the
+    /// setting — deliberately (SPEC-quiz-history.md §5).
     /// </para>
     ///
     /// <para>

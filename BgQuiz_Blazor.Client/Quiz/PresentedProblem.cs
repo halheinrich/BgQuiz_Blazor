@@ -54,19 +54,27 @@ internal sealed class PresentedProblem
     public int StreamSlot { get; }
 
     /// <summary>
-    /// The side rolled for this problem's board when it was presented — true
-    /// for home board on the right. The run keeps it for the life of the run,
-    /// so returning to a problem never flips its board
+    /// The random orientation choice made for this problem when it was
+    /// presented — true for home board on the right. The run keeps the choice
+    /// for the life of the run, so returning to a problem never re-rolls it
     /// (SPEC-quiz-history.md §5).
+    ///
+    /// <para>
+    /// <b>The choice is stable; the side shown is derived.</b> What a page
+    /// draws is this choice plus the user's current orientation setting,
+    /// composed in one place outside the run
+    /// (<see cref="QuizSettings.EffectiveHomeBoardOnRight"/>): the roll is
+    /// used only while the user asks for a random side. So a board does not
+    /// flip because the user came back to it, and it may change side because
+    /// the user changed the setting — deliberately.
+    /// </para>
     ///
     /// <para>
     /// <b>Supplied, never rolled here.</b> Whoever presents the problem takes
     /// the roll and hands it in; the run owns no randomness. And it is
     /// presentation state of this entry, not part of the problem's identity:
     /// the same position presented again, in this run or another, takes a roll
-    /// of its own. Whether a page uses the roll at all is settings policy,
-    /// composed in one place outside the run
-    /// (<see cref="QuizSettings.EffectiveHomeBoardOnRight"/>).
+    /// of its own.
     /// </para>
     /// </summary>
     public bool RandomHomeBoardOnRight { get; }
