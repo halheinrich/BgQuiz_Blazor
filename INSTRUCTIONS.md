@@ -706,7 +706,13 @@ or the composition's `DrawnCount` once a weighted run's first draw has
 produced it. Slot-counting is the settled convention: both numbers count the
 stream, so N never exceeds M and lands exactly on M on the stream's last
 slot; the accepted trade-off — an auto-skip shows as a gap — is documented on
-`PresentedProblem.StreamSlot`.
+`PresentedProblem.StreamSlot`. N is read off the cursor, never counted beside
+it, so it follows the problem actually on screen: while an advance is pending
+it stays that problem's number and does not run ahead over the slots the
+advance has already passed, and the skip count likewise does not move until
+the next problem lands. Both are visible only if a page renders mid-advance,
+and `PageTests.Quiz_AdvancePending_DrawsTheProblemStillOnScreen_ThenLandsOnTheNext`
+pins them there, for Skip and for Continue.
 
 **Lifetime-stats sink is ctor-injected.** The controller's second dependency
 is the `IProblemStatsSink` (production: `QuizStatsStore`), driven at exactly

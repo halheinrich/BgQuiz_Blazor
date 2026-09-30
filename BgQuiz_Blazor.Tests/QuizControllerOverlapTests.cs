@@ -219,6 +219,64 @@ public class QuizControllerOverlapTests
     }
 
     [Fact]
+    public async Task SubmitPlay_DuringPendingSkip_NoOps()
+    {
+        // The window a pending Skip opens is sharper than a pending Continue's.
+        // Skip completes nothing, so the problem it left is still the frontier,
+        // still unresolved and in its answering state while the source is
+        // asked: an ungated submission there would be live — an answer of
+        // record on a problem the user has moved on from, written after this
+        // advance's fold point and so never folded.
+        var c = MakeGated(out var source, out var sink, out _, Decision(), Decision());
+        source.ReleaseNext();
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+
+        var pending = c.SkipCurrentAsync();
+        source.WaitForDrawRequest(2);    // moved on, and waiting on the source
+
+        c.SubmitPlay(BestPlay());        // must no-op
+
+        Assert.Null(c.Review);
+        Assert.Equal(0, c.Score.PlayDecisions.Submitted);
+
+        source.ReleaseNext();
+        await pending;
+        Assert.Equal(0, c.Score.PlayDecisions.Submitted);
+        Assert.Equal(1, c.SkippedCount);
+        Assert.Equal(0, sink.TotalFolds);
+    }
+
+    [Fact]
+    public async Task SkipCurrentAsync_WhileItsDrawIsPending_CountsNothingUntilTheNextProblemLands()
+    {
+        // SPEC-quiz-history.md §5 (amended 2026-09-30): the skip count "does not
+        // rise when Skip is pressed … the count rises when the next problem
+        // lands". Until then the problem the Skip left is the frontier, still
+        // unresolved, and nothing records that the press happened — so mid-draw
+        // the controller reports what it reported before the press, the number
+        // on screen included. The page-level pin, render by render, is
+        // PageTests.Quiz_AdvancePending_DrawsTheProblemStillOnScreen_ThenLandsOnTheNext.
+        var c = MakeGated(out var source, out _, out _, Decision(), Decision());
+        source.ReleaseNext();
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var skipped = c.Current;
+
+        var pending = c.SkipCurrentAsync();
+        source.WaitForDrawRequest(2);
+
+        Assert.True(c.IsBusy);
+        Assert.Equal(0, c.SkippedCount);
+        Assert.Same(skipped, c.Current);
+        Assert.Equal(1, c.ProblemNumber);
+
+        source.ReleaseNext();
+        await pending;
+        Assert.Equal(1, c.SkippedCount);
+        Assert.NotSame(skipped, c.Current);
+        Assert.Equal(2, c.ProblemNumber);
+    }
+
+    [Fact]
     public async Task RedoAsync_DuringPendingFold_NoOps()
     {
         // A Continue suspended in the fold still has Review set; a Redo there

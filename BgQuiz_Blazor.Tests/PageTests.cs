@@ -3962,6 +3962,72 @@ public class PageTests : BunitContext
         Assert.Equal("Problem 1 of 1", ProblemPositionText(cut));
     }
 
+    /// <summary>
+    /// The score panel's "Skipped: N" as drawn, whitespace-normalized — Normal-view
+    /// chrome, like <see cref="ProblemPositionText"/>.
+    /// </summary>
+    private static string SkippedText(IRenderedComponent<QuizPage> cut) =>
+        Normalize(cut.FindAll(".score-panel > span").Single(s => s.TextContent.Contains("Skipped:")).TextContent);
+
+    [Theory]
+    [InlineData("Skip")]
+    [InlineData("Continue")]
+    public async Task Quiz_AdvancePending_DrawsTheProblemStillOnScreen_ThenLandsOnTheNext(string gesture)
+    {
+        // Hal's ruling on N (SPEC-quiz-history.md §5, 2026-09-30): N "follows
+        // the problem actually on screen: while an advance is pending it stays
+        // that problem's number, and does not run ahead over slots the advance
+        // has passed". The case that tells is an advance held between a slot it
+        // has passed over silently and the problem after it: the umbrella
+        // measured the page drawing "Problem 2 of 3" over the first problem
+        // there before the run model, and "Problem 1 of 3" after it. And §5's
+        // second transient difference, for Skip: the count "does not rise when
+        // Skip is pressed … the count rises when the next problem lands".
+        //
+        // Both gestures, since both are ▶ and reach the one advance. The page
+        // renders in the wait both ways a render reaches it — its own Space-key
+        // handler, which the busy gate keeps from acting but which still draws,
+        // and a forced render — and each is checked to have happened, so an
+        // assertion over the pre-gesture markup cannot pass for one.
+        var c = WithGatedController(out var source, out _,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.PassDecision(),                                  // slot 2, passed over silently
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        source.ReleaseNext(2);   // the first problem and the pass — the third slot stays held
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await NormalViewAsync();
+        if (gesture == "Continue") c.SubmitPlay(BestPlay());
+        var cut = Render<QuizPage>();
+        Assert.Equal("Problem 1 of 3", ProblemPositionText(cut));
+        Assert.Equal("Skipped: 0", SkippedText(cut));
+
+        var advance = ButtonNamed(cut, gesture).ClickAsync(new());
+        source.WaitForDrawRequest(3);   // the pass taken and passed over; parked on the third slot
+        Assert.True(c.IsBusy);
+
+        var renders = cut.RenderCount;
+        await PressSpaceAsync(cut);
+        Assert.True(cut.RenderCount > renders, "The Space-key handler drew nothing in the wait.");
+        Assert.Equal("Problem 1 of 3", ProblemPositionText(cut));
+        Assert.Equal("Skipped: 0", SkippedText(cut));
+
+        renders = cut.RenderCount;
+        cut.Render();
+        Assert.True(cut.RenderCount > renders, "The forced render drew nothing in the wait.");
+        Assert.Equal("Problem 1 of 3", ProblemPositionText(cut));
+        Assert.Equal("Skipped: 0", SkippedText(cut));
+
+        source.ReleaseNext();
+        await advance;
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.False(c.IsBusy);
+            Assert.Equal("Problem 3 of 3", ProblemPositionText(cut));
+            Assert.Equal(gesture == "Skip" ? "Skipped: 1" : "Skipped: 0", SkippedText(cut));
+        });
+    }
+
     [Fact]
     public void ScorePanel_WithoutProblemNumber_OmitsPositionIndicator()
     {
