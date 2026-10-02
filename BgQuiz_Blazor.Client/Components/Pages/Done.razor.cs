@@ -27,21 +27,13 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 public partial class Done : ComponentBase
 {
     /// <summary>
-    /// Number of distinct problems the user was shown: one per scored checker
-    /// play, one per scored cube position, plus user-driven skips.
-    ///
-    /// <para>
-    /// A cube position folds into the score as two decisions (one Double + one
-    /// Take), so <c>Score.Total.Submitted</c> counts <em>decisions</em>, not
-    /// problems — each cube would be double-counted. Counting checker plays
-    /// plus <em>doubler</em> decisions (exactly one per cube position) recovers
-    /// the problem count.
-    /// </para>
+    /// Number of distinct problems the user was shown: every answer of record,
+    /// plus the skips. The session score's Total counts each answer once — a
+    /// checker play or a cube answer alike (SPEC-scoring.md §3, the 2026-10-01
+    /// amendment) — so its submitted count is the answered problems.
     /// </summary>
     private int ProblemsShown =>
-        Controller.Score.PlayDecisions.Submitted
-        + Controller.Score.DoubleDecisions.Submitted
-        + Controller.SkippedCount;
+        Controller.Score.Total.Submitted + Controller.SkippedCount;
 
     /// <summary>
     /// On load: bounce to <c>/</c> if no quiz has started, otherwise clear the

@@ -324,7 +324,7 @@
            that paragraph leads with the zero reading, which is the one a reader
            would otherwise mistake for a rendering fault.
 
-           The five bucket names are deliberately NOT recited here. They are copy
+           The bucket names are deliberately NOT recited here. They are copy
            owned by AnswerTypeDisplay and rendered on Home; a list of them in this
            prose would be a second encoding that drifts silently the first time a
            label is reworded — the same reasoning that removed this page's facet
@@ -332,7 +332,7 @@
            themselves: that the list is exhaustive, and what a zero means. *@
         <p>
             Under that number, BgQuiz breaks the pool down by the kind of answer its
-            decisions call for — checker plays, and each of the five cube verdicts.
+            decisions call for — checker plays, and each of the four kinds of cube answer.
             Every kind is listed every time, so a kind showing
             <strong>0</strong> is a result rather than an omission: it says your
             folder holds none of that kind under the filters you applied. If you
@@ -485,12 +485,15 @@
             </li>
             <li>
                 <strong>Cube decision.</strong> The board is read-only. Answer with the row
-                of buttons beside the Submit button: the player chooses one of
-                <em>No double</em>, <em>Double / Take</em>, <em>Double / Pass</em>, or
-                <em>Too good</em> — what the player on roll should do and, for a double,
-                how the opponent should respond. Submit lights up once one is chosen.
-                <em>Too good</em> is withheld only where it cannot be right: a money game
-                under the Jacoby rule with the cube in the middle.
+                of buttons beside the Submit button: what the player on roll should do and,
+                for a double, how the opponent should respond. There are always four
+                answers: <em>No double</em>, <em>Double / Take</em>, <em>Double / Pass</em>,
+                and a fourth that means “don't double, though they would pass”. The fourth
+                reads <em>Too good</em> where gammons are possible and
+                <em>No double / Pass</em> where they are not: when the opponent has a
+                checker borne off, when in a match the cube already covers the points the
+                player on roll needs, or in a money game under the Jacoby rule with the
+                cube in the middle. Submit lights up once one is chosen.
             </li>
         </ul>
         <p>
@@ -575,11 +578,22 @@
 
         <h3 class="h4 mt-4" id="@HelpSections.Scoring.AnchorId">@HelpSections.Scoring.Heading</h3>
         <p>
-            A submitted answer is scored against XG's analysis of that position. Correct means
-            you chose a play or action with no equity loss; otherwise the equity you gave up is
-            recorded. Skipped problems are counted separately and never affect your accuracy.
-            Scores are kept in four buckets: checker plays, doubling decisions, take decisions,
-            and the total across all three.
+            A submitted answer is scored against XG's analysis of that position. Every answer
+            costs the equity it gives up, and it is correct when that cost shows as 0.0000 —
+            so a play need not be the very best one to be correct. Where gammons are possible,
+            two misreadings are charged even though they lose no equity at the board:
+            <em>No double</em> when the position is too good, and <em>Too good</em> when the
+            opponent would take. Skipped problems are counted separately and never affect
+            your accuracy.
+        </p>
+        <p>
+            The score has four rows. <em>Play</em> counts checker plays. Every cube answer adds
+            to <em>Double</em>, for its doubling part. Only an answer that commits to a
+            response — <em>Double / Take</em>, <em>Double / Pass</em> or the fourth — adds to
+            <em>Take</em>; <em>No double</em> commits to none, so it is left out.
+            <em>Total</em> counts each problem's answer once, and a cube answer is correct
+            there only when its whole cost shows as 0.0000, so the Total is not the other
+            rows added up.
         </p>
 
         <h2 class="h3 mt-5" id="@HelpSections.AfterTheQuiz.AnchorId">@HelpSections.AfterTheQuiz.Heading</h2>
@@ -629,10 +643,12 @@
                 problem records the answer you gave it first, once.
             </li>
             <li>
-                <strong>A cube position records two decisions.</strong> The double and the
-                take are counted separately, the same way the in-quiz score counts them — so
-                getting one half right and the other wrong reads as one correct out of two,
-                not as a single wrong answer.
+                <strong>A cube answer records two halves.</strong> The lifetime record counts
+                the doubling half and the take half separately, each correct when its cost
+                shows as 0.0000 — so getting one half right and the other wrong reads as one
+                correct out of two. <em>No double</em> commits to no take, so its take half
+                counts as a correct zero. This is not how the quiz's own <em>Total</em>
+                counts: there, each cube answer is one answer.
             </li>
             <li>
                 <strong>Other browsers still quiz.</strong> Where the browser can't save into
@@ -701,17 +717,16 @@
                 solution.
             </li>
             <li>
-                <strong>A cube position is two decisions, not one.</strong> The double and the
-                take are scored independently, so one cube problem contributes one doubling
-                decision and one take decision to your totals.
+                <strong>A cube answer is judged whole.</strong> The verdict under the board
+                names your answer and says whether it was correct; if it was not, it says what
+                the answer lost and which answers were best. Two parts that each show as
+                0.0000 can still add up to an answer that does not, and then the answer is not
+                correct.
             </li>
             <li>
-                <strong>The doubling half is judged on your claim.</strong> <em>No double</em>
-                and <em>Too good</em> are the same move at the board — you play on either
-                way — but they are different claims about the position, and the quiz scores
-                the claim. Saying <em>No double</em> where the position is too good to double
-                is wrong with no equity lost; the solution names it as the right action with
-                the wrong reason.
+                <strong>More than one answer can be correct.</strong> Where answers tie, each
+                of them costs nothing and is correct, and the solution's Best line lists every
+                one.
             </li>
             <li>
                 <strong>Clicking the dice advances.</strong> On the solution view, clicking the

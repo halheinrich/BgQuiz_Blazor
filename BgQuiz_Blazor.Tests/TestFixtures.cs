@@ -224,19 +224,22 @@ internal static class TestFixtures
     /// <summary>
     /// Deterministic cube decision in the opening position. With the defaults
     /// (<paramref name="noDoubleEquity"/> 0.5, <paramref name="doubleTakeEquity"/>
-    /// 0.7) the best answer is (<c>Double</c>, <c>Take</c>) at zero loss on both
-    /// halves; the opposite answer loses
-    /// <c>doubleTakeEquity - noDoubleEquity</c> (0.20) on the doubler half and
-    /// <c>1 - doubleTakeEquity</c> (0.30) on the taker half. The record states no
-    /// played action. <paramref name="id"/>, <paramref name="location"/>,
-    /// <paramref name="away"/> and <paramref name="comment"/> mean what they do
-    /// on <see cref="TwoChoiceDecision"/>.
+    /// 0.7) the truth is <see cref="CubeAnswer.DoubleTake"/>, which costs
+    /// nothing; No double costs <c>doubleTakeEquity - noDoubleEquity</c> (0.20)
+    /// and Double / Pass <c>1 - doubleTakeEquity</c> (0.30) — the producer's
+    /// costs (<see cref="CubeDecision.CostOf"/>), stated here only to read the
+    /// pins. The record states no played action. <paramref name="id"/>,
+    /// <paramref name="location"/>, <paramref name="away"/> and
+    /// <paramref name="comment"/> mean what they do on
+    /// <see cref="TwoChoiceDecision"/>.
     /// <paramref name="cubeOwner"/> defaults to <see cref="CubeOwner.OnRoll"/>
-    /// (a turned cube, on 2), so the default money fixture — Jacoby on, as
-    /// <paramref name="away"/> 0 states it — offers Too good; pass
-    /// <see cref="CubeOwner.Centered"/> (a cube on 1) to build the one position
-    /// where the producer withholds it (<see cref="CubeDecision.CanBeTooGood"/>:
-    /// money under Jacoby with the cube in the middle).
+    /// (a turned cube, on 2), so on the default money fixture — Jacoby on, as
+    /// <paramref name="away"/> 0 states it — gammons are possible and the
+    /// fourth answer reads Too good; pass <see cref="CubeOwner.Centered"/> (a
+    /// cube on 1) for a money position under Jacoby with the cube in the
+    /// middle, where gammons are not possible
+    /// (<see cref="CubeDecision.GammonsPossible"/>) and the fourth answer
+    /// reads No double / Pass.
     /// </summary>
     public static CubeDecision CubeDecision(
         double noDoubleEquity = 0.5, double doubleTakeEquity = 0.7,

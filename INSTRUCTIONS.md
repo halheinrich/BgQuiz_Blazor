@@ -34,18 +34,22 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `SubmittedPlay` (no public constructor; its identity is the problem and the
   play, which this app does not use as application semantics, and nor does it
   use `PlaySubmission`'s — halheinrich/backgammon#287),
-  `SubmittedCubeAction` (claim-typed since `halheinrich/backgammon#86`: the
-  user's and the derived-truth `CubeClaimPair`s plus the two per-half losses,
-  per-half correctness **derived** claim-vs-claim / action-vs-action — built
-  only through `SubmittedCubeAction.From(key, answer, decision)`, never by
-  hand), `QuizScore` (segmented: `PlayDecisions` /
-  `DoubleDecisions` / `TakeDecisions` + derived `Total`), the stats-weighted
+  `SubmittedCubeAnswer` — **the one place a submitted cube answer is scored**
+  (`SubmittedCubeAnswer.Score(answer, decision)`: the key, the truth and the
+  answer's cost read off the one record, and whether the whole answer and each
+  part is correct derived from that cost; no public constructor), `QuizScore`
+  (factory-only — `Empty` and the `Plus` folds — in the rows SPEC-scoring §3's
+  2026-10-01 amendment rules: `PlayDecisions` / `DoubleDecisions` /
+  `TakeDecisions` and a `Total` that counts each answer once and is not the
+  rows' sum), the stats-weighted
   composition surface — `QuizCategory`/`QuizCategoryKind`,
   `QuizMix`/`QuizMixEntry` (the versioned strict-JSON mix config;
   `ToJson`/`FromJson`/`TryFromJson` is the localStorage trio),
   `MixedProblemSetSource` (the composing decorator the controller wires for a
   non-blank mix) + `MixComposition` telemetry — `AnswerTypeDistribution` (the
-  answer-type fold behind Home's pre-Start summary), and the lifetime-stats
+  answer-type fold behind Home's pre-Start summary: checker plays plus one
+  bucket per cube answer, `NoDouble` / `DoubleTake` / `DoublePass` /
+  `NoDoublePass`, keyed by the truth), and the lifetime-stats
   model `ProblemStats` / `ProblemStatsDocument` (immutable, keyed by
   `ProblemKey`; `doc = doc.Plus(submission, TimeProvider)`; bundled type-level
   JSON converter — deserializes with no registration, any bad load throws
@@ -66,18 +70,17 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   names a play through it, halheinrich/backgammon#274), `PlayCandidate`,
   `PlayRanking` (the ranking — `Equity`, the default, or `DepthFirst`; the
   quiz's sorting setting is the ranking, SPEC-scoring §2a), `BoardState` and
-  `BoardPosition`, `CubeAction`, `CubeClaim` (the three-valued
-  doubler claim — `NoDouble` / `Double` / `TooGood` — SPEC-scoring §3),
-  `CubeClaimPair` (the two-part cube answer, claim × taker; a closed 3×2 of
-  which the **four reachable pairs** — NoDoubleTake, DoubleTake, DoublePass,
-  TooGoodPass — are the option set since SPEC-scoring §3's 2026-09-02
-  amendment, `halheinrich/backgammon#187`; `TooGoodTake` is a retired
-  verdict and the incoherent `NoDoublePass`, named by `IsIncoherent`, is
-  never offered), `CubeDecision.CanBeTooGood` (the producer's
-  offerability fact: false only at money / Jacoby / cube-centred; the
-  quiz page passes it through, never re-derives it),
-  `CubeClaimExtensions.ToCubeAction` (the one claim→action collapse),
-  `ProblemKey` (content identity; `ProblemKey.From` is the one factory, and it
+  `BoardPosition`, `CubeAction`, `CubeAnswer` (one of four —
+  `NoDouble` / `DoubleTake` / `DoublePass` / `NoDoublePass`, the fourth
+  meaning "don't double, they'd pass" — SPEC-scoring §3 as amended on
+  `halheinrich/backgammon#326`; the type of a submitted answer and of the
+  truth, `CubeDecisionData.BestAnswer`), the cube decision's readings of an
+  answer (`CubeDecision.GammonsPossible`, `ClaimOf`, `CostOf` and
+  `ZeroCostAnswers` — the answers whose whole cost counts as zero, in the
+  offered order: the one statement of the Best list), `EquityDisplay` (the
+  one display precision and zero rule: `FormatLoss` for every loss shown,
+  `CountsAsZero` for the rule, which this app never applies itself — the
+  producers' verdicts already do), `ProblemKey` (content identity; `ProblemKey.From` is the one factory, and it
   is total: **every record has a key**, because a decision position has a
   checker of each side on the board or bar — the producer's invariant,
   `../SPEC-stats-identity.md` §2 as amended 2026-09-27 — so this app relies on
@@ -87,18 +90,18 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   and its `SourceFile` and `Xgid` are derived. A played checker play is
   matched and scored by the producer (`PlaySubmission.Score`, above); cube
   scoring never reads an equity here — the producer's
-  `SubmittedCubeAction.From` reads `CubeDecisionData.BestClaimPair` (the one
-  derivation site of the truth claim) and the per-half errors for it.
+  `SubmittedCubeAnswer.Score` reads the truth and the cost off the record.
 - **BgMoveGen** — `MoveGenerator.GeneratePlays`, used by the controller's
   no-play-choice auto-skip detection.
 - **BgDiag_Razor** — `BackgammonPlayEntry` (click-driven play assembly over
   a checker-play decision's own request, `DiagramRequest.ForDecision`, which
   it requires),
   `BackgammonCubeActions` (the board-free cube answer row: one radio group
-  over the four reachable pairs, on the `@bind-Value` convention over
-  `CubeClaimPair?` — null only while untouched, every pill a complete pair —
-  with a required `OfferTooGood` the page feeds from
-  `CubeDecision.CanBeTooGood`) + the underlying `BackgammonDiagram`
+  over the four answers, all always offered, on the `@bind-Value` convention
+  over `CubeAnswer?` — null only while untouched, every pill one whole
+  answer — with a required `Decision`, the record on screen, from which it
+  labels each pill; `ShortLabels` is left at its default, so every pill shows
+  its full label) + the underlying `BackgammonDiagram`
   (read-only board view, used for both the review diagram and the
   cube-answering board).
 - **BackgammonDiagram_Lib** — `DiagramRequest` + `DiagramOptions`. Every
@@ -376,7 +379,7 @@ the type holds them.
   furthest presented). Each entry is a `PresentedProblem`: the decision, its
   stream slot, the board side it was given, and its `ProblemDisposition` —
   `Unresolved`, `Answered` (carrying the `AnswerOfRecord`, a scored play or a
-  scored cube pair, read through `Match`) or `Skipped`, which is one instance
+  scored cube answer, read through `Match`) or `Skipped`, which is one instance
   holding nothing, whatever caused the skip. Also the run's `Ranking`, the
   review on screen (`Review`), and the stream's total when one is known
   (`ProblemCount`).
@@ -403,7 +406,7 @@ the type holds them.
   one it was called on as it was. The controller holds the current run and
   replaces it whole, which is what makes "a refused Start leaves the running
   quiz untouched" one missing assignment rather than a list of fields.
-- **The transitions.** `Present` · `SubmitPlay` / `SubmitCubeAction` ·
+- **The transitions.** `Present` · `SubmitPlay` / `SubmitCubeAnswer` ·
   `Redo` · `Next` (▶, which reports whether a new problem is now owed) ·
   `GoToFirst` / `GoBack` / `GoToLast` (⏮ ◀ ⏭) · `End` · `WithProblemCount`.
   One the state does not allow throws `InvalidOperationException` — a caller
@@ -411,11 +414,15 @@ the type holds them.
   no-op, which it does by reading the state first (`IsAnswering`, `Review`,
   `IsEnded`; `CanGoBack` / `CanGoToLast` are there for the navigation
   controls).
-- **Scoring is inside it.** `SubmitPlay` calls `PlaySubmission.Score` and
-  `SubmitCubeAction` calls `SubmittedCubeAction.From`, against the problem
-  under the cursor and under the run's own ranking. Both are pure functions of
-  things the run holds, so no caller can pair an answer with another problem
-  or another ranking — "one quiz, one ranking" is structural.
+- **Scoring is inside it.** `SubmitPlay` calls `PlaySubmission.Score`
+  against the problem under the cursor and under the run's own ranking;
+  `SubmitCubeAnswer` builds the review, `ProblemReview.Cube`, whose
+  constructor calls `SubmittedCubeAnswer.Score` at the cube decision under
+  the cursor and keeps that decision beside the result, and files the
+  review's own submission as the answer of record. Both are pure functions of
+  things the run holds, so no caller can pair an answer with another problem,
+  another ranking, or another record's labels — "one quiz, one ranking" is
+  structural.
 - **What it is told, because it never asks.** It reads no source, sink,
   clock or random number. The controller hands it each problem with the two
   facts only the orchestration has — how many stream slots were passed over
@@ -468,7 +475,7 @@ guards can't close that window: mid-advance they read *stale* state, so
 Skip/Submit would stale-pass and a second Continue would double-fold. The gate
 lives in the controller — pages never need the enumerator contract to be safe
 (which is what makes the Quiz page's dice-click + Continue double-binding safe
-as-is). The synchronous mutators (`SubmitPlay` / `SubmitCubeAction` /
+as-is). The synchronous mutators (`SubmitPlay` / `SubmitCubeAnswer` /
 `RedoAsync`) can't overlap an await themselves but can land *inside* one, so
 they no-op on `IsBusy` too. Mechanics: `IsBusy` (observable; pages drive their
 busy affordances from it) flips on inside the gate's check-and-set,
@@ -490,12 +497,12 @@ gesture below is the controller's gate and orchestration around one run
 transition, named in brackets; what the transition does to the record is the
 run's rule (§ `QuizRun`):
 
-- **Submit** — `SubmitPlay(Play)` / `SubmitCubeAction(CubeClaimPair)`
-  [`QuizRun.SubmitPlay` / `SubmitCubeAction`] are **synchronous** (the only
+- **Submit** — `SubmitPlay(Play)` / `SubmitCubeAnswer(CubeAnswer)`
+  [`QuizRun.SubmitPlay` / `SubmitCubeAnswer`] are **synchronous** (the only
   `await` was the advance, now deferred): the run scores the answer and shows
   its `Review`, and `StateChanged` fires **without advancing** — `Current`
   still points at the answered problem. No-ops outside answering. Each answers
-  its own kind — a play a `CheckerPlayDecision`, a pair a `CubeDecision` — and
+  its own kind — a play a `CheckerPlayDecision`, a cube answer a `CubeDecision` — and
   the other kind is a caller bug that throws `InvalidOperationException`,
   since the page routes each kind to its own instrument.
 - **`Review`** — a closed `ProblemReview` class hierarchy (`Play` / `Cube`)
@@ -557,8 +564,11 @@ same order: fold, then end.
 per-app UI state, and adding it to the submodule would cross the boundary.
 Both its variants wrap the producer's scored outcome whole: its `Play` the
 `PlaySubmission` (scored, not scored, or off-list) plus the play as entered,
-which the off-list verdict names; its `Cube` the scored `SubmittedCubeAction`
-(user pair, truth pair, both losses, derived correctness). Copying fields
+which the off-list verdict names; its `Cube` the scored `SubmittedCubeAnswer`
+(the answer, its cost in two parts, the truth, the derived verdicts) and the
+`CubeDecision` it was scored at — the constructor scores, so the decision
+the verdict reads its labels and Best list from is the one the answer was
+scored at, and no caller can pair them otherwise. Copying fields
 out would put a second spelling of what the producer derives together beside
 the producer's. `ProblemReview.Play.CandidateIndex` — the scored or
 not-scored candidate, none off the list — is what the Quiz page sets as the
@@ -776,57 +786,56 @@ pool's size fall out of the same pass that classifies it, so "how many match"
 and "what kinds are they" have **one** encoding — a second way to ask the
 question is a second answer waiting to disagree. The fold takes the record
 itself and matches on its kind, keying a cube decision by its category's
-`BestClaimPair`. Classification is never
-re-derived here — a cube decision buckets once, on the analysis's declared
-best pair, deliberately unlike the two-half convention `QuizScore` and
-`ProblemStats` use for *answers*.
+`BestAnswer`. Classification is never
+re-derived here — a cube decision buckets once, on its truth, deliberately
+unlike how *answers* are counted: once in `QuizScore`'s Total, up to two row
+decisions in the session, and two halves in `ProblemStats`.
 
 **Decision-type policy.** The user's `FilterConfig.DecisionType` choice
 governs which decisions the quiz admits; `FilterConfig.Build()` adds a
 `DecisionTypeFilter` only for a non-`Both` choice, and the controller adds
 none of its own.
 
-**Cube wording.** This app spells no cube claim, action or pair. Every such
-label — the answer row's pill captions, the review verdict line's two halves,
-the Home breakdown's four cube rows and the solution panel's `Best:` banner —
-comes from `CubeLabels` in BackgammonDiagram_Lib, the one public label home
-(`halheinrich/backgammon#185`), which is also where the case and the
-claim-alone pair rule are ruled and proved. The literals in this repo's tests
+**Cube wording.** This app spells no cube answer or action. Every such
+label — the answer row's pill captions, the labels inside the review's
+verdict line, the Home breakdown's four cube rows and the solution panel's
+`Best:` line — comes from `CubeLabels` in BackgammonDiagram_Lib, the one
+public label home (`halheinrich/backgammon#185`): an answer is labelled only
+at its decision (`CubeLabels.Label(answer, decision)`, where the fourth
+reads Too good or No double / Pass by the decision's reading), and a
+breakdown bucket by `CubeLabels.BreakdownBucketLabel(answer)`. The one
+spelling of the app's own is the comma between the verdict's Best answers,
+which matches the diagram's Best line. The literals in this repo's tests
 are consumer pins by ruling and are **not** re-sourced from it: they say what a
 user reads, so a re-wording at the home has to arrive here as a deliberate
 edit rather than passing through unseen.
 
-**Cube scoring.** A cube position is two independent atomic decisions — the
-doubler's three-valued *claim* and the taker's response if doubled
-(SPEC-scoring §3, `halheinrich/backgammon#86`, amended 2026-09-02 by
-`halheinrich/backgammon#187`: **Too Good requires the pass**, so the
-reachable verdicts are exactly the four coherent pairs, and the answer row
-offers exactly those — `NoDoubleTake`, `DoubleTake`, `DoublePass`,
-`TooGoodPass` — each pill a complete pair; the too-good pill is withheld
-where the producer says the verdict cannot occur,
-`CubeDecision.CanBeTooGood`, false only for money under Jacoby with the
-cube centred, passed through as the row's `OfferTooGood` and never
-re-derived here).
-`SubmitCubeAction(CubeClaimPair)` always scores both halves (no off-list /
-skip path, unlike plays; it accepts any pair — the incoherent `NoDoublePass`
-cell is no longer offered by the row but still scores per half if it arrives)
-through the producer's one factory,
-`SubmittedCubeAction.From(key, answer, decision)`: it reads the derived truth
-(`CubeDecisionData.BestClaimPair`) and both per-half losses off the one decision,
-and the record derives correctness **claim vs. claim** on the doubler half —
-so a no-double answered to a too-good position scores incorrect at +0.000, the
-ruled "right action, wrong reason" verdict, and so does a too-good answered to
-XG's "too good to double/Take" position, a `NoDoubleTake` by ruling under
-the amendment. Nothing in this app reads an equity or compares an action for
-scoring. Folded into the score's `DoubleDecisions` and `TakeDecisions`
-segments via `QuizScore.Plus(SubmittedCubeAction)`. The review's verdict line
-names the doubler half by the claim submitted and, when wrong, the truth
-claim; the right-action-wrong-claim case is said in those words in both
-directions (decided on the board action behind each claim via
-`ToCubeAction`, not on the loss being zero); the incoherent cell gets a
-trailing explanation. The solution diagram's `Best:` banner beside it is
-recomposed over claims and spelled by the same label home, so the two read the
-claim alike — see **Cube wording** above.
+**Cube scoring.** The model is SPEC-scoring §3 as amended on
+`halheinrich/backgammon#326` — the four answers, what each costs, when a cost
+counts as zero, the verdict, and the session's rows against the lifetime
+record's halves; read the rules there. Here: the answer row offers all four
+answers at every cube decision. `SubmitCubeAnswer(CubeAnswer)` scores every
+answer (no off-list / skip path, unlike plays) through the producer's one
+call, `SubmittedCubeAnswer.Score(answer, decision)`, at the decision on
+screen. Nothing in this app reads an equity, compares answers, or restates a
+cost or verdict rule. The answer of record folds into the session score via
+`QuizScore.Plus(SubmittedCubeAnswer)` and into the lifetime record via the
+document's own `Plus`; the store hands the producer the answer and the
+producer counts it. **The review's verdict** is one line judging the whole
+answer — `Correct — <label>.` or `Not best — <label> lost <cost>. Best:
+<list>.` — every part of it read off the review: correctness is the
+submission's `IsCorrect` (the whole cost, so two parts that each count as
+zero can still read Not best); each label is `CubeLabels.Label` at the
+decision the answer was scored at; the cost is `EquityDisplay.FormatLoss` of
+the whole cost; the list is that decision's `ZeroCostAnswers`, in its order,
+the set the diagram's `Best:` line lists — so at a tie it names every
+answer that costs nothing. The status colour reads the same `IsCorrect`. The
+cost's two parts are named nowhere in the review: they are the Double and
+Take rows' diagnostics, and No double's implied take is never charged.
+**Every loss shown** — the verdicts' and the score panel's and breakdown's
+averages — goes through `EquityDisplay.FormatLoss`, so what is shown and
+what is judged cannot disagree; a threshold the user typed (the mix's "Avg
+equity loss over …") is a setting, not a cost, and keeps its own format.
 
 **No-play-choice auto-skip.** `PresentNextAsync` pulls each next
 decision and tests it with `HasNoPlayChoice`, which runs
@@ -2370,14 +2379,16 @@ The asymmetry is pinned three times over: at the service seam
   `CubeDecision` to a **board-only** `BackgammonDiagram` (the cube answer is not
   entered on the board). Submit is a synchronous handler gated on the relevant answer being
   held: a play via `OnPlayCompleted` → `_completedPlay`; a cube via the
-  `BackgammonCubeActions` four-pair row in the action row, whose
-  `@bind-Value` keeps `_completedCube` current — null until a pill is
-  chosen, and every pill is a complete pair, so the Submit gate lights on
-  the first click; re-fires on every change thereafter, so the user can
-  revise before Submit. The row's `OfferTooGood` is the cube record's
-  `CanBeTooGood`, passed through. Both fields reset on every transition,
-  which clears the row outright — it holds no state the pair does not
-  express, so the `@key` remount of the two-group era is gone (see
+  `BackgammonCubeActions` four-answer row in the action row, whose
+  `@bind-Value` keeps `_completedCube` (a `CubeAnswer?`) current — null
+  until a pill is chosen, and every pill is one whole answer, so the Submit
+  gate lights on the first click; re-fires on every change thereafter, so
+  the user can revise before Submit. The row's `Decision` is the record on
+  screen, which labels its pills (the fourth reads Too good or No double /
+  Pass); `ShortLabels` is left at its default — the short form is "Quiz
+  navigation" leg 4's, measured on the final row. Both fields reset on every
+  transition, which clears the row outright — it holds no state the answer
+  does not express, so the `@key` remount of the two-group era is gone (see
   Pitfalls). The action row varies
   by kind: cube places the radios ahead of Submit / Skip and has no Undo (no
   partial-move state); checker keeps Undo last / Undo all (clearing the
@@ -2408,8 +2419,11 @@ The asymmetry is pinned three times over: at the service seam
   review marks nothing on the board: the panel's "Actual" line is the
   recorded players' actions, read off the record, and it always was — the
   per-half losses the page used to set beside it never reached that line —
-  while the quiz user's pair is named by the verdict. **The play verdicts** are
-  the producer's outcome, read by its case: correct; not best, with the error;
+  while the quiz user's answer is named by the verdict (**Cube scoring**,
+  above). **The play verdicts** are the producer's outcome, read by its case:
+  correct — "Correct.", since a correct play, one whose error shows as
+  0.0000, need not be the best one (SPEC-scoring §2a); not best, with the
+  error through `EquityDisplay.FormatLoss`;
   **not scored** — SPEC-scoring §2a's text verbatim, "Not scored under
   depth-first ranking: this play was analyzed less deeply than the best play,
   and at that depth it rated higher." (`Quiz.NotScoredVerdict`); and **off
@@ -2869,8 +2883,9 @@ The asymmetry is pinned three times over: at the service seam
   around — each owned by the section that implements it, and stated here in
   user terms only: what the match count counts and that a mix draws from that
   pool, the breakdown's exhaustiveness and what a zero means, no-play-choice
-  auto-skip, off-list-as-skip, cube-as-two-decisions and the claim the
-  doubling half is judged on, the dice click
+  auto-skip, off-list-as-skip, a cube answer judged whole and counted once
+  in the session's Total but as two halves in the lifetime record, that
+  answers can tie, the dice click
   advancing, the side panel's fold (§ The host layout — and see Pitfalls for
   what that note may say), and the reload reset. It closes with **Send
   feedback**.
@@ -2904,7 +2919,7 @@ The asymmetry is pinned three times over: at the service seam
   its `fh-*` anchors: `FilterHelp` renders inside this very section, so a
   section-wide pin on chrome wording is vacuous in one direction and
   impossible in the other. The breakdown paragraph applies it one tier down:
-  it deliberately **does not recite the five bucket labels** — those are
+  it deliberately **does not recite the bucket labels** — those are
   `AnswerTypeDisplay`'s copy, rendered on Home, and a second spelling here
   would drift the first time one is reworded (`PageTests` asserts their
   absence from the section). The checker-play section documents the one-click
@@ -2997,10 +3012,12 @@ The asymmetry is pinned three times over: at the service seam
   below) + total problems shown + **Restart with same filters** /
   **Back to setup**, and — for the third exit, the one with no button — a
   muted line saying nothing needs saving (§ `Help`'s data section for the
-  ruling and the gate). "Problems shown" is `PlayDecisions.Submitted +
-  DoubleDecisions.Submitted + SkippedCount` — **not** `Total.Submitted`,
-  which counts decisions and so double-counts each cube position (one Double
-  + one Take). "Back to setup" is **navigation only** — the start-gate
+  ruling and the gate). "Problems shown" is `Total.Submitted +
+  SkippedCount`: the session score's Total counts each answer once, a cube
+  answer included (SPEC-scoring §3, 2026-10-01), so its submitted count is
+  the answered problems. (Moving the count onto the run, as
+  `QuizRun.Presented.Length`, is `halheinrich/backgammon#325`'s item 2, with
+  "Quiz navigation" leg 4.) "Back to setup" is **navigation only** — the start-gate
   holders persist, so `Home` arrives armed with the same picks and filters;
   its label describes that navigation rather than promising a reset it
   doesn't perform — Restart and Back-to-setup differ only in *where they
@@ -3450,7 +3467,8 @@ is reworded.
 `schemaVersion` 3, one `problems` record whose key carries no filename and
 whose value is the bare tally-plus-date record (no answer-kind token — the
 flat v3 record reinstated by SPEC-stats-identity §3's 2026-09-02
-amendment), a cube-as-two-decisions tally, indented; a **v3 file** ⇒ read
+amendment), a cube answer tallied as two halves (No double's take half a
+correct zero), indented; a **v3 file** ⇒ read
 as current: no forecast, no set-aside report, the mix offered off it, one
 write folding this quiz's problem in beside its record; a **v4 file beside
 its v3 sibling** ⇒ the fold across the real `folderAccess.js`: the v4 bytes
@@ -3529,15 +3547,18 @@ fixture is a single-decision `.xgp` file (the `.xgp` emission policy yields at
 most one decision per file), so a one-fixture quiz is exactly one problem long
 with shuffle left off, and an N-fixture folder is N problems. Their *answer
 types* are a contract too: the breakdown suite stages `CheckerFixture` beside
-`CubeFixture`, whose best **pair** is `NoDoubleTake`, so that folder is a pool
+`CubeFixture`, whose truth is No double, so that folder is a pool
 of exactly two answer types with three empty — which is what makes its zeros
 real rather than arranged — and beside `TooGoodTakeFixture`, XG's "Too good
-to double/Take" position, to pin that it counts in the `NoDoubleTake` row **by
-ruling** (SPEC-scoring §3's 2026-09-02 amendment) and that no `TooGoodTake`
-row exists. `CubeFixture` is also money, Jacoby, cube centred — the
-one position where the too-good verdict is withheld — so `QuizFlowTests` pins
-the three-pill row on it, and the four-pill row (with the too-good pill that is
-then the wrong claim) on the match `TooGoodTakeFixture`. In-app navigation is asserted with polling URL assertions
+to double/Take" position, to pin that it counts in the No double row **by
+ruling** (SPEC-scoring §3's 2026-09-02 amendment); both pin the five row
+names exactly, the fourth "Too good or No double / Pass". `CubeFixture` is
+also money, Jacoby, cube centred — gammons not possible — so `QuizFlowTests`
+pins the four pills on it with the fourth reading **No double / Pass**, by
+exact accessible name, and the fourth reading **Too good** on the match
+`TooGoodTakeFixture`, where answering it is charged SPEC-scoring §3's
+convention. Pills are found by exact name (`CubePill`): Playwright matches a
+name by substring, and "No double" is inside "No double / Pass". In-app navigation is asserted with polling URL assertions
 (`Expect(Page).ToHaveURLAsync`), **not** `WaitForURLAsync` — Blazor navigates by
 `pushState` (same-document), and the navigation-event wait can lose the race
 when the push lands between the triggering click and the wait's registration
@@ -3579,12 +3600,11 @@ the bUnit `ClickPointAsync` helper at the `halheinrich/backgammon#86` leg,
 replacing the render-order convention (`HitRects.Nth(point − 1)`). The bar
 carries no attribute and `BarHitRect` still finds it by render order (index
 24, immediately after the 24 point rects); the bUnit dice click likewise.
-**The cube scenario answers with one click** — every pill of the four-pair row
-is a complete answer since SPEC-scoring §3's 2026-09-02 amendment
-(`halheinrich/backgammon#187`) — through `AnswerCubeAsync(pill)`, which takes
-the caption as the label home spells it; `AnswerCubeNoDoubleAsync` is the
-`NoDoubleTake` shorthand the `CubeFixture`-based scenarios rely on (fully
-correct against that fixture). The helper still waits for Submit to light
+**The cube scenario answers with one click** — every pill of the row is one
+whole answer — through `AnswerCubeAsync(pill)`, which takes the caption as
+the label home spells it; `AnswerCubeNoDoubleAsync` is the No double
+shorthand the `CubeFixture`-based scenarios rely on (correct against that
+fixture). The helper still waits for Submit to light
 between the click and the submit, so a row that failed to latch times out at
 exactly that gate.
 
@@ -3850,28 +3870,34 @@ public (see Pitfalls). The externally visible surface is the route map:
 - **`BackgammonCubeActions.ValueChanged` is `[EditorRequired]`.** Omitting the
   `@bind-Value="_completedCube"` binding surfaces as `RZ2012` (→ error under
   `-warnaserror`), not a silent splat — unlike the play side's
-  `OnPlayCompleted`. Keep it present: the row is controlled on the pair, so
+  `OnPlayCompleted`. Keep it present: the row is controlled on the answer, so
   without the binding its selections are never adopted.
 - **The cube row has no half-answered state any more, and no `@key`.** Under
   `halheinrich/backgammon#86` the row was two radio groups holding its two
-  half-selections as its own state; a half-answered row composed to no pair,
+  half-selections as its own state; a half-answered row stood for no answer,
   agreed with the null the page held, and survived a Skip — which is why the
   row carried `@key="current"`. Since `halheinrich/backgammon#187` every
-  pill is a complete pair and the row renders its checked pill from `Value`,
+  pill is one whole answer and the row renders its checked pill from `Value`,
   so `HandleStateChanged`'s `_completedCube = null` clears it outright and a
   key would be a defensive remount guarding nothing (the same reasoning that
   keeps a key off the play entry). Don't add one back:
   `Quiz_CubeActions_ChosenThenSkip_NextProblemStartsClean_WithoutARemount`
   pins the same instance carrying over clean. Gating Submit on
   `_completedCube is null` is correct as is — that is "a pill chosen".
-- **`OfferTooGood` is `[EditorRequired]` and the page feeds it the cube
-  record's `CanBeTooGood`, never a re-derivation.** The producer derives
-  the offerability fact once, on the record, from the session's Jacoby rule
-  and the cube owner together; a page-side test of those facts would be a
-  second spelling of that rule and drift the day it changes. Note the
+- **`BackgammonCubeActions` takes the decision on screen as its required
+  `Decision`, and splats any attribute it does not know onto its root
+  element.** Its labels are the decision's reading (the fourth answer reads
+  Too good where gammons are possible, No double / Pass where they are not),
+  so the page hands it the record on screen and never derives a gammon fact
+  itself. The splat is the trap: a stale parameter still compiles — the
+  retired `OfferTooGood="cube.CanBeTooGood"` survived the producer's removal
+  of both members, the generated code passing the literal string onto the
+  row's root (umbrella, 2026-10-02) — so a green build proves nothing about
+  the row's parameters; a search of the page and a render-level pin do. The
   default `TestFixtures.CubeDecision()` is money, Jacoby on, cube **turned**
-  (`CubeOwner.OnRoll`), so it offers the too-good pill; pass `cubeOwner:
-  CubeOwner.Centered` for the withheld case.
+  (`CubeOwner.OnRoll`), so gammons are possible and the fourth reads Too
+  good; pass `cubeOwner: CubeOwner.Centered` for the reading where gammons
+  are not possible.
 - **A binding to a parameter the component doesn't have is a *render*-time
   failure, not a build one.** `<FilterSurface OnFilterDirty="..."/>` against a
   composite that has since renamed it compiles clean and throws
@@ -4490,17 +4516,17 @@ public (see Pitfalls). The externally visible surface is the route map:
   presented problems (`QuizRun.Presented` — each entry holds its decision and
   its disposition, so its solution diagram can be re-rendered) would close
   the loop.
-- **e2e too-good coverage.** The `TooGoodTake` verdict is retired
-  (SPEC-scoring §3's 2026-09-02 amendment, `halheinrich/backgammon#187`):
-  `TooGoodAndTake.xgp` is now the position that decided the amendment, a
-  `NoDoubleTake` by ruling, and `QuizFlowTests.TooGoodToDoubleTakePath_…`
-  runs it end to end (the too-good claim is wrong there, then the no-double on
-  a practice retry). Still open for `TooGoodPass` — the one too-good
-  verdict left: no committed fixture has `nd > 1 && dt ≥ 1` (it is pinned in
-  bUnit on a synthesized record). Close by sourcing one from the corpus via
+- **e2e coverage of the fourth answer as the truth.** `TooGoodAndTake.xgp`
+  is the position that decided SPEC-scoring §3's 2026-09-02 amendment
+  (`halheinrich/backgammon#187`), No double by ruling, and
+  `QuizFlowTests.TooGoodToDoubleTakePath_…` runs it end to end (Too good
+  charged there, then No double on a practice retry). Still open: no
+  committed fixture's truth is the fourth answer — Too good (`nd > 1 && dt ≥
+  1`, gammons possible) or No double / Pass — so it is pinned in bUnit on
+  synthesized records only. Close by sourcing one from the corpus via
   ExtractFromXgToCsv's slice export — **anonymize ON**, the fixture commits
   to a public repo — into `E2eTests/Fixtures/`, plus a `QuizFlowTests` case
-  (banner "Best: Too good" + `Too good: correct · Pass: correct` verdict →
-  Done, both spelled as the label home spells them at the time).
+  (Best line "Best: Too good" + verdict "Correct — Too good." → Done, both
+  spelled as the label home spells them at the time).
   Synthesis was rejected: the producer's clean writer surface is unanalyzed
   by design. Surfaced 2026-07-22; narrowed 2026-09-01; re-scoped 2026-09-02.

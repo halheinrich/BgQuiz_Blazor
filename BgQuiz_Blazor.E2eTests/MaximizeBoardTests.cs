@@ -75,7 +75,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
         // The board and every answer instrument survive: a cube answer must stay
         // makeable without leaving the maximized view.
         await Expect(Page.Locator(".board-container .bg-diagram")).ToBeVisibleAsync();
-        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.NoDoublePill })).ToBeVisibleAsync();
+        await Expect(CubePill(ExpectedText.NoDoublePill)).ToBeVisibleAsync();
 
         // And so does the XGID — the badge rides the action row, which this mode
         // keeps. This is the composition halheinrich/backgammon#98 came out of: the badge used to
@@ -94,7 +94,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
         // on that pairing, so a leak would fault the render, not merely look wrong).
         await Expect(StatusStrip).ToHaveCountAsync(1);
         await Expect(ScorePanel).ToHaveCountAsync(1);
-        await Expect(VerdictBand).ToContainTextAsync(ExpectedText.CubeVerdictNoDoubleAndTakeCorrect);
+        await Expect(VerdictBand).ToContainTextAsync(ExpectedText.CubeVerdictNoDoubleCorrect);
         await Expect(Page.Locator(".bg-diagram")).ToContainTextAsync(ExpectedText.SolutionBestNoDouble);
 
         // The badge did not move when the composition did — one home, both

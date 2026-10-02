@@ -289,35 +289,34 @@
                 {
                     @* The cube answer lives here in the chrome, beside its own
                        Submit / Skip — the board region above is board-only. One
-                       radio group leads the row: the four reachable verdict
-                       pairs of SPEC-scoring §3 as amended 2026-09-02
-                       (halheinrich/backgammon#187), each pill a complete
-                       (claim, taker) pair, so there is no half answer to gate
-                       against. @bind-Value keeps _completedCube current, which
-                       is what CanSubmit reads — null until a pill is chosen,
-                       lit from the first click (the one gate, see
-                       Quiz.razor.cs).
+                       radio group leads the row: the four answers of
+                       SPEC-scoring §3 (halheinrich/backgammon#326), all four
+                       offered at every cube decision, each pill one whole
+                       answer, so there is no half answer to gate against.
+                       @bind-Value keeps _completedCube current, which is what
+                       CanSubmit reads — null until a pill is chosen, lit from
+                       the first click (the one gate, see Quiz.razor.cs).
 
-                       OfferTooGood passes the producer's offerability fact
-                       through (CubeDecision.CanBeTooGood): whether Too good
-                       can be right at this position is derived once, on the
-                       record, from money / Jacoby / cube-centred together, and
-                       this page never re-derives it from those fields.
+                       Decision is the record on screen: the row labels each
+                       pill from it, so the fourth reads Too good where gammons
+                       are possible and No double / Pass where they are not —
+                       the decision's reading, which this page never re-derives.
+                       ShortLabels stays at its default, so every pill shows its
+                       full label, which is also its accessible name.
 
                        One clearing mechanism, deliberately. The row holds no
-                       state the pair does not express — its checked pill IS
+                       state the answer does not express — its checked pill IS
                        Value, re-rendered from it — so HandleStateChanged nulling
                        _completedCube on every transition clears the row
                        outright, Skip included. The @key remount this row used to
                        carry existed for the half-answered row of the two-group
-                       era, whose one lit pill composed to no pair and so
-                       survived a null; with every selection a complete pair
-                       that state is unrepresentable, and a key would be a
-                       defensive remount guarding nothing (the same reasoning
-                       that keeps a @key off the play entry — see the Redo
-                       remarks in Quiz.razor.cs). *@
-                    <BackgammonCubeActions @bind-Value="_completedCube"
-                                           OfferTooGood="cube.CanBeTooGood" />
+                       era, whose one lit pill stood for no answer and so
+                       survived a null; with every selection a whole answer that
+                       state is unrepresentable, and a key would be a defensive
+                       remount guarding nothing (the same reasoning that keeps a
+                       @key off the play entry — see the Redo remarks in
+                       Quiz.razor.cs). *@
+                    <BackgammonCubeActions @bind-Value="_completedCube" Decision="cube" />
                     <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanSubmit)"
                             @onclick="Submit">
                         Submit

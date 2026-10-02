@@ -14,7 +14,7 @@ using XgFilter_Lib.Filtering;
 /// for each, the totals and the ranking. Pages observe state via
 /// <see cref="StateChanged"/> and drive transitions via
 /// <see cref="StartAsync"/> / <see cref="SubmitPlay"/> /
-/// <see cref="SubmitCubeAction"/> / <see cref="RedoAsync"/> /
+/// <see cref="SubmitCubeAnswer"/> / <see cref="RedoAsync"/> /
 /// <see cref="ContinueAsync"/> / <see cref="SkipCurrentAsync"/> /
 /// <see cref="EndQuizAsync"/> / <see cref="RestartAsync"/>.
 ///
@@ -38,7 +38,7 @@ using XgFilter_Lib.Filtering;
 /// <para>
 /// <b>Three-state per-problem flow.</b> Each problem moves through
 /// <i>answering</i> → <i>review</i> → <i>advance</i>. Submit
-/// (<see cref="SubmitPlay"/> / <see cref="SubmitCubeAction"/>) scores the answer
+/// (<see cref="SubmitPlay"/> / <see cref="SubmitCubeAnswer"/>) scores the answer
 /// and sets <see cref="Review"/> without advancing — the page flips to a static
 /// solution view. <see cref="ContinueAsync"/> then moves on from the problem
 /// and pulls the next one. Skip (<see cref="SkipCurrentAsync"/>) bypasses
@@ -109,7 +109,7 @@ using XgFilter_Lib.Filtering;
 /// choice governs which decisions the quiz admits — checker plays, cube
 /// decisions, or both. The controller adds no decision-type filter of its
 /// own; both checker plays (scored via <see cref="SubmitPlay"/>) and
-/// cube decisions (scored via <see cref="SubmitCubeAction"/>) flow when
+/// cube decisions (scored via <see cref="SubmitCubeAnswer"/>) flow when
 /// the user's filter admits them.
 /// </para>
 ///
@@ -140,7 +140,7 @@ using XgFilter_Lib.Filtering;
 /// first call is suspended mid-await. The gate lives here, not in the pages,
 /// so no caller needs to know the enumerator contract to be safe. The
 /// synchronous mutators (<see cref="SubmitPlay"/> /
-/// <see cref="SubmitCubeAction"/> / <see cref="RedoAsync"/>) cannot overlap
+/// <see cref="SubmitCubeAnswer"/> / <see cref="RedoAsync"/>) cannot overlap
 /// an await themselves but <i>can</i> land inside one, so they no-op while
 /// <see cref="IsBusy"/> too. See <see cref="IsBusy"/> for observability and
 /// the <see cref="StateChanged"/> contract.
@@ -511,7 +511,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// <para>
     /// <b>Classification is the producer's.</b> Each decision is folded via
     /// <see cref="AnswerTypeDistribution.Add"/>, which matches on the record's
-    /// kind and keys a cube decision by its analysis-declared best pair;
+    /// kind and keys a cube decision by its truth, the analysis's best answer;
     /// nothing here re-derives an answer type from equities.
     /// </para>
     ///
@@ -586,7 +586,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// </summary>
     /// <exception cref="InvalidOperationException">
     /// <see cref="Current"/> is a cube decision, which is answered with
-    /// <see cref="SubmitCubeAction"/> — a caller bug, since the page routes each
+    /// <see cref="SubmitCubeAnswer"/> — a caller bug, since the page routes each
     /// kind to its own answer instrument.
     /// </exception>
     public void SubmitPlay(Play play)
@@ -606,38 +606,30 @@ internal sealed class QuizController : IAsyncDisposable
     }
 
     /// <summary>
-    /// Score the user's cube <paramref name="answer"/> against
-    /// <see cref="Current"/>'s analysis and enter the <i>review</i> state — set
+    /// Score the user's cube <paramref name="answer"/> at
+    /// <see cref="Current"/>'s cube decision and enter the <i>review</i> state — set
     /// <see cref="Review"/> and fire <see cref="StateChanged"/> without
     /// advancing. <see cref="ContinueAsync"/> moves to the next problem.
     ///
     /// <para>
-    /// The run scores it and files it (<see cref="QuizRun.SubmitCubeAction"/>):
+    /// The run scores it and files it (<see cref="QuizRun.SubmitCubeAnswer"/>):
     /// of record only the first time, exactly as <see cref="SubmitPlay"/>
     /// describes (SPEC-scoring.md §2); a post-redo submission is practice, and
     /// the scoring below is what both get.
     /// </para>
     ///
     /// <para>
-    /// A cube position is two independent atomic decisions — the doubler's
-    /// three-valued <i>claim</i> (no double / double / too good) and the
-    /// taker's response if doubled — so both halves are always scored
-    /// (SPEC-scoring.md §3; halheinrich/backgammon#86). The scoring is the
-    /// producer's, reached through its one factory:
-    /// <see cref="SubmittedCubeAction.From"/> reads the position's derived
-    /// truth (<see cref="CubeDecisionData.BestClaimPair"/>) and both per-half
-    /// equity losses off the analysed decision together, and the record
-    /// derives per-half correctness from the two pairs — claim vs. claim on
-    /// the doubler half, so a no-double answer to a too-good position scores
-    /// incorrect at +0.000 (the ruled "right action, wrong reason" verdict).
-    /// Nothing in this app reads an equity or compares an action: assembling
-    /// the record by hand is how an answer, a truth and a loss from different
-    /// decisions once could mix. Unlike <see cref="SubmitPlay"/> there is no
-    /// off-list / skip path — every cube answer is a complete, scorable pair,
-    /// the incoherent (no double, pass) cell included: it is a selectable
-    /// answer by ruling, never best, and scored per half like any other. The
-    /// whole scored submission is carried on <see cref="ProblemReview.Cube"/>,
-    /// which drives the verdict line.
+    /// A cube answer is one of four (<see cref="CubeAnswer"/>), and its cost
+    /// and correctness are SPEC-scoring.md §3's — read the rule there. The
+    /// scoring is the producer's, in one call,
+    /// <see cref="SubmittedCubeAnswer.Score"/>, at the decision on screen: it
+    /// reads the key, the truth and the answer's cost off that one record and
+    /// derives whether the answer is correct from the cost. Nothing in this app
+    /// reads an equity, compares answers, or restates a cost or verdict rule.
+    /// Unlike <see cref="SubmitPlay"/> there is no off-list / skip path — every
+    /// cube answer is scored. The scored answer and the decision it was scored
+    /// at are carried on <see cref="ProblemReview.Cube"/>, which drives the
+    /// verdict line.
     /// </para>
     ///
     /// <para>
@@ -650,13 +642,13 @@ internal sealed class QuizController : IAsyncDisposable
     /// <see cref="SubmitPlay"/> — a caller bug, since the page routes each kind
     /// to its own answer instrument.
     /// </exception>
-    public void SubmitCubeAction(CubeClaimPair answer)
+    public void SubmitCubeAnswer(CubeAnswer answer)
     {
         // Same IsBusy rationale as SubmitPlay: mid-advance the run would take
         // the submission, so the gate is the guard that actually holds.
         if (IsBusy || _run is not { IsAnswering: true } run) return;
 
-        _run = run.SubmitCubeAction(answer);
+        _run = run.SubmitCubeAnswer(answer);
         StateChanged?.Invoke();
     }
 

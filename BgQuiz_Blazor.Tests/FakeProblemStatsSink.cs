@@ -51,13 +51,13 @@ internal sealed class FakeProblemStatsSink : IProblemStatsSink
     public List<SubmittedPlay> Plays { get; } = [];
 
     /// <summary>Cube folds, in fold order.</summary>
-    public List<SubmittedCubeAction> Cubes { get; } = [];
+    public List<SubmittedCubeAnswer> Cubes { get; } = [];
 
     public int TotalFolds => Plays.Count + Cubes.Count;
 
     /// <summary>
     /// Scriptable fold gate: <see cref="RecordAsync(SubmittedPlay)"/> /
-    /// <see cref="RecordAsync(SubmittedCubeAction)"/> await this before
+    /// <see cref="RecordAsync(SubmittedCubeAnswer)"/> await this before
     /// folding. Defaults to completed (folds are synchronous, as before); an
     /// overlap test sets a <see cref="TaskCompletionSource"/> task here to
     /// freeze the controller <i>inside</i> the awaited fold — the window
@@ -87,7 +87,7 @@ internal sealed class FakeProblemStatsSink : IProblemStatsSink
         Plays.Add(play);
     }
 
-    public async Task RecordAsync(SubmittedCubeAction cube)
+    public async Task RecordAsync(SubmittedCubeAnswer cube)
     {
         OnRecording?.Invoke();
         await RecordGate;

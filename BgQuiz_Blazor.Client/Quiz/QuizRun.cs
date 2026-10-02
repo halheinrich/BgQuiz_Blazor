@@ -48,7 +48,7 @@ using BgGame_Lib;
 /// <see cref="WithProblemCount"/>). Scoring <i>is</i> here, because it is a pure
 /// function of three things the run holds — the problem on screen, the ranking,
 /// and the answer submitted — so no caller can pair a play with another
-/// problem or another ranking.
+/// problem or another ranking, or a cube answer with another decision.
 /// </para>
 ///
 /// <para>
@@ -385,14 +385,14 @@ internal sealed class QuizRun
     /// </summary>
     /// <exception cref="InvalidOperationException">
     /// The run is not in the answering state, or the problem on screen is a
-    /// cube decision, which is answered with <see cref="SubmitCubeAction"/>.
+    /// cube decision, which is answered with <see cref="SubmitCubeAnswer"/>.
     /// </exception>
     public QuizRun SubmitPlay(Play play)
     {
         var answering = RequireAnswering();
         if (answering.Problem is not CheckerPlayDecision decision)
             throw new InvalidOperationException(
-                "The current problem is a cube decision; answer it with SubmitCubeAction.");
+                "The current problem is a cube decision; answer it with SubmitCubeAnswer.");
 
         var practice = answering.Disposition.IsCompleted;
         var outcome = PlaySubmission.Score(play, decision, Ranking);
@@ -407,28 +407,31 @@ internal sealed class QuizRun
     }
 
     /// <summary>
-    /// Score the cube <paramref name="answer"/> against the cube decision on
-    /// screen and show its review. The cursor does not move. Live or practice
-    /// exactly as <see cref="SubmitPlay"/> describes; a cube answer is always a
-    /// complete, scorable pair, so a live one is always an answer of record and
-    /// never a skip.
+    /// Score the cube <paramref name="answer"/> — one of the four — at the cube
+    /// decision on screen and show its review. The cursor does not move. Live
+    /// or practice exactly as <see cref="SubmitPlay"/> describes; every cube
+    /// answer is scored, so a live one is always an answer of record and never
+    /// a skip.
     ///
     /// <para>
-    /// <b>Scoring is the producer's, through its one factory</b>
-    /// (<see cref="SubmittedCubeAction.From"/>): the position's derived truth
-    /// and both per-half losses are read off the one decision together, and
-    /// the record derives per-half correctness from the two pairs
-    /// (SPEC-scoring.md §3). The key is the record's own
-    /// (<see cref="ProblemKey.From"/>), which every record has; the factory
-    /// takes it from its caller (halheinrich/backgammon#285), so it is derived
-    /// here.
+    /// <b>Scoring is the producer's, in one call</b>
+    /// (<see cref="SubmittedCubeAnswer.Score"/>, made by the review it is
+    /// shown in, <see cref="ProblemReview.Cube"/>): the problem's key, the
+    /// truth and the answer's cost are all read off the decision on screen,
+    /// and whether the answer is correct is derived from that cost
+    /// (SPEC-scoring.md §3). This method only files the outcome — the
+    /// review's own <see cref="ProblemReview.Cube.Submission"/>, so the answer
+    /// of record and the review on screen are one scored answer.
     /// </para>
     /// </summary>
     /// <exception cref="InvalidOperationException">
     /// The run is not in the answering state, or the problem on screen is a
     /// checker-play decision, which is answered with <see cref="SubmitPlay"/>.
     /// </exception>
-    public QuizRun SubmitCubeAction(CubeClaimPair answer)
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="answer"/> is not one of the four answers.
+    /// </exception>
+    public QuizRun SubmitCubeAnswer(CubeAnswer answer)
     {
         var answering = RequireAnswering();
         if (answering.Problem is not CubeDecision decision)
@@ -436,11 +439,10 @@ internal sealed class QuizRun
                 "The current problem is a checker-play decision; answer it with SubmitPlay.");
 
         var practice = answering.Disposition.IsCompleted;
-        var submitted = SubmittedCubeAction.From(ProblemKey.From(decision), answer, decision.Decision);
-        var review = new ProblemReview.Cube(submitted) { IsPractice = practice };
+        var review = new ProblemReview.Cube(answer, decision) { IsPractice = practice };
         return practice
             ? WithReview(review)
-            : WithCursorCompleted(ProblemDisposition.Answered(AnswerOfRecord.Of(submitted)), review);
+            : WithCursorCompleted(ProblemDisposition.Answered(AnswerOfRecord.Of(review.Submission)), review);
     }
 
     /// <summary>

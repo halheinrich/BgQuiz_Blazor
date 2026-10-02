@@ -130,10 +130,10 @@ public class QuizRunTests
     private static SubmittedPlay PlayOfRecord(PresentedProblem problem) =>
         AnswerOf(problem).Match(
             play: submitted => submitted,
-            cube: _ => throw new Xunit.Sdk.XunitException("Expected a checker-play answer of record; it is a cube pair."));
+            cube: _ => throw new Xunit.Sdk.XunitException("Expected a checker-play answer of record; it is a cube answer."));
 
     /// <summary>The cube answer of record of <paramref name="problem"/>, asserting it has one.</summary>
-    private static SubmittedCubeAction CubeOfRecord(PresentedProblem problem) =>
+    private static SubmittedCubeAnswer CubeOfRecord(PresentedProblem problem) =>
         AnswerOf(problem).Match(
             play: _ => throw new Xunit.Sdk.XunitException("Expected a cube answer of record; it is a checker play."),
             cube: submitted => submitted);
@@ -325,7 +325,7 @@ public class QuizRunTests
         run = run.GoToFirst().Next(out _).GoBack().GoToLast().GoBack();
         Assert.All(Kinds(run), kind => Assert.Equal(ProblemDispositionKind.Unresolved, kind));
 
-        run = run.SubmitCubeAction(CubeClaimPair.DoubleTake);          // a live submission, on the middle problem
+        run = run.SubmitCubeAnswer(CubeAnswer.DoubleTake);          // a live submission, on the middle problem
         Assert.Equal(
             new[] { ProblemDispositionKind.Unresolved, ProblemDispositionKind.Answered, ProblemDispositionKind.Unresolved },
             Kinds(run));
@@ -396,21 +396,25 @@ public class QuizRunTests
     }
 
     [Fact]
-    public void SubmitCubeAction_OnTheUnresolvedFrontier_IsTheAnswerOfRecord()
+    public void SubmitCubeAnswer_OnTheUnresolvedFrontier_IsTheAnswerOfRecord()
     {
         var problem = CubeProblem(7);
-        var run = Show(Begin(), problem).SubmitCubeAction(CubeClaimPair.NoDoublePass);
+        var run = Show(Begin(), problem).SubmitCubeAnswer(CubeAnswer.NoDoublePass);
 
         var review = Assert.IsType<ProblemReview.Cube>(run.Review);
         Assert.False(review.IsPractice);
-        Assert.Equal(CubeClaimPair.NoDoublePass, review.Submission.UserDecision);
+        Assert.Equal(CubeAnswer.NoDoublePass, review.Submission.Answer);
         Assert.Equal(ProblemKey.From(problem), review.Submission.ProblemKey);
         Assert.Same(review.Submission, CubeOfRecord(run.Cursor!));
 
-        // Built through the producer's one factory, field for field.
-        Assert.Equal(
-            SubmittedCubeAction.From(ProblemKey.From(problem), CubeClaimPair.NoDoublePass, problem.Decision),
-            review.Submission);
+        // Scored by the producer at the decision on screen, which the review
+        // keeps. Equality is the problem and the answer only, so the cost and
+        // the truth are compared as well.
+        var expected = SubmittedCubeAnswer.Score(CubeAnswer.NoDoublePass, problem);
+        Assert.Equal(expected, review.Submission);
+        Assert.Equal(expected.Cost, review.Submission.Cost);
+        Assert.Equal(expected.BestAnswer, review.Submission.BestAnswer);
+        Assert.Same(problem, review.Decision);
         Assert.False(run.IsLive);
     }
 
@@ -467,11 +471,11 @@ public class QuizRunTests
     }
 
     [Fact]
-    public void SubmitCubeAction_OnACheckerPlay_Throws()
+    public void SubmitCubeAnswer_OnACheckerPlay_Throws()
     {
         var run = Show(Begin(), PlayProblem(1));
 
-        Assert.Throws<InvalidOperationException>(() => run.SubmitCubeAction(CubeClaimPair.DoubleTake));
+        Assert.Throws<InvalidOperationException>(() => run.SubmitCubeAnswer(CubeAnswer.DoubleTake));
     }
 
     [Fact]
@@ -479,10 +483,10 @@ public class QuizRunTests
     {
         // §4's table: from either review state Submit is no transition at all.
         var play = Show(Begin(), PlayProblem(1)).SubmitPlay(Best());
-        var cube = Show(Begin(), CubeProblem(1)).SubmitCubeAction(CubeClaimPair.DoubleTake);
+        var cube = Show(Begin(), CubeProblem(1)).SubmitCubeAnswer(CubeAnswer.DoubleTake);
 
         Assert.Throws<InvalidOperationException>(() => play.SubmitPlay(Alt()));
-        Assert.Throws<InvalidOperationException>(() => cube.SubmitCubeAction(CubeClaimPair.NoDoublePass));
+        Assert.Throws<InvalidOperationException>(() => cube.SubmitCubeAnswer(CubeAnswer.NoDoublePass));
     }
 
     [Fact]
@@ -492,9 +496,9 @@ public class QuizRunTests
         var ended = Show(Begin(), PlayProblem(1)).End();
 
         Assert.Throws<InvalidOperationException>(() => notYetPresented.SubmitPlay(Best()));
-        Assert.Throws<InvalidOperationException>(() => notYetPresented.SubmitCubeAction(CubeClaimPair.DoubleTake));
+        Assert.Throws<InvalidOperationException>(() => notYetPresented.SubmitCubeAnswer(CubeAnswer.DoubleTake));
         Assert.Throws<InvalidOperationException>(() => ended.SubmitPlay(Best()));
-        Assert.Throws<InvalidOperationException>(() => ended.SubmitCubeAction(CubeClaimPair.DoubleTake));
+        Assert.Throws<InvalidOperationException>(() => ended.SubmitCubeAnswer(CubeAnswer.DoubleTake));
     }
 
     // -----------------------------------------------------------------------
@@ -594,16 +598,16 @@ public class QuizRunTests
     }
 
     [Fact]
-    public void SubmitCubeAction_OnACompletedProblem_IsPractice_AndChangesNothing()
+    public void SubmitCubeAnswer_OnACompletedProblem_IsPractice_AndChangesNothing()
     {
-        var answered = Show(Begin(), CubeProblem(1)).SubmitCubeAction(CubeClaimPair.NoDoublePass);   // of record: both halves wrong
+        var answered = Show(Begin(), CubeProblem(1)).SubmitCubeAnswer(CubeAnswer.NoDoublePass);   // of record: wrong
         var recorded = CubeOfRecord(answered.Cursor!);
 
-        var practised = answered.Redo().SubmitCubeAction(CubeClaimPair.DoubleTake);                  // practice: both right
+        var practised = answered.Redo().SubmitCubeAnswer(CubeAnswer.DoubleTake);                  // practice: correct
 
         var review = Assert.IsType<ProblemReview.Cube>(practised.Review);
         Assert.True(review.IsPractice);
-        Assert.Equal(CubeClaimPair.DoubleTake, review.Submission.UserDecision);
+        Assert.Equal(CubeAnswer.DoubleTake, review.Submission.Answer);
         Assert.Same(recorded, CubeOfRecord(practised.Cursor!));
         AssertRecordUnchanged(answered, practised);
         Assert.Equal(0, practised.Score.Total.Correct);
@@ -739,7 +743,7 @@ public class QuizRunTests
         var deferred = MoveOnTo(Show(Begin(), cube), PlayProblem(2));
         Assert.Equal(1, deferred.SkippedCount);
 
-        var answered = deferred.GoBack().SubmitCubeAction(CubeClaimPair.DoubleTake);
+        var answered = deferred.GoBack().SubmitCubeAnswer(CubeAnswer.DoubleTake);
 
         var review = Assert.IsType<ProblemReview.Cube>(answered.Review);
         Assert.False(review.IsPractice);
@@ -1211,7 +1215,7 @@ public class QuizRunTests
         // answer or a skip, so the two totals add up to the sequence.
         var cube = CubeProblem(2);
         var run = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(Best()), cube)
-            .SubmitCubeAction(CubeClaimPair.DoubleTake);
+            .SubmitCubeAnswer(CubeAnswer.DoubleTake);
         run = MoveOnTo(run, PlayProblem(3));
         run = MoveOnTo(run, PlayProblem(4));
 
@@ -1228,7 +1232,7 @@ public class QuizRunTests
     {
         Present,
         SubmitPlay,
-        SubmitCubeAction,
+        SubmitCubeAnswer,
         Redo,
         Next,
         GoToFirst,
@@ -1240,7 +1244,7 @@ public class QuizRunTests
     [Theory]
     [InlineData(Transition.Present)]
     [InlineData(Transition.SubmitPlay)]
-    [InlineData(Transition.SubmitCubeAction)]
+    [InlineData(Transition.SubmitCubeAnswer)]
     [InlineData(Transition.Redo)]
     [InlineData(Transition.Next)]
     [InlineData(Transition.GoToFirst)]
@@ -1255,7 +1259,7 @@ public class QuizRunTests
         {
             Transition.Present => Show(ended, PlayProblem(4)),
             Transition.SubmitPlay => ended.SubmitPlay(Best()),
-            Transition.SubmitCubeAction => ended.SubmitCubeAction(CubeClaimPair.DoubleTake),
+            Transition.SubmitCubeAnswer => ended.SubmitCubeAnswer(CubeAnswer.DoubleTake),
             Transition.Redo => ended.Redo(),
             Transition.Next => ended.Next(out _),
             Transition.GoToFirst => ended.GoToFirst(),
@@ -1278,7 +1282,7 @@ public class QuizRunTests
 
         var run = Show(Begin(), play).SubmitPlay(Alt());
         var playOfRecord = PlayOfRecord(run.Cursor!);
-        run = MoveOnTo(run, cube).SubmitCubeAction(CubeClaimPair.NoDoublePass);
+        run = MoveOnTo(run, cube).SubmitCubeAnswer(CubeAnswer.NoDoublePass);
         var cubeOfRecord = CubeOfRecord(run.Cursor!);
         run = MoveOnTo(run, PlayProblem(3)).SubmitPlay(OffList());   // a skip of record, which scores nothing
         run = MoveOnTo(run, PlayProblem(4));
@@ -1371,7 +1375,7 @@ public class QuizRunTests
         // practised here, scored and off the list, on plays and on a cube.
         var cube = CubeProblem(2);
         var run = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(Alt()), cube)
-            .SubmitCubeAction(CubeClaimPair.NoDoublePass);
+            .SubmitCubeAnswer(CubeAnswer.NoDoublePass);
         run = MoveOnTo(run, PlayProblem(3)).SubmitPlay(OffList());
         var staged = MoveOnTo(run, PlayProblem(4));                      // answered, answered, skipped of record, unresolved
         var score = staged.Score;
@@ -1379,7 +1383,7 @@ public class QuizRunTests
 
         var practised = staged
             .GoToFirst().SubmitPlay(Best())                              // a better play than the record's
-            .Next(out _).SubmitCubeAction(CubeClaimPair.DoubleTake)      // the right cube answer
+            .Next(out _).SubmitCubeAnswer(CubeAnswer.DoubleTake)      // the right cube answer
             .Next(out _).SubmitPlay(Best())                              // a scored play on the skipped problem
             .Redo().SubmitPlay(OffList())                                // and an off-list one
             .GoToFirst().SubmitPlay(OffList());                          // off-list on an answered problem
@@ -1585,7 +1589,7 @@ public class QuizRunTests
         Assert.Equal(ranking, run.Ranking);
         run = run.Next(out _);
         Assert.Equal(ranking, run.Ranking);
-        run = Show(run, CubeProblem(2)).SubmitCubeAction(CubeClaimPair.DoubleTake);
+        run = Show(run, CubeProblem(2)).SubmitCubeAnswer(CubeAnswer.DoubleTake);
         Assert.Equal(ranking, run.Ranking);
         run = MoveOnTo(run, PlayProblem(3));
         Assert.Equal(ranking, run.Ranking);
@@ -1641,7 +1645,7 @@ public class QuizRunTests
     {
         var play = TestFixtures.Scored(PlayProblem(1), Best(), PlayRanking.Equity);
         var cubeProblem = CubeProblem(1);
-        var cube = SubmittedCubeAction.From(ProblemKey.From(cubeProblem), CubeClaimPair.DoubleTake, cubeProblem.Decision);
+        var cube = SubmittedCubeAnswer.Score(CubeAnswer.DoubleTake, cubeProblem);
 
         Assert.Same(play, AnswerOfRecord.Of(play).Match<object>(submitted => submitted, submitted => submitted));
         Assert.Same(cube, AnswerOfRecord.Of(cube).Match<object>(submitted => submitted, submitted => submitted));
@@ -1657,7 +1661,7 @@ public class QuizRunTests
         var answer = AnswerOfRecord.Of(TestFixtures.Scored(PlayProblem(1), Best(), PlayRanking.Equity));
 
         Assert.Throws<ArgumentNullException>(() => AnswerOfRecord.Of((SubmittedPlay)null!));
-        Assert.Throws<ArgumentNullException>(() => AnswerOfRecord.Of((SubmittedCubeAction)null!));
+        Assert.Throws<ArgumentNullException>(() => AnswerOfRecord.Of((SubmittedCubeAnswer)null!));
         Assert.Throws<ArgumentNullException>(() => answer.Match<int>(null!, _ => 0));
         Assert.Throws<ArgumentNullException>(() => answer.Match<int>(_ => 0, null!));
     }

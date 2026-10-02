@@ -38,9 +38,9 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         // the fake writable. Pin the wire contract from the consumer side:
         // schemaVersion 3 — the flat record reinstated by SPEC-stats-identity
         // §3's 2026-09-02 amendment (halheinrich/backgammon#187), no
-        // answer-kind token — one problem record keyed by content, a
-        // fully-correct cube submission tallied as TWO decisions (one per
-        // half), indented.
+        // answer-kind token — one problem record keyed by content, a correct
+        // No double tallied as TWO halves (its doubling half, and its take
+        // half as a correct zero: SPEC-scoring §3, 2026-10-01), indented.
         var writes = await CapturedWritesAsync();
         var payload = Assert.Single(writes);
         Assert.Contains('\n', payload);

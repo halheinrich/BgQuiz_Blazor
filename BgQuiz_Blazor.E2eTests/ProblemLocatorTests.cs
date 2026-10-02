@@ -250,7 +250,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// to its copy button, then the locator's file name — <i>the numbers
     /// never</i>. This is the widest the tail ever gets (a name past the
     /// visible cap, plus coordinates) beside the widest answer row there is
-    /// (the four-pair cube row, 419 px at its widest selection since
+    /// (the four-answer cube row, 419 px at its widest selection as measured since
     /// <c>halheinrich/backgammon#187</c>), and at 1280×800 with the navigation
     /// panel showing the tail reaches the <b>floor</b> of that order: the XGID
     /// at its copy button alone and the file name truncated to nothing, the

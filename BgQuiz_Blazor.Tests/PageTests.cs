@@ -40,6 +40,7 @@ using HelpEntry = BgQuiz_Blazor.Client.Components.Pages.HelpEntry;
 using QuizKeysMark = BgQuiz_Blazor.Client.Components.Pages.QuizKeysMark;
 using SettingsPage = BgQuiz_Blazor.Client.Components.Pages.Settings;
 using ScorePanelComponent = BgQuiz_Blazor.Client.Components.Pages.ScorePanel;
+using ScoreBreakdownComponent = BgQuiz_Blazor.Client.Components.Pages.ScoreBreakdown;
 using MixPanelComponent = BgQuiz_Blazor.Client.Components.Pages.MixPanel;
 
 namespace BgQuiz_Blazor.Tests;
@@ -775,7 +776,7 @@ public class PageTests : BunitContext
         // The two populated buckets, and — the point of the feature — the three
         // empty ones, present and reading zero rather than quietly dropped.
         var expected = AnswerTypeDisplay.Buckets(new AnswerTypeDistribution(
-            CheckerPlays: 2, NoDoubleTake: 0, DoubleTake: 1, DoublePass: 0, TooGoodPass: 0));
+            CheckerPlays: 2, NoDouble: 0, DoubleTake: 1, DoublePass: 0, NoDoublePass: 0));
         Assert.Equal(
             expected.Select(b => $"{b.Label}: {b.Count}"),
             region.QuerySelectorAll("li").Select(li => Normalize(li.TextContent)));
@@ -4525,17 +4526,70 @@ public class PageTests : BunitContext
         Assert.DoesNotContain("you can close the tab whenever you like", cut.Markup);
     }
 
+    /// <summary>
+    /// A session score folded from real scored checker plays, through the
+    /// producer's own <see cref="QuizScore.Plus(SubmittedPlay)"/> — the only way
+    /// a <see cref="QuizScore"/> is built. Each correct play is the two-choice
+    /// fixture's best play; each wrong one its alternative, which loses 0.05.
+    /// </summary>
+    private static QuizScore ScoreOfPlays(int correct, int wrong)
+    {
+        var decision = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var score = QuizScore.Empty;
+        for (var i = 0; i < correct; i++)
+            score = score.Plus(TestFixtures.Scored(decision, BestPlay(), PlayRanking.Equity));
+        for (var i = 0; i < wrong; i++)
+            score = score.Plus(TestFixtures.Scored(decision, AltPlay(), PlayRanking.Equity));
+        return score;
+    }
+
     [Fact]
     public void ScorePanel_SubmittedScore_RendersTotalAccuracyAsPercent()
     {
         // Total = 3 correct of 4 submitted → 75%. Pins the percentage the panel
         // renders so the Accuracy-sourced PercentCorrect stays behaviour-neutral:
         // the ×100 display of the library's [0, 1] Accuracy, not a re-derivation.
-        var score = new QuizScore(new ScoreSegment(4, 3, 0.8), ScoreSegment.Empty, ScoreSegment.Empty);
+        // The score is folded from real scored plays: QuizScore is factory-only.
+        var score = ScoreOfPlays(correct: 3, wrong: 1);
 
         var cut = Render<ScorePanelComponent>(p => p.Add(c => c.Score, score));
 
         Assert.Contains("(75%)", cut.Markup);
+    }
+
+    [Fact]
+    public async Task EveryLossDisplay_IsTheSharedPrecision_WhateverTheCulture()
+    {
+        // SPEC-scoring §3 (halheinrich/backgammon#202): every display of a
+        // cost or a loss uses the one precision BgDataTypes_Lib owns,
+        // EquityDisplay.FormatLoss — four decimals, culture-invariant. A local
+        // "0.0000" format would follow the thread's culture, so under a
+        // comma-decimal culture it would read 0,0250; the shared display reads
+        // 0.0250 on every surface: the score panel's average, each breakdown
+        // row's average, and a verdict's loss.
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+        try
+        {
+            // The verdict first: it registers the controller, which a bUnit
+            // context accepts only before its first render.
+            var (text, _) = await CubeVerdictFor(TestFixtures.CubeDecision(), CubeAnswer.NoDouble);
+            Assert.Equal("Not best — No double lost 0.2000. Best: Double / Take.", text);
+
+            var score = ScoreOfPlays(correct: 1, wrong: 1);   // 0.05 lost over two plays
+
+            var panel = Render<ScorePanelComponent>(p => p.Add(c => c.Score, score));
+            Assert.Contains("Avg loss: 0.0250", Normalize(panel.Find(".score-panel").TextContent));
+
+            var breakdown = Render<ScoreBreakdownComponent>(p => p.Add(c => c.Score, score));
+            Assert.Equal(
+                ["Play 2 1 (50%) 0.0250", "Double 0 0 0.0000", "Take 0 0 0.0000", "Total 2 1 (50%) 0.0250"],
+                breakdown.FindAll("tbody tr").Select(r => Normalize(r.TextContent)).ToList());
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = previous;
+        }
     }
 
     [Fact]
@@ -4560,7 +4614,7 @@ public class PageTests : BunitContext
     {
         // The slot is held until the first submission fills it, then gone: one
         // suffix on the line, never the placeholder beside the real one.
-        var score = new QuizScore(new ScoreSegment(1, 1, 0.0), ScoreSegment.Empty, ScoreSegment.Empty);
+        var score = ScoreOfPlays(correct: 1, wrong: 0);
 
         var cut = Render<ScorePanelComponent>(p => p.Add(c => c.Score, score));
 
@@ -4672,7 +4726,7 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
-        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
+        await AnswerCubeAsync(cut, CubeAnswer.DoubleTake);
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
 
@@ -4741,13 +4795,13 @@ public class PageTests : BunitContext
     {
         // The parent → child → handler wire for cube: BackgammonCubeActions fires
         // ValueChanged, @bind-Value latches it into _completedCube and enables
-        // Submit, and the Submit click routes to SubmitCubeAction, scoring both
-        // halves into the Double and Take score segments.
+        // Submit, and the Submit click routes to SubmitCubeAnswer: Double / Take
+        // adds to the Double and Take rows, and once to the Total.
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
-        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
+        await AnswerCubeAsync(cut, CubeAnswer.DoubleTake);
 
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
@@ -4756,6 +4810,7 @@ public class PageTests : BunitContext
         Assert.Equal(1, c.Score.DoubleDecisions.Correct);
         Assert.Equal(1, c.Score.TakeDecisions.Submitted);
         Assert.Equal(1, c.Score.TakeDecisions.Correct);
+        Assert.Equal(1, c.Score.Total.Submitted);
     }
 
     [Fact]
@@ -4932,8 +4987,53 @@ public class PageTests : BunitContext
 
         await cut.InvokeAsync(() => c.SubmitPlay(TestFixtures.OpeningBest()));
 
-        Assert.Equal("Correct — you found the best play.", VerdictBand(cut));
+        Assert.Equal("Correct.", VerdictBand(cut));
         Assert.Contains("alert-success", cut.Find(".status-verdict").ClassList);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_APlayLosingLessThanTheThreshold_IsCorrect()
+    {
+        // SPEC-scoring §2a (Hal, 2026-10-02, on halheinrich/backgammon#326:
+        // "Yes, "Correct.""): a play whose error shows as 0.0000 is correct
+        // though it is not the best play — this one loses 0.00004 — so the
+        // verdict says "Correct." and nothing about the best play, in the
+        // success colour.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.00004));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitPlay(AltPlay()));
+
+        Assert.Equal("Correct.", VerdictBand(cut));
+        Assert.Contains("alert-success", cut.Find(".status-verdict").ClassList);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_AWrongPlay_ShowsItsLossAtTheOneDisplayPrecision()
+    {
+        // The play's loss goes through EquityDisplay.FormatLoss: four
+        // decimals, whatever the culture. 0.05 shows as 0.0500 — under a
+        // comma-decimal culture too, where a local "0.0000" format would read
+        // 0,0500.
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+        try
+        {
+            var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
+            await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+            var cut = Render<QuizPage>();
+
+            await cut.InvokeAsync(() => c.SubmitPlay(AltPlay()));
+
+            Assert.Equal(
+                "Not best — your play lost 0.0500 equity. The best play is shown above.", VerdictBand(cut));
+            Assert.Contains("alert-danger", cut.Find(".status-verdict").ClassList);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = previous;
+        }
     }
 
     [Fact]
@@ -5258,7 +5358,7 @@ public class PageTests : BunitContext
         // answer of record.
         AssertSubmittedOn(c, cut, first);
         Assert.Equal(
-            CubeClaimPair.NoDoubleTake, Assert.IsType<ProblemReview.Cube>(c.Review).Submission.UserDecision);
+            CubeAnswer.NoDouble, Assert.IsType<ProblemReview.Cube>(c.Review).Submission.Answer);
     }
 
     [Fact]
@@ -5538,7 +5638,7 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
         var current = c.Current;
 
-        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
+        await AnswerCubeAsync(cut, CubeAnswer.DoubleTake);
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
         Assert.NotNull(c.Review);
@@ -5549,7 +5649,7 @@ public class PageTests : BunitContext
         Assert.Null(c.Review);
         Assert.Same(current, c.Current);
         Assert.Equal(1, c.Score.DoubleDecisions.Submitted); // the record stands — it was never popped
-        Assert.Equal(2, c.Score.Total.Correct);             // and it is still the answer submitted
+        Assert.Equal(1, c.Score.Total.Correct);             // and it is still the answer submitted
 
         var buttons = cut.FindAll("button").Select(b => b.TextContent.Trim()).ToList();
         Assert.Contains("Submit", buttons);
@@ -5571,7 +5671,7 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
-        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
+        await AnswerCubeAsync(cut, CubeAnswer.DoubleTake);
         Assert.NotEmpty(cut.FindAll("input[checked]")); // first answer selected a radio
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
@@ -5587,22 +5687,23 @@ public class PageTests : BunitContext
         Assert.Empty(cut.FindAll("input[checked]"));
 
         // Re-answer differently: scored and reviewed, and recorded nowhere.
-        await AnswerCubeAsync(cut, CubeClaimPair.NoDoublePass);
+        await AnswerCubeAsync(cut, CubeAnswer.NoDoublePass);
         var submit2 = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit2.ClickAsync(new());
 
         var practice = Assert.IsType<ProblemReview.Cube>(c.Review);
         Assert.True(practice.IsPractice);
-        Assert.Equal(CubeClaimPair.NoDoublePass, practice.Submission.UserDecision);
+        Assert.Equal(CubeAnswer.NoDoublePass, practice.Submission.Answer);
 
-        // The practice pair is wrong on both halves and the first is right on
-        // both, so a score that still reads two correct is the first answer's.
+        // The practice answer is wrong and the first is right, so a Total that
+        // still reads one correct of one is the first answer's.
         Assert.NotSame(recorded, practice.Submission);
-        Assert.Equal(CubeClaimPair.DoubleTake, recorded.UserDecision);
+        Assert.Equal(CubeAnswer.DoubleTake, recorded.Answer);
         Assert.Equal(scored, c.Score);
         Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
         Assert.Equal(1, c.Score.TakeDecisions.Submitted);
-        Assert.Equal(2, c.Score.Total.Correct);
+        Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.Equal(1, c.Score.Total.Correct);
     }
 
     [Fact]
@@ -5617,14 +5718,14 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
-        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
+        await AnswerCubeAsync(cut, CubeAnswer.DoubleTake);
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
 
         var ofRecordText = cut.Find(".status-verdict-text").TextContent;
         Assert.DoesNotContain("Practice", ofRecordText);
 
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo").ClickAsync(new());
-        await AnswerCubeAsync(cut, CubeClaimPair.NoDoublePass);
+        await AnswerCubeAsync(cut, CubeAnswer.NoDoublePass);
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
 
         var practiceText = cut.Find(".status-verdict-text").TextContent;
@@ -5632,10 +5733,12 @@ public class PageTests : BunitContext
         Assert.Contains("your first answer stands", practiceText);
 
         // The scored verdict itself still renders — the clause is a prefix, not
-        // a replacement — and the outcome colouring is untouched.
-        Assert.Contains("No double: ", practiceText);
-        Assert.Contains("Pass: ", practiceText);
-        Assert.NotNull(cut.Find(".status-verdict.alert-danger, .status-verdict.alert-success"));
+        // a replacement — and the outcome colouring is the practice answer's
+        // own: Too good at a Double / Take position is wrong.
+        Assert.Equal(
+            "Practice retry — your first answer stands. Not best — Too good lost 0.6000. Best: Double / Take.",
+            Normalize(practiceText));
+        Assert.Contains("alert-danger", cut.Find(".status-verdict").ClassList);
 
         // And Redo is still offered: practice cycles are unbounded.
         Assert.Contains("Redo", cut.FindAll("button").Select(b => b.TextContent.Trim()));
@@ -5644,12 +5747,12 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Quiz_CubeActions_OnePill_IsACompleteAnswer_SubmitLightsOnTheFirstClick()
     {
-        // Every pill of the four-pair row is a complete (claim, taker) pair
-        // since SPEC-scoring §3's 2026-09-02 amendment
-        // (halheinrich/backgammon#187), so there is no half-answered state for
-        // the Submit gate to hold against: the first click latches the pair
-        // and lights Submit, and what is submitted is exactly the pair the
-        // pill spells. Driven through the real radios, as the user does it.
+        // Every pill of the row is one whole answer (SPEC-scoring §3, amended
+        // on halheinrich/backgammon#326), so there is no half-answered state
+        // for the Submit gate to hold against: the first click latches the
+        // answer and lights Submit, and what is submitted is exactly the
+        // answer the pill names. Driven through the real radios, as the user
+        // does it.
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
@@ -5662,18 +5765,18 @@ public class PageTests : BunitContext
         Assert.False(cut.Find("button.btn-primary").HasAttribute("disabled"));
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
         Assert.Equal(
-            CubeClaimPair.NoDoubleTake, Assert.IsType<ProblemReview.Cube>(c.Review).Submission.UserDecision);
+            CubeAnswer.NoDouble, Assert.IsType<ProblemReview.Cube>(c.Review).Submission.Answer);
         Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
     }
 
     [Fact]
     public async Task Quiz_CubeActions_ChosenThenSkip_NextProblemStartsClean_WithoutARemount()
     {
-        // The row holds no state the pair does not express — its checked pill
-        // is rendered from Value — so HandleStateChanged nulling _completedCube
-        // on the Skip transition clears it outright. The @key remount the row
-        // carried in its two-group era (a half-answered row composed to no
-        // pair, agreed with the null, and survived a Skip) is gone with that
+        // The row holds no state the answer does not express — its checked
+        // pill is rendered from Value — so HandleStateChanged nulling
+        // _completedCube on the Skip transition clears it outright. The @key
+        // remount the row carried in its two-group era (a half-answered row
+        // stood for no answer, agreed with the null, and survived a Skip) is gone with that
         // state; this pins that the same instance carries over AND starts
         // clean, so a defensive key cannot creep back unremarked.
         var c = WithController(TestFixtures.CubeDecision(), TestFixtures.CubeDecision(away: 3));
@@ -5693,153 +5796,287 @@ public class PageTests : BunitContext
         Assert.Same(firstRow, cut.FindComponent<BackgammonCubeActions>().Instance);
     }
 
+    /// <summary>
+    /// The answer row's pills as rendered: each pill's visible caption and its
+    /// radio's accessible name, in the row's order.
+    /// </summary>
+    private static List<(string Caption, string? Name)> CubePills(IRenderedComponent<QuizPage> cut) =>
+        cut.FindAll(".bg-cube-actions label")
+            .Select(l => (l.TextContent.Trim(), l.QuerySelector("input")!.GetAttribute("aria-label")))
+            .ToList();
+
     [Fact]
-    public async Task Quiz_CubeActions_MoneyJacobyCentred_WithholdsTooGood()
+    public async Task Quiz_CubeActions_GammonsNotPossible_OffersAllFour_TheFourthReadsNoDoublePass()
     {
-        // SPEC-scoring §3's 2026-09-02 amendment, consequence (v)
-        // (halheinrich/backgammon#187): at a money position under the Jacoby
-        // rule with the cube in the middle, Too Good cannot occur, and the
-        // producer says so on the record (BgDecisionData.CanBeTooGood). The
-        // page passes that fact through as OfferTooGood — never re-deriving
-        // it from money / Jacoby / cube owner — so the pill is withheld here
-        // and the other three pairs are the whole row. The record is
-        // synthesized (the fixture builder's cubeOwner switch) because the
-        // e2e suite already pins the same absence on the committed money
-        // fixture; this pins the pass-through at the page.
+        // SPEC-scoring §3, amended 2026-10-01 (halheinrich/backgammon#326): all
+        // four answers are always offered, and the fourth is labelled by the
+        // position. A money game under the Jacoby rule with the cube centred is
+        // a position where gammons are not possible, so the fourth reads
+        // No double / Pass. The page hands the row the decision on screen and
+        // the row labels it from the decision's own reading; ShortLabels stays
+        // at its default, so each pill shows its full label, which is also its
+        // accessible name. (This position withheld the fourth pill until the
+        // 2026-10-01 amendment, when the page passed the producer's retired
+        // offerability fact through to the row.)
         var c = WithController(TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
-        var captions = cut.FindAll(".bg-cube-actions label").Select(l => l.TextContent.Trim()).ToList();
-        Assert.Equal(new[] { "No double", "Double / Take", "Double / Pass" }, captions);
+        Assert.Equal(
+            [
+                ("No double", "No double"),
+                ("Double / Take", "Double / Take"),
+                ("Double / Pass", "Double / Pass"),
+                ("No double / Pass", "No double / Pass"),
+            ],
+            CubePills(cut));
     }
 
     [Fact]
-    public async Task Quiz_CubeActions_TurnedCube_OffersTooGood()
+    public async Task Quiz_CubeActions_GammonsPossible_OffersAllFour_TheFourthReadsTooGood()
     {
-        // The positive half of the pin above, on the same money-Jacoby record
-        // with the cube turned: gammons count again, so Too Good can occur and
-        // the producer offers it — the fourth pill is there, in the row's
-        // order. (A match record offers it too, whatever the cube; the turned
-        // money cube is the one that differs from the withheld case in exactly
-        // one fact.)
+        // The other reading of the same record with the cube turned: gammons
+        // count again, so the fourth answer reads Too good — the one fact
+        // between this pin and the one above.
         var c = WithController(TestFixtures.CubeDecision(cubeOwner: CubeOwner.OnRoll));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
-        var captions = cut.FindAll(".bg-cube-actions label").Select(l => l.TextContent.Trim()).ToList();
-        Assert.Equal(new[] { "No double", "Double / Take", "Double / Pass", "Too good" }, captions);
+        Assert.Equal(
+            [
+                ("No double", "No double"),
+                ("Double / Take", "Double / Take"),
+                ("Double / Pass", "Double / Pass"),
+                ("Too good", "Too good"),
+            ],
+            CubePills(cut));
     }
 
     [Fact]
-    public async Task Quiz_Review_CubeVerdict_NoDoubleOverATooGoodPosition_SaysWrongClaim()
+    public async Task Quiz_CubeActions_TheRowIsHandedTheDecisionOnScreen()
     {
-        // SPEC-scoring §3's "right action, wrong reason" verdict, at the pixel
-        // it lands on (halheinrich/backgammon#86): No double answered to a
-        // too-good position is incorrect at +0.000. The band does not print a
-        // contradiction ("incorrect (lost 0.0000)"); it names the claim that
-        // was right and says no equity was lost. Coloured as a miss — the
-        // doubler half is wrong. The position is one the producer derives as
-        // Too good under the 2026-09-02 predicate (halheinrich/backgammon#187):
-        // playing on beats the cash AND the opponent would pass — so the
-        // No double pill's implied Take is wrong on the taker half as well,
-        // and the line says so with its own loss.
-        var c = WithController(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5));
+        // The row labels its pills from the Decision it is handed, so the page
+        // must hand it the record on screen — not another record with the
+        // same labels. A second, distinct cube problem proves the hand-over
+        // follows the run.
+        var first = TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered);
+        var second = TestFixtures.CubeDecision(away: 3);
+        var c = WithController(first, second);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
-        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.NoDoubleTake));
+        Assert.Same(first, cut.FindComponent<BackgammonCubeActions>().Instance.Decision);
 
-        var verdict = cut.Find(".status-strip").QuerySelector(".status-verdict")!;
-        Assert.Contains("alert-danger", verdict.ClassList);
-        Assert.Contains(
-            "No double: wrong claim — it's Too good (right action, no equity lost)",
-            verdict.TextContent);
-        Assert.Contains("Take: incorrect (lost 0.5000)", verdict.TextContent);
-        Assert.DoesNotContain("0.0000", verdict.TextContent);
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Skip").ClickAsync(new());
+
+        Assert.Same(second, cut.FindComponent<BackgammonCubeActions>().Instance.Decision);
     }
 
     [Fact]
-    public async Task Quiz_Review_CubeVerdict_TooGoodOverANoDoublePosition_SaysWrongClaim()
+    public async Task Quiz_CubeActions_EachPill_ReachesTheControllerAsItsAnswer()
     {
-        // The same verdict in the other direction, on the position that
-        // decided the amendment: XG's "Too good to double/Take" (no double
-        // above the cash, but the opponent takes) is a No double / Take here
-        // BY RULING (halheinrich/backgammon#187) — so a Too good answer is the
-        // wrong claim over the right board action, at no equity lost, and the
-        // line names No double as the truth. Its implied Pass is wrong on the
-        // taker half against a take.
-        var c = WithController(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 0.9));
+        // A pill clicked in the DOM reaches the controller as that CubeAnswer,
+        // for all four — the fourth by its gammons-not-possible label here, so
+        // the row's own labelling is what is clicked. One context per problem
+        // is unavailable (bUnit takes one controller), so each answer is a
+        // problem of its own, answered and continued past in turn — four money
+        // records with the cube centred, since a match score would make
+        // gammons possible and relabel the fourth.
+        var c = WithController(
+            TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered),
+            TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered),
+            TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered),
+            TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
-        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.TooGoodPass));
+        var submitted = new List<CubeAnswer>();
+        foreach (var caption in new[] { "No double", "Double / Take", "Double / Pass", "No double / Pass" })
+        {
+            await SelectCubeRadioAsync(cut, caption);
+            await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
+            submitted.Add(Assert.IsType<ProblemReview.Cube>(c.Review).Submission.Answer);
+            await cut.FindAll("button").First(b => b.TextContent.Trim() == "Continue").ClickAsync(new());
+        }
 
-        var verdict = cut.Find(".status-strip").QuerySelector(".status-verdict")!;
-        Assert.Contains("alert-danger", verdict.ClassList);
-        Assert.Contains(
-            "Too good: wrong claim — it's No double (right action, no equity lost)",
-            verdict.TextContent);
-        Assert.Contains("Pass: incorrect (lost 0.1000)", verdict.TextContent);
-        Assert.DoesNotContain("0.0000", verdict.TextContent);
+        Assert.Equal(
+            [CubeAnswer.NoDouble, CubeAnswer.DoubleTake, CubeAnswer.DoublePass, CubeAnswer.NoDoublePass],
+            submitted);
+    }
+
+    /// <summary>
+    /// Renders the quiz page on <paramref name="decision"/>, submits
+    /// <paramref name="answer"/> through the controller, and returns the
+    /// review's verdict band: its text and its colour class.
+    /// </summary>
+    private async Task<(string Text, IReadOnlyCollection<string> Classes)> CubeVerdictFor(
+        CubeDecision decision, CubeAnswer answer)
+    {
+        var c = WithController(decision);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var cut = Render<QuizPage>();
+
+        await cut.InvokeAsync(() => c.SubmitCubeAnswer(answer));
+
+        return (VerdictBand(cut), cut.Find(".status-verdict").ClassList.ToList());
     }
 
     [Fact]
-    public async Task Quiz_Review_CubeVerdict_TooGoodPass_IsTheFourthVerdict()
+    public async Task Quiz_Review_CubeVerdict_ACorrectAnswer_IsNamedByItsLabel()
     {
-        // The one too-good verdict left (Too Good requires the pass): answered
-        // as such — the Too good pill is the (TooGood, Pass) pair — it is
-        // correct on both halves and coloured as a hit.
-        var c = WithController(TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
+        // SPEC-scoring §3 (Hal, 2026-10-02: "Yes, one line like that"): one
+        // line, naming the answer with its label at the decision.
+        var (text, classes) = await CubeVerdictFor(TestFixtures.CubeDecision(), CubeAnswer.DoubleTake);
 
-        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.TooGoodPass));
-
-        var verdict = cut.Find(".status-strip").QuerySelector(".status-verdict")!;
-        Assert.Contains("alert-success", verdict.ClassList);
-        Assert.Equal("Too good: correct · Pass: correct", verdict.TextContent.Trim());
+        Assert.Equal("Correct — Double / Take.", text);
+        Assert.Contains("alert-success", classes);
     }
 
     [Fact]
-    public async Task Quiz_Review_CubeVerdict_IncoherentCell_IsExplained()
+    public async Task Quiz_Review_CubeVerdict_AWrongAnswer_NamesItsWholeLoss_AndTheOneBestAnswer()
     {
-        // (No double, Pass) is never best, and the review explains why rather
-        // than only marking it wrong. The four-pair row no longer offers the
-        // cell (SPEC-scoring §3 as amended 2026-09-02,
-        // halheinrich/backgammon#187), but SubmitCubeAction accepts any pair,
-        // so an answer arriving that way still reads its per-half verdicts
-        // first with the explanation trailing — driven through the controller
-        // here because no pill spells it.
-        var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
+        // The default position's truth is Double / Take, the only answer that
+        // costs nothing; No double loses the doubling part, 0.20, shown at the
+        // one display precision.
+        var (text, classes) = await CubeVerdictFor(TestFixtures.CubeDecision(), CubeAnswer.NoDouble);
 
-        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.NoDoublePass));
-
-        var text = cut.Find(".status-verdict-text").TextContent;
-        Assert.Contains("No double: incorrect — best is Double (lost 0.2000)", text);
-        Assert.Contains("Pass: incorrect (lost 0.3000)", text);
-        Assert.EndsWith(
-            "No double and pass can't both hold: if they'd pass, cashing beats playing on.",
-            text.Trim());
+        Assert.Equal("Not best — No double lost 0.2000. Best: Double / Take.", text);
+        Assert.Contains("alert-danger", classes);
     }
 
     [Fact]
-    public async Task Quiz_Review_CubeVerdict_CoherentAnswers_CarryNoExplanation()
+    public async Task Quiz_Review_CubeVerdict_AtATie_ListsEveryZeroCostAnswer_InTheirOrder()
     {
-        // The negative half: the incoherence clause is for the one cell, and a
-        // plainly wrong coherent answer (Double / Pass on a No double / Take
-        // position) gets its two per-half verdicts and nothing more.
-        var c = WithController(TestFixtures.CubeDecision(noDoubleEquity: 0.8, doubleTakeEquity: 0.7));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
+        // The halheinrich/backgammon#293 tie, gammons not possible (money,
+        // Jacoby, cube centred): no double worth exactly the cash, and XG's
+        // double/take at 2.0267. No double, Double / Pass and No double / Pass
+        // each cost nothing, so the Best list names all three, in
+        // ZeroCostAnswers' order (the order the four are offered), and Double /
+        // Take loses T − 1 = 1.0267.
+        var (text, classes) = await CubeVerdictFor(
+            TestFixtures.CubeDecision(noDoubleEquity: 1.0, doubleTakeEquity: 2.0267, cubeOwner: CubeOwner.Centered),
+            CubeAnswer.DoubleTake);
 
-        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.DoublePass));
+        Assert.Equal(
+            "Not best — Double / Take lost 1.0267. Best: No double, Double / Pass, No double / Pass.", text);
+        Assert.Contains("alert-danger", classes);
+    }
 
-        var text = cut.Find(".status-verdict-text").TextContent;
-        Assert.DoesNotContain("can't both hold", text);
-        Assert.Equal(2, text.Split(" · ").Length);
+    [Fact]
+    public async Task Quiz_Review_CubeVerdict_AtATie_WithGammonsPossible_TheFourthIsTooGoodInTheList()
+    {
+        // The same tie with the cube turned: the fourth answer is labelled
+        // Too good inside the Best list.
+        var (text, _) = await CubeVerdictFor(
+            TestFixtures.CubeDecision(noDoubleEquity: 1.0, doubleTakeEquity: 2.0267),
+            CubeAnswer.DoubleTake);
+
+        Assert.Equal("Not best — Double / Take lost 1.0267. Best: No double, Double / Pass, Too good.", text);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_CubeVerdict_TheFourthAnswer_AsTheUsersAnswer_ReadsTooGoodWhereGammonsArePossible()
+    {
+        var (text, classes) = await CubeVerdictFor(
+            TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5), CubeAnswer.NoDoublePass);
+
+        Assert.Equal("Correct — Too good.", text);
+        Assert.Contains("alert-success", classes);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_CubeVerdict_TheFourthAnswer_AsTheUsersAnswer_ReadsNoDoublePassWhereGammonsAreNot()
+    {
+        // At the default Double / Take position with the cube centred in
+        // money, the fourth answer is No double / Pass and costs 1 − N = 0.50.
+        var (text, classes) = await CubeVerdictFor(
+            TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered), CubeAnswer.NoDoublePass);
+
+        Assert.Equal("Not best — No double / Pass lost 0.5000. Best: Double / Take.", text);
+        Assert.Contains("alert-danger", classes);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_CubeVerdict_TheFourthAnswer_InTheBestList_ReadsTooGoodWhereGammonsArePossible()
+    {
+        // A Too good / Pass position (N = 1.2, T = 1.5, cube turned): Double /
+        // Pass loses N − 1 = 0.20, and the one best answer is the fourth,
+        // labelled Too good.
+        var (text, _) = await CubeVerdictFor(
+            TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5), CubeAnswer.DoublePass);
+
+        Assert.Equal("Not best — Double / Pass lost 0.2000. Best: Too good.", text);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_CubeVerdict_TheFourthAnswer_InTheBestList_ReadsNoDoublePassWhereGammonsAreNot()
+    {
+        // The same equities with the cube centred: gammons are not possible,
+        // so the fourth answer reads No double / Pass — and No double costs
+        // nothing there too, so both are listed, in their order.
+        var (text, _) = await CubeVerdictFor(
+            TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5, cubeOwner: CubeOwner.Centered),
+            CubeAnswer.DoublePass);
+
+        Assert.Equal("Not best — Double / Pass lost 0.2000. Best: No double, No double / Pass.", text);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_CubeVerdict_NoDoubleWhereTooGoodIsRight_IsCharged()
+    {
+        // One of SPEC-scoring §3's two conventions, where gammons are possible
+        // (Help states it): No double on a Too good position loses no equity at
+        // the board, yet is charged N − 0.6. The verdict shows the producer's
+        // cost and names Too good as best.
+        var (text, classes) = await CubeVerdictFor(
+            TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 1.5), CubeAnswer.NoDouble);
+
+        Assert.Equal("Not best — No double lost 0.6000. Best: Too good.", text);
+        Assert.Contains("alert-danger", classes);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_CubeVerdict_TooGoodWhenTheyWouldTake_IsCharged()
+    {
+        // The other convention: Too good where the opponent would take (XG's
+        // "too good to double/Take", a No double by ruling) is charged
+        // 2(1 − T) = 0.20.
+        var (text, classes) = await CubeVerdictFor(
+            TestFixtures.CubeDecision(noDoubleEquity: 1.2, doubleTakeEquity: 0.9), CubeAnswer.NoDoublePass);
+
+        Assert.Equal("Not best — Too good lost 0.2000. Best: No double.", text);
+        Assert.Contains("alert-danger", classes);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_CubeVerdict_ACostBelowTheThreshold_ReadsCorrect()
+    {
+        // halheinrich/backgammon#202, folded into #326: a cost that shows as
+        // 0.0000 is correct. No double here costs T − N = 0.00004 — not zero,
+        // but below 0.00005 — so it reads Correct, in the success colour.
+        var (text, classes) = await CubeVerdictFor(
+            TestFixtures.CubeDecision(noDoubleEquity: 0.69996, doubleTakeEquity: 0.7), CubeAnswer.NoDouble);
+
+        Assert.Equal("Correct — No double.", text);
+        Assert.Contains("alert-success", classes);
+    }
+
+    [Fact]
+    public async Task Quiz_Review_CubeVerdict_TwoZeroParts_DoNotMakeAZeroWhole()
+    {
+        // N = 0.99994, T = 0.99997, gammons not possible: No double / Pass
+        // costs 0.00003 to double and 0.00003 to pass — each part shows
+        // 0.0000 — but the whole answer costs 0.00006, which shows 0.0001. The
+        // verdict judges the whole, so it reads Not best, in the danger colour;
+        // and the three answers that do count as zero are the Best list.
+        var (text, classes) = await CubeVerdictFor(
+            TestFixtures.CubeDecision(
+                noDoubleEquity: 0.99994, doubleTakeEquity: 0.99997, cubeOwner: CubeOwner.Centered),
+            CubeAnswer.NoDoublePass);
+
+        Assert.Equal(
+            "Not best — No double / Pass lost 0.0001. Best: No double, Double / Take, Double / Pass.", text);
+        Assert.Contains("alert-danger", classes);
     }
 
     [Fact]
@@ -5873,7 +6110,7 @@ public class PageTests : BunitContext
         // Disabled until an answer is selected.
         Assert.True(cut.Find("button.btn-primary").HasAttribute("disabled"));
 
-        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
+        await AnswerCubeAsync(cut, CubeAnswer.DoubleTake);
         Assert.False(cut.Find("button.btn-primary").HasAttribute("disabled"));
         Assert.NotEmpty(cut.FindAll("input[checked]"));
 
@@ -5896,7 +6133,7 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
-        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
+        await AnswerCubeAsync(cut, CubeAnswer.DoubleTake);
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
         Assert.NotNull(c.Review);
@@ -6104,7 +6341,7 @@ public class PageTests : BunitContext
     /// Answers the rendered cube-answering page by invoking
     /// <see cref="BackgammonCubeActions"/>'s <c>ValueChanged</c> with the given
     /// pair — the parent-side half of the <c>@bind-Value</c> wire the page relies
-    /// on. Driving by the stable <see cref="CubeClaimPair"/> data contract
+    /// on. Driving by the stable <see cref="CubeAnswer"/> data contract
     /// (not the producer's radio-caption text) keeps the consumer test insulated
     /// from cosmetic label renames; a mis-named / dropped binding leaves
     /// <c>_completedCube</c> unset, so Submit stays disabled and the caller fails.
@@ -6112,7 +6349,7 @@ public class PageTests : BunitContext
     /// for a half-answered row), so this cannot stage a half answer — see
     /// <see cref="SelectCubeRadioAsync"/> for that.
     /// </summary>
-    private static Task AnswerCubeAsync(IRenderedComponent<QuizPage> cut, CubeClaimPair answer) =>
+    private static Task AnswerCubeAsync(IRenderedComponent<QuizPage> cut, CubeAnswer answer) =>
         cut.InvokeAsync(() =>
             cut.FindComponent<BackgammonCubeActions>().Instance.ValueChanged.InvokeAsync(answer));
 
@@ -6162,7 +6399,7 @@ public class PageTests : BunitContext
     /// <summary>Answer the rendered cube problem and press the page's Submit, landing in review.</summary>
     private static async Task SubmitCubeThroughPageAsync(IRenderedComponent<QuizPage> cut)
     {
-        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
+        await AnswerCubeAsync(cut, CubeAnswer.DoubleTake);
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
     }
 
@@ -6395,32 +6632,35 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Done_MixedRun_RendersFourWayBreakdownAndProblemCount()
     {
-        // One cube position + one checker play. The cube folds as +1 Double and
-        // +1 Take, so Total.Submitted is 3 decisions — but only 2 problems were
-        // shown. Pins both the four-way breakdown rows and the corrected count
-        // (which must not double-count the cube position).
+        // One cube answer, one checker play and one skip: three problems shown.
+        // The cube answer adds to Double and to Take, but the session score's
+        // Total counts it once (SPEC-scoring.md §3, 2026-10-01), so Done's count
+        // is the Total's submitted count plus the skips — and a count that
+        // added the Take row back in, or counted the cube twice, reads 4.
         var c = WithController(
             TestFixtures.CubeDecision(),
-            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 3),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 5));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        c.SubmitCubeAction(CubeClaimPair.DoubleTake);
+        c.SubmitCubeAnswer(CubeAnswer.DoubleTake);
         await c.ContinueAsync();
         c.SubmitPlay(BestPlay());
         await c.ContinueAsync();
+        await c.SkipCurrentAsync();
         Assert.True(c.IsFinished);
 
         var cut = Render<DonePage>();
 
-        // Four-way breakdown rows.
-        Assert.Contains("Play", cut.Markup);
-        Assert.Contains("Double", cut.Markup);
-        Assert.Contains("Take", cut.Markup);
-        Assert.Contains("Total", cut.Markup);
+        // Four-way breakdown rows, the producer's, shown as they are.
+        var rows = cut.FindAll(".score-breakdown tbody tr")
+            .Select(r => Normalize(r.TextContent))
+            .ToList();
+        Assert.Equal(
+            ["Play 1 1 (100%) 0.0000", "Double 1 1 (100%) 0.0000", "Take 1 1 (100%) 0.0000", "Total 2 2 (100%) 0.0000"],
+            rows);
 
-        // Total.Submitted counts 3 decisions, but problems-shown is 2.
-        Assert.Equal(3, c.Score.Total.Submitted);
-        Assert.Contains("Total problems shown", cut.Markup);
-        Assert.Contains("<strong>2</strong>", cut.Markup);
+        var shown = cut.FindAll("p").Single(p => p.TextContent.Contains("Total problems shown"));
+        Assert.Equal("Total problems shown: 3.", Normalize(shown.TextContent));
     }
 
     [Fact]
@@ -6973,6 +7213,79 @@ public class PageTests : BunitContext
         // text carries the razor file's own line breaks and indentation.
         Assert.Contains("Repeated positions are counted once", section);
         Assert.Contains("the line says how many they were", section);
+    }
+
+    /// <summary>
+    /// The whitespace-normalised text of the Help section under the
+    /// <c>h3</c> headed <paramref name="heading"/>.
+    /// </summary>
+    private static string HelpSectionText(IRenderedComponent<HelpPage> cut, string heading) =>
+        Normalize(SectionText(cut.FindAll("h3").Single(h => h.TextContent.Trim() == heading)));
+
+    [Fact]
+    public void Help_StatesTheFourCubeAnswers_AndTheFourthsTwoLabels()
+    {
+        // SPEC-scoring §3 as amended 2026-10-01 (halheinrich/backgammon#326):
+        // all four answers are always offered, and the fourth reads Too good
+        // where gammons are possible and No double / Pass where they are not.
+        // The passage it replaces said Too good "is withheld" at a money
+        // position under Jacoby with the cube centred, which is no longer true.
+        WithController();
+        var section = HelpSectionText(Render<HelpPage>(), HelpSections.AnswerThePosition.Heading);
+
+        Assert.Contains(
+            "There are always four answers: No double, Double / Take, Double / Pass, and a fourth that means “don't double, though they would pass”.",
+            section);
+        Assert.Contains(
+            "The fourth reads Too good where gammons are possible and No double / Pass where they are not:",
+            section);
+        Assert.DoesNotContain("withheld", section);
+    }
+
+    [Fact]
+    public void Help_Scoring_StatesTheZeroRule_TheConventions_AndTheRows()
+    {
+        // SPEC-scoring §2a and §3: an answer is correct when its cost shows as
+        // 0.0000; where gammons are possible two misreadings are charged
+        // though they lose no equity at the board; every cube answer adds to
+        // Double, only an answer committing to a response adds to Take, and
+        // the Total counts each answer once. The passage it replaces said
+        // "Correct means you chose a play or action with no equity loss".
+        WithController();
+        var section = HelpSectionText(Render<HelpPage>(), HelpSections.Scoring.Heading);
+
+        Assert.Contains("it is correct when that cost shows as 0.0000", section);
+        Assert.Contains(
+            "two misreadings are charged even though they lose no equity at the board: No double when the position is too good, and Too good when the opponent would take.",
+            section);
+        Assert.Contains("Every cube answer adds to Double, for its doubling part.", section);
+        Assert.Contains("No double commits to none, so it is left out.", section);
+        Assert.Contains("Total counts each problem's answer once", section);
+        Assert.DoesNotContain("no equity loss;", section);
+    }
+
+    [Fact]
+    public void Help_TellsTheSessionTotalsOneAnswer_ApartFromTheLifetimeRecordsTwoHalves()
+    {
+        // SPEC-scoring §3, 2026-10-01: the lifetime record keeps two halves per
+        // cube answer, No double's take half a correct zero; the session Total
+        // counts the answer once. The passages they replace said the lifetime
+        // record counts the halves "the same way the in-quiz score counts them",
+        // and that a cube position is "two decisions, not one" in your totals.
+        WithController();
+        var cut = Render<HelpPage>();
+        var lifetime = HelpSectionText(cut, HelpSections.LifetimeStats.Heading);
+        var worthKnowing = HelpSectionText(cut, HelpSections.ThingsWorthKnowing.Heading);
+
+        Assert.Contains("A cube answer records two halves.", lifetime);
+        Assert.Contains("its take half counts as a correct zero.", lifetime);
+        Assert.Contains("This is not how the quiz's own Total counts: there, each cube answer is one answer.", lifetime);
+        Assert.DoesNotContain("the same way the in-quiz score counts them", lifetime);
+
+        Assert.Contains("A cube answer is judged whole.", worthKnowing);
+        Assert.Contains("More than one answer can be correct.", worthKnowing);
+        Assert.DoesNotContain("two decisions", worthKnowing);
+        Assert.DoesNotContain("claim", worthKnowing);
     }
 
     [Fact]
@@ -7718,35 +8031,6 @@ public class PageTests : BunitContext
         Assert.Contains("alert-danger", verdict.ClassList);
         Assert.Contains("Not best", verdict.TextContent);
         Assert.DoesNotContain("Submit.", verdict.TextContent); // prompt gone
-    }
-
-    [Fact]
-    public async Task Quiz_Review_CubeVerdict_LabelsHalvesByUsersSubmittedClaimAndAction()
-    {
-        // The verdict line names each half for what the user actually submitted
-        // (not a generic half-name): the doubler half by its claim, the taker
-        // half by its action, in the solution diagram's banner wording. Against
-        // the default cube fixture (best is Double / Take), a Too good / Pass
-        // answer is incorrect on both halves, so the doubler half reads "Too
-        // good" — a claim in its own words, no longer spelled as "No double" —
-        // and the taker half reads "Pass". A wrong claim names the truth claim
-        // (three values, so "incorrect" alone leaves two); the taker half does
-        // not (two values, so it already implies the other).
-        var c = WithController(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
-
-        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.TooGoodPass));
-        Assert.NotNull(c.Review);
-
-        var verdict = cut.Find(".status-strip").QuerySelector(".status-verdict")!;
-        Assert.Contains("alert-danger", verdict.ClassList);
-        Assert.Contains("Too good: incorrect — best is Double (lost 0.2000)", verdict.TextContent);
-        Assert.Contains("Pass: incorrect (lost 0.3000)", verdict.TextContent);
-        Assert.DoesNotContain("No double", verdict.TextContent);
-        // The taker half is labeled by the submitted action ("Pass"), never
-        // the old generic "Take" half-name.
-        Assert.DoesNotContain("Take:", verdict.TextContent);
     }
 
     [Fact]
@@ -9704,7 +9988,7 @@ public class PageTests : BunitContext
         NoticeSaying(cut, "Your quiz has").ShouldBe(
             NoticeKind.Information, NoticeAnnouncement.Polite, dismissible: true);
 
-        await AnswerCubeAsync(cut, CubeClaimPair.DoubleTake);
+        await AnswerCubeAsync(cut, CubeAnswer.DoubleTake);
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
 
         Assert.DoesNotContain("Your quiz has", cut.Markup);
@@ -10915,7 +11199,7 @@ public class PageTests : BunitContext
         await Settings().SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.XgRollerPlusPlus);
 
         var cut = Render<QuizPage>();
-        await cut.InvokeAsync(() => c.SubmitCubeAction(CubeClaimPair.TooGoodPass));
+        await cut.InvokeAsync(() => c.SubmitCubeAnswer(CubeAnswer.NoDoublePass));
         Assert.NotNull(c.Review);
 
         Assert.Equal(PlayRanking.DepthFirst, SolutionRequest(cut).Ranking);
@@ -11007,7 +11291,7 @@ public class PageTests : BunitContext
         Assert.NotNull(c.Review);
         Assert.Equal(PlayRanking.Equity, SolutionRequest(returned).Ranking);          // the run's
         Assert.Equal(AnalysisLevel.Ply2, SolutionRequest(returned).MaximumHiddenCandidateAnalysisLevel);
-        Assert.Equal("Correct — you found the best play.", VerdictBand(returned));   // and it agrees
+        Assert.Equal("Correct.", VerdictBand(returned));   // and it agrees
 
         // The next run takes the setting — the one Done's Restart hands over.
         await c.RestartAsync(Settings().Ranking);

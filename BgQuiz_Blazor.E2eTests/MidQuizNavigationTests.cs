@@ -43,7 +43,7 @@ public sealed class MidQuizNavigationTests : E2eTestBase
         // the "Problem N" counter: the counter rides in the score panel, which
         // the maximize mode — the default since halheinrich/backgammon#113 — suppresses while
         // answering, so it is no longer a marker this test can read.
-        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.NoDoublePill })).ToBeVisibleAsync();
+        await Expect(CubePill(ExpectedText.NoDoublePill)).ToBeVisibleAsync();
 
         // Out to Home mid-quiz, the way a user gets there: the nav menu.
         await HomeNavLink.ClickAsync();
@@ -62,8 +62,8 @@ public sealed class MidQuizNavigationTests : E2eTestBase
         // still unanswered, so nothing was submitted, skipped or restarted by the
         // trip. (The fixture is a single-problem folder, so "the same problem" and
         // "a problem" are the same claim here.)
-        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.NoDoublePill })).ToBeVisibleAsync();
-        await Expect(Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.NoDoublePill })).Not.ToBeCheckedAsync();
+        await Expect(CubePill(ExpectedText.NoDoublePill)).ToBeVisibleAsync();
+        await Expect(CubePill(ExpectedText.NoDoublePill)).Not.ToBeCheckedAsync();
     }
 
     /// <summary>

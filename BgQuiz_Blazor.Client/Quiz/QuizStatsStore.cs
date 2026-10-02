@@ -25,8 +25,13 @@ internal interface IProblemStatsSink
     /// <summary>Fold a finalized checker-play submission into the active document and persist it.</summary>
     Task RecordAsync(SubmittedPlay play);
 
-    /// <summary>Fold a finalized cube submission (two decisions — one per half) into the active document and persist it.</summary>
-    Task RecordAsync(SubmittedCubeAction cube);
+    /// <summary>
+    /// Fold a finalized cube answer into the active document and persist it. The
+    /// lifetime record counts it as two decisions, its doubling half and its take
+    /// half — the producer's fold (SPEC-scoring.md §3, the 2026-10-01 amendment),
+    /// unlike the session score, which counts the answer once.
+    /// </summary>
+    Task RecordAsync(SubmittedCubeAnswer cube);
 
     /// <summary>
     /// <b>The one predicate for "can a weighted mix mean anything here"</b>
@@ -852,7 +857,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
         return FoldAndPersistAsync(doc => doc.Plus(play, _clock));
     }
 
-    public Task RecordAsync(SubmittedCubeAction cube)
+    public Task RecordAsync(SubmittedCubeAnswer cube)
     {
         ArgumentNullException.ThrowIfNull(cube);
         return FoldAndPersistAsync(doc => doc.Plus(cube, _clock));

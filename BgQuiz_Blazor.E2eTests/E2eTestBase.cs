@@ -23,19 +23,17 @@ namespace BgQuiz_Blazor.E2eTests;
 public abstract class E2eTestBase : IAsyncLifetime
 {
     /// <summary>
-    /// Committed cube-decision fixture — one problem, whose best doubler claim
-    /// is NoDouble and best taker response Take, i.e. a best <i>pair</i> of
-    /// (NoDouble, Take). The taker half matters to the answer-type breakdown
-    /// suite, which reads the bucket a whole cube decision lands in.
+    /// Committed cube-decision fixture — one problem, whose truth is No double
+    /// (don't double, they'd take; no double +0.0243, double/take −0.3251).
+    /// The answer-type breakdown suite reads the bucket it lands in.
     ///
     /// <para>
     /// It is also a <b>money</b> position, <b>Jacoby on</b>, <b>cube centred</b>
-    /// — measured off the record at the halheinrich/backgammon#187 leg — which
-    /// is exactly the one position where the producer withholds the Too good
-    /// verdict (SPEC-scoring §3, consequence (v) of the 2026-09-02 amendment),
-    /// so every scenario on this fixture sees a three-pill row, and
-    /// <c>QuizFlowTests</c> pins that absence here rather than on a synthesized
-    /// record.
+    /// — measured off the record at the halheinrich/backgammon#187 leg — so
+    /// gammons are not possible there (SPEC-scoring §3, amended 2026-10-01 on
+    /// halheinrich/backgammon#326) and the fourth pill reads
+    /// <c>No double / Pass</c>; <c>QuizFlowTests</c> pins that reading on this
+    /// file.
     /// </para>
     /// </summary>
     protected const string CubeFixture = "BothAnalysis.xgp";
@@ -83,22 +81,22 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </summary>
     private static readonly string[] CubeFixtures =
     [
-        CubeFixture,                 // (NoDouble, Take) (money, Jacoby, cube centred)
-        TooGoodTakeFixture,          // a different board, (NoDouble, Take) by ruling (a match)
-        "match35253054_2_37.xgp",    // a different board, (Double, Pass) (a match)
+        CubeFixture,                 // No double (money, Jacoby, cube centred: gammons not possible)
+        TooGoodTakeFixture,          // a different board, No double (a match: gammons possible)
+        "match35253054_2_37.xgp",    // a different board, Double / Pass (a match)
     ];
 
     /// <summary>
     /// Committed cube-decision fixture that XG labels <b>"Too good to
     /// double/Take"</b> — playing on (+1.1711) is worth more than the cashed
     /// point, and the opponent would still take (double/take +0.6004). It was
-    /// halheinrich/backgammon#86's motivating case and the fifth verdict's
-    /// primary path; it is the position that then <i>decided</i> SPEC-scoring
-    /// §3's 2026-09-02 amendment (halheinrich/backgammon#187): Too Good
-    /// requires the pass, so its best claim pair is <b>(NoDouble, Take) by
-    /// ruling</b>, and answering Too good to it is the wrong claim over the
-    /// right action. A <b>match</b> position, so the Too good pill is offered
-    /// here — which is what lets that wrong claim be pressed end to end.
+    /// halheinrich/backgammon#86's motivating case; it is the position that
+    /// then <i>decided</i> SPEC-scoring §3's 2026-09-02 amendment
+    /// (halheinrich/backgammon#187): Too Good requires the pass, so its truth
+    /// is <b>No double by ruling</b>. A <b>match</b> position where gammons are
+    /// possible, so the fourth pill reads <c>Too good</c> — and answering it
+    /// here is charged SPEC-scoring §3's convention for Too good when they'd
+    /// take, 2(1 − T), though it loses no equity at the board.
     /// </summary>
     protected const string TooGoodTakeFixture = "TooGoodAndTake.xgp";
 
@@ -628,15 +626,24 @@ public abstract class E2eTestBase : IAsyncLifetime
         Page.Locator($".board-container .bg-diagram > svg > rect[data-point='{point}']").ClickAsync();
 
     /// <summary>
-    /// Answer the current cube problem with one pill of the four-pair row —
+    /// The cube pill whose accessible name is exactly <paramref name="name"/>.
+    /// Exact, because Playwright matches a name by substring and "No double" is
+    /// inside the fourth answer's "No double / Pass".
+    /// </summary>
+    protected ILocator CubePill(string name) =>
+        Page.GetByRole(AriaRole.Radio, new() { Name = name, Exact = true });
+
+    /// <summary>
+    /// Answer the current cube problem with one pill of the row —
     /// <paramref name="pill"/> is a radio caption as the producer spells it
-    /// ("No double" / "Double / Take" / "Double / Pass" / "Too good") — and
-    /// submit, landing in the review state (Continue visible).
+    /// ("No double" / "Double / Take" / "Double / Pass", and the fourth answer's
+    /// "Too good" or "No double / Pass") — and submit, landing in the review
+    /// state (Continue visible).
     ///
     /// <para>
     /// <b>The cube copy inventory, and why it stays literal.</b> Those four
-    /// captions, the review verdict line's per-half labels, and the solution
-    /// panel's <c>Best:</c> banner are all spelled by one home —
+    /// captions, the labels inside the review's verdict line, and the solution
+    /// panel's <c>Best:</c> line are all spelled by one home —
     /// <c>CubeLabels</c> in <c>BackgammonDiagram_Lib</c>, since
     /// halheinrich/backgammon#185 — and this app spells none of them any more.
     /// The literals here and across this suite are therefore <b>consumer pins
@@ -644,7 +651,7 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// this app's surfaces, so a re-wording at the label home has to arrive
     /// here as a deliberate edit instead of passing through unseen. Re-sourcing
     /// them from <c>CubeLabels</c> would turn every one into
-    /// <c>Label(pair) == Label(pair)</c> and pin nothing — so do not
+    /// <c>Label(answer) == Label(answer)</c> and pin nothing — so do not
     /// "de-duplicate" them against the label home. (The same sentence guards
     /// <c>BgDiag_Razor</c>'s own caption table.) The rule's own suite,
     /// <c>CubeLabelsTests</c>, is where the wording is proved correct; these
@@ -652,9 +659,9 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </para>
     ///
     /// <para>
-    /// One click: since SPEC-scoring §3's 2026-09-02 amendment
-    /// (halheinrich/backgammon#187) every pill is a complete (claim, taker)
-    /// pair, so the first selection lights Submit. The Submit-enabled wait
+    /// One click: every pill is one whole answer (SPEC-scoring §3, amended on
+    /// halheinrich/backgammon#326), so the first selection lights Submit. The
+    /// Submit-enabled wait
     /// between the click and the submit is still the page's gate being
     /// observed, not decoration — a row that failed to latch would time out
     /// there, naming the gate.
@@ -662,7 +669,7 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </summary>
     protected async Task AnswerCubeAsync(string pill)
     {
-        await Page.GetByRole(AriaRole.Radio, new() { Name = pill }).CheckAsync();
+        await CubePill(pill).CheckAsync();
         await Expect(SubmitButton).ToBeEnabledAsync();
         await SubmitButton.ClickAsync();
         await Expect(Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton })).ToBeVisibleAsync();
@@ -670,10 +677,9 @@ public abstract class E2eTestBase : IAsyncLifetime
 
     /// <summary>
     /// Answer the current cube problem as No double and submit, landing in the
-    /// review state. <see cref="CubeFixture"/>'s best claim pair is
-    /// (NoDouble, Take) — the pair the "No double" pill is — so against it
-    /// this is the fully correct answer, which is what the scenarios built on
-    /// that fixture rely on.
+    /// review state. <see cref="CubeFixture"/>'s truth is No double, so
+    /// against it this is the correct answer, which is what the scenarios built
+    /// on that fixture rely on.
     /// </summary>
     protected Task AnswerCubeNoDoubleAsync() => AnswerCubeAsync(ExpectedText.NoDoublePill);
 

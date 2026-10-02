@@ -56,7 +56,7 @@ public sealed class ForcedPlaySkipTests : E2eTestBase
         await ClickBoardPointAsync(18);
         await Expect(SubmitButton).ToBeEnabledAsync();
         await SubmitButton.ClickAsync();
-        await Expect(VerdictBand).ToContainTextAsync(ExpectedText.BestPlayVerdict);
+        await Expect(VerdictBand).ToHaveTextAsync(ExpectedText.CorrectPlayVerdict);
 
         // And there is nothing after it: continuing consumes the forced slot
         // without ever showing it, so the run ends having shown one problem of

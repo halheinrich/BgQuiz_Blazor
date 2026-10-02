@@ -12,8 +12,9 @@ namespace BgQuiz_Blazor.Tests;
 /// Deliberately not a pin of the label <i>wording</i>: the labels are
 /// user-facing copy, so they are pinned as independent literals in the
 /// published app by the e2e suite (the copy-pin split). A unit test asserting
-/// the same strings the class reads — now <c>CubeLabels.Label(pair)</c> for
-/// every cube row — would be <c>Label(pair) == Label(pair)</c> and agree with
+/// the same strings the class reads — now
+/// <c>CubeLabels.BreakdownBucketLabel(answer)</c> for every cube row — would
+/// be <c>Label(answer) == Label(answer)</c> and agree with
 /// any wording at all, including a swap that put <c>Double / Pass</c>'s count
 /// under <c>Double / Take</c>'s name, which is exactly the defect this file
 /// <i>can</i> catch and does.
@@ -26,7 +27,7 @@ public class AnswerTypeDisplayTests
     /// against a label rather than hiding behind equal values.
     /// </summary>
     private static AnswerTypeDistribution Distinct() => new(
-        CheckerPlays: 1, NoDoubleTake: 2, DoubleTake: 3, DoublePass: 4, TooGoodPass: 5);
+        CheckerPlays: 1, NoDouble: 2, DoubleTake: 3, DoublePass: 4, NoDoublePass: 5);
 
     [Fact]
     public void Buckets_CarryTheProducerFieldsInDeclarationOrder()
@@ -49,16 +50,16 @@ public class AnswerTypeDisplayTests
     }
 
     [Fact]
-    public void Buckets_TooGoodPass_IsItsOwnRow_AndTheOnlyTooGoodRow()
+    public void Buckets_TheFourthAnswer_IsItsOwnRow()
     {
-        // The one too-good verdict left since SPEC-scoring §3's 2026-09-02
-        // amendment (halheinrich/backgammon#187: Too Good requires the pass,
-        // so the take side is retired as a verdict and the producer record
-        // carries no field for it). The pass side is row five, reading its
-        // own count and nobody else's — in particular not the No double row,
-        // where a too-good-to-double/take position now counts by ruling.
+        // The fourth answer, "don't double, they'd pass", is one bucket under
+        // either of its labels (SPEC-scoring §3, "The tie":
+        // halheinrich/backgammon#326). It is row five, reading its own count
+        // and nobody else's — in particular not the No double row, where a
+        // position the opponent would take counts however far playing on beats
+        // the cash.
         var onlyPass = AnswerTypeDisplay.Buckets(
-            AnswerTypeDistribution.Empty with { TooGoodPass = 9 });
+            AnswerTypeDistribution.Empty with { NoDoublePass = 9 });
 
         Assert.Equal(9, onlyPass[4].Count);
         Assert.Equal(0, onlyPass[1].Count);

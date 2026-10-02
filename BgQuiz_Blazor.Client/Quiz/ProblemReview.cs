@@ -1,5 +1,6 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using BgDataTypes_Lib;
 using BgGame_Lib;
 
 /// <summary>
@@ -9,9 +10,8 @@ using BgGame_Lib;
 /// problem or returns to its decision. It carries exactly what the review
 /// surfaces need to mark and name the user's answer: for a checker play, the
 /// producer's scored outcome (<see cref="PlaySubmission"/>) and the play the
-/// user submitted; for a cube decision, the scored submission itself — the
-/// user's claim pair, the derived truth pair, and the two per-half equity
-/// losses.
+/// user submitted; for a cube decision, the producer's scored answer and the
+/// decision it was scored at.
 ///
 /// <para>
 /// <b>Displayed, not of record.</b> Every submission produces one of these,
@@ -38,7 +38,7 @@ using BgGame_Lib;
 /// <b>A closed class hierarchy, deliberately not records.</b> The private
 /// constructor permits only the two nested variants (<see cref="Play"/>,
 /// <see cref="Cube"/>), mirroring the play / cube split of the producer's
-/// <see cref="PlaySubmission"/> / <see cref="SubmittedCubeAction"/>. They are
+/// <see cref="PlaySubmission"/> / <see cref="SubmittedCubeAnswer"/>. They are
 /// classes because nothing compares a review and a record's generated
 /// equality would have to: it would reach the submitted
 /// <see cref="BgDataTypes_Lib.Play"/>, which has no equality (its
@@ -134,35 +134,55 @@ internal abstract class ProblemReview
     }
 
     /// <summary>
-    /// A submitted cube decision, scored as two independent halves — the
-    /// doubler's <i>claim</i> and the taker's response if doubled
-    /// (SPEC-scoring.md §3; halheinrich/backgammon#86).
+    /// A submitted cube answer — one of the four (<see cref="CubeAnswer"/>,
+    /// SPEC-scoring.md §3 as amended on halheinrich/backgammon#326) — scored at
+    /// the decision it answers, together with that decision.
+    ///
+    /// <para>
+    /// <b>It scores, so the decision it keeps is the one scored at.</b> The
+    /// constructor is the one place in the app a cube answer is scored: it
+    /// hands the answer and the decision to the producer
+    /// (<see cref="SubmittedCubeAnswer.Score"/>) and keeps the result and the
+    /// decision side by side. The review names the answer, and lists the
+    /// best answers, from <see cref="Decision"/> — a label is the decision's
+    /// reading of an answer (<see cref="BackgammonDiagram_Lib.CubeLabels"/>),
+    /// and the best answers are the decision's
+    /// (<see cref="CubeDecision.ZeroCostAnswers"/>) — so no caller can pair a
+    /// scored answer with another record's labels or Best list.
+    /// </para>
     /// </summary>
     internal sealed class Cube : ProblemReview
     {
-        /// <summary>Wrap a scored cube submission.</summary>
-        /// <param name="submission">The scored submission, whole.</param>
-        /// <exception cref="ArgumentNullException"><paramref name="submission"/> is null.</exception>
-        internal Cube(SubmittedCubeAction submission)
+        /// <summary>
+        /// Score <paramref name="answer"/> at <paramref name="decision"/> and
+        /// keep both.
+        /// </summary>
+        /// <param name="answer">The answer the user submitted.</param>
+        /// <param name="decision">The cube decision on screen, which the answer answers.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="decision"/> is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="answer"/> is not one of the four answers (the producer's refusal).
+        /// </exception>
+        internal Cube(CubeAnswer answer, CubeDecision decision)
         {
-            ArgumentNullException.ThrowIfNull(submission);
-            Submission = submission;
+            Submission = SubmittedCubeAnswer.Score(answer, decision);
+            Decision = decision;
         }
 
         /// <summary>
-        /// The scored submission, whole: the claim pair the user answered
-        /// (<see cref="SubmittedCubeAction.UserDecision"/> — drives the per-half
-        /// verdict-line labels, each half named for what was submitted rather
-        /// than a generic half-name), the position's derived truth
-        /// (<see cref="SubmittedCubeAction.BestDecision"/> — what the verdict
-        /// names when a claim is wrong, and what makes the incoherent cell
-        /// nameable), the two per-half equity losses the verdict line quotes,
-        /// and the per-half correctness the outcome colouring reads — derived
-        /// on the record from the two pairs, so a review can never state a
-        /// result that disagrees with the answer it describes. For a practice
-        /// submission this record exists to be shown and is recorded nowhere;
+        /// The producer's scored answer, whole: the answer, its cost in its two
+        /// parts, and whether the whole answer and each part is correct — all
+        /// derived together from <see cref="Decision"/>, so a review can never
+        /// state a result that disagrees with the answer it describes. For a
+        /// practice submission it exists to be shown and is recorded nowhere;
         /// for the answer of record it is the same instance the run keeps.
         /// </summary>
-        public SubmittedCubeAction Submission { get; }
+        public SubmittedCubeAnswer Submission { get; }
+
+        /// <summary>
+        /// The decision <see cref="Submission"/> was scored at: what the
+        /// verdict reads the answer's label and the Best list from.
+        /// </summary>
+        public CubeDecision Decision { get; }
     }
 }

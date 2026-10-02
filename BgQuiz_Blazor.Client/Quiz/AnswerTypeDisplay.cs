@@ -14,12 +14,15 @@ using BgGame_Lib;
 /// <b>The split of ownership.</b> Which bucket a decision lands in is the
 /// producer's rule and is never re-derived here, and neither is what a cube
 /// bucket is <i>called</i>: the four cube rows are named by
-/// <see cref="CubeLabels.Label(CubeClaimPair)"/>, the one home for the
-/// spelling of a cube answer (halheinrich/backgammon#185), read off the
-/// canonical pair each row counts. Only "Checker plays" is this class's own
-/// word, having no cube answer to name it. So this type maps the producer's
-/// five fields onto five labels and nothing else — it classifies nothing,
-/// computes nothing, and spells almost nothing.
+/// <see cref="CubeLabels.BreakdownBucketLabel"/>, the one home for the
+/// spelling of a cube answer (halheinrich/backgammon#185), for the answer each
+/// row counts. A bucket gathers problems at many decisions, so its name takes
+/// none: the fourth row, the fourth answer under either of its labels, reads
+/// "Too good or No double / Pass" (SPEC-scoring.md §3, "The tie"). Only
+/// "Checker plays" is this class's own word, having no cube answer to name
+/// it. So this type maps the producer's five fields onto five labels and
+/// nothing else — it classifies nothing, computes nothing, and spells almost
+/// nothing.
 /// </para>
 ///
 /// <para>
@@ -33,13 +36,10 @@ using BgGame_Lib;
 ///
 /// <para>
 /// Order mirrors the producer record's own declaration order: checker plays
-/// first, then the four reachable cube verdicts of SPEC-scoring §3 as amended
-/// 2026-09-02 (halheinrich/backgammon#187) as the producer declares them —
-/// (NoDouble, Take), the two doubles, then (TooGood, Pass). It is the
-/// producer's ordering, so there is no second convention to keep in step. The
-/// fifth row of the halheinrich/backgammon#86 era, (TooGood, Take), is retired
-/// with its verdict (Too Good requires the pass; a position the opponent would
-/// take is a no-double by ruling, and counts in the first cube row).
+/// first, then the four cube answers of SPEC-scoring §3 (amended on
+/// halheinrich/backgammon#326) in the order the producer declares and offers
+/// them — No double, the two doubles, then the fourth answer. It is the
+/// producer's ordering, so there is no second convention to keep in step.
 /// </para>
 ///
 /// <para>
@@ -83,10 +83,10 @@ internal static class AnswerTypeDisplay
         return
         [
             new Bucket("Checker plays", distribution.CheckerPlays),
-            new Bucket(CubeLabels.Label(CubeClaimPair.NoDoubleTake), distribution.NoDoubleTake),
-            new Bucket(CubeLabels.Label(CubeClaimPair.DoubleTake), distribution.DoubleTake),
-            new Bucket(CubeLabels.Label(CubeClaimPair.DoublePass), distribution.DoublePass),
-            new Bucket(CubeLabels.Label(CubeClaimPair.TooGoodPass), distribution.TooGoodPass),
+            new Bucket(CubeLabels.BreakdownBucketLabel(CubeAnswer.NoDouble), distribution.NoDouble),
+            new Bucket(CubeLabels.BreakdownBucketLabel(CubeAnswer.DoubleTake), distribution.DoubleTake),
+            new Bucket(CubeLabels.BreakdownBucketLabel(CubeAnswer.DoublePass), distribution.DoublePass),
+            new Bucket(CubeLabels.BreakdownBucketLabel(CubeAnswer.NoDoublePass), distribution.NoDoublePass),
         ];
     }
 }

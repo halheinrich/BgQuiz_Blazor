@@ -140,12 +140,16 @@ internal static class ExpectedText
     internal const string EndQuizButton = "End quiz";
 
     /// <summary>
-    /// The three cube pills this suite presses. Their words are the label
-    /// home's — <c>CubeLabels</c> in BackgammonDiagram_Lib, rendered by
-    /// BgDiag_Razor's <c>BackgammonCubeActions</c> — and they are pinned here as
-    /// consumer literals <b>by ruling</b>: a re-wording at that home must arrive
-    /// as a deliberate edit rather than pass through unseen, so they are never
-    /// re-sourced from it (see <c>E2eTestBase.AnswerCubeAsync</c>).
+    /// The cube pills, in the row's order — each pill's caption and its
+    /// accessible name (the row shows full labels, so the two are one).
+    /// Their words are the label home's — <c>CubeLabels</c> in
+    /// BackgammonDiagram_Lib, rendered by BgDiag_Razor's
+    /// <c>BackgammonCubeActions</c> — and they are pinned here as consumer
+    /// literals <b>by ruling</b>: a re-wording at that home must arrive as a
+    /// deliberate edit rather than pass through unseen, so they are never
+    /// re-sourced from it (see <c>E2eTestBase.AnswerCubeAsync</c>). Match them
+    /// exactly (<c>E2eTestBase.CubePill</c>): Playwright matches a name by
+    /// substring, and "No double" is inside "No double / Pass".
     /// </summary>
     internal const string NoDoublePill = "No double";
 
@@ -153,20 +157,33 @@ internal static class ExpectedText
     internal const string DoubleTakePill = "Double / Take";
 
     /// <inheritdoc cref="NoDoublePill"/>
+    internal const string DoublePassPill = "Double / Pass";
+
+    /// <summary>
+    /// The fourth answer's pill where gammons are possible (SPEC-scoring §3,
+    /// amended 2026-10-01 on halheinrich/backgammon#326). See
+    /// <see cref="NoDoublePill"/> for why it is a literal.
+    /// </summary>
     internal const string TooGoodPill = "Too good";
 
     /// <summary>
-    /// The review verdict for a fully correct (No double, Take) cube answer —
-    /// composed by <c>Quiz.razor.cs</c>'s <c>CubeVerdict</c> over the same label
-    /// home, so the pill's words appear inside it.
+    /// The fourth answer's pill where gammons are not possible. See
+    /// <see cref="TooGoodPill"/>.
     /// </summary>
-    internal const string CubeVerdictNoDoubleAndTakeCorrect = "No double: correct · Take: correct";
-
-    /// <summary>The review verdict for the best checker play (<c>Quiz.razor.cs</c>).</summary>
-    internal const string BestPlayVerdict = "Correct — you found the best play.";
+    internal const string NoDoublePassPill = "No double / Pass";
 
     /// <summary>
-    /// The solution diagram's banner for a (No double, Take) position —
+    /// The review verdict for No double where it is correct — composed by
+    /// <c>Quiz.razor.cs</c>'s <c>CubeVerdict</c> over the same label home, so
+    /// the pill's words appear inside it.
+    /// </summary>
+    internal const string CubeVerdictNoDoubleCorrect = "Correct — No double.";
+
+    /// <summary>The review verdict for a correct checker play (<c>Quiz.razor.cs</c>).</summary>
+    internal const string CorrectPlayVerdict = "Correct.";
+
+    /// <summary>
+    /// The solution diagram's banner for a No double position —
     /// producer copy (<c>DiagramRenderer</c> over <c>CubeLabels</c>), pinned
     /// here because it is what a user reads off this app's board.
     /// </summary>

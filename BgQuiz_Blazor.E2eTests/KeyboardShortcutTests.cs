@@ -55,8 +55,8 @@ public sealed class KeyboardShortcutTests : E2eTestBase
 
     private ILocator ContinueButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton });
     private ILocator RedoButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.RedoButton });
-    private ILocator NoDoublePill => Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.NoDoublePill });
-    private ILocator DoubleTakePill => Page.GetByRole(AriaRole.Radio, new() { Name = ExpectedText.DoubleTakePill });
+    private ILocator NoDoublePill => CubePill(ExpectedText.NoDoublePill);
+    private ILocator DoubleTakePill => CubePill(ExpectedText.DoubleTakePill);
 
     /// <summary>The XGID badge's text — the identity of the problem on screen.</summary>
     private ILocator XgidBadgeText => Page.Locator(".action-row-tail .xgid-label-text");
@@ -103,21 +103,16 @@ public sealed class KeyboardShortcutTests : E2eTestBase
         await Expect(body).ToContainTextAsync(ExpectedText.Submitted(0));
     }
 
-    /// <summary>A checker play scores on <c>Done</c> as one decision.</summary>
-    private const int CheckerPlayDecisions = 1;
-
-    /// <summary>A cube answer scores on <c>Done</c> as two decisions, the double and the take.</summary>
-    private const int CubeAnswerDecisions = 2;
-
     /// <summary>
     /// The one-problem run answered by a Space press: the solution view on
     /// the same page — then, the accepted double tap, a second Space from the
-    /// body continues to <c>Done</c>, with the answer's
-    /// <paramref name="decisions"/> submitted and nothing skipped. Focus is on
+    /// body continues to <c>Done</c>, with the one answer submitted and
+    /// nothing skipped. The score's Total counts each answer once, a checker
+    /// play or a cube answer alike (SPEC-scoring §3, 2026-10-01). Focus is on
     /// the body for the second press whatever it was on for the first: the
     /// review render removes every answering control.
     /// </summary>
-    private async Task ExpectSubmittedThenContinuedBySpaceAsync(int decisions)
+    private async Task ExpectSubmittedThenContinuedBySpaceAsync()
     {
         await Expect(ContinueButton).ToBeVisibleAsync();
         await ExpectUrlAsync("/quiz");
@@ -127,7 +122,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
 
         await ExpectUrlAsync("/done");
         var body = Page.Locator("body");
-        await Expect(body).ToContainTextAsync(ExpectedText.Submitted(decisions));
+        await Expect(body).ToContainTextAsync(ExpectedText.Submitted(1));
         await Expect(body).ToContainTextAsync(ExpectedText.Skipped(0));
     }
 
@@ -158,8 +153,8 @@ public sealed class KeyboardShortcutTests : E2eTestBase
     {
         await StartQuizOnAsync(CubeFixture);
 
-        // The answer chosen by clicking — one pill is a complete pair since
-        // halheinrich/backgammon#187 — which leaves focus on the pill clicked:
+        // The answer chosen by clicking — one pill is one whole answer — which
+        // leaves focus on the pill clicked:
         // a CHECKED radio, where space does nothing natively, so the shortcut
         // may have it. Submit is lit, so Space submits.
         await NoDoublePill.CheckAsync();
@@ -168,7 +163,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
 
         await Page.Keyboard.PressAsync("Space");
 
-        await ExpectSubmittedThenContinuedBySpaceAsync(CubeAnswerDecisions);
+        await ExpectSubmittedThenContinuedBySpaceAsync();
     }
 
     [Fact]
@@ -206,7 +201,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
 
         await Page.Keyboard.PressAsync("Space");
 
-        await ExpectSubmittedThenContinuedBySpaceAsync(CheckerPlayDecisions);
+        await ExpectSubmittedThenContinuedBySpaceAsync();
     }
 
     [Fact]
@@ -263,7 +258,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
 
         await Page.Keyboard.PressAsync("Space");
 
-        await ExpectSubmittedThenContinuedBySpaceAsync(CubeAnswerDecisions);
+        await ExpectSubmittedThenContinuedBySpaceAsync();
     }
 
     [Fact]

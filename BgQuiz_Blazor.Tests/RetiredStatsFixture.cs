@@ -69,8 +69,11 @@ internal static class RetiredStatsFixture
     /// <c>problems</c> map with the Jacoby token in its money key and bare
     /// tally-plus-date values. It was retired for one interim build
     /// (halheinrich/backgammon#86's v4, which set it aside as
-    /// <c>bgquiz-stats.v3.json</c> and never shipped) and reinstated when the
-    /// amended Too Good predicate made its tallies comparable after all. So it
+    /// <c>bgquiz-stats.v3.json</c> and never shipped) and reinstated by Hal's
+    /// ruling: its tallies are kept as they stand, under whichever scoring rule
+    /// wrote them, and are not migrated (SPEC-stats-identity.md §3, the
+    /// 2026-09-02 amendment as corrected 2026-09-30 and kept 2026-10-01 on
+    /// halheinrich/backgammon#326). So it
     /// is staged two ways: as the standard file, where it reads as current and
     /// nothing is set aside; and as the set-aside sibling a folder the interim
     /// build touched still holds, where it is the <b>base</b> the fold merges

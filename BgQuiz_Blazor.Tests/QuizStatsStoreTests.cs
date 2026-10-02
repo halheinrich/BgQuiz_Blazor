@@ -59,9 +59,8 @@ public class QuizStatsStoreTests
             correct ? TestFixtures.OpeningBest() : TestFixtures.OpeningAlternative(),
             PlayRanking.Equity);
 
-    private static SubmittedCubeAction CubeSubmission(int problem = 0) =>
-        SubmittedCubeAction.From(
-            CubeKey(problem), CubeClaimPair.DoubleTake, TestFixtures.CubeDecision(away: problem).Decision);
+    private static SubmittedCubeAnswer CubeSubmission(int problem = 0) =>
+        SubmittedCubeAnswer.Score(CubeAnswer.DoubleTake, TestFixtures.CubeDecision(away: problem));
 
     // -----------------------------------------------------------------------
     //  BeginQuizAsync — the Start-time bind
@@ -767,9 +766,10 @@ public class QuizStatsStoreTests
     [Fact]
     public async Task Record_Cube_FoldsAsTwoDecisions()
     {
-        // Producer contract: a cube position is TWO lifetime decisions — one per
-        // half, matching QuizScore's two-half fold. Both halves right here, so
-        // the written tally shows two submissions and two correct.
+        // Producer contract: a cube answer is TWO lifetime decisions — its
+        // doubling half and its take half (SPEC-scoring §3, 2026-10-01) —
+        // unlike the session score, which counts it once. Both halves right
+        // here, so the written tally shows two submissions and two correct.
         var fake = new FakeFolderAccess();
         var store = MakeStore(fake);
         await store.BeginQuizAsync();
@@ -781,6 +781,28 @@ public class QuizStatsStoreTests
         var record = Assert.Single(doc.Problems).Value;
         Assert.Equal(2, record.Tally.Submitted);
         Assert.Equal(2, record.Tally.Correct);
+    }
+
+    [Fact]
+    public async Task Record_NoDouble_FoldsTwoHalves_ItsTakeHalfACorrectZero()
+    {
+        // The store hands the producer the whole answer, and the producer's
+        // fold keeps two halves per answer even for No double, whose implied
+        // take is never charged: its take half adds a correct zero (Hal,
+        // 2026-10-01: "Yes, count it as a correct zero"). At the default
+        // Double / Take position No double's doubling half is wrong, so the
+        // tally reads two submitted, one correct.
+        var fake = new FakeFolderAccess();
+        var store = MakeStore(fake);
+        await store.BeginQuizAsync();
+
+        await store.RecordAsync(SubmittedCubeAnswer.Score(CubeAnswer.NoDouble, TestFixtures.CubeDecision()));
+
+        var doc = JsonSerializer.Deserialize<ProblemStatsDocument>(fake.Writes.Single());
+        Assert.NotNull(doc);
+        var record = Assert.Single(doc.Problems).Value;
+        Assert.Equal(2, record.Tally.Submitted);
+        Assert.Equal(1, record.Tally.Correct);
     }
 
     [Fact]

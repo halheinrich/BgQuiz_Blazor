@@ -1,3 +1,4 @@
+@using BgDataTypes_Lib
 @using BgGame_Lib
 
 @code {
@@ -11,9 +12,12 @@
     // breakdown has no reason to know what a problem folder is.
     [Parameter] public RenderFragment? HeadingLead { get; set; }
 
-    // The four reported rows: the three independently-tracked segments plus the
-    // derived Total. Order mirrors a cube position's decision flow (play, then
-    // the doubler's offer, then the taker's response), with Total last.
+    // The four reported rows, as the producer's QuizScore states them
+    // (SPEC-scoring.md §3, the 2026-10-01 amendment): Play, Double, Take, and
+    // Total, which counts each answer once and is not the rows' sum. Shown as
+    // they are — nothing here adds rows up. Order mirrors a cube position's
+    // decision flow (play, then the doubler's offer, then the taker's
+    // response), with Total last.
     private IEnumerable<(string Label, ScoreSegment Segment, bool IsTotal)> Rows =>
     [
         ("Play", Score.PlayDecisions, false),
@@ -64,7 +68,7 @@
                             <text> (@Percent(segment)%)</text>
                         }
                     </td>
-                    <td class="text-end">@segment.AverageEquityLoss.ToString("0.0000")</td>
+                    <td class="text-end">@EquityDisplay.FormatLoss(segment.AverageEquityLoss)</td>
                 </tr>
             }
         </tbody>
