@@ -6051,7 +6051,7 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Quiz_Review_CubeVerdict_ACostBelowTheThreshold_ReadsCorrect()
     {
-        // halheinrich/backgammon#202, folded into #326: a cost that shows as
+        // halheinrich/backgammon#202, folded into halheinrich/backgammon#326: a cost that shows as
         // 0.0000 is correct. No double here costs T − N = 0.00004 — not zero,
         // but below 0.00005 — so it reads Correct, in the success colour.
         var (text, classes) = await CubeVerdictFor(
@@ -7246,8 +7246,11 @@ public class PageTests : BunitContext
     public void Help_Scoring_StatesTheZeroRule_TheConventions_AndTheRows()
     {
         // SPEC-scoring §2a and §3: an answer is correct when its cost shows as
-        // 0.0000; where gammons are possible two misreadings are charged
-        // though they lose no equity at the board; every cube answer adds to
+        // 0.0000; where gammons are possible two cube answers are charged by a
+        // set rule rather than by what their board action loses (No double
+        // where Too good is right loses nothing at the board; Too good where
+        // they'd take can lose T − N, and is charged 2(1 − T) — SPEC-scoring
+        // §3 as corrected in umbrella 5589fb8); every cube answer adds to
         // Double, only an answer committing to a response adds to Take, and
         // the Total counts each answer once. The passage it replaces said
         // "Correct means you chose a play or action with no equity loss".
@@ -7256,12 +7259,13 @@ public class PageTests : BunitContext
 
         Assert.Contains("it is correct when that cost shows as 0.0000", section);
         Assert.Contains(
-            "two misreadings are charged even though they lose no equity at the board: No double when the position is too good, and Too good when the opponent would take.",
+            "Where gammons are possible, two cube answers are charged by a set rule instead: No double when the position is too good, which loses nothing at the board but misjudges the position badly, and Too good when the opponent would take.",
             section);
         Assert.Contains("Every cube answer adds to Double, for its doubling part.", section);
         Assert.Contains("No double commits to none, so it is left out.", section);
         Assert.Contains("Total counts each problem's answer once", section);
         Assert.DoesNotContain("no equity loss;", section);
+        Assert.DoesNotContain("even though they lose no equity at the board", section);
     }
 
     [Fact]

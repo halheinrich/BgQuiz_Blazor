@@ -20,7 +20,7 @@ namespace BgQuiz_Blazor.E2eTests;
 ///
 /// <para>
 /// The four cube rows are named by <c>CubeLabels.BreakdownBucketLabel</c> in
-/// <c>BackgammonDiagram_Lib</c> (halheinrich/backgammon#185, and #326 for the
+/// <c>BackgammonDiagram_Lib</c> (halheinrich/backgammon#185, and halheinrich/backgammon#326 for the
 /// fourth row's "Too good or No double / Pass"), so the literals below are
 /// <b>consumer pins by ruling and must not be re-sourced</b>: re-reading them
 /// from the label home would turn every one into
