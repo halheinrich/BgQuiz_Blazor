@@ -6102,7 +6102,7 @@ public class PageTests : BunitContext
         Assert.False(HasButtonNamed(cut, "Show stats"));
         Assert.False(HasButtonNamed(cut, "End quiz"));
         Assert.False(RowMarkedPending(cut));
-        Assert.Equal("End quiz", RulerLineButtons(cut, 3)[^1]);   // the ruler keeps the tail at full size
+        Assert.Equal("End quiz", RulerLineButtons(cut, 4)[^1]);   // the ruler keeps the tail at full size
 
         await ReportTailFit(cut, tailFits: true);
         Assert.Equal(fullTail, TailContents(cut));
@@ -6267,14 +6267,17 @@ public class PageTests : BunitContext
         // SPEC-quiz-view.md §4, "One budget from the outset" (Hal, 2026-10-03):
         // the widest the cube pills can be is measured without a cube decision,
         // never assumed from the checker row and never learned only when the
-        // first cube problem arrives. So a run whose first problem is a checker
-        // play — no cube decision anywhere yet — already holds every line: the
-        // checker row; the pills short, with Submit and the four; the pills in
-        // full, with the same; and the tail at its floor, its locator showing
-        // three-digit coordinates whatever the problem. The pills are the
-        // producer's inert copy (BackgammonCubeActionsRuler), which takes no
-        // decision; no live pill row renders on a checker play. The ruler takes
-        // no input and is hidden from assistive technology.
+        // first cube problem arrives; and no state's row is assumed narrower
+        // than another's. So a run whose first problem is a checker play — no
+        // cube decision anywhere yet, no review, no comment — already holds
+        // every line: the checker row; the pills short, with Submit and the
+        // four; the review row, Continue, the four and Notes; the pills in
+        // full, with Submit and the four; and the tail at its floor, its
+        // locator showing three-digit coordinates whatever the problem. The
+        // pills are the producer's inert copy (BackgammonCubeActionsRuler),
+        // which takes no decision; Notes is the control's own inert copy; no
+        // live pill row and no live Notes control render on a checker play.
+        // The ruler takes no input and is hidden from assistive technology.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
@@ -6282,18 +6285,22 @@ public class PageTests : BunitContext
         var ruler = cut.Find(".action-row-ruler");
         Assert.Equal("true", ruler.GetAttribute("aria-hidden"));
         Assert.True(ruler.HasAttribute("inert"));
-        Assert.Equal(["lead", "lead", "full-cube", "tail"], RulerLines(cut));
+        Assert.Equal(["lead", "lead", "lead", "full-cube", "tail"], RulerLines(cut));
         Assert.Equal(
             ["Undo all", "Undo last", "Submit", "Go to first", "Back", "Skip", "Go to last"],
             RulerLineButtons(cut, 0));
         string[] submitAndTheFour = ["Submit", "Go to first", "Back", "Skip", "Go to last"];
         Assert.Equal(submitAndTheFour, RulerLineButtons(cut, 1));
-        Assert.Equal(submitAndTheFour, RulerLineButtons(cut, 2));
-        Assert.Equal(["Show stats", "End quiz"], RulerLineButtons(cut, 3));
+        Assert.Equal(["Continue", "Go to first", "Back", "Skip", "Go to last", "Notes"], RulerLineButtons(cut, 2));
+        Assert.True(ruler.Children[2].HasAttribute("data-ruler-review"));
+        Assert.Equal(submitAndTheFour, RulerLineButtons(cut, 3));
+        Assert.Equal(["Show stats", "End quiz"], RulerLineButtons(cut, 4));
         Assert.Equal([true, false], RulerPillForms(cut));
         Assert.Equal("short", ruler.Children[1].QuerySelector(".bg-cube-actions-ruler")!.GetAttribute("data-ruler-pills"));
-        Assert.Equal("full", ruler.Children[2].QuerySelector(".bg-cube-actions-ruler")!.GetAttribute("data-ruler-pills"));
+        Assert.Equal("full", ruler.Children[3].QuerySelector(".bg-cube-actions-ruler")!.GetAttribute("data-ruler-pills"));
         Assert.Empty(cut.FindComponents<BackgammonCubeActions>());
+        Assert.Empty(cut.FindComponents<DecisionNotes>());
+        Assert.Empty(NotesControls(cut));
         Assert.Equal("G999 · M999", ruler.QuerySelector(".problem-locator-where")!.TextContent);
         Assert.NotNull(ruler.QuerySelector(".xgid-label"));
     }
@@ -6316,7 +6323,7 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
 
         string AnswerRowLines() => Regex.Replace(
-            string.Concat(cut.Find(".action-row-ruler").Children.Take(3).Select(line => line.OuterHtml)),
+            string.Concat(cut.Find(".action-row-ruler").Children.Take(4).Select(line => line.OuterHtml)),
             @" (disabled|aria-label|title)=""[^""]*""", string.Empty);
 
         var onTheCheckerPlay = AnswerRowLines();
@@ -6328,7 +6335,33 @@ public class PageTests : BunitContext
         await cut.InvokeAsync(() => c.SubmitCubeAnswerAsync(CubeAnswer.NoDouble));
         Assert.NotNull(c.Review);
         Assert.Equal(onTheCheckerPlay, AnswerRowLines());
-        Assert.Equal(["lead", "lead", "full-cube", "tail"], RulerLines(cut));
+        Assert.Equal(["lead", "lead", "lead", "full-cube", "tail"], RulerLines(cut));
+    }
+
+    [Fact]
+    public void Quiz_TheRulersNotes_IsTheControlsOwnButton_LessItsWiring()
+    {
+        // The review line's Notes is DecisionNotes' inert copy: the control's
+        // button, class and caption, without the popup, state and handler.
+        // Compared with the live control as it draws closed and open, its
+        // geometry-bearing markup is the same: nothing in the control's look
+        // depends on its state.
+        var live = Render<DecisionNotes>(p => p.Add(n => n.Comment, "A comment."));
+        var copy = Render(DecisionNotes.RulerCopy);
+
+        static string Geometry(AngleSharp.Dom.IElement button) =>
+            $"{button.LocalName}|{button.GetAttribute("type")}|{button.ClassName}|{button.TextContent.Trim()}";
+
+        var closed = Geometry(live.Find("button.decision-notes-toggle"));
+        live.Find("button.decision-notes-toggle").Click();
+        var open = Geometry(live.Find("button.decision-notes-toggle"));
+
+        Assert.Equal(closed, Geometry(copy.Find("button")));
+        Assert.Equal(open, Geometry(copy.Find("button")));
+        var button = copy.Find("button");
+        Assert.Null(button.GetAttribute("aria-haspopup"));
+        Assert.Null(button.GetAttribute("aria-expanded"));
+        Assert.Null(button.GetAttribute("blazor:onclick"));
     }
 
     [Fact]
@@ -6907,8 +6940,13 @@ public class PageTests : BunitContext
     private const string CubeNote = "Take: the gammons are not there yet.";
     private const string PlayNote = "Split — the 5-point can wait.";
 
+    /// <summary>
+    /// The live row's Notes control, if any. Scoped to <c>.action-row</c>: the
+    /// row-fit ruler beside it carries an inert copy of the control under the
+    /// same classes (<c>DecisionNotes.RulerCopy</c>), on every problem.
+    /// </summary>
     private static IReadOnlyList<AngleSharp.Dom.IElement> NotesControls(IRenderedComponent<QuizPage> cut) =>
-        cut.FindAll("button.decision-notes-toggle");
+        cut.FindAll(".action-row button.decision-notes-toggle");
 
     /// <summary>Answer the rendered cube problem and press the page's Submit, landing in review.</summary>
     private static async Task SubmitCubeThroughPageAsync(IRenderedComponent<QuizPage> cut)

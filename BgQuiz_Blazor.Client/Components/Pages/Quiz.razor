@@ -418,18 +418,22 @@
                screen, so the budget it gives is one for the whole visit, and
                no problem — the first cube problem included — can move it.
 
-               - data-ruler="lead": the two answer rows in their narrowest form —
-                 Undo all, Undo last, Submit and ⏮ ◀ ▶ ⏭; and the cube pills in
-                 their short form, with Submit and the four. The pills are the
-                 producer's inert copy (BackgammonCubeActionsRuler), which needs
-                 no cube decision: it draws every state the live row can show
-                 in the form, both readings of the fourth answer and every
-                 selection, and its root is as wide as the widest. The widest
-                 lead, with the tail's floor, is the budget the navigation
-                 panel and the tail's "⋯" fold by — one budget for every state,
-                 so no state's board or chrome differs from another's. The
-                 review row is not a line: Continue and Notes replace Undo all,
-                 Undo last and Submit, two buttons for three.
+               - data-ruler="lead": the three rows the leading controls can
+                 make, each in its narrowest form — the checker answer row
+                 (Undo all, Undo last, Submit and ⏮ ◀ ▶ ⏭); the cube answer row
+                 (the pills short, Submit and the four); and the review row
+                 (Continue, the four and Notes). The pills are the producer's
+                 inert copy (BackgammonCubeActionsRuler), which needs no cube
+                 decision: it draws every state the live row can show in the
+                 form, both readings of the fourth answer and every selection,
+                 and its root is as wide as the widest. Notes is the control's
+                 own inert copy (DecisionNotes.RulerCopy), drawn whether or not
+                 the decision on screen has a comment, at the one width the
+                 control draws at in every state. The widest lead, with the
+                 tail's floor, is the budget the navigation panel and the
+                 tail's "⋯" fold by — one budget for every state, so no
+                 state's board or chrome differs from another's, and none is
+                 assumed the narrower.
                - data-ruler="full-cube": the full-label pills, the same copy in
                  its full form, with Submit and the four — what the labels'
                  switch compares with the row's width. So the labels' form is
@@ -459,6 +463,11 @@
                     <BackgammonCubeActionsRuler ShortLabels="true" data-ruler-pills="short" />
                     @SubmitControl
                     @NavigationControls
+                </div>
+                <div class="action-row-ruler-line d-flex gap-2 align-items-center" data-ruler="lead" data-ruler-review>
+                    @ContinueControl
+                    @NavigationControls
+                    @DecisionNotes.RulerCopy
                 </div>
                 <div class="action-row-ruler-line d-flex gap-2 align-items-center" data-ruler="full-cube">
                     <BackgammonCubeActionsRuler ShortLabels="false" data-ruler-pills="full" />

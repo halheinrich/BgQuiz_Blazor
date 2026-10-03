@@ -64,6 +64,13 @@ public partial class DecisionNotes : ComponentBase
     /// </summary>
     private const string Label = "Notes";
 
+    /// <summary>
+    /// The control's classes — Bootstrap's outline button, and the hook the
+    /// tests find the control by — shared with its inert copy
+    /// (<see cref="RulerCopy"/>), so the two are one button's look.
+    /// </summary>
+    private const string ToggleClass = "btn btn-outline-secondary decision-notes-toggle";
+
     /// <summary>The close button's accessible name.</summary>
     private const string CloseLabel = "Close notes";
 

@@ -2615,7 +2615,17 @@ The asymmetry is pinned three times over: at the service seam
       with Submit and the four. The copy draws every state the live row can
       show in the form — both readings of the fourth answer, nothing selected
       and each pill selected (the selected pill is heavier) — and its root is
-      exactly as wide as the widest.
+      exactly as wide as the widest. And the review row
+      (`data-ruler-review`): Continue, the four and Notes, Notes drawn by the
+      control's own inert copy (`DecisionNotes.RulerCopy`: the same button,
+      class and caption from the same constants, without its popup, state and
+      handler) whether or not the decision on screen has a comment. The
+      control draws at that one width open or closed, with a comment or
+      without: nothing in its look depends on its state (pinned in bUnit,
+      `Quiz_TheRulersNotes_IsTheControlsOwnButton_LessItsWiring`, and in the
+      browser, `OneBudgetTests.TheRulersNotes_MeasuresTheLiveControl_ClosedAndOpen`).
+      The copy carries the control's class, so the live-Notes query is
+      scoped to `.action-row` too.
     - `full-cube` — the same copy in its full form (`data-ruler-pills="full"`)
       with Submit and the four: what the labels' switch compares.
     - `tail` — the trailing cluster at its floor, its min-content (app.css),
@@ -2633,9 +2643,10 @@ The asymmetry is pinned three times over: at the service seam
     (`OneBudgetTests.TheRulersCopiesCarryTheLivePillsClasses_AndTheLiveSelectorsReachOnlyTheLiveRow`).
   - **The budget** is the widest `lead`, the row's gap and the `tail`: one
     budget for every state, so no state's board or chrome differs from
-    another's. The review row is not a line: Continue, the four and Notes
-    measured 352.5 px against the checker row's 452.1 (below), so the review
-    is the narrower here; that it is in every font is not shown. The panel
+    another's, and none assumed narrower than another: the three leads are
+    measured, and where the review row is the widest — a font, or a wider
+    Notes — the budget and every switch follow it
+    (`OneBudgetTests.WhereTheReviewRowIsTheWidest_TheBudgetAndTheSwitchesFollowIt`). The panel
     folds while the row the panel would leave, if it showed in flow, is
     narrower than the budget: the row's width, plus what the panel's box
     takes now, less what it takes showing
@@ -2769,7 +2780,7 @@ The asymmetry is pinned three times over: at the service seam
     **Arial**, read off the browser with `CSS.getPlatformFontsForNode` for
     Submit, a live pill, a ruler copy's pill and the locator): the checker row
     452.1 px; the short pills 175.3 (the copy's root), their line with Submit
-    and the four 441.1; the full pills 476.5, their line 742.3; the tail's
+    and the four 441.1; the review row 352.5; the full pills 476.5, their line 742.3; the tail's
     floor 205.8 (34.4 of copy button and gap, the three-digit coordinates and
     their gap, the two icon buttons, the gaps); the gap 8. So a budget of
     665.9 px — the checker row the widest lead here — and, with a viewport's
@@ -2849,14 +2860,15 @@ The asymmetry is pinned three times over: at the service seam
   nothing) — which is why the cluster right-aligns itself rather than being
   pushed by an `ms-auto` on a first child that varies per problem.
 
-  **The visible text is capped at `2.5rem`, and the cap is a board-size
-  contract** (`AppCss_XgidLabelText_StaysCapped`). Uncapped, the badge wraps the
-  action row wherever the board is height-bound — and because a cube row is
-  wider than a checker row (four pair pills since
-  `halheinrich/backgammon#187`; five pills in two groups under
-  `halheinrich/backgammon#86`; four compound pills when measured), the wrap width depends on the
-  **problem kind**, which is per-problem board jitter inside Normal view and
-  exactly what `SPEC-quiz-view.md` §2 forbids. The visible text
+  **The visible text is capped at `2.5rem`** (`AppCss_XgidLabelText_StaysCapped`).
+  The cap began as a board-size contract, when an uncapped badge could wrap
+  the action row and a row that wrapped at a width depending on the problem
+  kind was the per-problem board jitter `SPEC-quiz-view.md` §2 forbids. The
+  tail has since left the row's line-breaking (below), and the row is fitted
+  live from one budget (above, "One budget from the outset"), whose tail line
+  measures the badge at its floor, the copy button: the cap now decides how
+  much of the value shows when the row has room, not how many lines the row
+  has. The visible text
   does not try to show the value: 40px is `XGID=` (32.7px in this font) plus the
   ellipsis (6.5px), so it renders exactly `XGID=…` — the value's own
   self-labeling prefix, which doubles as the caption for the **icon-only** copy
@@ -2868,26 +2880,22 @@ The asymmetry is pinned three times over: at the service seam
   string, `title` reveals it on hover, and the complete text is in the DOM for a
   screen reader. A horizontal-scroll affordance was considered and **declined**
   by the umbrella — tooltip plus copy covers the read path.
-  **Not this rule's to fix:** the row's own wrapping at narrow widths predates
-  the badge and is `halheinrich/backgammon#99`. Since the cluster stopped taking
-  part in the row's line-breaking (below), the *leading* segment is the only
-  thing that decides it: measured 2026-08-21 with the cluster at full width, the
-  row is one line down to ~900px (cube) / ~640px (checker) of viewport with the
-  nav panel showing, where it used to be ~1350 / ~980.
+  **The row's line count is the live budget's.** Since the cluster stopped
+  taking part in the row's line-breaking (below), only the leading segment
+  could wrap it; inside §2's floor the panel's fold, the tail's "⋯" and the
+  pills' form keep it one line, each decided from the ruler's measurement
+  (above), and below 641 px the tail takes a line of its own
+  (`halheinrich/backgammon#236`).
 
-  **Every one of those widths is font-stack-dependent, and any claim of the form
-  "one line at width W" must name the stack it was measured under.** The row's
-  budget is text: the cube instruments' 836px (banked 2026-08-18, against the
-  pre-`halheinrich/backgammon#86` four-compound-pill row — the two-group row
-  is unmeasured here; the producer reports it narrower) is Windows
-  Helvetica/Arial. CI's Linux Chromium and Android devices have neither and fall
-  back wider — enough that a row measured with slack here can be a taller row
-  there. A local re-measure at 1280 with the nav panel showing puts the cube
-  instruments at 544.9px against 922px available under Windows metrics and
-  589.7px under Verdana (a genuinely wider real font), so the slack is large;
-  but the producer's cube-pill block is the part that wraps first when it goes,
-  and when it does the row's `align-items: center` moves every *short* item down
-  past that block's top without anything having wrapped in the row itself. A
+  **Every width the row is fitted by is font-stack-dependent**, which is why
+  none is spelled in the code, and any width quoted in these docs names the
+  stack it was measured under. CI's Linux Chromium and Android devices have
+  neither Windows' Helvetica nor its Arial and fall back to wider fonts, so a
+  row measured with slack here needs more there; the live measurement follows
+  them. The producer's cube-pill block is the part that would wrap first if
+  the row ever ran short, and when it does the row's `align-items: center`
+  moves every *short* item down past that block's top without anything having
+  wrapped in the row itself. A
   test that reads geometry off `.action-row > :first-child` will see that as a
   wrap and fail — which is how umbrella CI run 32520062178 went red on Linux
   against a commit green on Windows (`ProblemLocatorTests`, since re-keyed to

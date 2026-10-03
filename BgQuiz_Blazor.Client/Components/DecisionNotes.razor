@@ -5,7 +5,7 @@
    Renders nothing when the comment is empty (see the code-behind). *@
 @if (!string.IsNullOrEmpty(Comment))
 {
-    <button type="button" class="btn btn-outline-secondary decision-notes-toggle"
+    <button type="button" class="@ToggleClass"
             aria-haspopup="dialog" aria-expanded="@(_open ? "true" : "false")"
             aria-controls="@(_open ? _dialogId : null)"
             @ref="_toggle" @onclick="Toggle">
@@ -30,4 +30,18 @@
             <div class="decision-notes-text">@Comment</div>
         </dialog>
     }
+}
+
+@code {
+    /// <summary>
+    /// An inert copy of the control, for a host to measure — the quiz page's
+    /// row-fit ruler, which holds the review row at its widest whatever the
+    /// decision on screen (SPEC-quiz-view.md §4, "One budget from the
+    /// outset"). The same button, class and caption as the control, from the
+    /// same constants, so the two measure alike; without its wiring (no
+    /// popup, no state, no handler), and drawn whether or not any decision has
+    /// a comment. Open or closed, with a comment or without, the control
+    /// draws at this width: nothing in its look depends on its state.
+    /// </summary>
+    internal static RenderFragment RulerCopy => @<button type="button" class="@ToggleClass">@Label</button>;
 }

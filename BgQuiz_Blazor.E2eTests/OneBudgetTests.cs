@@ -579,6 +579,71 @@ public sealed class OneBudgetTests : E2eTestBase
     }
 
     [Fact]
+    public async Task WhereTheReviewRowIsTheWidest_TheBudgetAndTheSwitchesFollowIt()
+    {
+        // Review is a state, and the budget holds every state's row: the
+        // review row (Continue, the four, Notes) is a ruler line like the two
+        // answer rows. Widen Notes in this test only — on a checker play being
+        // answered, so neither a review nor a Notes control is on screen — and
+        // the review row becomes the widest lead; the budget is then that
+        // row, the gap and the tail's floor, and the panel's fold and the
+        // "⋯" move with it at the same viewport.
+        await Page.SetViewportSizeAsync(1000, 800);
+        await BootHomeAsync();
+        await PickAsync(FirstProblem.XgChecker);
+        await StartQuizAsync();
+        await ExpectTheFirstProblemAsync(FirstProblem.XgChecker);
+        await SettleAsync();
+        var before = await ActionRowGeometry.FitAsync(Page);
+        var foldBefore = await ActionRowGeometry.FoldWidthAsync(Page);
+        Assert.False(before.AutoFolded);
+        Assert.Equal(0, await Page.Locator(".action-row .decision-notes-toggle").CountAsync());
+
+        await Page.AddStyleTagAsync(new() { Content = ".decision-notes-toggle { padding-inline: 10rem; }" });
+        await SettleAsync();
+        await SettleAsync();
+
+        var leads = await Page.EvaluateAsync<double[]>(@"() =>
+            [...document.querySelectorAll('.action-row-ruler [data-ruler=lead]')].map(l => l.getBoundingClientRect().width)");
+        var review = await Page.Locator(".action-row-ruler [data-ruler-review]")
+            .EvaluateAsync<double>("e => e.getBoundingClientRect().width");
+        Assert.Equal(leads.Max(), review);
+        Assert.True(review > leads[0], $"the review row {review} is the widest, past the checker row {leads[0]}");
+        var after = await ActionRowGeometry.FitAsync(Page);
+        var floor = await Page.Locator(".action-row-ruler [data-ruler=tail]").EvaluateAsync<double>("e => e.getBoundingClientRect().width");
+        Assert.Equal(review + after.Gap + floor, after.Budget, 0.5);
+        Assert.True(after.Budget > before.Budget);
+        Assert.True(after.AutoFolded, "the panel folds for the wider review row, at the same viewport");
+        Assert.True(await ActionRowGeometry.FoldWidthAsync(Page) > foldBefore + 100);
+
+        // And the "⋯": below the review row's own switch, the tail folds.
+        await ResizeAsync((int)Math.Floor(await ActionRowGeometry.TailFoldWidthAsync(Page)) - 1, 800);
+        Assert.True((await ActionRowGeometry.FitAsync(Page)).TailFolded);
+        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+    }
+
+    [Fact]
+    public async Task TheRulersNotes_MeasuresTheLiveControl_ClosedAndOpen()
+    {
+        // At review on a decision with a comment, the live Notes control and
+        // the ruler's copy are the same width, closed and open.
+        await Page.SetViewportSizeAsync(1280, 800);
+        await BootHomeAsync();
+        await PickAsync(FirstProblem.XgCube);
+        await StartQuizAsync();
+        await AnswerCubeNoDoubleAsync();
+        var live = Page.Locator(".action-row .decision-notes-toggle");
+        await Expect(live).ToHaveCountAsync(1);
+        var copy = await Page.Locator(".action-row-ruler [data-ruler-review] .decision-notes-toggle")
+            .EvaluateAsync<double>("e => e.getBoundingClientRect().width");
+
+        Assert.Equal(copy, await live.EvaluateAsync<double>("e => e.getBoundingClientRect().width"), 2);
+        await live.ClickAsync();
+        await Expect(live).ToHaveAttributeAsync("aria-expanded", "true");
+        Assert.Equal(copy, await live.EvaluateAsync<double>("e => e.getBoundingClientRect().width"), 2);
+    }
+
+    [Fact]
     public async Task TheRulersCopiesCarryTheLivePillsClasses_AndTheLiveSelectorsReachOnlyTheLiveRow()
     {
         // The copies are the same markup as the live pills, classes included,
