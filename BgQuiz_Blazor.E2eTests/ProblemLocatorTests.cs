@@ -155,9 +155,9 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// <summary>The locator, in the one home §4 gives it.</summary>
     private ILocator Chip => Page.Locator(".action-row-tail .problem-locator");
 
-    private ILocator ChipFileName => Page.Locator(".problem-locator-file");
+    private ILocator ChipFileName => Page.Locator(".action-row-tail .problem-locator-file");
 
-    private ILocator ChipCoordinates => Page.Locator(".problem-locator-where");
+    private ILocator ChipCoordinates => Page.Locator(".action-row-tail .problem-locator-where");
 
     /// <summary>
     /// The desktop navigation-panel fold, by its accessible name — the same
@@ -280,7 +280,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
         // Positive precondition for the floor: this is a cube answering row —
         // the widest row — and the panel is showing. The tail floor below is a
         // consequence of exactly those two facts.
-        await Expect(Page.Locator(".bg-cube-actions")).ToHaveCountAsync(1);
+        await Expect(Page.Locator(".action-row .bg-cube-actions")).ToHaveCountAsync(1);
         await Expect(CollapseRail).Not.ToBeCheckedAsync();
 
         string geometry = await CaptureRowGeometryAsync();
@@ -314,6 +314,29 @@ public sealed class ProblemLocatorTests : E2eTestBase
         {
             ReportRowGeometry("answering (maximized), synthesized .xg, panel folded", foldedGeometry);
         }
+    }
+
+    /// <summary>
+    /// At the narrowest desktop width, 641 × 768 — §2's floor corner, where the
+    /// row is at its tightest and the panel has folded by itself — the
+    /// locator's numbers stay whole, inside the chip, and its accessible text
+    /// keeps the full wording (halheinrich/backgammon#264's ruling of
+    /// 2026-10-03: "Its numbers stay whole, and its accessible name keeps the
+    /// full wording"). Until that ruling the chip could shrink to nothing and
+    /// leave its numbers drawn under Show stats.
+    /// </summary>
+    [Fact]
+    public async Task MatchProblem_AtTheNarrowestWidth_KeepsItsNumbersWhole_AndItsFullWording()
+    {
+        await Page.SetViewportSizeAsync(641, 768);
+        await BootHomeAsync();
+        await PickSynthesizedFileAsync(
+            SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
+        await ApplyFilterAsync();
+        await StartQuizAsync();
+        await Expect(Page.Locator(".action-row .bg-cube-actions")).ToHaveCountAsync(1);
+
+        await AssertChipLocatesTheMatchDecisionAtTheTailFloorAsync();
     }
 
     /// <summary>
@@ -404,15 +427,17 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await Expect(Chip).ToBeVisibleAsync();
         await Expect(ChipFileName).ToHaveTextAsync(ExpectedFileName);
         await Expect(ChipCoordinates).ToHaveCountAsync(0);
-        await Expect(Page.Locator(".problem-locator .visually-hidden"))
+        await Expect(Page.Locator(".action-row-tail .problem-locator .visually-hidden"))
             .ToHaveTextAsync(StagedFileName);
     }
 
     /// <summary>
     /// The chip on a match decision, as §4's 2026-09-03 amendment contracts it
-    /// at the tail's floor: the coordinates <b>laid out and readable</b> —
-    /// <c>Game n · Move m</c> as text, neither number elided, in a box of real
-    /// width — and the chip's accessible name still the <b>full</b> file name.
+    /// at the tail's floor: the coordinates <b>laid out and readable</b> — the
+    /// short form <c>Gn · Mm</c> (halheinrich/backgammon#264's ruling of
+    /// 2026-10-03) as text, neither number elided, in a box of real width, the
+    /// chip as wide as they are — and the chip's accessible text still the
+    /// <b>full</b> file name and the <b>full</b> wording, <c>Game n · Move m</c>.
     /// The expected coordinates are assembled from
     /// <see cref="SyntheticXgMatch.CubeGameNumber"/> and
     /// <see cref="SyntheticXgMatch.CubeMoveNumber"/>, which the fixture derives
@@ -435,16 +460,23 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await Expect(Chip).ToBeVisibleAsync();
         await Expect(ChipCoordinates).ToBeVisibleAsync();
         await Expect(ChipCoordinates).ToHaveTextAsync(
-            $"Game {SyntheticXgMatch.CubeGameNumber} · Move {SyntheticXgMatch.CubeMoveNumber}");
+            $"G{SyntheticXgMatch.CubeGameNumber} · M{SyntheticXgMatch.CubeMoveNumber}");
         await ExpectToPassAsync(async () =>
         {
-            // Readable means laid out at its own width, not merely present:
-            // the numbers are the one thing the shrink order may never take.
+            // Readable means laid out at its own width, not merely present —
+            // and inside the chip, not drawn past its edge under the next
+            // control: the numbers are the one thing the shrink order may
+            // never take (until 2026-10-03 the chip could shrink to nothing
+            // and leave them under Show stats).
             var coordinates = await LaidOutBoxAsync(ChipCoordinates, "the chip's coordinates");
+            var chip = await LaidOutBoxAsync(Chip, "the chip");
             Assert.True(coordinates.Width > 0, $"coordinates should have a laid-out width; got {coordinates.Width}");
+            Assert.True(coordinates.X + coordinates.Width <= chip.X + chip.Width + 0.5,
+                $"the coordinates end at {coordinates.X + coordinates.Width}, past the chip's edge at {chip.X + chip.Width}");
         });
-        await Expect(Page.Locator(".problem-locator .visually-hidden"))
-            .ToHaveTextAsync(SyntheticXgMatch.StagedFileName);
+        await Expect(Page.Locator(".action-row-tail .problem-locator .visually-hidden")).ToHaveTextAsync(
+            [SyntheticXgMatch.StagedFileName,
+             $"Game {SyntheticXgMatch.CubeGameNumber} · Move {SyntheticXgMatch.CubeMoveNumber}"]);
     }
 
     /// <summary>

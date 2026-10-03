@@ -203,6 +203,12 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await Expect(body).ToContainTextAsync("stays put while you work through the quiz");
         await Expect(body).ToContainTextAsync("comes back when you move to another page or reload");
 
+        // And the quiz page's own fold (halheinrich/backgammon#264's ruling of
+        // 2026-10-03): by itself in a narrow window, an overlay when opened
+        // there, back as the user left it when the window widens.
+        await Expect(body).ToContainTextAsync("folds the panel by itself");
+        await Expect(body).ToContainTextAsync("widening the window brings it back as you left it");
+
         // ...and the way out of that reset, which is the whole reason the fold
         // setting exists. Named by the words on the control, so a reader can find
         // it; the behaviour is pinned in SettingsTests.

@@ -84,7 +84,7 @@ public sealed class DecisionNotesTests : E2eTestBase
 
         // Answering: the comment is a spoiler, so there is no control — beside
         // the positive precondition that this IS the cube's answering row.
-        await Expect(Page.Locator(".bg-cube-actions")).ToHaveCountAsync(1);
+        await Expect(Page.Locator(".action-row .bg-cube-actions")).ToHaveCountAsync(1);
         await Expect(NotesButton).ToHaveCountAsync(0);
 
         await AnswerCubeAsync(ExpectedText.DoubleTakePill);

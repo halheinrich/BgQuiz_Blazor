@@ -356,9 +356,17 @@ h1:focus {
 }
 
 /* The action row's trailing cluster — the XGID badge, the problem locator, then
-   Show stats and End quiz (SPEC-quiz-view.md §4). Its one job here is the
-   fixed-height contract: THE ROW SHRINKS, IT NEVER GROWS (§4's build-time
-   ruling (i), issue halheinrich/backgammon#115).
+   the Show stats and End quiz icon buttons (SPEC-quiz-view.md §4). Its one job
+   here is the fixed-height contract: THE ROW SHRINKS, IT NEVER GROWS (§4's
+   build-time ruling (i), issue halheinrich/backgammon#115).
+
+   Its FLOOR is its min-content width, by construction: each chip's shrinkable
+   text sits in a grid track that may shrink to nothing (.xgid-label,
+   .problem-locator below), so what cannot shrink — the copy button, the
+   locator's numbers, the two icon buttons — is exactly what min-content
+   measures. That is the number the quiz page's row-fit ruler reads as the
+   tail's share of the row (wwwroot/js/actionRowFit.js; halheinrich/backgammon#264's
+   ruling of 2026-10-03: the row narrows, the board keeps its height).
 
    Why the cluster grows into the free space instead of being pushed there by an
    auto margin. Flexbox decides line breaks on each item's *hypothetical* main
@@ -413,24 +421,56 @@ h1:focus {
 }
 
 /* The navigation buttons, ⏮ ◀ ▶ ⏭ (SPEC-quiz-history.md §2; their place in
-   the row is SPEC-quiz-view.md §4's). Compact icon buttons: Bootstrap's own
-   button height, so the row's height stays the primary button's, and half its
-   inline padding, since a 1em glyph needs none of a word's room. The glyph is
-   inline SVG, so the group's width is the same under every font stack — the
-   row's fit is measured, and a glyph font would make it depend on which
-   symbol font a platform falls back to. The group is one control set: it
+   the row is SPEC-quiz-view.md §4's). The group is one control set: it
    neither shrinks nor wraps inside itself, and stays together on whichever
    line the row gives it. */
 .quiz-nav {
     flex: none;
 }
 
-.quiz-nav-button {
+/* The row's icon buttons: ⏮ ◀ ▶ ⏭, and Show stats and End quiz at the tail's
+   end (SPEC-quiz-view.md §4, halheinrich/backgammon#264's ruling of 2026-10-03:
+   "Show stats and End quiz become icon buttons"). Bootstrap's own button
+   height, so the row's height stays the primary button's, and half its inline
+   padding, since a 1em glyph needs none of a word's room. Each glyph is inline
+   SVG, so a button's width is the same under every font stack; its name is
+   its accessible name and tooltip, the glyph hidden from assistive
+   technology. */
+.action-row-icon {
     padding-inline: 0.5rem;
 }
 
-.quiz-nav-button > svg {
+.action-row-icon > svg {
     vertical-align: -0.125em;
+}
+
+/* The row-fit ruler (halheinrich/backgammon#264's ruling of 2026-10-03, and
+   SPEC-quiz-view.md §4's cube-label switch): an invisible, inert copy of the
+   row's widest compositions — the checker answer row, the cube answer row in
+   its short form (and in its full form while a cube is answered) — and of the
+   tail at its floor, rendered by the quiz page from the very fragments the
+   row renders, so the fonts actually rendering size both alike.
+   wwwroot/js/actionRowFit.js reads the lines' widths and decides from them
+   whether the navigation panel folds by itself and whether the pills take
+   their short labels. A zero-sized, clipped box: its lines lay out at their
+   own widths (each line's width is its content's — max-content for a
+   composition, min-content for the tail, which is its floor), and none of
+   it paints, takes a click or reaches the page's scroll width. */
+.action-row-ruler {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.action-row-ruler-line {
+    width: max-content;
+}
+
+.action-row-ruler-line.action-row-ruler-floor {
+    width: min-content;
 }
 
 /* XGID badge — an in-flow badge in the quiz page's action row, never on the
@@ -442,9 +482,15 @@ h1:focus {
    rem sizing instead: the row it sits in is ordinary chrome. Mirrors the
    right-justified label the PDF/PPTX/PNG exporters bake into the title strip. */
 .xgid-label {
-    display: inline-flex;
+    /* A two-track grid: the text in a track that may shrink to nothing
+       (minmax(0, max-content)), the copy button in one sized by the button.
+       So the badge's min-content IS its floor — the button plus its gap — and
+       that is what the row-fit ruler measures as the badge's share of the
+       tail's floor (see .action-row-tail). */
+    display: inline-grid;
+    grid-template-columns: minmax(0, max-content) auto;
     align-items: center;
-    gap: 0.4rem;
+    column-gap: 0.4rem;
     max-width: 100%;
     font-size: 0.85rem;
     line-height: 1.2;
@@ -454,17 +500,15 @@ h1:focus {
        locator's 1 means this badge is emptied before the locator loses a
        character.
 
-       It stops at the copy button plus its gap, which is what the min-width
-       spells: `auto` would refuse to shrink at all (a nowrap text run's
-       min-content is the whole run), and `0` would let the button itself be
-       squeezed out. That floor is the ruled one, because the badge's target has
-       been COPYABILITY rather than visibility since 2026-08-13: a copy button
-       with no visible caption still hands over the whole XGID, and `title`, the
-       select-all and the screen-reader text are all indifferent to a used
-       width. Nothing else about the badge changes; the 2.5rem cap below is
-       still the widest it ever draws. */
+       It stops at the copy button plus its gap: its automatic minimum width is
+       its min-content, which the grid above makes exactly that, never less, so
+       the button itself cannot be squeezed out. That floor is the ruled one,
+       because the badge's target has been COPYABILITY rather than visibility
+       since 2026-08-13: a copy button with no visible caption still hands over
+       the whole XGID, and `title`, the select-all and the screen-reader text
+       are all indifferent to a used width. The 2.5rem cap below is still the
+       widest it ever draws. */
     flex-shrink: 1000;
-    min-width: calc(1.75rem + 0.4rem);
     /* No pill: the padded, bordered, drop-shadowed chip was how the badge held
        its own against the *board* it used to overlay. In a row of buttons it is
        decoration — and decoration priced in board pixels, since every pixel of
@@ -495,18 +539,14 @@ h1:focus {
    this element's font, so the 40px cap renders exactly "XGID=…" with the
    ellipsis intact. That doubles as the label for the icon-only copy button
    beside it, which is why no separate caption is needed. The whole badge is
-   then 74.4px, and the cube row (the wide one — four radios) stays one line
-   down to 1100px with the nav panel showing, 920px folded — the binding fact
-   is the row's own available width, not the viewport: one line needs 836px of
-   it. (That threshold was 1360px until issue halheinrich/backgammon#99's
-   producer leg compacted the cube pills, taking the row from 1001.4px to
-   835.8px — BgDiag_Razor a152d00, re-measured 2026-08-18. The badge's own
-   contribution to the row is unchanged.) Every pixel of badge is a pixel off
-   that margin, so widening this cap walks the threshold back up — re-measure
-   before touching it. Board size shows no per-problem-kind divergence at any
-   width ≥ 641 with height ≥ 768 (SPEC-quiz-view.md §2's invariance floor);
-   below that height the row wraps again by ruling, and this cap is one of the
-   terms in where. */
+   then 74.4px at its widest and 34.4px at its floor, the copy button and its
+   gap (measured 2026-10-03, Windows Helvetica/Arial). No width threshold in
+   the row rests on these numbers any more: since halheinrich/backgammon#264's
+   ruling the quiz page measures the row's widest composition live, under the
+   fonts rendering it, and folds the navigation panel or abbreviates the cube
+   labels to fit (wwwroot/js/actionRowFit.js). Every pixel of badge is still a
+   pixel of that measured budget, so widening this cap moves where the panel
+   folds — the measurement follows on its own. */
 .xgid-label-text {
     display: block;
     max-width: 2.5rem;
@@ -556,18 +596,23 @@ h1:focus {
    narrowing its file name, never by wrapping: the cluster is nowrap, so there is
    no second line for anything here to fall onto.
 
-   `min-width: 0` is what lets it shrink at all (see .action-row-tail for why
-   `auto` refuses). What keeps the ruled floor is that only the file name is
-   shrinkable inside it: the coordinates are `flex: none` and nowrap, so every
-   pixel this chip gives up comes off the name, and the numbers are the last
-   thing standing. Measured at 1280x800 on the widest row there is — a cube
-   problem from a long-named .xg match — the chip lands on the numbers plus a
-   sliver of name, and the row is still one line. */
+   ITS NUMBERS NEVER SHRINK (§4 ruling (i), "the numbers never"; restated by
+   halheinrich/backgammon#264's ruling of 2026-10-03, "Its numbers stay
+   whole"). A grid with one column per fact: the file name's column may shrink
+   to nothing (its min-width is 0), the coordinates' column is as wide as the
+   numbers. So the chip's min-content is the numbers and their gap, and its
+   automatic minimum width — the default, deliberately not overridden — holds
+   it there. Until 2026-10-03 this chip carried `min-width: 0`, which let the
+   flex row squeeze the whole chip to nothing and draw its numbers underneath
+   Show stats (measured: at 1280x800 with the panel showing, on a .xg cube
+   problem, the chip was 0px wide and a tap on the numbers reached Show stats).
+   The numbers are also short-form now, G3 · M12, their full wording the
+   accessible text (ProblemLocator). */
 .problem-locator {
-    display: inline-flex;
+    display: inline-grid;
+    grid-auto-flow: column;
     align-items: baseline;
-    gap: 0.4rem;
-    min-width: 0;
+    column-gap: 0.4rem;
     font-size: 0.85rem;
     line-height: 1.2;
     color: #212529;
@@ -585,7 +630,6 @@ h1:focus {
    elided string hands the reader an ellipsis to paste. */
 .problem-locator-file {
     display: block;
-    flex: 0 1 auto;
     min-width: 0;
     max-width: 9rem;
     overflow: hidden;
@@ -593,11 +637,11 @@ h1:focus {
     white-space: nowrap;
 }
 
-/* Never shrinks and never wraps — the ruled floor of the whole cluster. Muted
-   against the file name because the coordinates refine the file rather than
-   competing with it for the eye scanning the row for a name. */
+/* Never shrinks and never wraps — the ruled floor of the whole cluster: nowrap
+   makes its min-content the whole run, which is what its grid column holds.
+   Muted against the file name because the coordinates refine the file rather
+   than competing with it for the eye scanning the row for a name. */
 .problem-locator-where {
-    flex: none;
     white-space: nowrap;
     color: #6c757d;
 }

@@ -156,8 +156,15 @@ internal static class ExpectedText
     /// </summary>
     internal const string NotesButton = "Notes";
 
-    /// <summary>Ending a run early (<c>Quiz.razor</c>).</summary>
+    /// <summary>
+    /// Ending a run early (<c>Quiz.razor</c>): an icon button since
+    /// halheinrich/backgammon#264's ruling, this its accessible name and
+    /// tooltip.
+    /// </summary>
     internal const string EndQuizButton = "End quiz";
+
+    /// <summary>The mid-quiz scoreboard's icon button, by its accessible name and tooltip (<c>Quiz.razor</c>).</summary>
+    internal const string ShowStatsButton = "Show stats";
 
     /// <summary>
     /// The cube pills, in the row's order — each pill's caption and its

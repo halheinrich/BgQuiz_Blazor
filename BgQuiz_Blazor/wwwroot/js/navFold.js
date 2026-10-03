@@ -1,8 +1,8 @@
-// navFold.js — BgQuiz's navigation-fold applier: one of the app's two authored
-// scripts, and the only one in the host project. (The other is the .Client's
-// wwwroot/js/quizKeys.js, the ES module the Quiz page imports for its Space
-// shortcut. The folder module that came first moved to BgFolderAccess_Razor,
-// which ships it as its own static web asset.)
+// navFold.js — BgQuiz's navigation-fold applier: the one authored script in the
+// host project. (The .Client's wwwroot/js holds the Quiz page's two ES modules,
+// quizKeys.js for its Space shortcut and actionRowFit.js for its action row. The
+// folder module that came first moved to BgFolderAccess_Razor, which ships it
+// as its own static web asset.)
 //
 // Why this exists in JS at all. The navigation panel's collapse control is an
 // uncontrolled checkbox in MainLayout, which renders STATICALLY and cannot be
@@ -25,22 +25,95 @@
 //     test (QuizSettingsTests), which is the single source of truth for the
 //     name read below.
 //   * CHECKBOX_SELECTOR must match MainLayout's control. MainLayoutTests pins
-//     the DOM contract that same selector depends on.
+//     the DOM contract that same selector depends on. SIDEBAR_SELECTOR and
+//     the --sidebar-width property name the panel MainLayout.razor.css lays
+//     out, and AUTO_FOLD_ATTRIBUTE is the attribute its auto-fold rule keys on.
 // Change either end without the other and the setting silently stops working.
+//
+// THE AUTO-FOLD (SPEC-quiz-view.md §4, halheinrich/backgammon#264's ruling of
+// 2026-10-03: "The navigation panel folds by itself below the width where the
+// row fits beside it. Opening it again there leaves no control covered.").
+// The quiz page measures its action row (actionRowFit.js) and asks this file,
+// the panel's one owner, to fold it: setAutoFold(true / false). It is LAYOUT
+// state, never the user's preference:
+//   * Entering it saves the user's fold (the checkbox) and folds the panel
+//     (checks the box, so the control still tells the truth: checked = hidden);
+//     <html> carries AUTO_FOLD_ATTRIBUTE while it holds.
+//   * While it holds, the user's control still works: unchecking opens the
+//     panel as an OVERLAY above the page (MainLayout.razor.css), which takes
+//     no width from the row, so opening it covers nothing in the row; checking
+//     it again closes the overlay. Neither is a preference: both are forgotten
+//     when the auto-fold ends.
+//   * Leaving it restores the saved fold exactly. The stored "Keep the
+//     navigation panel folded" setting is never written here (this file only
+//     ever reads it); a fold applied from it while the auto-fold holds goes to
+//     the saved fold, so it lands when the auto-fold ends.
+//   * An enhanced navigation's DOM synchronization re-renders the layout: the
+//     attribute and the checkbox are reset with it, so the saved fold is
+//     discarded and the stored one applied as on any page; the quiz page, if it
+//     is still the page, asks again (its module re-measures on the same
+//     event, registered after this file's).
 (function () {
     'use strict';
 
     const STORAGE_KEY = 'xg_quizSettings';
     const FOLDED_FIELD = 'keepNavigationPanelFolded';
     const CHECKBOX_SELECTOR = '.sidebar-toggle-checkbox';
+    const SIDEBAR_SELECTOR = '.sidebar';
+    const SIDEBAR_WIDTH_PROPERTY = '--sidebar-width';
+    const AUTO_FOLD_ATTRIBUTE = 'data-nav-autofold';
 
-    // The one place the DOM is touched. Absent control (a layout without the
-    // rail) is a no-op, never an error.
+    // The user's fold while the auto-fold holds (see the header); null otherwise.
+    let savedFold = null;
+
+    function autoFolded() {
+        return document.documentElement.hasAttribute(AUTO_FOLD_ATTRIBUTE);
+    }
+
+    // The user's fold: the checkbox, or, while the auto-fold holds, the fold
+    // saved for when it ends. Absent control (a layout without the rail) is a
+    // no-op, never an error.
     function setFolded(folded) {
+        if (autoFolded()) {
+            savedFold = folded === true;
+            return;
+        }
         const checkbox = document.querySelector(CHECKBOX_SELECTOR);
         if (checkbox) {
             checkbox.checked = folded === true;
         }
+    }
+
+    // Fold the panel by itself, or stop (see the header). Idempotent: asking
+    // for the state already held changes nothing.
+    function setAutoFold(on) {
+        const checkbox = document.querySelector(CHECKBOX_SELECTOR);
+        if (!checkbox || on === autoFolded()) return;
+        if (on) {
+            savedFold = checkbox.checked;
+            checkbox.checked = true;
+            document.documentElement.setAttribute(AUTO_FOLD_ATTRIBUTE, '');
+        } else {
+            document.documentElement.removeAttribute(AUTO_FOLD_ATTRIBUTE);
+            checkbox.checked = savedFold === true;
+            savedFold = null;
+        }
+    }
+
+    // How much narrower the page's content would be if the panel were showing
+    // in flow, beyond what it takes now: the panel's width when it is folded or
+    // open as an overlay, nothing when it already shows in flow. Null where
+    // there is no side panel to fold (the phone layout, where the rail is not
+    // displayed). The quiz page subtracts it from its row's width to learn the
+    // row the panel would leave, which does not depend on the fold.
+    function widthIfShown() {
+        const checkbox = document.querySelector(CHECKBOX_SELECTOR);
+        const sidebar = document.querySelector(SIDEBAR_SELECTOR);
+        if (!checkbox || !sidebar || getComputedStyle(checkbox).display === 'none') return null;
+        const style = getComputedStyle(sidebar);
+        const showing = parseFloat(style.getPropertyValue(SIDEBAR_WIDTH_PROPERTY)) || 0;
+        const inFlow = style.position === 'fixed' ? 0 : sidebar.getBoundingClientRect().width;
+        return showing - inFlow;
     }
 
     // Storage is user-writable and shared with future settings legs, so every
@@ -60,6 +133,9 @@
     }
 
     function applyStored() {
+        // After a DOM synchronization the attribute is gone with the old
+        // layout, and so is any fold saved for it.
+        if (!autoFolded()) savedFold = null;
         setFolded(storedFold());
     }
 
@@ -71,7 +147,9 @@
     // Takes the value explicitly all the same: the C# side then has no ordering
     // dependency on its own localStorage write having landed first, and this
     // module keeps no opinion about which direction its caller is in.
-    window.bgquizNavFold = { apply: setFolded };
+    // setAutoFold and widthIfShown are the quiz page's row-fit module's
+    // (actionRowFit.js; the auto-fold in the header).
+    window.bgquizNavFold = { apply: setFolded, setAutoFold, widthIfShown };
 
     // Initial load: enhancedload does not fire for it.
     applyStored();

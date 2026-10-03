@@ -59,7 +59,7 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
     /// </summary>
     private Task<string[]> NavigationCentreHitsAsync() =>
         Page.EvaluateAsync<string[]>(@"() =>
-            [...document.querySelectorAll('.quiz-nav button')].map(b => {
+            [...document.querySelectorAll('.action-row .quiz-nav button')].map(b => {
               const was = b.disabled; b.disabled = false;
               const r = b.getBoundingClientRect();
               const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
@@ -82,7 +82,7 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
         if (atReview) await AnswerCubeNoDoubleAsync();
-        await Page.Locator(".quiz-nav").ScrollIntoViewIfNeededAsync();
+        await Page.Locator(".action-row .quiz-nav").ScrollIntoViewIfNeededAsync();
 
         var next = atReview ? ExpectedText.NextButton : ExpectedText.SkipButton;
         Assert.Equal(

@@ -246,30 +246,19 @@
                halheinrich/backgammon#200 and SPEC-quiz-history.md §2) reads
                CanSubmit and then CanGoNext, and calls the same SubmitAsync /
                NextAsync these buttons do, so the keyboard can never enable what
-               a button shows disabled, nor act differently from it.
+               a button shows disabled, nor act differently from it. End quiz
+               keeps the row's far end (TailButtons, in the @code block below,
+               says why).
 
-               "End quiz" (issue halheinrich/backgammon#57) closes the trailing cluster, after Show
-               stats — the far end of the row, as far from the buttons a user
-               clicks over and over (Submit, Continue) as the row allows. That
-               distance is the whole mitigation: the control is one-click and
-               acts immediately, ruled so deliberately, so there is no
-               confirmation step to catch a misclick. It is styled like its
-               neighbours rather than as a danger action, because ending a run
-               early is a normal way to finish one, not a destructive act — Done
-               receives it as the completed quiz it is.
-
-               It IS a transition (it retires the enumerator and finishes the
-               run), so unlike Show stats it disables on IsBusy. The shared row
-               is also what keeps the states' row heights equal by construction —
-               what the board's flex remainder depends on, see the status strip's
-               fixed-height contract. *@
+               The controls are fragments in the @code block below, because the
+               row-fit ruler after the row renders them a second time to measure
+               them. The shared row is also what keeps the states' row heights
+               equal by construction — what the board's flex remainder depends
+               on, see the status strip's fixed-height contract. *@
             <div class="action-row d-flex flex-wrap gap-2 align-items-center" @ref="_actionRow">
                 @if (review is not null)
                 {
-                    <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanContinue)"
-                            @onclick="NextAsync">
-                        Continue
-                    </button>
+                    @ContinueControl
                 }
                 else if (current is CubeDecision cube)
                 {
@@ -296,81 +285,19 @@
 
                        ShortLabels is this page's call, as the producer leaves
                        it to the host (SPEC-quiz-view.md §4): the short form
-                       wherever the row cannot hold the full one, decided from
-                       the row's measured width by CubeLabelsAbbreviate. *@
+                       unless the row-fit module has measured that the full
+                       form fits beside the tail (ShortCubeLabels). *@
                     <BackgammonCubeActions @bind-Value="_completedCube" Decision="cube"
-                                           ShortLabels="@ShortCubeLabels(cube)" />
-                    <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanSubmit)"
-                            @onclick="SubmitAsync">
-                        Submit
-                    </button>
+                                           ShortLabels="@ShortCubeLabels" />
+                    @SubmitControl
                 }
                 else
                 {
-                    @* Undo all and Undo last lead the row (SPEC-quiz-view.md §4),
-                       Undo all first. Busy-only, deliberately not
-                       "_playEntry is not null": that @ref is assigned *after*
-                       the render that creates the entry, so this branch's first
-                       render always read null and disabled both buttons — and
-                       nothing re-renders this page during click-by-click
-                       assembly, so they stayed disabled until the play
-                       completed. The branch already guarantees an entry is
-                       rendered (a checker play), and a click can only land after
-                       the ref is assigned, so the null term tested nothing this
-                       branch had not already established. See UndoLast. *@
-                    <button class="btn btn-outline-secondary"
-                            disabled="@Controller.IsBusy"
-                            @onclick="UndoAll">
-                        Undo all
-                    </button>
-                    <button class="btn btn-outline-secondary"
-                            disabled="@Controller.IsBusy"
-                            @onclick="UndoLast">
-                        Undo last
-                    </button>
-                    <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanSubmit)"
-                            @onclick="SubmitAsync">
-                        Submit
-                    </button>
+                    @UndoControls
+                    @SubmitControl
                 }
 
-                @* ⏮ ◀ ▶ ⏭ — SPEC-quiz-history.md §2's controls, compact icon
-                   buttons, in both states, rendered here once. The glyphs are
-                   inline SVG so the buttons' width is the same under every font
-                   stack (the row's fit is measured, SPEC-quiz-view.md §4); each
-                   button's accessible name and tooltip are its words, the
-                   glyph is hidden from assistive technology. ▶ is called Skip
-                   where a press would add to the skip count and Next elsewhere
-                   — the run's rule, read as Controller.NextAddsToSkipCount and
-                   never rebuilt here. ⏮ and ◀ share one gate (unavailable on
-                   the first problem), ⏭ is unavailable on the frontier, and ▶
-                   only while busy. *@
-                <div class="quiz-nav d-flex gap-1" role="group" aria-label="@NavigationGroupName">
-                    <button class="btn btn-outline-secondary quiz-nav-button" disabled="@(!CanGoBack)"
-                            aria-label="@GoToFirstName" title="@GoToFirstName" @onclick="GoToFirst">
-                        <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
-                            <path d="M3 2h2v12H3zM14 2.5v11L6 8z" fill="currentColor" />
-                        </svg>
-                    </button>
-                    <button class="btn btn-outline-secondary quiz-nav-button" disabled="@(!CanGoBack)"
-                            aria-label="@BackName" title="@BackName" @onclick="GoBack">
-                        <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
-                            <path d="M12 2.5v11L4 8z" fill="currentColor" />
-                        </svg>
-                    </button>
-                    <button class="btn btn-outline-secondary quiz-nav-button" disabled="@(!CanGoNext)"
-                            aria-label="@NextButtonName" title="@NextButtonName" @onclick="NextAsync">
-                        <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
-                            <path d="M4 2.5v11L12 8z" fill="currentColor" />
-                        </svg>
-                    </button>
-                    <button class="btn btn-outline-secondary quiz-nav-button" disabled="@(!CanGoToLast)"
-                            aria-label="@GoToLastName" title="@GoToLastName" @onclick="GoToLast">
-                        <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
-                            <path d="M2 2.5v11L10 8zM11 2h2v12h-2z" fill="currentColor" />
-                        </svg>
-                    </button>
-                </div>
+                @NavigationControls
 
                 @if (review is not null)
                 {
@@ -399,10 +326,9 @@
                    cluster decides the row's line breaks by its max-content
                    width, so it would push itself onto a second line at exactly
                    the widths where the widest problem kind needs the room. The
-                   cluster shrinks instead, in a ruled order (app.css). The
-                   earlier ms-auto is gone with the mechanism it named; nothing
-                   in here positions anything any more, which is also why no
-                   rule remains about which child may render nothing.
+                   cluster shrinks instead, in a ruled order (app.css), down to
+                   its floor; below that, the navigation panel folds by itself
+                   (the row-fit ruler below).
 
                    THE XGID'S ONE HOME (SPEC-quiz-view.md §4, issue
                    halheinrich/backgammon#98). It leads the cluster — present in
@@ -437,13 +363,64 @@
                     <ProblemLocator SourceFile="@current.SourceFile"
                                     Game="current.Game"
                                     MoveNumber="current.MoveNumber" />
-                    <button class="btn btn-outline-secondary" @onclick="ShowStats">
-                        Show stats
-                    </button>
-                    <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
-                            @onclick="EndQuizAsync">
-                        End quiz
-                    </button>
+                    @TailButtons
+                </div>
+            </div>
+
+            @* THE ROW-FIT RULER (SPEC-quiz-view.md §4: halheinrich/backgammon#264's
+               ruling of 2026-10-03 — the row narrows, the board keeps its
+               height — and the cube labels' switch). Invisible and inert
+               (app.css), it renders the row's widest compositions from the very
+               fragments the row renders, so the fonts actually rendering size
+               both alike, and wwwroot/js/actionRowFit.js reads each line's width:
+
+               - data-ruler="lead": the two answer rows in their narrowest form —
+                 Undo all, Undo last, Submit and ⏮ ◀ ▶ ⏭; and the cube pills in
+                 their short form, with Submit and the four, once a cube decision
+                 has been on this page (RulerCube). The widest of them, with the
+                 tail's floor, is the budget the navigation panel folds by — one
+                 budget for every state, so no state's board or chrome differs
+                 from another's. The review row is not a line: Continue and
+                 Notes replace Undo all, Undo last and Submit, two buttons for
+                 three, and it is narrower in any font.
+               - data-ruler="full-cube", while a cube decision is answered: the
+                 full-label row, the pills at their widest selection (the
+                 fourth answer, bold), which the labels' switch compares with
+                 the row's actual width.
+               - data-ruler="tail": the tail at its floor (app.css), its locator
+                 showing three-digit coordinates (RulerCoordinate) whatever the
+                 problem, so the budget does not move from one problem, or one
+                 file, to the next.
+
+               Its controls take no input (inert) and are hidden from assistive
+               technology; nothing reads them but the module. *@
+            <div class="action-row-ruler" aria-hidden="true" inert @ref="_actionRowRuler">
+                <div class="action-row-ruler-line d-flex gap-2 align-items-center" data-ruler="lead">
+                    @UndoControls
+                    @SubmitControl
+                    @NavigationControls
+                </div>
+                @if (RulerCube is { } rulerCube)
+                {
+                    <div class="action-row-ruler-line d-flex gap-2 align-items-center" data-ruler="lead">
+                        <BackgammonCubeActions Value="RulerSelection" ValueChanged="RulerSelectionIgnored" Decision="rulerCube" ShortLabels="true" />
+                        @SubmitControl
+                        @NavigationControls
+                    </div>
+                }
+                @if (review is null && current is CubeDecision answeredCube)
+                {
+                    <div class="action-row-ruler-line d-flex gap-2 align-items-center" data-ruler="full-cube">
+                        <BackgammonCubeActions Value="RulerSelection" ValueChanged="RulerSelectionIgnored" Decision="answeredCube" ShortLabels="false" />
+                        @SubmitControl
+                        @NavigationControls
+                    </div>
+                }
+                <div class="action-row-ruler-line action-row-ruler-floor d-flex flex-nowrap gap-2 align-items-center"
+                     data-ruler="tail">
+                    <XgidLabel Xgid="@current.Xgid" />
+                    <ProblemLocator SourceFile="@null" Game="RulerCoordinate" MoveNumber="RulerCoordinate" />
+                    @TailButtons
                 </div>
             </div>
 
@@ -509,3 +486,116 @@
         </div>
     }
 </div>
+
+@code {
+    // The action row's controls, as fragments: the row renders each once, and
+    // the row-fit ruler renders the same fragments again, inert and invisible,
+    // so what is measured is what is shown (see the ruler above). They read
+    // the page's own gates and call its own handlers; nothing here decides.
+
+    /// <summary>Continue, the solution view's primary button: ▶'s method under the view's own name.</summary>
+    private RenderFragment ContinueControl => @<button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanContinue)"
+                                                         @onclick="NextAsync">
+        Continue
+    </button>;
+
+    /// <summary>Submit, the answering states' primary button — large and bold, the one control clicked on every problem.</summary>
+    private RenderFragment SubmitControl => @<button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanSubmit)"
+                                                       @onclick="SubmitAsync">
+        Submit
+    </button>;
+
+    /// <summary>
+    /// Undo all and Undo last, leading the checker answer row
+    /// (SPEC-quiz-view.md §4), Undo all first. Busy-only, deliberately not
+    /// "_playEntry is not null": that @ref is assigned *after* the render that
+    /// creates the entry, so the branch's first render always read null and
+    /// disabled both buttons — and nothing re-renders this page during
+    /// click-by-click assembly, so they stayed disabled until the play
+    /// completed. The branch already guarantees an entry is rendered (a
+    /// checker play), and a click can only land after the ref is assigned, so
+    /// the null term tested nothing the branch had not already established.
+    /// See UndoLast.
+    /// </summary>
+    private RenderFragment UndoControls => @<text>
+        <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy" @onclick="UndoAll">
+            Undo all
+        </button>
+        <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy" @onclick="UndoLast">
+            Undo last
+        </button>
+    </text>;
+
+    /// <summary>
+    /// ⏮ ◀ ▶ ⏭ — SPEC-quiz-history.md §2's controls, compact icon buttons, in
+    /// both states, rendered in the row once. Each button's accessible name and
+    /// tooltip are its words, the inline-SVG glyph hidden from assistive
+    /// technology. ▶ is called Skip where a press would add to the skip count
+    /// and Next elsewhere — the run's rule, read as
+    /// Controller.NextAddsToSkipCount and never rebuilt here. ⏮ and ◀ share one
+    /// gate (unavailable on the first problem), ⏭ is unavailable on the
+    /// frontier, and ▶ only while busy.
+    /// </summary>
+    private RenderFragment NavigationControls => @<div class="quiz-nav d-flex gap-1" role="group" aria-label="@NavigationGroupName">
+        <button class="btn btn-outline-secondary action-row-icon" disabled="@(!CanGoBack)"
+                aria-label="@GoToFirstName" title="@GoToFirstName" @onclick="GoToFirst">
+            <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
+                <path d="M3 2h2v12H3zM14 2.5v11L6 8z" fill="currentColor" />
+            </svg>
+        </button>
+        <button class="btn btn-outline-secondary action-row-icon" disabled="@(!CanGoBack)"
+                aria-label="@BackName" title="@BackName" @onclick="GoBack">
+            <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
+                <path d="M12 2.5v11L4 8z" fill="currentColor" />
+            </svg>
+        </button>
+        <button class="btn btn-outline-secondary action-row-icon" disabled="@(!CanGoNext)"
+                aria-label="@NextButtonName" title="@NextButtonName" @onclick="NextAsync">
+            <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
+                <path d="M4 2.5v11L12 8z" fill="currentColor" />
+            </svg>
+        </button>
+        <button class="btn btn-outline-secondary action-row-icon" disabled="@(!CanGoToLast)"
+                aria-label="@GoToLastName" title="@GoToLastName" @onclick="GoToLast">
+            <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
+                <path d="M2 2.5v11L10 8zM11 2h2v12h-2z" fill="currentColor" />
+            </svg>
+        </button>
+    </div>;
+
+    /// <summary>
+    /// Show stats and End quiz, closing the trailing cluster as icon buttons
+    /// (SPEC-quiz-view.md §4, halheinrich/backgammon#264's ruling of
+    /// 2026-10-03: "Their names stay as their tooltips and accessible names,
+    /// and End quiz keeps the far end"). The glyphs are Bootstrap Icons'
+    /// bar-chart-line and box-arrow-right, inline.
+    ///
+    /// <para>
+    /// Show stats only navigates, so it never disables. End quiz
+    /// (halheinrich/backgammon#57) IS a transition — it retires the enumerator
+    /// and finishes the run — so it disables on IsBusy. It keeps the far end of
+    /// the row, as far from the buttons a user clicks over and over (Submit,
+    /// Continue) as the row allows: that distance is the whole mitigation,
+    /// since the control is one-click and acts immediately, ruled so
+    /// deliberately, with no confirmation step to catch a misclick. It is
+    /// styled like its neighbours rather than as a danger action, because
+    /// ending a run early is a normal way to finish one — Done receives it as
+    /// the completed quiz it is.
+    /// </para>
+    /// </summary>
+    private RenderFragment TailButtons => @<text>
+        <button class="btn btn-outline-secondary action-row-icon"
+                aria-label="@ShowStatsName" title="@ShowStatsName" @onclick="ShowStats">
+            <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
+                <path d="M11 2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12h.5a.5.5 0 0 1 0 1H.5a.5.5 0 0 1 0-1H1v-3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3h1V7a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7h1zm1 12h2V2h-2zm-3 0V7H7v7zm-5 0v-3H2v3z" fill="currentColor" />
+            </svg>
+        </button>
+        <button class="btn btn-outline-secondary action-row-icon" disabled="@Controller.IsBusy"
+                aria-label="@EndQuizName" title="@EndQuizName" @onclick="EndQuizAsync">
+            <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
+                <path fill-rule="evenodd" d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0z" fill="currentColor" />
+                <path fill-rule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708z" fill="currentColor" />
+            </svg>
+        </button>
+    </text>;
+}

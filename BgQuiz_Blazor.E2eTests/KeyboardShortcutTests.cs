@@ -75,7 +75,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
           const tag = el.tagName.toLowerCase();
           if (el instanceof HTMLInputElement && el.type === 'radio')
             return 'radio ' + (el.checked ? 'checked' : 'unchecked');
-          return tag === 'button' ? 'button ' + (el.textContent || '').trim() : tag;
+          return tag === 'button' ? 'button ' + (el.getAttribute('aria-label') || el.textContent || '').trim() : tag;
         }
         """);
 

@@ -18,7 +18,12 @@
         }
         @if (HasCoordinates)
         {
-            <span class="problem-locator-where">@WhereText</span>
+            @* The same split as the file name: the full wording is the
+               accessible text, the short form (G3 · M12) is what shows, hidden
+               from the accessibility tree so the numbers are not announced
+               twice, with the full wording as its tooltip. *@
+            <span class="visually-hidden">@WhereText</span>
+            <span class="problem-locator-where" aria-hidden="true" title="@WhereText">@ShortWhereText</span>
         }
     </div>
 }

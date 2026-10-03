@@ -18,9 +18,11 @@ namespace BgQuiz_Blazor.E2eTests;
 /// Both scenarios use the committed cube fixture, where gammons are not
 /// possible and the fourth answer reads No double / Pass, the longest set.
 /// The context's default 1280 px viewport with the navigation panel showing
-/// leaves a 922 px row, narrower than the 1001.3 px the full set needs; with
-/// the panel folded the row is 1172 px, wide enough. Which form shows depends
-/// on the row's width alone, never on the font, so these hold on any stack.
+/// leaves a 922 px row, narrower than the full set needs beside the tail
+/// (about 956 px under Windows Helvetica/Arial, measured live by the page);
+/// with the panel folded the row is 1172 px, wide enough. The page measures
+/// both under the fonts actually rendering, so these hold on any stack with a
+/// margin of over 30 px each way.
 /// </remarks>
 public sealed class CubeLabelsTests : E2eTestBase
 {
@@ -30,9 +32,9 @@ public sealed class CubeLabelsTests : E2eTestBase
     private ILocator CollapseRail =>
         Page.GetByRole(AriaRole.Checkbox, new() { Name = ExpectedText.HideNavigationPanelCheckbox });
 
-    private ILocator Pills => Page.Locator(".bg-cube-actions").GetByRole(AriaRole.Radio);
+    private ILocator Pills => Page.Locator(".action-row .bg-cube-actions").GetByRole(AriaRole.Radio);
 
-    private ILocator Captions => Page.Locator(".bg-cube-actions label");
+    private ILocator Captions => Page.Locator(".action-row .bg-cube-actions label");
 
     private static readonly string[] FullLabels =
         [ExpectedText.NoDoublePill, ExpectedText.DoubleTakePill, ExpectedText.DoublePassPill, ExpectedText.NoDoublePassPill];

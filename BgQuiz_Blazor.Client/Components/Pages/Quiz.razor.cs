@@ -60,9 +60,9 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// <b>Show stats.</b> A "Show stats" button, present in both the answering and
-/// review states (in the trailing <c>ms-auto</c> slot of each state's action
-/// row), navigates to <c>/stats</c> — a read-only, live view of the same
+/// <b>Show stats.</b> The Show stats icon button, present in both the answering
+/// and review states (in the action row's trailing cluster, before End quiz),
+/// navigates to <c>/stats</c> — a read-only, live view of the same
 /// <see cref="QuizController"/> mid-quiz. Because the controller is a per-tab
 /// scoped instance that survives in-app navigation, returning to <c>/quiz</c>
 /// resumes at the same problem with no state to persist or restore.
@@ -240,8 +240,9 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// app's first JS-invokable callback, attached on the first render and
 /// detached on disposal, which is why the page is
 /// <see cref="IAsyncDisposable"/> (the second,
-/// <see cref="HandleActionRowResized"/>, carries the action row's width for
-/// the cube pills' form, and is released the same way). Attached, the module sets
+/// <see cref="HandleCubeLabelsFit"/>, carries the row-fit module's
+/// measurement of the cube pills' form, and is released the same way).
+/// Attached, the module sets
 /// <see cref="QuizKeysMark.AttachedAttribute"/> on the document element — the
 /// readiness signal the browser tests wait on before they press
 /// (<c>halheinrich/backgammon#198</c>).
@@ -258,11 +259,13 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     internal const string KeysModulePath = "./js/quizKeys.js";
 
     /// <summary>
-    /// The module that reports the action row's width, which the cube pills'
-    /// form is decided from (<see cref="CubeLabelsAbbreviate"/>). Imported
-    /// beside <see cref="KeysModulePath"/> and internal for the same reason.
+    /// The row-fit module: it measures the action row and its ruler under the
+    /// fonts actually rendering, folds the navigation panel by itself where the
+    /// row cannot fit beside it, and reports whether the cube pills' full form
+    /// fits (<see cref="HandleCubeLabelsFit"/>). Imported beside
+    /// <see cref="KeysModulePath"/> and internal for the same reason.
     /// </summary>
-    internal const string RowWidthModulePath = "./js/actionRowWidth.js";
+    internal const string RowFitModulePath = "./js/actionRowFit.js";
 
     private BackgammonPlayEntry? _playEntry;
     private Play? _completedPlay;
@@ -271,14 +274,17 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// <summary>The imported keyboard module; null until the first render's import lands.</summary>
     private IJSObjectReference? _keys;
 
-    /// <summary>The imported row-width module; null until the first render's import lands.</summary>
-    private IJSObjectReference? _rowWidth;
+    /// <summary>The imported row-fit module; null until the first render's import lands.</summary>
+    private IJSObjectReference? _rowFit;
 
     /// <summary>The reference both modules call back through; created once both are imported, disposed with the page.</summary>
     private DotNetObjectReference<Quiz>? _self;
 
-    /// <summary>The action row, observed by the row-width module whenever Blazor creates it.</summary>
+    /// <summary>The action row, observed by the row-fit module whenever Blazor creates it.</summary>
     private ElementReference _actionRow;
+
+    /// <summary>The row-fit ruler beside it (Quiz.razor), observed with it.</summary>
+    private ElementReference _actionRowRuler;
 
     /// <summary>
     /// The <see cref="ElementReference.Id"/> of the row under observation, so
@@ -288,10 +294,28 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     private string? _observedRow;
 
     /// <summary>
-    /// The action row's width as last reported by the browser; null until the
-    /// first report, which leaves the pills in their full form.
+    /// The problem and state the module last measured — the decision on screen
+    /// and whether it is being answered — so a render that changes either asks
+    /// for a fresh measurement (<see cref="ObserveActionRowAsync"/>): the
+    /// ruler's lines follow both.
     /// </summary>
-    private double? _actionRowWidth;
+    private (BgDecisionData? Decision, bool Answering) _measuredView;
+
+    /// <summary>
+    /// The cube decision whose full-form fit <see cref="_fullCubeLabelsFit"/>
+    /// reports; any other decision on screen reads as not yet measured.
+    /// </summary>
+    private CubeDecision? _fitDecision;
+
+    /// <summary>Whether the full-form pills fit, as last measured for <see cref="_fitDecision"/>.</summary>
+    private bool _fullCubeLabelsFit;
+
+    /// <summary>
+    /// The most recent cube decision this page has shown, which the ruler
+    /// renders the short-form cube row from while a checker play is on screen
+    /// (<see cref="RulerCube"/>).
+    /// </summary>
+    private CubeDecision? _lastCube;
 
     /// <summary>Set by <see cref="DisposeAsync"/>, so an import still in flight at disposal releases rather than attaches.</summary>
     private bool _disposed;
@@ -367,6 +391,8 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
         // moment the write-back degrades.
         StatsStore.StatusChanged += HandleStatsStatusChanged;
 
+        RememberCube();
+
         // Direct nav to /quiz with no quiz in progress: bounce to Home.
         if (!Controller.HasStarted)
         {
@@ -388,6 +414,7 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
         // what makes every landing start with nothing latched for Submit.
         _completedPlay = null;
         _completedCube = null;
+        RememberCube();
 
         if (Controller.IsFinished)
         {
@@ -427,16 +454,16 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     private async Task ImportModulesAsync()
     {
         var keys = await JS.InvokeAsync<IJSObjectReference>("import", KeysModulePath);
-        var rowWidth = await JS.InvokeAsync<IJSObjectReference>("import", RowWidthModulePath);
+        var rowFit = await JS.InvokeAsync<IJSObjectReference>("import", RowFitModulePath);
         if (_disposed)
         {
             await keys.DisposeAsync();
-            await rowWidth.DisposeAsync();
+            await rowFit.DisposeAsync();
             return;
         }
 
         _keys = keys;
-        _rowWidth = rowWidth;
+        _rowFit = rowFit;
         _self = DotNetObjectReference.Create(this);
         // The callback's name and the readiness mark's name travel with the
         // reference so each is spelled exactly once, on this side; the module
@@ -446,112 +473,118 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     }
 
     /// <summary>
-    /// Hand the action row to the row-width module whenever this render
-    /// created it: once the modules are in, a problem is on screen (the row
-    /// renders with it), and the row is not the element already observed.
-    /// The observed id is recorded before the await, so a render landing
-    /// during it does not observe the same row twice.
+    /// Keep the row-fit module measuring what is on screen. It is handed the
+    /// action row and its ruler whenever this render created the row (a new
+    /// quiz after the last one ended), and asked to measure afresh whenever
+    /// the problem on screen, or whether it is being answered, changed — the
+    /// ruler's lines follow both, and a fresh measurement is what reports the
+    /// pills' fit for the decision now on screen. The recorded id and view are
+    /// set before each await, so a render landing during it repeats nothing.
+    /// Between those, the module follows the row and the ruler on its own
+    /// (resizes, the panel's fold, fonts loading).
     /// </summary>
     private async Task ObserveActionRowAsync()
     {
-        if (_rowWidth is null || _self is null || Controller.Current is null) return;
-        if (_actionRow.Id == _observedRow) return;
+        if (_rowFit is null || _self is null || Controller.Current is null) return;
 
-        _observedRow = _actionRow.Id;
-        await _rowWidth.InvokeVoidAsync(
-            "observe", _actionRow, _self, nameof(HandleActionRowResized));
+        if (_actionRow.Id != _observedRow)
+        {
+            _observedRow = _actionRow.Id;
+            _measuredView = MeasuredView;
+            await _rowFit.InvokeVoidAsync(
+                "observe", _actionRow, _actionRowRuler, _self, nameof(HandleCubeLabelsFit));
+            return;
+        }
+
+        if (_measuredView == MeasuredView) return;
+        _measuredView = MeasuredView;
+        await _rowFit.InvokeVoidAsync("refresh");
     }
 
+    /// <summary>The problem on screen and whether it is being answered: what a measurement is of.</summary>
+    private (BgDecisionData? Decision, bool Answering) MeasuredView =>
+        (Controller.Current, Controller.Review is null);
+
     /// <summary>
-    /// The row-width module's report: the action row is now
-    /// <paramref name="width"/> pixels wide. It renders only when the report
-    /// changes the form of the pills on screen, so a window being dragged
-    /// wider re-renders the page once, at the switch-over, not once a frame.
-    /// Public and <see cref="JSInvokableAttribute"/> for the module's sake, as
+    /// The row-fit module's report for the cube decision on screen: whether
+    /// the full-form pills fit beside the tail in the row as it now stands
+    /// (their widest selection included). It renders only when the report
+    /// changes the form on screen. Public and
+    /// <see cref="JSInvokableAttribute"/> for the module's sake, as
     /// <see cref="HandleSpaceKeyAsync"/> is; nothing else calls it.
     /// </summary>
     [JSInvokable]
-    public void HandleActionRowResized(double width)
+    public void HandleCubeLabelsFit(bool fullFits)
     {
-        var before = PillsAbbreviated;
-        _actionRowWidth = width;
-        if (PillsAbbreviated != before) StateHasChanged();
+        var before = ShortCubeLabels;
+        _fitDecision = Controller.Current as CubeDecision;
+        _fullCubeLabelsFit = fullFits;
+        if (ShortCubeLabels != before) StateHasChanged();
     }
 
     /// <summary>
-    /// The form of the cube pills on screen: null when no cube decision is
-    /// being answered (no pills render), else whether they abbreviate.
-    /// </summary>
-    private bool? PillsAbbreviated =>
-        Controller.Current is CubeDecision cube && Controller.Review is null
-            ? ShortCubeLabels(cube)
-            : null;
-
-    /// <summary>
-    /// What the row's pills render with, as <c>ShortLabels</c>: the rule
-    /// applied to the row's last reported width.
-    /// </summary>
-    private bool ShortCubeLabels(CubeDecision cube) => CubeLabelsAbbreviate(_actionRowWidth, cube);
-
-    /// <summary>
     /// <b>Whether the cube pills take their short labels</b>
-    /// (<c>SPEC-quiz-view.md</c> §4, "The action row under quiz navigation":
-    /// "Cube labels abbreviate only when the row cannot fit them", the
-    /// switch-over measured, never guessed): when the action row is narrower
-    /// than the full-label row needs at <paramref name="decision"/>. With no
-    /// width reported yet the labels stay full, the producer's default.
+    /// (<c>SPEC-quiz-view.md</c> §4, "Cube labels abbreviate only when the row
+    /// cannot fit them"): unless the row-fit module has measured, for the
+    /// decision on screen, that the full form fits. The measurement is the
+    /// module's, live, under the fonts actually rendering
+    /// (<c>wwwroot/js/actionRowFit.js</c>, halheinrich/backgammon#264's ruling
+    /// of 2026-10-03): the ruler's full-label line at its widest selection,
+    /// the row's gap and the tail's floor, against the row's own width.
     ///
     /// <para>
-    /// <b>It keys on the row's own width</b>, as the browser reports it,
-    /// rather than the viewport's: folding the navigation panel widens the
-    /// row at a fixed viewport (by 250 px at 1280), and only the row's width says what
-    /// the row can hold in both fold states. <b>And on the fourth answer's
-    /// reading</b>, because its label is the one that differs between
-    /// decisions: Too good where gammons are possible, No double / Pass where
-    /// they are not (<see cref="CubeDecision.ClaimOf"/>), the decision's
-    /// reading as the label home renders it. No label is spelled here.
+    /// <b>The short form until measured</b>, on each decision: a decision the
+    /// module has not reported on — the first render of every cube problem,
+    /// and every render before the module is in — shows the narrower form, so
+    /// no control is covered while a measurement is pending; the full form
+    /// follows the measurement where it fits.
     /// </para>
     /// </summary>
-    internal static bool CubeLabelsAbbreviate(double? actionRowWidth, CubeDecision decision) =>
-        actionRowWidth is { } width && width < FullCubeRowWidth(decision);
+    private bool ShortCubeLabels =>
+        !(_fullCubeLabelsFit && _fitDecision is not null && ReferenceEquals(_fitDecision, Controller.Current));
 
     /// <summary>
-    /// The narrowest action row that holds the full-label cube row at
-    /// <paramref name="decision"/>, its fourth answer read as the decision
-    /// reads it: <see cref="FullCubeRowWidthTooGood"/> or
-    /// <see cref="FullCubeRowWidthNoDoublePass"/>.
+    /// The cube decision the ruler's short-form cube row is drawn from: the
+    /// one on screen, or the last one this page showed while a checker play is
+    /// on screen — so, from the first cube problem on, the panel's budget
+    /// includes the cube row in every state. Before any cube problem it is
+    /// null and the checker row stands alone; the checker row measured the
+    /// wider of the two in every font measured (INSTRUCTIONS.md).
     /// </summary>
-    private static double FullCubeRowWidth(CubeDecision decision) =>
-        decision.ClaimOf(CubeAnswer.NoDoublePass) == CubeClaim.TooGood
-            ? FullCubeRowWidthTooGood
-            : FullCubeRowWidthNoDoublePass;
+    private CubeDecision? RulerCube => _lastCube;
+
+    /// <summary>Keeps <see cref="_lastCube"/> current; called on every controller transition and at start.</summary>
+    private void RememberCube()
+    {
+        if (Controller.Current is CubeDecision cube) _lastCube = cube;
+    }
 
     /// <summary>
-    /// The narrowest action row, in CSS pixels, that holds the cube row with
-    /// its full labels when the fourth reads <b>No double / Pass</b> — the
-    /// longest set. Measured, not computed (leg 4 of
-    /// <c>halheinrich/backgammon#8</c>, 2026-10-02, published app, Chromium,
-    /// Windows, the app's Helvetica/Arial stack): the leading controls at
-    /// their widest selection, the No double / Pass pill bolded — the four
-    /// pills 476.5, Submit 101.8 and the navigation group 148.0 with their
-    /// gaps, 742.3 in all — then the row's 8 px gap, then the trailing
-    /// cluster at the floor of its shrink order, 251.0 (the XGID's copy button
-    /// with its gap, Show stats and End quiz, with the cluster's gaps; the
-    /// locator chip gives up all of its width there). One pixel narrower and
-    /// the cluster runs over the navigation buttons. It is a measurement of
-    /// that stack: a wider font needs a wider row, so this number is
-    /// re-measured whenever anything in the row is restyled or relabelled.
+    /// The coordinates the ruler's locator shows: three digits each, so the
+    /// tail's floor in the budget holds a game and a move number up to 999
+    /// whatever the problem on screen, and the budget does not move from one
+    /// problem, or one file, to the next. Wider numbers stay whole (the live
+    /// chip never shrinks them); they would only overrun the budget by a digit.
     /// </summary>
-    internal const double FullCubeRowWidthNoDoublePass = 1001.3;
+    private const int RulerCoordinate = 999;
 
     /// <summary>
-    /// The same measurement with the fourth reading <b>Too good</b>: the
-    /// leading controls at their widest, the Too good pill bolded — the four
-    /// pills 419.3 — 685.1 in all, then the 8 px gap and the 251.0 cluster.
-    /// See <see cref="FullCubeRowWidthNoDoublePass"/> for what was measured
-    /// and what it holds for.
+    /// The pill the ruler's cube rows show as selected: the fourth answer,
+    /// whose label is the longest at a decision where gammons are not possible
+    /// and whose bold, selected form measured widest in both readings — so the
+    /// measured width covers the widest selection, and choosing a pill never
+    /// changes the form.
     /// </summary>
-    internal const double FullCubeRowWidthTooGood = 944.1;
+    private static readonly CubeAnswer? RulerSelection = CubeAnswer.NoDoublePass;
+
+    /// <summary>
+    /// The ruler's pills' <c>ValueChanged</c>, which the producer requires: they
+    /// take no input (the ruler is inert), so a selection reaching here would
+    /// be a bug, and it changes nothing.
+    /// </summary>
+    private static void RulerSelectionIgnored(CubeAnswer? answer)
+    {
+    }
 
     /// <summary>
     /// What a Space press does, once the browser has found it eligible
@@ -666,6 +699,16 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
 
     /// <summary>⏭'s accessible name and tooltip.</summary>
     internal const string GoToLastName = "Go to last";
+
+    /// <summary>
+    /// The Show stats icon button's accessible name and tooltip
+    /// (SPEC-quiz-view.md §4, halheinrich/backgammon#264's ruling of
+    /// 2026-10-03: "Their names stay as their tooltips and accessible names").
+    /// </summary>
+    internal const string ShowStatsName = "Show stats";
+
+    /// <summary>The End quiz icon button's accessible name and tooltip.</summary>
+    internal const string EndQuizName = "End quiz";
 
     /// <summary>
     /// ▶'s accessible name and tooltip: Skip wherever a press would add to the
@@ -1184,11 +1227,11 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
             await _keys.DisposeAsync();
             _keys = null;
         }
-        if (_rowWidth is not null)
+        if (_rowFit is not null)
         {
-            await _rowWidth.InvokeVoidAsync("unobserve");
-            await _rowWidth.DisposeAsync();
-            _rowWidth = null;
+            await _rowFit.InvokeVoidAsync("unobserve");
+            await _rowFit.DisposeAsync();
+            _rowFit = null;
         }
         _self?.Dispose();
         _self = null;

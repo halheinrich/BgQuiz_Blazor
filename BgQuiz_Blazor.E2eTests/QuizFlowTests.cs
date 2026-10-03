@@ -76,7 +76,7 @@ public sealed class QuizFlowTests : E2eTestBase
         if (!tooGoodFirst) await NavButton(ExpectedText.SkipButton).ClickAsync();
 
         // All four answers are offered, the fourth labelled Too good.
-        await Expect(Page.Locator(".bg-cube-actions").GetByRole(AriaRole.Radio)).ToHaveCountAsync(4);
+        await Expect(Page.Locator(".action-row .bg-cube-actions").GetByRole(AriaRole.Radio)).ToHaveCountAsync(4);
         await Expect(CubePill(ExpectedText.TooGoodPill)).ToBeVisibleAsync();
         await Expect(CubePill(ExpectedText.NoDoublePassPill)).ToHaveCountAsync(0);
 
@@ -117,21 +117,21 @@ public sealed class QuizFlowTests : E2eTestBase
         // position withheld the fourth pill; this scenario pinned that
         // absence, and now pins the four pills, in the row's order, by their
         // exact accessible names — in the full form, so at a viewport whose
-        // row holds it (1242 px against the 1001.3 px it needs; the short form
-        // is CubeLabelsTests').
+        // row holds it (1242 px, far more than the full form needs beside the
+        // tail; the short form is CubeLabelsTests').
         await Page.SetViewportSizeAsync(1600, 900);
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        var pills = Page.Locator(".bg-cube-actions").GetByRole(AriaRole.Radio);
+        var pills = Page.Locator(".action-row .bg-cube-actions").GetByRole(AriaRole.Radio);
         await Expect(pills).ToHaveCountAsync(4);
         await Expect(pills.Nth(0)).ToHaveAccessibleNameAsync(ExpectedText.NoDoublePill);
         await Expect(pills.Nth(1)).ToHaveAccessibleNameAsync(ExpectedText.DoubleTakePill);
         await Expect(pills.Nth(2)).ToHaveAccessibleNameAsync(ExpectedText.DoublePassPill);
         await Expect(pills.Nth(3)).ToHaveAccessibleNameAsync(ExpectedText.NoDoublePassPill);
-        await Expect(Page.Locator(".bg-cube-actions label").Nth(3)).ToHaveTextAsync(ExpectedText.NoDoublePassPill);
+        await Expect(Page.Locator(".action-row .bg-cube-actions label").Nth(3)).ToHaveTextAsync(ExpectedText.NoDoublePassPill);
         await Expect(CubePill(ExpectedText.TooGoodPill)).ToHaveCountAsync(0);
 
         // The fourth answer, pressed: the verdict names it by the same label.

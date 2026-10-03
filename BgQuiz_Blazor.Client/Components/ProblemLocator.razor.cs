@@ -83,6 +83,16 @@ public partial class ProblemLocator : ComponentBase
     private const string MoveLabel = "Move";
 
     /// <summary>
+    /// The game number's visible prefix in the short form — "G3" — whose
+    /// full word, <see cref="GameLabel"/>, is what a screen reader hears and a
+    /// hover shows.
+    /// </summary>
+    private const string ShortGameLabel = "G";
+
+    /// <summary>The move number's visible prefix in the short form — "M12".</summary>
+    private const string ShortMoveLabel = "M";
+
+    /// <summary>
     /// The originating file name including its extension, as
     /// <c>BgDecisionData.SourceFile</c> states it (no directory). Every record
     /// names its file; null or blank — a caller with no name to give — hides
@@ -124,9 +134,23 @@ public partial class ProblemLocator : ComponentBase
     /// </summary>
     private bool HasCoordinates => Game is not null && MoveNumber is not null;
 
-    /// <summary>The coordinates, in the reader's terms.</summary>
+    /// <summary>
+    /// The coordinates in full, in the reader's terms — "Game 3 · Move 12":
+    /// the chip's accessible text for them and their tooltip.
+    /// </summary>
     private string WhereText =>
         $"{GameLabel} {Game}{CoordinateSeparator}{MoveLabel} {MoveNumber}";
+
+    /// <summary>
+    /// The coordinates as the chip shows them — "G3 · M12"
+    /// (<c>SPEC-quiz-view.md</c> §4, halheinrich/backgammon#264's ruling of
+    /// 2026-10-03: "The locator takes a short form … Its numbers stay whole,
+    /// and its accessible name keeps the full wording"). Only the words
+    /// shorten: the numbers are the record's, whole, and the row's shrink
+    /// order never takes from them (<c>app.css</c>).
+    /// </summary>
+    private string ShortWhereText =>
+        $"{ShortGameLabel}{Game}{CoordinateSeparator}{ShortMoveLabel}{MoveNumber}";
 
     /// <summary>
     /// The visible file name: the record's name with its last extension

@@ -111,11 +111,33 @@ public class ProblemLocatorTests : BunitContext
     }
 
     [Fact]
-    public void Coordinates_AreShownInTheReadersTerms()
+    public void Coordinates_ShowInTheShortForm_TheirFullWordingTheAccessibleTextAndTooltip()
     {
+        // SPEC-quiz-view.md §4, halheinrich/backgammon#264's ruling of
+        // 2026-10-03: "The locator takes a short form such as "G3 · M12". Its
+        // numbers stay whole, and its accessible name keeps the full wording."
+        // The short form is what shows, hidden from the accessibility tree so
+        // the numbers are not announced twice; the full wording, in the
+        // reader's terms, is the visually hidden text and the tooltip — the
+        // split the file name already makes.
+        var cut = Locator("match.xg", game: 3, moveNumber: 12);
+        var shown = cut.Find(".problem-locator-where");
+
+        Assert.Equal("G3 · M12", shown.TextContent);
+        Assert.Equal("true", shown.GetAttribute("aria-hidden"));
+        Assert.Equal("Game 3 · Move 12", shown.GetAttribute("title"));
         Assert.Equal(
-            "Game 3 · Move 12",
-            Locator("match.xg", game: 3, moveNumber: 12).Find(".problem-locator-where").TextContent);
+            ["match.xg", "Game 3 · Move 12"],
+            cut.FindAll(".problem-locator .visually-hidden").Select(e => e.TextContent));
+    }
+
+    [Fact]
+    public void Coordinates_KeepTheirNumbersWhole_HoweverLong()
+    {
+        // Only the words shorten: the numbers are the record's, every digit.
+        Assert.Equal(
+            "G104 · M1203",
+            Locator("match.xg", game: 104, moveNumber: 1203).Find(".problem-locator-where").TextContent);
     }
 
     [Fact]
@@ -134,7 +156,7 @@ public class ProblemLocatorTests : BunitContext
         var cut = Locator(sourceFile: null);
 
         Assert.Empty(cut.FindAll(".problem-locator-file"));
-        Assert.Equal("Game 3 · Move 12", cut.Find(".problem-locator-where").TextContent);
+        Assert.Equal("G3 · M12", cut.Find(".problem-locator-where").TextContent);
     }
 
     [Theory]
@@ -173,7 +195,7 @@ public class ProblemLocatorTests : BunitContext
         var cut = Locator("match.xg", game: 3, moveNumber: 12);
 
         Assert.Equal("match", VisibleName(cut));
-        Assert.Equal("Game 3 · Move 12", cut.Find(".problem-locator-where").TextContent);
+        Assert.Equal("G3 · M12", cut.Find(".problem-locator-where").TextContent);
     }
 
     [Fact]
