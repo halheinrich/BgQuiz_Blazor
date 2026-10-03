@@ -72,6 +72,32 @@ internal static class ActionRowGeometry
         double Budget, double FullCubeRow, double Row, double Gap, double PanelWidthIfShown, bool AutoFolded, int RowLines,
         bool TailFolded, bool Pending);
 
+    /// <summary>How the row stands, read off the page with no help from the panel's owner.</summary>
+    internal sealed record Presentation(bool AutoFolded, int RowLines, bool TailFolded, bool Pending, double PanelWidth);
+
+    /// <summary>
+    /// The script reading a row element's <see cref="Presentation"/>: whether
+    /// the panel is folded by itself, the row's lines, whether its tail is
+    /// folded behind the "⋯" (TailMenu), whether it is still in its pending
+    /// presentation, and the panel's laid-out width. The one source for those
+    /// figures in <see cref="PresentationAsync"/> and in <see cref="FitAsync"/>.
+    /// </summary>
+    private const string PresentationOfRow = @"row => ({
+              AutoFolded: document.documentElement.hasAttribute('data-nav-autofold'),
+              RowLines: Math.round(row.getBoundingClientRect().height / row.querySelector('.btn-lg').getBoundingClientRect().height),
+              TailFolded: row.querySelector('.action-row-tail > .tail-menu') !== null,
+              Pending: row.hasAttribute('data-nav-fold-pending'),
+              PanelWidth: document.querySelector('.sidebar').getBoundingClientRect().width })";
+
+    /// <summary>
+    /// The row's presentation (<see cref="PresentationOfRow"/>), which needs
+    /// nothing of navFold.js: the one reading for a page whose panel owner is
+    /// missing, where <see cref="FitAsync"/> fails by design.
+    /// </summary>
+    internal static async Task<Presentation> PresentationAsync(IPage page) =>
+        JsonSerializer.Deserialize<Presentation>(await page.EvaluateAsync<string>(
+            "() => JSON.stringify((" + PresentationOfRow + ")(document.querySelector('.action-row')))"))!;
+
     /// <summary>
     /// The row-fit figures as the module computes them: the budget (the widest
     /// answer row on the ruler, the gap, the tail's floor), the full-label cube
@@ -101,10 +127,7 @@ internal static class ActionRowGeometry
               Row: w(row),
               Gap: gap,
               PanelWidthIfShown: (p => p ? p.showing - p.inFlow : 0)(window.bgquizNavFold.panelWidths()),
-              AutoFolded: document.documentElement.hasAttribute('data-nav-autofold'),
-              RowLines: Math.round(row.getBoundingClientRect().height / row.querySelector('.btn-lg').getBoundingClientRect().height),
-              TailFolded: row.querySelector('.action-row-tail > .tail-menu') !== null,
-              Pending: row.hasAttribute('data-nav-fold-pending') });
+              ...(" + PresentationOfRow + @")(row) });
           }"))!;
     }
 

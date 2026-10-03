@@ -528,7 +528,9 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// the measurement changes nothing; in a wider window it opens what fits,
     /// in the same frame (<c>wwwroot/js/actionRowFit.js</c> measures in the
     /// frame's animation callbacks, before it paints). Every new page starts
-    /// pending: a Show-stats round trip re-creates the page.
+    /// pending: a Show-stats round trip re-creates the page. Where the panel's
+    /// owner is missing (navFold.js failed to load, came back empty, or threw)
+    /// the module never reports, and the row stays pending for the page's life.
     /// </summary>
     private bool RowFitPending => _rowFitReport is null;
 

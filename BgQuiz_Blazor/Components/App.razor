@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -36,7 +36,12 @@
     @* The navigation-fold applier, after blazor.web.js because it registers a
        Blazor.addEventListener('enhancedload') handler — and here in the host
        shell rather than anywhere in the .Client, because it must run on every
-       page whether or not the WASM runtime has booted. Same @Assets helper as
+       page whether or not the WASM runtime has booted. Parser-blocking there,
+       it has also run (or failed) before any page renders, since Blazor
+       starts at DOMContentLoaded, which it holds; the quiz row's fit relies
+       on that (INSTRUCTIONS.md, "The panel's owner, and a page without it",
+       measured 2026-10-03), so it is never async, which DOMContentLoaded
+       does not wait for. Same @Assets helper as
        its sibling above: a stale cached applier after a deploy would fail
        silently. See wwwroot/js/navFold.js for the contract it holds with
        QuizSettings and MainLayout. *@

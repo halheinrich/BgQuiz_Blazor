@@ -161,7 +161,10 @@ main {
        box is not touched: its state stays the user's fold, and navFold.js
        reads the panel's state, not this box (panelWidths). The first
        measurement removes the marker, and the panel is then wherever the
-       measured fold and the user's own fold put it. */
+       measured fold and the user's own fold put it. Without the panel's
+       owner (navFold.js failed to load, came back empty, or threw) no
+       measurement comes: the marker, and this fold, stay for the page's life
+       (actionRowFit.js). */
     html:has([data-nav-fold-pending]) .sidebar-toggle-checkbox ~ .sidebar {
         width: 0;
         overflow: hidden;

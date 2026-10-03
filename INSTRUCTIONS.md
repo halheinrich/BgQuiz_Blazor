@@ -2098,7 +2098,10 @@ halheinrich/backgammon#50, ruled 2026-08-03):
   control's fine print states the delay so "deferred" cannot read as "broken".
 - **Off → immediate.** The user is asking for the panel back, and with it folded
   every navigation that would apply the new value is behind its own folded-away
-  links. Without the seam the setting would be a one-way door.
+  links. Without the seam the setting would be a one-way door. On a page
+  without the seam's owner, the unfold cannot be made: the choice is kept and
+  the failed call is logged, never thrown (§ The host layout, "The panel's
+  owner, and a page without it").
 
 The asymmetry is pinned three times over: at the service seam
 (`QuizSettingsTests`), from the control (`PageTests`), and in a real browser
@@ -2698,6 +2701,9 @@ The asymmetry is pinned three times over: at the service seam
     §2's floor, and at 641 × 768 it is exactly what the measurement leaves.
     The module's first fit runs in the coming frame's animation callbacks,
     before that frame paints, and its first report ends all of it at once.
+    Without the panel's owner no report comes, and the row stays pending for
+    the page's life (§ The host layout, "The panel's owner, and a page
+    without it").
     Every new page starts pending: a Show-stats round trip re-creates it.
     **What is painted** (measured 2026-10-03 on the Release build, a
     ResizeObserver reading each frame after its animation callbacks and
@@ -3589,6 +3595,73 @@ the storage field name, the `.sidebar-toggle-checkbox` selector, and the
 `.sidebar` / `--sidebar-width` / `data-nav-autofold` names it shares with
 `MainLayout.razor.css` — are in Pitfalls.
 
+**The panel's owner, and a page without it** (measured 2026-10-03,
+halheinrich/backgammon#8). `window.bgquizNavFold` is the panel's one owner,
+and two callers need it: the quiz row's fit (`actionRowFit.js`) and the
+setting's unfold (§ `QuizSettings`).
+
+- **The startup order, measured.** `blazor.web.js` runs first and defers
+  Blazor's start to `DOMContentLoaded`; it attaches no component while
+  `document.readyState` is `loading`. `navFold.js`, a parser-blocking classic
+  script after it, holds `DOMContentLoaded` until it has run or failed. So no
+  page renders before the owner is there or has failed to come: with the
+  script held 6 s, cold and with every other asset cached, the document
+  stayed `loading`, nothing rendered, and the WebAssembly runtime was not
+  even requested until the script ran. **The script order stands** for the
+  reason it was chosen (after `blazor.web.js`, where
+  `Blazor.addEventListener` exists for its `enhancedload` handler), and it
+  already puts the owner before any row, so long as the script stays a plain
+  classic one: an `async` script is one `DOMContentLoaded` does not wait
+  for. A longer wait in a test helper, or the order reversed, would fix
+  nothing.
+- **A page without it** is one where `navFold.js` did not run to its
+  assignment: the script failed to load, came back empty (the shape
+  `MapStaticAssets` serves for an asset missing on disk), or threw. Blazor
+  then runs on with no owner.
+- **The quiz row stays pending for the page's life.** `actionRowFit.js`
+  completes no fit and sends no report, and says so once per row it observes
+  (a console warning). The row keeps its pending presentation (§ Pages →
+  Quiz): one line, nothing covered, the board at the size the page gives the
+  window with its owner. The cost, plainly: **the tail stays behind its "⋯"
+  and the pills stay short at any width, and the panel stays hidden by the
+  pending style** (`data-nav-fold-pending`); on the quiz page the rail toggles
+  its box but cannot open it. A missing owner is **not** the phone layout:
+  there the owner is present and answers null (`panelWidths()`), and that is
+  a completed fit. Nothing waits for a late owner, since no page reaches that
+  state. Before this rule the row read the missing owner as the phone layout:
+  at 641 × 768 it ended its pending presentation, showed the panel, kept the
+  tail out and wrapped onto two lines. Pinned by
+  `MissingPanelOwnerTests.WithoutItsOwner_TheRowStaysPending_CoveringNothing_OnOneLine_WithTheBoardAtItsSize`
+  (each of the three absences, on a cold first load and on the return from
+  Show stats, at 641 × 768) and
+  `MissingPanelOwnerTests.APhoneLayout_HasItsOwner_AnsweringNull_AndItsRowIsFitted_NeverFolded`
+  (640 × 768).
+- **The setting keeps the user's choice.** Turning "Keep the navigation panel
+  folded" off persists the choice, then cannot make the unfold: the call to
+  `bgquizNavFold.apply` fails as a `JSException`. `QuizSettings` catches it
+  and logs a warning. Before this rule it went unhandled, and Blazor's "An
+  unhandled error has occurred" banner covered the Settings page, though the
+  choice was already saved. On that page the panel stays as the load left it,
+  showing, since nothing applied the stored fold either; the rail still folds
+  and opens it by hand on every page but the quiz page. Turning the setting on
+  has no call to fail. **Either way the choice takes effect from the next page
+  load on which `navFold.js` runs**, not on an in-app navigation within the
+  page without it, whose `enhancedload` handler is `navFold.js`'s too. Pinned
+  by `MissingPanelOwnerTests.TheKeepFoldedSetting_WithoutTheOwner_NeitherCrashesNorLosesTheChoice`
+  (each absence) and
+  `QuizSettingsTests.SettingTheFoldOff_WithoutTheApplier_KeepsTheChoice_AndLogsRatherThanThrows`.
+- **Two claims, kept apart.** A failed, empty or throwing `navFold.js` exposed
+  the defect above, which is now fixed and diagnosed. The intermittent red
+  that led here is a separate matter: one full-suite run on 2026-10-03 failed
+  in `RowFitTests.WiderText_RaisesTheMeasuredBudget_AndThePanelFoldsAtTheSameViewport`
+  with the owner missing on a quiz page. That state's only causes are the
+  three above, but which of them that run hit, if any, is unidentified, and
+  green runs since establish neither its cause nor that it is gone. If it
+  recurs, `ActionRowGeometry.RequirePanelOwnerAsync` reports the page's
+  evidence: the request's status and decoded size, the console errors located
+  in `navFold.js`, the page's uncaught errors, and Blazor's state
+  (`PanelOwnerEvidenceTests`).
+
 Re-applying on **every** `enhancedload`, late syncs included, is what
 dissolves the live-latency artifact in umbrella issue
 halheinrich/backgammon#46 (the DOM synchronization has been measured landing
@@ -4196,7 +4269,9 @@ public (see Pitfalls). The externally visible surface is the route map:
      alone and the first render covers controls at 641 px;
      `OneBudgetTests` is what notices.
   Two smaller rules ride along: the script tag must stay **after**
-  `blazor.web.js` (that is where `Blazor.addEventListener` exists) and must
+  `blazor.web.js` (that is where `Blazor.addEventListener` exists; being
+  parser-blocking there, it has also run or failed before any page renders,
+  since Blazor starts at `DOMContentLoaded`) and must
   keep going through `@Assets[...]` like its sibling, or a deploy leaves
   browsers running a cached applier against a changed payload. The script also
   never throws on the navigation path — every unreadable storage state means

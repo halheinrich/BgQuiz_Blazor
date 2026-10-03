@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using BackgammonDiagram_Lib;
 using BgDataTypes_Lib;
+using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using XgFilter_Razor;
 
@@ -106,7 +107,7 @@ using XgFilter_Razor;
 /// and flipping a frame later.
 /// </para>
 /// </summary>
-internal sealed class QuizSettings(IJSRuntime js)
+internal sealed class QuizSettings(IJSRuntime js, ILogger<QuizSettings> logger)
 {
     /// <summary>
     /// The single localStorage key holding every setting as one JSON object.
@@ -596,6 +597,21 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// site. (The applier's <i>own</i> storage read stays where it belongs — on
     /// the navigation path, where no C# is running.)
     /// </para>
+    ///
+    /// <para>
+    /// <b>Without the applier.</b> navFold.js publishes it, and a page where
+    /// that script failed to load, came back empty, or threw has none: the
+    /// unfold then cannot be made, and the call fails as a
+    /// <see cref="JSException"/>. Unhandled, that put Blazor's "An unhandled
+    /// error has occurred" banner over the Settings page (measured 2026-10-03,
+    /// halheinrich/backgammon#8). It is caught and logged instead, and nothing
+    /// claims the panel moved: the choice is already persisted (the write comes
+    /// first), the panel on this page stays as it is (its rail still folds and
+    /// opens it by hand, except on the quiz page, whose row keeps the panel
+    /// hidden without its owner), and the choice takes effect from the next
+    /// page load on which navFold.js runs. Turning the setting on has no call to
+    /// fail, and the same next load is where it takes effect.
+    /// </para>
     /// </summary>
     public async Task SetKeepNavigationPanelFoldedAsync(bool value)
     {
@@ -603,7 +619,17 @@ internal sealed class QuizSettings(IJSRuntime js)
         await PersistAsync();
         if (!value)
         {
-            await js.InvokeVoidAsync(NavFoldApplyFunction, false);
+            try
+            {
+                await js.InvokeVoidAsync(NavFoldApplyFunction, false);
+            }
+            catch (JSException e)
+            {
+                logger.LogWarning(e,
+                    "The navigation panel's applier ({Applier}) is missing, so the panel was not unfolded; "
+                    + "the choice is saved and takes effect from the next page load on which navFold.js runs.",
+                    NavFoldApplyFunction);
+            }
         }
     }
 

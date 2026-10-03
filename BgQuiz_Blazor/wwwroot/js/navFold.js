@@ -191,7 +191,10 @@
     // dependency on its own localStorage write having landed first, and this
     // module keeps no opinion about which direction its caller is in.
     // setAutoFold and panelWidths are the quiz page's row-fit module's
-    // (actionRowFit.js; the auto-fold in the header).
+    // (actionRowFit.js; the auto-fold in the header). A page where this line
+    // never runs has no owner for the panel: the quiz row then stays pending,
+    // and QuizSettings logs the unfold it cannot make (INSTRUCTIONS.md, "The
+    // panel's owner, and a page without it").
     window.bgquizNavFold = { apply: setFolded, setAutoFold, panelWidths };
 
     // Initial load: enhancedload does not fire for it.

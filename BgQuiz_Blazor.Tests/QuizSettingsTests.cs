@@ -2,6 +2,9 @@ using BackgammonDiagram_Lib;
 using BgDataTypes_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.JSInterop;
 
 namespace BgQuiz_Blazor.Tests;
 
@@ -27,7 +30,7 @@ public class QuizSettingsTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose; // getItem → null unless a test sets a value
     }
 
-    private QuizSettings NewSettings() => new(JSInterop.JSRuntime);
+    private QuizSettings NewSettings() => new(JSInterop.JSRuntime, NullLogger<QuizSettings>.Instance);
 
     /// <summary>The JSON last written under the settings key.</summary>
     private string? LastPersisted() =>
@@ -486,6 +489,46 @@ public class QuizSettingsTests : BunitContext
 
         var invocation = Assert.Single(JSInterop.Invocations["bgquizNavFold.apply"]);
         Assert.Equal(false, invocation.Arguments[0]);
+    }
+
+    [Fact]
+    public async Task SettingTheFoldOff_WithoutTheApplier_KeepsTheChoice_AndLogsRatherThanThrows()
+    {
+        // navFold.js failed to load, came back empty, or threw: the global the
+        // unfold goes through is missing, and the call fails as Blazor's
+        // interop reports it (the message is the browser's, measured
+        // 2026-10-03). Unhandled, that was the Settings page's error banner.
+        JSInterop.SetupVoid("bgquizNavFold.apply", _ => true).SetException(
+            new JSException("Could not find 'bgquizNavFold.apply' ('bgquizNavFold' was undefined)."));
+        var log = new RecordingLogger();
+        var settings = new QuizSettings(JSInterop.JSRuntime, log);
+        await settings.SetKeepNavigationPanelFoldedAsync(true);
+
+        await settings.SetKeepNavigationPanelFoldedAsync(false);
+
+        // The choice is the user's and is kept: recorded and persisted before
+        // the unfold was attempted.
+        Assert.False(settings.KeepNavigationPanelFolded);
+        Assert.Contains("\"keepNavigationPanelFolded\":false", LastPersisted());
+        Assert.Single(JSInterop.Invocations["bgquizNavFold.apply"]);
+        // And the unfold that did not happen is said, once, as a warning
+        // carrying the interop's own exception.
+        var entry = Assert.Single(log.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.IsType<JSException>(entry.Exception);
+    }
+
+    /// <summary>A logger that keeps what it is told, for the one test that reads it.</summary>
+    private sealed class RecordingLogger : ILogger<QuizSettings>
+    {
+        public List<(LogLevel Level, Exception? Exception)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Entries.Add((logLevel, exception));
     }
 
     // -----------------------------------------------------------------------

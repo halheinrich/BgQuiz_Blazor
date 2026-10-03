@@ -46,6 +46,20 @@
 // handed in), which renders the tail's and the pills' form; this side renders
 // nothing. The first report ends the page's pending presentation.
 //
+// THE PANEL'S OWNER. Every fit asks navFold.js (window.bgquizNavFold) for the
+// panel — its widths, and its fold. That script is in place before any row
+// exists: Blazor starts at DOMContentLoaded, which the parser-blocking script
+// holds until it has run or failed (measured 2026-10-03; INSTRUCTIONS.md, "The
+// panel's owner, and a page without it"). So an absent owner is never one
+// still to come: that script failed to load, came back empty, or threw. A
+// missing owner is NOT the phone layout — a present owner answering null is —
+// and no fit completes without it: nothing is decided and nothing is
+// reported, so the row keeps its pending presentation for the page's life
+// (one line, nothing covered, the board at its size; the panel hidden by the
+// pending style and the pills short even where more would fit). It is said
+// once on the console, per row observed. Nothing waits for the owner to
+// arrive, since no page reaches that state.
+//
 // WHEN IT MEASURES: once per frame at most, always in the frame's animation
 // callbacks (requestAnimationFrame) — after the frame's resize event, before
 // its style, layout and paint — so what it decides is in place before the
@@ -58,7 +72,8 @@
 // reports as an error ("ResizeObserver loop completed with undelivered
 // notifications"); from there the fit is asked for in the next frame. The
 // page's report is sent whenever it changes, and unconditionally after
-// observe, so the first decision is always reported.
+// observe, so the first decision is always reported (where there is one: not
+// without the panel's owner, above).
 //
 // The ruler's data-ruler names are a contract with Quiz.razor, spelled once
 // on each side.
@@ -81,6 +96,7 @@ export function observe(row, ruler, ref, method) {
         method,
         reported: null,   // the last report, as "tailFits/fullCubeFits"
         reportNext: false,
+        ownerMissingSaid: false,
         frame: 0,
         observer: new ResizeObserver(() => requestFit(false)),
         onResize: () => requestFit(false),
@@ -134,6 +150,17 @@ function fit(report) {
     const { row, ruler } = state;
     if (!row.isConnected || !ruler.isConnected) return;
 
+    // The panel's owner (see the header): without it, no fit.
+    const fold = window.bgquizNavFold;
+    if (!fold) {
+        if (!state.ownerMissingSaid) {
+            state.ownerMissingSaid = true;
+            console.warn('actionRowFit.js: the navigation panel\'s owner (navFold.js, window.bgquizNavFold) '
+                + 'is missing, so the action row is not fitted and keeps its pending presentation.');
+        }
+        return;
+    }
+
     const leads = [...ruler.querySelectorAll('[data-ruler="lead"]')].map(width);
     const tail = ruler.querySelector('[data-ruler="tail"]');
     const fullCube = ruler.querySelector('[data-ruler="full-cube"]');
@@ -143,10 +170,9 @@ function fit(report) {
     const floor = width(tail);
     const budget = Math.max(...leads) + gap + floor;
 
-    // 1. The panel. panelWidths() is null where there is no side panel (the
+    // 1. The panel. Its owner answers null where there is no side panel (the
     // phone layout), and then nothing folds.
-    const fold = window.bgquizNavFold;
-    const panel = fold ? fold.panelWidths() : null;
+    const panel = fold.panelWidths();
     let rowWidth = width(row);
     if (panel !== null) {
         const rowWithPanelShowing = rowWidth + panel.inFlow - panel.showing;
