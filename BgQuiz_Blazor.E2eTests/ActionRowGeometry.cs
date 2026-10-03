@@ -80,10 +80,14 @@ internal static class ActionRowGeometry
     /// itself, whether the row shows its tail folded behind the "⋯" (TailMenu)
     /// in the tail's place, and whether the row is still in its pending
     /// presentation, unmeasured. What the showing panel would take beyond
-    /// what it takes now is navFold.js's own report (panelWidths).
+    /// what it takes now is navFold.js's own report (panelWidths), so where
+    /// that report's owner is absent this fails with the page's evidence
+    /// (<see cref="RequirePanelOwnerAsync"/>).
     /// </summary>
-    internal static async Task<Fit> FitAsync(IPage page) =>
-        JsonSerializer.Deserialize<Fit>(await page.EvaluateAsync<string>(@"() => {
+    internal static async Task<Fit> FitAsync(IPage page)
+    {
+        await RequirePanelOwnerAsync(page);
+        return JsonSerializer.Deserialize<Fit>(await page.EvaluateAsync<string>(@"() => {
             const row = document.querySelector('.action-row');
             const ruler = document.querySelector('.action-row-ruler');
             const w = e => e.getBoundingClientRect().width;
@@ -102,6 +106,62 @@ internal static class ActionRowGeometry
               TailFolded: row.querySelector('.action-row-tail > .tail-menu') !== null,
               Pending: row.hasAttribute('data-nav-fold-pending') });
           }"))!;
+    }
+
+    /// <summary>
+    /// Fails with the page's own evidence where the navigation panel's owner —
+    /// navFold.js's <c>window.bgquizNavFold</c>, whose report
+    /// <see cref="FitAsync"/> reads — is absent, never with the bare
+    /// <c>undefined</c> that reading it would throw. The evidence tells the
+    /// ways a page can lack it apart: the URL and <c>document.readyState</c>;
+    /// navFold.js's script element and its request as the page's resource
+    /// timing recorded it (status 0 for a failed request, a 200 with nothing
+    /// decoded for an empty body, a full body for a script that loaded and
+    /// never reached its assignment); the console errors located in it (a
+    /// failed load's <c>net::</c> code) and the page's uncaught errors, from
+    /// Playwright's own history of the page; Blazor's state (its global,
+    /// whether the WebAssembly runtime has started, its error UI); and the
+    /// action row's. A late script cannot be the cause: Blazor starts at
+    /// <c>DOMContentLoaded</c>, which the parser-blocking navFold.js holds
+    /// until it has run or failed, so no row exists before it (measured
+    /// 2026-10-03 with the script held 6 s, cold and cached:
+    /// halheinrich/backgammon#8, leg 4c). <see cref="PanelOwnerEvidenceTests"/>
+    /// pins the evidence.
+    /// </summary>
+    private static async Task RequirePanelOwnerAsync(IPage page)
+    {
+        var evidence = await page.EvaluateAsync<string?>(@"() => {
+            if (window.bgquizNavFold) return null;
+            const script = [...document.scripts].find(s => /\/js\/navFold[^/]*\.js/.test(s.src));
+            const entry = script ? performance.getEntriesByName(script.src, 'resource')[0] : undefined;
+            const request = !script ? 'no navFold.js script element'
+              : !entry ? `script ${script.src}; no resource timing entry (not requested, or still loading)`
+              : `script ${script.src}; request status ${entry.responseStatus}, ${entry.decodedBodySize} bytes decoded, ${Math.round(entry.duration)} ms`;
+            const errorUi = document.getElementById('blazor-error-ui');
+            const blazor = !window.Blazor ? 'no Blazor global'
+              : `global present, WebAssembly runtime ${window.Blazor.runtime ? 'started' : 'not started'}, `
+                + `error UI ${errorUi && getComputedStyle(errorUi).display !== 'none' ? 'showing' : 'hidden'}`;
+            const row = document.querySelector('.action-row');
+            return [
+              `page: ${location.href}, readyState ${document.readyState}`,
+              `navFold.js: ${request}`,
+              `Blazor: ${blazor}`,
+              `action row: ${!row ? 'absent' : row.hasAttribute('data-nav-fold-pending') ? 'present, pending' : 'present, fitted'}`,
+            ].join('\n  ');
+          }");
+        if (evidence is null) return;
+
+        var navFoldConsoleErrors = (await page.ConsoleMessagesAsync())
+            .Where(m => m.Type == "error" && m.Location.Contains("navFold", StringComparison.Ordinal))
+            .Select(m => m.Text)
+            .ToList();
+        var pageErrors = await page.PageErrorsAsync();
+        throw new InvalidOperationException(
+            "The navigation panel's owner is missing: navFold.js has not assigned window.bgquizNavFold.\n  "
+            + evidence
+            + $"\n  console errors from navFold.js: {(navFoldConsoleErrors.Count == 0 ? "none" : string.Join(" | ", navFoldConsoleErrors))}"
+            + $"\n  page errors: {(pageErrors.Count == 0 ? "none" : $"{pageErrors.Count}, the last: {string.Join(" | ", pageErrors.TakeLast(5))}")}");
+    }
 
     /// <summary>
     /// The viewport width below which the panel folds by itself, at the current
