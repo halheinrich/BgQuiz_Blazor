@@ -91,20 +91,26 @@ public sealed class ScorePanelContractTests : E2eTestBase
     [Fact]
     public async Task BelowTheFitWidth_TheLineWraps_AndNothingIsClipped()
     {
-        // The control: at 800px wide the review line cannot be one line (the
-        // stats alone outgrow the content column), so the contract does not
-        // apply — the panel wraps, as ruled, and every figure is still shown.
-        // Answered at the desktop width and measured at 800: the panel is what
-        // is under test, and the answer row has its own contract.
+        // The control: at 641px wide, §2's floor, the review line cannot be one
+        // line (the stats alone outgrow the content column), so the contract
+        // does not apply — the panel wraps, as ruled, and every figure is still
+        // shown. Answered at the desktop width and measured at 641, once the
+        // page has re-fitted: the panel is what is under test, and the answer
+        // row has its own contract. Not 800 any more: since
+        // halheinrich/backgammon#264's ruling of 2026-10-03 the navigation
+        // panel folds by itself there and hands the column its width, and the
+        // line fits on one line; a measurement taken before that fold landed
+        // passed by winning a race.
         await StartInNormalViewAsync(1440, 900, LongFileName);
         await AnswerCubeNoDoubleAsync();
         await Expect(ScorePanel).ToContainTextAsync("(100%)");
-        await Page.SetViewportSizeAsync(800, 900);
+        await Page.SetViewportSizeAsync(641, 900);
+        await Page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))");
 
         var review = await MeasureAsync();
 
         Assert.True(review.Height > review.LineHeight + 0.5,
-            $"expected a wrapped panel at 800px, measured {review.Height}px at a {review.LineHeight}px line");
+            $"expected a wrapped panel at 641px, measured {review.Height}px at a {review.LineHeight}px line");
         Assert.True(review.AllInside, "a figure of the wrapped line lies outside the panel");
         Assert.Equal(6, review.Parts);
     }
