@@ -240,8 +240,9 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// app's first JS-invokable callback, attached on the first render and
 /// detached on disposal, which is why the page is
 /// <see cref="IAsyncDisposable"/> (the second,
-/// <see cref="HandleCubeLabelsFit"/>, carries the row-fit module's
-/// measurement of the cube pills' form, and is released the same way).
+/// <see cref="HandleRowFit"/>, carries the row-fit module's
+/// measurements of the tail's and the cube pills' form, and is released the
+/// same way).
 /// Attached, the module sets
 /// <see cref="QuizKeysMark.AttachedAttribute"/> on the document element — the
 /// readiness signal the browser tests wait on before they press
@@ -261,8 +262,9 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// <summary>
     /// The row-fit module: it measures the action row and its ruler under the
     /// fonts actually rendering, folds the navigation panel by itself where the
-    /// row cannot fit beside it, and reports whether the cube pills' full form
-    /// fits (<see cref="HandleCubeLabelsFit"/>). Imported beside
+    /// row cannot fit beside it, and reports whether the tail fits beside the
+    /// row's other controls and whether the cube pills' full form fits
+    /// (<see cref="HandleRowFit"/>). Imported beside
     /// <see cref="KeysModulePath"/> and internal for the same reason.
     /// </summary>
     internal const string RowFitModulePath = "./js/actionRowFit.js";
@@ -309,13 +311,6 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
 
     /// <summary>Whether the full-form pills fit, as last measured for <see cref="_fitDecision"/>.</summary>
     private bool _fullCubeLabelsFit;
-
-    /// <summary>
-    /// The most recent cube decision this page has shown, which the ruler
-    /// renders the short-form cube row from while a checker play is on screen
-    /// (<see cref="RulerCube"/>).
-    /// </summary>
-    private CubeDecision? _lastCube;
 
     /// <summary>Set by <see cref="DisposeAsync"/>, so an import still in flight at disposal releases rather than attaches.</summary>
     private bool _disposed;
@@ -391,8 +386,6 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
         // moment the write-back degrades.
         StatsStore.StatusChanged += HandleStatsStatusChanged;
 
-        RememberCube();
-
         // Direct nav to /quiz with no quiz in progress: bounce to Home.
         if (!Controller.HasStarted)
         {
@@ -414,7 +407,6 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
         // what makes every landing start with nothing latched for Submit.
         _completedPlay = null;
         _completedCube = null;
-        RememberCube();
 
         if (Controller.IsFinished)
         {
@@ -492,7 +484,7 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
             _observedRow = _actionRow.Id;
             _measuredView = MeasuredView;
             await _rowFit.InvokeVoidAsync(
-                "observe", _actionRow, _actionRowRuler, _self, nameof(HandleCubeLabelsFit));
+                "observe", _actionRow, _actionRowRuler, _self, nameof(HandleRowFit));
             return;
         }
 
@@ -506,21 +498,58 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
         (Controller.Current, Controller.Review is null);
 
     /// <summary>
-    /// The row-fit module's report for the cube decision on screen: whether
-    /// the full-form pills fit beside the tail in the row as it now stands
-    /// (their widest selection included). It renders only when the report
-    /// changes the form on screen. Public and
+    /// The row-fit module's report, two facts measured together against the
+    /// row as it stands after the panel's fold: whether the tail at full size
+    /// fits beside the row's other controls (<paramref name="tailFits"/>), and,
+    /// while a cube decision is answered, whether the full-form pills fit
+    /// beside it, their widest selection included
+    /// (<paramref name="fullCubeLabelsFit"/>; null while no cube decision is
+    /// answered, when there is nothing to measure). It renders only when the
+    /// report changes what is on screen. Public and
     /// <see cref="JSInvokableAttribute"/> for the module's sake, as
     /// <see cref="HandleSpaceKeyAsync"/> is; nothing else calls it.
     /// </summary>
     [JSInvokable]
-    public void HandleCubeLabelsFit(bool fullFits)
+    public void HandleRowFit(bool tailFits, bool? fullCubeLabelsFit)
     {
-        var before = ShortCubeLabels;
-        _fitDecision = Controller.Current as CubeDecision;
-        _fullCubeLabelsFit = fullFits;
-        if (ShortCubeLabels != before) StateHasChanged();
+        var before = (ShortCubeLabels, TailFolded);
+        TailFolded = !tailFits;
+        if (fullCubeLabelsFit is { } fits)
+        {
+            _fitDecision = Controller.Current as CubeDecision;
+            _fullCubeLabelsFit = fits;
+        }
+        if ((ShortCubeLabels, TailFolded) != before) StateHasChanged();
     }
+
+    /// <summary>
+    /// <b>Whether the action row's tail folds behind its "⋯"</b>
+    /// (<see cref="TailMenu"/>; <c>SPEC-quiz-view.md</c> §4,
+    /// halheinrich/backgammon#264's widened fourth, Hal, 2026-10-03: "below the
+    /// width where the tail fits beside the row's other controls, measured
+    /// live, the whole tail folds behind one "⋯" control at the row's far
+    /// end"). The measurement is the row-fit module's, under the fonts
+    /// actually rendering: the tail folds where the row, after the panel's own
+    /// fold, is narrower than the budget the panel folds by — the widest
+    /// answer row on the ruler, the gap and the tail's floor. So it is one
+    /// width for every state and every problem kind, as the panel's is: the
+    /// row's composition never changes between answering and review or from
+    /// one problem to the next, only with the window. It is computed from the
+    /// tail at full size (the ruler's tail line), never from the presentation
+    /// showing, so showing the "⋯" cannot make the row fit and switch it back.
+    /// Where there is no side panel (the phone layout, below 641 px) the tail
+    /// takes a line of its own instead (halheinrich/backgammon#236), and it
+    /// never folds.
+    ///
+    /// <para>
+    /// <b>The tail until measured</b> — the row as it always was — because the
+    /// decision is the window's, not the problem's: it is made once per width,
+    /// not once per problem as the pills' form is, so a pending measurement
+    /// happens only as the page arrives, where the panel has not folded yet
+    /// either.
+    /// </para>
+    /// </summary>
+    private bool TailFolded { get; set; }
 
     /// <summary>
     /// <b>Whether the cube pills take their short labels</b>
@@ -545,19 +574,16 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
 
     /// <summary>
     /// The cube decision the ruler's short-form cube row is drawn from: the
-    /// one on screen, or the last one this page showed while a checker play is
-    /// on screen — so, from the first cube problem on, the panel's budget
-    /// includes the cube row in every state. Before any cube problem it is
-    /// null and the checker row stands alone; the checker row measured the
-    /// wider of the two in every font measured (INSTRUCTIONS.md).
+    /// one on screen, or the one the run presented most recently while a
+    /// checker play is on screen (<see cref="QuizController.LastPresentedCube"/>)
+    /// — so, from the run's first cube problem on, the budget includes the
+    /// cube row in every state, on every visit to this page: a Show-stats
+    /// round trip re-creates the page but not the run. Before the run's first
+    /// cube problem it is null and the checker row stands alone; the checker
+    /// row measured the wider of the two in every font surveyed
+    /// (INSTRUCTIONS.md).
     /// </summary>
-    private CubeDecision? RulerCube => _lastCube;
-
-    /// <summary>Keeps <see cref="_lastCube"/> current; called on every controller transition and at start.</summary>
-    private void RememberCube()
-    {
-        if (Controller.Current is CubeDecision cube) _lastCube = cube;
-    }
+    private CubeDecision? RulerCube => Controller.Current as CubeDecision ?? Controller.LastPresentedCube;
 
     /// <summary>
     /// The coordinates the ruler's locator shows: three digits each, so the
@@ -709,6 +735,26 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
 
     /// <summary>The End quiz icon button's accessible name and tooltip.</summary>
     internal const string EndQuizName = "End quiz";
+
+    /// <summary>
+    /// <b>The one gate on End quiz</b>, read by its button and by its item in
+    /// the tail's "⋯" list: the controller is not mid-transition. End quiz is
+    /// itself a transition (<see cref="EndQuizAsync"/>); Show stats only
+    /// navigates and has no gate.
+    /// </summary>
+    private bool CanEndQuiz => !Controller.IsBusy;
+
+    /// <summary>
+    /// Show stats and End quiz as the tail's "⋯" list offers them
+    /// (<see cref="TailMenu"/>), in the tail's order, End quiz last: each
+    /// built from its button's name, handler and gate, so an item and its
+    /// button cannot differ.
+    /// </summary>
+    private IReadOnlyList<TailMenuAction> TailMenuActions =>
+    [
+        new(ShowStatsName, EventCallback.Factory.Create(this, ShowStats), Disabled: false),
+        new(EndQuizName, EventCallback.Factory.Create(this, EndQuizAsync), Disabled: !CanEndQuiz),
+    ];
 
     /// <summary>
     /// ▶'s accessible name and tooltip: Skip wherever a press would add to the

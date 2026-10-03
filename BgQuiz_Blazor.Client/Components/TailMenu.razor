@@ -1,0 +1,48 @@
+@* The action row's tail folded behind one "⋯" control (SPEC-quiz-view.md §4,
+   halheinrich/backgammon#264's widened fourth, Hal, 2026-10-03). A menu
+   button: the toggle, and while it is open a list offering the tail's members
+   under their own names — Copy XGID, the locator's full wording as a line to
+   read, then the host's actions in its order, End quiz last. The keyboard and
+   pointer half of the pattern is wwwroot/js/menuButton.js; see the
+   code-behind for the division. *@
+<div class="tail-menu" @ref="_root">
+    <button type="button" class="btn btn-outline-secondary action-row-icon"
+            aria-haspopup="menu" aria-expanded="@(_open ? "true" : "false")"
+            aria-controls="@(_open ? _menuId : null)"
+            aria-label="@ToggleName" title="@ToggleName"
+            @ref="_toggle" @onclick="Toggle">
+        @* Bootstrap Icons' three-dots, inline, as the row's other icons are. *@
+        <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
+            <path d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3" fill="currentColor" />
+        </svg>
+    </button>
+    @if (_open)
+    {
+        <div class="tail-menu-list" id="@_menuId" role="menu" aria-label="@ToggleName">
+            @* The position's provenance, as in the row: Copy XGID, then the
+               locator. The locator is display only, so it is not an item; it
+               labels the group the copy item sits in, which is how a screen
+               reader moving through the items hears it. *@
+            <div role="group" aria-labelledby="@LocatorLineId">
+                @if (!string.IsNullOrEmpty(Xgid))
+                {
+                    <button type="button" class="tail-menu-item" role="menuitem" tabindex="-1"
+                            @onclick="CopyXgidAsync">
+                        @XgidLabel.CopyLabel
+                    </button>
+                }
+                <div class="tail-menu-line" id="@LocatorLineId">
+                    <ProblemLocator SourceFile="@SourceFile" Game="Game" MoveNumber="MoveNumber"
+                                    Form="ProblemLocatorForm.Line" />
+                </div>
+            </div>
+            @foreach (var action in Actions)
+            {
+                <button type="button" class="tail-menu-item" role="menuitem" tabindex="-1"
+                        disabled="@action.Disabled" @onclick="() => ChooseAsync(action.Choose.InvokeAsync)">
+                    @action.Name
+                </button>
+            }
+        </div>
+    }
+</div>

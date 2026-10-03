@@ -91,6 +91,15 @@ public class PageTests : BunitContext
         _rowFit = JSInterop.SetupModule(QuizPage.RowFitModulePath);
         _rowFit.Mode = JSRuntimeMode.Loose;
 
+        // And the tail's "⋯" control's menu-button module, which the control
+        // imports and attaches once a test folds the tail (TailMenu): planned
+        // with the handle its attach returns, so the control's focus calls
+        // reach a planned module rather than nothing. Its own contract is
+        // TailMenuTests'.
+        var tailMenu = JSInterop.SetupModule(TailMenu.ModulePath);
+        tailMenu.Mode = JSRuntimeMode.Loose;
+        tailMenu.SetupModule("attach", _ => true).Mode = JSRuntimeMode.Loose;
+
         // Home and Done inject the sessionStorage-backed QuizLiveMarker. It needs
         // only the framework IJSRuntime — which bUnit registers in Services — so
         // one fixture-wide registration serves every page render. The marker's
@@ -5849,9 +5858,21 @@ public class PageTests : BunitContext
     private static readonly (string Caption, string? Name)[] FullPillsNoDoublePass =
         [.. FullPillsTooGood[..3], ("No double / Pass", "No double / Pass")];
 
-    /// <summary>Report, as the row-fit module does, whether the full-form pills fit the row for the decision on screen.</summary>
+    /// <summary>
+    /// Report, as the row-fit module does, whether the full-form pills fit the
+    /// row for the decision on screen — with the tail fitting, as it does
+    /// wherever the full form fits.
+    /// </summary>
     private static Task ReportCubeLabelsFit(IRenderedComponent<QuizPage> cut, bool fullFits) =>
-        cut.InvokeAsync(() => cut.Instance.HandleCubeLabelsFit(fullFits));
+        cut.InvokeAsync(() => cut.Instance.HandleRowFit(tailFits: true, fullCubeLabelsFit: fullFits));
+
+    /// <summary>
+    /// Report, as the row-fit module does, whether the tail fits beside the
+    /// row's other controls; <paramref name="fullCubeFits"/> as the module
+    /// sends it, null while no cube is answered.
+    /// </summary>
+    private static Task ReportTailFit(IRenderedComponent<QuizPage> cut, bool tailFits, bool? fullCubeFits = null) =>
+        cut.InvokeAsync(() => cut.Instance.HandleRowFit(tailFits, fullCubeFits));
 
     [Fact]
     public async Task Quiz_CubeActions_GammonsNotPossible_OffersAllFour_TheFourthReadsNoDoublePass()
@@ -5999,7 +6020,7 @@ public class PageTests : BunitContext
         Assert.Equal(row, ((ElementReference)observe.Arguments[0]!).Id);
         Assert.Equal(ruler, ((ElementReference)observe.Arguments[1]!).Id);
         Assert.IsType<DotNetObjectReference<QuizPage>>(observe.Arguments[2]);
-        Assert.Equal(nameof(QuizPage.HandleCubeLabelsFit), observe.Arguments[3]);
+        Assert.Equal(nameof(QuizPage.HandleRowFit), observe.Arguments[3]);
         _rowFit.VerifyNotInvoke("refresh");
 
         await ButtonNamed(cut, "Skip").ClickAsync(new());
@@ -6013,6 +6034,171 @@ public class PageTests : BunitContext
         await DisposeComponentsAsync();
 
         _rowFit.VerifyInvoke("unobserve");
+    }
+
+    /// <summary>The live tail's children, by class or accessible name.</summary>
+    private static List<string> TailContents(IRenderedComponent<QuizPage> cut) =>
+        [.. cut.Find(".action-row > .action-row-tail").Children.Select(child => child.LocalName == "button"
+            ? AccessibleName(child)
+            : child.ClassName ?? child.LocalName)];
+
+    /// <summary>The tail's "⋯" list, opened by its toggle.</summary>
+    private static async Task<IReadOnlyList<AngleSharp.Dom.IElement>> OpenTailMenuAsync(IRenderedComponent<QuizPage> cut)
+    {
+        await ButtonNamed(cut, TailMenu.ToggleName).ClickAsync(new());
+        return cut.FindAll(".tail-menu [role=menu] [role=menuitem]");
+    }
+
+    [Fact]
+    public async Task Quiz_Tail_ShowsUntilTheModuleReportsItDoesNotFit_ThenFoldsBehindTheMenu_AndFollowsBothWays()
+    {
+        // SPEC-quiz-view.md §4, halheinrich/backgammon#264's widened fourth
+        // (Hal, 2026-10-03): below the width where the tail fits beside the
+        // row's other controls, measured live, the whole tail folds behind one
+        // "⋯" at the row's far end. The measurement is the row-fit module's;
+        // the page renders what it is told. Until it reports, the tail shows
+        // as it always has.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var cut = Render<QuizPage>();
+        string[] fullTail = ["xgid-label", "problem-locator", "Show stats", "End quiz"];
+        Assert.Equal(fullTail, TailContents(cut));
+
+        await ReportTailFit(cut, tailFits: false);
+        Assert.Equal(["tail-menu"], TailContents(cut));
+        Assert.Empty(LiveElements(cut, ".xgid-label"));
+        Assert.Empty(LiveElements(cut, ".problem-locator"));
+        Assert.False(HasButtonNamed(cut, "Show stats"));
+        Assert.False(HasButtonNamed(cut, "End quiz"));
+        Assert.Equal("End quiz", RulerLineButtons(cut, 1)[^1]);   // the ruler keeps the tail at full size
+
+        await ReportTailFit(cut, tailFits: true);
+        Assert.Equal(fullTail, TailContents(cut));
+        Assert.Empty(LiveElements(cut, ".tail-menu"));
+    }
+
+    [Fact]
+    public async Task Quiz_Tail_AReportRendersOnlyWhereItChangesTheTail()
+    {
+        // As with the pills: a window dragged across the switch re-renders the
+        // page once each way, not once per report.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var cut = Render<QuizPage>();
+
+        var renders = cut.RenderCount;
+        await ReportTailFit(cut, tailFits: true);
+        Assert.Equal(renders, cut.RenderCount);
+
+        await ReportTailFit(cut, tailFits: false);
+        Assert.True(cut.RenderCount > renders);
+        var folded = cut.RenderCount;
+
+        await ReportTailFit(cut, tailFits: false);
+        Assert.Equal(folded, cut.RenderCount);
+    }
+
+    [Fact]
+    public async Task Quiz_Tail_ATailReportLeavesThePillsAsMeasured()
+    {
+        // The two facts travel together; a report with no cube measured (null)
+        // keeps whatever the pills were last measured at for the decision on
+        // screen, and folding the tail does not touch them.
+        var c = WithController(TestFixtures.CubeDecision(cubeOwner: CubeOwner.OnRoll));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var cut = Render<QuizPage>();
+        await ReportCubeLabelsFit(cut, true);
+        Assert.Equal(FullPillsTooGood, CubePills(cut));
+
+        await ReportTailFit(cut, tailFits: false, fullCubeFits: null);
+
+        Assert.Equal(FullPillsTooGood, CubePills(cut));
+        Assert.Equal(["tail-menu"], TailContents(cut));
+    }
+
+    [Fact]
+    public async Task Quiz_TailMenu_OffersTheTailsMembers_UnderTheirButtonsNames_WithTheProblemsLocator()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var cut = Render<QuizPage>();
+        await ReportTailFit(cut, tailFits: false);
+
+        var items = await OpenTailMenuAsync(cut);
+
+        Assert.Equal(
+            [XgidLabel.CopyLabel, QuizPage.ShowStatsName, QuizPage.EndQuizName],
+            items.Select(i => i.TextContent.Trim()));
+        var menu = cut.FindComponent<TailMenu>().Instance;
+        Assert.Equal(c.Current!.Xgid, menu.Xgid);
+        Assert.Equal(c.Current.SourceFile, menu.SourceFile);
+        Assert.Equal(c.Current.Game, menu.Game);
+        Assert.Equal(c.Current.MoveNumber, menu.MoveNumber);
+    }
+
+    [Fact]
+    public async Task Quiz_TailMenu_EndQuiz_IsDisabledWhileBusy_AsItsButtonIs()
+    {
+        // CanEndQuiz is one gate for the button and the item: inside a
+        // Submit's pending write the controller is busy, and the item reads
+        // disabled; once the write lands it is available again. Show stats
+        // only navigates and never disables.
+        var c = WithGatedController(out var source, out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var start = c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        source.ReleaseNext();
+        await start;
+        var cut = Render<QuizPage>();
+        await ReportTailFit(cut, tailFits: false);
+
+        var write = new TaskCompletionSource();
+        sink.RecordGate = write.Task;
+        var submit = cut.InvokeAsync(() => c.SubmitPlayAsync(BestPlay()));   // suspends in the write
+        Assert.True(c.IsBusy);
+        cut.Render();
+        var items = await OpenTailMenuAsync(cut);
+        Assert.False(items[1].HasAttribute("disabled"));
+        Assert.True(items[2].HasAttribute("disabled"));
+
+        write.SetResult();
+        await submit;
+        Assert.False(c.IsBusy);
+        Assert.False(cut.FindAll(".tail-menu [role=menuitem]")[2].HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Quiz_TailMenu_ShowStats_GoesToStats_AsItsButtonDoes()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+        var cut = Render<QuizPage>();
+        await ReportTailFit(cut, tailFits: false);
+
+        var items = await OpenTailMenuAsync(cut);
+        await items[1].ClickAsync(new());
+
+        Assert.EndsWith("/stats", nav.Uri);
+        Assert.False(c.IsFinished);
+    }
+
+    [Fact]
+    public async Task Quiz_TailMenu_EndQuiz_FinishesTheRunAndLandsOnDone_AsItsButtonDoes()
+    {
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+        var cut = Render<QuizPage>();
+        await ReportTailFit(cut, tailFits: false);
+
+        var items = await OpenTailMenuAsync(cut);
+        await items[2].ClickAsync(new());
+
+        Assert.True(c.IsFinished);
+        Assert.EndsWith("/done", nav.Uri);
     }
 
     /// <summary>The ruler's lines, by their data-ruler names, in order.</summary>
@@ -6101,6 +6287,26 @@ public class PageTests : BunitContext
         await ButtonNamed(cut, "Skip").ClickAsync(new());
 
         Assert.IsAssignableFrom<CheckerPlayDecision>(c.Current);
+        Assert.Equal(["lead", "lead", "tail"], RulerLines(cut));
+        Assert.Same(cube, cut.FindComponents<BackgammonCubeActions>().Single().Instance.Decision);
+    }
+
+    [Fact]
+    public async Task Quiz_Ruler_OnANewVisit_ToACheckerPlay_KeepsTheRunsLastCubeRow()
+    {
+        // The cube row is the run's fact, not this page's: a Show-stats round
+        // trip re-creates the page, and a page that arrives on a checker play
+        // after the run has shown a cube still measures the cube row — so the
+        // budget, and with it the panel's fold and the tail's, is the same on
+        // the second visit as on the first.
+        var cube = TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered);
+        var c = WithController(cube, TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.NextAsync();
+        Assert.IsAssignableFrom<CheckerPlayDecision>(c.Current);
+
+        var cut = Render<QuizPage>();   // a fresh page: it has never shown the cube
+
         Assert.Equal(["lead", "lead", "tail"], RulerLines(cut));
         Assert.Same(cube, cut.FindComponents<BackgammonCubeActions>().Single().Instance.Decision);
     }
@@ -8025,8 +8231,31 @@ public class PageTests : BunitContext
             "The Show stats button near the right-hand end of the row under the board — a small chart; its name shows when you point at it — opens a running scoreboard",
             finishing);
         Assert.Contains(
-            "On the quiz page, a window too narrow for the row of buttons under the board folds the panel by itself; opened from the strip there, the panel lies over the page until you close it again, and widening the window brings it back as you left it.",
+            "On the quiz page, a window too narrow for the row of buttons under the board folds the panel by itself; opened from the strip there, the panel slides out over the page, and Escape, a click outside it or the strip closes it again. Widening the window brings it back as you left it.",
             worthKnowing);
+        Assert.DoesNotContain("until you close it again", worthKnowing);
+    }
+
+    [Fact]
+    public void Help_DescribesTheMoreButton_ThatTheRowsRightHandGroupFoldsBehind_InANarrowWindow()
+    {
+        // halheinrich/backgammon#264's widened fourth (Hal, 2026-10-03): in a
+        // window too narrow for the whole row, the tail folds behind one "⋯",
+        // named More by its tooltip. Help says so where it describes Show stats
+        // — that Show stats and End quiz are reachable through it there, how
+        // the list opens and closes — and where it describes the locator, which
+        // sits behind it too.
+        WithController();
+        var cut = Render<HelpPage>();
+        var finishing = HelpSectionText(cut, HelpSections.StatsAndFinishing.Heading);
+        var answering = HelpSectionText(cut, HelpSections.AnswerThePosition.Heading);
+
+        Assert.Contains(
+            "In a window too narrow for the whole row, its right-hand group — the XGID's copy button, the label naming the file, Show stats and End quiz — folds behind one button at the row's far end, More, drawn as three dots. Click it, or press Enter or Space on it, for a list of the same four under the same names; choosing one does what its button does. Escape, or a click anywhere else, closes the list. Widen the window and the group comes back as it was.",
+            finishing);
+        Assert.Contains(
+            "In a window too narrow for the whole row, it is one click away, behind the More button at the row's far end.",
+            answering);
     }
 
     [Fact]

@@ -160,6 +160,26 @@ internal sealed class QuizRun
     public PresentedProblem? Frontier => _presented.IsEmpty ? null : _presented[^1];
 
     /// <summary>
+    /// The cube decision presented most recently — the furthest one in the
+    /// presented sequence — or null while the run has presented none. Wherever
+    /// the cursor is. It is what the quiz page measures its cube answer row
+    /// from while a checker play is on screen (its row-fit ruler): a fact of
+    /// the run, so it outlasts the page, which a Show-stats round trip
+    /// re-creates.
+    /// </summary>
+    public CubeDecision? LastPresentedCube
+    {
+        get
+        {
+            for (int i = _presented.Length - 1; i >= 0; i--)
+            {
+                if (_presented[i].Problem is CubeDecision cube) return cube;
+            }
+            return null;
+        }
+    }
+
+    /// <summary>
     /// The scored outcome of the last submission against <see cref="Cursor"/>,
     /// while the user is still looking at it; null in the answering state and
     /// whenever nothing is on screen. It is <i>displayed</i>, not of record

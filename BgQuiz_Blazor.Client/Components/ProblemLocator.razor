@@ -3,8 +3,13 @@
    file name is middle-truncated to a capped width, because the row it sits in
    is board budget; the untruncated name is what a screen reader is given and
    what a hover reveals. Renders nothing when the record locates nothing (see
-   the code-behind). *@
-@if (HasFileName || HasCoordinates)
+   the code-behind). In its line form (ProblemLocatorForm.Line) it is the
+   full wording as plain text, for the action row's "⋯" list. *@
+@if (Locates && Form == ProblemLocatorForm.Line)
+{
+    <span class="problem-locator-line">@FullWording</span>
+}
+else if (Locates)
 {
     <div class="problem-locator" role="group" aria-label="@LocatorLabel">
         @if (HasFileName)

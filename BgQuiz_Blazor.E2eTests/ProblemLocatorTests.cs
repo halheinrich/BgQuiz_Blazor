@@ -317,16 +317,18 @@ public sealed class ProblemLocatorTests : E2eTestBase
     }
 
     /// <summary>
-    /// At the narrowest desktop width, 641 × 768 — §2's floor corner, where the
-    /// row is at its tightest and the panel has folded by itself — the
-    /// locator's numbers stay whole, inside the chip, and its accessible text
-    /// keeps the full wording (halheinrich/backgammon#264's ruling of
-    /// 2026-10-03: "Its numbers stay whole, and its accessible name keeps the
-    /// full wording"). Until that ruling the chip could shrink to nothing and
-    /// leave its numbers drawn under Show stats.
+    /// At the narrowest widths the locator's numbers stay whole and its full
+    /// wording is kept (halheinrich/backgammon#264's ruling of 2026-10-03:
+    /// "Its numbers stay whole, and its accessible name keeps the full
+    /// wording"; until then the chip could shrink to nothing and leave its
+    /// numbers drawn under Show stats). Two widths, since the widened fourth
+    /// (Hal, 2026-10-03): at 641 × 768, §2's floor corner, the tail is folded
+    /// behind its "⋯" and the locator is a line in that list, in the full
+    /// wording; and one pixel above the measured switch — the tightest the row
+    /// ever holds the chip — the chip keeps its numbers whole inside it.
     /// </summary>
     [Fact]
-    public async Task MatchProblem_AtTheNarrowestWidth_KeepsItsNumbersWhole_AndItsFullWording()
+    public async Task MatchProblem_AtTheNarrowestWidths_KeepsItsNumbersWhole_AndItsFullWording()
     {
         await Page.SetViewportSizeAsync(641, 768);
         await BootHomeAsync();
@@ -335,6 +337,18 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
         await Expect(Page.Locator(".action-row .bg-cube-actions")).ToHaveCountAsync(1);
+
+        var more = Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.MoreButton, Exact = true });
+        await more.ClickAsync();
+        await Expect(Page.GetByRole(AriaRole.Menu).Locator(".tail-menu-line")).ToHaveTextAsync(
+            $"{SyntheticXgMatch.StagedFileName} · Game {SyntheticXgMatch.CubeGameNumber} · Move {SyntheticXgMatch.CubeMoveNumber}");
+        await Page.Keyboard.PressAsync("Escape");
+
+        await Page.SetViewportSizeAsync(800, 768);
+        await Page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))");
+        var tailSwitch = await ActionRowGeometry.TailFoldWidthAsync(Page);
+        await Page.SetViewportSizeAsync((int)Math.Ceiling(tailSwitch) + 1, 768);
+        await Expect(more).ToHaveCountAsync(0);
 
         await AssertChipLocatesTheMatchDecisionAtTheTailFloorAsync();
     }

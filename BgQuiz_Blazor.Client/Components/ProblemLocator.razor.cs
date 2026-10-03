@@ -122,6 +122,16 @@ public partial class ProblemLocator : ComponentBase
     [Parameter, EditorRequired]
     public int? MoveNumber { get; set; }
 
+    /// <summary>
+    /// How the facts are presented: the row's chip (the default) or one line
+    /// in the full wording (see <see cref="ProblemLocatorForm"/>).
+    /// </summary>
+    [Parameter]
+    public ProblemLocatorForm Form { get; set; } = ProblemLocatorForm.Chip;
+
+    /// <summary>Whether the record locates anything, and so whether anything renders.</summary>
+    private bool Locates => HasFileName || HasCoordinates;
+
     /// <summary>Whether the record names a file to show.</summary>
     private bool HasFileName => !string.IsNullOrWhiteSpace(SourceFile);
 
@@ -151,6 +161,21 @@ public partial class ProblemLocator : ComponentBase
     /// </summary>
     private string ShortWhereText =>
         $"{ShortGameLabel}{Game}{CoordinateSeparator}{ShortMoveLabel}{MoveNumber}";
+
+    /// <summary>
+    /// The locator in full, as the line form shows it — the record's file
+    /// name whole, extension and all, then <see cref="WhereText"/>, joined by
+    /// the coordinates' own separator: "match.xg · Game 3 · Move 12". Each half
+    /// only where the record states it, as the chip does: a standalone
+    /// position's line is its file name alone.
+    /// </summary>
+    private string FullWording =>
+        (HasFileName, HasCoordinates) switch
+        {
+            (true, true) => $"{SourceFile}{CoordinateSeparator}{WhereText}",
+            (true, false) => SourceFile!,
+            _ => WhereText,
+        };
 
     /// <summary>
     /// The visible file name: the record's name with its last extension

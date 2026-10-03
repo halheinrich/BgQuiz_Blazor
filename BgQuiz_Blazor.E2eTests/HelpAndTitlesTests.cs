@@ -204,10 +204,18 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await Expect(body).ToContainTextAsync("comes back when you move to another page or reload");
 
         // And the quiz page's own fold (halheinrich/backgammon#264's ruling of
-        // 2026-10-03): by itself in a narrow window, an overlay when opened
-        // there, back as the user left it when the window widens.
+        // 2026-10-03): by itself in a narrow window, a drawer when opened there
+        // that Escape, a click outside or the strip closes, back as the user
+        // left it when the window widens.
         await Expect(body).ToContainTextAsync("folds the panel by itself");
-        await Expect(body).ToContainTextAsync("widening the window brings it back as you left it");
+        await Expect(body).ToContainTextAsync("Escape, a click outside it or the strip closes it again");
+        await Expect(body).ToContainTextAsync("Widening the window brings it back as you left it");
+
+        // And the row's own narrow form (the same ruling's widened fourth):
+        // the right-hand group behind the More button, Show stats and End quiz
+        // among it.
+        await Expect(body).ToContainTextAsync("folds behind one button at the row's far end, More, drawn as three dots");
+        await Expect(body).ToContainTextAsync("Show stats and End quiz");
 
         // ...and the way out of that reset, which is the whole reason the fold
         // setting exists. Named by the words on the control, so a reader can find

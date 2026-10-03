@@ -15,27 +15,41 @@ internal static class ActionRowGeometry
 {
     /// <summary>
     /// The row's controls a tap at the centre would not reach, each as
-    /// "name &lt;- what is hit instead". A disabled control's attribute is lifted
-    /// for the test — Chromium does not hit-test a disabled button, so one that
-    /// is merely unavailable would otherwise read as covered. Only the live
-    /// row's controls: the row-fit ruler beside it is a hidden copy.
+    /// "name &lt;- what is hit instead": every button in the row and every cube
+    /// pill (the producer's <c>.bg-cube-action</c> label, whose radio it
+    /// carries). A disabled button's attribute is lifted for the test —
+    /// Chromium does not hit-test a disabled button, so one that is merely
+    /// unavailable would otherwise read as covered. Only the live row's
+    /// controls: the row-fit ruler beside it is a hidden copy. An open "⋯"
+    /// list's items are left out: they lie over the page by design, and the
+    /// list is not the row.
     /// </summary>
     internal static async Task<string[]> CoveredControlsAsync(IPage page) =>
         await page.EvaluateAsync<string[]>(@"() => {
             const row = document.querySelector('.action-row');
             const out = [];
-            for (const b of row.querySelectorAll('button')) {
-              const was = b.disabled; b.disabled = false;
-              const r = b.getBoundingClientRect();
+            const name = c => c.getAttribute('aria-label')
+              || c.querySelector('input')?.getAttribute('aria-label') || c.textContent.trim();
+            for (const c of row.querySelectorAll('button, .bg-cube-action')) {
+              if (c.closest('[role=menu]')) continue;
+              const was = c.disabled; if (c instanceof HTMLButtonElement) c.disabled = false;
+              const r = c.getBoundingClientRect();
               const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-              b.disabled = was;
-              if (!b.contains(e)) {
-                const name = b.getAttribute('aria-label') || b.textContent.trim();
-                out.push(name + ' <- ' + (e ? (e.getAttribute('aria-label') || e.className || e.tagName) : 'nothing'));
+              if (c instanceof HTMLButtonElement) c.disabled = was;
+              if (!c.contains(e)) {
+                out.push(name(c) + ' <- ' + (e ? (e.getAttribute('aria-label') || e.className || e.tagName) : 'nothing'));
               }
             }
             return out;
           }");
+
+    /// <summary>
+    /// How many controls <see cref="CoveredControlsAsync"/> examines — so a
+    /// pin that finds none covered can say it looked at the controls it meant.
+    /// </summary>
+    internal static Task<int> RowControlCountAsync(IPage page) =>
+        page.EvaluateAsync<int>(@"() => [...document.querySelector('.action-row').querySelectorAll('button, .bg-cube-action')]
+            .filter(c => !c.closest('[role=menu]')).length");
 
     /// <summary>
     /// How far, in CSS pixels, the trailing cluster's first control starts to
@@ -55,14 +69,16 @@ internal static class ActionRowGeometry
 
     /// <summary>The page's row-fit measurement, read off its ruler and row.</summary>
     internal sealed record Fit(
-        double Budget, double FullCubeRow, double Row, double Gap, double PanelWidthIfShown, bool AutoFolded, int RowLines);
+        double Budget, double FullCubeRow, double Row, double Gap, double PanelWidthIfShown, bool AutoFolded, int RowLines,
+        bool TailFolded);
 
     /// <summary>
     /// The row-fit figures as the module computes them: the budget (the widest
     /// answer row on the ruler, the gap, the tail's floor), the full-label cube
-    /// row's need while a cube is answered (0 otherwise), the row's width, and
-    /// whether the panel is folded by itself. The panel's width if shown is
-    /// navFold.js's own report.
+    /// row's need while a cube is answered (0 otherwise), the row's width,
+    /// whether the panel is folded by itself, and whether the row shows its
+    /// tail folded behind the "⋯" (TailMenu) in the tail's place. The panel's
+    /// width if shown is navFold.js's own report.
     /// </summary>
     internal static async Task<Fit> FitAsync(IPage page) =>
         JsonSerializer.Deserialize<Fit>(await page.EvaluateAsync<string>(@"() => {
@@ -80,7 +96,8 @@ internal static class ActionRowGeometry
               Gap: gap,
               PanelWidthIfShown: window.bgquizNavFold.widthIfShown() ?? 0,
               AutoFolded: document.documentElement.hasAttribute('data-nav-autofold'),
-              RowLines: Math.round(row.getBoundingClientRect().height / row.querySelector('.btn-lg').getBoundingClientRect().height) });
+              RowLines: Math.round(row.getBoundingClientRect().height / row.querySelector('.btn-lg').getBoundingClientRect().height),
+              TailFolded: row.querySelector('.action-row-tail > .tail-menu') !== null });
           }"))!;
 
     /// <summary>
@@ -94,5 +111,22 @@ internal static class ActionRowGeometry
         var viewport = await page.EvaluateAsync<double>("() => window.innerWidth");
         var rowWithPanelShowing = fit.Row - fit.PanelWidthIfShown;
         return fit.Budget + (viewport - rowWithPanelShowing);
+    }
+
+    /// <summary>
+    /// The viewport width below which the tail folds behind its "⋯", at the
+    /// current viewport's layout band: the same budget plus the chrome around
+    /// the row with the panel folded (the viewport less the row). Read where
+    /// the panel is folded by itself — below <see cref="FoldWidthAsync"/>,
+    /// which the tail's switch always is, since it needs the same budget from
+    /// a row the folded panel has already widened.
+    /// </summary>
+    internal static async Task<double> TailFoldWidthAsync(IPage page)
+    {
+        var fit = await FitAsync(page);
+        if (!fit.AutoFolded)
+            throw new InvalidOperationException("Read the tail's switch where the panel is folded by itself.");
+        var viewport = await page.EvaluateAsync<double>("() => window.innerWidth");
+        return fit.Budget + (viewport - fit.Row);
     }
 }

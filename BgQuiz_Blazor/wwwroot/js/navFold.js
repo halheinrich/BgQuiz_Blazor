@@ -32,18 +32,26 @@
 //
 // THE AUTO-FOLD (SPEC-quiz-view.md §4, halheinrich/backgammon#264's ruling of
 // 2026-10-03: "The navigation panel folds by itself below the width where the
-// row fits beside it. Opening it again there leaves no control covered.").
+// row fits beside it. Opened again there, it is a drawer over the page" — Hal,
+// 2026-10-03: "yes, make it a drawer". That replaced "Opening it again there
+// leaves no control covered", which no panel taking no width from the row can
+// satisfy: the consultant's finding on halheinrich/backgammon#8, comment
+// 5966011660).
 // The quiz page measures its action row (actionRowFit.js) and asks this file,
 // the panel's one owner, to fold it: setAutoFold(true / false). It is LAYOUT
 // state, never the user's preference:
 //   * Entering it saves the user's fold (the checkbox) and folds the panel
 //     (checks the box, so the control still tells the truth: checked = hidden);
 //     <html> carries AUTO_FOLD_ATTRIBUTE while it holds.
-//   * While it holds, the user's control still works: unchecking opens the
-//     panel as an OVERLAY above the page (MainLayout.razor.css), which takes
-//     no width from the row, so opening it covers nothing in the row; checking
-//     it again closes the overlay. Neither is a preference: both are forgotten
-//     when the auto-fold ends.
+//   * While it holds, the rail still works, and it is the only thing that
+//     opens the panel — never this file by itself: unchecking it opens THE
+//     DRAWER, the panel lying over the page beside the rail
+//     (MainLayout.razor.css). It takes no width from the page, so the row
+//     keeps the width it was fitted to; while open it covers part of the
+//     page. Escape, a pointer pressed outside it, or the rail closes it (the
+//     drawer's handlers below), and once closed nothing is covered. Opening
+//     and closing it are not preferences: the saved fold is untouched, and
+//     both are forgotten when the auto-fold ends.
 //   * Leaving it restores the saved fold exactly. The stored "Keep the
 //     navigation panel folded" setting is never written here (this file only
 //     ever reads it); a fold applied from it while the auto-fold holds goes to
@@ -68,6 +76,24 @@
 
     function autoFolded() {
         return document.documentElement.hasAttribute(AUTO_FOLD_ATTRIBUTE);
+    }
+
+    // The drawer is open: the auto-fold holds and the rail's box is unchecked
+    // (checked = hidden, as everywhere). Read afresh each time; the DOM is the
+    // one copy of it.
+    function drawerOpen() {
+        const checkbox = document.querySelector(CHECKBOX_SELECTOR);
+        return checkbox !== null && !checkbox.checked && autoFolded();
+    }
+
+    function closeDrawer() {
+        const checkbox = document.querySelector(CHECKBOX_SELECTOR);
+        if (checkbox) checkbox.checked = true;
+    }
+
+    // Whether `target` is in the drawer or on its rail.
+    function inDrawerOrRail(target) {
+        return target instanceof Element && target.closest(`${SIDEBAR_SELECTOR}, ${CHECKBOX_SELECTOR}`) !== null;
     }
 
     // The user's fold: the checkbox, or, while the auto-fold holds, the fold
@@ -102,7 +128,7 @@
 
     // How much narrower the page's content would be if the panel were showing
     // in flow, beyond what it takes now: the panel's width when it is folded or
-    // open as an overlay, nothing when it already shows in flow. Null where
+    // open as the drawer, nothing when it already shows in flow. Null where
     // there is no side panel to fold (the phone layout, where the rail is not
     // displayed). The quiz page subtracts it from its row's width to learn the
     // row the panel would leave, which does not depend on the fold.
@@ -153,6 +179,53 @@
 
     // Initial load: enhancedload does not fire for it.
     applyStored();
+
+    // THE DRAWER'S CLOSES (see the header). Registered once, on the document,
+    // which outlives every enhanced navigation; each reads the drawer's state
+    // afresh, so nothing acts while it is closed or where the auto-fold does
+    // not hold.
+    //
+    // A pointer pressed outside the drawer and its rail closes it, and the
+    // press goes on to whatever it landed on: focus goes where that press puts
+    // it. Capture, so a control that stops its own events still closes it.
+    // The rail is left to its own click, which closes the drawer by checking
+    // the box.
+    document.addEventListener('pointerdown', event => {
+        if (drawerOpen() && !inDrawerOrRail(event.target)) closeDrawer();
+    }, true);
+
+    // Escape closes it when it is the active surface: not when something
+    // nearer took the key — the quiz row's "⋯" list stops its own Escape
+    // (menuButton.js), and a prevented press is someone else's — nor while
+    // focus is in an open dialog (the review's notes), which closes on its own
+    // Escape. Focus inside the drawer goes back to the rail that opened it, as
+    // it would be lost with the panel; anywhere else it stays.
+    document.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' || event.defaultPrevented || !drawerOpen()) return;
+        if (event.target instanceof Element && event.target.closest('dialog[open]')) return;
+        const sidebar = document.querySelector(SIDEBAR_SELECTOR);
+        const focusWasInside = sidebar !== null && sidebar.contains(document.activeElement);
+        event.preventDefault();
+        closeDrawer();
+        if (focusWasInside) document.querySelector(CHECKBOX_SELECTOR)?.focus();
+    });
+
+    // Space and Enter in the drawer are the drawer's, never the page's: a
+    // press with focus on nothing in particular while the drawer is open —
+    // which is how a click on its plain background leaves focus, since a
+    // click anywhere else closes it — or on the drawer's own plain content is
+    // prevented here, before the quiz page's Space shortcut (quizKeys.js,
+    // which yields to a prevented press) can submit or move the quiz on. Its
+    // links and the rail keep their own handling; the shortcut already yields
+    // to those. Capture on the window, so this runs first.
+    window.addEventListener('keydown', event => {
+        if ((event.key !== ' ' && event.key !== 'Enter') || !drawerOpen()) return;
+        const target = event.target;
+        const unfocused = target === document.body || target === document.documentElement;
+        const plainInside = inDrawerOrRail(target)
+            && target.closest('a[href], button, input, select, textarea, summary') === null;
+        if (unfocused || plainInside) event.preventDefault();
+    }, true);
 
     // Every enhanced navigation — which makes this, and not the seam above, the
     // path a newly turned-on setting first takes hold on. It applies INCLUDING

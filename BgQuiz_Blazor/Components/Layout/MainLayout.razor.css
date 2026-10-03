@@ -55,7 +55,7 @@ main {
 
 @media (min-width: 641px) {
     /* The rail's and the panel's widths, each stated once: the rail's flex
-       basis and the overlay's left edge read --rail-width, and the panel's
+       basis and the drawer's left edge read --rail-width, and the panel's
        width, folded or not, comes from --sidebar-width, which navFold.js also
        reads (widthIfShown) to tell the quiz page what the panel would take
        from its row. */
@@ -133,12 +133,17 @@ main {
        of 2026-10-03): the quiz page folds the panel by itself where its action
        row cannot fit beside it, and navFold.js marks <html> with
        data-nav-autofold while that holds (the checkbox is checked with it, so
-       the rule above folds the panel). Opened again there, the panel is an
-       OVERLAY: fixed above the page beside the rail, so it takes no width from
-       the page and the row keeps the width it fits in — "opening it again
-       there leaves no control covered" in the row. It closes from the rail as
-       it opened. Above the fold width the attribute is gone and the panel is
-       back in flow, as the user left it. */
+       the rule above folds the panel). Opened again there, from the rail and
+       only from the rail, the panel is A DRAWER OVER THE PAGE (Hal,
+       2026-10-03: "yes, make it a drawer"): fixed beside the rail, it takes no
+       width from the page, so the row keeps the width it was fitted to, and
+       while it is open it covers part of the page. Escape, a pointer pressed
+       outside it, or the rail closes it (navFold.js), and once closed nothing
+       is covered. That replaced "opening it again there leaves no control
+       covered", which no panel taking no width from the row can satisfy (the
+       consultant's finding on halheinrich/backgammon#8, comment 5966011660).
+       Above the fold width the attribute is gone and the panel is back in
+       flow, as the user left it. */
     html[data-nav-autofold] .sidebar-toggle-checkbox:not(:checked) ~ .sidebar {
         position: fixed;
         top: 0;

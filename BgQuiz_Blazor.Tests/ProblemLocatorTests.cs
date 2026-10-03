@@ -227,4 +227,47 @@ public class ProblemLocatorTests : BunitContext
         Assert.NotEmpty(Locator(name, game: 3, moveNumber: 12).FindAll(".problem-locator-where"));
         Assert.Empty(Locator(name, game: null, moveNumber: null).FindAll(".problem-locator-where"));
     }
+
+    /// <summary>The locator in its line form, as the action row's "⋯" list renders it.</summary>
+    private IRenderedComponent<ProblemLocator> Line(string? sourceFile, int? game = 3, int? moveNumber = 12) =>
+        Render<ProblemLocator>(p => p
+            .Add(c => c.SourceFile, sourceFile)
+            .Add(c => c.Game, game)
+            .Add(c => c.MoveNumber, moveNumber)
+            .Add(c => c.Form, ProblemLocatorForm.Line));
+
+    [Theory]
+    // The full wording, each half only where the record states it, as the
+    // chip: a decision in a game, a standalone position, and — impossible in
+    // production, but the halves are independent — coordinates alone. The
+    // file name is whole: no extension dropped, no middle cut, whatever its
+    // length, because the line has no width cap to serve.
+    [InlineData("synthetic-match-2026-04-12.xg", 2, 4, "synthetic-match-2026-04-12.xg · Game 2 · Move 4")]
+    [InlineData("a-very-long-match-file-name-beyond-any-cap.xg", 3, 12, "a-very-long-match-file-name-beyond-any-cap.xg · Game 3 · Move 12")]
+    [InlineData("BothAnalysis.xgp", null, null, "BothAnalysis.xgp")]
+    [InlineData(null, 3, 12, "Game 3 · Move 12")]
+    public void LineForm_IsTheFullWording_AsOneLineOfText(string? sourceFile, int? game, int? moveNumber, string expected)
+    {
+        var cut = Line(sourceFile, game, moveNumber);
+
+        var line = cut.Find(".problem-locator-line");
+        Assert.Equal(expected, line.TextContent);
+        // What shows is what a screen reader reads: no hidden twin, no
+        // aria-hidden half, no tooltip standing in for the text.
+        Assert.Empty(cut.FindAll(".visually-hidden, [aria-hidden], [title]"));
+        Assert.Empty(cut.FindAll(".problem-locator"));
+    }
+
+    [Fact]
+    public void LineForm_LocatingNothing_RendersNothing()
+    {
+        Assert.Equal(string.Empty, Line(null, null, null).Markup.Trim());
+    }
+
+    [Fact]
+    public void TheChip_IsTheDefaultForm()
+    {
+        Assert.Equal(ProblemLocatorForm.Chip, new ProblemLocator().Form);
+        Assert.Empty(Locator("match.xg").FindAll(".problem-locator-line"));
+    }
 }

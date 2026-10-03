@@ -41,9 +41,11 @@ public partial class XgidLabel : ComponentBase
 
     /// <summary>
     /// The copy button's accessible name, and its tooltip — one string for both,
-    /// because they name the same control to two audiences.
+    /// because they name the same control to two audiences. Internal because
+    /// the action row's "⋯" list offers the same control under the same name
+    /// where the row folds its tail behind it (<see cref="TailMenu"/>).
     /// </summary>
-    private const string CopyLabel = "Copy XGID to clipboard";
+    internal const string CopyLabel = "Copy XGID to clipboard";
 
     /// <summary>The post-copy confirmation, in the same two places.</summary>
     private const string CopiedLabel = "Copied";
@@ -60,9 +62,17 @@ public partial class XgidLabel : ComponentBase
 
     private bool _copied;
 
+    /// <summary>
+    /// What copying an XGID is: the whole value to the clipboard. The one
+    /// statement of it, shared with the "⋯" list's Copy XGID item
+    /// (<see cref="TailMenu"/>), so the item does what this button does.
+    /// </summary>
+    internal static ValueTask WriteToClipboardAsync(IJSRuntime js, string xgid) =>
+        js.InvokeVoidAsync("navigator.clipboard.writeText", xgid);
+
     private async Task CopyAsync()
     {
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", Xgid);
+        await WriteToClipboardAsync(JS, Xgid);
 
         // Show the confirmation immediately, then revert after a beat. The
         // implicit re-render when this handler completes flips the label back.

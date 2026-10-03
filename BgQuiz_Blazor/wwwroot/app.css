@@ -444,6 +444,84 @@ h1:focus {
     vertical-align: -0.125em;
 }
 
+/* The tail folded behind one "⋯" (SPEC-quiz-view.md §4,
+   halheinrich/backgammon#264's widened fourth, Hal, 2026-10-03; TailMenu):
+   the quiz page renders it in the tail's place where the tail does not fit
+   beside the row's other controls. The toggle is one of the row's icon
+   buttons (.action-row-icon) and, like the tail's buttons, never shrinks.
+
+   The list LIES OVER THE PAGE, above the row and right-aligned to the
+   toggle: absolutely positioned, so opening it reflows nothing and the board
+   never moves (§2). Above rather than below, because in maximized answering
+   the row is the last thing on the page and a list hanging under it would
+   run off the window; above, it covers part of the board, which is what the
+   gesture asked for. Bootstrap's own dropdown z-index (1000): over the board
+   and the row, under the navigation panel's drawer (1040) and the notes
+   dialog (1050/1055), each of which closes the list anyway by being opened
+   outside it. */
+.tail-menu {
+    position: relative;
+    flex: none;
+}
+
+.tail-menu-list {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 0.25rem);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    /* Its own content's width, capped: the toggle it hangs from is its
+       containing block, so shrink-to-fit would squeeze it to its narrowest
+       word. A file name longer than the cap wraps (.tail-menu-line). */
+    width: max-content;
+    min-width: 12rem;
+    max-width: min(24rem, calc(100vw - 2rem));
+    padding: 0.25rem 0;
+    background-color: #fff;
+    border: 1px solid rgb(0 0 0 / 0.175);
+    border-radius: 0.375rem;
+    box-shadow: 0 0.5rem 1rem rgb(0 0 0 / 0.15);
+}
+
+/* An item: one of the tail's controls under its own name, a full-width row
+   of the list with Bootstrap's dropdown-item spacing. Highlighted on :focus,
+   not :focus-visible alone: opening the list by pointer moves focus to its
+   first item by script, and the arrow keys move it from there, so where
+   focus is must always show. */
+.tail-menu-item {
+    display: block;
+    width: 100%;
+    padding: 0.375rem 1rem;
+    border: 0;
+    background: none;
+    color: #212529;
+    text-align: start;
+    white-space: nowrap;
+}
+
+.tail-menu-item:hover,
+.tail-menu-item:focus {
+    background-color: #e9ecef;
+    outline: none;
+}
+
+.tail-menu-item:disabled {
+    color: #6c757d;
+    background: none;
+}
+
+/* The locator, a line to read and not an item: the file name whole and the
+   coordinates in full, small and muted like the chip it stands for, and
+   allowed to wrap anywhere, since a whole file name has no width cap here. */
+.tail-menu-line {
+    padding: 0.125rem 1rem 0.375rem;
+    font-size: 0.85rem;
+    line-height: 1.2;
+    color: #6c757d;
+    overflow-wrap: anywhere;
+}
+
 /* The row-fit ruler (halheinrich/backgammon#264's ruling of 2026-10-03, and
    SPEC-quiz-view.md §4's cube-label switch): an invisible, inert copy of the
    row's widest compositions — the checker answer row, the cube answer row in

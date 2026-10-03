@@ -167,6 +167,19 @@ internal static class ExpectedText
     internal const string ShowStatsButton = "Show stats";
 
     /// <summary>
+    /// The "⋯" control the action row's tail folds behind where it does not
+    /// fit (<c>TailMenu</c>; halheinrich/backgammon#264's widened fourth):
+    /// its accessible name and tooltip, and its list's name.
+    /// </summary>
+    internal const string MoreButton = "More";
+
+    /// <summary>
+    /// The XGID badge's copy button, by its accessible name and tooltip
+    /// (<c>XgidLabel</c>) — and the "⋯" list's first item, which keeps it.
+    /// </summary>
+    internal const string CopyXgidButton = "Copy XGID to clipboard";
+
+    /// <summary>
     /// The cube pills, in the row's order — each pill's caption and its
     /// accessible name (the row shows full labels, so the two are one).
     /// Their words are the label home's — <c>CubeLabels</c> in

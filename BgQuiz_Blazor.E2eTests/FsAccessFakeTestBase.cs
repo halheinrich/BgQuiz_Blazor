@@ -88,6 +88,10 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
           // name — a contract violation — fails the gesture loudly instead of
           // passing as a captured write. (Stats deliberately isn't stateful:
           // each quiz re-reads the scenario-configured statsJson.)
+          // writeGate: null by default (a stats write lands at once). A test
+          // may set it to a promise, which holds every stats write's close —
+          // the app's write to the lifetime record — open for as long as it
+          // likes: the window a Submit keeps the quiz busy in.
           // scanGate: null by default (the enumeration resolves immediately).
           // A test may set it to a promise before picking, which suspends the
           // directory enumeration — the app's own post-prompt work — for as
@@ -112,6 +116,7 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
             retiredV3Json: null,
             filtersJson: null, legacyFiltersJson: null,
             writes: [], retiredWrites: [], mergedWrites: [], filtersWrites: [], scanGate: null,
+            writeGate: null,
           };
           const cfg = window.__statsFake;
           const notFound = () => new DOMException('not found', 'NotFoundError');
@@ -147,7 +152,10 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
               let buf = '';
               return {
                 write: async d => { buf += d; },
-                close: async () => { cfg.writes.push(buf); },
+                close: async () => {
+                  if (cfg.writeGate !== null) await cfg.writeGate;
+                  cfg.writes.push(buf);
+                },
                 abort: async () => { buf = ''; },
               };
             },
@@ -370,6 +378,18 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     /// <summary>Let a held enumeration proceed (see <see cref="HoldScanAsync"/>).</summary>
     protected Task ReleaseScanAsync() => Page.EvaluateAsync(
         "() => { window.__statsFake.scanGate = null; window.__releaseScan(); }");
+
+    /// <summary>
+    /// Hold the stats file's writes open, so a Submit's write to the lifetime
+    /// record — and with it the quiz's busy window — lasts until
+    /// <see cref="ReleaseWritesAsync"/>.
+    /// </summary>
+    protected Task HoldWritesAsync() => Page.EvaluateAsync(
+        "() => { window.__statsFake.writeGate = new Promise(r => { window.__releaseWrites = r; }); }");
+
+    /// <summary>Let held writes land (see <see cref="HoldWritesAsync"/>).</summary>
+    protected Task ReleaseWritesAsync() => Page.EvaluateAsync(
+        "() => { window.__statsFake.writeGate = null; window.__releaseWrites(); }");
 
     /// <summary>
     /// Every stats write-back the fake writable captured, in order.

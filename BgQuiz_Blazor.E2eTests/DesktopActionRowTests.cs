@@ -16,13 +16,15 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The arrow buttons are pinned from 726 px up. Below that the three
-/// narrowings do not reach (measured 2026-10-03, published app, Chromium,
-/// Windows Helvetica/Arial): with the panel folded the row is too narrow for
-/// the checker answer row and the tail's floor, so on a problem from a
-/// <c>.xg</c> file the cluster runs over ▶ and ⏭ — past the row's gap at
-/// 641–721 px, over a button's centre at 641–701 px. That band is the
-/// leg's report to Hal, whose call the banked fourth narrowing is.
+/// The arrow buttons are pinned here from 726 px up, the band the three
+/// narrowings reach. Below it they did not (measured 2026-10-03, published
+/// app, Chromium, Windows Helvetica/Arial): with the panel folded the row was
+/// too narrow for the checker answer row and the tail's floor, so on a problem
+/// from a <c>.xg</c> file the cluster ran over ▶ and ⏭ — past the row's gap at
+/// 641–721 px, over a button's centre at 641–701 px. The fourth, widened —
+/// the whole tail behind one "⋯" (Hal, 2026-10-03) — closes that band, and
+/// <see cref="InTheOldBand_ATapAtTheCentreOfEveryRowControlReachesIt"/> pins
+/// it control by control.
 /// </para>
 /// <para>
 /// Each scenario walks the widths in one session: the row is re-fitted at each
@@ -122,5 +124,144 @@ public sealed class DesktopActionRowTests : E2eTestBase
         await Expect(SubmitButton).ToBeEnabledAsync();
         await SubmitButton.ClickAsync();
         await Expect(ContinueButton).ToBeVisibleAsync();
+    }
+
+    /// <summary>
+    /// The problem kinds the old band is pinned over: a checker play and a cube
+    /// decision from a <c>.xg</c> file (game and move numbers, the widest tail),
+    /// the cube in both readings of its fourth answer, and the same from
+    /// <c>.xgp</c> files (a file name alone).
+    /// </summary>
+    public enum ProblemKind
+    {
+        XgChecker,
+        XgCubeTooGood,
+        XgCubeNoDoublePass,
+        XgpChecker,
+        XgpCubeTooGood,
+        XgpCubeNoDoublePass,
+    }
+
+    /// <summary>The old band: 641–721 px, where the three narrowings left the tail over ▶ and ⏭.</summary>
+    private static readonly int[] OldBandWidths = [641, 661, 681, 701, 721];
+
+    /// <summary>§2's floor height, the tallest the band's claim has to hold at its shortest.</summary>
+    private const int FloorHeight = 768;
+
+    /// <summary>Stage and start a quiz whose problem on screen is <paramref name="kind"/>, answering.</summary>
+    private async Task StartOnAsync(ProblemKind kind)
+    {
+        switch (kind)
+        {
+            case ProblemKind.XgChecker:
+            case ProblemKind.XgCubeTooGood:
+                await PickSynthesizedFileAsync(SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
+                break;
+            case ProblemKind.XgCubeNoDoublePass:
+                await PickSynthesizedFileAsync(SyntheticXgMatch.MoneyStagedFileName, SyntheticXgMatch.MoneySessionBytes());
+                break;
+            case ProblemKind.XgpChecker:
+                await PickFixtureAsync(CheckerFixture);
+                break;
+            case ProblemKind.XgpCubeTooGood:
+                await PickFixtureAsync(TooGoodTakeFixture);
+                break;
+            case ProblemKind.XgpCubeNoDoublePass:
+                await PickFixtureAsync(CubeFixture);
+                break;
+        }
+        await ApplyFilterAsync();
+        await StartQuizAsync();
+        if (kind == ProblemKind.XgChecker)
+        {
+            await NavButton(ExpectedText.SkipButton).ClickAsync();
+        }
+
+        if (kind is ProblemKind.XgChecker or ProblemKind.XgpChecker)
+        {
+            await Expect(Page.Locator(".bg-play-entry")).ToBeVisibleAsync();
+        }
+        else
+        {
+            // The reading the kind names, by the fourth pill's own name.
+            var fourth = kind is ProblemKind.XgCubeTooGood or ProblemKind.XgpCubeTooGood
+                ? ExpectedText.TooGoodPill
+                : ExpectedText.NoDoublePassPill;
+            await Expect(CubePill(fourth)).ToHaveCountAsync(1);
+        }
+    }
+
+    /// <summary>Answer the problem on screen and submit, landing on its review.</summary>
+    private async Task AnswerAsync(ProblemKind kind)
+    {
+        switch (kind)
+        {
+            case ProblemKind.XgChecker:
+                // The match's checker play, 8/5 6/5 on a 3-1 (SyntheticXgMatch).
+                await ClickBoardPointAsync(8);
+                await ClickBoardPointAsync(6);
+                break;
+            case ProblemKind.XgpChecker:
+                // The fixture's 6-5, 24/18 then 18/13, as QuizFlowTests enters it.
+                await ClickBoardPointAsync(24);
+                await ClickBoardPointAsync(18);
+                break;
+            default:
+                await CubePill(ExpectedText.NoDoublePill).CheckAsync();
+                break;
+        }
+        await Expect(SubmitButton).ToBeEnabledAsync();
+        await SubmitButton.ClickAsync();
+        await Expect(ContinueButton).ToBeVisibleAsync();
+    }
+
+    /// <summary>At each old-band width: every row control takes a tap at its centre, and the row is one line.</summary>
+    private async Task AssertTheBandAsync(string state)
+    {
+        foreach (var width in OldBandWidths)
+        {
+            await Page.SetViewportSizeAsync(width, FloorHeight);
+            await Page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))");
+            Assert.True(await ActionRowGeometry.RowControlCountAsync(Page) >= 6, $"{state} at {width}px: the row's controls are there");
+            var covered = await ActionRowGeometry.CoveredControlsAsync(Page);
+            Assert.True(covered.Length == 0, $"{state} at {width}px: {string.Join("; ", covered)}");
+            Assert.Equal(1, (await ActionRowGeometry.FitAsync(Page)).RowLines);
+        }
+    }
+
+    [Theory]
+    [InlineData(ProblemKind.XgChecker, false)]
+    [InlineData(ProblemKind.XgChecker, true)]
+    [InlineData(ProblemKind.XgCubeTooGood, false)]
+    [InlineData(ProblemKind.XgCubeTooGood, true)]
+    [InlineData(ProblemKind.XgCubeNoDoublePass, false)]
+    [InlineData(ProblemKind.XgCubeNoDoublePass, true)]
+    [InlineData(ProblemKind.XgpChecker, false)]
+    [InlineData(ProblemKind.XgpChecker, true)]
+    [InlineData(ProblemKind.XgpCubeTooGood, false)]
+    [InlineData(ProblemKind.XgpCubeTooGood, true)]
+    [InlineData(ProblemKind.XgpCubeNoDoublePass, false)]
+    [InlineData(ProblemKind.XgpCubeNoDoublePass, true)]
+    public async Task InTheOldBand_ATapAtTheCentreOfEveryRowControlReachesIt(ProblemKind kind, bool normalView)
+    {
+        // Inside §2's floor (641 px wide and up, 768 px tall), with the drawer
+        // closed and the panel folded by itself as it is there: answering and
+        // at review, every button in the row and every cube pill takes a tap
+        // at its centre, and the row is one line — the "⋯" holding the tail
+        // wherever it would not fit beside the rest.
+        await Page.SetViewportSizeAsync(1280, FloorHeight);
+        await BootHomeAsync();
+        if (normalView)
+        {
+            await DisableMaximizeAsync();
+            await BootHomeAsync();
+        }
+        await StartOnAsync(kind);
+
+        await AssertTheBandAsync("answering");
+
+        await AnswerAsync(kind);
+
+        await AssertTheBandAsync("at review");
     }
 }

@@ -218,7 +218,7 @@ only the client project. Three areas:
 - **Static assets** — `wwwroot/`, what the host serves at fixed URLs:
   `app.css`, the favicon, `robots.txt`, `js/navFold.js` (the classic script
   that re-applies the navigation fold on every page, and holds the quiz
-  page's auto-fold), and the vendored
+  page's auto-fold and its drawer), and the vendored
   Bootstrap stylesheet, the one tracked file under `lib/` (see Pitfalls).
 
 **`BgQuiz_Blazor.Client/`** — the WebAssembly client, the whole interactive
@@ -263,14 +263,18 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   outline's anchor ids and headings) plus the `MixPanel` builder Home hosts
   and the `ScorePanel` / `ScoreBreakdown` pair. `Components/` itself holds
   `XgidLabel` and `ProblemLocator`, the quiz page's bottom-row XGID badge
-  and locator chip, `DecisionNotes`, the review row's Notes control and its
+  and locator chip (`ProblemLocatorForm`: the chip, or one line in the full
+  wording), `TailMenu`, the "⋯" control the row's tail folds behind where it
+  does not fit (with `TailMenuAction`, one of the tail's buttons as its list
+  offers it), `DecisionNotes`, the review row's Notes control and its
   overlay, `ProblemFolderLabel`, the `Problem folder:` caption Home, Done
   and Stats share, and `ReturnControl`, the way back Settings, Help and Stats
   share.
-  `wwwroot/js/quizKeys.js` is the quiz page's Space-shortcut module, and
+  `wwwroot/js/quizKeys.js` is the quiz page's Space-shortcut module;
   `wwwroot/js/actionRowFit.js` fits its action row: it folds the navigation
   panel by itself where the row cannot fit beside it and reports whether the
-  cube pills' full form fits.
+  tail and the cube pills' full form fit; and `wwwroot/js/menuButton.js` is
+  `TailMenu`'s keyboard and pointer half.
 
 **`BgQuiz_Blazor.Tests/`** — xUnit over both app projects, with bUnit for
 components and `WebApplicationFactory` for the host pipeline. Areas: the run
@@ -2434,7 +2438,9 @@ The asymmetry is pinned three times over: at the service seam
   **There is ONE action row (`.action-row`), shared by both states** — only the
   leading answer instruments branch. Its trailing cluster (`.action-row-tail`)
   holds, **in this order**, the XGID badge, the problem's locator, "Show stats",
-  then **"End quiz"** — the last two icon buttons since halheinrich/backgammon#264's
+  then **"End quiz"** — or, where it does not fit beside the rest of the row,
+  the "⋯" they fold behind, whose list keeps the same order (below, "The row
+  narrows") — the last two icon buttons since halheinrich/backgammon#264's
   ruling of 2026-10-03, each named by its words as accessible name and
   tooltip (issue halheinrich/backgammon#57 — § `QuizController` for
   what that transition does). End quiz is one-click and immediate, ruled: the
@@ -2569,15 +2575,20 @@ The asymmetry is pinned three times over: at the service seam
   assembly.
 
   **The row narrows; the board keeps its height** (`SPEC-quiz-view.md` §4,
-  halheinrich/backgammon#264's ruling of 2026-10-03). Three narrowings keep
+  halheinrich/backgammon#264's ruling of 2026-10-03). Four narrowings keep
   the action row on one line with nothing covered, none of them costing the
   board a pixel: **the navigation panel folds by itself** below the width
   where the row fits beside it; **Show stats and End quiz are icon buttons**
-  (their words their accessible names and tooltips, End quiz still last); and
+  (their words their accessible names and tooltips, End quiz still last);
   **the locator takes a short form**, `G3 · M12`, its numbers whole and its
-  full wording its accessible text and tooltip (`ProblemLocator`). The
-  banked fourth — folding the tail's buttons behind one "⋯" control — is
-  Hal's to call.
+  full wording its accessible text and tooltip (`ProblemLocator`); and, below
+  the width where even the tail's floor does not fit beside the row's other
+  controls, **the whole tail folds behind one "⋯"** at the row's far end
+  (`TailMenu`; the fourth, taken up and widened, Hal, 2026-10-03: "I'm good
+  with the ellipsis"). The first three left 641–721 px with the tail over ▶
+  and ⏭; the fourth closes that band. Hal's two other ideas, Submit as a
+  checkmark and Undo last hidden, stay banked for a band the "⋯" does not
+  reach, and there is none.
 
   - **The widths are measured live, under the fonts actually rendering**, by
     `wwwroot/js/actionRowFit.js`; no width is spelled in the code. The page
@@ -2587,11 +2598,15 @@ The asymmetry is pinned three times over: at the service seam
     `NavigationControls`, `TailButtons`), so the two measure alike. Its lines
     are named by `data-ruler`, a contract with the module: `lead` — the checker
     answer row, and the cube row in its short form at the fourth answer
-    selected (bold), drawn from the cube decision on screen or the last one
-    shown (`RulerCube`); `full-cube` — the full-label row, while a cube is
-    answered; `tail` — the trailing cluster at its floor, its min-content
-    (app.css), the locator showing three-digit coordinates (`RulerCoordinate`)
-    so the floor does not move from one problem or file to the next.
+    selected (bold), drawn from the cube decision on screen or the one the
+    run presented most recently (`RulerCube`,
+    `QuizController.LastPresentedCube` — the run's fact, so a Show-stats
+    round trip, which re-creates the page, keeps it); `full-cube` — the
+    full-label row, while a cube is answered; `tail` — the trailing cluster
+    at its floor, its min-content (app.css), the locator showing three-digit
+    coordinates (`RulerCoordinate`) so the floor does not move from one
+    problem or file to the next. The `tail` line is the tail at full size
+    whether the row shows the tail or its "⋯".
   - **The budget** is the widest `lead`, the row's gap and the `tail`: one
     budget for every state, so no state's board or chrome differs from
     another's (the review row — Continue and Notes for Undo all, Undo last
@@ -2600,18 +2615,69 @@ The asymmetry is pinned three times over: at the service seam
     than the budget: the row's width less `window.bgquizNavFold.widthIfShown()`.
     That figure does not depend on the fold, so folding cannot unfold it again
     and a resize at the boundary cannot oscillate (`PanelAutoFoldTests`).
+  - **The tail folds behind its "⋯"** while the row as it stands after the
+    panel's fold is narrower than the same budget (`Quiz.TailFolded`, reported
+    with the pills' fit through `Quiz.HandleRowFit`). So it is one width for
+    every state and problem kind, as the panel's is: the row's composition
+    changes with the window, never between answering and review or from one
+    problem to the next. It rests on the ruler's `tail` line, never on what
+    the row is showing, so showing the "⋯" cannot make the row fit and
+    switch it back (`TailMenuTests.AtTheSwitchWidth_RepeatedResizesDoNotFlipBetweenTheTailAndTheMenu`). Where there is no
+    side panel (the phone layout, below 641 px) the tail takes its own line
+    instead (halheinrich/backgammon#236) and never folds. **The tail until
+    measured** — the row as it always was — because the decision is the
+    window's, made once per width, not once per problem as the pills' is.
+  - **The "⋯" is a menu button** (`TailMenu`, the WAI-ARIA Authoring
+    Practices' pattern; the keys and the outside press are
+    `wwwroot/js/menuButton.js`, which `TailMenu` imports and attaches to
+    itself). The toggle is one of the row's icon buttons, named "More" by
+    `aria-label` and `title`, with `aria-haspopup="menu"` and
+    `aria-expanded`. Its list, over the page above the row (app.css
+    `.tail-menu-list`, so opening reflows nothing), offers the tail in the
+    tail's order: **Copy XGID** (`XgidLabel.CopyLabel`, and
+    `XgidLabel.WriteToClipboardAsync`, the badge's own copy), **the locator**
+    in its full wording as a line to read, not an item
+    (`ProblemLocatorForm.Line`; it labels the `role="group"` the copy item
+    sits in, which is how a screen reader moving through the items hears
+    it), then **Show stats** and **End quiz** (`Quiz.TailMenuActions`, built
+    from each button's name, handler and gate — `CanEndQuiz` is End quiz's
+    one gate, so the item is disabled while busy exactly as the button is).
+    Each item's text is its control's accessible name. Enter or Space opens
+    the list (the toggle's own click), focusing the first enabled item;
+    Arrow Down and Up move through the enabled items, wrapping, Home and End
+    to the ends. **Focus by closing path:** after Escape, and after any
+    choice, back to the toggle — a choice that leaves the page (Show stats,
+    End quiz) hands focus to the toggle first and then navigates, so focus
+    ends where the navigation puts it, as after the button itself; after a
+    click elsewhere, where that click put it; after Tab, where Tab moves it.
+    **Space and Enter in the list stay the list's:** they press the focused
+    item natively, and the page's Space shortcut (`quizKeys.js`) yields to a
+    focused button. **Escape closes the active surface only:** the list
+    stops its own Escape, so the drawer's document listener never sees it.
   - **The fold is layout state** (`navFold.js`, the panel's one owner,
     `setAutoFold`): entering it saves the user's fold and checks the rail's
     box, so the control still says hidden; `<html data-nav-autofold>` marks it.
     The stored "Keep the navigation panel folded" setting is only ever read,
     never written, and a fold applied from it meanwhile goes to the saved
     fold. Leaving it restores the saved fold exactly. **Reopened below the
-    width the panel is an overlay** (`MainLayout.razor.css`): fixed beside the
-    rail, it takes no width from the row, and it closes from the rail as it
-    opened. Opening and closing it there are not preferences and are forgotten
-    when the fold ends. An enhanced navigation resets the layout's DOM, so the
-    saved fold goes with it and the quiz page, if still the page, measures and
-    asks again.
+    width the panel is a drawer over the page** (Hal, 2026-10-03: "yes, make
+    it a drawer"; `MainLayout.razor.css`): fixed beside the rail, it takes no
+    width from the row, and it opens only from the rail, never by itself.
+    While open it may cover part of the row (the cube pills sit under it);
+    Escape, a pointer pressed outside it, or the rail closes it (`navFold.js`'s
+    drawer listeners), and once closed every row control is reachable again.
+    Escape with focus inside it hands focus back to the rail; a press outside
+    it goes on to what it landed on. Space and Enter pressed on nothing in
+    particular while it is open — a click on its plain background leaves
+    focus there — or on its plain content are prevented, so the page's Space
+    shortcut cannot submit or move the quiz on from inside it. Opening and
+    closing it are not preferences and are forgotten when the fold ends. It
+    replaced "Opening it again there leaves no control covered", which no
+    panel taking no width from the row can satisfy and which the old pin
+    asserted without hit-testing (the consultant's finding on
+    halheinrich/backgammon#8, comment 5966011660). An enhanced navigation
+    resets the layout's DOM, so the saved fold goes with it and the quiz page,
+    if still the page, measures and asks again.
   - **When it measures:** on observe and on `refresh` (the page asks whenever
     the problem on screen, or whether it is answered, changes), on every
     window resize — early in the frame, so the fold it decides is in place
@@ -2628,21 +2694,53 @@ The asymmetry is pinned three times over: at the service seam
     641–1200 px band, where the panel is 180 px and the page's padding 1rem a
     side). Inside §2's floor the row never adds a line and Submit is never
     covered, in either view mode, at 768, 800 and 900 px tall, and board size
-    does not differ between problem kinds. **The three do not reach 641 px:**
-    with the panel folded the row is 557–637 px there, too narrow for the
-    checker row and the tail's floor, so on a problem from a `.xg` file the
-    tail runs past the row's gap at 641–721 px (cube rows, 641–711) and over
-    ▶'s or ⏭'s centre at 641–701 (cube, 641–686); a `.xgp` problem's tail,
-    with no coordinates, clears from 661. That band is the leg's report;
-    `DesktopActionRowTests` pins every control's reach from 726 px up.
+    does not differ between problem kinds. The three alone did not reach
+    641 px: with the panel folded the row is 557–637 px there, too narrow for
+    the checker row and the tail's floor, so on a problem from a `.xg` file
+    the tail ran past the row's gap at 641–721 px and over ▶'s or ⏭'s centre
+    at 641–701.
+  - **The "⋯" switch, measured 2026-10-03** (published Release build,
+    Chromium, Windows; the stack `"Helvetica Neue", Helvetica, Arial,
+    sans-serif` renders as **Arial**, read off the browser with
+    `CSS.getPlatformFontsForNode` for Submit, the locator and a pill): the
+    tail folds below a **749.9 px** viewport — the same 665.9 px budget plus
+    the 84 px of chrome around the row with the panel folded — for every
+    problem kind alike, `.xg` checker, `.xg` cube reading Too good, `.xg` cube
+    reading No double / Pass, `.xgp` checker, and `.xgp` cube in both
+    readings, answering and at review: folded at 749, the tail at 750. So the
+    "⋯" holds the tail across 641–749 px, and the row it leaves (the checker
+    row 452.1 + 8 + the toggle) fits from 641 with room to spare.
+    `DesktopActionRowTests.InTheOldBand_ATapAtTheCentreOfEveryRowControlReachesIt`
+    taps every button and pill at 641, 661, 681, 701 and 721 px, for all six
+    kinds, in both view modes, answering and at review; the arrows above
+    that are pinned from 726 px up.
+  - **The cube row before the run's first cube problem is not settled, only
+    measured.** The ruler's short cube row needs a cube decision to label
+    its pills (`BackgammonCubeActions.Decision` is required, and the fourth
+    answer's label is the decision's reading), and before the run has
+    presented one there is none to draw from without inventing a domain
+    record. Until then the budget is the checker row alone, which is right
+    exactly while the checker row is the wider. Measured 2026-10-03 across 32
+    font families with `* { font-family: X }` forced on the published build
+    (26 installed Windows families and the six generic ones), the checker
+    row is wider in every one, in both readings of the fourth answer: by
+    11.0 px in Arial, 35–50 px in the monospace faces, under 5 px in Gabriola,
+    Georgia and Times New Roman, and in Ink Free by 3.4 px (No double / Pass)
+    and 0.4 px (Too good), the narrowest margin found.
+    It is therefore not shown for every font. Where a font made the cube row
+    the wider, the first cube problem would raise the budget once, and could
+    fold the panel and the tail from that problem on — a one-time board change
+    where the board is width-bound, never a covered control, since both folds
+    follow the budget live. Settling it needs the producer to label a pill row
+    without a decision (BgDiag_Razor), which is cross-repo.
 
   **The cube pills abbreviate where the row cannot hold them**
   (`SPEC-quiz-view.md` §4, "The action row under quiz navigation": ND, D/T,
   D/P, TG or NP). The producer leaves the form to the host
   (`BackgammonCubeActions.ShortLabels`); the page renders the short form
   unless the row-fit module has reported, for the decision on screen, that
-  the full form fits (`Quiz.HandleCubeLabelsFit`, the page's second
-  `[JSInvokable]`; `ShortCubeLabels`). The module compares the ruler's
+  the full form fits (`Quiz.HandleRowFit`, the page's second
+  `[JSInvokable]`, which carries the tail's fit with it; `ShortCubeLabels`). The module compares the ruler's
   `full-cube` line — the full labels at their widest, the fourth answer bold —
   plus the gap and the tail's floor with the row's width as it stands after the
   fold. **Short until measured**, on each decision: every cube problem's first
@@ -2666,7 +2764,10 @@ The asymmetry is pinned three times over: at the service seam
   2026-08-13 amendment, issue `halheinrich/backgammon#98`). `XgidLabel` — the
   selectable-text-plus-copy badge, the DOM counterpart of the label the
   PDF/PPTX/PNG exporters bake in — renders at **one** site, opening
-  `.action-row-tail`, present in both view modes and both states. It is off the
+  `.action-row-tail`, in both view modes and both states. Where the tail does
+  not fit beside the row's other controls the whole tail folds behind its "⋯"
+  (`TailMenu`, below "The row narrows"), and the badge's copy is that list's
+  first item, under its own name: still the tail, one tap away. It is off the
   canvas entirely (§4 for why), so the three board branches render the producer
   components bare.
   Consequences worth knowing before touching it: **one site, not three** (a
@@ -2731,10 +2832,11 @@ The asymmetry is pinned three times over: at the service seam
   **The problem's locator shares that home, and the cluster now shrinks rather
   than wraps** (`SPEC-quiz-view.md` §4's 2026-08-21 amendment and its two
   build-time rulings, issue `halheinrich/backgammon#115`). `ProblemLocator`
-  renders at **one** site, immediately after the badge, present in both view
-  modes and both states — read §4 for why the tail and not the producer's title
-  strip, and for what the chip may and may not show. What lives here is only
-  what a reader of this code needs:
+  renders at **one** site, immediately after the badge, in both view modes and
+  both states — and, where the tail folds behind its "⋯", as that list's line
+  to read, in the full wording (`ProblemLocatorForm.Line`) — read §4 for why
+  the tail and not the producer's title strip, and for what the chip may and
+  may not show. What lives here is only what a reader of this code needs:
 
   - **The cluster is `flex: 1 1 0` + `min-width: 0` + `flex-nowrap`, and all
     three are the fixed-height contract** (`AppCss_ActionRowTail_ShrinksAndNeverWraps`).
@@ -3403,7 +3505,12 @@ Since halheinrich/backgammon#264's ruling it also publishes `setAutoFold(on)`
 and `widthIfShown()`, the quiz page's row-fit module's (§ Pages → Quiz, "The
 row narrows"): the panel folds by itself as layout state, the user's fold
 saved and restored around it, and `apply` lands on the saved fold while the
-auto-fold holds. The couplings the script holds with no compiler behind them —
+auto-fold holds. It also owns the panel reopened there, **the drawer**: three
+document listeners, registered once, close it on Escape (unless something
+nearer took the key — the row's "⋯" list stops its own — or focus is in an
+open dialog), on a pointer pressed outside it and its rail, and prevent
+Space and Enter pressed on nothing in particular or on its plain content, so
+the quiz page's Space shortcut never fires from inside it. The couplings the script holds with no compiler behind them —
 the storage field name, the `.sidebar-toggle-checkbox` selector, and the
 `.sidebar` / `--sidebar-width` / `data-nav-autofold` names it shares with
 `MainLayout.razor.css` — are in Pitfalls.
@@ -3433,9 +3540,11 @@ collapse, the settings page, the mid-quiz round trip through Home and the early
 end of a run, the mix-activation gating and the pick busy affordance, the
 review's decision notes, quiz navigation (⏮ ◀ ▶ ⏭, the deferred skip and
 practice), the action row's live fit (the panel folding by itself and
-reopening as an overlay, the cube pills' short form, the measurement following
+reopening as a drawer, the tail folding behind its "⋯" and that list's
+items, keys and focus, the cube pills' short form, the measurement following
 changed font metrics), every action-row control's reach at the old worst
-desktop widths and at the phone preset, and the stats-persistence suite. It covers the one
+desktop widths, across the old 641–721 px band and at the phone preset, and
+the stats-persistence suite. It covers the one
 layer the other
 two structurally cannot: bUnit renders components in isolation and the
 `WebApplicationFactory` wire tests run the host pipeline in-process with no
@@ -4002,9 +4111,9 @@ public (see Pitfalls). The externally visible surface is the route map:
   3. **The auto-fold's names** (halheinrich/backgammon#264): `.sidebar` and its
      `--sidebar-width` property, which `MainLayout.razor.css` sets per layout
      band and `widthIfShown()` reads, and `data-nav-autofold`, which the script
-     sets on `<html>` and the layout's overlay rule keys on. Rename either end
+     sets on `<html>` and the layout's drawer rule keys on. Rename either end
      alone and the quiz page's panel stops folding, or folds without the
-     overlay; `PanelAutoFoldTests` is what notices.
+     drawer; `PanelAutoFoldTests` is what notices.
   Two smaller rules ride along: the script tag must stay **after**
   `blazor.web.js` (that is where `Blazor.addEventListener` exists) and must
   keep going through `@Assets[...]` like its sibling, or a deploy leaves

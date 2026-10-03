@@ -4,7 +4,7 @@
 // Loaded as an ES module by the Quiz page, as quizKeys.js is; nothing else
 // imports it.
 //
-// It measures, under the fonts actually rendering, and decides two things:
+// It measures, under the fonts actually rendering, and decides three things:
 //
 //   1. Whether the navigation panel folds by itself. The page renders an
 //      invisible, inert ruler beside the row (Quiz.razor): the answer rows in
@@ -20,12 +20,26 @@
 //      and applied by navFold.js (window.bgquizNavFold.setAutoFold), which
 //      owns the panel and keeps the user's own fold untouched.
 //
-//   2. Whether the cube pills' full form fits. While a cube decision is
+//   2. Whether the tail folds behind its "⋯" (SPEC-quiz-view.md §4,
+//      halheinrich/backgammon#264's widened fourth, Hal, 2026-10-03: "below
+//      the width where the tail fits beside the row's other controls,
+//      measured live, the whole tail folds behind one "⋯" control"). It folds
+//      while the row as it stands after the panel's fold is narrower than the
+//      same budget — one width for every state, as the panel's is. The budget
+//      holds the tail at full size, whatever the row is showing in its place,
+//      so showing the "⋯" cannot make the row fit and switch it back. Where
+//      there is no side panel (the phone layout) the tail takes a line of its
+//      own (halheinrich/backgammon#236) and never folds.
+//
+//   3. Whether the cube pills' full form fits. While a cube decision is
 //      answered the ruler also holds the full-label row at its widest
 //      selection (data-ruler="full-cube"); it fits when that line, the gap and
-//      the tail's floor fit the row as it stands after the fold. That answer
-//      goes to the page (the [JSInvokable] callback handed in), which renders
-//      the pills' form; this side renders nothing.
+//      the tail's floor fit the row as it stands after the fold.
+//
+// The answers to 2 and 3 go to the page together (the [JSInvokable] callback
+// handed in: the tail's fit, then the pills' fit or null while no cube is
+// answered), which renders the tail's and the pills' form; this side renders
+// nothing.
 //
 // When it measures: once on observe; on refresh() (the page calls it when the
 // problem on screen, or whether it is answered, changes); on every window
@@ -49,8 +63,8 @@
 let state = null;
 
 /**
- * Start fitting `row`, measuring with `ruler`, reporting the full-form fit
- * through `ref`, the page's DotNetObjectReference, by invoking its
+ * Start fitting `row`, measuring with `ruler`, reporting the tail's and the
+ * pills' fit through `ref`, the page's DotNetObjectReference, by invoking its
  * [JSInvokable] `method` — a name handed in so it has one spelling, on the C#
  * side. Replaces any earlier observation.
  */
@@ -61,7 +75,7 @@ export function observe(row, ruler, ref, method) {
         ruler,
         ref,
         method,
-        reported: null,
+        reported: null,   // the last report, as "tailFits/fullCubeFits"
         frame: 0,
         observer: new ResizeObserver(fitNextFrame),
         onResize: () => fit(false),
@@ -143,13 +157,18 @@ function fit(report) {
         fold.setAutoFold(rowWithPanelShowing < budget);
     }
 
-    // 2. The cube pills, against the row as it now stands (read after the fold).
+    // 2. The tail, against the row as it now stands (read after the fold).
+    const rowWidth = width(row);
+    const tailFits = panelWidth === null || rowWidth >= budget;
+
+    // 3. The cube pills, against the same row; null while none is answered.
     const fullCube = ruler.querySelector('[data-ruler="full-cube"]');
-    if (fullCube === null) return;
-    const fits = width(fullCube) + gap + floor <= width(row);
-    if (report || fits !== state.reported) {
-        state.reported = fits;
-        state.ref.invokeMethodAsync(state.method, fits);
+    const fullCubeFits = fullCube === null ? null : width(fullCube) + gap + floor <= rowWidth;
+
+    const reported = `${tailFits}/${fullCubeFits}`;
+    if (report || reported !== state.reported) {
+        state.reported = reported;
+        state.ref.invokeMethodAsync(state.method, tailFits, fullCubeFits);
     }
 }
 

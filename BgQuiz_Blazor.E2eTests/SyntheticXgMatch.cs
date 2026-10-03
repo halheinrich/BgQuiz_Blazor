@@ -177,14 +177,35 @@ internal static class SyntheticXgMatch
     /// and continues ever reaches the play.
     /// </para>
     /// </summary>
-    internal static byte[] Bytes()
-    {
-        var builder = XgFileBuilder.ForMatch(MatchLength, Player1, Player2);
+    internal static byte[] Bytes() =>
+        Build(XgFileBuilder.ForMatch(MatchLength, Player1, Player2), CubeGameScore1, CubeGameScore2);
 
+    /// <summary>
+    /// The name the money session is staged under — as long as
+    /// <see cref="StagedFileName"/>, for the same reason.
+    /// </summary>
+    internal const string MoneyStagedFileName = "synthetic-money-2026-04-12.xg";
+
+    /// <summary>
+    /// The same two decisions in a <b>money session</b>, Jacoby on (XG's money
+    /// default): the cube is centred when <see cref="XgPlayer.Player2"/>
+    /// doubles, so gammons are not possible and the cube decision's fourth
+    /// answer reads <b>No double / Pass</b> where the match's reads Too good
+    /// (SPEC-scoring §3, amended 2026-10-01 on halheinrich/backgammon#326).
+    /// Everything else — the games, the moves, the coordinates
+    /// (<see cref="CubeGameNumber"/>, <see cref="CubeMoveNumber"/>), the
+    /// comments — is the match's, so the two files differ in that one reading.
+    /// </summary>
+    internal static byte[] MoneySessionBytes() =>
+        Build(XgFileBuilder.ForMoneySession(Player1, Player2), 0, 0);
+
+    /// <summary>The file's games and decisions, into <paramref name="builder"/>; see <see cref="Bytes"/>.</summary>
+    private static byte[] Build(XgFileBuilder builder, int cubeGameScore1, int cubeGameScore2)
+    {
         for (int i = 0; i < GamesBeforeTheCubeGame; i++)
             Replay(builder.AddGame());
 
-        var cubeGame = builder.AddGame(CubeGameScore1, CubeGameScore2);
+        var cubeGame = builder.AddGame(cubeGameScore1, cubeGameScore2);
         Replay(cubeGame);
         cubeGame.CubeDecision(
             XgPlayer.Player2, CubeEquities, CubePly,
