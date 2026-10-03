@@ -14,8 +14,8 @@ using XgFilter_Lib.Filtering;
 /// for each, the totals and the ranking. Pages observe state via
 /// <see cref="StateChanged"/> and drive transitions via
 /// <see cref="StartAsync"/> / <see cref="SubmitPlayAsync"/> /
-/// <see cref="SubmitCubeAnswerAsync"/> / <see cref="RedoAsync"/> /
-/// <see cref="ContinueAsync"/> / <see cref="SkipCurrentAsync"/> /
+/// <see cref="SubmitCubeAnswerAsync"/> / <see cref="NextAsync"/> /
+/// <see cref="GoToFirst"/> / <see cref="GoBack"/> / <see cref="GoToLast"/> /
 /// <see cref="EndQuizAsync"/> / <see cref="RestartAsync"/>.
 ///
 /// <para>
@@ -28,27 +28,28 @@ using XgFilter_Lib.Filtering;
 /// run's own transition returns. What this type adds is the part a pure model
 /// cannot do: draw the next problem from the source, decide which drawn
 /// positions are shown, take each board's side roll, fold answers into the
-/// lifetime record, and refuse a gesture that arrives mid-transition.
-/// <b>It wires the part of the model today's page uses</b> — a run that only
-/// moves forward, with Redo as its one return to a decision — so the cursor
-/// here is always on the frontier; the navigation controls are
-/// <c>SPEC-quiz-history.md</c> §2's and arrive with their own leg.
+/// lifetime record, and refuse a gesture that arrives mid-transition. It wires
+/// the whole model: ▶ (<see cref="NextAsync"/>) and ⏮ ◀ ⏭
+/// (<see cref="GoToFirst"/> / <see cref="GoBack"/> / <see cref="GoToLast"/>)
+/// are <c>SPEC-quiz-history.md</c> §2's controls, each the run's own step, and
+/// §4's transitions are the run's.
 /// </para>
 ///
 /// <para>
-/// <b>Three-state per-problem flow.</b> Each problem moves through
-/// <i>answering</i> → <i>review</i> → <i>advance</i>. Submit
-/// (<see cref="SubmitPlayAsync"/> / <see cref="SubmitCubeAnswerAsync"/>) scores
-/// the answer, sets <see cref="Review"/> without advancing — the page flips to a
-/// static solution view — and writes an answer of record to the lifetime
-/// record. <see cref="ContinueAsync"/> then moves on from the problem
-/// and pulls the next one. Skip (<see cref="SkipCurrentAsync"/>) bypasses
-/// review and advances immediately. The split lets the page show the filled
-/// analysis panel (the same view the PPTX exporter renders in
-/// <c>DiagramMode.Solution</c>) before moving on. <see cref="RedoAsync"/> is the
-/// one path that moves <i>backward</i> — from review back to answering on the
-/// same problem — re-opening the problem for practice instead of advancing
-/// past it. <see cref="EndQuizAsync"/> is the one path that leaves the flow
+/// <b>Two view states, and the moves between problems.</b> The problem on
+/// screen is being answered, or its review is showing (<see cref="Review"/>;
+/// SPEC-quiz-view.md §1). Submit (<see cref="SubmitPlayAsync"/> /
+/// <see cref="SubmitCubeAnswerAsync"/>) scores the answer, sets
+/// <see cref="Review"/> without moving — the page flips to a static solution
+/// view, the filled analysis panel the PPTX exporter renders in
+/// <c>DiagramMode.Solution</c> — and writes an answer of record to the lifetime
+/// record. ▶ (<see cref="NextAsync"/>) goes to the next problem from either
+/// state: Continue from a review, Skip or Next while answering; at the
+/// frontier it brings a new problem from the source, behind it it moves the
+/// cursor. ⏮ ◀ ⏭ move the cursor among the problems already presented. Every
+/// landing is the answering state, ready for a live answer on a problem still
+/// unresolved and a practice one on a completed problem (SPEC-quiz-history.md
+/// §3). <see cref="EndQuizAsync"/> is the one path that leaves the flow
 /// altogether: it finishes the run where it stands, at the user's request.
 /// </para>
 ///
@@ -135,8 +136,8 @@ using XgFilter_Lib.Filtering;
 /// <b>Transition gate.</b> The <i>async</i> transitions —
 /// <see cref="StartAsync"/> / <see cref="RestartAsync"/> /
 /// <see cref="SubmitPlayAsync"/> / <see cref="SubmitCubeAnswerAsync"/> /
-/// <see cref="ContinueAsync"/> / <see cref="SkipCurrentAsync"/> /
-/// <see cref="EndQuizAsync"/> — share one busy gate: a second gesture arriving
+/// <see cref="NextAsync"/> at the frontier / <see cref="EndQuizAsync"/> —
+/// share one busy gate: a second gesture arriving
 /// while a transition is in flight <b>no-ops</b> (it does not queue). The controller owns exactly one live
 /// enumerator, and an overlapping <c>MoveNextAsync</c> — or a dispose during
 /// one — throws on a thread-pool continuation where no page can catch it,
@@ -147,9 +148,9 @@ using XgFilter_Lib.Filtering;
 /// the lifetime record, so nothing can begin a new run, move on or end the
 /// quiz while an answer it has made of record is still on its way there. The
 /// gate lives here, not in the pages, so no caller needs to know the
-/// enumerator contract to be safe. The synchronous mutator
-/// (<see cref="RedoAsync"/>) cannot overlap an await itself but <i>can</i> land
-/// inside one, so it no-ops while <see cref="IsBusy"/> too. See
+/// enumerator contract to be safe. The synchronous moves — ⏮ ◀ ⏭, and ▶
+/// behind the frontier — cannot overlap an await themselves but <i>can</i>
+/// land inside one, so they no-op while <see cref="IsBusy"/> too. See
 /// <see cref="IsBusy"/> for observability and the <see cref="StateChanged"/>
 /// contract.
 /// </para>
@@ -197,9 +198,10 @@ internal sealed class QuizController : IAsyncDisposable
     /// <summary>
     /// The scored outcome of the last submission against <see cref="Current"/>
     /// — the <i>displayed review</i>, the run's (<see cref="QuizRun.Review"/>).
-    /// Set by Submit and gone once the run leaves the problem or returns to its
-    /// decision (<see cref="ContinueAsync"/> / <see cref="RedoAsync"/>, and on
-    /// start / restart). Non-null marks the <i>review</i> state:
+    /// Set by Submit and gone once the cursor leaves the problem
+    /// (<see cref="NextAsync"/>, <see cref="GoToFirst"/> / <see cref="GoBack"/> /
+    /// <see cref="GoToLast"/>, and on start / restart): every landing shows the
+    /// decision, never an earlier review. Non-null marks the <i>review</i> state:
     /// <see cref="Current"/> still points at the answered problem, and the
     /// page shows the solution view rather than the entry form. Null in the
     /// <i>answering</i> state and after finish.
@@ -237,9 +239,8 @@ internal sealed class QuizController : IAsyncDisposable
     ///
     /// <para>
     /// <b>One problem, one roll.</b> The roll is the same while the problem is
-    /// being answered, in its solution review, and after
-    /// <see cref="RedoAsync"/> returns to its decision, so the board does not
-    /// flip under the user of its own accord. The side actually drawn is the
+    /// being answered, in its solution review, and on every return to it, so
+    /// the board does not flip under the user of its own accord. The side actually drawn is the
     /// roll plus the current setting, so it can change if the user changes the
     /// setting — deliberately (SPEC-quiz-history.md §5).
     /// </para>
@@ -290,8 +291,8 @@ internal sealed class QuizController : IAsyncDisposable
     /// SPEC-quiz-history.md §5): the skips of record — off-list submissions,
     /// plays the run's ranking does not score (SPEC-scoring.md §2a: "a skip of
     /// record that folds nothing"), and every problem still unanswered when the
-    /// quiz finished — plus the problems the Skip button moved on from, which
-    /// stay unresolved behind the frontier. Auto-skipped no-choice positions
+    /// quiz finished — plus the problems ▶ deferred, which stay unresolved
+    /// behind the frontier until answered. Auto-skipped no-choice positions
     /// (the user never saw them) are excluded — see
     /// <see cref="HasNoPlayChoice"/>.
     ///
@@ -300,16 +301,15 @@ internal sealed class QuizController : IAsyncDisposable
     /// problem is deferred, not completed, and it joins the count once another
     /// problem is presented beyond it — or, if the source has none, when the
     /// run finishes and converts it. While the draw is pending the count is
-    /// unchanged.
+    /// unchanged. <see cref="NextAddsToSkipCount"/> says where a press of ▶
+    /// would add to it.
     /// </para>
     ///
     /// <para>
-    /// A skip of record stands: <see cref="RedoAsync"/> after an unscored
-    /// submission leaves it counted (SPEC-scoring.md §2). A deferred problem's
-    /// count is provisional — a live answer on returning to it would take it
-    /// out of this count and into <see cref="Score"/> — but nothing this type
-    /// wires today moves the cursor back, so here the count only ever rises
-    /// within a run.
+    /// A skip of record stands: practice on a problem skipped of record leaves
+    /// it counted (SPEC-scoring.md §2). A deferred problem's count is
+    /// provisional: a live answer on returning to it takes it out of this count
+    /// and into <see cref="Score"/>, so the count can fall within a run.
     /// </para>
     /// </summary>
     public int SkippedCount => _run?.SkippedCount ?? 0;
@@ -318,8 +318,43 @@ internal sealed class QuizController : IAsyncDisposable
     public bool HasStarted => _run is not null;
 
     /// <summary>
-    /// True while an async transition (Start / Restart / Submit / Continue /
-    /// Skip / End quiz) is in flight — for Submit, while its answer of record
+    /// How many problems the run has shown — its presented sequence
+    /// (<see cref="QuizRun.Presented"/>; SPEC-quiz-history.md §1). A finished
+    /// run has accounted for every one of them, answered or skipped of record
+    /// (§4), so this is Done's "problems shown"; nothing rebuilds it from the
+    /// score and the skip count. Zero before start.
+    /// </summary>
+    public int PresentedCount => _run?.Presented.Length ?? 0;
+
+    /// <summary>
+    /// True when there is an earlier problem to go back to
+    /// (<see cref="QuizRun.CanGoBack"/>): ⏮ and ◀ are unavailable where it is
+    /// false — on the first problem, and with nothing on screen
+    /// (SPEC-quiz-history.md §2). The run's fact, not a gate: a page adds
+    /// <see cref="IsBusy"/>, as it does for every control.
+    /// </summary>
+    public bool CanGoBack => _run?.CanGoBack ?? false;
+
+    /// <summary>
+    /// True when the problem on screen is behind the frontier
+    /// (<see cref="QuizRun.CanGoToLast"/>): ⏭ is unavailable where it is false
+    /// (SPEC-quiz-history.md §2). The run's fact, not a gate, as
+    /// <see cref="CanGoBack"/> is.
+    /// </summary>
+    public bool CanGoToLast => _run?.CanGoToLast ?? false;
+
+    /// <summary>
+    /// True when ▶ pressed now would add to <see cref="SkippedCount"/> — the
+    /// run's rule (<see cref="QuizRun.NextAddsToSkipCount"/>), which ▶'s name
+    /// follows: Skip where this holds and Next elsewhere
+    /// (SPEC-quiz-history.md §2). A page reads it here and never rebuilds it
+    /// from the cursor, the frontier and a disposition.
+    /// </summary>
+    public bool NextAddsToSkipCount => _run?.NextAddsToSkipCount ?? false;
+
+    /// <summary>
+    /// True while an async transition (Start / Restart / Submit / ▶ at the
+    /// frontier / End quiz) is in flight — for Submit, while its answer of record
     /// is being written to the lifetime record. While set, every transition
     /// entry point no-ops — see the class-level transition-gate doc. Pages
     /// drive their busy affordances (progress cursor, disabled controls) from
@@ -356,7 +391,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// consumed stream slots, auto-skipped no-choice positions included, so an
     /// auto-skip shows as a gap and N never exceeds <see cref="ProblemCount"/>).
     /// Zero while no problem is on screen: before the first is presented, and
-    /// after finish. Untouched by Redo (same problem).
+    /// after finish. It follows the cursor wherever navigation takes it.
     /// </summary>
     public int ProblemNumber => _run?.Cursor?.StreamSlot ?? 0;
 
@@ -388,7 +423,8 @@ internal sealed class QuizController : IAsyncDisposable
     /// place. Submit's run step is synchronous and taken before the gate's
     /// first fire, so that fire already carries the review: it is on screen,
     /// its controls busy, while the answer is written, and the second fire
-    /// releases them. The synchronous mutator (Redo) fires once. A refused
+    /// releases them. The synchronous moves — ⏮ ◀ ⏭, and ▶ behind the
+    /// frontier — fire once. A refused
     /// weighted start fires the two busy flips and nothing else — quiz state
     /// is untouched, so the re-renders are no-ops.
     /// </summary>
@@ -566,7 +602,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// Score the user's <paramref name="play"/> against <see cref="Current"/>'s
     /// candidate list, enter the <i>review</i> state — set <see cref="Review"/>
     /// without advancing — and write the answer of record it makes, if it makes
-    /// one, to the lifetime record. <see cref="ContinueAsync"/> moves to the
+    /// one, to the lifetime record. <see cref="NextAsync"/> moves to the
     /// next problem.
     ///
     /// <para>
@@ -574,9 +610,9 @@ internal sealed class QuizController : IAsyncDisposable
     /// which owns both rules). The first submission against a problem is its
     /// answer of record (SPEC-scoring.md §2): it alone reaches
     /// <see cref="Score"/> / <see cref="SkippedCount"/> and the lifetime record.
-    /// A submission made after <see cref="RedoAsync"/> re-opened the problem is
-    /// practice — scored the same way and reviewed the same way, so the user
-    /// sees how the retry did, and recorded nowhere.
+    /// A submission on a problem already completed — returned to by
+    /// navigation — is practice: scored the same way and reviewed the same way,
+    /// so the user sees how the retry did, and recorded nowhere.
     /// </para>
     ///
     /// <para>
@@ -587,7 +623,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// candidate analyzed less deeply than the best that rated higher — and an
     /// off-list play, one no candidate is, are each a skip of record that folds
     /// nothing (SPEC-scoring.md §2 and §2a): <see cref="SkippedCount"/> counts
-    /// it, and a redo after one leaves it standing. Every outcome still
+    /// it, and practice on it later leaves it standing. Every outcome still
     /// produces a <see cref="Review"/> carrying the producer's outcome whole and
     /// the play as entered, so the user sees the solution, what the verdict
     /// was, and — off the list — which play the app read
@@ -616,7 +652,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// <para>
     /// No-op while <see cref="IsBusy"/>, when <see cref="Current"/> is null,
     /// <see cref="IsFinished"/>, or already in the review state
-    /// (<see cref="Review"/> set — Continue first).
+    /// (<see cref="Review"/> set).
     /// </para>
     /// </summary>
     /// <exception cref="InvalidOperationException">
@@ -632,14 +668,14 @@ internal sealed class QuizController : IAsyncDisposable
     /// <see cref="Current"/>'s cube decision, enter the <i>review</i> state —
     /// set <see cref="Review"/> without advancing — and write the answer of
     /// record it makes, if it makes one, to the lifetime record.
-    /// <see cref="ContinueAsync"/> moves to the next problem.
+    /// <see cref="NextAsync"/> moves to the next problem.
     ///
     /// <para>
     /// The run scores it and files it (<see cref="QuizRun.SubmitCubeAnswer"/>):
     /// of record only the first time, exactly as <see cref="SubmitPlayAsync"/>
     /// describes (SPEC-scoring.md §2), and folded, gated and put on screen the
-    /// same way; a post-redo submission is practice, and the scoring below is
-    /// what both get.
+    /// same way; a submission on a completed problem is practice, and the
+    /// scoring below is what both get.
     /// </para>
     ///
     /// <para>
@@ -659,7 +695,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// <para>
     /// No-op while <see cref="IsBusy"/>, when <see cref="Current"/> is null,
     /// <see cref="IsFinished"/>, or already in the review state
-    /// (<see cref="Review"/> set — Continue first).
+    /// (<see cref="Review"/> set).
     /// </para>
     /// </summary>
     /// <exception cref="InvalidOperationException">
@@ -671,72 +707,109 @@ internal sealed class QuizController : IAsyncDisposable
         SubmitAsync(run => (run.SubmitCubeAnswer(answer, out var made), made));
 
     /// <summary>
-    /// Re-open the just-reviewed problem for <i>practice</i>: leave review and
-    /// return to the <i>answering</i> state on the same <see cref="Current"/>
-    /// problem, changing nothing that was recorded (SPEC-scoring.md §2).
+    /// ▶ — "the next problem", from either view state (SPEC-quiz-history.md
+    /// §2, §4): Continue from a review, Skip or Next while answering. The step
+    /// is the run's (<see cref="QuizRun.Next"/>), and it completes nothing —
+    /// the problem left keeps the disposition it has — so nothing folds: an
+    /// answer of record reached the lifetime record at its Submit.
     ///
     /// <para>
-    /// <b>Only the problem re-opens, never the record.</b> What is of record
-    /// for the problem — and so <see cref="Score"/>, <see cref="SkippedCount"/>
-    /// and what that submission wrote to the lifetime record — stands exactly
-    /// as the first submission left it, a skip included. The submission that follows
-    /// is practice: scored and reviewed so the user can see how the retry did,
-    /// then discarded as if it never happened. Cycles are unbounded and each is
-    /// equally recordless.
+    /// <b>Behind the frontier</b> the cursor moves to the next presented
+    /// problem. There is no source work, so the move is taken at once, fires
+    /// <see cref="StateChanged"/> once, and holds no gate.
     /// </para>
     ///
     /// <para>
-    /// So the whole transition is the run's <see cref="QuizRun.Redo"/>: the
-    /// review goes and the decision is back on screen. <see cref="Current"/>,
-    /// the source enumerator and <see cref="IsFinished"/> are untouched, and so
-    /// is the problem's disposition — which, being completed, is what makes the
-    /// next submission read as practice.
+    /// <b>On the frontier</b> the run is owed a new problem: inside the
+    /// transition gate the step is taken and the source is asked, and the next
+    /// problem is presented — or, if the source has none, the run finishes. An
+    /// unresolved frontier left this way is deferred: the skip count takes it
+    /// in once the next problem lands, not at the press (§5's ruled transient
+    /// difference), or the run's finishing converts it.
+    /// <see cref="NextAddsToSkipCount"/> says beforehand whether a press adds to
+    /// the count, which is what ▶'s name follows. A draw that faults leaves the
+    /// cursor on the frontier, in the answering state, the gate released.
     /// </para>
     ///
     /// <para>
-    /// No-op outside the review state (<see cref="Review"/> null).
-    /// </para>
-    /// </summary>
-    public Task RedoAsync()
-    {
-        // IsBusy: a Submit whose answer is still being written has its review
-        // on screen, so without the gate a Redo there would take the review
-        // down, and open a practice cycle, inside a transition that has not
-        // finished. The gate refuses it; the in-flight transition owns the flow.
-        if (IsBusy || _run is not { Review: not null } run) return Task.CompletedTask;
-
-        _run = run.Redo();
-        StateChanged?.Invoke();
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Leave the <i>review</i> state and advance to the next problem, which
-    /// discards <see cref="Review"/>. No-op outside the review state (when
-    /// <see cref="Review"/> is null). This is the <i>advancing</i> exit from
-    /// review — <see cref="RedoAsync"/> is the backward one and
-    /// <see cref="EndQuizAsync"/> the terminal one; exhausting the source here
-    /// flips <see cref="IsFinished"/>.
-    ///
-    /// <para>
-    /// <b>It folds nothing.</b> The answer of record the review is of reached
-    /// the lifetime record when it was submitted (SPEC-scoring.md §2), so moving
-    /// on writes nothing — and a draw that faults after the move leaves no
-    /// second fold behind it, since nothing but a live submission ever folds.
+    /// No-op while <see cref="IsBusy"/>, and with nothing on screen — before
+    /// start and after finish.
     /// </para>
     /// </summary>
-    public async Task ContinueAsync()
+    public async Task NextAsync()
     {
-        if (_run is not { Review: not null }) return;
+        // IsBusy is refused here, before the run is asked: the move behind the
+        // frontier takes no gate, and inside a pending Submit's write the
+        // review it would take down is still being written. The frontier's
+        // draw is refused by the gate as well.
+        if (IsBusy || _run is not { Cursor: not null } run) return;
+
+        var moved = run.Next(out var bringsNewProblem);
+        if (!bringsNewProblem)
+        {
+            Land(moved);
+            return;
+        }
+
         if (!await TryBeginTransitionAsync()) return;
         try
         {
-            await MoveOnAsync();
+            _run = moved;
+            await PresentNextAsync();
         }
         finally
         {
             EndTransition();
         }
+    }
+
+    /// <summary>
+    /// ⏮ — land on the first problem presented (<see cref="QuizRun.GoToFirst"/>;
+    /// SPEC-quiz-history.md §2). Like every landing it shows the decision,
+    /// never the solution (§3): the review or the entry in progress on the
+    /// problem left is discarded, and nothing of record changes. A move among
+    /// the problems already presented, so it is taken at once and fires
+    /// <see cref="StateChanged"/> once.
+    /// </summary>
+    /// <remarks>
+    /// No-op while <see cref="IsBusy"/>, and where <see cref="CanGoBack"/> is
+    /// false — on the first problem and with nothing on screen.
+    /// </remarks>
+    public void GoToFirst()
+    {
+        if (IsBusy || _run is not { CanGoBack: true } run) return;
+        Land(run.GoToFirst());
+    }
+
+    /// <summary>
+    /// ◀ — land on the problem before the one on screen
+    /// (<see cref="QuizRun.GoBack"/>; SPEC-quiz-history.md §2), in its answering
+    /// state, exactly as <see cref="GoToFirst"/> lands.
+    /// </summary>
+    /// <remarks>
+    /// No-op while <see cref="IsBusy"/>, and where <see cref="CanGoBack"/> is
+    /// false.
+    /// </remarks>
+    public void GoBack()
+    {
+        if (IsBusy || _run is not { CanGoBack: true } run) return;
+        Land(run.GoBack());
+    }
+
+    /// <summary>
+    /// ⏭ — land on the frontier (<see cref="QuizRun.GoToLast"/>;
+    /// SPEC-quiz-history.md §2), in its answering state, exactly as
+    /// <see cref="GoToFirst"/> lands. It never presents a problem: the frontier
+    /// is already in the sequence, so this asks nothing of the source.
+    /// </summary>
+    /// <remarks>
+    /// No-op while <see cref="IsBusy"/>, and where <see cref="CanGoToLast"/> is
+    /// false — on the frontier and with nothing on screen.
+    /// </remarks>
+    public void GoToLast()
+    {
+        if (IsBusy || _run is not { CanGoToLast: true } run) return;
+        Land(run.GoToLast());
     }
 
     /// <summary>
@@ -755,7 +828,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// problem still unresolved becomes a skip of record. <b>An unanswered
     /// problem is abandoned:</b> whatever the user had entered is discarded and
     /// the problem is counted in <see cref="SkippedCount"/>, as every problem
-    /// the Skip button moved on from already is, rather than in a category of
+    /// ▶ deferred already is, rather than in a category of
     /// its own — so Done's "problems shown" still counts a problem the user
     /// actually saw. There is no partial-answer path and no new scoring path: a
     /// play half assembled on the board was never a submission, and
@@ -774,9 +847,11 @@ internal sealed class QuizController : IAsyncDisposable
     /// answer visible on Done has reached the lifetime record</i> by
     /// construction, whichever way the run finished — the line Done's "nothing
     /// here needs saving" states to the user. The conversion keys on the
-    /// <i>record</i>, not on <see cref="Review"/>: a run ended mid-practice-cycle
-    /// (redone, not yet re-answered) is showing no review and has still
-    /// answered the problem.
+    /// <i>record</i>, not on <see cref="Review"/>: a run ended on a completed
+    /// problem returned to for practice, not yet re-answered, is showing no
+    /// review and has still answered the problem. It acts on the run, not the
+    /// cursor (§4): ended from behind the frontier, every problem still
+    /// unresolved is converted, wherever it sits.
     /// </para>
     /// </summary>
     public async Task EndQuizAsync()
@@ -790,52 +865,6 @@ internal sealed class QuizController : IAsyncDisposable
             // rather than waiting for the next Start's reset — safe precisely
             // because the gate guarantees no MoveNextAsync is in flight.
             await DisposeEnumeratorAsync();
-        }
-        finally
-        {
-            EndTransition();
-        }
-    }
-
-    /// <summary>
-    /// Move on from the current problem without answering it here. Bypasses
-    /// review and advances immediately. No-op outside the <i>answering</i>
-    /// state — before start, after finish, or while a <see cref="Review"/> is
-    /// showing.
-    ///
-    /// <para>
-    /// <b>Skip completes nothing</b> — the run's rule for moving on
-    /// (<see cref="QuizRun.Next"/>; SPEC-quiz-history.md §1, §4). The problem
-    /// keeps whatever disposition it has, and the two answering states that
-    /// reach this method differ in just that.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>On an unanswered problem the Skip defers it.</b> It stays unresolved
-    /// while the source is asked for the next problem, and nothing folds. If
-    /// one is presented, the deferred problem is then behind the frontier and
-    /// <see cref="SkippedCount"/> counts it from that moment — not from the
-    /// press, so the count is unchanged while the draw is pending. If the
-    /// source has none, the run finishes and finishing converts it to a skip
-    /// of record, counted the same. A deferred problem is still open to a live
-    /// answer, but nothing wired here goes back to one.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Mid-practice-cycle</b> — <see cref="RedoAsync"/> re-opened an
-    /// already-answered problem and the user leaves rather than re-answering —
-    /// the problem is completed, so no skip is counted on top of it, which
-    /// would double-count a problem that was answered. Nothing folds either:
-    /// the answer of record reached the lifetime record when it was submitted.
-    /// </para>
-    /// </summary>
-    public async Task SkipCurrentAsync()
-    {
-        if (_run is not { IsAnswering: true }) return;
-        if (!await TryBeginTransitionAsync()) return;
-        try
-        {
-            await MoveOnAsync();
         }
         finally
         {
@@ -974,25 +1003,15 @@ internal sealed class QuizController : IAsyncDisposable
     }
 
     /// <summary>
-    /// ▶ as today's page reaches it — Continue from a review, Skip from a
-    /// decision: take the run's step to "the next problem"
-    /// (<see cref="QuizRun.Next"/>) and, where that step moves on from the
-    /// frontier, do the one thing only this type can — bring the problem the
-    /// run is now owed. It folds nothing: answers fold at Submit.
-    ///
-    /// <para>
-    /// Nothing here moves the cursor behind the frontier, so today the step
-    /// always moves on from it. The other half of the run's rule — ▶ behind the
-    /// frontier goes to the next presented problem, recording nothing — is
-    /// honoured all the same, so this method stays right when the navigation
-    /// controls arrive. Until they do, nothing can reach that branch through
-    /// this type; the rule itself is pinned on the run.
-    /// </para>
+    /// Put <paramref name="moved"/> — the run after a move of the cursor among
+    /// the problems already presented — in place, and say so. Such a move asks
+    /// nothing of the source, so it is one assignment and holds no gate; the
+    /// caller has refused a busy controller in the same synchronous step.
     /// </summary>
-    private async Task MoveOnAsync()
+    private void Land(QuizRun moved)
     {
-        _run = _run!.Next(out var bringsNewProblem);
-        if (bringsNewProblem) await PresentNextAsync();
+        _run = moved;
+        StateChanged?.Invoke();
     }
 
     /// <summary>
@@ -1007,13 +1026,13 @@ internal sealed class QuizController : IAsyncDisposable
     /// <para>
     /// <b>The gate is the one guard against a busy controller.</b> It is
     /// entered before the run is asked anything, and it closes the window a
-    /// pending Continue or Skip opens: mid-advance no review is showing and
+    /// pending ▶ at the frontier opens: mid-draw no review is showing and
     /// <see cref="Current"/> still points at the outgoing problem, so the
     /// state guard passes and the run would take a submission there. Behind a
-    /// pending Skip that problem is still unresolved, so the submission would
-    /// be live — an answer of record, written to the lifetime record, on a
-    /// problem the user has moved on from. Behind a pending Continue it would
-    /// be practice, and the advance would land over its review.
+    /// Skip that problem is still unresolved, so the submission would be live
+    /// — an answer of record, written to the lifetime record, on a problem the
+    /// user has moved on from. Behind a Continue it would be practice, and the
+    /// advance would land over its review.
     /// </para>
     ///
     /// <para>

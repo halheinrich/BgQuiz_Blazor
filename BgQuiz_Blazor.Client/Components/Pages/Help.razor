@@ -496,10 +496,25 @@
                 cube in the middle. Submit lights up once one is chosen.
             </li>
         </ul>
+        @* The four navigation buttons and Space (SPEC-quiz-history.md §2, the
+           navigation leg of halheinrich/backgammon#8). The buttons are icons,
+           so the prose names them as their tooltips do rather than drawing the
+           glyphs, which a font would render differently from the icons on
+           screen. Next is the name wherever a press changes nothing; Skip only
+           where it would add to the skip count, which is the furthest problem
+           reached while it is unanswered — "the newest problem" here. What
+           going back to a problem means for the score is Review the solution's
+           to say, below; this passage says only how to move. *@
         <p>
-            Press <em>Submit</em> to answer, or <em>Skip</em> to move on without answering.
-            The spacebar presses <em>Submit</em> once your answer is complete, and
-            <em>Skip</em> before then.
+            Press <em>Submit</em> to answer. The four arrow buttons beside it move you
+            through the quiz: <em>Go to first</em>, <em>Back</em>, <em>Next</em> and
+            <em>Go to last</em>, as their tooltips name them. <em>Go to last</em> takes you
+            to the newest problem you have reached. On that problem, until you answer it,
+            <em>Next</em> is called <em>Skip</em>: it moves on without answering, and the
+            problem counts as skipped. Everywhere else <em>Next</em> just moves on and
+            changes nothing. A button you can't use where you are is greyed out. The
+            spacebar presses <em>Submit</em> once your answer is complete, and
+            <em>Next</em> (or <em>Skip</em>) before then.
         </p>
         @* The problem's locator (SPEC-quiz-view.md §4, issue
            halheinrich/backgammon#115), homed here per SPEC-help.md §7's queued-copy
@@ -605,17 +620,31 @@
         <p>
             After you submit, the board switches to the solution view: XG's full analysis panel,
             with the recorded play marked <strong>*</strong> and your answer marked
-            <strong>†</strong> when it differs. <em>Continue</em> moves to the next problem;
-            <em>Redo</em> re-opens the same position so you can try it again for practice.
-            If you saved a comment on the position in eXtreme Gammon, a <em>Notes</em> button
-            beside them shows it over the page; Esc or a click outside closes it.
+            <strong>†</strong> when it differs. <em>Continue</em> moves to the next problem,
+            and the arrow buttons work here just as they do while you answer. Whichever
+            problem they take you to, you land on its position, ready to answer, never on
+            its solution. If you saved a comment on the position in eXtreme Gammon, a
+            <em>Notes</em> button beside them shows it over the page; Esc or a click outside
+            closes it.
         </p>
+        @* Practice and the deferred skip (SPEC-quiz-history.md §3, Hal's rulings of
+           2026-09-30 and 2026-10-02 on halheinrich/backgammon#8). Returning to a
+           problem is how it is practised now that Redo is retired; the verdict's
+           "Practice — " is quoted as the reader sees it. "A problem you skipped"
+           means the Skip button's skip, which leaves the problem open; a play XG
+           never listed is a skip of record, and going back to it is practice like
+           any completed problem — Things worth knowing says what that skip is.
+           Practice is per quiz, so a new quiz or a restart counts afresh. *@
         <p>
-            <strong>Your first answer is the one that counts.</strong> Redo does not take it
-            back — a retry is scored and shown to you exactly like the first attempt, so you
-            can see how it would have gone, but it changes nothing: not your score, not your
-            lifetime record. Retry as often as you like. A skip works the same way: once you
-            have skipped a problem, redoing it does not un-skip it.
+            <strong>Your first answer is the one that counts.</strong> Go back to a problem
+            you have answered and you can answer it again for practice: the verdict starts
+            <em>Practice —</em> and the review is otherwise exactly what the first one was,
+            so you can see how it would have gone, but it changes nothing: not your score,
+            not your lifetime record. Practise as often as you like. A problem you passed
+            with <em>Skip</em> is different: it stays open. Go back and answer it, and it
+            counts as answered, like any other first answer, and your skip count drops by
+            one. Each quiz counts on its own: start a new one, or restart from the summary
+            page, and every problem's first answer counts again.
         </p>
 
         <h3 class="h4 mt-4" id="@HelpSections.StatsAndFinishing.AnchorId">@HelpSections.StatsAndFinishing.Heading</h3>
@@ -639,8 +668,8 @@
             <li>
                 <strong>Only answered problems count, and only your first answer.</strong>
                 Skips, plays XG never listed, and positions skipped for you are not part of
-                your lifetime record. Neither are practice retries after a <em>Redo</em>: a
-                problem records the answer you gave it first, once.
+                your lifetime record. Neither is practice on a problem you go back to: a
+                problem records the first answer you give it in a quiz, once.
             </li>
             <li>
                 <strong>A cube answer records two halves.</strong> The lifetime record counts

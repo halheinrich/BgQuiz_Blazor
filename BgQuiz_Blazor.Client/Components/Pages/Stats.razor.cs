@@ -12,7 +12,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// The controller is a per-tab scoped instance that survives in-app navigation
-/// and this page never mutates it (no Submit / Continue / Skip call), so
+/// and this page never mutates it (no Submit and no move of the run), so
 /// <c>/quiz</c> → <c>/stats</c> → <c>/quiz</c> leaves <see cref="QuizController.Current"/>
 /// and <see cref="QuizController.Review"/> exactly as they were — there is no
 /// state to persist or restore.

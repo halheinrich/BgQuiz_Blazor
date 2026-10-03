@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using BgQuiz_Blazor.Client.Components.Pages;
 using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
@@ -183,6 +184,25 @@ public abstract class E2eTestBase : IAsyncLifetime
     protected ILocator StartButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.StartQuizButton });
 
     protected ILocator SubmitButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.SubmitButton });
+
+    /// <summary>
+    /// One of the quiz page's navigation buttons — ⏮ ◀ ▶ ⏭ — by its accessible
+    /// name, matched exactly: they are icons, so the name is all there is to
+    /// match, and Playwright's default substring match would let "Back" find
+    /// "Back to quiz" on another page.
+    /// </summary>
+    protected ILocator NavButton(string name) =>
+        Page.GetByRole(AriaRole.Button, new() { Name = name, Exact = true });
+
+    /// <summary>
+    /// Wait for the score panel to say the problem on screen is number
+    /// <paramref name="n"/>. Its " of M" half appears only where the source
+    /// declares its size, which a picked folder does not, so the match allows
+    /// it without needing it.
+    /// </summary>
+    protected Task ExpectProblemNumberAsync(int n) =>
+        Expect(Page.Locator(".problem-position"))
+            .ToHaveTextAsync(new Regex($@"^\s*Problem\s+{n}(?:\s+of\s+\d+)?\s*$"));
 
     /// <summary>The quiz page's fixed-height verdict band (answering prompt / scored verdict).</summary>
     protected ILocator VerdictBand => Page.Locator(".status-verdict");
@@ -626,12 +646,27 @@ public abstract class E2eTestBase : IAsyncLifetime
         Page.Locator($".board-container .bg-diagram > svg > rect[data-point='{point}']").ClickAsync();
 
     /// <summary>
-    /// The cube pill whose accessible name is exactly <paramref name="name"/>.
-    /// Exact, because Playwright matches a name by substring and "No double" is
-    /// inside the fourth answer's "No double / Pass".
+    /// The cube pill for the answer whose full label is
+    /// <paramref name="label"/>, in whichever form the row shows it. The full
+    /// form names the pill exactly that; the short form names it with its
+    /// short label first and the full one in parentheses, "ND (No double)"
+    /// (SPEC-quiz-view §4). Both forms occur in this suite: the context's
+    /// default 1280 px viewport, with the navigation panel showing, gives a
+    /// row too narrow for the full form. The match is anchored either way,
+    /// because Playwright matches a name by substring and "No double" is
+    /// inside the fourth answer's "No double / Pass". The label's slashes are
+    /// escaped beyond what <see cref="Regex.Escape"/> does: Playwright hands
+    /// the pattern to the browser as a JavaScript regex literal, where a bare
+    /// slash ends it.
     /// </summary>
-    protected ILocator CubePill(string name) =>
-        Page.GetByRole(AriaRole.Radio, new() { Name = name, Exact = true });
+    protected ILocator CubePill(string label)
+    {
+        var name = Regex.Escape(label).Replace("/", @"\/");
+        return Page.GetByRole(AriaRole.Radio, new()
+        {
+            NameRegex = new Regex($@"^(?:{name}|\S+ \({name}\))$"),
+        });
+    }
 
     /// <summary>
     /// Answer the current cube problem with one pill of the row —

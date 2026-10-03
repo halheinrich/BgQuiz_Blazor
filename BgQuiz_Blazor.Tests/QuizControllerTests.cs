@@ -387,7 +387,7 @@ public class QuizControllerTests
     }
 
     // -----------------------------------------------------------------------
-    //  SubmitPlay — scoring (enters review; ContinueAsync advances)
+    //  SubmitPlay — scoring (enters review; ▶ advances)
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -466,7 +466,7 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task ContinueAsync_AdvancesAndClearsReview()
+    public async Task Next_FromAReview_AdvancesAndClearsTheReview()
     {
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
@@ -476,7 +476,7 @@ public class QuizControllerTests
         Assert.NotNull(c.Review);
         Assert.Same(d1, c.Current);
 
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         Assert.Null(c.Review);
         Assert.Same(d2, c.Current);
@@ -484,23 +484,10 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task ContinueAsync_OutsideReview_NoOp()
-    {
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        Assert.Null(c.Review);
-
-        await c.ContinueAsync(); // no Review set — must not advance
-
-        Assert.NotNull(c.Current);
-        Assert.False(c.IsFinished);
-    }
-
-    [Fact]
     public async Task SubmitPlay_WhileReviewSet_NoOp()
     {
-        // Once in review, a second Submit must be ignored — Continue is the only
-        // way forward. Guards against a double-click double-scoring the problem.
+        // Once in review, a second Submit must be ignored — the review is left
+        // by moving. Guards against a double-click double-scoring the problem.
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
@@ -523,7 +510,7 @@ public class QuizControllerTests
         Assert.False(c.IsFinished); // review first — not yet advanced
         Assert.NotNull(c.Current);
 
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         Assert.True(c.IsFinished);
         Assert.Null(c.Current);
@@ -548,7 +535,7 @@ public class QuizControllerTests
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync(); // exhausts → IsFinished
+        await c.NextAsync(); // exhausts → IsFinished
         Assert.True(c.IsFinished);
 
         var scoreBefore = c.Score;
@@ -567,9 +554,9 @@ public class QuizControllerTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         await c.SubmitPlayAsync(AltPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
         await c.SubmitPlayAsync(AltPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         Assert.Equal(2, c.Score.Total.Submitted);
         Assert.Equal(0, c.Score.Total.Correct);
@@ -758,21 +745,21 @@ public class QuizControllerTests
         Assert.Equal(PlaySubmissionKind.NotScored, review.Submission.Kind);
         Assert.Equal(1, review.CandidateIndex);
 
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         Assert.Equal(0, sink.TotalFolds);
     }
 
     [Fact]
-    public async Task SubmitPlay_APlayTheRankingDoesNotScore_StaysASkipThroughARedo()
+    public async Task SubmitPlay_APlayTheRankingDoesNotScore_StaysASkipThroughAReturn()
     {
-        // A skip is of record (§2): a redo after the not-scored play, then a
+        // A skip is of record (§2): a return after the not-scored play, then a
         // scored practice answer, leaves the skip standing and scores nothing.
-        var c = Make(TestFixtures.DepthSplitDecision());
+        var c = Make(TestFixtures.DepthSplitDecision(), TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.DepthFirst);
 
         await c.SubmitPlayAsync(TestFixtures.OpeningBest());          // of record: not scored
-        await c.RedoAsync();
+        await ComeBackAsync(c);
         await c.SubmitPlayAsync(TestFixtures.OpeningAlternative());   // practice: the best, discarded
 
         Assert.Equal(1, c.SkippedCount);
@@ -911,7 +898,7 @@ public class QuizControllerTests
     }
 
     // -----------------------------------------------------------------------
-    //  SubmitCubeAnswer — scoring (enters review; ContinueAsync advances)
+    //  SubmitCubeAnswer — scoring (enters review; ▶ advances)
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -1093,7 +1080,7 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task ContinueAsync_AfterCubeSubmit_Advances()
+    public async Task Next_AfterACubeSubmit_Advances()
     {
         var d1 = TestFixtures.CubeDecision();
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
@@ -1102,7 +1089,7 @@ public class QuizControllerTests
         await c.SubmitCubeAnswerAsync(CubeAnswer.DoubleTake);
         Assert.Same(d1, c.Current);
 
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         Assert.Null(c.Review);
         Assert.Same(d2, c.Current);
@@ -1133,7 +1120,7 @@ public class QuizControllerTests
         await c.SubmitCubeAnswerAsync(CubeAnswer.DoubleTake);
         Assert.False(c.IsFinished); // review first
 
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         Assert.True(c.IsFinished);
         Assert.Null(c.Current);
@@ -1156,7 +1143,7 @@ public class QuizControllerTests
         var c = Make(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitCubeAnswerAsync(CubeAnswer.DoubleTake);
-        await c.ContinueAsync(); // exhausts
+        await c.NextAsync(); // exhausts
         Assert.True(c.IsFinished);
 
         var scoreBefore = c.Score;
@@ -1184,199 +1171,147 @@ public class QuizControllerTests
     }
 
     // -----------------------------------------------------------------------
-    //  RedoAsync
+    //  Practice — a completed problem returned to (SPEC-quiz-history.md §3)
+    //
+    //  Returning to a problem is how it is practised; the Redo button that
+    //  used to re-open one is retired (§2). ComeBackAsync is the return: ▶ to
+    //  the next problem and ◀ back, so each source here holds one problem more
+    //  than the scenario answers.
     // -----------------------------------------------------------------------
 
-    [Fact]
-    public async Task RedoAsync_OutsideReview_NoOp()
+    /// <summary>
+    /// The problem on screen, after a submission there, again: ▶ away and ◀
+    /// back — the way a completed problem is returned to (SPEC-quiz-history.md
+    /// §3). Behind the frontier ▶ only moves the cursor; on it, ▶ draws the
+    /// next problem, which the source must hold and which is left unresolved
+    /// on the frontier, so the totals are as they were.
+    /// </summary>
+    private static async Task ComeBackAsync(QuizController c)
     {
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var problem = c.Current;
+        var number = c.ProblemNumber;
+        var (score, skipped) = (c.Score, c.SkippedCount);
+
+        await c.NextAsync();
+        Assert.False(c.IsFinished, "The source held no further problem to move on to.");
+        c.GoBack();
+
+        Assert.Same(problem, c.Current);
+        Assert.Equal(number, c.ProblemNumber);
         Assert.Null(c.Review);
-        var current = c.Current;
-
-        await c.RedoAsync();
-
-        Assert.Same(current, c.Current);
-        Assert.Equal(QuizScore.Empty, c.Score);
-        Assert.Equal(0, c.SkippedCount);
-        Assert.False(c.IsFinished);
+        Assert.Equal(score, c.Score);
+        Assert.Equal(skipped, c.SkippedCount);
     }
 
     [Fact]
-    public async Task RedoAsync_AfterCorrectPlay_LeavesTheAnswerOfRecordStanding()
+    public async Task ReturningToAnAnsweredProblem_LandsOnItsDecision_AndTheRecordStands()
     {
-        // SPEC-scoring.md §2: redo re-opens the problem, never the record. Only
-        // Review clears — Score and SkippedCount are exactly as the first
+        // SPEC-scoring.md §2: returning re-opens the problem, never the record.
+        // Only the review goes — Score and SkippedCount are exactly as the first
         // submission left them, and it is that submission which folded.
-        var c = MakeWithSink(out var sink, TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var current = c.Current;
 
         await c.SubmitPlayAsync(BestPlay());
-        Assert.NotNull(c.Review);
         var recorded = ScoredReview(c.Review);
         var scored = c.Score;
-        Assert.Equal(1, scored.Total.Submitted);
 
-        await c.RedoAsync();
+        await ComeBackAsync(c);
 
         Assert.Equal(scored, c.Score);
         Assert.Equal(1, c.Score.Total.Submitted);
         Assert.Equal(1, c.Score.Total.Correct);
         Assert.Equal(0, c.SkippedCount);
-        Assert.Null(c.Review);
-        Assert.Same(current, c.Current); // unchanged — same problem, answering state
+        Assert.Same(current, c.Current); // the same problem, its decision
         Assert.False(c.IsFinished);
-
-        // The record is still the first submission itself: it is what reached
-        // the lifetime record at Submit, and moving on adds nothing.
-        Assert.Same(recorded, Assert.Single(sink.Plays));
-        await c.SkipCurrentAsync();
         Assert.Same(recorded, Assert.Single(sink.Plays));
     }
 
     [Fact]
-    public async Task RedoAsync_AfterIncorrectPlay_LeavesTheEquityLossStanding()
+    public async Task ReturningAfterAnIncorrectPlay_LeavesTheEquityLossStanding()
     {
-        // The equity a wrong first answer lost is not refundable by redoing.
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
+        // The equity a wrong first answer lost is not refundable by returning.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var current = c.Current;
 
         await c.SubmitPlayAsync(AltPlay());
-        Assert.Equal(1, c.Score.Total.Submitted);
-        Assert.Equal(0.05, c.Score.Total.TotalEquityLoss, 6);
-
-        await c.RedoAsync();
-
-        Assert.Equal(1, c.Score.Total.Submitted);
-        Assert.Equal(0.05, c.Score.Total.TotalEquityLoss, 6);
-        Assert.Null(c.Review);
-        Assert.Same(current, c.Current);
-    }
-
-    [Fact]
-    public async Task RedoAsync_AfterOffListPlay_LeavesTheSkipStanding()
-    {
-        // §2: a skip is of record too — an off-list submission counts as one
-        // and redoing does not un-count it. (The prior model decremented here.)
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var current = c.Current;
-
-        await c.SubmitPlayAsync(UnknownPlay());
-        Assert.Equal(1, c.SkippedCount);
-        Assert.Equal(QuizScore.Empty, c.Score);
-        OffListReview(c.Review);
-
-        await c.RedoAsync();
-
-        Assert.Equal(1, c.SkippedCount);
-        Assert.Equal(QuizScore.Empty, c.Score); // an off-list play never scored
-        Assert.Null(c.Review);
-        Assert.Same(current, c.Current);
-    }
-
-    [Fact]
-    public async Task RedoAsync_AfterOffListPlay_ThenAnOnListPractice_ScoresNothing()
-    {
-        // The skip stands AND the retry is recordless — the two halves of
-        // redo-after-skip together. An on-list retry is the strongest form:
-        // under the prior model it replaced the skip with a scored answer.
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-
-        await c.SubmitPlayAsync(UnknownPlay()); // of record: a skip
-        await c.RedoAsync();
-        await c.SubmitPlayAsync(BestPlay());    // practice: on-list, correct, and discarded
-
-        Assert.Equal(1, c.SkippedCount);
-        Assert.Equal(QuizScore.Empty, c.Score);
-        Assert.True(ScoredReview(c.Review).IsCorrect); // still reviewed
-    }
-
-    [Fact]
-    public async Task RedoAsync_AfterCubeSubmission_LeavesTheAnswerOfRecordStanding()
-    {
-        var c = MakeWithSink(out var sink, TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var current = c.Current;
-
-        await c.SubmitCubeAnswerAsync(CubeAnswer.DoubleTake);
-        Assert.Equal(1, c.Score.Total.Submitted); // one answer, counted once
-        var recorded = CubeReview(c.Review);
-        var scored = c.Score;
-
-        await c.RedoAsync();
-
-        Assert.Equal(scored, c.Score);
-        Assert.Equal(1, c.Score.Total.Submitted);
-        Assert.Null(c.Review);
-        Assert.Same(current, c.Current);
-
-        // The record is still the first submission itself: it is what reached
-        // the lifetime record at Submit, and moving on adds nothing.
-        Assert.Same(recorded, Assert.Single(sink.Cubes));
-        await c.SkipCurrentAsync();
-        Assert.Same(recorded, Assert.Single(sink.Cubes));
-    }
-
-    [Fact]
-    public async Task RedoAsync_AfterCubeSubmission_LeavesEarlierPlaySegmentIntact()
-    {
-        // Interleaved answers across a redo: neither segment moves. The play
-        // answered and continued past stays folded into PlayDecisions, and the
-        // cube problem's own answer of record stays in DoubleDecisions /
-        // TakeDecisions — redo touches no score segment at all.
-        var play = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05);
-        var cube = TestFixtures.CubeDecision();
-        var c = Make(play, cube);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-
-        await c.SubmitPlayAsync(AltPlay()); // incorrect, 0.05 loss
-        await c.ContinueAsync();
-        Assert.Same(cube, c.Current);
-
-        await c.SubmitCubeAnswerAsync(CubeAnswer.NoDoublePass); // wrong
-        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
-
-        await c.RedoAsync();
-
-        Assert.Equal(1, c.Score.PlayDecisions.Submitted); // play segment untouched
-        Assert.Equal(0.05, c.Score.PlayDecisions.TotalEquityLoss, 6);
-        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
-        Assert.Equal(1, c.Score.TakeDecisions.Submitted);
-        Assert.Same(cube, c.Current); // still on the cube problem, answering state
-        Assert.Null(c.Review);
-    }
-
-    [Fact]
-    public async Task RedoAsync_ThenResubmitDifferentAnswer_ScoresOnlyTheFirstAnswer()
-    {
-        // The headline reversal (§2): the first submission is the answer of
-        // record and no later gesture amends it. Under the prior model this
-        // scored the SECOND answer — one correct, zero loss.
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-
-        await c.SubmitPlayAsync(AltPlay());  // of record: incorrect, 0.05 lost
-        await c.RedoAsync();
+        await ComeBackAsync(c);
         await c.SubmitPlayAsync(BestPlay()); // practice: correct, and discarded
 
-        // One answer of record, and it is the first: not correct, 0.05 lost.
         Assert.Equal(1, c.Score.Total.Submitted);
         Assert.Equal(0, c.Score.Total.Correct);
         Assert.Equal(0.05, c.Score.Total.TotalEquityLoss, 6);
     }
 
     [Fact]
-    public async Task RedoAsync_ManyPracticeCycles_AreEquallyRecordless()
+    public async Task ReturningAfterAnOffListPlay_LeavesTheSkipStanding_AndAnOnListPracticeScoresNothing()
     {
-        // "Practice cycles are unbounded; each is equally recordless" (§2) —
-        // the record is written once and never again, however many times the
-        // user goes round.
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
+        // §2: a skip is of record too — an off-list submission counts as one and
+        // nothing un-counts it. The on-list practice answer after it is the
+        // strongest form of the rule: under the prior model it replaced the skip
+        // with a scored answer.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+
+        await c.SubmitPlayAsync(UnknownPlay());
+        Assert.Equal(1, c.SkippedCount);
+        await ComeBackAsync(c);
+        Assert.Equal(1, c.SkippedCount);
+
+        await c.SubmitPlayAsync(BestPlay());
+
+        Assert.Equal(1, c.SkippedCount);
+        Assert.Equal(QuizScore.Empty, c.Score);
+        Assert.True(ScoredReview(c.Review).IsCorrect); // still reviewed
+        Assert.True(c.Review!.IsPractice);
+    }
+
+    [Fact]
+    public async Task ReturningToACubeAnswer_LeavesTheAnswerOfRecordStanding_AndThePlaySegmentBeforeIt()
+    {
+        // Interleaved answers and a return: neither segment moves. The play
+        // answered first stays in PlayDecisions, and the cube problem's own
+        // answer of record stays in DoubleDecisions / TakeDecisions while a
+        // correct practice answer is given on it.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05),
+            TestFixtures.CubeDecision(),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.SubmitPlayAsync(AltPlay()); // incorrect, 0.05 lost
+        await c.NextAsync();
+
+        await c.SubmitCubeAnswerAsync(CubeAnswer.NoDoublePass); // of record: wrong
+        var recorded = CubeReview(c.Review);
+        var scored = c.Score;
+        await ComeBackAsync(c);
+        await c.SubmitCubeAnswerAsync(CubeAnswer.DoubleTake); // practice: correct
+
+        Assert.Equal(scored, c.Score);
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
+        Assert.Equal(0.05, c.Score.PlayDecisions.TotalEquityLoss, 6);
+        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
+        Assert.Equal(1, c.Score.TakeDecisions.Submitted);
+        Assert.Equal(0, c.Score.Total.Correct);
+        Assert.Same(recorded, Assert.Single(sink.Cubes));
+    }
+
+    [Fact]
+    public async Task PracticeCycles_AreUnbounded_AndEquallyRecordless()
+    {
+        // "Practice cycles are unbounded; each is equally recordless" (§2) — the
+        // record is written once and never again, however many times the user
+        // comes back.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         await c.SubmitPlayAsync(AltPlay()); // of record
@@ -1384,66 +1319,24 @@ public class QuizControllerTests
 
         for (var cycle = 0; cycle < 5; cycle++)
         {
-            await c.RedoAsync();
-            await c.SubmitPlayAsync(cycle % 2 == 0 ? BestPlay() : AltPlay());
+            await ComeBackAsync(c);
+            await c.SubmitPlayAsync(cycle % 2 == 0 ? BestPlay() : UnknownPlay());
+            Assert.True(c.Review!.IsPractice);
             Assert.Equal(scored, c.Score);
-            Assert.Equal(1, c.Score.Total.Submitted);
-            Assert.Equal(0, c.Score.Total.Correct);
-            Assert.Equal(0.05, c.Score.Total.TotalEquityLoss, 6);
-            Assert.Equal(0, c.SkippedCount);
+            Assert.Equal(0, c.SkippedCount); // an off-list practice adds no skip
+            Assert.Single(sink.Plays);
         }
     }
 
     [Fact]
-    public async Task RedoAsync_ThenPracticeOffList_AddsNoSecondSkip()
+    public async Task APracticeSubmission_IsReviewedAndMarkedPractice_OnItsOwnMerits()
     {
-        // The off-list branch is recordless in the practice direction too: a
-        // practice submission that misses the candidate list must not mint a
-        // skip on a problem that is already answered.
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-
-        await c.SubmitPlayAsync(BestPlay()); // of record: on-list, correct
-        await c.RedoAsync();
-        await c.SubmitPlayAsync(UnknownPlay()); // practice: off-list
-
-        Assert.Equal(0, c.SkippedCount);
-        Assert.Equal(1, c.Score.Total.Submitted);
-        Assert.Equal(1, c.Score.Total.Correct);
-        OffListReview(c.Review); // still reviewed
-    }
-
-    [Fact]
-    public async Task RedoAsync_ThenPracticeCube_LeavesTheCubeScoreAtTheOriginal()
-    {
-        // The cube kind's own practice pin: the answer of record stands in
-        // every row it added to, and the practice answer — correct, where the
-        // record is not — adds to none.
-        var c = Make(TestFixtures.CubeDecision());
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-
-        await c.SubmitCubeAnswerAsync(CubeAnswer.NoDoublePass); // of record
-        var recordedDoubleCorrect = c.Score.DoubleDecisions.Correct;
-        var recordedTakeCorrect = c.Score.TakeDecisions.Correct;
-
-        await c.RedoAsync();
-        await c.SubmitCubeAnswerAsync(CubeAnswer.DoubleTake); // practice
-
-        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
-        Assert.Equal(1, c.Score.TakeDecisions.Submitted);
-        Assert.Equal(recordedDoubleCorrect, c.Score.DoubleDecisions.Correct);
-        Assert.Equal(recordedTakeCorrect, c.Score.TakeDecisions.Correct);
-        Assert.Equal(1, c.Score.Total.Submitted);
-        Assert.Equal(0, c.Score.Total.Correct);
-    }
-
-    [Fact]
-    public async Task PracticeSubmission_IsReviewedAndMarkedPractice()
-    {
-        // §2's "practice still reviews", plus this arc's design call on how it
-        // shows: the practice submission gets the normal scored review, flagged
-        // IsPractice; the answer of record's review is not flagged.
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05));
+        // §2's "practice still reviews": the practice submission gets the normal
+        // scored review, flagged IsPractice; the answer of record's review is
+        // not flagged.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         await c.SubmitPlayAsync(AltPlay());
@@ -1451,7 +1344,7 @@ public class QuizControllerTests
         Assert.False(ofRecord.IsPractice);
         Assert.False(ScoredReview(ofRecord).IsCorrect);
 
-        await c.RedoAsync();
+        await ComeBackAsync(c);
         await c.SubmitPlayAsync(BestPlay());
 
         var practice = Assert.IsType<ProblemReview.Play>(c.Review);
@@ -1461,103 +1354,175 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task PracticeCubeSubmission_IsReviewedAndMarkedPractice()
+    public async Task APracticeCubeSubmission_IsReviewedAndMarkedPractice()
     {
-        var c = Make(TestFixtures.CubeDecision());
+        var c = Make(TestFixtures.CubeDecision(), TestFixtures.CubeDecision(away: 1));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         await c.SubmitCubeAnswerAsync(CubeAnswer.NoDoublePass);
         Assert.False(Assert.IsType<ProblemReview.Cube>(c.Review).IsPractice);
 
-        await c.RedoAsync();
-        var practiceAnswer = CubeAnswer.DoubleTake;
-        await c.SubmitCubeAnswerAsync(practiceAnswer);
+        await ComeBackAsync(c);
+        await c.SubmitCubeAnswerAsync(CubeAnswer.DoubleTake);
 
         var practice = Assert.IsType<ProblemReview.Cube>(c.Review);
         Assert.True(practice.IsPractice);
-        Assert.Equal(practiceAnswer, practice.Submission.Answer); // the practice answer, not the record's
+        Assert.Equal(CubeAnswer.DoubleTake, practice.Submission.Answer); // the practice answer, not the record's
     }
 
     [Fact]
-    public async Task RedoAsync_FiresStateChanged()
+    public async Task ACompletedProblem_ReturnedTo_GivesAPracticeReview_WithTheTotalsUnchanged_AndNoFold()
     {
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        // The brief's controller pin for a return to a completed problem, both
+        // ways it is completed: answered, and skipped of record. Its review is
+        // marked practice, the score and the skip count do not move, and the
+        // lifetime record gains nothing.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 2));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.SubmitPlayAsync(AltPlay());     // answered
+        await c.NextAsync();
+        await c.SubmitPlayAsync(UnknownPlay()); // skipped of record
+        await c.NextAsync();                    // the third, unresolved on the frontier
+        var (score, skipped, folds) = (c.Score, c.SkippedCount, sink.TotalFolds);
+
+        c.GoBack();
         await c.SubmitPlayAsync(BestPlay());
-        var fired = 0;
-        c.StateChanged += () => fired++;
+        Assert.True(c.Review!.IsPractice);
+        Assert.Equal((score, skipped, folds), (c.Score, c.SkippedCount, sink.TotalFolds));
 
-        await c.RedoAsync();
+        c.GoToFirst();
+        await c.SubmitPlayAsync(BestPlay());
+        Assert.True(c.Review!.IsPractice);
+        Assert.Equal((score, skipped, folds), (c.Score, c.SkippedCount, sink.TotalFolds));
+    }
 
-        Assert.True(fired >= 1);
+    [Fact]
+    public async Task ADeferredProblem_AnsweredLiveOnReturn_FoldsOnceAtSubmit_TheScoreGainsIt_AndTheSkipCountDrops()
+    {
+        // SPEC-quiz-history.md §3: "A deferred problem answered live becomes
+        // answered. The provisional skip does not stand: the problem is counted
+        // once, its answer goes to the score and the lifetime record, and the
+        // session skip count drops." The answer is behind the frontier, where a
+        // fold that read the frontier could never reach it.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.NextAsync();                     // deferred
+        Assert.Equal(1, c.SkippedCount);
+        Assert.Equal(QuizScore.Empty, c.Score);
+
+        c.GoBack();
+        await c.SubmitPlayAsync(AltPlay());
+
+        var review = Assert.IsType<ProblemReview.Play>(c.Review);
+        Assert.False(review.IsPractice);
+        Assert.Same(ScoredReview(review), Assert.Single(sink.Plays));
+        Assert.Equal(0, c.SkippedCount);
+        Assert.Equal(1, c.Score.PlayDecisions.Submitted);
+        Assert.Equal(0.05, c.Score.PlayDecisions.TotalEquityLoss, 6);
+
+        // Once, whatever follows.
+        await c.NextAsync();
+        await c.EndQuizAsync();
+        Assert.Single(sink.Plays);
+        Assert.Equal(1, c.SkippedCount); // the second, unresolved when the run finished
+    }
+
+    [Fact]
+    public async Task ADeferredCubeProblem_AnsweredLiveOnReturn_FoldsOnceAtSubmit()
+    {
+        var c = MakeWithSink(out var sink,
+            TestFixtures.CubeDecision(),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.NextAsync();
+        c.GoBack();
+
+        await c.SubmitCubeAnswerAsync(CubeAnswer.DoubleTake);
+
+        Assert.Same(CubeReview(c.Review), Assert.Single(sink.Cubes));
+        Assert.Equal(0, c.SkippedCount);
+        Assert.Equal(1, c.Score.Total.Submitted);
     }
 
     // -----------------------------------------------------------------------
-    //  SkipCurrentAsync
+    //  ▶ — "the next problem" (SPEC-quiz-history.md §2, §4)
+    //
+    //  One method, NextAsync, for ▶ in both view states: Continue from a
+    //  review, Skip or Next while answering.
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task SkipCurrentAsync_IncrementsAndAdvances()
+    public async Task Next_OnTheUnresolvedFrontier_DefersIt_CountsItOnceTheNextLands_AndBringsTheNext()
     {
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d1, d2);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        Assert.True(c.NextAddsToSkipCount);
 
-        await c.SkipCurrentAsync();
+        await c.NextAsync();
 
         Assert.Equal(1, c.SkippedCount);
         Assert.Same(d2, c.Current);
+        Assert.Equal(QuizScore.Empty, c.Score);
     }
 
     [Fact]
-    public async Task SkipCurrentAsync_BeforeStart_NoOp()
+    public async Task Next_FromALiveReview_IsContinue_ItAdvancesAndCountsNoSkip()
     {
-        var c = Make();
-        await c.SkipCurrentAsync();
-        Assert.Equal(0, c.SkippedCount);
-    }
-
-    [Fact]
-    public async Task SkipCurrentAsync_AfterFinish_NoOp()
-    {
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync(); // exhaust
-        Assert.True(c.IsFinished);
-
-        await c.SkipCurrentAsync();
-
-        Assert.Equal(0, c.SkippedCount);
-    }
-
-    [Fact]
-    public async Task SkipCurrentAsync_WhileReviewSet_NoOp()
-    {
-        // Skip bypasses review, but only from the answering state. While a
-        // Review is showing, Continue is the only exit — Skip must not advance.
+        // §2: "On the solution view it is Continue." The problem was completed
+        // by its submission, so moving on adds nothing to the record.
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = Make(d1, d2);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        Assert.NotNull(c.Review);
+        Assert.False(c.NextAddsToSkipCount);
 
-        await c.SkipCurrentAsync();
+        await c.NextAsync();
 
+        Assert.Null(c.Review);
+        Assert.Same(d2, c.Current);
         Assert.Equal(0, c.SkippedCount);
-        Assert.Same(d1, c.Current); // not advanced
-        Assert.NotNull(c.Review);
+        Assert.Equal(1, c.Score.Total.Submitted);
+    }
+
+    [Fact]
+    public async Task Next_BeforeStart_NoOp()
+    {
+        var c = Make();
+        await c.NextAsync();
+        Assert.False(c.HasStarted);
+        Assert.Equal(0, c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task Next_AfterFinish_NoOp()
+    {
+        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.SubmitPlayAsync(BestPlay());
+        await c.NextAsync(); // exhaust
+        Assert.True(c.IsFinished);
+
+        await c.NextAsync();
+
+        Assert.True(c.IsFinished);
+        Assert.Equal(0, c.SkippedCount);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task SkipCurrentAsync_OnTheLastAvailableProblem_FinishesTheRunWithItCountedAsSkipped(bool aPassFollows)
+    public async Task Next_OnTheLastAvailableProblem_FinishesTheRunWithItCountedAsSkipped(bool aPassFollows)
     {
         // Natural exhaustion with a deferred final problem (SPEC-quiz-history.md
-        // §4 and §5, amended 2026-09-30). Skip completes nothing, and the source
+        // §4 and §5, amended 2026-09-30). ▶ completes nothing, and the source
         // has no problem to present beyond this one, so the run finishes — and
         // finishing, not End quiz, is what converts a problem still unresolved.
         // Unconverted, it would be the unresolved frontier of a finished run,
@@ -1575,10 +1540,10 @@ public class QuizControllerTests
         var c = MakeWithSink(out var sink, [.. items]);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
         var folded = Assert.Single(sink.Plays);
 
-        await c.SkipCurrentAsync();
+        await c.NextAsync();
 
         Assert.True(c.IsFinished);
         Assert.Null(c.Current);
@@ -1586,6 +1551,270 @@ public class QuizControllerTests
         Assert.Equal(1, c.Score.PlayDecisions.Submitted);
         Assert.Same(folded, Assert.Single(sink.Plays));
         Assert.Empty(sink.Cubes);
+    }
+
+    [Fact]
+    public async Task Next_BehindTheFrontier_MovesTheCursorAtOnce_DrawingRecordingAndFoldingNothing()
+    {
+        // §4: behind the frontier ▶ "goes to the next problem" — the one already
+        // presented after the cursor. No source work: with the source's next
+        // item held at its gate, the move still completes at once, fires
+        // StateChanged once and never shows busy; no problem is drawn, and
+        // nothing is recorded or folded.
+        var gated = new GatedProblemSetSource(
+        [
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 2),
+        ]);
+        var sink = new FakeProblemStatsSink();
+        var c = new QuizController((_, _, _) => TestFixtures.Composed(gated), sink, TimeProvider.System);
+        gated.ReleaseNext(2);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.SubmitPlayAsync(BestPlay());
+        await c.NextAsync();          // the second, on the frontier
+        c.GoBack();                   // back on the first, answered
+        var drawn = gated.DrawsRequested;
+        var (score, skipped, folds) = (c.Score, c.SkippedCount, sink.TotalFolds);
+        var snapshots = new List<bool>();
+        c.StateChanged += () => snapshots.Add(c.IsBusy);
+
+        var next = c.NextAsync();
+
+        Assert.True(next.IsCompletedSuccessfully);
+        Assert.Equal([false], snapshots);
+        Assert.Equal(2, c.ProblemNumber);
+        Assert.Equal(drawn, gated.DrawsRequested);
+        Assert.Equal((score, skipped, folds), (c.Score, c.SkippedCount, sink.TotalFolds));
+    }
+
+    // -----------------------------------------------------------------------
+    //  §4 · The transition table — ▶ ⏮ ◀ ⏭ from each state on screen
+    //
+    //  The staged run: the first problem answered, the second deferred, the
+    //  third the unresolved frontier, and two more waiting in the source.
+    //  Each state of §4's table is reached from it, each move taken, and
+    //  where the cursor lands, what shows there and what the totals do are
+    //  read back. Submit, the table's first column, is the practice and
+    //  deferred pins above.
+    // -----------------------------------------------------------------------
+
+    public enum OnScreen
+    {
+        LiveAnsweringOnTheFrontier,
+        LiveAnsweringBehindTheFrontier,
+        LiveReviewOnTheFrontier,
+        LiveReviewBehindTheFrontier,
+        PracticeAnswering,
+        PracticeReview,
+    }
+
+    public enum Move { Next, GoToFirst, GoBack, GoToLast }
+
+    [Theory]
+    // Live answering — "Goes to the next problem; this one stays unresolved
+    // (on the frontier, that defers it)"; ⏮ ◀ ⏭ leave it unresolved.
+    [InlineData(OnScreen.LiveAnsweringOnTheFrontier, Move.Next, 4, 1)]
+    [InlineData(OnScreen.LiveAnsweringOnTheFrontier, Move.GoToFirst, 1, 0)]
+    [InlineData(OnScreen.LiveAnsweringOnTheFrontier, Move.GoBack, 2, 0)]
+    [InlineData(OnScreen.LiveAnsweringOnTheFrontier, Move.GoToLast, 0, 0)]
+    [InlineData(OnScreen.LiveAnsweringBehindTheFrontier, Move.Next, 3, 0)]
+    [InlineData(OnScreen.LiveAnsweringBehindTheFrontier, Move.GoToFirst, 1, 0)]
+    [InlineData(OnScreen.LiveAnsweringBehindTheFrontier, Move.GoBack, 1, 0)]
+    [InlineData(OnScreen.LiveAnsweringBehindTheFrontier, Move.GoToLast, 3, 0)]
+    // Live review — ▶ "Same as Continue"; ⏮ ◀ ⏭ "Navigates; the record stands".
+    [InlineData(OnScreen.LiveReviewOnTheFrontier, Move.Next, 4, 0)]
+    [InlineData(OnScreen.LiveReviewOnTheFrontier, Move.GoToFirst, 1, 0)]
+    [InlineData(OnScreen.LiveReviewOnTheFrontier, Move.GoBack, 2, 0)]
+    [InlineData(OnScreen.LiveReviewOnTheFrontier, Move.GoToLast, 0, 0)]
+    [InlineData(OnScreen.LiveReviewBehindTheFrontier, Move.Next, 3, 0)]
+    [InlineData(OnScreen.LiveReviewBehindTheFrontier, Move.GoToFirst, 1, 0)]
+    [InlineData(OnScreen.LiveReviewBehindTheFrontier, Move.GoBack, 1, 0)]
+    [InlineData(OnScreen.LiveReviewBehindTheFrontier, Move.GoToLast, 3, 0)]
+    // Practice answering and practice review — "Goes to the next problem";
+    // ⏮ ◀ ⏭ "Navigates".
+    [InlineData(OnScreen.PracticeAnswering, Move.Next, 2, 0)]
+    [InlineData(OnScreen.PracticeAnswering, Move.GoToFirst, 0, 0)]
+    [InlineData(OnScreen.PracticeAnswering, Move.GoBack, 0, 0)]
+    [InlineData(OnScreen.PracticeAnswering, Move.GoToLast, 3, 0)]
+    [InlineData(OnScreen.PracticeReview, Move.Next, 2, 0)]
+    [InlineData(OnScreen.PracticeReview, Move.GoToFirst, 0, 0)]
+    [InlineData(OnScreen.PracticeReview, Move.GoBack, 0, 0)]
+    [InlineData(OnScreen.PracticeReview, Move.GoToLast, 3, 0)]
+    public async Task TheTransitionTable(OnScreen from, Move move, int landsOn, int skipsAdded)
+    {
+        // landsOn: the problem number the move lands on, or 0 where the move is
+        // unavailable there (⏮ ◀ on the first problem, ⏭ on the frontier) and
+        // changes nothing at all.
+        var c = MakeWithSink(out var sink, Enumerable.Range(1, 5)
+            .Select(n => (BgDecisionData)TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: n))
+            .ToArray());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.SubmitPlayAsync(AltPlay());  // 1: answered
+        await c.NextAsync();
+        await c.NextAsync();                 // 2: deferred; 3: the frontier
+        switch (from)
+        {
+            case OnScreen.LiveAnsweringOnTheFrontier: break;
+            case OnScreen.LiveAnsweringBehindTheFrontier: c.GoBack(); break;
+            case OnScreen.LiveReviewOnTheFrontier: await c.SubmitPlayAsync(BestPlay()); break;
+            case OnScreen.LiveReviewBehindTheFrontier: c.GoBack(); await c.SubmitPlayAsync(BestPlay()); break;
+            case OnScreen.PracticeAnswering: c.GoToFirst(); break;
+            case OnScreen.PracticeReview: c.GoToFirst(); await c.SubmitPlayAsync(BestPlay()); break;
+        }
+        var before = (Number: c.ProblemNumber, c.Review, c.Score, c.SkippedCount, Folds: sink.TotalFolds);
+        Assert.Equal(from.ToString().Contains("Review"), before.Review is not null);
+
+        switch (move)
+        {
+            case Move.Next: await c.NextAsync(); break;
+            case Move.GoToFirst: c.GoToFirst(); break;
+            case Move.GoBack: c.GoBack(); break;
+            case Move.GoToLast: c.GoToLast(); break;
+        }
+
+        if (landsOn == 0)
+        {
+            Assert.Equal(before, (c.ProblemNumber, c.Review, c.Score, c.SkippedCount, sink.TotalFolds));
+            return;
+        }
+
+        // Every landing shows the decision (§3), and a move records and folds
+        // nothing: only a deferral adds a skip, once the next problem lands.
+        Assert.Equal(landsOn, c.ProblemNumber);
+        Assert.Null(c.Review);
+        Assert.NotNull(c.Current);
+        Assert.Equal(before.Score, c.Score);
+        Assert.Equal(before.SkippedCount + skipsAdded, c.SkippedCount);
+        Assert.Equal(before.Folds, sink.TotalFolds);
+        Assert.False(c.IsFinished);
+    }
+
+    // -----------------------------------------------------------------------
+    //  ⏮ ◀ ⏭ and what the controller says of the run
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task CanGoBack_AndCanGoToLast_AreTheRuns_FromStartToFinish()
+    {
+        // §2: ⏮ and ◀ are unavailable at the first problem, ⏭ at the frontier;
+        // with nothing on screen, all three.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1));
+        Assert.False(c.CanGoBack);
+        Assert.False(c.CanGoToLast);
+
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        Assert.False(c.CanGoBack);    // the first problem
+        Assert.False(c.CanGoToLast);  // and the frontier
+
+        await c.NextAsync();
+        Assert.True(c.CanGoBack);
+        Assert.False(c.CanGoToLast);
+
+        c.GoBack();
+        Assert.False(c.CanGoBack);
+        Assert.True(c.CanGoToLast);
+
+        await c.EndQuizAsync();
+        Assert.False(c.CanGoBack);
+        Assert.False(c.CanGoToLast);
+    }
+
+    [Fact]
+    public async Task NextAddsToSkipCount_IsTheRuns()
+    {
+        // The controller forwards the run's rule (QuizRunTests pins the rule
+        // itself against what a press does): true on the unresolved frontier,
+        // false behind it, on a review, and with nothing on screen.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1));
+        Assert.False(c.NextAddsToSkipCount);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        Assert.True(c.NextAddsToSkipCount);
+
+        await c.NextAsync();
+        c.GoBack();
+        Assert.False(c.NextAddsToSkipCount);   // deferred, behind the frontier
+
+        c.GoToLast();
+        await c.SubmitPlayAsync(BestPlay());
+        Assert.False(c.NextAddsToSkipCount);   // a review
+
+        await c.EndQuizAsync();
+        Assert.False(c.NextAddsToSkipCount);
+    }
+
+    [Fact]
+    public async Task PresentedCount_IsTheRunsPresentedSequence_ThroughNavigationAndTheFinish()
+    {
+        // Done's "problems shown" (halheinrich/backgammon#325, item 2): the
+        // presented sequence, never the score's submitted count plus the skips.
+        // A position passed over silently is not in it; navigation adds nothing
+        // to it; a finished run keeps it.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.PassDecision(),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 2));
+        Assert.Equal(0, c.PresentedCount);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        Assert.Equal(1, c.PresentedCount);
+
+        await c.NextAsync();
+        Assert.Equal(2, c.PresentedCount);   // the pass between was never shown
+        c.GoToFirst();
+        await c.NextAsync();
+        Assert.Equal(2, c.PresentedCount);   // ▶ behind the frontier presents nothing
+
+        await c.EndQuizAsync();
+        Assert.Equal(2, c.PresentedCount);
+        Assert.Equal(c.PresentedCount, c.Score.Total.Submitted + c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task TheMoves_FireStateChangedOnce_AndShowNoBusy()
+    {
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 2));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.NextAsync();
+        await c.NextAsync();
+        var snapshots = new List<bool>();
+        c.StateChanged += () => snapshots.Add(c.IsBusy);
+
+        c.GoBack();
+        c.GoToFirst();
+        c.GoToLast();
+
+        Assert.Equal([false, false, false], snapshots);
+    }
+
+    [Fact]
+    public async Task TheMoves_WhereUnavailable_FireNothing()
+    {
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1));
+        var fired = 0;
+        c.StateChanged += () => fired++;
+
+        c.GoToFirst();
+        c.GoBack();
+        c.GoToLast();
+        Assert.Equal(0, fired);               // nothing on screen
+
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        fired = 0;
+        c.GoToFirst();
+        c.GoBack();
+        c.GoToLast();
+        Assert.Equal(0, fired);               // the first problem is the frontier
+        Assert.Equal(1, c.ProblemNumber);
     }
 
     // -----------------------------------------------------------------------
@@ -1619,7 +1848,7 @@ public class QuizControllerTests
         // The scoring half of the ruling. What was answered stands — that is the
         // partial score Done shows — and the problem showing when the user quit
         // is abandoned: it records no answer, and the run finishing converts it
-        // to a skip of record, counted as every problem the Skip button moved on
+        // to a skip of record, counted as every problem ▶ moved on
         // from is counted — so Done's "problems shown" still counts a problem
         // the user actually saw.
         var c = Make(
@@ -1628,7 +1857,7 @@ public class QuizControllerTests
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();          // problem 1 answered and finalized
+        await c.NextAsync();          // problem 1 answered and finalized
 
         await c.EndQuizAsync();           // quitting on problem 2, unanswered
 
@@ -1712,7 +1941,7 @@ public class QuizControllerTests
         var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync(); // exhaust
+        await c.NextAsync(); // exhaust
         Assert.True(c.IsFinished);
 
         await c.EndQuizAsync();
@@ -1740,7 +1969,7 @@ public class QuizControllerTests
     [Fact]
     public async Task EndQuizAsync_AfterSkips_CountsEveryDeferredProblemAndTheAbandonedOne()
     {
-        // Several problems unresolved at once, as the Skip button now leaves
+        // Several problems unresolved at once, as ▶ leaves
         // them: the two it moved on from, deferred behind the frontier and
         // counted from the moment the next problem landed, and the frontier the
         // user quits on. Ending converts all three to skips of record
@@ -1753,8 +1982,8 @@ public class QuizControllerTests
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        await c.SkipCurrentAsync();
-        await c.SkipCurrentAsync();
+        await c.NextAsync();
+        await c.NextAsync();
         Assert.Equal(2, c.SkippedCount);
         Assert.Equal(3, c.ProblemNumber);
 
@@ -1764,6 +1993,35 @@ public class QuizControllerTests
         Assert.Equal(3, c.SkippedCount);
         Assert.Equal(QuizScore.Empty, c.Score);
         Assert.Equal(0, sink.TotalFolds);
+    }
+
+    [Fact]
+    public async Task EndQuiz_FromBehindTheFrontier_ConvertsEveryUnresolvedProblem()
+    {
+        // §4: End quiz "acts on the run, not the cursor: it applies wherever the
+        // user is viewing". Viewing the first problem, answered, with a deferred
+        // problem and the unresolved frontier ahead: ending converts both of
+        // them to skips of record, leaves the answer standing, and folds nothing.
+        var c = MakeWithSink(out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 2),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 3));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.SubmitPlayAsync(BestPlay());
+        await c.NextAsync();
+        await c.NextAsync();             // the second deferred, the third the frontier
+        c.GoToFirst();
+        Assert.Equal(1, c.SkippedCount); // the deferred one, provisionally
+        var folds = sink.TotalFolds;
+
+        await c.EndQuizAsync();
+
+        Assert.True(c.IsFinished);
+        Assert.Equal(2, c.SkippedCount);
+        Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.Equal(3, c.PresentedCount);
+        Assert.Equal(folds, sink.TotalFolds);
     }
 
     [Fact]
@@ -1828,8 +2086,8 @@ public class QuizControllerTests
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
-        await c.SkipCurrentAsync();
+        await c.NextAsync();
+        await c.NextAsync();
         Assert.Equal(1, c.Score.PlayDecisions.Submitted);
         Assert.Equal(1, c.SkippedCount);
 
@@ -1979,7 +2237,7 @@ public class QuizControllerTests
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync(); // now on the second problem, one scored
+        await c.NextAsync(); // now on the second problem, one scored
         var currentIdBefore = c.Current!.Id;
         var scoreBefore = c.Score;
         var skippedBefore = c.SkippedCount;
@@ -2045,7 +2303,7 @@ public class QuizControllerTests
         Assert.Same(submitted, Assert.Single(sink.Plays));
         Assert.Empty(sink.Cubes);
 
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         Assert.Same(submitted, Assert.Single(sink.Plays));
         Assert.Empty(sink.Cubes);
@@ -2063,7 +2321,7 @@ public class QuizControllerTests
         Assert.Same(submitted, Assert.Single(sink.Cubes));
         Assert.Empty(sink.Plays);
 
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         Assert.Same(submitted, Assert.Single(sink.Cubes));
         Assert.Empty(sink.Plays);
@@ -2134,16 +2392,16 @@ public class QuizControllerTests
         await c.SubmitPlayAsync(BestPlay());
         var submitted = Assert.Single(sink.Plays);
 
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         Assert.True(c.IsFinished);
         Assert.Same(submitted, Assert.Single(sink.Plays));
     }
 
     [Fact]
-    public async Task SkipFromAPracticeCycle_AfterALiveSubmit_AddsNothingMore()
+    public async Task NextFromAPracticeAnswering_AfterALiveSubmit_AddsNothingMore()
     {
-        // Skip is reachable from the practice-answering state a Redo opens, and
+        // ▶ is reachable from the practice-answering state a return opens, and
         // it moves on from an answered problem: it folds nothing — the answer
         // reached the record at its Submit — and counts no skip, which would
         // double-count a problem that was answered.
@@ -2156,13 +2414,13 @@ public class QuizControllerTests
         await c.SubmitPlayAsync(BestPlay());
         var recorded = ScoredReview(c.Review);
         Assert.Same(recorded, Assert.Single(sink.Plays));
-        await c.RedoAsync();
+        await ComeBackAsync(c);
 
-        await c.SkipCurrentAsync();
+        await c.NextAsync();
 
         Assert.Same(recorded, Assert.Single(sink.Plays));
         Assert.Equal(0, c.SkippedCount);
-        Assert.NotSame(first, c.Current); // and the run did advance
+        Assert.NotSame(first, c.Current); // and the run did move on
     }
 
     [Fact]
@@ -2189,10 +2447,11 @@ public class QuizControllerTests
     [Fact]
     public async Task EndQuiz_MidPracticeCycle_AfterALiveSubmit_AddsNothingMore_AndCountsNoSkip()
     {
-        // Ending while a Redo has re-opened the problem and nothing has been
-        // re-answered: no review is showing, but the problem IS answered. The
-        // run's conversion keys on the record, so it is not counted as
-        // abandoned, and its answer — folded at Submit — is not folded again.
+        // Ending on a problem returned to, with nothing re-answered: no review
+        // is showing, but the problem IS answered. The run's conversion keys on
+        // the record, so it is not counted as abandoned — only the problem the
+        // return left unresolved on the frontier is — and its answer, folded at
+        // Submit, is not folded again.
         var c = MakeWithSink(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -2201,13 +2460,13 @@ public class QuizControllerTests
         await c.SubmitPlayAsync(BestPlay());
         var recorded = ScoredReview(c.Review);
         Assert.Same(recorded, Assert.Single(sink.Plays));
-        await c.RedoAsync();
+        await ComeBackAsync(c);
         Assert.Null(c.Review); // answering again, nothing submitted this cycle
 
         await c.EndQuizAsync();
 
         Assert.Same(recorded, Assert.Single(sink.Plays));
-        Assert.Equal(0, c.SkippedCount);
+        Assert.Equal(1, c.SkippedCount); // the second, never answered — not the first
         Assert.Equal(1, c.Score.PlayDecisions.Submitted);
     }
 
@@ -2225,14 +2484,14 @@ public class QuizControllerTests
         await c.SubmitPlayAsync(AltPlay());  // of record: incorrect
         var recorded = ScoredReview(c.Review);
         Assert.Same(recorded, Assert.Single(sink.Plays));
-        await c.RedoAsync();
+        await ComeBackAsync(c);
         await c.SubmitPlayAsync(BestPlay()); // practice: correct
 
         await c.EndQuizAsync();
 
         Assert.Same(recorded, Assert.Single(sink.Plays));
         Assert.False(sink.Plays[0].IsCorrect);
-        Assert.Equal(0, c.SkippedCount);
+        Assert.Equal(1, c.SkippedCount); // the second, never answered
     }
 
     [Theory]
@@ -2265,7 +2524,7 @@ public class QuizControllerTests
     [Fact]
     public async Task ANewRun_BegunMidPracticeCycle_LeavesTheAnswerInTheRecord()
     {
-        // The same where a Redo leaves the record standing with no review
+        // The same where a return leaves the record standing with no review
         // showing: the answer of record is in the lifetime record, and the
         // practice cycle the Restart cut short adds nothing.
         var c = MakeWithSink(out var sink,
@@ -2275,7 +2534,7 @@ public class QuizControllerTests
 
         await c.SubmitPlayAsync(BestPlay());
         var recorded = ScoredReview(c.Review);
-        await c.RedoAsync();
+        await ComeBackAsync(c);
 
         await c.RestartAsync(PlayRanking.Equity);
 
@@ -2293,13 +2552,13 @@ public class QuizControllerTests
         // each run's first answer folds, each in its own run, and no practice
         // answer does.
         var problem = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05);
-        var c = MakeWithSink(out var sink, problem);
+        var c = MakeWithSink(out var sink, problem, TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         await c.SubmitPlayAsync(AltPlay());                 // run 1, live
         var firstRun = ScoredReview(c.Review);
         Assert.Same(firstRun, Assert.Single(sink.Plays));
-        await c.RedoAsync();
+        await ComeBackAsync(c);
         await c.SubmitPlayAsync(BestPlay());                // run 1, practice
         Assert.Same(firstRun, Assert.Single(sink.Plays));
 
@@ -2307,7 +2566,7 @@ public class QuizControllerTests
         Assert.Same(problem, c.Current);                    // the same decision, in a new run
         await c.SubmitPlayAsync(BestPlay());                // run 2, live
         var secondRun = ScoredReview(c.Review);
-        await c.RedoAsync();
+        await ComeBackAsync(c);
         await c.SubmitPlayAsync(AltPlay());                 // run 2, practice
 
         Assert.Equal(2, sink.Plays.Count);
@@ -2330,13 +2589,13 @@ public class QuizControllerTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
         var live = Assert.Single(sink.Plays);
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         await c.SubmitPlayAsync(UnknownPlay());
         OffListReview(c.Review);
         Assert.Same(live, Assert.Single(sink.Plays));
 
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         Assert.Same(live, Assert.Single(sink.Plays));
         Assert.Equal(1, c.SkippedCount);
@@ -2353,13 +2612,13 @@ public class QuizControllerTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.DepthFirst);
         await c.SubmitPlayAsync(BestPlay());
         var live = Assert.Single(sink.Plays);
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         await c.SubmitPlayAsync(TestFixtures.OpeningBest()); // not scored under depth first
         Assert.Equal(PlaySubmissionKind.NotScored, Assert.IsType<ProblemReview.Play>(c.Review).Submission.Kind);
         Assert.Same(live, Assert.Single(sink.Plays));
 
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         Assert.Same(live, Assert.Single(sink.Plays));
     }
@@ -2367,7 +2626,7 @@ public class QuizControllerTests
     [Fact]
     public async Task ADeferral_FoldsNothing()
     {
-        // The Skip button defers an unanswered problem: nothing of record, so
+        // ▶ named Skip defers an unanswered problem: nothing of record, so
         // nothing to fold — beside a live answer that did fold.
         var c = MakeWithSink(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
@@ -2376,9 +2635,9 @@ public class QuizControllerTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
         var live = Assert.Single(sink.Plays);
-        await c.ContinueAsync();
+        await c.NextAsync();
 
-        await c.SkipCurrentAsync();
+        await c.NextAsync();
 
         Assert.Equal(1, c.SkippedCount);
         Assert.Same(live, Assert.Single(sink.Plays));
@@ -2397,8 +2656,8 @@ public class QuizControllerTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
         var live = Assert.Single(sink.Plays);
-        await c.ContinueAsync();
-        await c.SkipCurrentAsync();
+        await c.NextAsync();
+        await c.NextAsync();
 
         await c.EndQuizAsync();
 
@@ -2413,23 +2672,27 @@ public class QuizControllerTests
         // none and nothing folds — however many cycles, play or cube.
         var c = MakeWithSink(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), play2Loss: 0.05),
-            TestFixtures.CubeDecision());
+            TestFixtures.CubeDecision(),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         await c.SubmitPlayAsync(AltPlay());
         var recordedPlay = ScoredReview(c.Review);
-        for (var cycle = 0; cycle < 4; cycle++)
-        {
-            await c.RedoAsync();
-            await c.SubmitPlayAsync(cycle % 2 == 0 ? BestPlay() : UnknownPlay());
-            Assert.Same(recordedPlay, Assert.Single(sink.Plays));
-        }
-        await c.ContinueAsync();
-
+        await c.NextAsync();
         await c.SubmitCubeAnswerAsync(CubeAnswer.NoDoublePass);
         var recordedCube = CubeReview(c.Review);
-        await c.RedoAsync();
+
+        for (var cycle = 0; cycle < 4; cycle++)
+        {
+            c.GoToFirst();
+            await c.SubmitPlayAsync(cycle % 2 == 0 ? BestPlay() : UnknownPlay());
+            Assert.True(c.Review!.IsPractice);
+            Assert.Same(recordedPlay, Assert.Single(sink.Plays));
+        }
+
+        c.GoToLast();
         await c.SubmitCubeAnswerAsync(CubeAnswer.DoubleTake);
+        Assert.True(c.Review!.IsPractice);
 
         Assert.Same(recordedPlay, Assert.Single(sink.Plays));
         Assert.Same(recordedCube, Assert.Single(sink.Cubes));
@@ -2448,11 +2711,11 @@ public class QuizControllerTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         await c.SubmitPlayAsync(UnknownPlay()); // of record: a skip
-        await c.RedoAsync();
+        await ComeBackAsync(c);
         await c.SubmitPlayAsync(BestPlay());    // practice: on-list
         ScoredReview(c.Review);
 
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         Assert.Equal(0, sink.TotalFolds);
         Assert.Equal(1, c.SkippedCount);
@@ -2491,13 +2754,13 @@ public class QuizControllerTests
         await c.SubmitPlayAsync(BestPlay());
         var submitted = Assert.Single(sink.Plays);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => c.ContinueAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => c.NextAsync());
         Assert.False(c.IsBusy);
         Assert.Null(c.Review);
         Assert.NotNull(c.Current);
 
         if (retry == "Skip")
-            await c.SkipCurrentAsync();
+            await c.NextAsync();
         else
             await c.EndQuizAsync();
 
@@ -2517,11 +2780,11 @@ public class QuizControllerTests
 
         await c.SubmitPlayAsync(AltPlay());
         Assert.Equal(1, sink.TotalFolds);
-        await c.ContinueAsync();
+        await c.NextAsync();
         await c.SubmitCubeAnswerAsync(CubeAnswer.DoubleTake);
         Assert.Equal(2, sink.TotalFolds);
-        await c.ContinueAsync();
-        await c.SkipCurrentAsync(); // third problem deferred — no fold
+        await c.NextAsync();
+        await c.NextAsync(); // third problem deferred — no fold
 
         Assert.Single(sink.Plays);
         Assert.Single(sink.Cubes);
@@ -2575,8 +2838,8 @@ public class QuizControllerTests
         Assert.Equal(2, snapshots.Count);
         await c.SubmitPlayAsync(BestPlay());    // +2 — gate on with the review up, off once the write lands
         Assert.Equal([(true, true), (false, true)], snapshots[2..]);
-        await c.ContinueAsync();                // +2 — gate on/off around advance to second
-        await c.SkipCurrentAsync();             // +2 — gate on/off around skip + advance (exhausts)
+        await c.NextAsync();                // +2 — gate on/off around advance to second
+        await c.NextAsync();             // +2 — gate on/off around skip + advance (exhausts)
 
         Assert.Equal(8, snapshots.Count);
     }
@@ -2737,7 +3000,7 @@ public class QuizControllerTests
         Assert.Equal(1, c.LastComposition!.DrawnCount);
         Assert.Same(mix, Assert.Single(mixes)); // the factory saw the effective (real) mix
 
-        await c.SkipCurrentAsync();
+        await c.NextAsync();
         Assert.True(c.IsFinished); // d1 never reached the quiz
     }
 
@@ -2798,7 +3061,7 @@ public class QuizControllerTests
 
         await c.StartAsync(new FilterConfig(), NeverSeenMix(), PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
         Assert.True(c.IsFinished);
 
         // Stats fall away between quizzes (e.g. the folder pick was cleared);
@@ -2835,33 +3098,36 @@ public class QuizControllerTests
         Assert.Equal(1, c.ProblemNumber);
         Assert.Equal(3, c.ProblemCount);
 
-        await c.SkipCurrentAsync();
+        await c.NextAsync();
         Assert.Same(d2, c.Current);
         Assert.Equal(3, c.ProblemNumber); // slot 2 consumed silently
         Assert.Equal(c.ProblemCount, c.ProblemNumber); // N == M on the stream's last slot
 
         // N is the number of the problem on screen (SPEC-quiz-history.md §5),
         // and a finished run has none: the total stands, the number goes.
-        await c.SkipCurrentAsync();
+        await c.NextAsync();
         Assert.True(c.IsFinished);
         Assert.Equal(0, c.ProblemNumber);
         Assert.Equal(3, c.ProblemCount);
     }
 
     [Fact]
-    public async Task ProblemNumber_RedoLeavesItUntouched_RestartResets()
+    public async Task ProblemNumber_FollowsTheCursor_RestartResets()
     {
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1);
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2);
         var c = Make(d1, d2);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
         Assert.Equal(2, c.ProblemNumber);
 
         await c.SubmitPlayAsync(BestPlay());
-        await c.RedoAsync();
-        Assert.Equal(2, c.ProblemNumber); // Redo re-answers the same slot
+        Assert.Equal(2, c.ProblemNumber); // a review is the same slot
+        c.GoBack();
+        Assert.Equal(1, c.ProblemNumber); // and the number is the problem on screen
+        c.GoToLast();
+        Assert.Equal(2, c.ProblemNumber);
 
         await c.RestartAsync(PlayRanking.Equity);
         Assert.Same(d1, c.Current);
@@ -2972,7 +3238,7 @@ public class QuizControllerTests
         var seen = new HashSet<bool> { c.RandomHomeBoardOnRight };
         for (var i = 1; i < problems; i++)
         {
-            await c.SkipCurrentAsync();
+            await c.NextAsync();
             seen.Add(c.RandomHomeBoardOnRight);
         }
 
@@ -2980,20 +3246,25 @@ public class QuizControllerTests
     }
 
     [Fact]
-    public async Task RandomHomeBoardOnRight_HoldsStillForOneProblem_AcrossSubmitAndRedo()
+    public async Task RandomHomeBoardOnRight_HoldsStillForOneProblem_AcrossSubmitAndEveryReturn()
     {
         // One problem, one side — the rule that keeps the board from moving
         // under the user between answering it and reading its solution, and
-        // again when Redo returns them to the same problem.
-        var c = Make(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        // again whenever navigation returns them to it.
+        var c = Make(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 1));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var rolled = c.RandomHomeBoardOnRight;
 
         await c.SubmitPlayAsync(BestPlay());
         Assert.Equal(rolled, c.RandomHomeBoardOnRight);
 
-        await c.RedoAsync();
-        Assert.Equal(rolled, c.RandomHomeBoardOnRight);
+        for (var visit = 0; visit < 6; visit++)
+        {
+            await ComeBackAsync(c);
+            Assert.Equal(rolled, c.RandomHomeBoardOnRight);
+        }
     }
 
     [Fact]

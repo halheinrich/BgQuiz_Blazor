@@ -58,6 +58,9 @@ public class PageTests : BunitContext
     /// <summary>The planned <c>quizKeys.js</c> module — see the constructor.</summary>
     private readonly BunitJSModuleInterop _quizKeys;
 
+    /// <summary>The planned <c>actionRowWidth.js</c> module — see the constructor.</summary>
+    private readonly BunitJSModuleInterop _rowWidth;
+
     public PageTests()
     {
         // Loose JSInterop, for the whole fixture and stated in exactly this one
@@ -77,6 +80,14 @@ public class PageTests : BunitContext
         // ignores it exactly as it ignores localStorage.
         _quizKeys = JSInterop.SetupModule(QuizPage.KeysModulePath);
         _quizKeys.Mode = JSRuntimeMode.Loose;
+
+        // Its row-width module too (SPEC-quiz-view.md §4's cube-label switch),
+        // for the same reason: the page imports it beside the keyboard module
+        // and asks it to observe the action row whenever one renders. No width
+        // is ever reported here unless a test reports one itself, through the
+        // page's callback, so the pills keep their full labels by default.
+        _rowWidth = JSInterop.SetupModule(QuizPage.RowWidthModulePath);
+        _rowWidth.Mode = JSRuntimeMode.Loose;
 
         // Home and Done inject the sessionStorage-backed QuizLiveMarker. It needs
         // only the framework IJSRuntime — which bUnit registers in Services — so
@@ -2425,7 +2436,7 @@ public class PageTests : BunitContext
         WithShuffleOption();
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync(); // exhausts → finished
+        await c.NextAsync(); // exhausts → finished
         Assert.True(c.IsFinished);
 
         var cut = Render<HomePage>();
@@ -3650,7 +3661,7 @@ public class PageTests : BunitContext
         while (controller.Current is { } current)
         {
             ids.Add(current.Id);
-            await controller.SkipCurrentAsync();
+            await controller.NextAsync();
         }
         return ids;
     }
@@ -3822,8 +3833,8 @@ public class PageTests : BunitContext
 
         Assert.Contains("Submitted", cut.Markup);
         Assert.Contains("Skipped", cut.Markup);
-        Assert.Contains("Submit", cut.Markup);
-        Assert.Contains("Skip", cut.Markup);
+        Assert.True(HasButtonNamed(cut, "Submit"));
+        Assert.True(HasButtonNamed(cut, "Skip"));   // ▶, named for the skip a press would count
     }
 
     /// <summary>The Quiz page's End-quiz control (issue halheinrich/backgammon#57), by its visible label.</summary>
@@ -3884,11 +3895,11 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
-        var labels = cut.FindAll(".action-row button")
-            .Select(b => b.TextContent.Trim()).ToList();
+        var labels = cut.FindAll(".action-row button").Select(AccessibleName).ToList();
 
         Assert.Equal("End quiz", labels[^1]);   // the far end of the row...
-        Assert.Equal("Submit", labels[0]);      // ...and the answer control is at the near end
+        Assert.True(labels.IndexOf("Submit") < labels.IndexOf("Go to first"),
+            "Submit leads the navigation buttons, at the near end with the answer controls");
     }
 
     /// <summary>
@@ -3921,7 +3932,7 @@ public class PageTests : BunitContext
         Assert.Equal("Problem 1 of 2", ProblemPositionText(cut));
 
         await cut.InvokeAsync(() => c.SubmitPlayAsync(BestPlay()));
-        await cut.InvokeAsync(c.ContinueAsync);
+        await cut.InvokeAsync(c.NextAsync);
 
         cut.WaitForAssertion(() => Assert.Equal("Problem 2 of 2", ProblemPositionText(cut)));
     }
@@ -4229,7 +4240,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync(); // exhausts → IsFinished
+        await c.NextAsync(); // exhausts → IsFinished
     }
 
     [Fact]
@@ -4344,7 +4355,7 @@ public class PageTests : BunitContext
         NoticeSaying(quiz, DegradePhrase(degrade)).Dismiss(NoticeDismissGesture.CloseButton);
 
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync(); // exhausts → IsFinished, the run Done reports
+        await c.NextAsync(); // exhausts → IsFinished, the run Done reports
         var done = Render<DonePage>();
 
         Assert.False(ShowsNoticeSaying(done, DegradePhrase(degrade)));
@@ -4361,7 +4372,7 @@ public class PageTests : BunitContext
         NoticeSaying(quiz, "set aside").Dismiss(NoticeDismissGesture.WholeBox);
 
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
         var done = Render<DonePage>();
 
         Assert.False(ShowsNoticeSaying(done, "set aside"));
@@ -4400,7 +4411,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
         await WithRetiredStatsStoreAsync(retiredSchemaVersion);
 
         var cut = Render<DonePage>();
@@ -4422,7 +4433,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         var cut = Render<DonePage>();
 
@@ -4479,7 +4490,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
         await WithFoldedStatsStoreAsync();
 
         var cut = Render<DonePage>();
@@ -4500,7 +4511,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         var cut = Render<DonePage>();
 
@@ -4518,7 +4529,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
         await WithStatsStoreInStatusAsync(QuizStatsStatus.WriteFailed);
 
         var cut = Render<DonePage>();
@@ -4679,16 +4690,18 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_SkipClick_AdvancesController()
+    public async Task Quiz_NextNamedSkip_Click_DefersTheProblem_AndBringsTheNext()
     {
+        // ▶ on the unresolved frontier is Skip: parent → child → handler, a click
+        // on it reaches the controller's ▶ and the problem left is counted once
+        // the next one lands.
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = WithController(d1, d2);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
         var cut = Render<QuizPage>();
-        var skipButton = cut.FindAll("button").First(b => b.TextContent.Trim() == "Skip");
-        await skipButton.ClickAsync(new());
+        await ButtonNamed(cut, "Skip").ClickAsync(new());
 
         Assert.Equal(1, c.SkippedCount);
         Assert.Same(d2, c.Current);
@@ -4707,7 +4720,7 @@ public class PageTests : BunitContext
         // redirect to /done once IsFinished flips on Continue.
         await cut.InvokeAsync(() => c.SubmitPlayAsync(BestPlay()));
         Assert.False(c.IsFinished);
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         Assert.True(c.IsFinished);
         Assert.EndsWith("/done", nav.Uri);
@@ -4717,9 +4730,9 @@ public class PageTests : BunitContext
     public async Task Quiz_AfterSubmit_ShowsSolutionView_ContinueReturnsToEntry()
     {
         // The review branch: after Submit the page shows the solution view —
-        // Continue is offered and the Submit / Skip action row is gone. Continue
-        // advances to the next problem and the entry row returns. Driven through
-        // the wire (cube entry callback → Submit click → Continue click).
+        // Continue is offered and Submit is gone. Continue advances to the next
+        // problem and the entry row returns. Driven through the wire (cube entry
+        // callback → Submit click → Continue click).
         var c = WithController(
             TestFixtures.CubeDecision(),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -4730,17 +4743,18 @@ public class PageTests : BunitContext
         var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
         await submit.ClickAsync(new());
 
-        // Review view: Continue present, Submit / Skip gone.
-        var reviewButtons = cut.FindAll("button").Select(b => b.TextContent.Trim()).ToList();
+        // Review view: Continue present, Submit gone, and ▶ is Next — a press
+        // there counts no skip.
+        var reviewButtons = cut.FindAll("button").Select(AccessibleName).ToList();
         Assert.Contains("Continue", reviewButtons);
+        Assert.Contains("Next", reviewButtons);
         Assert.DoesNotContain("Submit", reviewButtons);
         Assert.DoesNotContain("Skip", reviewButtons);
 
-        var continueBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Continue");
-        await continueBtn.ClickAsync(new());
+        await ButtonNamed(cut, "Continue").ClickAsync(new());
 
-        // Back to the answering view for the next problem.
-        var entryButtons = cut.FindAll("button").Select(b => b.TextContent.Trim()).ToList();
+        // Back to the answering view for the next problem, where ▶ is Skip.
+        var entryButtons = cut.FindAll("button").Select(AccessibleName).ToList();
         Assert.Contains("Submit", entryButtons);
         Assert.Contains("Skip", entryButtons);
         Assert.DoesNotContain("Continue", entryButtons);
@@ -4752,7 +4766,7 @@ public class PageTests : BunitContext
         // The cube-answering composition after the board-only migration: the board
         // region hosts a plain read-only BackgammonDiagram (no entry component), and
         // the cube answer is entered by BackgammonCubeActions living *inside* the
-        // action row beside Submit / Skip — not on the board.
+        // action row beside Submit — not on the board.
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
@@ -4771,10 +4785,10 @@ public class PageTests : BunitContext
         Assert.NotEmpty(actionRow.QuerySelectorAll("[role=\"radiogroup\"]"));
         Assert.Empty(cut.FindAll(".board-container [role=\"radiogroup\"]"));
 
-        // The consumer-owned cube action row: Submit / Skip, and no Undo — a cube
-        // answer has no partial-move state.
-        Assert.Contains("Submit", cut.Markup);
-        Assert.Contains("Skip", cut.Markup);
+        // The consumer-owned cube action row: Submit and the navigation buttons,
+        // and no Undo — a cube answer has no partial-move state.
+        Assert.True(HasButtonNamed(cut, "Submit"));
+        Assert.True(HasButtonNamed(cut, "Skip"));
         Assert.DoesNotContain("Undo", cut.Markup);
     }
 
@@ -5093,7 +5107,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.DepthSplitDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
         Assert.True(c.IsFinished);
         await Settings().SetSortAnalysisByDepthFirstAsync(true);
 
@@ -5149,9 +5163,10 @@ public class PageTests : BunitContext
 
     // -----------------------------------------------------------------------
     //  The spacebar (halheinrich/backgammon#149, amended by
-    //  halheinrich/backgammon#200, 2026-09-23 and 2026-09-24): Continue on the
-    //  solution view; while answering, Submit when Submit is lit — a complete
-    //  play, or a cube action chosen — and Skip otherwise. The page's
+    //  halheinrich/backgammon#200; SPEC-quiz-history.md §2, clarified
+    //  2026-10-02): Submit when Submit is lit — a complete play, or a cube
+    //  answer chosen — and ▶ otherwise: Continue on the solution view, Skip or
+    //  Next while answering. The page's
     //  [JSInvokable] callback reads the buttons' own gates and calls the
     //  buttons' own methods. Driven by calling the
     //  callback: which presses reach it — key, modifiers, repeat, focus — is
@@ -5164,9 +5179,21 @@ public class PageTests : BunitContext
     private static Task PressSpaceAsync(IRenderedComponent<QuizPage> cut) =>
         cut.InvokeAsync(() => cut.Instance.HandleSpaceKeyAsync());
 
-    /// <summary>The rendered button captioned <paramref name="caption"/>, found fresh.</summary>
-    private static AngleSharp.Dom.IElement ButtonNamed(IRenderedComponent<QuizPage> cut, string caption) =>
-        cut.FindAll("button").First(b => b.TextContent.Trim() == caption);
+    /// <summary>
+    /// A button's accessible name as this page gives it: its <c>aria-label</c>
+    /// where it has one — the icon-only navigation buttons, whose glyph is
+    /// hidden — and its caption otherwise.
+    /// </summary>
+    private static string AccessibleName(AngleSharp.Dom.IElement button) =>
+        button.GetAttribute("aria-label") ?? button.TextContent.Trim();
+
+    /// <summary>The rendered button whose accessible name is <paramref name="name"/>, found fresh.</summary>
+    private static AngleSharp.Dom.IElement ButtonNamed(IRenderedComponent<QuizPage> cut, string name) =>
+        cut.FindAll("button").First(b => AccessibleName(b) == name);
+
+    /// <summary>Whether a button with the accessible name <paramref name="name"/> is rendered.</summary>
+    private static bool HasButtonNamed(IRenderedComponent<QuizPage> cut, string name) =>
+        cut.FindAll("button").Any(b => AccessibleName(b) == name);
 
     /// <summary>
     /// The skip landed and the run advanced, with nothing scored: the
@@ -5238,10 +5265,11 @@ public class PageTests : BunitContext
         Assert.NotNull(c.Review);
         var cut = Render<QuizPage>();
 
-        // Positive precondition: the solution view, where Continue is lit and
-        // Skip is not offered at all.
+        // Positive precondition: the solution view, where Continue is lit and ▶
+        // is named Next — no press here would count a skip.
         Assert.False(ButtonNamed(cut, "Continue").HasAttribute("disabled"));
-        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Skip");
+        Assert.False(ButtonNamed(cut, "Next").HasAttribute("disabled"));
+        Assert.False(HasButtonNamed(cut, "Skip"));
 
         await PressSpaceAsync(cut);
 
@@ -5364,15 +5392,14 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Quiz_Space_WhileBusyAnswering_DoesNothing()
     {
-        // The busy half of CanSkip, in the window where it decides anything: a
+        // The busy half of CanGoNext, in the window where it decides anything: a
         // Skip already in flight, frozen at the gated advance, with the page
         // still answering (no review). Both readers of the gate are pinned: the
-        // rendered Skip button (the live half — drop the busy term and it
-        // lights up), and the callback, whose press inside the window must
-        // leave the run exactly one skip on after the release. The callback
-        // half cannot fail on the busy term alone — the controller's own
-        // transition gate would no-op a second skip — which is why the button
-        // half is here.
+        // rendered ▶ (the live half — drop the busy term and it lights up), and
+        // the callback, whose press inside the window must leave the run exactly
+        // one skip on after the release. The callback half cannot fail on the
+        // busy term alone — the controller's own busy check would no-op a
+        // second ▶ — which is why the button half is here.
         var first = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = WithGatedController(out var source, out _,
             first,
@@ -5384,7 +5411,7 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
         Assert.False(ButtonNamed(cut, "Skip").HasAttribute("disabled"));
 
-        var skip = cut.InvokeAsync(() => c.SkipCurrentAsync());   // suspends at the gated advance
+        var skip = cut.InvokeAsync(() => c.NextAsync());   // suspends at the gated advance
         Assert.True(c.IsBusy);
         Assert.Null(c.Review);
         cut.Render();
@@ -5424,7 +5451,7 @@ public class PageTests : BunitContext
         await start;
         var cut = Render<QuizPage>();
 
-        var skip = cut.InvokeAsync(() => c.SkipCurrentAsync());   // suspends at the gated advance
+        var skip = cut.InvokeAsync(() => c.NextAsync());   // suspends at the gated advance
         Assert.True(c.IsBusy);
         Assert.Null(c.Review);
         await cut.InvokeAsync(() =>
@@ -5481,10 +5508,10 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_Space_AndTheSkipButton_ShareOneAction()
+    public async Task Quiz_Space_AndNextNamedSkip_ShareOneAction()
     {
         // Hal's 2026-09-23 ruling on halheinrich/backgammon#200: what skipping
-        // does has one owner, the Skip button's own method, and Space calls it.
+        // does has one owner, ▶'s own method, and Space calls it.
         // So the two gestures, taken on identical states of one run, must move
         // it identically — and move it the way a skip does. A change to the
         // button's skip path therefore reaches both halves here; a key handler
@@ -5601,7 +5628,7 @@ public class PageTests : BunitContext
     public async Task Quiz_ReviewState_DiceClick_AdvancesLikeContinue()
     {
         // The review branch's read-only BackgammonDiagram binds OnDiceClicked to
-        // the same ContinueAsync handler as the Continue button — clicking the
+        // the same NextAsync handler as the Continue button — clicking the
         // dice hit-region during review must advance to the next problem exactly
         // as Continue does. Without that binding the click is a silent no-op:
         // Review stays set and Current stays on the answered problem, so this
@@ -5625,120 +5652,97 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_RedoClick_ReturnsToAnsweringState_SameProblem()
+    public async Task Quiz_BackClick_LandsOnAProblemAnsweredEarlier_InItsAnsweringState()
     {
-        // Wire test for the Redo button itself: clicking it during review must
-        // re-open the exact same problem for practice — back to the answering
-        // view, with the answer of record left standing (SPEC-scoring.md §2).
-        var c = WithController(TestFixtures.CubeDecision());
+        // Wire test for ◀ itself: a click during the next problem's review lands
+        // on the problem answered before it — its decision, not its review, with
+        // the answer of record standing (SPEC-quiz-history.md §3).
+        var first = TestFixtures.CubeDecision();
+        var c = WithController(first, TestFixtures.CubeDecision(away: 3));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
-        var current = c.Current;
 
         await AnswerCubeAsync(cut, CubeAnswer.DoubleTake);
-        var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
-        await submit.ClickAsync(new());
+        await ButtonNamed(cut, "Submit").ClickAsync(new());
+        await ButtonNamed(cut, "Continue").ClickAsync(new());
+        await AnswerCubeAsync(cut, CubeAnswer.DoubleTake);
+        await ButtonNamed(cut, "Submit").ClickAsync(new());
         Assert.NotNull(c.Review);
 
-        var redo = cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo");
-        await redo.ClickAsync(new());
+        await ButtonNamed(cut, "Back").ClickAsync(new());
 
         Assert.Null(c.Review);
-        Assert.Same(current, c.Current);
-        Assert.Equal(1, c.Score.DoubleDecisions.Submitted); // the record stands — it was never popped
-        Assert.Equal(1, c.Score.Total.Correct);             // and it is still the answer submitted
-
-        var buttons = cut.FindAll("button").Select(b => b.TextContent.Trim()).ToList();
+        Assert.Same(first, c.Current);
+        Assert.Equal(2, c.Score.DoubleDecisions.Submitted); // both records stand
+        var buttons = cut.FindAll("button").Select(AccessibleName).ToList();
         Assert.Contains("Submit", buttons);
         Assert.DoesNotContain("Continue", buttons);
-        Assert.DoesNotContain("Redo", buttons);
+        Assert.Contains("Next", buttons);    // a completed problem: ▶ counts no skip
     }
 
     [Fact]
-    public async Task Quiz_Redo_CubeActions_ClearsSelection_AndTheRetryIsPractice()
+    public async Task Quiz_Landing_CubeActions_StartClean_AndTheRetryIsPractice()
     {
-        // Redo's answer-freshness for the cube kind. BackgammonCubeActions is
-        // strictly controlled off _completedCube — it holds no selection state of
-        // its own — and HandleStateChanged nulls _completedCube on the Redo
-        // transition, so the radios render unselected on the way back regardless
-        // of remounting. This pins that: after Redo no radio is checked, and the
-        // retry that follows is practice — reviewed, but leaving the answer of
-        // record (the FIRST answer) alone in the score.
-        var c = WithController(TestFixtures.CubeDecision());
+        // The cube row is controlled off _completedCube and holds no selection of
+        // its own; HandleStateChanged nulls the field on every move. A pill chosen
+        // on the problem left does not follow the landing, and the retry on a
+        // problem answered earlier is practice — reviewed, the first answer
+        // left alone in the score.
+        var c = WithController(TestFixtures.CubeDecision(), TestFixtures.CubeDecision(away: 3));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await AnswerCubeAsync(cut, CubeAnswer.DoubleTake);
-        Assert.NotEmpty(cut.FindAll("input[checked]")); // first answer selected a radio
-        var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
-        await submit.ClickAsync(new());
+        await ButtonNamed(cut, "Submit").ClickAsync(new());
         var recorded = Assert.IsType<ProblemReview.Cube>(c.Review).Submission;
+        await ButtonNamed(cut, "Continue").ClickAsync(new());
+        await AnswerCubeAsync(cut, CubeAnswer.NoDouble);        // chosen on the second, not submitted
+        Assert.NotEmpty(cut.FindAll("input[checked]"));
         var scored = c.Score;
 
-        var redo = cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo");
-        await redo.ClickAsync(new());
-        Assert.Null(c.Review);
+        await ButtonNamed(cut, "Back").ClickAsync(new());
 
-        // No radio left checked — a carried-over selection would still show the
-        // first answer's pill.
         Assert.Empty(cut.FindAll("input[checked]"));
+        Assert.True(ButtonNamed(cut, "Submit").HasAttribute("disabled"));
 
-        // Re-answer differently: scored and reviewed, and recorded nowhere.
         await AnswerCubeAsync(cut, CubeAnswer.NoDoublePass);
-        var submit2 = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
-        await submit2.ClickAsync(new());
+        await ButtonNamed(cut, "Submit").ClickAsync(new());
 
         var practice = Assert.IsType<ProblemReview.Cube>(c.Review);
         Assert.True(practice.IsPractice);
         Assert.Equal(CubeAnswer.NoDoublePass, practice.Submission.Answer);
-
-        // The practice answer is wrong and the first is right, so a Total that
-        // still reads one correct of one is the first answer's.
         Assert.NotSame(recorded, practice.Submission);
-        Assert.Equal(CubeAnswer.DoubleTake, recorded.Answer);
         Assert.Equal(scored, c.Score);
-        Assert.Equal(1, c.Score.DoubleDecisions.Submitted);
-        Assert.Equal(1, c.Score.TakeDecisions.Submitted);
-        Assert.Equal(1, c.Score.Total.Submitted);
-        Assert.Equal(1, c.Score.Total.Correct);
+        Assert.Equal(1, c.Score.Total.Correct);   // the first answer's, still
     }
 
     [Fact]
-    public async Task Quiz_PracticeReview_VerdictBandNamesThePractice()
+    public async Task Quiz_PracticeReview_VerdictBeginsPractice_FollowedByTheLiveVerdict()
     {
-        // This arc's SPEC-scoring.md §2 design call, at the pixel it lands on:
-        // a practice verdict is scored and coloured like any other, and leads
-        // with one clause saying the first answer is the one that stands. The
-        // answer of record's own review carries no such clause — which is what
-        // makes the marking mean something.
-        var c = WithController(TestFixtures.CubeDecision());
+        // SPEC-quiz-history.md §3 (Hal, 2026-10-02): a practice review's verdict
+        // begins "Practice — ", then reads as a live review would. Exact, with
+        // the em dash and the space; the answer of record's own review carries no
+        // mark, which is what makes the mark mean something; and the outcome
+        // colouring is the practice answer's own — Too good at a Double / Take
+        // position is wrong.
+        var c = WithController(TestFixtures.CubeDecision(), TestFixtures.CubeDecision(away: 3));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         await AnswerCubeAsync(cut, CubeAnswer.DoubleTake);
-        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
+        await ButtonNamed(cut, "Submit").ClickAsync(new());
+        Assert.Equal("Correct — Double / Take.", Normalize(cut.Find(".status-verdict-text").TextContent));
 
-        var ofRecordText = cut.Find(".status-verdict-text").TextContent;
-        Assert.DoesNotContain("Practice", ofRecordText);
-
-        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo").ClickAsync(new());
+        await ButtonNamed(cut, "Next").ClickAsync(new());
+        await ButtonNamed(cut, "Back").ClickAsync(new());
         await AnswerCubeAsync(cut, CubeAnswer.NoDoublePass);
-        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
+        await ButtonNamed(cut, "Submit").ClickAsync(new());
 
-        var practiceText = cut.Find(".status-verdict-text").TextContent;
-        Assert.Contains("Practice retry", practiceText);
-        Assert.Contains("your first answer stands", practiceText);
-
-        // The scored verdict itself still renders — the clause is a prefix, not
-        // a replacement — and the outcome colouring is the practice answer's
-        // own: Too good at a Double / Take position is wrong.
         Assert.Equal(
-            "Practice retry — your first answer stands. Not best — Too good lost 0.6000. Best: Double / Take.",
-            Normalize(practiceText));
+            "Practice — Not best — Too good lost 0.6000. Best: Double / Take.",
+            Normalize(cut.Find(".status-verdict-text").TextContent));
         Assert.Contains("alert-danger", cut.Find(".status-verdict").ClassList);
-
-        // And Redo is still offered: practice cycles are unbounded.
-        Assert.Contains("Redo", cut.FindAll("button").Select(b => b.TextContent.Trim()));
+        Assert.DoesNotContain("Practice retry", cut.Markup);
     }
 
     [Fact]
@@ -5771,7 +5775,7 @@ public class PageTests : BunitContext
     {
         // The row holds no state the answer does not express — its checked
         // pill is rendered from Value — so HandleStateChanged nulling
-        // _completedCube on the Skip transition clears it outright. The @key
+        // _completedCube on ▶'s transition clears it outright. The @key
         // remount the row carried in its two-group era (a half-answered row
         // stood for no answer, agreed with the null, and survived a Skip) is gone with that
         // state; this pins that the same instance carries over AND starts
@@ -5785,7 +5789,7 @@ public class PageTests : BunitContext
         Assert.NotEmpty(cut.FindAll("input[checked]"));
         Assert.False(cut.Find("button.btn-primary").HasAttribute("disabled"));
 
-        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Skip").ClickAsync(new());
+        await ButtonNamed(cut, "Skip").ClickAsync(new());
 
         Assert.Equal(1, c.SkippedCount);
         Assert.Empty(cut.FindAll("input[checked]"));
@@ -5849,6 +5853,156 @@ public class PageTests : BunitContext
             CubePills(cut));
     }
 
+    /// <summary>The short form of the pills, caption and accessible name, as SPEC-quiz-view §4 rules them.</summary>
+    private static readonly (string Caption, string? Name)[] ShortPillsNoDoublePass =
+    [
+        ("ND", "ND (No double)"),
+        ("D/T", "D/T (Double / Take)"),
+        ("D/P", "D/P (Double / Pass)"),
+        ("NP", "NP (No double / Pass)"),
+    ];
+
+    /// <inheritdoc cref="ShortPillsNoDoublePass"/>
+    private static readonly (string Caption, string? Name)[] ShortPillsTooGood =
+        [.. ShortPillsNoDoublePass[..3], ("TG", "TG (Too good)")];
+
+    /// <summary>The full form, as the gammons-possible pin above reads it.</summary>
+    private static readonly (string Caption, string? Name)[] FullPillsTooGood =
+    [
+        ("No double", "No double"),
+        ("Double / Take", "Double / Take"),
+        ("Double / Pass", "Double / Pass"),
+        ("Too good", "Too good"),
+    ];
+
+    /// <inheritdoc cref="FullPillsTooGood"/>
+    private static readonly (string Caption, string? Name)[] FullPillsNoDoublePass =
+        [.. FullPillsTooGood[..3], ("No double / Pass", "No double / Pass")];
+
+    /// <summary>Report <paramref name="width"/> as the action row's width, as the row-width module does.</summary>
+    private static Task ReportRowWidth(IRenderedComponent<QuizPage> cut, double width) =>
+        cut.InvokeAsync(() => cut.Instance.HandleActionRowResized(width));
+
+    [Theory]
+    // Gammons not possible: the fourth reads No double / Pass, the longest set.
+    [InlineData(CubeOwner.Centered, QuizPage.FullCubeRowWidthNoDoublePass, false)]
+    [InlineData(CubeOwner.Centered, QuizPage.FullCubeRowWidthNoDoublePass - 0.1, true)]
+    // Gammons possible: the fourth reads Too good, and the row fits narrower.
+    [InlineData(CubeOwner.OnRoll, QuizPage.FullCubeRowWidthTooGood, false)]
+    [InlineData(CubeOwner.OnRoll, QuizPage.FullCubeRowWidthTooGood - 0.1, true)]
+    // Each width is the fourth answer's own: the Too good row's width is too
+    // narrow for the No double / Pass row.
+    [InlineData(CubeOwner.Centered, QuizPage.FullCubeRowWidthTooGood, true)]
+    public async Task Quiz_CubeActions_AbbreviateExactlyWhereTheRowIsNarrowerThanTheFullRow(
+        CubeOwner cubeOwner, double rowWidth, bool abbreviated)
+    {
+        // SPEC-quiz-view §4: "Cube labels abbreviate only when the row cannot
+        // fit them", at a switch-over width the leg measured. The page keys on
+        // the action row's reported width and the fourth answer's reading, and
+        // hands the row its form as ShortLabels; the pills render that form,
+        // caption and accessible name, as the producer composes them. Until a
+        // width is reported the labels are full — the producer's default.
+        var c = WithController(TestFixtures.CubeDecision(cubeOwner: cubeOwner));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var cut = Render<QuizPage>();
+        var tooGood = cubeOwner == CubeOwner.OnRoll;
+        var full = tooGood ? FullPillsTooGood : FullPillsNoDoublePass;
+        Assert.Equal(full, CubePills(cut));
+
+        await ReportRowWidth(cut, rowWidth);
+
+        Assert.Equal(abbreviated, cut.FindComponent<BackgammonCubeActions>().Instance.ShortLabels);
+        Assert.Equal(
+            abbreviated ? (tooGood ? ShortPillsTooGood : ShortPillsNoDoublePass) : full,
+            CubePills(cut));
+    }
+
+    [Fact]
+    public async Task Quiz_CubeActions_FollowTheRowBothWays_AndRenderOnlyWhereTheFormChanges()
+    {
+        // A window dragged across the switch-over re-renders the page once
+        // each way, not once per reported width: reports that leave the form
+        // where it is cost no render. bUnit's count includes the children a
+        // page render re-renders, so one render of the page is measured first,
+        // as a re-render with nothing changed.
+        var c = WithController(TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var cut = Render<QuizPage>();
+        const double wide = QuizPage.FullCubeRowWidthNoDoublePass;
+        var before = cut.RenderCount;
+        cut.Render();
+        var oneRender = cut.RenderCount - before;
+        Assert.True(oneRender > 0);
+
+        var renders = cut.RenderCount;
+        await ReportRowWidth(cut, wide + 300);
+        await ReportRowWidth(cut, wide + 100);
+        Assert.Equal(renders, cut.RenderCount);
+        Assert.Equal(FullPillsNoDoublePass, CubePills(cut));
+
+        await ReportRowWidth(cut, wide - 100);
+        await ReportRowWidth(cut, wide - 300);
+        Assert.Equal(renders + oneRender, cut.RenderCount);
+        Assert.Equal(ShortPillsNoDoublePass, CubePills(cut));
+
+        await ReportRowWidth(cut, wide);
+        Assert.Equal(renders + 2 * oneRender, cut.RenderCount);
+        Assert.Equal(FullPillsNoDoublePass, CubePills(cut));
+    }
+
+    [Fact]
+    public async Task Quiz_CubeActions_ANewCubeProblem_TakesTheFormItsOwnRowWidthGives()
+    {
+        // The width reported for one problem decides the next one's form, at
+        // that problem's own switch-over: a row wide enough for the Too good
+        // set but not for No double / Pass shows the first in full and the
+        // second abbreviated, with no new report in between.
+        var c = WithController(
+            TestFixtures.CubeDecision(cubeOwner: CubeOwner.OnRoll),
+            TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var cut = Render<QuizPage>();
+        await ReportRowWidth(cut, QuizPage.FullCubeRowWidthTooGood);
+        Assert.Equal(FullPillsTooGood, CubePills(cut));
+
+        await ButtonNamed(cut, "Skip").ClickAsync(new());
+
+        Assert.Equal(ShortPillsNoDoublePass, CubePills(cut));
+    }
+
+    [Fact]
+    public async Task Quiz_RowWidthModule_ObservesTheRowOnceItRenders_OnceForTheRowsLife_AndStopsOnDispose()
+    {
+        // The wiring, at the seam the browser sees: with no quiz running there
+        // is no row and nothing is observed; once a problem is on screen the
+        // module is handed that row, the page's reference and the callback's
+        // name (spelled once, on the C# side); moving to the next problem keeps
+        // the same row, so it is not observed again; and the observer stops
+        // before the page's reference is disposed.
+        var c = WithController(
+            TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered),
+            TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered));
+        var cut = Render<QuizPage>();
+        _rowWidth.VerifyNotInvoke("observe");
+
+        await cut.InvokeAsync(() => c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity));
+        var row = cut.Find(".action-row").GetAttribute("blazor:elementreference");
+
+        var observe = _rowWidth.VerifyInvoke("observe");
+        Assert.Equal(3, observe.Arguments.Count);
+        Assert.Equal(row, ((ElementReference)observe.Arguments[0]!).Id);
+        Assert.IsType<DotNetObjectReference<QuizPage>>(observe.Arguments[1]);
+        Assert.Equal(nameof(QuizPage.HandleActionRowResized), observe.Arguments[2]);
+
+        await ButtonNamed(cut, "Skip").ClickAsync(new());
+        _rowWidth.VerifyInvoke("observe", calledTimes: 1);
+        _rowWidth.VerifyNotInvoke("unobserve");
+
+        await DisposeComponentsAsync();
+
+        _rowWidth.VerifyInvoke("unobserve");
+    }
+
     [Fact]
     public async Task Quiz_CubeActions_TheRowIsHandedTheDecisionOnScreen()
     {
@@ -5864,9 +6018,11 @@ public class PageTests : BunitContext
 
         Assert.Same(first, cut.FindComponent<BackgammonCubeActions>().Instance.Decision);
 
-        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Skip").ClickAsync(new());
-
+        await ButtonNamed(cut, "Skip").ClickAsync(new());
         Assert.Same(second, cut.FindComponent<BackgammonCubeActions>().Instance.Decision);
+
+        await ButtonNamed(cut, "Back").ClickAsync(new());
+        Assert.Same(first, cut.FindComponent<BackgammonCubeActions>().Instance.Decision);
     }
 
     [Fact]
@@ -6097,7 +6253,7 @@ public class PageTests : BunitContext
     public async Task Quiz_CubeActions_SelectEnablesSubmit_ThenSkipClearsForNextProblem()
     {
         // Submit-enable round-trip + clear-on-Skip. Selecting a cube action latches
-        // _completedCube and enables Submit; Skipping to the next cube problem must
+        // _completedCube and enables Submit; ▶ (Skip) to the next cube problem must
         // null it via HandleStateChanged, so the next problem starts with Submit
         // disabled and no radio checked (the previous answer never carries over).
         var c = WithController(TestFixtures.CubeDecision(), TestFixtures.CubeDecision());
@@ -6111,9 +6267,8 @@ public class PageTests : BunitContext
         Assert.False(cut.Find("button.btn-primary").HasAttribute("disabled"));
         Assert.NotEmpty(cut.FindAll("input[checked]"));
 
-        // Skip advances to the next cube problem — the answer must not carry over.
-        var skip = cut.FindAll("button").First(b => b.TextContent.Trim() == "Skip");
-        await skip.ClickAsync(new());
+        // ▶ advances to the next cube problem — the answer must not carry over.
+        await ButtonNamed(cut, "Skip").ClickAsync(new());
 
         Assert.True(cut.Find("button.btn-primary").HasAttribute("disabled"));
         Assert.Empty(cut.FindAll("input[checked]"));
@@ -6143,34 +6298,48 @@ public class PageTests : BunitContext
         Assert.True(cut.Find("button.btn-primary").HasAttribute("disabled"));
     }
 
-    [Fact]
-    public async Task Quiz_Redo_PlayEntry_RemountsFreshComponent()
+    [Theory]
+    [InlineData("Back")]
+    [InlineData("Go to first")]
+    [InlineData("Go to last")]
+    [InlineData("Next")]
+    public async Task Quiz_EveryLanding_MountsAFreshPlayEntry_EvenOnTheSamePosition(string control)
     {
-        // The play-entry analog: BackgammonPlayEntry only resets its internal
-        // MoveEntryState when Mop/Dice differ from the last request it saw, and
-        // Redo returns to the SAME Mop/Dice — but Submit already unmounted the
-        // entry when the page swapped to the review branch, so that
-        // reset-suppression path is never reached. A distinct component
-        // instance post-Redo pins the guarantee that the branch swap alone
-        // produces a genuinely fresh entry.
-        var decision = TestFixtures.OneClickPlayDecision();
-        var c = WithController(decision);
+        // BackgammonPlayEntry resets its in-progress state only when its request
+        // describes a different position, and two problems of a run can share
+        // one — these three are content-identical. So a half-built play would
+        // follow a landing between them, were the entry not keyed on the
+        // problem's place in the run. Each control lands from a half-built play
+        // onto another presented problem, and must find a fresh entry: nothing
+        // entered, Submit dark.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.NextAsync();
+        await c.NextAsync();                       // three presented, the third on screen
+        if (control is "Go to last" or "Next") c.GoToFirst();
         var cut = Render<QuizPage>();
+        var landed = c.ProblemNumber;
+        var clean = EntryBoard(cut);
+        var before = cut.FindComponent<BackgammonPlayEntry>().Instance;
 
-        var firstEntry = cut.FindComponent<BackgammonPlayEntry>().Instance;
+        await ClickPointAsync(cut, 8);             // half a play
+        Assert.NotEqual(clean, EntryBoard(cut));
 
-        await ClickPointAsync(cut, 12); // completes the play
-        var submit = cut.FindAll("button").First(b => b.TextContent.Trim() == "Submit");
-        await submit.ClickAsync(new());
-        Assert.NotNull(c.Review);
+        await ButtonNamed(cut, control).ClickAsync(new());
 
-        var redo = cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo");
-        await redo.ClickAsync(new());
+        Assert.NotEqual(landed, c.ProblemNumber);
+        Assert.NotSame(before, cut.FindComponent<BackgammonPlayEntry>().Instance);
+        Assert.Equal(clean, EntryBoard(cut));
 
-        Assert.Null(c.Review);
-        var secondEntry = cut.FindComponent<BackgammonPlayEntry>().Instance;
-        Assert.NotSame(firstEntry, secondEntry);
+        // The entry's board as drawn, without the event-handler ids Blazor
+        // numbers per mounted instance — a fresh entry draws the same board
+        // under new ids.
+        static string EntryBoard(IRenderedComponent<QuizPage> cut) =>
+            Regex.Replace(cut.Find(".bg-play-entry").InnerHtml, "blazor:on[a-z]+=\"[0-9]+\"", "");
+        Assert.True(ButtonNamed(cut, "Submit").HasAttribute("disabled"));
     }
 
     [Fact]
@@ -6277,7 +6446,7 @@ public class PageTests : BunitContext
     {
         // Round trip through /stats must not disturb the in-progress problem:
         // Stats is a read-only consumer of the same live QuizController — no
-        // Submit / Continue / Skip call — so Current and Review (captured here in
+        // Submit or ▶ call — so Current and Review (captured here in
         // the review state, the more telling case since it's non-null) survive
         // the whole /quiz -> /stats -> /quiz trip unchanged.
         var d1 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
@@ -6429,12 +6598,14 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_Review_OffersTheNotes_AfterRedo_WiredToTheRecordsComment()
+    public async Task Quiz_Review_OffersTheNotes_AfterTheNavigationButtons_WiredToTheRecordsComment()
     {
-        // The one home: the review row's leading cluster, after Redo and before
-        // the tail — and the page hands over the record's comment and nothing
-        // else. The order is read off the row's children, because "after Redo,
-        // before the tail" is a claim about position that presence cannot make.
+        // The one home: the review row's leading cluster, after the navigation
+        // buttons and before the tail (SPEC-quiz-view.md §4: Redo's place went to
+        // ⏮ ◀ ▶ ⏭, so "after Redo" reads "after the navigation buttons") — and
+        // the page hands over the record's comment and nothing else. The order is
+        // read off the row's children, because the position is a claim presence
+        // cannot make.
         var c = WithController(TestFixtures.CubeDecision(comment: CubeNote));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
@@ -6444,8 +6615,8 @@ public class PageTests : BunitContext
         var row = cut.Find(".action-row").Children.ToList();
         Assert.Equal(4, row.Count);
         Assert.Equal("Continue", row[0].TextContent.Trim());
-        Assert.Equal("Redo", row[1].TextContent.Trim());
-        Assert.True(row[2].ClassList.Contains("decision-notes-toggle"), "the Notes control follows Redo");
+        Assert.True(row[1].ClassList.Contains("quiz-nav"), "the navigation buttons follow Continue");
+        Assert.True(row[2].ClassList.Contains("decision-notes-toggle"), "the Notes control follows them");
         Assert.Equal("Notes", row[2].TextContent.Trim());
         Assert.True(row[3].ClassList.Contains("action-row-tail"), "and precedes the tail");
 
@@ -6468,18 +6639,19 @@ public class PageTests : BunitContext
 
         await SubmitCubeThroughPageAsync(cut);
 
-        Assert.Contains(cut.FindAll("button"), b => b.TextContent.Trim() == "Redo");
+        Assert.True(HasButtonNamed(cut, "Continue"));
         Assert.Empty(NotesControls(cut));
-        Assert.Equal(3, cut.Find(".action-row").Children.Length); // Continue, Redo, tail
+        Assert.Equal(3, cut.Find(".action-row").Children.Length); // Continue, the navigation buttons, tail
     }
 
     [Fact]
-    public async Task Quiz_RedoAndContinue_CloseTheNotes_ByLeavingTheReview()
+    public async Task Quiz_EveryMoveOffTheReview_ClosesTheNotes_ByLeavingTheReview()
     {
-        // "Continue and Redo close it by re-rendering the row": both leave the
-        // review branch, which unmounts the notes, so the next review — the same
-        // problem after Redo, the next one after Continue — offers them closed.
-        // Not a view state, and nothing app-scoped remembers it was open.
+        // Every landing is the answering state, so every move off a review —
+        // ◀ back to a problem answered earlier, Continue on to the next — leaves
+        // the review branch, which unmounts the notes; the next review offers
+        // them closed. Not a view state, and nothing app-scoped remembers it was
+        // open (SPEC-quiz-history.md §5).
         var c = WithController(
             TestFixtures.CubeDecision(comment: CubeNote),
             TestFixtures.CubeDecision(away: 3, comment: CubeNote));
@@ -6487,22 +6659,397 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
 
         await SubmitCubeThroughPageAsync(cut);
+        await ButtonNamed(cut, "Continue").ClickAsync(new());
+        await SubmitCubeThroughPageAsync(cut);
         await NotesControls(cut)[0].ClickAsync(new());
         Assert.Single(cut.FindAll("dialog"));
 
-        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Redo").ClickAsync(new());
+        await ButtonNamed(cut, "Back").ClickAsync(new());
         Assert.Empty(cut.FindAll("dialog"));
-        await SubmitCubeThroughPageAsync(cut);
+        await SubmitCubeThroughPageAsync(cut);                     // practice, on the first
         Assert.Equal("false", NotesControls(cut)[0].GetAttribute("aria-expanded"));
         Assert.Empty(cut.FindAll("dialog"));
 
         await NotesControls(cut)[0].ClickAsync(new());
         Assert.Single(cut.FindAll("dialog"));
-        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Continue").ClickAsync(new());
+        await ButtonNamed(cut, "Continue").ClickAsync(new());
         Assert.Empty(cut.FindAll("dialog"));
-        await SubmitCubeThroughPageAsync(cut);
+        await SubmitCubeThroughPageAsync(cut);                     // practice, on the second
         Assert.Equal("false", NotesControls(cut)[0].GetAttribute("aria-expanded"));
         Assert.Empty(cut.FindAll("dialog"));
+    }
+
+    // -----------------------------------------------------------------------
+    //  Quiz navigation on the page (SPEC-quiz-history.md §2–§5; the row's
+    //  composition is SPEC-quiz-view.md §4's). Parent → child → handler:
+    //  each pin drives the rendered buttons, and reads what the controller and
+    //  the page then show.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The action row's children in order, by what each is: a control's
+    /// accessible name, the cube answer row as "cube answers", the navigation
+    /// group expanded to its four buttons, and the trailing cluster as "tail".
+    /// </summary>
+    private static List<string> ActionRowComposition(IRenderedComponent<QuizPage> cut)
+    {
+        var names = new List<string>();
+        foreach (var child in cut.Find(".action-row").Children)
+        {
+            if (child.ClassList.Contains("action-row-tail")) names.Add("tail");
+            else if (child.ClassList.Contains("quiz-nav")) names.AddRange(child.QuerySelectorAll("button").Select(AccessibleName));
+            else if (child.GetAttribute("role") == "radiogroup") names.Add("cube answers");
+            else names.Add(AccessibleName(child));
+        }
+        return names;
+    }
+
+    /// <summary>No button captioned Skip or Redo: the two retired buttons are gone, whatever ▶ is named.</summary>
+    private static void AssertTheRetiredButtonsAreGone(IRenderedComponent<QuizPage> cut) =>
+        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() is "Skip" or "Redo");
+
+    [Fact]
+    public async Task Quiz_ActionRow_CheckerAnswering_UndoAllUndoLastSubmit_ThenTheFour_ThenTheTail()
+    {
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+
+        var cut = Render<QuizPage>();
+
+        Assert.Equal(
+            ["Undo all", "Undo last", "Submit", "Go to first", "Back", "Skip", "Go to last", "tail"],
+            ActionRowComposition(cut));
+        AssertTheRetiredButtonsAreGone(cut);
+    }
+
+    [Fact]
+    public async Task Quiz_ActionRow_CubeAnswering_TheAnswersSubmit_ThenTheFour_ThenTheTail()
+    {
+        var c = WithController(TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+
+        var cut = Render<QuizPage>();
+
+        Assert.Equal(
+            ["cube answers", "Submit", "Go to first", "Back", "Skip", "Go to last", "tail"],
+            ActionRowComposition(cut));
+        AssertTheRetiredButtonsAreGone(cut);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Quiz_ActionRow_Review_Continue_ThenTheFour_ThenNotes_ThenTheTail(bool withNotes)
+    {
+        var c = WithController(withNotes ? TestFixtures.CubeDecision(comment: CubeNote) : TestFixtures.CubeDecision());
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var cut = Render<QuizPage>();
+
+        await SubmitCubeThroughPageAsync(cut);
+
+        List<string> expected = withNotes
+            ? ["Continue", "Go to first", "Back", "Next", "Go to last", "Notes", "tail"]
+            : ["Continue", "Go to first", "Back", "Next", "Go to last", "tail"];
+        Assert.Equal(expected, ActionRowComposition(cut));
+        AssertTheRetiredButtonsAreGone(cut);
+    }
+
+    [Fact]
+    public async Task Quiz_TheFourButtons_AreIconsWithTheirNamesAsAccessibleNameAndTooltip()
+    {
+        // §2: "compact icon buttons with accessible names". The glyph carries no
+        // text and is hidden from assistive technology; each button's name and
+        // tooltip are its words, exactly, and the group is named too.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+
+        var cut = Render<QuizPage>();
+
+        var group = cut.Find(".quiz-nav");
+        Assert.Equal("group", group.GetAttribute("role"));
+        Assert.Equal("Problems", group.GetAttribute("aria-label"));
+        var buttons = group.QuerySelectorAll("button").ToList();
+        Assert.Equal(["Go to first", "Back", "Skip", "Go to last"], buttons.Select(b => b.GetAttribute("aria-label")));
+        Assert.Equal(["Go to first", "Back", "Skip", "Go to last"], buttons.Select(b => b.GetAttribute("title")));
+        Assert.All(buttons, b =>
+        {
+            Assert.Equal("", b.TextContent.Trim());
+            Assert.Equal("true", b.QuerySelector("svg")!.GetAttribute("aria-hidden"));
+        });
+    }
+
+    public enum NextNamedFrom
+    {
+        TheUnresolvedFrontier,
+        ADeferredProblemBehindTheFrontier,
+        AnAnsweredProblemBehindTheFrontier,
+        TheAnsweredFrontiersDecision,
+        ALiveReview,
+        APracticeReview,
+    }
+
+    [Theory]
+    [InlineData(NextNamedFrom.TheUnresolvedFrontier, "Skip")]
+    [InlineData(NextNamedFrom.ADeferredProblemBehindTheFrontier, "Next")]
+    [InlineData(NextNamedFrom.AnAnsweredProblemBehindTheFrontier, "Next")]
+    [InlineData(NextNamedFrom.TheAnsweredFrontiersDecision, "Next")]
+    [InlineData(NextNamedFrom.ALiveReview, "Next")]
+    [InlineData(NextNamedFrom.APracticeReview, "Next")]
+    public async Task Quiz_Next_IsNamedSkip_ExactlyWhereAPressAddsToTheSkipCount(NextNamedFrom from, string name)
+    {
+        // §2: "Its accessible name and tooltip say "Skip" wherever a press would
+        // add to the skip count, and "Next" otherwise, so the icon never hides a
+        // counted skip." Each state is staged, ▶'s name and tooltip read exactly,
+        // and then ▶ is pressed to show the name told the truth about the count.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.SubmitPlayAsync(BestPlay());   // 1: answered
+        await c.NextAsync();
+        await c.NextAsync();                   // 2: deferred; 3: the unresolved frontier
+        switch (from)
+        {
+            case NextNamedFrom.TheUnresolvedFrontier: break;
+            case NextNamedFrom.ADeferredProblemBehindTheFrontier: c.GoBack(); break;
+            case NextNamedFrom.AnAnsweredProblemBehindTheFrontier: c.GoToFirst(); break;
+            case NextNamedFrom.TheAnsweredFrontiersDecision: await c.SubmitPlayAsync(BestPlay()); c.GoBack(); c.GoToLast(); break;
+            case NextNamedFrom.ALiveReview: await c.SubmitPlayAsync(BestPlay()); break;
+            case NextNamedFrom.APracticeReview: c.GoToFirst(); await c.SubmitPlayAsync(BestPlay()); break;
+        }
+        var cut = Render<QuizPage>();
+        var next = cut.FindAll(".quiz-nav button")[2];
+
+        Assert.Equal(name, next.GetAttribute("aria-label"));
+        Assert.Equal(name, next.GetAttribute("title"));
+
+        var skipped = c.SkippedCount;
+        await next.ClickAsync(new());
+        Assert.Equal(skipped + (name == "Skip" ? 1 : 0), c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task Quiz_NavigationAvailability_FirstProblem_TheFrontier_AndBehindIt()
+    {
+        // §2: ⏮ and ◀ are unavailable at the first problem, ⏭ at the frontier,
+        // and ▶ only while busy — read off the rendered buttons as the cursor
+        // moves, in both view states.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var cut = Render<QuizPage>();
+
+        bool[] Lit() => [.. cut.FindAll(".quiz-nav button").Select(b => !b.HasAttribute("disabled"))];
+
+        Assert.Equal([false, false, true, false], Lit());   // the first problem is the frontier
+
+        await ButtonNamed(cut, "Skip").ClickAsync(new());
+        Assert.Equal([true, true, true, false], Lit());     // on the frontier, a problem behind it
+
+        await ButtonNamed(cut, "Back").ClickAsync(new());
+        Assert.Equal([false, false, true, true], Lit());    // the first problem, behind the frontier
+
+        await ClickTheWholePlayAsync(cut);
+        await ButtonNamed(cut, "Submit").ClickAsync(new());
+        Assert.NotNull(c.Review);
+        Assert.Equal([false, false, true, true], Lit());    // the same in its review
+    }
+
+    [Fact]
+    public async Task Quiz_NavigationButtons_AreAllUnavailableWhileBusy_WhereEachWouldOtherwiseBeLit()
+    {
+        // §2: "All four are unavailable while the controller is busy." The one
+        // state where all four are lit by position and the page is genuinely busy
+        // is a live answer behind the frontier whose write is held: an earlier
+        // problem for ⏮ ◀, the frontier ahead for ⏭ and ▶. Drop the busy term
+        // from any gate and its button lights here.
+        var c = WithGatedController(out var source, out var sink,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        source.ReleaseNext(3);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.NextAsync();
+        await c.NextAsync();
+        c.GoBack();                            // the second, deferred and live
+        var cut = Render<QuizPage>();
+        Assert.All(cut.FindAll(".quiz-nav button"), b => Assert.False(b.HasAttribute("disabled")));
+
+        var write = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sink.RecordGate = write.Task;
+        await cut.InvokeAsync(() =>
+            cut.FindComponent<BackgammonPlayEntry>().Instance.OnPlayCompleted.InvokeAsync(BestPlay()));
+        var submit = ButtonNamed(cut, "Submit").ClickAsync(new());
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.True(HasButtonNamed(cut, "Continue"));
+            Assert.Equal(4, cut.FindAll(".quiz-nav button").Count);
+            Assert.All(cut.FindAll(".quiz-nav button"), b => Assert.True(b.HasAttribute("disabled")));
+        });
+        Assert.True(c.IsBusy);
+
+        write.SetResult();
+        await submit;
+        cut.WaitForAssertion(() =>
+            Assert.All(cut.FindAll(".quiz-nav button"), b => Assert.False(b.HasAttribute("disabled"))));
+    }
+
+    [Theory]
+    [InlineData("Back")]
+    [InlineData("Go to first")]
+    [InlineData("Go to last")]
+    [InlineData("Next")]
+    public async Task Quiz_EveryLanding_CubeAnswersStartClean(string control)
+    {
+        // Constraint 10's cube half: a pill chosen on the problem left does not
+        // follow any landing, so nothing is latched for Submit.
+        var c = WithController(
+            TestFixtures.CubeDecision(),
+            TestFixtures.CubeDecision(away: 1),
+            TestFixtures.CubeDecision(away: 2));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.NextAsync();
+        await c.NextAsync();
+        if (control is "Go to last" or "Next") c.GoToFirst();
+        var cut = Render<QuizPage>();
+        var landed = c.ProblemNumber;
+
+        await AnswerCubeAsync(cut, CubeAnswer.DoublePass);
+        Assert.NotEmpty(cut.FindAll("input[checked]"));
+        Assert.False(ButtonNamed(cut, "Submit").HasAttribute("disabled"));
+
+        await ButtonNamed(cut, control).ClickAsync(new());
+
+        Assert.NotEqual(landed, c.ProblemNumber);
+        Assert.Empty(cut.FindAll("input[checked]"));
+        Assert.True(ButtonNamed(cut, "Submit").HasAttribute("disabled"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Quiz_LandingFromAReview_StartsClean_EitherKind(bool cube)
+    {
+        // The landings that leave a review: its decision, never the solution,
+        // with nothing entered and nothing latched (§3, §5) — onto a problem
+        // answered earlier, where a submission would be practice.
+        BgDecisionData Problem(int n) => cube
+            ? TestFixtures.CubeDecision(away: n)
+            : TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: n);
+        var c = WithController(Problem(1), Problem(2));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        if (cube) await c.SubmitCubeAnswerAsync(CubeAnswer.DoubleTake); else await c.SubmitPlayAsync(BestPlay());
+        await c.NextAsync();
+        if (cube) await c.SubmitCubeAnswerAsync(CubeAnswer.DoubleTake); else await c.SubmitPlayAsync(BestPlay());
+        var cut = Render<QuizPage>();
+        Assert.True(HasButtonNamed(cut, "Continue"));
+
+        await ButtonNamed(cut, "Back").ClickAsync(new());
+
+        Assert.Null(c.Review);
+        Assert.False(HasButtonNamed(cut, "Continue"));
+        Assert.True(ButtonNamed(cut, "Submit").HasAttribute("disabled"));
+        if (cube) Assert.Empty(cut.FindAll("input[checked]"));
+        else Assert.NotEmpty(cut.FindAll(".board-container .bg-play-entry"));
+    }
+
+    [Fact]
+    public async Task Quiz_Space_OnAProblemAnsweredEarlier_WithSubmitDark_GoesToTheNextProblem()
+    {
+        // SPEC-quiz-history.md §2, Hal's clarification of 2026-10-02 ("go to the
+        // next problem"): with Submit unavailable, Space presses ▶ even where ▶
+        // is named Next — here, the decision of a completed problem.
+        var first = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var second = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = WithController(first, second);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.SubmitPlayAsync(BestPlay());
+        await c.NextAsync();
+        c.GoBack();
+        var cut = Render<QuizPage>();
+        Assert.True(ButtonNamed(cut, "Submit").HasAttribute("disabled"));
+        Assert.False(ButtonNamed(cut, "Next").HasAttribute("disabled"));
+
+        await PressSpaceAsync(cut);
+
+        Assert.Same(second, c.Current);
+        Assert.Null(c.Review);
+        Assert.Equal(0, c.SkippedCount);
+        Assert.Equal(1, AnswersOfRecord(c));
+    }
+
+    [Fact]
+    public async Task Quiz_Space_OnADeferredProblemBehindTheFrontier_WithSubmitDark_GoesToTheNextProblem()
+    {
+        // The other case the clarification names: a deferred problem behind the
+        // frontier, ▶ named Next. The press moves the cursor and changes no
+        // count — the deferred problem was already counted.
+        var first = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var second = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var c = WithController(first, second);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.NextAsync();
+        c.GoBack();
+        var cut = Render<QuizPage>();
+        Assert.Equal(1, c.SkippedCount);
+        Assert.False(ButtonNamed(cut, "Next").HasAttribute("disabled"));
+
+        await PressSpaceAsync(cut);
+
+        Assert.Same(second, c.Current);
+        Assert.Equal(1, c.SkippedCount);
+    }
+
+    [Fact]
+    public async Task Quiz_Space_WithSubmitLitOnAProblemAnsweredEarlier_SubmitsPractice()
+    {
+        // Submit first, wherever it is lit: on a completed problem that is a
+        // practice submission, reviewed and marked, changing nothing.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(ClickedPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(ClickedPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.SubmitPlayAsync(AltPlay());
+        await c.NextAsync();
+        c.GoBack();
+        var cut = Render<QuizPage>();
+        var scored = c.Score;
+        await ClickTheWholePlayAsync(cut);
+
+        await PressSpaceAsync(cut);
+
+        Assert.True(c.Review!.IsPractice);
+        Assert.Equal(scored, c.Score);
+        Assert.Equal("Practice — Correct.", Normalize(cut.Find(".status-verdict-text").TextContent));
+    }
+
+    [Fact]
+    public async Task Done_ProblemsShown_IsTheRunsPresentedSequence()
+    {
+        // halheinrich/backgammon#325, item 2: Done's "problems shown" is the run's
+        // fact, never the score's submitted count plus the skips. The two agree
+        // once a run has finished, so the pin reads Done over a run that has
+        // not: one problem answered, the next on screen unresolved — two shown,
+        // where the old sum read one.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.SubmitPlayAsync(BestPlay());
+        await c.NextAsync();
+        Assert.Equal(1, c.Score.Total.Submitted + c.SkippedCount);
+        Assert.Equal(2, c.PresentedCount);
+
+        var cut = Render<DonePage>();
+
+        var shown = cut.FindAll("p").Single(p => p.TextContent.Contains("Total problems shown"));
+        Assert.Equal("Total problems shown: 2.", Normalize(shown.TextContent));
     }
 
     // -----------------------------------------------------------------------
@@ -6526,7 +7073,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync(); // exhausts → IsFinished
+        await c.NextAsync(); // exhausts → IsFinished
 
         var cut = Render<DonePage>();
 
@@ -6551,7 +7098,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync(); // exhausts → IsFinished
+        await c.NextAsync(); // exhausts → IsFinished
 
         Render<DonePage>();
 
@@ -6566,9 +7113,9 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
         Assert.True(c.IsFinished);
 
         var cut = Render<DonePage>();
@@ -6597,9 +7144,9 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
         Assert.True(c.IsFinished);
 
         var cut = Render<DonePage>();
@@ -6615,7 +7162,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         var cut = Render<DonePage>();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
@@ -6630,20 +7177,19 @@ public class PageTests : BunitContext
     public async Task Done_MixedRun_RendersFourWayBreakdownAndProblemCount()
     {
         // One cube answer, one checker play and one skip: three problems shown.
-        // The cube answer adds to Double and to Take, but the session score's
-        // Total counts it once (SPEC-scoring.md §3, 2026-10-01), so Done's count
-        // is the Total's submitted count plus the skips — and a count that
-        // added the Take row back in, or counted the cube twice, reads 4.
+        // The cube answer adds to Double and to Take, and the session score's
+        // Total counts it once (SPEC-scoring.md §3, 2026-10-01); Done's count is
+        // the run's presented sequence, three, whatever the rows add up to.
         var c = WithController(
             TestFixtures.CubeDecision(),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 3),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 5));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitCubeAnswerAsync(CubeAnswer.DoubleTake);
-        await c.ContinueAsync();
+        await c.NextAsync();
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
-        await c.SkipCurrentAsync();
+        await c.NextAsync();
+        await c.NextAsync();
         Assert.True(c.IsFinished);
 
         var cut = Render<DonePage>();
@@ -6670,7 +7216,7 @@ public class PageTests : BunitContext
         var folder = WithPickedFolder("xg");
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         var cut = Render<DonePage>();
 
@@ -6688,7 +7234,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync();
+        await c.NextAsync();
 
         var cut = Render<DonePage>();
 
@@ -6736,7 +7282,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync(); // exhausts -> finished
+        await c.NextAsync(); // exhausts -> finished
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         Render<StatsPage>();
@@ -7290,6 +7836,49 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public void Help_DocumentsTheFourNavigationButtons_SkipAndNext_Practice_AndTheOpenSkip_WithNoRedo()
+    {
+        // SPEC-quiz-history.md §2 and §3 (the navigation leg of
+        // halheinrich/backgammon#8): the four buttons by the names their
+        // tooltips carry, ▶ called Skip only where a press adds to the skip
+        // count, Space pressing it before an answer is complete; going back to
+        // an answered problem is practice, marked "Practice —", changing
+        // nothing; a problem passed with Skip stays open and answering it later
+        // counts and drops the skip count; practice is per quiz. The passages
+        // they replace described the Skip and Redo buttons, which are retired,
+        // and said that redoing a skipped problem "does not un-skip it".
+        WithController();
+        var cut = Render<HelpPage>();
+        var answering = HelpSectionText(cut, HelpSections.AnswerThePosition.Heading);
+        var review = HelpSectionText(cut, HelpSections.ReviewTheSolution.Heading);
+        var lifetime = HelpSectionText(cut, HelpSections.LifetimeStats.Heading);
+
+        Assert.Contains(
+            "The four arrow buttons beside it move you through the quiz: Go to first, Back, Next and Go to last, as their tooltips name them.",
+            answering);
+        Assert.Contains(
+            "On that problem, until you answer it, Next is called Skip: it moves on without answering, and the problem counts as skipped.",
+            answering);
+        Assert.Contains("Everywhere else Next just moves on and changes nothing.", answering);
+        Assert.Contains(
+            "The spacebar presses Submit once your answer is complete, and Next (or Skip) before then.",
+            answering);
+
+        Assert.Contains("you land on its position, ready to answer, never on its solution.", review);
+        Assert.Contains("the verdict starts Practice — and the review is otherwise exactly what the first one was", review);
+        Assert.Contains("A problem you passed with Skip is different: it stays open.", review);
+        Assert.Contains("and your skip count drops by one.", review);
+        Assert.Contains("every problem's first answer counts again.", review);
+
+        Assert.Contains("Neither is practice on a problem you go back to", lifetime);
+
+        foreach (var retired in new[] { "Redo", "redoing", "un-skip", "retry" })
+        {
+            Assert.DoesNotContain(retired, answering + review + lifetime, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
     public void Help_ChooseFilters_DocumentsTheAnswerTypeBreakdownAndItsZeros()
     {
         // The count line now carries a breakdown, so the paragraph that explains
@@ -7632,7 +8221,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync(); // exhausts → finished
+        await c.NextAsync(); // exhausts → finished
         Assert.True(c.IsFinished);
 
         var cut = Render<HelpPage>();
@@ -8073,16 +8662,16 @@ public class PageTests : BunitContext
     private static List<(string Label, string Classes)> ActionRowButtons(
         IRenderedComponent<QuizPage> cut) =>
         cut.FindAll(".action-row button")
-            .Select(b => (b.TextContent.Trim(), b.GetAttribute("class") ?? string.Empty))
+            .Select(b => (AccessibleName(b), b.GetAttribute("class") ?? string.Empty))
             .ToList();
 
     // halheinrich/backgammon#148's ruling (2): large + bold on the PRIMARY
-    // button only — Submit while answering, Continue at review — with Skip,
-    // Redo, the Undo pair and the trailing cluster unchanged. Both halves are
+    // button only — Submit while answering, Continue at review — with the
+    // navigation buttons, the Undo pair and the trailing cluster unchanged. Both halves are
     // pinned, in all three row compositions (one context each: a bUnit context
     // takes one controller), because each is a way the ruling can be lost: a
     // tidy-up that drops the classes from one Submit, or a "consistency" pass
-    // that puts them on Skip too. The primary is found by its label, not by
+    // that puts them on ▶ too. The primary is found by its label, not by
     // btn-primary — the ruling names the control, and a control restyled off
     // btn-primary would still owe the size.
 
@@ -8097,7 +8686,7 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Quiz_PlayAnswering_SubmitIsTheOnlyLargeBoldButton()
     {
-        // Beside Skip and the two Undos — the widest set of non-primaries.
+        // Beside the navigation buttons and the two Undos — the widest set of non-primaries.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         AssertOnlyThePrimaryIsLarge(Render<QuizPage>(), "Submit");
@@ -8241,8 +8830,8 @@ public class PageTests : BunitContext
 
         var actionRow = cut.Find(".action-row");
         Assert.NotEmpty(actionRow.QuerySelectorAll("[role=\"radiogroup\"]"));
-        Assert.Contains("Submit", actionRow.TextContent);
-        Assert.Contains("Skip", actionRow.TextContent);
+        Assert.True(HasButtonNamed(cut, "Submit"));
+        Assert.True(HasButtonNamed(cut, "Skip"));
     }
 
     [Fact]
@@ -8332,14 +8921,15 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_Maximized_RedoAndContinue_ReMaximize_WithNoSpecialCase()
+    public async Task Quiz_Maximized_EveryLanding_ReMaximizes_WithNoSpecialCase()
     {
         // "One rule, no special cases" (§4): the composition is derived from the
-        // answering/review fact every render, so Redo — which returns to
-        // answering on the SAME problem — re-maximizes without any transition
-        // knowing the mode exists. A stored "currently maximized" bit is what
-        // would make this a special case to remember; there isn't one.
+        // answering/review fact every render, so every landing — ◀ back onto an
+        // answered problem, ▶ onto the next — re-maximizes without any
+        // transition knowing the mode exists. A stored "currently maximized" bit
+        // is what would make this a special case to remember; there isn't one.
         var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
@@ -8350,17 +8940,15 @@ public class PageTests : BunitContext
         await cut.InvokeAsync(() => c.SubmitPlayAsync(BestPlay()));
         Assert.NotEmpty(cut.FindAll(".status-strip"));      // normalized at review
 
-        await cut.InvokeAsync(() => c.RedoAsync());
+        await cut.InvokeAsync(() => c.NextAsync());
         Assert.Null(c.Review);
-        Assert.Empty(cut.FindAll(".status-strip"));         // re-maximized
-        Assert.Equal(AspectPreset.BoardOnly, RenderedCanvas(cut));
+        Assert.Empty(cut.FindAll(".status-strip"));         // re-maximized, the next problem
 
-        // And the next problem's answering state, reached by Continue, is
-        // maximized too — the mode is not a per-problem thing.
         await cut.InvokeAsync(() => c.SubmitPlayAsync(BestPlay()));
-        await cut.InvokeAsync(() => c.ContinueAsync());
+        Assert.NotEmpty(cut.FindAll(".status-strip"));
+        await cut.InvokeAsync(c.GoBack);
         Assert.Null(c.Review);
-        Assert.Empty(cut.FindAll(".status-strip"));
+        Assert.Empty(cut.FindAll(".status-strip"));         // re-maximized, a problem answered earlier
         Assert.Equal(AspectPreset.BoardOnly, RenderedCanvas(cut));
     }
 
@@ -10054,9 +10642,9 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Quiz_MixNotice_SkipIsNotADismissal()
     {
-        // Skip moves past a problem without answering it, so the composition is
-        // still the thing the user hasn't engaged with — the settled rule is
-        // "first submitted answer", and Skip isn't one.
+        // ▶ named Skip moves past a problem without answering it, so the
+        // composition is still the thing the user hasn't engaged with — the
+        // settled rule is "first submitted answer", and a skip isn't one.
         var c = WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("a.xgp"), away: 1),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"), away: 2));
@@ -10067,7 +10655,7 @@ public class PageTests : BunitContext
         var cut = Render<QuizPage>();
         Assert.Contains("Your quiz has", cut.Markup);
 
-        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Skip").ClickAsync(new());
+        await ButtonNamed(cut, "Skip").ClickAsync(new());
 
         Assert.Contains("Your quiz has", cut.Markup);
     }
@@ -10234,7 +10822,7 @@ public class PageTests : BunitContext
         var c = Services.GetRequiredService<QuizController>();
         await c.StartAsync(new FilterConfig(), NeverSeenMix(), PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync(); // exhausts the one-problem source → finished
+        await c.NextAsync(); // exhausts the one-problem source → finished
         Assert.True(c.IsFinished);
         Assert.NotNull(c.LastComposition); // the run really was weighted
         return c;
@@ -10502,9 +11090,9 @@ public class PageTests : BunitContext
     {
         // The window where the review is genuinely on screen and the controller
         // genuinely busy: a Submit whose write to the lifetime record is held.
-        // The review is up at once; Continue, Redo and End quiz are disabled
-        // and the busy cursor shows; Show stats stays enabled (navigation only).
-        // Once the write lands, all of it lights.
+        // The review is up at once; Continue, the navigation buttons and End
+        // quiz are disabled and the busy cursor shows; Show stats stays enabled
+        // (navigation only). Once the write lands, the transitions light.
         var controller = WithGatedController(out var source, out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -10523,7 +11111,8 @@ public class PageTests : BunitContext
         {
             Assert.NotNull(cut.Find("div.app-busy"));
             Assert.True(ButtonNamed(cut, "Continue").HasAttribute("disabled"));
-            Assert.True(ButtonNamed(cut, "Redo").HasAttribute("disabled"));
+            foreach (var name in new[] { "Go to first", "Back", "Next", "Go to last" })
+                Assert.True(ButtonNamed(cut, name).HasAttribute("disabled"), $"{name} is lit mid-write");
             Assert.False(ButtonNamed(cut, "Show stats").HasAttribute("disabled"));
 
             // End quiz is a transition too — the gate would no-op it anyway, so
@@ -10540,7 +11129,7 @@ public class PageTests : BunitContext
         {
             Assert.Empty(cut.FindAll("div.app-busy"));
             Assert.False(ButtonNamed(cut, "Continue").HasAttribute("disabled"));
-            Assert.False(ButtonNamed(cut, "Redo").HasAttribute("disabled"));
+            Assert.False(ButtonNamed(cut, "Next").HasAttribute("disabled"));
             Assert.False(EndQuizButton(cut).HasAttribute("disabled"));
         });
         Assert.Single(sink.Plays);
@@ -11015,7 +11604,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
-        await c.ContinueAsync(); // exhausts → finished
+        await c.NextAsync(); // exhausts → finished
         Assert.True(c.IsFinished);
 
         var cut = Render<SettingsPage>();
@@ -11100,13 +11689,15 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_BoardSide_HoldsStillAcrossSubmitAndRedo()
+    public async Task Quiz_BoardSide_HoldsStillAcrossSubmitAndEveryReturn()
     {
         // The constraint that makes randomization usable: one problem, one side.
         // Submitting must not flip the board the user is still looking at, and
-        // Redo — which returns to the answering state on the SAME problem — must
-        // not either. Both would read as the board moving under the user.
-        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        // coming back to the problem must not either (SPEC-quiz-history.md §5).
+        // Both would read as the board moving under the user.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await Settings().SetRandomizeSidePerProblemAsync(true);
 
@@ -11116,9 +11707,13 @@ public class PageTests : BunitContext
         await cut.InvokeAsync(() => c.SubmitPlayAsync(BestPlay()));
         Assert.Equal(answering, RenderedBoardSide(cut));   // the solution review
 
-        await cut.InvokeAsync(() => c.RedoAsync());
-        Assert.Null(c.Review);
-        Assert.Equal(answering, RenderedBoardSide(cut));   // back to answering
+        for (var visit = 0; visit < 6; visit++)
+        {
+            await cut.InvokeAsync(() => c.NextAsync());
+            await cut.InvokeAsync(c.GoBack);
+            Assert.Null(c.Review);
+            Assert.Equal(answering, RenderedBoardSide(cut));   // back on its decision
+        }
     }
     // -----------------------------------------------------------------------
     //  The solution's depth treatment (issues halheinrich/backgammon#150 and

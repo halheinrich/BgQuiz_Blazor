@@ -119,14 +119,34 @@ internal static class ExpectedText
     /// <summary>The quiz page's answer commit (<c>Quiz.razor</c>).</summary>
     internal const string SubmitButton = "Submit";
 
-    /// <summary>Past a problem without answering it (<c>Quiz.razor</c>).</summary>
+    /// <summary>
+    /// ▶'s accessible name where a press would add to the skip count — on the
+    /// unresolved frontier (<c>Quiz.razor</c>; SPEC-quiz-history.md §2). The
+    /// navigation buttons are icons, so these are their accessible names and
+    /// tooltips, and they are matched exactly (<c>E2eTestBase.NavButton</c>).
+    /// </summary>
     internal const string SkipButton = "Skip";
+
+    /// <summary>▶'s accessible name everywhere a press adds nothing to the skip count.</summary>
+    internal const string NextButton = "Next";
+
+    /// <summary>◀'s accessible name.</summary>
+    internal const string BackButton = "Back";
+
+    /// <summary>⏮'s accessible name.</summary>
+    internal const string GoToFirstButton = "Go to first";
+
+    /// <summary>⏭'s accessible name.</summary>
+    internal const string GoToLastButton = "Go to last";
 
     /// <summary>On to the next problem, at review (<c>Quiz.razor</c>).</summary>
     internal const string ContinueButton = "Continue";
 
-    /// <summary>The practice retry, at review (<c>Quiz.razor</c>).</summary>
-    internal const string RedoButton = "Redo";
+    /// <summary>
+    /// What a practice review's verdict begins with (SPEC-quiz-history.md §3,
+    /// Hal, 2026-10-02): an em dash, then a space.
+    /// </summary>
+    internal const string PracticePrefix = "Practice — ";
 
     /// <summary>
     /// The decision's notes control, at review when the decision carries a

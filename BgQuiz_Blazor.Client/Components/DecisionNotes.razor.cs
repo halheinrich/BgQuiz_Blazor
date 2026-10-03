@@ -14,10 +14,12 @@ namespace BgQuiz_Blazor.Client.Components;
 /// <b>One owner for the control, the overlay and whether it is open.</b> The
 /// host passes <see cref="Comment"/> and nothing else, and places the
 /// component where the ruling puts it — the review action row's leading
-/// cluster, after Redo. The open bit is a field here: never app-scoped, never
-/// persisted, never a view state of the page, and set only by the user's own
-/// gesture. The ruled consequence "Continue and Redo close it" is the host's
-/// render tree doing it — both leave the review branch, which unmounts this
+/// cluster, after the navigation buttons (SPEC-quiz-view.md §4, which read
+/// "after Redo" until the Redo button was retired). The open bit is a field
+/// here: never app-scoped, never persisted, never a view state of the page,
+/// and set only by the user's own gesture. The ruled consequence that leaving
+/// the review closes it is the host's render tree doing it — Continue and
+/// every navigation button leave the review branch, which unmounts this
 /// component — so nothing here listens for them.
 /// </para>
 ///

@@ -49,7 +49,7 @@ public sealed class QuizFlowTests : E2eTestBase
     }
 
     [Fact]
-    public async Task TooGoodToDoubleTakePath_TooGoodIsCharged_ThenNoDoubleScoresOnRedo()
+    public async Task TooGoodToDoubleTakePath_TooGoodIsCharged_ThenNoDoubleOnReturnIsPractice()
     {
         // The position that decided SPEC-scoring §3's 2026-09-02 amendment
         // (halheinrich/backgammon#187), end to end: XG labels it "Too good to
@@ -58,12 +58,22 @@ public sealed class QuizFlowTests : E2eTestBase
         // opponent takes. A match where gammons are possible, so the fourth
         // pill reads Too good. Answered first the way a reader of XG's label
         // would — Too good — which loses no equity at the board but is charged
-        // SPEC-scoring §3's convention, 2(1 − T); then, as a practice retry,
-        // No double, which is correct. The first answer is the one of record.
+        // SPEC-scoring §3's convention, 2(1 − T); then, gone away from and come
+        // back to (SPEC-quiz-history.md §3: returning is how a problem is
+        // practised), No double, which is correct, marked practice, and changes
+        // no score. The first answer is the one of record. A second cube
+        // position is in the folder so there is somewhere to go and come back
+        // from; which of the two the source serves first is not this scenario's
+        // business, so it reaches Too good and returns to it either way.
         await BootHomeAsync();
-        await PickFixtureAsync(TooGoodTakeFixture);
+        await DisableMaximizeAsync();   // the score panel stays on screen while answering
+        await BootHomeAsync();
+        await PickFixturesAsync(TooGoodTakeFixture, CubeFixture);
         await ApplyFilterAsync();
         await StartQuizAsync();
+
+        var tooGoodFirst = await CubePill(ExpectedText.TooGoodPill).CountAsync() == 1;
+        if (!tooGoodFirst) await NavButton(ExpectedText.SkipButton).ClickAsync();
 
         // All four answers are offered, the fourth labelled Too good.
         await Expect(Page.Locator(".bg-cube-actions").GetByRole(AriaRole.Radio)).ToHaveCountAsync(4);
@@ -74,17 +84,26 @@ public sealed class QuizFlowTests : E2eTestBase
 
         await Expect(VerdictBand).ToHaveTextAsync("Not best — Too good lost 0.7992. Best: No double.");
         await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-danger"));
+        await Expect(Page.GetByText(ExpectedText.Submitted(1))).ToBeVisibleAsync();
 
-        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.RedoButton }).ClickAsync();
+        // Away and back: from the first problem ▶ then ◀, from the second ◀ then ▶.
+        if (tooGoodFirst)
+        {
+            await NavButton(ExpectedText.NextButton).ClickAsync();
+            await NavButton(ExpectedText.BackButton).ClickAsync();
+        }
+        else
+        {
+            await NavButton(ExpectedText.BackButton).ClickAsync();
+            await NavButton(ExpectedText.NextButton).ClickAsync();
+        }
+        await Expect(CubePill(ExpectedText.TooGoodPill)).ToBeVisibleAsync();
         await AnswerCubeNoDoubleAsync();
 
         await Expect(VerdictBand).ToHaveTextAsync(
-            "Practice retry — your first answer stands. " + ExpectedText.CubeVerdictNoDoubleCorrect);
+            ExpectedText.PracticePrefix + ExpectedText.CubeVerdictNoDoubleCorrect);
         await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-success"));
-
-        // The answer of record stands: one answer, scored wrong.
-        await ContinueToDoneAsync();
-        await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.Submitted(1))).ToBeVisibleAsync();   // the score did not move
     }
 
     [Fact]
@@ -97,7 +116,10 @@ public sealed class QuizFlowTests : E2eTestBase
         // cube fixture is exactly that position. Until the amendment this
         // position withheld the fourth pill; this scenario pinned that
         // absence, and now pins the four pills, in the row's order, by their
-        // exact accessible names.
+        // exact accessible names — in the full form, so at a viewport whose
+        // row holds it (1242 px against the 1001.3 px it needs; the short form
+        // is CubeLabelsTests').
+        await Page.SetViewportSizeAsync(1600, 900);
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
         await ApplyFilterAsync();

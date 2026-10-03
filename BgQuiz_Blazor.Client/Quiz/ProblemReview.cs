@@ -6,8 +6,8 @@ using BgGame_Lib;
 /// <summary>
 /// The scored outcome of a just-submitted problem — the <i>displayed
 /// review</i>, held by the run (<see cref="QuizRun.Review"/>, surfaced as
-/// <see cref="QuizController.Review"/>) from Submit until the run leaves the
-/// problem or returns to its decision. It carries exactly what the review
+/// <see cref="QuizController.Review"/>) from Submit until the cursor leaves
+/// the problem. It carries exactly what the review
 /// surfaces need to mark and name the user's answer: for a checker play, the
 /// producer's scored outcome (<see cref="PlaySubmission"/>) and the play the
 /// user submitted; for a cube decision, the producer's scored answer and the
@@ -15,7 +15,7 @@ using BgGame_Lib;
 ///
 /// <para>
 /// <b>Displayed, not of record.</b> Every submission produces one of these,
-/// including the practice submissions of a redo cycle (SPEC-scoring.md §2:
+/// including practice submissions on a problem returned to (SPEC-scoring.md §2:
 /// practice still reviews — "discarded" governs the record, not the pixels).
 /// What <i>counts</i> is the problem's disposition, which the run holds apart
 /// from this (<see cref="ProblemDisposition"/>); <see cref="IsPractice"/> is
@@ -56,8 +56,8 @@ internal abstract class ProblemReview
     /// <summary>
     /// True when this review shows a <i>practice</i> submission — one made
     /// against a problem that was already completed, answered or skipped
-    /// (SPEC-scoring.md §2; SPEC-quiz-history.md §3): today, after
-    /// <see cref="QuizController.RedoAsync"/> re-opened it. Such a
+    /// (SPEC-scoring.md §2; SPEC-quiz-history.md §3), returned to by
+    /// navigation. Such a
     /// submission is discarded as if it never happened: no session score,
     /// nothing of record, no lifetime fold. It is still scored and shown,
     /// because seeing how the retry scored is the point of the gesture; this

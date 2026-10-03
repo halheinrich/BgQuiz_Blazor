@@ -17,54 +17,45 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// and exposes the per-kind action row.
 ///
 /// <para>
-/// <b>Review branch.</b> Mirrors the controller's three-state flow. While
+/// <b>Review branch.</b> Mirrors the controller's two view states. While
 /// <see cref="QuizController.Review"/> is null the page is <i>answering</i> —
-/// it renders the entry component and the Submit / Skip / Undo row. Once Submit
-/// scores and the controller sets <see cref="QuizController.Review"/>, the page
-/// flips to the <i>review</i> view: a read-only <see cref="BackgammonDiagram"/>
-/// in <see cref="DiagramMode.Solution"/> (the filled analysis panel, exactly as
+/// it renders the entry component and the answering row. Once Submit scores and
+/// the controller sets <see cref="QuizController.Review"/>, the page flips to
+/// the <i>review</i> view: a read-only <see cref="BackgammonDiagram"/> in
+/// <see cref="DiagramMode.Solution"/> (the filled analysis panel, exactly as
 /// the PPTX exporter renders it) with the user's answer marked, a compact
-/// verdict line, and Continue / Redo / Show stats. Continue advances the
-/// controller back to the answering state on the next problem. The review
-/// diagram's <c>OnDiceClicked</c> is also bound to <see cref="ContinueAsync"/> —
-/// clicking the dice hit-region (already wired for click-driven play assembly
-/// during answering) advances past the solution exactly like the Continue
-/// button.
+/// verdict line, and Continue. Continue — like ▶, which is Continue there —
+/// goes to the next problem's answering state. The review diagram's
+/// <c>OnDiceClicked</c> is also bound to <see cref="NextAsync"/> — clicking the
+/// dice hit-region (already wired for click-driven play assembly during
+/// answering) advances past the solution exactly like the Continue button.
 /// </para>
 ///
 /// <para>
-/// <b>Redo &amp; answer freshness.</b> Redo (review-state only) calls
-/// <see cref="QuizController.RedoAsync"/>, which re-opens the problem for
-/// practice and clears <see cref="QuizController.Review"/> — the page falls back
-/// to the answering branch on the <i>same</i> <see cref="QuizController.Current"/>
-/// problem, with a clean answer slate. Clean on the page only: the answer of
-/// record stands, and the submission that follows is practice (SPEC-scoring.md
-/// §2), which the verdict band says in as many words — see
-/// <see cref="VerdictText"/>. The two answer kinds reach the clean slate
-/// differently:
+/// <b>Navigation, and why every landing starts clean.</b> ⏮ ◀ ▶ ⏭
+/// (<c>SPEC-quiz-history.md</c> §2) move among the problems already presented,
+/// and ▶ at the frontier brings the next one. Every landing is the answering
+/// state (§3), with nothing entered and nothing latched for Submit, wherever it
+/// lands and from whichever view state — a problem answered earlier included,
+/// where a submission is practice and its review is marked so (see
+/// <see cref="VerdictText"/>). The page reaches the clean slate the same way
+/// for every control, with no review branch needed in between:
 /// <list type="bullet">
-///   <item><b>Cube</b> — the answer lives in <see cref="_completedCube"/>, which
-///   <see cref="HandleStateChanged"/> nulls on every controller transition (Redo
-///   included), and that is the whole mechanism. The
-///   <see cref="BackgammonCubeActions"/> row is controlled on the
-///   <i>answer</i> and holds no state the answer does not express: every pill
-///   is one whole <see cref="CubeAnswer"/>, so nulling the field clears
-///   whatever is lit. The row carried a <c>@key</c> on the current problem
-///   while it was two radio groups — a half-answered row stood for no answer,
-///   agreed with the null, and survived a Skip — and lost it with that state:
-///   a remount would guard nothing now. Redo reaches the clean slate the way
-///   Play does — the review branch already unmounted the row.</item>
-///   <item><b>Play</b> — <see cref="BackgammonPlayEntry"/> holds its own
-///   in-progress click state and only resets it when the incoming request
-///   describes a different problem (same Mop/Dice suppresses the reset). That
-///   suppression path is never reached across Redo: Submit already unmounted the
-///   entry when the page swapped to the review branch, so Redo's swap back
-///   constructs a genuinely new instance unconditionally — Blazor cannot reuse an
-///   instance that was not in the prior render, so no <c>@key</c> bump is needed.
-///   (An earlier draft added a redo-generation <c>@key</c> defensively; it was
-///   removed once a test proved the branch swap alone guarantees a fresh
-///   instance — see <c>Quiz_Redo_PlayEntry_RemountsFreshComponent</c> in
-///   <c>PageTests</c>.)</item>
+///   <item><b>Both latches</b> — <see cref="_completedPlay"/> and
+///   <see cref="_completedCube"/> — are nulled by
+///   <see cref="HandleStateChanged"/> on every controller transition, and every
+///   move fires one. The <see cref="BackgammonCubeActions"/> row is controlled
+///   on the <i>answer</i> and holds no state the answer does not express: every
+///   pill is one whole <see cref="CubeAnswer"/>, so nulling the field clears
+///   whatever is lit.</item>
+///   <item><b>The play entry</b> holds its own in-progress click state and
+///   resets it only when the incoming request describes a different position —
+///   and two problems of one run can share a position. So the entry is keyed
+///   on the problem's place in the run (its stream slot,
+///   <see cref="QuizController.ProblemNumber"/>), and every landing mounts a
+///   fresh one.</item>
+///   <item><b>The notes overlay</b> lives only in the review branch, and every
+///   landing is the answering state, so it is closed by being unmounted.</item>
 /// </list>
 /// </para>
 ///
@@ -115,7 +106,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// click re-fires, so the field always holds the latest answer. Gating Submit
 /// on the field being non-null is therefore gating it on <i>a pill
 /// chosen</i>, lit from the first click. Both fields clear on any controller
-/// transition (submit / advance / redo / restart) via
+/// transition (submit / every move / restart) via
 /// <see cref="HandleStateChanged"/>; the play latch also clears on undo. The
 /// gate itself is <see cref="CanSubmit"/>, one member read by both Submit
 /// buttons and by the spacebar, which presses Submit whenever it is lit (see
@@ -141,19 +132,20 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// <b>Action row by kind.</b> In the answering state, checker decisions offer
-/// Submit / Skip / Undo last / Undo all — the two Undo buttons live for the
-/// whole of the entry, disabled only while the controller is busy (see
-/// <see cref="UndoLast"/> for why gating them on the entry's <c>@ref</c> made
-/// them dead for exactly the window they exist to serve); cube decisions place the
-/// <see cref="BackgammonCubeActions"/> radios inline (the answer input, since the
-/// board region is board-only) ahead of Submit / Skip — a cube answer has no
-/// partial-move state, so Undo does not apply. Both trail with Show stats and
-/// End quiz in the row's <c>ms-auto</c> cluster. In the review state both kinds
-/// offer Continue / Redo — and, when the decision carries a comment, the
-/// <see cref="DecisionNotes"/> control after
-/// them (<c>SPEC-quiz-view.md</c> §4's 2026-09-15 amendment,
-/// <c>halheinrich/backgammon#31</c>) — trailed the same way.
+/// <b>The action row</b> is <c>SPEC-quiz-view.md</c> §4's composition under
+/// quiz navigation. Answering a checker play: Undo all and Undo last lead, then
+/// Submit — the two Undo buttons live for the whole of the entry, disabled only
+/// while the controller is busy (see <see cref="UndoLast"/> for why gating them
+/// on the entry's <c>@ref</c> made them dead for exactly the window they exist
+/// to serve). Answering a cube decision: the <see cref="BackgammonCubeActions"/>
+/// radios lead (the answer input, since the board region is board-only), then
+/// Submit — a cube answer has no partial-move state, so Undo does not apply. At
+/// review: Continue. Then, in every state, ⏮ ◀ ▶ ⏭ from one render site; then,
+/// at review, the <see cref="DecisionNotes"/> control when the decision carries
+/// a comment (§4's 2026-09-15 amendment, <c>halheinrich/backgammon#31</c>);
+/// then the trailing cluster with Show stats and End quiz. The Skip and Redo
+/// buttons are retired (<c>SPEC-quiz-history.md</c> §2): ▶ took Skip's place
+/// and the navigation buttons Redo's.
 /// </para>
 ///
 /// <para>
@@ -223,32 +215,33 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <para>
 /// <b>IsFinished transition.</b> Subscribed to
 /// <see cref="QuizController.StateChanged"/>. When the controller's
-/// <see cref="QuizController.IsFinished"/> flips true (source exhausted on
-/// Continue / Skip), the page navigates to <c>/done</c>.
+/// <see cref="QuizController.IsFinished"/> flips true (the source exhausted on
+/// ▶, or End quiz), the page navigates to <c>/done</c>.
 /// </para>
 ///
 /// <para>
-/// <b>The spacebar presses Continue, Submit or Skip</b> (issue
+/// <b>The spacebar presses Submit, or ▶</b> (issue
 /// <c>halheinrich/backgammon#149</c>, ruled 2026-09-02: always on, no setting;
-/// amended by <c>halheinrich/backgammon#200</c>, ruled 2026-09-23 and amended
-/// 2026-09-24). On the solution view Space presses Continue, as clicking the
-/// dice does. While answering it presses Submit when Submit is lit — a
-/// complete checker play, or a cube answer chosen — and otherwise Skip: with
-/// nothing entered, with a play half built, or on a cube with no answer
-/// chosen. While the controller is busy it does nothing. The rule is
-/// <see cref="HandleSpaceKeyAsync"/>, and it owns neither half of any branch:
-/// <i>whether</i> Space acts is the button's own gate
-/// (<see cref="CanContinue"/>, <see cref="CanSubmit"/>,
-/// <see cref="CanSkip"/>), and <i>what</i> it does is the button's own method
-/// (<see cref="ContinueAsync"/>, <see cref="SubmitAsync"/>,
-/// <see cref="SkipAsync"/>), so the key and the button can never differ in
-/// busy gating, in what is recorded, or in how the run advances. Which presses
+/// amended by <c>halheinrich/backgammon#200</c>; the rule is now
+/// <c>SPEC-quiz-history.md</c> §2's, with Hal's clarification of 2026-10-02).
+/// It presses Submit when Submit is lit — a complete checker play, or a cube
+/// answer chosen — and ▶ otherwise: on the solution view, where ▶ is
+/// Continue, as clicking the dice is; and in every answering state with Submit
+/// dark, whether ▶ is named Skip or Next. While the controller is busy it does
+/// nothing. The rule is <see cref="HandleSpaceKeyAsync"/>, and it owns neither
+/// half of any branch: <i>whether</i> Space acts is the button's own gate
+/// (<see cref="CanSubmit"/>, <see cref="CanGoNext"/>), and <i>what</i> it does
+/// is the button's own method (<see cref="SubmitAsync"/>,
+/// <see cref="NextAsync"/>), so the key and the button can never differ in
+/// busy gating, in what is recorded, or in how the run moves. Which presses
 /// reach it is decided in the browser, by <c>wwwroot/js/quizKeys.js</c>, from
 /// the event alone (Space, unmodified, not a repeat, focus on nothing that
-/// consumes space — see the module's comment for the filter); this is the
+/// consumes space — see the module's comment for the filter); this was the
 /// app's first JS-invokable callback, attached on the first render and
 /// detached on disposal, which is why the page is
-/// <see cref="IAsyncDisposable"/>. Attached, the module sets
+/// <see cref="IAsyncDisposable"/> (the second,
+/// <see cref="HandleActionRowResized"/>, carries the action row's width for
+/// the cube pills' form, and is released the same way). Attached, the module sets
 /// <see cref="QuizKeysMark.AttachedAttribute"/> on the document element — the
 /// readiness signal the browser tests wait on before they press
 /// (<c>halheinrich/backgammon#198</c>).
@@ -264,6 +257,13 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// </summary>
     internal const string KeysModulePath = "./js/quizKeys.js";
 
+    /// <summary>
+    /// The module that reports the action row's width, which the cube pills'
+    /// form is decided from (<see cref="CubeLabelsAbbreviate"/>). Imported
+    /// beside <see cref="KeysModulePath"/> and internal for the same reason.
+    /// </summary>
+    internal const string RowWidthModulePath = "./js/actionRowWidth.js";
+
     private BackgammonPlayEntry? _playEntry;
     private Play? _completedPlay;
     private CubeAnswer? _completedCube;
@@ -271,8 +271,27 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// <summary>The imported keyboard module; null until the first render's import lands.</summary>
     private IJSObjectReference? _keys;
 
-    /// <summary>The reference the module calls back through; created with the attach, disposed with the page.</summary>
+    /// <summary>The imported row-width module; null until the first render's import lands.</summary>
+    private IJSObjectReference? _rowWidth;
+
+    /// <summary>The reference both modules call back through; created once both are imported, disposed with the page.</summary>
     private DotNetObjectReference<Quiz>? _self;
+
+    /// <summary>The action row, observed by the row-width module whenever Blazor creates it.</summary>
+    private ElementReference _actionRow;
+
+    /// <summary>
+    /// The <see cref="ElementReference.Id"/> of the row under observation, so
+    /// a render that keeps the row asks for nothing and one that creates it
+    /// afresh (a new quiz after the last one ended) observes the new element.
+    /// </summary>
+    private string? _observedRow;
+
+    /// <summary>
+    /// The action row's width as last reported by the browser; null until the
+    /// first report, which leaves the pills in their full form.
+    /// </summary>
+    private double? _actionRowWidth;
 
     /// <summary>Set by <see cref="DisposeAsync"/>, so an import still in flight at disposal releases rather than attaches.</summary>
     private bool _disposed;
@@ -364,8 +383,9 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
 
     private void HandleStateChanged()
     {
-        // Any controller transition advances or restarts the problem; the
-        // previously latched answers no longer apply.
+        // Every controller transition moves the cursor, puts a review up, or
+        // begins a run; the previously latched answers no longer apply. This is
+        // what makes every landing start with nothing latched for Submit.
         _completedPlay = null;
         _completedCube = null;
 
@@ -384,27 +404,39 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     }
 
     /// <summary>
-    /// Attach the spacebar shortcut once the page is in the DOM. First render
-    /// only: the module listens on the document, not on any element this page
-    /// re-renders, so there is nothing to re-attach. The import is awaited
-    /// before anything is created from it, and a disposal that lands during
-    /// that await is honoured by releasing the module instead of attaching —
-    /// the one ordering that could otherwise leave a listener holding a
-    /// disposed reference (a Show-stats round trip re-instantiates this page,
-    /// so the window is real).
+    /// Import the page's two modules on the first render, attach the spacebar
+    /// shortcut, and from then on keep the action row under observation.
     /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender) return;
+        if (firstRender) await ImportModulesAsync();
+        await ObserveActionRowAsync();
+    }
 
+    /// <summary>
+    /// The first render's half of <see cref="OnAfterRenderAsync"/>: both
+    /// imports, then the keyboard module's attach. Once only, because the
+    /// keyboard module listens on the document, not on any element this page
+    /// re-renders, so there is nothing to re-attach. The imports are awaited
+    /// before anything is created from them, and a disposal that lands during
+    /// those awaits is honoured by releasing the modules instead of attaching
+    /// — the one ordering that could otherwise leave a listener holding a
+    /// disposed reference (a Show-stats round trip re-instantiates this page,
+    /// so the window is real).
+    /// </summary>
+    private async Task ImportModulesAsync()
+    {
         var keys = await JS.InvokeAsync<IJSObjectReference>("import", KeysModulePath);
+        var rowWidth = await JS.InvokeAsync<IJSObjectReference>("import", RowWidthModulePath);
         if (_disposed)
         {
             await keys.DisposeAsync();
+            await rowWidth.DisposeAsync();
             return;
         }
 
         _keys = keys;
+        _rowWidth = rowWidth;
         _self = DotNetObjectReference.Create(this);
         // The callback's name and the readiness mark's name travel with the
         // reference so each is spelled exactly once, on this side; the module
@@ -414,17 +446,125 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     }
 
     /// <summary>
+    /// Hand the action row to the row-width module whenever this render
+    /// created it: once the modules are in, a problem is on screen (the row
+    /// renders with it), and the row is not the element already observed.
+    /// The observed id is recorded before the await, so a render landing
+    /// during it does not observe the same row twice.
+    /// </summary>
+    private async Task ObserveActionRowAsync()
+    {
+        if (_rowWidth is null || _self is null || Controller.Current is null) return;
+        if (_actionRow.Id == _observedRow) return;
+
+        _observedRow = _actionRow.Id;
+        await _rowWidth.InvokeVoidAsync(
+            "observe", _actionRow, _self, nameof(HandleActionRowResized));
+    }
+
+    /// <summary>
+    /// The row-width module's report: the action row is now
+    /// <paramref name="width"/> pixels wide. It renders only when the report
+    /// changes the form of the pills on screen, so a window being dragged
+    /// wider re-renders the page once, at the switch-over, not once a frame.
+    /// Public and <see cref="JSInvokableAttribute"/> for the module's sake, as
+    /// <see cref="HandleSpaceKeyAsync"/> is; nothing else calls it.
+    /// </summary>
+    [JSInvokable]
+    public void HandleActionRowResized(double width)
+    {
+        var before = PillsAbbreviated;
+        _actionRowWidth = width;
+        if (PillsAbbreviated != before) StateHasChanged();
+    }
+
+    /// <summary>
+    /// The form of the cube pills on screen: null when no cube decision is
+    /// being answered (no pills render), else whether they abbreviate.
+    /// </summary>
+    private bool? PillsAbbreviated =>
+        Controller.Current is CubeDecision cube && Controller.Review is null
+            ? ShortCubeLabels(cube)
+            : null;
+
+    /// <summary>
+    /// What the row's pills render with, as <c>ShortLabels</c>: the rule
+    /// applied to the row's last reported width.
+    /// </summary>
+    private bool ShortCubeLabels(CubeDecision cube) => CubeLabelsAbbreviate(_actionRowWidth, cube);
+
+    /// <summary>
+    /// <b>Whether the cube pills take their short labels</b>
+    /// (<c>SPEC-quiz-view.md</c> §4, "The action row under quiz navigation":
+    /// "Cube labels abbreviate only when the row cannot fit them", the
+    /// switch-over measured, never guessed): when the action row is narrower
+    /// than the full-label row needs at <paramref name="decision"/>. With no
+    /// width reported yet the labels stay full, the producer's default.
+    ///
+    /// <para>
+    /// <b>It keys on the row's own width</b>, as the browser reports it,
+    /// rather than the viewport's: folding the navigation panel widens the
+    /// row at a fixed viewport (by 250 px at 1280), and only the row's width says what
+    /// the row can hold in both fold states. <b>And on the fourth answer's
+    /// reading</b>, because its label is the one that differs between
+    /// decisions: Too good where gammons are possible, No double / Pass where
+    /// they are not (<see cref="CubeDecision.ClaimOf"/>), the decision's
+    /// reading as the label home renders it. No label is spelled here.
+    /// </para>
+    /// </summary>
+    internal static bool CubeLabelsAbbreviate(double? actionRowWidth, CubeDecision decision) =>
+        actionRowWidth is { } width && width < FullCubeRowWidth(decision);
+
+    /// <summary>
+    /// The narrowest action row that holds the full-label cube row at
+    /// <paramref name="decision"/>, its fourth answer read as the decision
+    /// reads it: <see cref="FullCubeRowWidthTooGood"/> or
+    /// <see cref="FullCubeRowWidthNoDoublePass"/>.
+    /// </summary>
+    private static double FullCubeRowWidth(CubeDecision decision) =>
+        decision.ClaimOf(CubeAnswer.NoDoublePass) == CubeClaim.TooGood
+            ? FullCubeRowWidthTooGood
+            : FullCubeRowWidthNoDoublePass;
+
+    /// <summary>
+    /// The narrowest action row, in CSS pixels, that holds the cube row with
+    /// its full labels when the fourth reads <b>No double / Pass</b> — the
+    /// longest set. Measured, not computed (leg 4 of
+    /// <c>halheinrich/backgammon#8</c>, 2026-10-02, published app, Chromium,
+    /// Windows, the app's Helvetica/Arial stack): the leading controls at
+    /// their widest selection, the No double / Pass pill bolded — the four
+    /// pills 476.5, Submit 101.8 and the navigation group 148.0 with their
+    /// gaps, 742.3 in all — then the row's 8 px gap, then the trailing
+    /// cluster at the floor of its shrink order, 251.0 (the XGID's copy button
+    /// with its gap, Show stats and End quiz, with the cluster's gaps; the
+    /// locator chip gives up all of its width there). One pixel narrower and
+    /// the cluster runs over the navigation buttons. It is a measurement of
+    /// that stack: a wider font needs a wider row, so this number is
+    /// re-measured whenever anything in the row is restyled or relabelled.
+    /// </summary>
+    internal const double FullCubeRowWidthNoDoublePass = 1001.3;
+
+    /// <summary>
+    /// The same measurement with the fourth reading <b>Too good</b>: the
+    /// leading controls at their widest, the Too good pill bolded — the four
+    /// pills 419.3 — 685.1 in all, then the 8 px gap and the 251.0 cluster.
+    /// See <see cref="FullCubeRowWidthNoDoublePass"/> for what was measured
+    /// and what it holds for.
+    /// </summary>
+    internal const double FullCubeRowWidthTooGood = 944.1;
+
+    /// <summary>
     /// What a Space press does, once the browser has found it eligible
     /// (<c>halheinrich/backgammon#149</c> as amended by
-    /// <c>halheinrich/backgammon#200</c>, as amended 2026-09-24): at review,
-    /// what the Continue button does; while answering, what the Submit button
-    /// does when it is lit, and otherwise what the Skip button does; nothing
-    /// when no button would act. It adds no condition and no action of its
-    /// own — each branch is a button's gate guarding that button's method — so
-    /// the key cannot enable what a button shows disabled, nor do anything a
-    /// click would not. The order of the two answering branches is the ruling
-    /// itself, not a condition of the key's: Submit is lit only where Skip is
-    /// too, and the rule says Submit first.
+    /// <c>halheinrich/backgammon#200</c>; <c>SPEC-quiz-history.md</c> §2, with
+    /// Hal's clarification of 2026-10-02): what the Submit button does when it
+    /// is lit, and otherwise what ▶ does — Continue on the solution view, Skip
+    /// or Next while answering; nothing when no button would act. It adds no
+    /// condition and no action of its own — each branch is a button's gate
+    /// guarding that button's method — so the key cannot enable what a button
+    /// shows disabled, nor do anything a click would not. The order of the two
+    /// branches is the ruling itself, not a condition of the key's: Submit is
+    /// lit only where ▶ is too, and the rule says Submit first.
     ///
     /// <para>
     /// <b>It renders as a click does.</b> Blazor re-renders a component after
@@ -449,9 +589,8 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     public async Task HandleSpaceKeyAsync()
     {
         var pressing =
-            CanContinue ? ContinueAsync()
-            : CanSubmit ? SubmitAsync()
-            : CanSkip ? SkipAsync()
+            CanSubmit ? SubmitAsync()
+            : CanGoNext ? NextAsync()
             : Task.CompletedTask;
 
         StateHasChanged();
@@ -476,32 +615,67 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
         && (_completedCube is not null || _completedPlay is not null);
 
     /// <summary>
-    /// <b>The one gate on Continue</b>, read by the Continue button and by
-    /// <see cref="HandleSpaceKeyAsync"/>: there is a review to leave and the
-    /// controller is not busy.
+    /// <b>The one gate on Continue</b>, the review state's primary button:
+    /// there is a review to leave and the controller is not busy. Continue does
+    /// what ▶ does there (<see cref="NextAsync"/>), so the two are lit together
+    /// on the solution view; Space reaches the same method through
+    /// <see cref="CanGoNext"/>.
     /// </summary>
     private bool CanContinue =>
         Controller.Review is not null && !Controller.IsBusy;
 
     /// <summary>
-    /// <b>The one gate on Skip</b>, read by both Skip buttons and by
-    /// <see cref="HandleSpaceKeyAsync"/>: the page is answering (no review to
-    /// read) and the controller is not busy. Nothing about the answer enters
-    /// it — the button is offered with nothing entered, with a play half
-    /// built, and with a complete answer alike. Space reaches it only when
-    /// <see cref="CanSubmit"/> is dark, by ruling; that is the key handler's
-    /// order, not a term here, so the Skip button stays lit beside a lit
-    /// Submit. It is exclusive with <see cref="CanContinue"/> by
-    /// construction — a review is either there or not — so the key handler
-    /// never has to choose between leaving a review and answering one. For
-    /// the buttons the review term restates
-    /// what their placement already guarantees (they render only in the
-    /// answering branches); it is spelled anyway so the gate means "Skip is
-    /// available" on its own, for a reader with no branch around it, rather
-    /// than leaning on the order of the key handler's two cases.
+    /// <b>The one gate on ⏮ and ◀</b>, which share it: there is an earlier
+    /// problem (<see cref="QuizController.CanGoBack"/>, the run's fact) and the
+    /// controller is not busy (SPEC-quiz-history.md §2).
     /// </summary>
-    private bool CanSkip =>
-        Controller.Review is null && !Controller.IsBusy;
+    private bool CanGoBack =>
+        Controller.CanGoBack && !Controller.IsBusy;
+
+    /// <summary>
+    /// <b>The one gate on ▶</b>, read by the button and by
+    /// <see cref="HandleSpaceKeyAsync"/>: a problem is on screen and the
+    /// controller is not busy — ▶ is unavailable only while busy
+    /// (SPEC-quiz-history.md §2), in both view states.
+    /// </summary>
+    private bool CanGoNext =>
+        Controller.Current is not null && !Controller.IsBusy;
+
+    /// <summary>
+    /// <b>The one gate on ⏭</b>: the problem on screen is behind the frontier
+    /// (<see cref="QuizController.CanGoToLast"/>, the run's fact) and the
+    /// controller is not busy (SPEC-quiz-history.md §2).
+    /// </summary>
+    private bool CanGoToLast =>
+        Controller.CanGoToLast && !Controller.IsBusy;
+
+    /// <summary>The accessible name of the navigation buttons' group.</summary>
+    internal const string NavigationGroupName = "Problems";
+
+    /// <summary>⏮'s accessible name and tooltip (SPEC-quiz-history.md §2).</summary>
+    internal const string GoToFirstName = "Go to first";
+
+    /// <summary>◀'s accessible name and tooltip.</summary>
+    internal const string BackName = "Back";
+
+    /// <summary>▶'s accessible name and tooltip where a press adds nothing to the skip count.</summary>
+    internal const string NextName = "Next";
+
+    /// <summary>▶'s accessible name and tooltip where a press would add to the skip count.</summary>
+    internal const string SkipName = "Skip";
+
+    /// <summary>⏭'s accessible name and tooltip.</summary>
+    internal const string GoToLastName = "Go to last";
+
+    /// <summary>
+    /// ▶'s accessible name and tooltip: Skip wherever a press would add to the
+    /// skip count, Next otherwise, so the icon never hides a counted skip
+    /// (SPEC-quiz-history.md §2). Which applies is the run's rule, read off the
+    /// controller (<see cref="QuizController.NextAddsToSkipCount"/>) and never
+    /// rebuilt here from the cursor, the frontier and a disposition.
+    /// </summary>
+    private string NextButtonName =>
+        Controller.NextAddsToSkipCount ? SkipName : NextName;
 
     /// <summary>
     /// The side this problem's board renders on, for <b>every</b> branch below.
@@ -535,9 +709,10 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// Every consequence reads this one member: the markup suppresses the score
     /// panel and the status strip on it, and <see cref="BoardOptions"/> picks the
     /// canvas from it. The transitions fall out with no special cases — Submit
-    /// sets <see cref="QuizController.Review"/> and the page normalizes; Redo and
-    /// Continue clear it and the page re-maximizes; Undo never leaves the
-    /// answering state, so it changes nothing.
+    /// sets <see cref="QuizController.Review"/> and the page normalizes; every
+    /// landing clears it, whichever control lands it, and the page
+    /// re-maximizes; Undo never leaves the answering state, so it changes
+    /// nothing.
     /// </para>
     ///
     /// <para>
@@ -625,21 +800,28 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     }
 
     /// <summary>
-    /// Compact verdict line summarizing the just-scored answer, prefixed when
-    /// the submission was practice.
+    /// What a practice review's verdict begins with:
+    /// <c>SPEC-quiz-history.md</c> §3's words, "Practice — " (Hal, 2026-10-02),
+    /// followed by the verdict as a live review would show it.
+    /// </summary>
+    internal const string PracticePrefix = "Practice — ";
+
+    /// <summary>
+    /// Compact verdict line summarizing the just-scored answer, marked when the
+    /// submission was practice.
     ///
     /// <para>
-    /// <b>Why practice is named here.</b> SPEC-scoring.md §2 leaves the review
-    /// pane's treatment of a practice verdict to this arc. A practice
-    /// submission is scored and shown like any other but changes nothing — not
-    /// the score panel a few lines below on this same page, not Done, not the
-    /// lifetime record — so an unbadged "Correct" beside a score that does not
-    /// move reads as a bug rather than as the model working. One clause fixes
-    /// that, and says which answer <i>did</i> count rather than only which one
-    /// did not. Everything else about the review is untouched: the verdict
-    /// wording, <see cref="StatusVerdictColor"/>'s outcome colouring, the
-    /// diagram's markers and the Continue / Redo pair are the same, because the
-    /// retry's score is what the user redid to see.
+    /// <b>Why practice is marked.</b> A practice submission is scored and shown
+    /// like any other but changes nothing — not the score panel a few lines
+    /// below on this same page, not Done, not the lifetime record — so an
+    /// unbadged "Correct" beside a score that does not move reads as a bug
+    /// rather than as the model working. <c>SPEC-quiz-history.md</c> §3 rules
+    /// the mark: the verdict begins <see cref="PracticePrefix"/>. It is short
+    /// on purpose — the longer clause it replaced hid the end of the verdict in
+    /// the desktop band (halheinrich/backgammon#329). Everything else about the
+    /// review is untouched: the verdict wording, <see cref="StatusVerdictColor"/>'s
+    /// outcome colouring and the diagram's markers are the same, because the
+    /// retry's score is what the user came back to see.
     /// </para>
     ///
     /// <para>
@@ -651,7 +833,7 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// </summary>
     private static string VerdictText(ProblemReview review) =>
         review.IsPractice
-            ? $"Practice retry — your first answer stands. {ScoredVerdict(review)}"
+            ? PracticePrefix + ScoredVerdict(review)
             : ScoredVerdict(review);
 
     /// <summary>The scored half of <see cref="VerdictText"/>, per answer kind.</summary>
@@ -863,12 +1045,13 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
         // this quiz was built, which the user has now read and acted on. Gated on
         // Review having been set rather than on having called a Submit: both
         // controller mutators no-op under the transition gate (a Submit landing
-        // inside a pending Continue/Skip), and dismissing on a call that scored
+        // inside a pending ▶), and dismissing on a call that scored
         // nothing would drop the notice without the user ever answering. Review
         // non-null is the proof, and it covers an off-list play too — that is a
-        // submitted answer with a review to read, just an unscored one. Skip is
-        // deliberately not a dismissal: it moves past a problem without answering
-        // it, so the composition is still the thing the user hasn't engaged with.
+        // submitted answer with a review to read, just an unscored one. Moving
+        // on with ▶ is deliberately not a dismissal: it passes a problem without
+        // answering it, so the composition is still the thing the user hasn't
+        // engaged with.
         //
         // Read before the write is awaited: the controller puts the review up
         // before its call returns, so the notice goes in the same render as the
@@ -882,26 +1065,22 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     }
 
     /// <summary>
-    /// Continue — the Continue button's action, the review dice click's, and
-    /// the spacebar's at review (<see cref="HandleSpaceKeyAsync"/>).
+    /// ▶ — the ▶ button's action, the Continue button's (Continue is ▶ on the
+    /// solution view), the review dice click's, and the spacebar's whenever
+    /// Submit is dark (<see cref="HandleSpaceKeyAsync"/>). The one owner of what
+    /// moving on does: the key calls this method rather than the controller,
+    /// so a change here reaches the key and the buttons together.
     /// </summary>
-    private async Task ContinueAsync()
-    {
-        await Controller.ContinueAsync();
-    }
+    private Task NextAsync() => Controller.NextAsync();
 
-    /// <summary>
-    /// Skip — the Skip buttons' action, and the spacebar's while answering
-    /// with Submit dark (<see cref="HandleSpaceKeyAsync"/>,
-    /// <c>halheinrich/backgammon#200</c>).
-    /// The one owner of what skipping does: the key calls this method rather
-    /// than the controller, so a change here reaches the key and the buttons
-    /// together.
-    /// </summary>
-    private async Task SkipAsync()
-    {
-        await Controller.SkipCurrentAsync();
-    }
+    /// <summary>⏮ — the button's action.</summary>
+    private void GoToFirst() => Controller.GoToFirst();
+
+    /// <summary>◀ — the button's action.</summary>
+    private void GoBack() => Controller.GoBack();
+
+    /// <summary>⏭ — the button's action.</summary>
+    private void GoToLast() => Controller.GoToLast();
 
     /// <summary>
     /// End the run here and go to the summary (issue halheinrich/backgammon#57). One click, acting
@@ -975,11 +1154,6 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
         _completedPlay = null;
     }
 
-    private async Task RedoAsync()
-    {
-        await Controller.RedoAsync();
-    }
-
     private void ShowStats()
     {
         Nav.NavigateTo("/stats");
@@ -989,13 +1163,14 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// Tear-down, in the order the dependencies run: unsubscribe from
     /// <see cref="QuizController.StateChanged"/> and
     /// <see cref="QuizStatsStore.StatusChanged"/> so a navigated-away instance
-    /// stops re-rendering; then detach the keyboard listener and release the
-    /// module, and only then dispose the <see cref="DotNetObjectReference{TValue}"/>
-    /// it was calling back through — the reference must outlive the last thing
-    /// that could invoke it. <see cref="_disposed"/> covers an import still in
-    /// flight (see <see cref="OnAfterRenderAsync"/>). Nothing here can race an
-    /// attach: WebAssembly runs the JS of an interop call synchronously, so an
-    /// attach whose await is pending has already executed in the browser.
+    /// stops re-rendering; then detach the keyboard listener, stop the row's
+    /// observer and release both modules, and only then dispose the
+    /// <see cref="DotNetObjectReference{TValue}"/> they were calling back
+    /// through — the reference must outlive the last thing that could invoke
+    /// it. <see cref="_disposed"/> covers an import still in flight (see
+    /// <see cref="ImportModulesAsync"/>). Nothing here can race an attach or an
+    /// observe: WebAssembly runs the JS of an interop call synchronously, so
+    /// one whose await is pending has already executed in the browser.
     /// </summary>
     public async ValueTask DisposeAsync()
     {
@@ -1008,6 +1183,12 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
             await _keys.InvokeVoidAsync("detach");
             await _keys.DisposeAsync();
             _keys = null;
+        }
+        if (_rowWidth is not null)
+        {
+            await _rowWidth.InvokeVoidAsync("unobserve");
+            await _rowWidth.DisposeAsync();
+            _rowWidth = null;
         }
         _self?.Dispose();
         _self = null;

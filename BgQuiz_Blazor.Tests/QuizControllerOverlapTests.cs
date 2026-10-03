@@ -8,7 +8,7 @@ namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
 /// The transition-gate overlap suite: a second gesture arriving while a
-/// Start / Restart / Submit / Continue / Skip / End-quiz transition is in
+/// Start / Restart / Submit / ▶ / End-quiz transition is in
 /// flight must <b>no-op</b> — not queue, not throw, and above all not touch the
 /// one live enumerator (an overlapped <c>MoveNextAsync</c> faults on a
 /// thread-pool continuation no page can catch, terminating the WASM runtime;
@@ -110,16 +110,16 @@ public class QuizControllerOverlapTests
     }
 
     [Fact]
-    public async Task StartAsync_WhileContinuePending_NoOpsWithBusyOutcome()
+    public async Task StartAsync_WhileAnAdvanceIsPending_NoOpsWithBusyOutcome()
     {
         // The double-Start hazard mid-advance: without the gate a second
-        // Start disposes the enumerator the pending Continue is awaiting.
+        // Start disposes the enumerator the pending ▶ is awaiting.
         var c = MakeGated(out var source, out _, out var factoryCalls, Decision(), Decision());
         source.ReleaseNext();
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
 
-        var pending = c.ContinueAsync(); // suspends at the gated advance to the second problem
+        var pending = c.NextAsync(); // suspends at the gated advance to the second problem
 
         Assert.Equal(QuizStartOutcome.Busy, await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity));
 
@@ -130,23 +130,23 @@ public class QuizControllerOverlapTests
     }
 
     // -----------------------------------------------------------------------
-    //  Overlapped Continue / Skip / Submit / Redo
+    //  Overlapped ▶ / Submit / End quiz during an advance
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task SkipCurrentAsync_DuringPendingAdvance_NoOps()
+    public async Task Next_DuringAPendingAdvance_NoOps()
     {
-        // Mid-advance, Current still points at the outgoing problem and
-        // Review is already null — both state guards stale-pass, so the busy
-        // gate is the guard that actually holds.
+        // Mid-advance, Current still points at the outgoing problem — the state
+        // guard stale-passes, so the busy check is the guard that actually
+        // holds; a second ▶ there would overlap the enumerator.
         var c = MakeGated(out var source, out _, out _, Decision(), Decision());
         source.ReleaseNext();
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
 
-        var pending = c.ContinueAsync(); // suspends at the gated advance
+        var pending = c.NextAsync(); // suspends at the gated advance
 
-        await c.SkipCurrentAsync();      // must no-op
+        await c.NextAsync();      // must no-op
 
         Assert.Equal(0, c.SkippedCount);
 
@@ -164,9 +164,9 @@ public class QuizControllerOverlapTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
 
-        var pending = c.ContinueAsync(); // suspends at the gated advance
+        var pending = c.NextAsync(); // suspends at the gated advance
 
-        // Wait for the window the gate exists for. The pending Continue's
+        // Wait for the window the gate exists for. The pending advance's
         // continuation runs on its own schedule; once the review is gone it has
         // moved on from the problem and is waiting on the source, and it cannot
         // go further until this test releases one. There the state guards
@@ -175,7 +175,7 @@ public class QuizControllerOverlapTests
         // problem, and put a review up over a problem the run is leaving.
         Assert.True(
             SpinWait.SpinUntil(() => c.Review is null, TimeSpan.FromSeconds(10)),
-            "The pending Continue never reached the gated advance.");
+            "The pending advance never reached the gated draw.");
 
         await c.SubmitPlayAsync(BestPlay());        // must no-op — the outgoing problem is not re-scorable
 
@@ -189,10 +189,11 @@ public class QuizControllerOverlapTests
     }
 
     [Fact]
-    public async Task SubmitPlay_DuringPendingSkip_NoOps()
+    public async Task SubmitPlay_DuringAPendingSkip_NoOps()
     {
-        // The window a pending Skip opens is sharper than a pending Continue's.
-        // Skip completes nothing, so the problem it left is still the frontier,
+        // The window a pending Skip — ▶ on the unresolved frontier — opens is
+        // sharper than a pending Continue's. It completes nothing, so the problem
+        // it left is still the frontier,
         // still unresolved and in its answering state while the source is
         // asked: an ungated submission there would be live — an answer of
         // record, written to the lifetime record, on a problem the user has
@@ -201,7 +202,7 @@ public class QuizControllerOverlapTests
         source.ReleaseNext();
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
-        var pending = c.SkipCurrentAsync();
+        var pending = c.NextAsync();
         source.WaitForDrawRequest(2);    // moved on, and waiting on the source
 
         await c.SubmitPlayAsync(BestPlay());        // must no-op
@@ -217,7 +218,7 @@ public class QuizControllerOverlapTests
     }
 
     [Fact]
-    public async Task SkipCurrentAsync_WhileItsDrawIsPending_CountsNothingUntilTheNextProblemLands()
+    public async Task Skip_WhileItsDrawIsPending_CountsNothingUntilTheNextProblemLands()
     {
         // SPEC-quiz-history.md §5 (amended 2026-09-30): the skip count "does not
         // rise when Skip is pressed … the count rises when the next problem
@@ -231,7 +232,7 @@ public class QuizControllerOverlapTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var skipped = c.Current;
 
-        var pending = c.SkipCurrentAsync();
+        var pending = c.NextAsync();
         source.WaitForDrawRequest(2);
 
         Assert.True(c.IsBusy);
@@ -259,7 +260,7 @@ public class QuizControllerOverlapTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
 
-        var pending = c.ContinueAsync(); // suspends at the gated advance
+        var pending = c.NextAsync(); // suspends at the gated advance
 
         await c.EndQuizAsync();          // must no-op
 
@@ -278,22 +279,20 @@ public class QuizControllerOverlapTests
     //  Submit folds its answer of record and awaits the write inside the gate
     //  (SPEC-scoring.md §2's fold trigger), so the answer cannot be lost to a
     //  gesture that begins a new run, moves on or ends the quiz while it is on
-    //  its way. Its review is on screen through the window, so for Continue,
-    //  Redo and End quiz the state guards pass and the gate is what refuses
-    //  them; Start and Restart have no state guard at all. Skip is refused by
-    //  its state guard too — a review is showing — so its row cannot tell the
-    //  gate from the guard; what it pins is the outcome.
+    //  its way. Its review is on screen through the window, so for ▶ and End
+    //  quiz the state guards pass and the busy check is what refuses them;
+    //  Start and Restart have no state guard at all. The moves among the
+    //  presented problems are pinned below, on a problem where each of them is
+    //  available by state.
     // -----------------------------------------------------------------------
 
-    public enum Gesture { Start, Restart, Continue, Skip, EndQuiz, Redo }
+    public enum Gesture { Start, Restart, Next, EndQuiz }
 
     [Theory]
     [InlineData(Gesture.Start)]
     [InlineData(Gesture.Restart)]
-    [InlineData(Gesture.Continue)]
-    [InlineData(Gesture.Skip)]
+    [InlineData(Gesture.Next)]
     [InlineData(Gesture.EndQuiz)]
-    [InlineData(Gesture.Redo)]
     public async Task AGesture_WhileASubmitsWriteIsPending_NoOps_AndTheSinkHoldsOneFold(Gesture gesture)
     {
         var c = MakeGated(out var source, out var sink, out var factoryCalls, Decision(), Decision());
@@ -318,10 +317,8 @@ public class QuizControllerOverlapTests
             case Gesture.Restart:
                 Assert.Equal(QuizStartOutcome.Busy, await c.RestartAsync(PlayRanking.Equity));
                 break;
-            case Gesture.Continue: await c.ContinueAsync(); break;
-            case Gesture.Skip: await c.SkipCurrentAsync(); break;
+            case Gesture.Next: await c.NextAsync(); break;
             case Gesture.EndQuiz: await c.EndQuizAsync(); break;
-            case Gesture.Redo: await c.RedoAsync(); break;
         }
 
         // Nothing moved inside the window: the same problem, its review up.
@@ -341,6 +338,55 @@ public class QuizControllerOverlapTests
         Assert.Equal(1, sink.BeginQuizCallCount);   // nor its stats context bound
         Assert.Same(submitted, Assert.Single(sink.Plays));
         Assert.Equal(1, c.Score.PlayDecisions.Submitted);
+    }
+
+    public enum CursorMove { GoToFirst, GoBack, GoToLast, NextBehindTheFrontier }
+
+    [Theory]
+    [InlineData(CursorMove.GoToFirst)]
+    [InlineData(CursorMove.GoBack)]
+    [InlineData(CursorMove.GoToLast)]
+    [InlineData(CursorMove.NextBehindTheFrontier)]
+    public async Task AMove_WhileASubmitsWriteIsPending_NoOps(CursorMove move)
+    {
+        // A deferred problem answered live on return: its write is pending, its
+        // review up, behind the frontier — where every move is available by
+        // state (an earlier problem for ⏮ ◀, the frontier ahead for ⏭ and ▶).
+        // These moves take no gate of their own, so the busy check each makes
+        // is all that keeps it from taking the review down mid-write.
+        var c = MakeGated(out var source, out var sink, out _, Decision(), Decision(), Decision());
+        source.ReleaseNext(3);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.NextAsync();
+        await c.NextAsync();                        // the first two deferred, the third the frontier
+        c.GoBack();                                 // the second, deferred and live
+        var write = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sink.RecordGate = write.Task;
+        var submit = c.SubmitPlayAsync(BestPlay());
+        var review = c.Review;
+        Assert.NotNull(review);
+        Assert.True(c.IsBusy);
+        Assert.True(c.CanGoBack);
+        Assert.True(c.CanGoToLast);
+
+        switch (move)
+        {
+            case CursorMove.GoToFirst: c.GoToFirst(); break;
+            case CursorMove.GoBack: c.GoBack(); break;
+            case CursorMove.GoToLast: c.GoToLast(); break;
+            case CursorMove.NextBehindTheFrontier: await c.NextAsync(); break;
+        }
+
+        Assert.Equal(2, c.ProblemNumber);
+        Assert.Same(review, c.Review);
+
+        write.SetResult();
+        await submit;
+
+        Assert.False(c.IsBusy);
+        Assert.Equal(2, c.ProblemNumber);
+        Assert.Same(review, c.Review);
+        Assert.Single(sink.Plays);
     }
 
     [Fact]
@@ -379,7 +425,7 @@ public class QuizControllerOverlapTests
         Assert.False(c.IsBusy);
 
         source.ReleaseNext();
-        await c.SkipCurrentAsync(); // a fresh transition passes the released gate
+        await c.NextAsync(); // a fresh transition passes the released gate
 
         Assert.Equal(1, c.SkippedCount);
         Assert.False(c.IsBusy);

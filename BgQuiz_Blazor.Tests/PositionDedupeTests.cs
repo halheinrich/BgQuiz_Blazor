@@ -143,7 +143,7 @@ public class PositionDedupeTests
         while (!controller.IsFinished)
         {
             served.Add(controller.Current!.Xgid);
-            await controller.SkipCurrentAsync();
+            await controller.NextAsync();
             Assert.True(served.Count <= undeduped.Count, "The quiz served more problems than the pool holds.");
         }
 

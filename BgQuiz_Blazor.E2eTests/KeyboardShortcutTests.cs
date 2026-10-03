@@ -7,8 +7,9 @@ namespace BgQuiz_Blazor.E2eTests;
 /// The spacebar, in a real browser (issue <c>halheinrich/backgammon#149</c>,
 /// ruled 2026-09-02: always on, no setting; amended by
 /// <c>halheinrich/backgammon#200</c>, ruled 2026-09-23 and amended
-/// 2026-09-24). Space presses Continue on the solution view, and while
-/// answering Submit when Submit is lit and Skip otherwise — and only when
+/// 2026-09-24; now SPEC-quiz-history.md §2's rule). Space presses Submit when
+/// Submit is lit and ▶ otherwise — Continue on the solution view, Skip or Next
+/// while answering — and only when
 /// focus is on nothing that consumes space itself. The state rule is
 /// unit-pinned through the page's callback; what only a browser can judge is
 /// the half in front of it: which presses reach the page at all, decided by
@@ -54,7 +55,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
         : base(app, playwright) { }
 
     private ILocator ContinueButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton });
-    private ILocator RedoButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.RedoButton });
+    private ILocator ShowStatsButton => Page.GetByRole(AriaRole.Button, new() { Name = "Show stats", Exact = true });
     private ILocator NoDoublePill => CubePill(ExpectedText.NoDoublePill);
     private ILocator DoubleTakePill => CubePill(ExpectedText.DoubleTakePill);
 
@@ -269,24 +270,24 @@ public sealed class KeyboardShortcutTests : E2eTestBase
         string xgid = (await XgidBadgeText.TextContentAsync())!;
         Assert.False(string.IsNullOrWhiteSpace(xgid));
 
-        // Focus on Redo — a button, which space activates natively. Had the
-        // shortcut fired as well, Continue would have taken the one-problem
-        // quiz to Done; Redo's own effect is the opposite direction, back to
-        // answering the same problem, which is what makes the two
-        // distinguishable from outside. The order is deterministic in the
-        // shortcut's disfavour: keydown (where the shortcut listens) precedes
-        // the click a button synthesizes on keyup, so a shortcut that fired
-        // would Continue first and Redo would find the controller busy.
-        await RedoButton.FocusAsync();
-        Assert.Equal("button Redo", await ActiveElementAsync());
+        // Focus on Show stats — a button, which space activates natively, and
+        // one whose effect leaves the run where it is. Had the shortcut fired as
+        // well, Continue would have finished the one-problem quiz, and the stats
+        // page redirects a finished quiz to Done; Show stats alone leaves the
+        // review standing behind it, which the round trip back reads. The order
+        // is deterministic in the shortcut's disfavour: keydown (where the
+        // shortcut listens) precedes the click a button synthesizes on keyup.
+        await ShowStatsButton.FocusAsync();
+        Assert.Equal("button Show stats", await ActiveElementAsync());
 
         await Page.Keyboard.PressAsync("Space");
 
-        // Redo's effect, and only Redo's: answering again, same problem, still
-        // on the quiz page.
-        await Expect(SubmitButton).ToBeVisibleAsync();
-        await Expect(ContinueButton).ToHaveCountAsync(0);
+        // Show stats' effect, and only its: the stats page, then back to the
+        // same problem's review, nothing continued.
+        await ExpectUrlAsync("/stats");
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton }).ClickAsync();
         await ExpectUrlAsync("/quiz");
+        await Expect(ContinueButton).ToBeVisibleAsync();
         await Expect(XgidBadgeText).ToHaveTextAsync(xgid);
     }
 

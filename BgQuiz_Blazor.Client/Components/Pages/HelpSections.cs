@@ -179,7 +179,7 @@ internal static class HelpSections
     /// <summary>How a submitted answer is scored.</summary>
     internal static HelpSection Scoring { get; } = new("help-scoring", "Scoring");
 
-    /// <summary>The solution view, Continue and Redo.</summary>
+    /// <summary>The solution view, Continue, going back, and practice.</summary>
     internal static HelpSection ReviewTheSolution { get; } =
         new("help-review-solution", "Review the solution");
 

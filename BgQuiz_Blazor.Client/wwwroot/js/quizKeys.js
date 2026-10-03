@@ -1,8 +1,8 @@
-// quizKeys.js — the quiz page's one keyboard shortcut: Space presses Continue
-// on the solution view and, while answering, Submit when Submit is lit and
-// Skip otherwise (halheinrich/backgammon#149, ruled 2026-09-02: always on, no
-// setting; amended by halheinrich/backgammon#200, ruled 2026-09-23 and
-// amended 2026-09-24). Loaded as an ES module by the Quiz
+// quizKeys.js — the quiz page's one keyboard shortcut: Space presses Submit
+// when Submit is lit and ▶ otherwise — Continue on the solution view, Skip or
+// Next while answering (halheinrich/backgammon#149, ruled 2026-09-02: always
+// on, no setting; amended by halheinrich/backgammon#200; now
+// SPEC-quiz-history.md §2's rule, clarified 2026-10-02). Loaded as an ES module by the Quiz
 // page (import "./js/quizKeys.js" — this project's static web assets serve at
 // the app root, the way the folder module did before it moved to
 // BgFolderAccess_Razor); nothing else imports it.
@@ -10,9 +10,10 @@
 // Division of labour, ruled: THIS side decides eligibility, synchronously,
 // from the event alone — which key, which modifiers, where focus is — and
 // calls preventDefault() only when the shortcut fires. The C# side decides
-// what Space DOES right now (Continue at review, Submit or Skip while
-// answering, nothing while the controller is busy), by reading the very gates
-// the three buttons render from and calling the very methods they call: the
+// what Space DOES right now (Submit when it is lit, otherwise ▶ — Continue at
+// review, Skip or Next while answering — and nothing while the controller is
+// busy), by reading the very gates the two buttons render from and calling
+// the very methods they call: the
 // state rule lives in one place, the page, beside the buttons that show it.
 // No copy of the quiz's state lives here, and none may — a JS mirror of "is
 // Submit enabled" is exactly the second source the page's CanSubmit exists

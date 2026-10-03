@@ -206,6 +206,25 @@ internal sealed class QuizRun
     public bool CanGoToLast => _cursor != NoCursor && _cursor < _presented.Length - 1;
 
     /// <summary>
+    /// True when ▶ pressed here would add to <see cref="SkippedCount"/> — the
+    /// fact ▶'s name follows: it is called Skip exactly where this holds, and
+    /// Next everywhere else (SPEC-quiz-history.md §2), so the icon never hides
+    /// a counted skip.
+    ///
+    /// <para>
+    /// That is the cursor on the frontier while the frontier is unresolved.
+    /// ▶ there defers the problem, and the count takes it in once a later
+    /// problem is presented — or, if the source has none, once the run's
+    /// finishing converts it (§5). Anywhere else ▶ adds nothing: behind the
+    /// frontier it moves the cursor and a deferred problem there is already
+    /// counted; on a completed problem, which every review is of, there is
+    /// nothing left to skip. Derived on every read, like the count itself.
+    /// </para>
+    /// </summary>
+    public bool NextAddsToSkipCount =>
+        _cursor != NoCursor && _cursor == _presented.Length - 1 && !_presented[_cursor].Disposition.IsCompleted;
+
+    /// <summary>
     /// The session score: every answer of record, folded in the order its
     /// problem was presented. Derived from the dispositions on each read
     /// (SPEC-quiz-history.md §1, §7), so it is exactly what the record says —
@@ -471,26 +490,6 @@ internal sealed class QuizRun
 
         answerOfRecord = AnswerOfRecord.Of(review.Submission);
         return WithCursorCompleted(ProblemDisposition.Answered(answerOfRecord), review);
-    }
-
-    /// <summary>
-    /// Leave the review and return to the decision on the same problem — the
-    /// Redo gesture (SPEC-scoring.md §2). Nothing of record changes: the
-    /// problem is completed, so the submission that follows is practice.
-    ///
-    /// <para>
-    /// The navigation model has no such step — there, returning to a problem is
-    /// how it is practised — and <c>SPEC-quiz-history.md</c> §2 retires the
-    /// Redo button with the leg that adds the navigation controls; this
-    /// transition goes with it.
-    /// </para>
-    /// </summary>
-    /// <exception cref="InvalidOperationException">No review is showing.</exception>
-    public QuizRun Redo()
-    {
-        if (Review is null)
-            throw new InvalidOperationException("No review is showing, so there is nothing to redo.");
-        return WithCursor(_cursor);
     }
 
     // -----------------------------------------------------------------------

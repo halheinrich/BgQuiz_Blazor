@@ -371,7 +371,7 @@ internal sealed class QuizSettings(IJSRuntime js)
     /// The current problem's roll — <see cref="QuizController.RandomHomeBoardOnRight"/>,
     /// which the controller takes unconditionally for each problem it presents
     /// and the run keeps with that problem, so it holds steady across submit,
-    /// review, and redo. Passing it in is what keeps the controller and the run
+    /// review, and every return to it. Passing it in is what keeps the controller and the run
     /// free of any knowledge of this service.
     /// </param>
     public bool EffectiveHomeBoardOnRight(bool randomSide) =>

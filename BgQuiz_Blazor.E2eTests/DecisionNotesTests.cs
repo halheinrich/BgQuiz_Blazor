@@ -8,7 +8,7 @@ namespace BgQuiz_Blazor.E2eTests;
 /// The decision's notes in a real browser (issue
 /// <c>halheinrich/backgammon#31</c>, conforming to <c>SPEC-quiz-view.md</c>
 /// §4's 2026-09-15 amendment): review offers a <b>Notes</b> control after
-/// Redo when the decision carries a comment, and it opens the text as an
+/// the navigation buttons when the decision carries a comment, and it opens the text as an
 /// overlay above the page — nothing reflows, the board does not move, Esc or a
 /// click outside closes it, and focus comes back to the control.
 ///
@@ -206,7 +206,7 @@ public sealed class DecisionNotesTests : E2eTestBase
         await AnswerCubeNoDoubleAsync();
 
         // Positive precondition: this is review, where notes would be offered.
-        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.RedoButton })).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton })).ToBeVisibleAsync();
         await Expect(NotesButton).ToHaveCountAsync(0);
     }
 

@@ -92,21 +92,15 @@ public sealed class ProblemLocatorTests : E2eTestBase
     private const string ExpectedFileName = "long-mon…26-04-12";
 
     /// <summary>
-    /// The control the cluster follows while <b>answering</b> a cube problem —
-    /// the row is the cube radios, Submit, Skip, then the cluster. Named by the
-    /// label a user reads, per this suite's independent-literal posture, and
-    /// because a name is the thing a failure message can be honest about; the
-    /// page needs no new handle for it.
+    /// The control the cluster follows in both states: ⏭, the last of the
+    /// navigation buttons, which close the leading cluster while answering
+    /// (the cube radios, Submit, ⏮ ◀ ▶ ⏭) and at review when the decision has
+    /// no notes (Continue, ⏮ ◀ ▶ ⏭) — SPEC-quiz-view.md §4. Named by the
+    /// accessible name a user's assistive technology reads, per this suite's
+    /// independent-literal posture, and because a name is the thing a failure
+    /// message can be honest about.
     /// </summary>
-    private const string SkipButton = ExpectedText.SkipButton;
-
-    /// <summary>
-    /// And the control it follows at <b>review</b>, where the row is Continue,
-    /// Redo, then the cluster. Two names rather than one selector because the
-    /// row genuinely has two compositions — pretending otherwise is what a
-    /// positional selector does.
-    /// </summary>
-    private const string RedoButton = ExpectedText.RedoButton;
+    private const string LastNavigationButton = ExpectedText.GoToLastButton;
 
     /// <summary>
     /// The one evaluation behind <see cref="ReportRowGeometryAsync"/> — every
@@ -199,7 +193,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
             AssertTheDumpSawTheTail(answeringGeometry);
             await AssertChipReadsTheFixtureAsync();
             await AssertChipSitsBelowTheBoardAsync();
-            await AssertClusterSharesTheLineOfAsync(SkipButton);
+            await AssertClusterSharesTheLineOfAsync(LastNavigationButton);
         }
         finally
         {
@@ -218,7 +212,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
             AssertTheDumpSawTheTail(reviewGeometry);
             await AssertChipReadsTheFixtureAsync();
             await AssertChipSitsBelowTheBoardAsync();
-            await AssertClusterSharesTheLineOfAsync(RedoButton);
+            await AssertClusterSharesTheLineOfAsync(LastNavigationButton);
         }
         finally
         {
@@ -295,7 +289,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
             AssertTheDumpSawTheTail(geometry);
             await AssertChipLocatesTheMatchDecisionAtTheTailFloorAsync();
             await AssertChipSitsBelowTheBoardAsync();
-            await AssertClusterSharesTheLineOfAsync(SkipButton);
+            await AssertClusterSharesTheLineOfAsync(LastNavigationButton);
         }
         finally
         {
@@ -314,7 +308,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
             AssertTheDumpSawTheTail(foldedGeometry);
             await Expect(ChipFileName).ToBeVisibleAsync();
             await AssertChipLocatesTheMatchDecisionAtTheTailFloorAsync();
-            await AssertClusterSharesTheLineOfAsync(SkipButton);
+            await AssertClusterSharesTheLineOfAsync(LastNavigationButton);
         }
         finally
         {
@@ -482,7 +476,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// <summary>
     /// §4's ruling (i), as the only observation that can actually catch it: the
     /// trailing cluster shares a line with <b>the named control immediately
-    /// before it</b> — Skip while answering, Redo at review. A cluster that
+    /// before it</b> — the navigation buttons' last, ⏭, in both states. A cluster that
     /// opened a line of its own would still render every element the DOM pins
     /// look for; it would simply have added a row and taken the difference out
     /// of the board, which is the one thing the fixed-height contract forbids.
@@ -554,7 +548,8 @@ public sealed class ProblemLocatorTests : E2eTestBase
         // the message saying what had been measured. Now a wrong element fails
         // here, naming itself, and the geometry block above says what it was.
         await Expect(Page.Locator(".action-row > .action-row-tail:last-child")).ToHaveCountAsync(1);
-        await Expect(Page.Locator(".action-row > :nth-last-child(2)")).ToHaveTextAsync(controlName);
+        await Expect(Page.Locator(".action-row > :nth-last-child(2) > button:last-child"))
+            .ToHaveAccessibleNameAsync(controlName);
 
         // Retried, and both boxes required to be real ones
         // (halheinrich/backgammon#127). The two Expects above prove the row's
@@ -568,7 +563,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await ExpectToPassAsync(async () =>
         {
             var control = await LaidOutBoxAsync(
-                Page.GetByRole(AriaRole.Button, new() { Name = controlName }), controlName);
+                Page.GetByRole(AriaRole.Button, new() { Name = controlName, Exact = true }), controlName);
             var cluster = await LaidOutBoxAsync(
                 Page.Locator(".action-row-tail"), "the trailing cluster");
 

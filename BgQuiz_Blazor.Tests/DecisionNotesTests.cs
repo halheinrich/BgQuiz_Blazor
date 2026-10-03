@@ -21,7 +21,7 @@ namespace BgQuiz_Blazor.Tests;
 /// reach over the whole viewport — and AngleSharp evaluates none of it. The
 /// declaration is pinned in <c>PageTests</c> beside the other <c>AppCss_*</c>
 /// pins; the behaviour in a real browser is <c>DecisionNotesTests</c> in the
-/// e2e suite. The page's half — review only, after Redo, the record's comment
+/// e2e suite. The page's half — review only, after the navigation buttons, the record's comment
 /// passed through — is pinned in <c>PageTests</c> too.
 /// </para>
 /// </summary>

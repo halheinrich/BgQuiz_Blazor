@@ -16,8 +16,9 @@
 
 <PageTitle>BgQuiz — In progress</PageTitle>
 
-@* app-busy: progress cursor while a Continue/Skip transition runs (app.css);
-   the controller's gate yield lets it paint before the advance's churn. *@
+@* app-busy: progress cursor while a transition runs — a draw for ▶, or a
+   Submit's write to the lifetime record (app.css); the controller's gate yield
+   lets it paint before an advance's churn. *@
 <div class="container-fluid py-3 board-page @(Controller.IsBusy ? "app-busy" : null)">
     @* Active-context stats notices: scoped to the running quiz's stats context
        (bound at Start, reset by the next Start's re-bind). A load failure is an
@@ -171,7 +172,7 @@
             {
                 <BackgammonDiagram Request="BuildSolutionRequest(current, review)"
                                    Options="BoardOptions"
-                                   OnDiceClicked="ContinueAsync" />
+                                   OnDiceClicked="NextAsync" />
             }
             else if (current is CubeDecision)
             {
@@ -188,7 +189,15 @@
             }
             else
             {
+                @* Keyed on the problem's place in the run — its stream slot,
+                   unique to each presented problem — so every landing mounts a
+                   fresh entry (SPEC-quiz-history.md §5: a play in progress is
+                   discarded on leaving a problem). The entry resets itself only
+                   when its request describes a different position, and two
+                   problems of a run can share one, so a landing from one to the
+                   other would otherwise keep the half-built play. *@
                 <BackgammonPlayEntry @ref="_playEntry"
+                                     @key="Controller.ProblemNumber"
                                      Request="BuildRenderRequest(current)"
                                      Options="BoardOptions"
                                      OnPlayCompleted="HandlePlayCompleted"
@@ -209,41 +218,35 @@
                move. Under maximized answering the strip and the panel are absent,
                so this row is the whole of the chrome there either way.
 
+               THE COMPOSITION IS SPEC-quiz-view.md §4's "action row under quiz
+               navigation": answering a checker play, Undo all and Undo last lead,
+               then Submit; answering a cube decision, the answer pills lead, then
+               Submit; at review, Continue. Then, in every state, ⏮ ◀ ▶ ⏭ — one
+               render site, after whatever leads — then Notes at review, then the
+               tail. ▶ took the Skip button's place and the navigation buttons took
+               Redo's; both buttons are retired (SPEC-quiz-history.md §2).
+
                THE PRIMARY BUTTON IS LARGE AND BOLD — Submit in both answering
                branches, Continue at review (btn-lg fw-bold;
                halheinrich/backgammon#148's ruling (2)). It
                is the one control clicked once per problem, every problem, and the
-               only one that changes size: Skip, Redo, the Undo pair and the whole
-               trailing cluster keep Bootstrap's default. The row's height is now
-               that button's, and it is the same in every state by construction,
-               because every state's row carries exactly one primary button — the
-               fixed-height contract below gains a new constant, not a per-state
-               variance. That growth is the move's one board cost, paid only where
-               the board is height-bound (the commit that landed it carries the
-               measurement).
-
-               Only the leading segment — the answer instruments — branches; the
-               trailing cluster (.action-row-tail) is shared, because it is the
-               same three things in every state and a second copy of it is how
-               two rows drift apart. The semantic class names the region for
-               readers and pins alike; the Bootstrap utilities beside them still
-               do the layout, as everywhere else on this page.
-
-               One row also means the XGID has one render site (below), which is
-               the point of §4's one-home ruling: three sites is exactly how a
-               badge ends up rendering differently in one composition.
+               only one that changes size: the Undo pair, the navigation buttons
+               and the whole trailing cluster keep Bootstrap's default. The row's
+               height is that button's, and it is the same in every state by
+               construction, because every state's row carries exactly one
+               primary button — the fixed-height contract below gains a new
+               constant, not a per-state variance.
 
                Transition-driving buttons disable while the controller is busy
                (the gate would no-op them anyway — this is the honest mirror);
-               Show stats stays enabled: it only navigates. Submit, Continue
-               and Skip enable on CanSubmit / CanContinue / CanSkip, the
-               page-owned gates — one expression each. The spacebar
+               Show stats stays enabled: it only navigates. Each enables on its
+               page-owned gate (CanSubmit, CanContinue, CanGoBack, CanGoNext,
+               CanGoToLast) — one expression each. The spacebar
                (halheinrich/backgammon#149, amended by
-               halheinrich/backgammon#200) reads CanContinue, CanSubmit and
-               CanSkip, in that order, and calls the same ContinueAsync /
-               Submit / SkipAsync these buttons do, so
-               the keyboard can never enable what a button shows disabled, nor
-               act differently from it.
+               halheinrich/backgammon#200 and SPEC-quiz-history.md §2) reads
+               CanSubmit and then CanGoNext, and calls the same SubmitAsync /
+               NextAsync these buttons do, so the keyboard can never enable what
+               a button shows disabled, nor act differently from it.
 
                "End quiz" (issue halheinrich/backgammon#57) closes the trailing cluster, after Show
                stats — the far end of the row, as far from the buttons a user
@@ -260,102 +263,132 @@
                is also what keeps the states' row heights equal by construction —
                what the board's flex remainder depends on, see the status strip's
                fixed-height contract. *@
-            <div class="action-row d-flex flex-wrap gap-2 align-items-center">
+            <div class="action-row d-flex flex-wrap gap-2 align-items-center" @ref="_actionRow">
                 @if (review is not null)
                 {
                     <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanContinue)"
-                            @onclick="ContinueAsync">
+                            @onclick="NextAsync">
                         Continue
                     </button>
-                    <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy"
-                            @onclick="RedoAsync">
-                        Redo
-                    </button>
-                    @* THE DECISION'S NOTES HAVE ONE HOME (SPEC-quiz-view.md §4's
-                       2026-09-15 amendment, issue halheinrich/backgammon#31): this
-                       leading cluster, after Redo and before the tail, at review
-                       only — the comment was written by someone who knew the
-                       answer, so answering never shows it, in either view mode.
-                       The page hands over the comment and nothing else; the
-                       control, its overlay and whether it is open are the
-                       component's, and a decision without a comment renders
-                       nothing here. It is a fixed-width button, not a member of
-                       the tail's shrink order, and the row's height stays the
-                       primary button's. Continue and Redo close the overlay by
-                       leaving this branch, which unmounts it. *@
-                    <DecisionNotes Comment="@current.Descriptive.Comment" />
                 }
                 else if (current is CubeDecision cube)
                 {
                     @* The cube answer lives here in the chrome, beside its own
-                       Submit / Skip — the board region above is board-only. One
-                       radio group leads the row: the four answers of
-                       SPEC-scoring §3 (halheinrich/backgammon#326), all four
-                       offered at every cube decision, each pill one whole
-                       answer, so there is no half answer to gate against.
-                       @bind-Value keeps _completedCube current, which is what
-                       CanSubmit reads — null until a pill is chosen, lit from
-                       the first click (the one gate, see Quiz.razor.cs).
+                       Submit — the board region above is board-only. One radio
+                       group leads the row: the four answers of SPEC-scoring §3
+                       (halheinrich/backgammon#326), all four offered at every
+                       cube decision, each pill one whole answer, so there is no
+                       half answer to gate against. @bind-Value keeps
+                       _completedCube current, which is what CanSubmit reads —
+                       null until a pill is chosen, lit from the first click (the
+                       one gate, see Quiz.razor.cs).
 
                        Decision is the record on screen: the row labels each
                        pill from it, so the fourth reads Too good where gammons
                        are possible and No double / Pass where they are not —
                        the decision's reading, which this page never re-derives.
-                       ShortLabels stays at its default, so every pill shows its
-                       full label, which is also its accessible name.
 
                        One clearing mechanism, deliberately. The row holds no
                        state the answer does not express — its checked pill IS
                        Value, re-rendered from it — so HandleStateChanged nulling
                        _completedCube on every transition clears the row
-                       outright, Skip included. The @key remount this row used to
-                       carry existed for the half-answered row of the two-group
-                       era, whose one lit pill stood for no answer and so
-                       survived a null; with every selection a whole answer that
-                       state is unrepresentable, and a key would be a defensive
-                       remount guarding nothing (the same reasoning that keeps a
-                       @key off the play entry — see the Redo remarks in
-                       Quiz.razor.cs). *@
-                    <BackgammonCubeActions @bind-Value="_completedCube" Decision="cube" />
+                       outright, every landing included.
+
+                       ShortLabels is this page's call, as the producer leaves
+                       it to the host (SPEC-quiz-view.md §4): the short form
+                       wherever the row cannot hold the full one, decided from
+                       the row's measured width by CubeLabelsAbbreviate. *@
+                    <BackgammonCubeActions @bind-Value="_completedCube" Decision="cube"
+                                           ShortLabels="@ShortCubeLabels(cube)" />
                     <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanSubmit)"
                             @onclick="SubmitAsync">
                         Submit
-                    </button>
-                    <button class="btn btn-outline-secondary" disabled="@(!CanSkip)"
-                            @onclick="SkipAsync">
-                        Skip
                     </button>
                 }
                 else
                 {
-                    <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanSubmit)"
-                            @onclick="SubmitAsync">
-                        Submit
-                    </button>
-                    <button class="btn btn-outline-secondary" disabled="@(!CanSkip)"
-                            @onclick="SkipAsync">
-                        Skip
-                    </button>
-                    @* Busy-only, deliberately not "_playEntry is not null":
-                       that @ref is assigned *after* the render that creates
-                       the entry, so this branch's first render always read
-                       null and disabled both buttons — and nothing
-                       re-renders this page during click-by-click assembly,
-                       so they stayed disabled until the play completed. The
-                       branch already guarantees an entry is rendered
-                       (a checker play), and a click can only land after the ref is
-                       assigned, so the null term tested nothing this branch
-                       had not already established. See UndoLast. *@
-                    <button class="btn btn-outline-secondary"
-                            disabled="@Controller.IsBusy"
-                            @onclick="UndoLast">
-                        Undo last
-                    </button>
+                    @* Undo all and Undo last lead the row (SPEC-quiz-view.md §4),
+                       Undo all first. Busy-only, deliberately not
+                       "_playEntry is not null": that @ref is assigned *after*
+                       the render that creates the entry, so this branch's first
+                       render always read null and disabled both buttons — and
+                       nothing re-renders this page during click-by-click
+                       assembly, so they stayed disabled until the play
+                       completed. The branch already guarantees an entry is
+                       rendered (a checker play), and a click can only land after
+                       the ref is assigned, so the null term tested nothing this
+                       branch had not already established. See UndoLast. *@
                     <button class="btn btn-outline-secondary"
                             disabled="@Controller.IsBusy"
                             @onclick="UndoAll">
                         Undo all
                     </button>
+                    <button class="btn btn-outline-secondary"
+                            disabled="@Controller.IsBusy"
+                            @onclick="UndoLast">
+                        Undo last
+                    </button>
+                    <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanSubmit)"
+                            @onclick="SubmitAsync">
+                        Submit
+                    </button>
+                }
+
+                @* ⏮ ◀ ▶ ⏭ — SPEC-quiz-history.md §2's controls, compact icon
+                   buttons, in both states, rendered here once. The glyphs are
+                   inline SVG so the buttons' width is the same under every font
+                   stack (the row's fit is measured, SPEC-quiz-view.md §4); each
+                   button's accessible name and tooltip are its words, the
+                   glyph is hidden from assistive technology. ▶ is called Skip
+                   where a press would add to the skip count and Next elsewhere
+                   — the run's rule, read as Controller.NextAddsToSkipCount and
+                   never rebuilt here. ⏮ and ◀ share one gate (unavailable on
+                   the first problem), ⏭ is unavailable on the frontier, and ▶
+                   only while busy. *@
+                <div class="quiz-nav d-flex gap-1" role="group" aria-label="@NavigationGroupName">
+                    <button class="btn btn-outline-secondary quiz-nav-button" disabled="@(!CanGoBack)"
+                            aria-label="@GoToFirstName" title="@GoToFirstName" @onclick="GoToFirst">
+                        <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
+                            <path d="M3 2h2v12H3zM14 2.5v11L6 8z" fill="currentColor" />
+                        </svg>
+                    </button>
+                    <button class="btn btn-outline-secondary quiz-nav-button" disabled="@(!CanGoBack)"
+                            aria-label="@BackName" title="@BackName" @onclick="GoBack">
+                        <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
+                            <path d="M12 2.5v11L4 8z" fill="currentColor" />
+                        </svg>
+                    </button>
+                    <button class="btn btn-outline-secondary quiz-nav-button" disabled="@(!CanGoNext)"
+                            aria-label="@NextButtonName" title="@NextButtonName" @onclick="NextAsync">
+                        <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
+                            <path d="M4 2.5v11L12 8z" fill="currentColor" />
+                        </svg>
+                    </button>
+                    <button class="btn btn-outline-secondary quiz-nav-button" disabled="@(!CanGoToLast)"
+                            aria-label="@GoToLastName" title="@GoToLastName" @onclick="GoToLast">
+                        <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
+                            <path d="M2 2.5v11L10 8zM11 2h2v12h-2z" fill="currentColor" />
+                        </svg>
+                    </button>
+                </div>
+
+                @if (review is not null)
+                {
+                    @* THE DECISION'S NOTES HAVE ONE HOME (SPEC-quiz-view.md §4's
+                       2026-09-15 amendment, issue halheinrich/backgammon#31): the
+                       leading cluster, after the navigation buttons and before
+                       the tail, at review only — the comment was written by
+                       someone who knew the answer, so answering never shows it,
+                       in either view mode. The page hands over the comment and
+                       nothing else; the control, its overlay and whether it is
+                       open are the component's, and a decision without a comment
+                       renders nothing here. It is a fixed-width button, not a
+                       member of the tail's shrink order, and the row's height
+                       stays the primary button's. Every move off the review —
+                       Continue, ▶ and ⏮ ◀ ⏭ alike, since every landing is the
+                       answering state — closes the overlay by leaving this
+                       branch, which unmounts it. *@
+                    <DecisionNotes Comment="@current.Descriptive.Comment" />
                 }
 
                 @* The trailing cluster. It is right-aligned by TAKING the width

@@ -7,7 +7,7 @@ namespace BgQuiz_Blazor.Tests;
 /// Recording <see cref="IProblemStatsSink"/> for controller and page tests:
 /// counts binds and captures every folded submission in order, so tests can
 /// assert exactly which answers the controller finalized — and, as important,
-/// which flows (skip, off-list, auto-skip, redo) folded nothing.
+/// which flows (skip, off-list, auto-skip, practice) folded nothing.
 /// </summary>
 internal sealed class FakeProblemStatsSink : IProblemStatsSink
 {

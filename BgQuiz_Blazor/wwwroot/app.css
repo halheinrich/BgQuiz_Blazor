@@ -412,6 +412,27 @@ h1:focus {
     }
 }
 
+/* The navigation buttons, ⏮ ◀ ▶ ⏭ (SPEC-quiz-history.md §2; their place in
+   the row is SPEC-quiz-view.md §4's). Compact icon buttons: Bootstrap's own
+   button height, so the row's height stays the primary button's, and half its
+   inline padding, since a 1em glyph needs none of a word's room. The glyph is
+   inline SVG, so the group's width is the same under every font stack — the
+   row's fit is measured, and a glyph font would make it depend on which
+   symbol font a platform falls back to. The group is one control set: it
+   neither shrinks nor wraps inside itself, and stays together on whichever
+   line the row gives it. */
+.quiz-nav {
+    flex: none;
+}
+
+.quiz-nav-button {
+    padding-inline: 0.5rem;
+}
+
+.quiz-nav-button > svg {
+    vertical-align: -0.125em;
+}
+
 /* XGID badge — an in-flow badge in the quiz page's action row, never on the
    canvas (SPEC-quiz-view.md §4's one-home ruling, issue
    halheinrich/backgammon#98). It was previously absolutely positioned in the

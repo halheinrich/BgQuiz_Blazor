@@ -191,8 +191,8 @@ public sealed class SidebarCollapseTests : E2eTestBase
         Assert.Equal(0d, await PanelWidthAsync());
         string firstProblem = await CurrentProblemXgidAsync();
 
-        // Skip: advances without scoring, entirely in-page.
-        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.SkipButton }).ClickAsync();
+        // ▶, named Skip: advances without scoring, entirely in-page.
+        await NavButton(ExpectedText.SkipButton).ClickAsync();
         await Expect(XgidBadgeText).Not.ToHaveTextAsync(firstProblem);
         string secondProblem = await CurrentProblemXgidAsync();
         Assert.Equal(0d, await PanelWidthAsync());

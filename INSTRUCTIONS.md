@@ -100,8 +100,9 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   over the four answers, all always offered, on the `@bind-Value` convention
   over `CubeAnswer?` — null only while untouched, every pill one whole
   answer — with a required `Decision`, the record on screen, from which it
-  labels each pill; `ShortLabels` is left at its default, so every pill shows
-  its full label) + the underlying `BackgammonDiagram`
+  labels each pill; `ShortLabels` is set by the page from the action row's
+  measured width, the short form wherever the row cannot hold the full one)
+  + the underlying `BackgammonDiagram`
   (read-only board view, used for both the review diagram and the
   cube-answering board).
 - **BackgammonDiagram_Lib** — `DiagramRequest` + `DiagramOptions`. Every
@@ -265,7 +266,9 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   overlay, `ProblemFolderLabel`, the `Problem folder:` caption Home, Done
   and Stats share, and `ReturnControl`, the way back Settings, Help and Stats
   share.
-  `wwwroot/js/quizKeys.js` is the quiz page's Space-shortcut module.
+  `wwwroot/js/quizKeys.js` is the quiz page's Space-shortcut module, and
+  `wwwroot/js/actionRowWidth.js` reports its action row's width, which the
+  cube pills' form is decided from.
 
 **`BgQuiz_Blazor.Tests/`** — xUnit over both app projects, with bUnit for
 components and `WebApplicationFactory` for the host pipeline. Areas: the run
@@ -335,21 +338,25 @@ referencing no app project. Three areas:
                           actionable notice with "Start without mix") — then
                           Nav→/quiz
 
-/quiz    Quiz.razor    → per problem: answering → review → advance
+/quiz    Quiz.razor    → per problem: answering → review; ⏮ ◀ ▶ ⏭ move the
+                          cursor over the problems shown so far
                           "Show stats" (both states) → Nav→/stats
                           answering (Review null), routed by the record's kind:
                             checker → BackgammonPlayEntry
-                                      + Submit / Skip / Undo last / Undo all
+                                      + Undo all / Undo last / Submit / ⏮ ◀ ▶ ⏭
                             cube    → board-only BackgammonDiagram
                                       + BackgammonCubeActions radios /
-                                        Submit / Skip (no Undo)
+                                        Submit / ⏮ ◀ ▶ ⏭ (no Undo)
                           review (Review set): read-only BackgammonDiagram
                             (Solution mode, user's answer marked, dice click
-                            bound to Continue) + verdict + Continue / Redo
-                          Redo → RedoAsync(), back to answering, same problem
-                                 (practice — the first answer stays of record)
+                            bound to ▶) + verdict + Continue / ⏮ ◀ ▶ ⏭ / Notes
+                          ▶ → NextAsync(): Skip on the unresolved frontier
+                                 (defers it), Continue at review, Next elsewhere
+                          ⏮ ◀ ⏭ → GoToFirst / GoBack / GoToLast, landing in
+                                 the answering state (practice on a completed
+                                 problem — the first answer stays of record)
                           "End quiz" (both states) → EndQuizAsync() → Nav→/done
-                          IsFinished (on Continue / Skip / End quiz) → Nav→/done
+                          IsFinished (on ▶ past the last / End quiz) → Nav→/done
 
 /stats   Stats.razor   → read-only, live ScorePanel + ScoreBreakdown against the
                           same in-progress Controller + ReturnControl
@@ -386,8 +393,8 @@ the type holds them.
 - **Two things write a disposition, and ▶ is not one.** A live submission
   completes the problem under the cursor; the run finishing (`End`, whether
   the user ends the quiz or the source runs out) converts every problem still
-  `Unresolved` to `Skipped`. ▶ and every other move complete nothing — so the
-  Skip button *defers* a problem: it stays `Unresolved` behind the frontier
+  `Unresolved` to `Skipped`. ▶ and every other move complete nothing — so ▶,
+  named Skip there, *defers* a problem: it stays `Unresolved` behind the frontier
   once the next problem is presented, open to a live answer, and several can
   be unresolved at once. A finished run holds none.
 - **What it derives, and never stores.** `IsLive` (the problem under the
@@ -402,12 +409,15 @@ the type holds them.
   nothing has to be kept in step. `ProblemReview.IsPractice` is a fact about
   one past submission, not a second record of the problem: a skip keeps no
   submission, so the record cannot say afterwards which play a review is of.
+  `NextAddsToSkipCount` is derived the same way: the cursor is on the
+  frontier and the frontier is unresolved, so a press of ▶ would leave a
+  problem counted as skipped — the one fact ▶'s name, Skip or Next, follows.
 - **Immutable.** Every transition returns the run that follows and leaves the
   one it was called on as it was. The controller holds the current run and
   replaces it whole, which is what makes "a refused Start leaves the running
   quiz untouched" one missing assignment rather than a list of fields.
 - **The transitions.** `Present` · `SubmitPlay` / `SubmitCubeAnswer` ·
-  `Redo` · `Next` (▶, which reports whether a new problem is now owed) ·
+  `Next` (▶, which reports whether a new problem is now owed) ·
   `GoToFirst` / `GoBack` / `GoToLast` (⏮ ◀ ⏭) · `End` · `WithProblemCount`.
   One the state does not allow throws `InvalidOperationException` — a caller
   bug. The gestures a user can repeat or mistime are the controller's to
@@ -441,16 +451,13 @@ the type holds them.
   `Current` is null and `ProblemNumber` zero on a finished quiz; the record
   and the totals stand for Done to read.
 
-**Only the forward half is wired.** The controller never moves the cursor
-back, so ⏮ ◀ ⏭ — and ▶ behind the frontier — have no caller yet; the
-navigation controls are `SPEC-quiz-history.md` §2's and arrive with their own
-leg. Until then nothing reaches a deferred problem: a problem the Skip button
-leaves stays unresolved behind the frontier, counted in `SkippedCount`, until
-the run finishes and converts it — so, once a gesture has landed, the numbers
-a user sees are the ones the controller showed before the run model. `Redo`
-is today's return to a decision and is retired with the Redo button by that
-leg. The lifetime fold is not the run's at all: the sink is outside it, and
-the controller folds what a submit step reports (§ `QuizController`).
+**Every transition has its control.** ⏮ ◀ ▶ ⏭ (`SPEC-quiz-history.md` §2)
+reach every transition the run has, so a deferred problem is reached by going
+back to it, and answered live there it becomes `Answered` and leaves
+`SkippedCount`. The Redo button and the run's `Redo` are retired: returning
+to a completed problem is how it is practised. The lifetime fold is not the
+run's at all: the sink is outside it, and the controller folds what a submit
+step reports (§ `QuizController`).
 
 ### `QuizController` — the per-app orchestrator
 
@@ -467,12 +474,12 @@ adds is what a pure model cannot do: draw the next problem, decide which
 drawn positions are shown, take each board's roll, fold answers into the
 lifetime record, and refuse a gesture that lands mid-transition. Pages observe
 transitions via `StateChanged`: each gated async transition (below) fires it
-exactly twice — busy-on, then busy-off with the end state in place — and the
-synchronous mutator (Redo) fires it once.
+exactly twice — busy-on, then busy-off with the end state in place — and a
+synchronous move (⏮ ◀ ⏭, and ▶ behind the frontier) fires it once.
 
 **The transition gate.** The async transitions — `StartAsync` /
-`RestartAsync` / `SubmitPlayAsync` / `SubmitCubeAnswerAsync` / `ContinueAsync` /
-`SkipCurrentAsync` / `EndQuizAsync` — share one busy gate:
+`RestartAsync` / `SubmitPlayAsync` / `SubmitCubeAnswerAsync` / `NextAsync` (on
+the frontier, where it draws) / `EndQuizAsync` — share one busy gate:
 a second gesture arriving while a transition is in flight **no-ops** (it does
 not queue). The controller owns exactly one live enumerator, and an
 overlapped `MoveNextAsync` — or a dispose during one — throws on a thread-pool
@@ -483,8 +490,9 @@ of record to the lifetime record, so nothing begins a new run, moves on or ends
 the quiz while an answer is on its way there. The gate lives in the controller
 — pages never need the enumerator contract to be safe (which is what makes the
 Quiz page's dice-click + Continue double-binding safe as-is). The synchronous
-mutator (`RedoAsync`) can't overlap an await itself but can land *inside* one,
-so it no-ops on `IsBusy` too. Mechanics: `IsBusy` (observable; pages drive
+moves (`GoToFirst` / `GoBack` / `GoToLast`, and `NextAsync` behind the
+frontier) can't overlap an await themselves but can land *inside* one, so they
+no-op on `IsBusy` too. Mechanics: `IsBusy` (observable; pages drive
 their busy affordances from it) flips on inside the gate's one check-and-set
 (`TryEnterGate`) and `StateChanged` fires. The transitions that draw from the
 source then **yield once, deliberately**, so the busy state can paint before
@@ -494,16 +502,16 @@ let the review paint. A `try`/`finally` releases the gate on completion *and*
 failure, firing `StateChanged` again — the single completion signal
 (`PresentNextAsync` itself fires none). Overlapped Start/Restart return
 `QuizStartOutcome.Busy`, which callers treat as do-nothing; overlapped
-Submit/Continue/Skip return silently. The never-started `RestartAsync` throw is
+Submit and ▶ return silently, as the moves do. The never-started `RestartAsync` throw is
 checked *inside* the gate — an overlap is an outcome (Busy), not the caller bug
 the throw exists for. `QuizControllerOverlapTests` pins all of it via
 `GatedProblemSetSource` and the fake sink's `RecordGate`.
 
-**Three-state per-problem flow.** Each problem moves through *answering* →
-*review* → *advance*, surfaced via `Current` and the nullable `Review`. Each
-gesture below is the controller's gate and orchestration around one run
-transition, named in brackets; what the transition does to the record is the
-run's rule (§ `QuizRun`):
+**Per-problem flow.** The problem under the cursor is *answering* or in
+*review*, surfaced via `Current` and the nullable `Review`; the navigation
+controls move the cursor. Each gesture below is the controller's gate and
+orchestration around one run transition, named in brackets; what the
+transition does to the record is the run's rule (§ `QuizRun`):
 
 - **Submit** — `SubmitPlayAsync(Play)` / `SubmitCubeAnswerAsync(CubeAnswer)`
   [`QuizRun.SubmitPlay` / `SubmitCubeAnswer`]: the run scores the answer and
@@ -517,29 +525,36 @@ run's rule (§ `QuizRun`):
 - **`Review`** — a closed `ProblemReview` class hierarchy (`Play` / `Cube`)
   carrying the producer's scored outcome whole and what the review needs to
   mark and name the answer. Non-null marks the state.
-- **`RedoAsync`** [`QuizRun.Redo`] — **not** the inverse of Submit: it
-  re-opens the problem for *practice*, back to *answering* on the same
-  `Current`, changing nothing that was recorded. The record — and so `Score`
-  and `SkippedCount` — the enumerator and `IsFinished` are all untouched. The
-  submission that follows is practice — scored and reviewed, then discarded
-  (SPEC-scoring.md §2). No-op outside review.
-- **`ContinueAsync`** [`QuizRun.Next`, then `Present` or `End`] — the forward
-  exit from review: moves on and brings the next problem. Exhausting the
-  source here flips `IsFinished`. It folds nothing — the answer of record
-  reached the lifetime record at its Submit. No-op outside review.
-- **`SkipCurrentAsync`** [the same three] — bypasses review and advances
-  immediately, but only from answering (no-op while a `Review` is showing).
-  It completes nothing: on an unanswered problem nothing is of record and
-  nothing folds, and the problem is *deferred* — still the unresolved
-  frontier while the source is asked, then behind the new frontier and
-  counted in `SkippedCount` once the next problem lands; if the source has
-  none, the run finishes and finishing converts it, counted the same. So the
-  count does not rise at the press (`SPEC-quiz-history.md` §5's ruled
-  transient difference, visible only if a page renders while the draw is
-  pending). Mid-practice-cycle the problem is already answered, so no skip is
-  counted, and nothing folds.
+- **`NextAsync`** — ▶ [`QuizRun.Next`, then `Present` or `End` on the
+  frontier]: "the next problem" from either state — Continue from a review,
+  Skip or Next while answering. It completes nothing and folds nothing: the
+  problem left keeps its disposition, and an answer of record reached the
+  lifetime record at its Submit. **Behind the frontier** it lands on the next
+  presented problem at once, with no gate and no source work. **On the
+  frontier** it draws inside the gate and presents the next problem, or
+  finishes the run when the source has none (`IsFinished` flips). An
+  unresolved frontier left that way is *deferred*: still the frontier while
+  the source is asked, then behind the new frontier and counted in
+  `SkippedCount` once the next problem lands; if the source has none,
+  finishing converts it, counted the same. So the count does not rise at the
+  press (`SPEC-quiz-history.md` §5's ruled transient difference, visible only
+  if a page renders while the draw is pending). `NextAddsToSkipCount` says
+  beforehand whether a press would add to the count, which is what ▶'s name
+  follows. No-op while busy and with nothing on screen.
+- **`GoToFirst` / `GoBack` / `GoToLast`** — ⏮ ◀ ⏭ [the run's moves of the
+  same names]: synchronous, landing in the answering state on the first
+  problem, the one before, or the frontier, and unavailable where the run
+  says so (`CanGoBack`, `CanGoToLast`). They complete nothing and fold
+  nothing. No-op while busy.
+- **Practice** — a submission on a completed problem (answered or skipped of
+  record), which only navigation reaches, is scored and reviewed and changes
+  nothing: the run writes no disposition, the submit step reports nothing of
+  record, so `Score`, `SkippedCount` and the lifetime record stand
+  (SPEC-scoring.md §2, `SPEC-quiz-history.md` §3). Its review carries
+  `IsPractice`. A deferred problem is not completed, so its first submission
+  is live wherever the cursor finds it.
 - **`EndQuizAsync`** [`QuizRun.End`] — the user's own exit from the run (issue
-  halheinrich/backgammon#57), and the one path that leaves the three-state flow
+  halheinrich/backgammon#57), and the one path that leaves the per-problem flow
   rather than moving through it: it finishes where it stands, with problems still
   unread. `IsFinished` flips, `Current` and `Review` clear, and the live
   enumerator is released early (safe because the gate guarantees no
@@ -548,11 +563,10 @@ run's rule (§ `QuizRun`):
   rather than on `Review`: with **nothing** of record the problem showing is
   **abandoned** — any in-progress input is discarded, it records no answer, and
   the run finishing converts it to a skip of record, as it converts every
-  problem the Skip button deferred, so Done's "problems shown" still counts a
-  problem the user
-  saw; **with** an answer of record it **stands**, because it was submitted,
-  scored, and read — whether the review is still showing or a redo re-opened the
-  problem for practice. It folds nothing: the answer reached the lifetime record
+  problem ▶ deferred, wherever the cursor stands, so Done's "problems shown"
+  still counts a problem the user saw; **with** an answer of record it
+  **stands**, because it was submitted, scored, and read — whether its review
+  is showing or the user came back to it for practice. It folds nothing: the answer reached the lifetime record
   at its Submit, which is what makes **every answer visible on Done has reached
   the lifetime record** true by construction (Done states it to the user; see
   Pitfalls). The run is a **completed quiz**, ruled: `/done` is unchanged, with
@@ -584,8 +598,8 @@ user's* answer beside the .xg-recorded player's `*`. It is a closed **class**
 hierarchy, not records: nothing compares reviews, and a record's generated
 equality would reach the `Play` (whose `Equals` throws) and `PlaySubmission`'s
 equality, which halheinrich/backgammon#287 leaves unsettled for skips and
-this app does not use. It is the **displayed** review, which after a redo is
-not the answer of record — `IsPractice` (init-only, defaulted false) rides on
+this app does not use. It is the **displayed** review, which on a completed
+problem returned to is not the answer of record — `IsPractice` (init-only, defaulted false) rides on
 the review itself rather than beside it in the run, so a review and its
 practice status cannot be assigned apart and drift. The run builds it, in its
 submit transitions, and holds it until the problem is left.
@@ -715,8 +729,8 @@ keeps its framing behind a refusal.
 `ProblemNumber` / `ProblemCount` drive the "Problem N of M" indicator, and
 both are the run's (`../SPEC-quiz-history.md` §5). N is the 1-based **consumed
 stream slot** of `Current` (`PresentedProblem.StreamSlot`: auto-skipped
-no-choice positions included; untouched by Redo; zero while no problem is on
-screen). M is the run's `ProblemCount`, which the controller hands over and
+no-choice positions included; following the cursor; zero while no problem is
+on screen). M is the run's `ProblemCount`, which the controller hands over and
 the run never looks up: the source's declared `Count` when the run begins
 (passthrough; null when streaming — the page then shows "Problem N" alone),
 or the composition's `DrawnCount` once a weighted run's first draw has
@@ -729,7 +743,7 @@ it stays that problem's number and does not run ahead over the slots the
 advance has already passed, and the skip count likewise does not move until
 the next problem lands. Both are visible only if a page renders mid-advance,
 and `PageTests.Quiz_AdvancePending_DrawsTheProblemStillOnScreen_ThenLandsOnTheNext`
-pins them there, for Skip and for Continue.
+pins them there, for ▶ pressed as Skip and as Continue.
 
 **Lifetime-stats sink is ctor-injected.** The controller's second dependency
 is the `IProblemStatsSink` (production: `QuizStatsStore`), driven at exactly
@@ -2049,7 +2063,8 @@ flip the controller takes **unconditionally** for each problem it presents,
 after the pass-skip — one roll per problem the user actually sees — and hands
 to the run, which keeps it with that problem for the life of the run
 (`PresentedProblem.RandomHomeBoardOnRight`; `../SPEC-quiz-history.md` §5): held
-steady across submit, review and Redo, never persisted, and the run rolls
+steady across submit, review and every return to the problem, never
+persisted, and the run rolls
 nothing itself. What is stable is the roll, not the side: the side drawn is
 the roll plus the current setting, so changing the setting may change it —
 deliberately — while returning to a problem never does. So neither the
@@ -2376,7 +2391,7 @@ The asymmetry is pinned three times over: at the service seam
   slot — so there is no guard and no warning. `PageTests` pins the predicate's
   two halves and the fieldset-independence; `MidQuizNavigationTests` drives the
   round trip in a browser.
-- **`Quiz.razor`** — mirrors the controller's three-state flow, branching on
+- **`Quiz.razor`** — mirrors the controller's per-problem flow, branching on
   `Controller.Review`. **Every board is the decision's own request under the
   run's ranking** — `DiagramRequest.ForDecision(Current, Controller.Ranking)`,
   varied with `with` — so the solution's best play, order and rank numbers are
@@ -2401,14 +2416,16 @@ The asymmetry is pinned three times over: at the service seam
   gate lights on the first click; re-fires on every change thereafter, so
   the user can revise before Submit. The row's `Decision` is the record on
   screen, which labels its pills (the fourth reads Too good or No double /
-  Pass); `ShortLabels` is left at its default — the short form is "Quiz
-  navigation" leg 4's, measured on the final row. Both fields reset on every
+  Pass); its `ShortLabels` is the page's call (the short-form paragraph
+  below). Both fields reset on every
   transition, which clears the row outright — it holds no state the answer
   does not express, so the `@key` remount of the two-group era is gone (see
   Pitfalls). The action row varies
-  by kind: cube places the radios ahead of Submit / Skip and has no Undo (no
-  partial-move state); checker keeps Undo last / Undo all (clearing the
-  latched play, since the component does not notify on undo). **Both Undo
+  by kind (`SPEC-quiz-view.md` §4, "The action row under quiz navigation"):
+  cube leads with the radios, then Submit, then ⏮ ◀ ▶ ⏭, and has no Undo (no
+  partial-move state); checker leads with Undo all and Undo last (clearing
+  the latched play, since the component does not notify on undo), then
+  Submit and the four. **Both Undo
   buttons are disabled only while `Controller.IsBusy`** — deliberately *not*
   on `_playEntry` being assigned (see the `@ref`-timing pitfall).
 
@@ -2426,8 +2443,8 @@ The asymmetry is pinned three times over: at the service seam
   make by hand. The semantic class names are the pins' hooks — the Bootstrap
   utilities beside them still do the layout. **Review** (`Review`
   set): a read-only `BackgammonDiagram` in `DiagramMode.Solution` plus
-  Continue / Redo — then Notes, when the decision carries a comment (below) —
-  / Show stats: the same request with `Mode = DiagramMode.Solution`, the user's
+  Continue / ⏮ ◀ ▶ ⏭ — then Notes, when the decision carries a comment
+  (below) — / Show stats: the same request with `Mode = DiagramMode.Solution`, the user's
   hide ceiling (the live setting — hiding a row changes no score), and, for a
   play, the quiz user's answer as the † mark (`SecondaryPlayIndex`) from
   `Review.CandidateIndex` — the scored or the not-scored candidate, none off
@@ -2449,15 +2466,23 @@ The asymmetry is pinned three times over: at the service seam
   uses (halheinrich/backgammon#274, within its named scope: the verdict names
   the play, and nothing else marks it). The two unscored outcomes share the
   skip's warning tone. The review diagram's
-  `OnDiceClicked` is bound to the same `ContinueAsync` handler as Continue
-  (safe under the transition gate). Redo falls back to the answering branch on
-  the same problem; no explicit reset or `@key` is needed (see Pitfalls). A
-  practice review — `Review.IsPractice`, i.e. any submission after a Redo — is
-  rendered identically but for one clause the verdict band leads with
-  ("Practice retry — your first answer stands."): SPEC-scoring.md §2 leaves the
-  treatment to this app, and an unbadged "Correct" beside a score panel that
-  does not move reads as a bug. It rides in the band's text, not as a badge or a
-  third strip line, because the strip is a fixed-height contract.
+  `OnDiceClicked` is bound to the same `NextAsync` handler as Continue
+  (safe under the transition gate). **Every landing starts clean** — answering,
+  nothing latched, the notes closed — whichever control lands it and from
+  either state: the latches clear on every transition, the cube row renders
+  from its latch, the notes live in the review branch, and the play entry
+  carries `@key="Controller.ProblemNumber"`, so an answering-to-answering
+  landing mounts a fresh entry too (see Pitfalls). A
+  practice review — `Review.IsPractice`, a submission on a completed problem
+  returned to — is rendered identically but for the prefix its verdict begins
+  with, `Quiz.PracticePrefix`, "Practice — " (`SPEC-quiz-history.md` §3, Hal,
+  2026-10-02): an unbadged "Correct" beside a score panel that does not move
+  reads as a bug. It replaced Redo's "Practice retry — your first answer
+  stands.", long enough to hide a verdict's end in the desktop band
+  (halheinrich/backgammon#329; at three Best answers the new prefix still
+  clips at 641–673 px with the panel showing, measured 2026-10-02 and
+  reported). It rides in the band's text, not as a badge or a third strip
+  line, because the strip is a fixed-height contract.
   **The action row leads the chrome** (halheinrich/backgammon#148): the
   chrome reads board → action row → status strip → score panel, so the
   controls reached for on every problem sit nearest the board. Its primary
@@ -2479,22 +2504,22 @@ The asymmetry is pinned three times over: at the service seam
   remainder, unchanged. `Done` and `Stats` render their own `ScorePanel` with
   their own parameters and are untouched.
 
-  **The spacebar presses Continue at review, and Submit or Skip while
-  answering** (halheinrich/backgammon#149, always on, no setting; amended
-  by halheinrich/backgammon#200, ruled 2026-09-23 and amended 2026-09-24).
-  **Submit when Submit is lit** — a complete checker play, or a cube action
-  chosen — **and Skip otherwise**: nothing entered, a play half built, or a
-  cube with no action chosen. Nothing while the controller is busy. The key
+  **The spacebar presses Submit when Submit is lit, and ▶ otherwise**
+  (halheinrich/backgammon#149, always on, no setting; amended by
+  halheinrich/backgammon#200; now `SPEC-quiz-history.md` §2's rule, with
+  Hal's clarification of 2026-10-02). **Submit when Submit is lit** — a
+  complete checker play, or a cube answer chosen — **and ▶ otherwise**:
+  Continue at review, and in every answering state with Submit dark, whether
+  ▶ is named Skip or Next. Nothing while the controller is busy. The key
   owns neither half of any case: *whether* it acts is the button's own
-  gate (`CanContinue`, `CanSubmit`, `CanSkip` — the one expression each
-  that the buttons' `disabled` also reads), and *what* it does is the
-  button's own method (`ContinueAsync`, `SubmitAsync`, `SkipAsync`), called by
-  the `[JSInvokable]` `HandleSpaceKeyAsync`, which adds no condition and no
-  action of its own. Submit is tested before Skip because the ruling says
-  so — `CanSubmit` is lit only where `CanSkip` is — not because the key has
-  a gate. So the key and the button cannot differ — same busy gating, same
-  answer scored or skip recorded, same composition-notice retirement, same
-  advance. Don't route the key to the controller directly or give it a
+  gate (`CanSubmit`, `CanGoNext` — the one expression each that the buttons'
+  `disabled` also reads), and *what* it does is the button's own method
+  (`SubmitAsync`, `NextAsync`), called by the `[JSInvokable]`
+  `HandleSpaceKeyAsync`, which adds no condition and no action of its own.
+  Submit is tested before ▶ because the ruling says so — `CanSubmit` is lit
+  only where `CanGoNext` is — not because the key has a gate. So the key and
+  the button cannot differ — same busy gating, same answer scored or problem
+  deferred, same composition-notice retirement, same move. Don't route the key to the controller directly or give it a
   gate of its own; either is a second owner. The handler does render as a
   click does — once the press's synchronous part has run, and again when its
   task completes — which is the framework's half of a click, not the key's own
@@ -2514,12 +2539,13 @@ The asymmetry is pinned three times over: at the service seam
   solution unread, and one after Continue skips the next problem unseen;
   both double taps are accepted by ruling, with no guard.
   The callback's name travels with the reference (`nameof`), so it is
-  spelled once. It is the app's first `[JSInvokable]`, and the e2e suite
+  spelled once. It was the app's first `[JSInvokable]` (the second,
+  `HandleActionRowResized`, is the short-form paragraph's), and the e2e suite
   against the trimmed AOT publish is what proves it survives
   (`KeyboardShortcutTests`); no trim warning arose. Help says so in two
-  sentences, never as an inventory: one beside Submit / Skip (Submit once
-  the answer is complete, Skip before then) and one beside the review's
-  dice-click sentence.
+  sentences, never as an inventory: one beside Submit and the navigation
+  buttons (Submit once the answer is complete, Next — or Skip — before then)
+  and one beside the review's dice-click sentence.
 
   **The keyboard module marks its readiness** (halheinrich/backgammon#198).
   Attached, `quizKeys.js` sets `QuizKeysMark.AttachedAttribute` on the
@@ -2537,6 +2563,49 @@ The asymmetry is pinned three times over: at the service seam
   safe because a handshake that breaks fails loudly rather than passing.
   Keep that file free of anything else; all of it lands in the test
   assembly.
+
+  **The cube pills abbreviate where the row cannot hold them**
+  (`SPEC-quiz-view.md` §4, "The action row under quiz navigation": ND, D/T,
+  D/P, TG or NP, the switch-over measured, never guessed). The producer
+  leaves the form to the host (`BackgammonCubeActions.ShortLabels`), and the
+  page sets it from one rule, `Quiz.CubeLabelsAbbreviate`: short wherever the
+  action row is narrower than the full-label row needs. It keys on **the
+  row's own width**, not the viewport's — folding the navigation panel widens
+  the row at a fixed viewport (by 250 px at 1280), so only the row's width
+  says what it can hold in both fold states — and on **the fourth answer's
+  reading** (`CubeDecision.ClaimOf`), the one label that differs between
+  decisions. The widths are measured, published app, Chromium on Windows,
+  the Helvetica/Arial stack (leg 4 of halheinrich/backgammon#8, 2026-10-02):
+  `FullCubeRowWidthNoDoublePass` 1001.3 and `FullCubeRowWidthTooGood` 944.1 —
+  the leading controls at their widest selection (the pill bolds when
+  chosen; 742.3 and 685.1 px), the row's 8 px gap, and the trailing cluster
+  at the floor of its shrink order, 251.0 px. In viewport terms the No double
+  / Pass row is full from 1360 px with the panel showing and from 1086 px
+  folded, the Too good row from 1303 and 1029. A wider font needs a wider
+  row, so the constants are a measurement of that stack: re-measure when
+  anything in the row is restyled or relabelled. The width comes from
+  `wwwroot/js/actionRowWidth.js`, a `ResizeObserver` on the row that reports
+  through the page's second `[JSInvokable]`, `HandleActionRowResized`; it
+  measures and decides nothing, and never reports a zero (a removed row reads
+  zero). The page observes each row Blazor creates (compared by
+  `ElementReference.Id`), re-renders only when a report changes the form on
+  screen, and keeps the full form until the first report. Pinned in bUnit
+  (`Quiz_CubeActions_AbbreviateExactlyWhereTheRowIsNarrowerThanTheFullRow`
+  and its neighbours) and in the browser (`CubeLabelsTests`: the short form's
+  visible text, its "ND (No double)" names and full-label tooltips at the
+  suite's default viewport, and the fold bringing the full form back), since
+  a misspelt parameter would compile and do nothing. Which form shows is a
+  function of the row's width alone, so those pins hold on any font stack;
+  whether the full form then fits is the Windows measurement.
+
+  **Submit's reach in the desktop band (halheinrich/backgammon#264) is
+  reported, not resolved** (measured 2026-10-02). The short form keeps Submit
+  clear at 800 and 900 px in both kinds and both view modes
+  (`DesktopActionRowTests`), but with the panel showing the trailing cluster
+  still covers Submit at 716–761 px and the navigation buttons up to 946 px
+  (folded, up to 766 px). Every measured resolution there adds a row inside
+  §2's invariance floor, which the leg was told to report rather than ship;
+  the umbrella rules on it.
 
   **The XGID has one home: the bottom row** (`SPEC-quiz-view.md` §4's
   2026-08-13 amendment, issue `halheinrich/backgammon#98`). `XgidLabel` — the
@@ -2672,8 +2741,8 @@ The asymmetry is pinned three times over: at the service seam
     (`TestFixtureContractTests`), which is what lets `SPEC-stats-identity.md` go
     on keying by content while the chip names a file.
 
-  **The decision's notes have one home: a Notes control after Redo, opening an
-  overlay** (`SPEC-quiz-view.md` §4's 2026-09-15 amendment, issue
+  **The decision's notes have one home: a Notes control after the navigation
+  buttons, opening an overlay** (`SPEC-quiz-view.md` §4's 2026-09-15 amendment, issue
   halheinrich/backgammon#31). `DecisionNotes` (`Components/`) is the one
   display seam for `DescriptiveData.Comment` — nothing else reads it — and the
   page hands it `current.Descriptive.Comment` and nothing else, in the review
@@ -2686,8 +2755,9 @@ The asymmetry is pinned three times over: at the service seam
     — no `showModal()`, no `popover`, no authored script. The bit is a field:
     never app-scoped, never persisted, set only by the user's click, and cleared
     without a focus move if the host ever hands the instance a different comment
-    (another decision's notes were not opened by anyone). Continue and Redo
-    close it by leaving the review branch, which unmounts the component.
+    (another decision's notes were not opened by anyone). Continue and every
+    navigation button close it by leaving the review branch, which unmounts
+    the component.
   - **Both pieces are `position: fixed`** (`.decision-notes-backdrop`,
     `.decision-notes[open]` — `AppCss_DecisionNotes_OverlayIsFixed_SoNothingReflows`),
     so opening reflows nothing and the board never moves. The backdrop covers the
@@ -2734,7 +2804,7 @@ The asymmetry is pinned three times over: at the service seam
   picks the canvas from it. **No holder, no page field, no "currently
   maximized" bit** (§6) — that second copy is what would let the chrome and the
   canvas disagree about which composition is on screen. Every transition falls
-  out with no special case: Submit normalizes, Redo and Continue re-maximize,
+  out with no special case: Submit normalizes, every landing re-maximizes,
   Undo never leaves answering. `BoardOptions` replaces the old shared
   `_diagramOptions` field and applies the `HomeBoardOnRight` pattern to the
   second thing all three board branches must agree about — and it is where the
@@ -2746,7 +2816,7 @@ The asymmetry is pinned three times over: at the service seam
   are deliberately *not* gated on the mode — see § Notices.
 
   **Busy affordances:** every transition-driving button
-  (Submit, Skip, Undo, Continue, Redo, End quiz) disables on `Controller.IsBusy`
+  (Submit, ⏮ ◀ ▶ ⏭, Undo, Continue, End quiz) disables on `Controller.IsBusy`
   and the container carries `app-busy` — the honest mirror of the gate, which
   would no-op the clicks anyway; "Show stats" stays enabled (navigation only).
   Subscribes to `Controller.StateChanged` **and** `QuizStatsStore.
@@ -2767,7 +2837,7 @@ The asymmetry is pinned three times over: at the service seam
   breakdown's heading, as there), rendered against the live in-progress
   `QuizController` with honest mid-quiz wording ("Progress so far", not
   `Done`'s "Final"). Reachable only from `Quiz`'s "Show stats" button. Never
-  calls Submit / Continue / Skip, so the round trip leaves `Current` /
+  calls Submit or moves the run, so the round trip leaves `Current` /
   `Review` untouched — with the per-tab scoped controller that gives "resume
   where you left off" for free. Direct nav with no quiz in progress bounces to
   `/`; with it already finished, to `/done` — the same guards `Quiz` applies
@@ -3029,12 +3099,11 @@ The asymmetry is pinned three times over: at the service seam
   below) + total problems shown + **Restart with same filters** /
   **Back to setup**, and — for the third exit, the one with no button — a
   muted line saying nothing needs saving (§ `Help`'s data section for the
-  ruling and the gate). "Problems shown" is `Total.Submitted +
-  SkippedCount`: the session score's Total counts each answer once, a cube
-  answer included (SPEC-scoring §3, 2026-10-01), so its submitted count is
-  the answered problems. (Moving the count onto the run, as
-  `QuizRun.Presented.Length`, is `halheinrich/backgammon#325`'s item 2, with
-  "Quiz navigation" leg 4.) "Back to setup" is **navigation only** — the start-gate
+  ruling and the gate). "Problems shown" is the run's presented sequence,
+  `QuizController.PresentedCount` (`QuizRun.Presented.Length`;
+  halheinrich/backgammon#325's item 2): one entry per problem the user was
+  shown, so Done reads the count rather than re-deriving it from the score
+  and the skip count. "Back to setup" is **navigation only** — the start-gate
   holders persist, so `Home` arrives armed with the same picks and filters;
   its label describes that navigation rather than promising a reset it
   doesn't perform — Restart and Back-to-setup differ only in *where they
@@ -3248,8 +3317,8 @@ enhanced-navigation DOM synchronization resets the checkbox — on the app's own
 resets it for the ordinary reason. `data-permanent` does **not** preserve it
 (measured: the attribute governs element content, and form-control state is
 synchronized regardless). Everything *inside* a route leaves it alone, which
-is the half that matters to a user: Submit, Skip, Continue-within-a-run, and
-Undo are in-page WASM re-renders that never re-render the layout, so **the
+is the half that matters to a user: Submit, ⏮ ◀ ▶ ⏭, Continue-within-a-run,
+and Undo are in-page WASM re-renders that never re-render the layout, so **the
 fold survives a whole worked run** and gives way only on the navigation that
 ends it. `Help` states both halves, positive first, and `SidebarCollapseTests`
 pins both alongside the fold and the chevron flip; the worked-run scenario
@@ -3292,7 +3361,10 @@ pre-Start
 answer-type breakdown, the nb-NO comma-decimal guard, 404/titles, the sidebar
 collapse, the settings page, the mid-quiz round trip through Home and the early
 end of a run, the mix-activation gating and the pick busy affordance, the
-review's decision notes, and the stats-persistence suite. It covers the one
+review's decision notes, quiz navigation (⏮ ◀ ▶ ⏭, the deferred skip and
+practice), the cube pills' short form, Submit's reach at desktop widths and
+every action-row control's at the phone preset, and the stats-persistence
+suite. It covers the one
 layer the other
 two structurally cannot: bUnit renders components in isolation and the
 `WebApplicationFactory` wire tests run the host pipeline in-process with no
@@ -3898,8 +3970,9 @@ public (see Pitfalls). The externally visible surface is the route map:
   row carried `@key="current"`. Since `halheinrich/backgammon#187` every
   pill is one whole answer and the row renders its checked pill from `Value`,
   so `HandleStateChanged`'s `_completedCube = null` clears it outright and a
-  key would be a defensive remount guarding nothing (the same reasoning that
-  keeps a key off the play entry). Don't add one back:
+  key would be a defensive remount guarding nothing (the play entry, which
+  keeps state of its own, is the one that needs a key — see its pitfall).
+  Don't add one back:
   `Quiz_CubeActions_ChosenThenSkip_NextProblemStartsClean_WithoutARemount`
   pins the same instance carrying over clean. Gating Submit on
   `_completedCube is null` is correct as is — that is "a pill chosen".
@@ -4012,8 +4085,8 @@ public (see Pitfalls). The externally visible surface is the route map:
   cursor's disposition, comparing the run before and after, or reading
   `Review` — puts a second owner beside the run's of whether a submission was
   live (`Review` is the displayed review, which after a practice cycle is not
-  the record at all). **Adding a fold anywhere else** — Continue, Skip, End
-  quiz, a new run — folds an answer twice, since the document has no `Minus`;
+  the record at all). **Adding a fold anywhere else** — ▶ (Continue, Skip or
+  Next), ⏮ ◀ ⏭, End quiz, a new run — folds an answer twice, since the document has no `Minus`;
   the advance-time trigger this replaced did exactly that when a draw faulted
   after the fold and a second exit folded the same answer again. Skips,
   off-list plays, plays the ranking does not score, practice submissions, and
@@ -4302,21 +4375,19 @@ public (see Pitfalls). The externally visible surface is the route map:
   QuestPDF / OpenXml) would fault at runtime in the browser. The quiz renders
   SVG, never raster. This is why the split exists; don't re-add the raster
   reference to make some export "just work" client-side.
-- **`BackgammonPlayEntry` doesn't need a `@key` to reset across Redo — the
-  branch swap already does it.** The component suppresses its own internal
-  reset when the incoming `Request` describes the same problem as last time,
-  so it's tempting to assume Redo (which returns to that exact problem)
-  needs an explicit reset or a changing `@key`. It doesn't: the entry lives in
-  the `else` branch of the review `@if`, and Submit already unmounted it
-  entirely when the page swapped into the review branch — by the time Redo
-  swaps back, the entry did not exist in the immediately prior render, so
-  Blazor constructs a **fresh instance unconditionally**. Don't add a
-  defensive `@key`; re-examine only if a refactor keeps the entry mounted
-  across review (e.g. overlaying the solution instead of swapping branches).
-  The cube answer reaches Redo's clean slate the same way (the review branch
-  unmounted the row), and since `halheinrich/backgammon#187` carries no
-  `@key` either — nulling the bound pair clears a row whose every pill is a
-  complete pair; see the cube-row pitfall above.
+- **`BackgammonPlayEntry` carries `@key="Controller.ProblemNumber"`, because
+  a landing can go from answering to answering.** The component suppresses
+  its own internal reset when the incoming `Request` describes the same
+  problem as last time. Until navigation, the only way back to a problem
+  was Redo, from the review, and the branch swap reset the entry: Submit had
+  unmounted it, so Blazor constructed a fresh one on the way back. ⏮ ◀ ▶ ⏭
+  land from the answering state too, onto another problem whose position may
+  be the very same one, so the reset must not rely on a review branch in
+  between: the key is the cursor's stream slot, which every landing changes,
+  and a changed key mounts a fresh entry with nothing entered
+  (`Quiz_EveryLanding_MountsAFreshPlayEntry_EvenOnTheSamePosition`). The
+  cube answer needs no key: the row renders from its latch, which every
+  transition clears — see the cube-row pitfall above.
 - **The law has a floor, and the page scrolls past it** (`SPEC-quiz-view.md`
   §2, ruled 2026-09-22, halheinrich/backgammon#112). `.board-container`'s
   `min-height` is `var(--board-min-height)`, stated beside the rule in
@@ -4536,7 +4607,7 @@ public (see Pitfalls). The externally visible surface is the route map:
   is the position that decided SPEC-scoring §3's 2026-09-02 amendment
   (`halheinrich/backgammon#187`), No double by ruling, and
   `QuizFlowTests.TooGoodToDoubleTakePath_…` runs it end to end (Too good
-  charged there, then No double on a practice retry). Still open: no
+  charged there, then No double on the way back, as practice). Still open: no
   committed fixture's truth is the fourth answer — Too good (`nd > 1 && dt ≥
   1`, gammons possible) or No double / Pass — so it is pinned in bUnit on
   synthesized records only. Close by sourcing one from the corpus via

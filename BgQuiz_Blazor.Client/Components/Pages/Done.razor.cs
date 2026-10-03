@@ -27,13 +27,12 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 public partial class Done : ComponentBase
 {
     /// <summary>
-    /// Number of distinct problems the user was shown: every answer of record,
-    /// plus the skips. The session score's Total counts each answer once — a
-    /// checker play or a cube answer alike (SPEC-scoring.md §3, the 2026-10-01
-    /// amendment) — so its submitted count is the answered problems.
+    /// Number of distinct problems the user was shown — the run's own fact, its
+    /// presented sequence (<see cref="QuizController.PresentedCount"/>), read
+    /// and never rebuilt here from the score and the skip count
+    /// (halheinrich/backgammon#325, item 2).
     /// </summary>
-    private int ProblemsShown =>
-        Controller.Score.Total.Submitted + Controller.SkippedCount;
+    private int ProblemsShown => Controller.PresentedCount;
 
     /// <summary>
     /// On load: bounce to <c>/</c> if no quiz has started, otherwise clear the
