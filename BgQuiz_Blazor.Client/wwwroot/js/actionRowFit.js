@@ -1,61 +1,64 @@
 // actionRowFit.js — fits the quiz page's action row to the width it is given
 // (SPEC-quiz-view.md §4: halheinrich/backgammon#264's ruling of 2026-10-03,
-// "the row narrows; the board keeps its height", and the cube labels' switch).
-// Loaded as an ES module by the Quiz page, as quizKeys.js is; nothing else
-// imports it.
+// "the row narrows; the board keeps its height", the cube labels' switch, and
+// "One budget from the outset", Hal, 2026-10-03). Loaded as an ES module by
+// the Quiz page, as quizKeys.js is; nothing else imports it.
 //
-// It measures, under the fonts actually rendering, and decides three things:
+// It measures, under the fonts actually rendering, and decides three things,
+// all from ONE BUDGET that holds for every state and every problem from the
+// page's first render. The page renders an invisible, inert ruler beside the
+// row (Quiz.razor) whose lines do not depend on the problem on screen: the
+// answer rows in their narrowest form (data-ruler="lead" — the checker row,
+// and the cube pills' short form drawn by the producer's inert copy, which
+// needs no cube decision), the full-form pills (data-ruler="full-cube"), and
+// the tail at its floor (data-ruler="tail"). The widest lead, the row's gap and
+// the tail's floor are the BUDGET.
 //
-//   1. Whether the navigation panel folds by itself. The page renders an
-//      invisible, inert ruler beside the row (Quiz.razor): the answer rows in
-//      their narrowest form (data-ruler="lead") and the tail at its floor
-//      (data-ruler="tail"). The widest lead, the row's gap and the tail's
-//      floor are the BUDGET — one for every state, so no state's board or
-//      chrome differs from another's. The panel folds while the row the panel
-//      would leave, if it were showing in flow, is narrower than the budget.
-//      That width never depends on the fold itself — it is the row's width
-//      less whatever the showing panel would take that it does not take now —
-//      so folding cannot make the row wide enough to unfold it again, and a
-//      resize at the boundary cannot oscillate. The fold is layout state, held
-//      and applied by navFold.js (window.bgquizNavFold.setAutoFold), which
-//      owns the panel and keeps the user's own fold untouched.
+//   1. Whether the navigation panel folds by itself. It folds while the row
+//      the panel would leave, if it were showing in flow, is narrower than the
+//      budget. That width never depends on the fold itself — it is the row's
+//      width less whatever the showing panel would take that it does not take
+//      now — so folding cannot make the row wide enough to unfold it again,
+//      and a resize at the boundary cannot oscillate. The fold is layout state,
+//      held and applied by navFold.js (window.bgquizNavFold.setAutoFold),
+//      which owns the panel and keeps the user's own fold untouched.
 //
-//   2. Whether the tail folds behind its "⋯" (SPEC-quiz-view.md §4,
-//      halheinrich/backgammon#264's widened fourth, Hal, 2026-10-03: "below
-//      the width where the tail fits beside the row's other controls,
-//      measured live, the whole tail folds behind one "⋯" control"). It folds
-//      while the row as it stands after the panel's fold is narrower than the
-//      same budget — one width for every state, as the panel's is. The budget
-//      holds the tail at full size, whatever the row is showing in its place,
-//      so showing the "⋯" cannot make the row fit and switch it back. Where
-//      there is no side panel (the phone layout) the tail takes a line of its
-//      own (halheinrich/backgammon#236) and never folds.
+//   2. Whether the tail folds behind its "⋯" (halheinrich/backgammon#264's
+//      widened fourth). It folds while the row as it stands after the panel's
+//      fold is narrower than the same budget. The budget holds the tail at
+//      full size, whatever the row is showing in its place, so showing the "⋯"
+//      cannot make the row fit and switch it back. Where there is no side
+//      panel (the phone layout) the tail takes a line of its own
+//      (halheinrich/backgammon#236) and never folds.
 //
-//   3. Whether the cube pills' full form fits. While a cube decision is
-//      answered the ruler also holds the full-label row at its widest
-//      selection (data-ruler="full-cube"); it fits when that line, the gap and
-//      the tail's floor fit the row as it stands after the fold.
+//   3. Whether the cube pills' full form fits: the full-cube line, the gap and
+//      the tail's floor against the same row. It is the window's, for every
+//      decision: the line holds both readings of the fourth answer and every
+//      selection, so the form never depends on which decision is on screen.
+//
+// "The row as it stands after the panel's fold" is worked out from the
+// panel's declared state, not read off its box (navFold.js panelWidths()):
+// until the first fit the page holds the row in its pending presentation,
+// in which the layout hides the panel by style, and the first fit must decide
+// for the row the panel will leave once that ends.
 //
 // The answers to 2 and 3 go to the page together (the [JSInvokable] callback
-// handed in: the tail's fit, then the pills' fit or null while no cube is
-// answered), which renders the tail's and the pills' form; this side renders
-// nothing.
+// handed in), which renders the tail's and the pills' form; this side renders
+// nothing. The first report ends the page's pending presentation.
 //
-// When it measures: once on observe; on refresh() (the page calls it when the
-// problem on screen, or whether it is answered, changes); on every window
-// resize; and whenever the row or any ruler line changes size — the panel
-// toggled, a scrollbar coming or going, a font finishing loading. The page's
-// report is sent whenever it changes, and unconditionally after observe and
-// refresh, so each new decision is reported.
-//
-// Why the window's resize event and not only a ResizeObserver: a resize event
-// fires early in the frame, before layout, so the fold it decides is in place
-// before that frame paints. A ResizeObserver callback runs after layout, and
-// changing the fold there resizes the row inside the observer's own delivery,
-// which the browser reports as an error ("ResizeObserver loop completed with
-// undelivered notifications"). So an observer callback only asks for a fit on
-// the next animation frame; by then a resize has usually already fitted the
-// row, and the frame's fit finds nothing to change.
+// WHEN IT MEASURES: once per frame at most, always in the frame's animation
+// callbacks (requestAnimationFrame) — after the frame's resize event, before
+// its style, layout and paint — so what it decides is in place before the
+// frame paints. It is asked for on observe (the first fit, the one that ends
+// the pending presentation), on every window resize, after an enhanced
+// navigation's DOM synchronization, and whenever the row or a ruler line
+// changes size (the panel toggled, a scrollbar, a font finishing loading).
+// A ResizeObserver callback runs after layout, and changing the fold there
+// would resize the row inside the observer's own delivery, which the browser
+// reports as an error ("ResizeObserver loop completed with undelivered
+// notifications"); from there the fit is asked for in the next frame. The
+// page's report is sent whenever it changes, and unconditionally after
+// observe, so the first decision is always reported.
 //
 // The ruler's data-ruler names are a contract with Quiz.razor, spelled once
 // on each side.
@@ -66,7 +69,8 @@ let state = null;
  * Start fitting `row`, measuring with `ruler`, reporting the tail's and the
  * pills' fit through `ref`, the page's DotNetObjectReference, by invoking its
  * [JSInvokable] `method` — a name handed in so it has one spelling, on the C#
- * side. Replaces any earlier observation.
+ * side. Replaces any earlier observation. The first fit runs in the coming
+ * frame's animation callbacks, before that frame paints.
  */
 export function observe(row, ruler, ref, method) {
     unobserve();
@@ -76,12 +80,14 @@ export function observe(row, ruler, ref, method) {
         ref,
         method,
         reported: null,   // the last report, as "tailFits/fullCubeFits"
+        reportNext: false,
         frame: 0,
-        observer: new ResizeObserver(fitNextFrame),
-        onResize: () => fit(false),
-        onEnhancedLoad: () => fit(false),
+        observer: new ResizeObserver(() => requestFit(false)),
+        onResize: () => requestFit(false),
+        onEnhancedLoad: () => requestFit(false),
     };
-    watch();
+    state.observer.observe(row);
+    for (const line of ruler.children) state.observer.observe(line);
     window.addEventListener('resize', state.onResize);
     if (window.Blazor && typeof window.Blazor.addEventListener === 'function') {
         // An enhanced navigation's DOM synchronization resets the panel (it
@@ -89,14 +95,7 @@ export function observe(row, ruler, ref, method) {
         // it; measure again after, so a fold still needed is re-applied.
         window.Blazor.addEventListener('enhancedload', state.onEnhancedLoad);
     }
-    fit(true);
-}
-
-/** Measure afresh, after the page changed what the ruler holds, and report unconditionally. */
-export function refresh() {
-    if (state === null) return;
-    watch();
-    fit(true);
+    requestFit(true);
 }
 
 /**
@@ -116,54 +115,51 @@ export function unobserve() {
     if (window.bgquizNavFold) window.bgquizNavFold.setAutoFold(false);
 }
 
-// Observe the row and every ruler line now present.
-function watch() {
-    const { observer, row, ruler } = state;
-    observer.disconnect();
-    observer.observe(row);
-    for (const line of ruler.children) observer.observe(line);
-}
-
-// A ResizeObserver callback's request: one fit on the next animation frame,
-// however many observations arrived (see the header for why not at once).
-function fitNextFrame() {
-    if (state === null || state.frame !== 0) return;
+// Ask for one fit in the coming frame's animation callbacks, however many
+// requests arrive before it; `report` asks for the report even if unchanged.
+function requestFit(report) {
+    if (state === null) return;
+    state.reportNext = state.reportNext || report;
+    if (state.frame !== 0) return;
     state.frame = requestAnimationFrame(() => {
         if (state === null) return;
         state.frame = 0;
-        fit(false);
+        const reportNow = state.reportNext;
+        state.reportNext = false;
+        fit(reportNow);
     });
 }
 
 function fit(report) {
-    if (state === null) return;
     const { row, ruler } = state;
     if (!row.isConnected || !ruler.isConnected) return;
 
     const leads = [...ruler.querySelectorAll('[data-ruler="lead"]')].map(width);
     const tail = ruler.querySelector('[data-ruler="tail"]');
-    if (leads.length === 0 || tail === null) return;
+    const fullCube = ruler.querySelector('[data-ruler="full-cube"]');
+    if (leads.length === 0 || tail === null || fullCube === null) return;
 
     const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
     const floor = width(tail);
     const budget = Math.max(...leads) + gap + floor;
 
-    // 1. The panel. widthIfShown() is null where there is no side panel (the
+    // 1. The panel. panelWidths() is null where there is no side panel (the
     // phone layout), and then nothing folds.
     const fold = window.bgquizNavFold;
-    const panelWidth = fold ? fold.widthIfShown() : null;
-    if (panelWidth !== null) {
-        const rowWithPanelShowing = width(row) - panelWidth;
+    const panel = fold ? fold.panelWidths() : null;
+    let rowWidth = width(row);
+    if (panel !== null) {
+        const rowWithPanelShowing = rowWidth + panel.inFlow - panel.showing;
         fold.setAutoFold(rowWithPanelShowing < budget);
+        // The row as it stands after the fold, from the panel's declared state.
+        rowWidth = rowWithPanelShowing + panel.showing - fold.panelWidths().taken;
     }
 
-    // 2. The tail, against the row as it now stands (read after the fold).
-    const rowWidth = width(row);
-    const tailFits = panelWidth === null || rowWidth >= budget;
+    // 2. The tail, against that row.
+    const tailFits = panel === null || rowWidth >= budget;
 
-    // 3. The cube pills, against the same row; null while none is answered.
-    const fullCube = ruler.querySelector('[data-ruler="full-cube"]');
-    const fullCubeFits = fullCube === null ? null : width(fullCube) + gap + floor <= rowWidth;
+    // 3. The cube pills' full form, against the same row.
+    const fullCubeFits = width(fullCube) + gap + floor <= rowWidth;
 
     const reported = `${tailFits}/${fullCubeFits}`;
     if (report || reported !== state.reported) {

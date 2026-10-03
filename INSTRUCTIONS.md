@@ -2590,43 +2590,119 @@ The asymmetry is pinned three times over: at the service seam
   checkmark and Undo last hidden, stay banked for a band the "⋯" does not
   reach, and there is none.
 
+  **One budget from the outset** (`SPEC-quiz-view.md` §4, Hal, 2026-10-03:
+  "Fix it now"). Every switch the row makes — the panel's fold, the "⋯", the
+  labels' form — reads one budget for every state, measured before the first
+  problem of any kind; the cube pills' widest is measured without a cube
+  decision, never assumed from the checker row and never learned when the
+  first cube problem arrives; and no control is covered at any moment, the
+  first render before any measurement included. The producers supply the
+  measurement: BackgammonDiagram_Lib's `CubeLabels.Spellings` and BgDiag_Razor's
+  `BackgammonCubeActionsRuler`, an inert copy of the pill row that takes no
+  decision (its own INSTRUCTIONS.md is the reference).
+
   - **The widths are measured live, under the fonts actually rendering**, by
     `wwwroot/js/actionRowFit.js`; no width is spelled in the code. The page
     renders a **row-fit ruler** beside the row (`Quiz.razor`): invisible,
     inert and hidden from assistive technology, drawn from the very fragments
     the row renders (the `@code` block's `UndoControls`, `SubmitControl`,
-    `NavigationControls`, `TailButtons`), so the two measure alike. Its lines
-    are named by `data-ruler`, a contract with the module: `lead` — the checker
-    answer row, and the cube row in its short form at the fourth answer
-    selected (bold), drawn from the cube decision on screen or the one the
-    run presented most recently (`RulerCube`,
-    `QuizController.LastPresentedCube` — the run's fact, so a Show-stats
-    round trip, which re-creates the page, keeps it); `full-cube` — the
-    full-label row, while a cube is answered; `tail` — the trailing cluster
-    at its floor, its min-content (app.css), the locator showing three-digit
-    coordinates (`RulerCoordinate`) so the floor does not move from one
-    problem or file to the next. The `tail` line is the tail at full size
-    whether the row shows the tail or its "⋯".
+    `NavigationControls`, `TailButtons`), so the two measure alike. **Its lines
+    are the same for every problem and every state, from the page's first
+    render**, named by `data-ruler`, a contract with the module:
+    - `lead` — the checker answer row (Undo all, Undo last, Submit and the
+      four); and the cube pills in their short form
+      (`<BackgammonCubeActionsRuler ShortLabels="true" data-ruler-pills="short" />`)
+      with Submit and the four. The copy draws every state the live row can
+      show in the form — both readings of the fourth answer, nothing selected
+      and each pill selected (the selected pill is heavier) — and its root is
+      exactly as wide as the widest.
+    - `full-cube` — the same copy in its full form (`data-ruler-pills="full"`)
+      with Submit and the four: what the labels' switch compares.
+    - `tail` — the trailing cluster at its floor, its min-content (app.css),
+      the locator showing three-digit coordinates (`RulerCoordinate`) so the
+      floor does not move from one problem or file to the next. It is the
+      tail at full size whether the row shows the tail or its "⋯".
+
+    So nothing the module measures depends on the problem on screen, and the
+    page never asks it to measure again on a new problem or a review (there
+    is no `refresh`). The copies carry the live pills' classes
+    (`bg-cube-actions`, `bg-cube-action`): **every live-pill selector is
+    scoped to `.action-row`**, which the ruler sits beside, not inside — the
+    app's, the tests' (`CubePill` goes by the radio's role, which the copies
+    lack), and `ProblemLocatorTests`' geometry dump
+    (`OneBudgetTests.TheRulersCopiesCarryTheLivePillsClasses_AndTheLiveSelectorsReachOnlyTheLiveRow`).
   - **The budget** is the widest `lead`, the row's gap and the `tail`: one
     budget for every state, so no state's board or chrome differs from
-    another's (the review row — Continue and Notes for Undo all, Undo last
-    and Submit — is narrower in any font and is not a line). The panel folds
-    while the row the panel would leave, if it showed in flow, is narrower
-    than the budget: the row's width less `window.bgquizNavFold.widthIfShown()`.
-    That figure does not depend on the fold, so folding cannot unfold it again
-    and a resize at the boundary cannot oscillate (`PanelAutoFoldTests`).
-  - **The tail folds behind its "⋯"** while the row as it stands after the
-    panel's fold is narrower than the same budget (`Quiz.TailFolded`, reported
-    with the pills' fit through `Quiz.HandleRowFit`). So it is one width for
-    every state and problem kind, as the panel's is: the row's composition
-    changes with the window, never between answering and review or from one
-    problem to the next. It rests on the ruler's `tail` line, never on what
-    the row is showing, so showing the "⋯" cannot make the row fit and
-    switch it back (`TailMenuTests.AtTheSwitchWidth_RepeatedResizesDoNotFlipBetweenTheTailAndTheMenu`). Where there is no
-    side panel (the phone layout, below 641 px) the tail takes its own line
-    instead (halheinrich/backgammon#236) and never folds. **The tail until
-    measured** — the row as it always was — because the decision is the
-    window's, made once per width, not once per problem as the pills' is.
+    another's. The review row is not a line: Continue, the four and Notes
+    measured 352.5 px against the checker row's 452.1 (below), so the review
+    is the narrower here; that it is in every font is not shown. The panel
+    folds while the row the panel would leave, if it showed in flow, is
+    narrower than the budget: the row's width, plus what the panel's box
+    takes now, less what it takes showing
+    (`window.bgquizNavFold.panelWidths()`, `inFlow` and `showing`). That
+    figure does not depend on the fold, so folding cannot unfold it again and
+    a resize at the boundary cannot oscillate (`PanelAutoFoldTests`).
+  - **The row as it stands after the fold** — what the tail and the labels
+    are decided against — is worked out from the panel's declared state
+    (`panelWidths().taken`: its width if it shows, nothing if the user or the
+    auto-fold folded it or it is open as the drawer), not read off its box.
+    While the row is pending (below) the layout hides the panel by style, and
+    the first fit must decide for the row the panel will leave once that
+    ends; reading the box would report a row up to the panel's width too
+    wide (`OneBudgetTests.AtAWideWindow_TheFirstFitOpensWhatFits_ForTheRowThePanelWillLeave`).
+  - **The tail folds behind its "⋯"** while that row is narrower than the
+    same budget (`Quiz.TailFolded`, reported with the pills' fit through
+    `Quiz.HandleRowFit`). So it is one width for every state and problem
+    kind, as the panel's is: the row's composition changes with the window,
+    never between answering and review or from one problem to the next. It
+    rests on the ruler's `tail` line, never on what the row is showing, so
+    showing the "⋯" cannot make the row fit and switch it back
+    (`TailMenuTests.AtTheSwitchWidth_RepeatedResizesDoNotFlipBetweenTheTailAndTheMenu`).
+    Where there is no side panel (the phone layout, below 641 px) the tail
+    takes its own line instead (halheinrich/backgammon#236) and never folds.
+  - **The labels' form is the window's** (`Quiz.ShortCubeLabels`): the full
+    form shows where the `full-cube` line, the gap and the tail's floor fit
+    that row, for every decision alike, and a cube problem's first render
+    shows the form the window has already measured; choosing a pill never
+    changes it. **The consequence, plainly:** the full form must hold both
+    readings of the fourth answer, so in the band where only the narrower
+    Too good reading's full row would fit, every cube decision — a Too good
+    one included — shows the short form. That is a layout policy, one budget
+    for every decision, not a labelling rule: each pill is still labelled at
+    its decision (`CubeLabels.Label` or `ShortLabel`), never from the copy's
+    spellings.
+  - **The first render, before any measurement: the pending presentation.**
+    The board and its row render once the row-fit module is in
+    (`Quiz.RowFitReady`): before that the page shows its notices only, so a
+    first load's module fetch shows no row rather than a row nothing has
+    fitted. From then until the module's first report the row is
+    **pending** (`Quiz.RowFitPending`) and takes the narrowest presentation
+    the page has: the tail behind its "⋯", the pills short, and the row
+    marked `data-nav-fold-pending`, on which the layout folds the panel by
+    style alone (`MainLayout.razor.css`, `html:has([data-nav-fold-pending])`,
+    the rail drawn with its folded chevron too). The marker is rendered with
+    the row in the same update, so no script and no timing stands between
+    the row's first render and that fold; the rail's own state stays the
+    user's fold. That presentation covers nothing and adds no line inside
+    §2's floor, and at 641 × 768 it is exactly what the measurement leaves.
+    The module's first fit runs in the coming frame's animation callbacks,
+    before that frame paints, and its first report ends all of it at once.
+    Every new page starts pending: a Show-stats round trip re-creates it.
+    **What is painted** (measured 2026-10-03 on the Release build, a
+    ResizeObserver reading each frame after its animation callbacks and
+    layout, just before paint): at 641 × 768 and at 1280 × 800, on a quiz's
+    first load and on the return from Show stats, the frames before the row
+    show no row, and the first frame with a row is the measured one; the
+    pending presentation was never painted. Nothing switches after the first
+    measurement at 1280 × 800 (panel showing, tail shown, pills short); at
+    641 × 768 the panel the page before showed is folded in the frame the
+    row first appears, as it always was there. Pinned with the first fit held
+    (`OneBudgetTests.AtTheFloor_WithThePanelShowing_NothingIsCovered_WhileTheFirstFitIsHeld_OrAfter`,
+    six rows: a `.xg` checker, a `.xg` cube and a `.xgp` first problem, each
+    on first load and on the return from Stats; the test fakes
+    `requestAnimationFrame`, which holds every measurement and all it
+    applies, and a MutationObserver hit-tests every row control after every
+    DOM change).
   - **The "⋯" is a menu button** (`TailMenu`, the WAI-ARIA Authoring
     Practices' pattern; the keys and the outside press are
     `wwwroot/js/menuButton.js`, which `TailMenu` imports and attaches to
@@ -2678,87 +2754,75 @@ The asymmetry is pinned three times over: at the service seam
     halheinrich/backgammon#8, comment 5966011660). An enhanced navigation
     resets the layout's DOM, so the saved fold goes with it and the quiz page,
     if still the page, measures and asks again.
-  - **When it measures:** on observe and on `refresh` (the page asks whenever
-    the problem on screen, or whether it is answered, changes), on every
-    window resize — early in the frame, so the fold it decides is in place
-    before the frame paints — and on any size change of the row or a ruler
-    line (the panel toggled, a scrollbar, a font finishing loading), which
-    re-fits on the next animation frame: changing the fold inside a
-    ResizeObserver callback would resize the row inside the observer's own
-    delivery, which the browser reports as an error.
-  - **Measured 2026-10-03** (published app, Chromium, Windows, the
-    Helvetica/Arial stack): the checker row 452.1 px, the short cube row
-    441.1, the tail's floor 205.8 (34.4 of copy button and gap, the
-    three-digit coordinates and their gap, the two icon buttons, the gaps), so
-    a budget of 665.9 px and the panel folding below a 930 px viewport (the
-    641–1200 px band, where the panel is 180 px and the page's padding 1rem a
-    side). Inside §2's floor the row never adds a line and Submit is never
-    covered, in either view mode, at 768, 800 and 900 px tall, and board size
-    does not differ between problem kinds. The three alone did not reach
-    641 px: with the panel folded the row is 557–637 px there, too narrow for
-    the checker row and the tail's floor, so on a problem from a `.xg` file
-    the tail ran past the row's gap at 641–721 px and over ▶'s or ⏭'s centre
-    at 641–701.
-  - **The "⋯" switch, measured 2026-10-03** (published Release build,
-    Chromium, Windows; the stack `"Helvetica Neue", Helvetica, Arial,
-    sans-serif` renders as **Arial**, read off the browser with
-    `CSS.getPlatformFontsForNode` for Submit, the locator and a pill): the
-    tail folds below a **749.9 px** viewport — the same 665.9 px budget plus
-    the 84 px of chrome around the row with the panel folded — for every
-    problem kind alike, `.xg` checker, `.xg` cube reading Too good, `.xg` cube
-    reading No double / Pass, `.xgp` checker, and `.xgp` cube in both
-    readings, answering and at review: folded at 749, the tail at 750. So the
-    "⋯" holds the tail across 641–749 px, and the row it leaves (the checker
-    row 452.1 + 8 + the toggle) fits from 641 with room to spare.
+  - **When it measures:** once per frame at most, always in the frame's
+    animation callbacks — after the frame's resize event, before its style,
+    layout and paint — so what it decides is in place before the frame
+    paints. It is asked for on observe (the first fit, which ends the pending
+    presentation), on every window resize, after an enhanced navigation's DOM
+    synchronization, and on any size change of the row or a ruler line (the
+    panel toggled, a scrollbar, a font finishing loading). From a
+    ResizeObserver callback the fit is asked for in the next frame: changing
+    the fold inside the observer's own delivery would resize the row there,
+    which the browser reports as an error.
+  - **Measured 2026-10-03** (published Release build, Chromium, Windows; the
+    stack `"Helvetica Neue", Helvetica, Arial, sans-serif` renders as
+    **Arial**, read off the browser with `CSS.getPlatformFontsForNode` for
+    Submit, a live pill, a ruler copy's pill and the locator): the checker row
+    452.1 px; the short pills 175.3 (the copy's root), their line with Submit
+    and the four 441.1; the full pills 476.5, their line 742.3; the tail's
+    floor 205.8 (34.4 of copy button and gap, the three-digit coordinates and
+    their gap, the two icon buttons, the gaps); the gap 8. So a budget of
+    665.9 px — the checker row the widest lead here — and, with a viewport's
+    chrome of 84 px around the row in the 641–1200 px band (panel 180 px,
+    page padding 1rem a side) and about 108.5 px above it (panel 250 px), the three
+    switches, the same for every problem kind and state:
+    - **the panel folds below a 930 px viewport;**
+    - **the tail folds behind its "⋯" below 750 px**, so the "⋯" holds the
+      tail across 641–749 px, and the row it leaves (the checker row, the gap
+      and the toggle) fits from 641 with room to spare;
+    - **the pills take their full form from 1315 px**, in both readings: the
+      full line, the gap and the floor need 956.1 px of row, which a folded
+      panel would give from 1041 px, but the panel shows from 930 px. So
+      below 1315 every cube decision is short — before 2026-10-03 a Too good
+      decision went full from 1163–1200 and 1257 px, which the one budget
+      gives up.
+
+    Inside §2's floor the row never adds a line and no control is covered, in
+    either view mode, at 768, 800 and 900 px tall, and board size does not
+    differ between problem kinds. The first three narrowings alone did not
+    reach 641 px: with the panel folded the row is 557–637 px there, and on a
+    problem from a `.xg` file the tail ran past the row's gap at 641–721 px
+    and over ▶'s or ⏭'s centre at 641–701.
     `DesktopActionRowTests.InTheOldBand_ATapAtTheCentreOfEveryRowControlReachesIt`
-    taps every button and pill at 641, 661, 681, 701 and 721 px, for all six
+    taps every button and pill at 641, 661, 681, 701 and 721 px, for six
     kinds, in both view modes, answering and at review; the arrows above
     that are pinned from 726 px up.
-  - **The cube row before the run's first cube problem is not settled, only
-    measured.** The ruler's short cube row needs a cube decision to label
-    its pills (`BackgammonCubeActions.Decision` is required, and the fourth
-    answer's label is the decision's reading), and before the run has
-    presented one there is none to draw from without inventing a domain
-    record. Until then the budget is the checker row alone, which is right
-    exactly while the checker row is the wider. Measured 2026-10-03 across 32
-    font families with `* { font-family: X }` forced on the published build
-    (26 installed Windows families and the six generic ones), the checker
-    row is wider in every one, in both readings of the fourth answer: by
-    11.0 px in Arial, 35–50 px in the monospace faces, under 5 px in Gabriola,
-    Georgia and Times New Roman, and in Ink Free by 3.4 px (No double / Pass)
-    and 0.4 px (Too good), the narrowest margin found.
-    It is therefore not shown for every font. Where a font made the cube row
-    the wider, the first cube problem would raise the budget once, and could
-    fold the panel and the tail from that problem on — a one-time board change
-    where the board is width-bound, never a covered control, since both folds
-    follow the budget live. Settling it needs the producer to label a pill row
-    without a decision (BgDiag_Razor), which is cross-repo.
 
   **The cube pills abbreviate where the row cannot hold them**
   (`SPEC-quiz-view.md` §4, "The action row under quiz navigation": ND, D/T,
   D/P, TG or NP). The producer leaves the form to the host
   (`BackgammonCubeActions.ShortLabels`); the page renders the short form
-  unless the row-fit module has reported, for the decision on screen, that
-  the full form fits (`Quiz.HandleRowFit`, the page's second
-  `[JSInvokable]`, which carries the tail's fit with it; `ShortCubeLabels`). The module compares the ruler's
-  `full-cube` line — the full labels at their widest, the fourth answer bold —
-  plus the gap and the tail's floor with the row's width as it stands after the
-  fold. **Short until measured**, on each decision: every cube problem's first
-  render, and every render before the module is in, shows the narrower form,
-  so no control is covered while a measurement is pending. A report renders
-  only when it changes the form on screen. Measured 2026-10-03 (as above):
-  the full Too good row needs 898.9 px of row (685.1 + 8 + 205.8) — full from
-  1163 to 1200 px and from 1257 px with the panel showing, from 983 px folded
-  — and the full No double / Pass row 956.1 (742.3 + 8 + 205.8) — full from
-  1315 px showing, from 1041 px folded. The constants that used to decide
-  this (`FullCubeRowWidthNoDoublePass` 1001.3, `FullCubeRowWidthTooGood`
-  944.1) are gone: they were one font stack's measurement. Pinned in bUnit
-  (`Quiz_CubeActions_AreShortUntilTheModuleMeasuresTheFullFormFits_AndFollowItBothWays`
-  and its neighbours, the `Quiz_Ruler_*` pins) and in the browser
-  (`CubeLabelsTests` for the short form as it renders — visible text, names
-  like "ND (No double)", full-label tooltips — and `RowFitTests`, which widens
-  the text at a fixed viewport and watches the measurement, the fold and the
-  form move with it, and selects the bold fourth at the switch).
+  unless the row-fit module has reported that the full form fits
+  (`Quiz.HandleRowFit`, the page's second `[JSInvokable]`, which carries the
+  tail's fit with it; `ShortCubeLabels`) — the window's decision, above, read
+  off the ruler's `full-cube` line at its widest. A report renders only when
+  it changes what is on screen. The constants that once decided this
+  (`FullCubeRowWidthNoDoublePass` 1001.3, `FullCubeRowWidthTooGood` 944.1)
+  were one font stack's measurement, and the per-decision measurement that
+  replaced them (2026-10-03, every cube problem's first render short until
+  measured) is gone too. Pinned in bUnit
+  (`Quiz_CubeActions_TheFormIsTheWindows_ANewCubeProblemShowsItAtOnce_InEitherReading`,
+  `Quiz_Row_*`, the `Quiz_Ruler_*` pins) and in the browser (`CubeLabelsTests`
+  for the short form as it renders — visible text, names like "ND (No
+  double)", full-label tooltips; `RowFitTests`, which widens the text at a
+  fixed viewport and watches the measurement, the fold and the form move
+  with it; and `OneBudgetTests`, which runs a quiz that starts on a checker
+  play under pills wider than the checker row and finds neither the board
+  nor any switch moving when its first cube problem arrives, at a width
+  either side of each switch, and compares every live pill row, in both
+  readings, both forms and every selection, with the ruler's copy that
+  matches it by content: equal widths, one line high, each ruler root as
+  wide as the widest live row in its form).
 
   **The XGID has one home: the bottom row** (`SPEC-quiz-view.md` §4's
   2026-08-13 amendment, issue `halheinrich/backgammon#98`). `XgidLabel` — the
@@ -3502,10 +3566,12 @@ reads the storage entry itself in JS, and publishes
 `window.bgquizNavFold.apply(folded)` as the seam `QuizSettings` invokes to move
 the fold without a navigation — invoked **only to unfold** (§ `QuizSettings`).
 Since halheinrich/backgammon#264's ruling it also publishes `setAutoFold(on)`
-and `widthIfShown()`, the quiz page's row-fit module's (§ Pages → Quiz, "The
+and `panelWidths()`, the quiz page's row-fit module's (§ Pages → Quiz, "The
 row narrows"): the panel folds by itself as layout state, the user's fold
 saved and restored around it, and `apply` lands on the saved fold while the
-auto-fold holds. It also owns the panel reopened there, **the drawer**: three
+auto-fold holds. `panelWidths()` tells the panel's box (`inFlow`) from its
+declared state (`taken`), because the quiz row's pending presentation hides
+the panel by style alone (`data-nav-fold-pending`), which is not a fold. It also owns the panel reopened there, **the drawer**: three
 document listeners, registered once, close it on Escape (unless something
 nearer took the key — the row's "⋯" list stops its own — or focus is in an
 open dialog), on a pointer pressed outside it and its rail, and prevent
@@ -3542,7 +3608,9 @@ review's decision notes, quiz navigation (⏮ ◀ ▶ ⏭, the deferred skip and
 practice), the action row's live fit (the panel folding by itself and
 reopening as a drawer, the tail folding behind its "⋯" and that list's
 items, keys and focus, the cube pills' short form, the measurement following
-changed font metrics), every action-row control's reach at the old worst
+changed font metrics, and one budget from the outset: the first fit held and
+the row hit-tested before and after it, a first cube problem moving nothing,
+and the ruler's pill copies against the live row), every action-row control's reach at the old worst
 desktop widths, across the old 641–721 px band and at the phone preset, and
 the stats-persistence suite. It covers the one
 layer the other
@@ -4110,10 +4178,15 @@ public (see Pitfalls). The externally visible surface is the route map:
      seam — so the JS module is the one place it appears outside the markup.
   3. **The auto-fold's names** (halheinrich/backgammon#264): `.sidebar` and its
      `--sidebar-width` property, which `MainLayout.razor.css` sets per layout
-     band and `widthIfShown()` reads, and `data-nav-autofold`, which the script
+     band and `panelWidths()` reads, and `data-nav-autofold`, which the script
      sets on `<html>` and the layout's drawer rule keys on. Rename either end
      alone and the quiz page's panel stops folding, or folds without the
-     drawer; `PanelAutoFoldTests` is what notices.
+     drawer; `PanelAutoFoldTests` is what notices. Beside them,
+     `data-nav-fold-pending`: the quiz row carries it until its first
+     measurement and the layout folds the panel on it by style
+     (`MainLayout.razor.css`); the script never sets it. Rename one end
+     alone and the first render covers controls at 641 px;
+     `OneBudgetTests` is what notices.
   Two smaller rules ride along: the script tag must stay **after**
   `blazor.web.js` (that is where `Blazor.addEventListener` exists) and must
   keep going through `@Assets[...]` like its sibling, or a deploy leaves

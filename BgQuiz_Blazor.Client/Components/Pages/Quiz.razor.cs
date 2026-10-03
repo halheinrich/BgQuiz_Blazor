@@ -296,21 +296,12 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     private string? _observedRow;
 
     /// <summary>
-    /// The problem and state the module last measured — the decision on screen
-    /// and whether it is being answered — so a render that changes either asks
-    /// for a fresh measurement (<see cref="ObserveActionRowAsync"/>): the
-    /// ruler's lines follow both.
+    /// The row-fit module's last report (<see cref="HandleRowFit"/>), or null
+    /// before its first: the one fact <see cref="RowFitPending"/>,
+    /// <see cref="TailFolded"/> and <see cref="ShortCubeLabels"/> are read
+    /// from.
     /// </summary>
-    private (BgDecisionData? Decision, bool Answering) _measuredView;
-
-    /// <summary>
-    /// The cube decision whose full-form fit <see cref="_fullCubeLabelsFit"/>
-    /// reports; any other decision on screen reads as not yet measured.
-    /// </summary>
-    private CubeDecision? _fitDecision;
-
-    /// <summary>Whether the full-form pills fit, as last measured for <see cref="_fitDecision"/>.</summary>
-    private bool _fullCubeLabelsFit;
+    private (bool TailFits, bool FullCubeLabelsFit)? _rowFitReport;
 
     /// <summary>Set by <see cref="DisposeAsync"/>, so an import still in flight at disposal releases rather than attaches.</summary>
     private bool _disposed;
@@ -424,13 +415,31 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
 
     /// <summary>
     /// Import the page's two modules on the first render, attach the spacebar
-    /// shortcut, and from then on keep the action row under observation.
+    /// shortcut, render the board and its row now that the row can be fitted
+    /// (<see cref="RowFitReady"/>), and from then on keep the row under
+    /// observation.
     /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender) await ImportModulesAsync();
+        if (firstRender)
+        {
+            await ImportModulesAsync();
+            if (RowFitReady) StateHasChanged();
+            return;
+        }
         await ObserveActionRowAsync();
     }
+
+    /// <summary>
+    /// Whether the row-fit module is in, which is when the page renders its
+    /// board and row (Quiz.razor): no row is shown that nothing is fitting. The
+    /// module's first measurement follows the row's first render in that
+    /// frame's animation callbacks, before it paints, and until it lands the
+    /// row is in its pending presentation (<see cref="RowFitPending"/>), which
+    /// covers nothing. Before the module is in, the page shows its notices
+    /// only: a first load's module fetch is the one wait this adds.
+    /// </summary>
+    private bool RowFitReady => _rowFit is not null;
 
     /// <summary>
     /// The first render's half of <see cref="OnAfterRenderAsync"/>: both
@@ -465,62 +474,63 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     }
 
     /// <summary>
-    /// Keep the row-fit module measuring what is on screen. It is handed the
-    /// action row and its ruler whenever this render created the row (a new
-    /// quiz after the last one ended), and asked to measure afresh whenever
-    /// the problem on screen, or whether it is being answered, changed — the
-    /// ruler's lines follow both, and a fresh measurement is what reports the
-    /// pills' fit for the decision now on screen. The recorded id and view are
-    /// set before each await, so a render landing during it repeats nothing.
-    /// Between those, the module follows the row and the ruler on its own
-    /// (resizes, the panel's fold, fonts loading).
+    /// Keep the row-fit module measuring the row. It is handed the action row
+    /// and its ruler whenever a render created the row: the first render that
+    /// has one, and the row of a new quiz after the last one ended. The
+    /// recorded id is set before the await, so a render landing during it
+    /// repeats nothing. From then on the module follows the row and the ruler
+    /// on its own (resizes, the panel's fold, fonts loading). Nothing else asks
+    /// it to measure: the ruler holds the same lines for every problem and
+    /// every state (Quiz.razor), so a new problem, or a move to its review,
+    /// changes nothing the module measures.
     /// </summary>
     private async Task ObserveActionRowAsync()
     {
         if (_rowFit is null || _self is null || Controller.Current is null) return;
+        if (_actionRow.Id == _observedRow) return;
 
-        if (_actionRow.Id != _observedRow)
-        {
-            _observedRow = _actionRow.Id;
-            _measuredView = MeasuredView;
-            await _rowFit.InvokeVoidAsync(
-                "observe", _actionRow, _actionRowRuler, _self, nameof(HandleRowFit));
-            return;
-        }
-
-        if (_measuredView == MeasuredView) return;
-        _measuredView = MeasuredView;
-        await _rowFit.InvokeVoidAsync("refresh");
+        _observedRow = _actionRow.Id;
+        await _rowFit.InvokeVoidAsync(
+            "observe", _actionRow, _actionRowRuler, _self, nameof(HandleRowFit));
     }
-
-    /// <summary>The problem on screen and whether it is being answered: what a measurement is of.</summary>
-    private (BgDecisionData? Decision, bool Answering) MeasuredView =>
-        (Controller.Current, Controller.Review is null);
 
     /// <summary>
     /// The row-fit module's report, two facts measured together against the
-    /// row as it stands after the panel's fold: whether the tail at full size
-    /// fits beside the row's other controls (<paramref name="tailFits"/>), and,
-    /// while a cube decision is answered, whether the full-form pills fit
-    /// beside it, their widest selection included
-    /// (<paramref name="fullCubeLabelsFit"/>; null while no cube decision is
-    /// answered, when there is nothing to measure). It renders only when the
-    /// report changes what is on screen. Public and
+    /// row as it stands after the panel's fold, both from the one budget:
+    /// whether the tail at full size fits beside the row's other controls
+    /// (<paramref name="tailFits"/>), and whether the full-form pills fit
+    /// beside it at their widest — both readings of the fourth answer, every
+    /// selection (<paramref name="fullCubeLabelsFit"/>). Neither depends on the
+    /// problem on screen. The first report ends the pending presentation. It
+    /// renders only when the report changes what is on screen. Public and
     /// <see cref="JSInvokableAttribute"/> for the module's sake, as
     /// <see cref="HandleSpaceKeyAsync"/> is; nothing else calls it.
     /// </summary>
     [JSInvokable]
-    public void HandleRowFit(bool tailFits, bool? fullCubeLabelsFit)
+    public void HandleRowFit(bool tailFits, bool fullCubeLabelsFit)
     {
-        var before = (ShortCubeLabels, TailFolded);
-        TailFolded = !tailFits;
-        if (fullCubeLabelsFit is { } fits)
-        {
-            _fitDecision = Controller.Current as CubeDecision;
-            _fullCubeLabelsFit = fits;
-        }
-        if ((ShortCubeLabels, TailFolded) != before) StateHasChanged();
+        var before = (RowFitPending, ShortCubeLabels, TailFolded);
+        _rowFitReport = (tailFits, fullCubeLabelsFit);
+        if ((RowFitPending, ShortCubeLabels, TailFolded) != before) StateHasChanged();
     }
+
+    /// <summary>
+    /// <b>Whether the row is waiting for its first measurement</b>
+    /// (<c>SPEC-quiz-view.md</c> §4, "One budget from the outset": "No control
+    /// is covered at any moment, the first render before any measurement
+    /// included"). Until the row-fit module first reports, the row is in its
+    /// pending presentation, the narrowest the page has: the tail behind its
+    /// "⋯" (<see cref="TailFolded"/>), the pills short
+    /// (<see cref="ShortCubeLabels"/>), and the row marked
+    /// <c>data-nav-fold-pending</c>, on which the layout folds the navigation
+    /// panel (<c>MainLayout.razor.css</c>), so the row has the width the panel
+    /// would take. A 641 px window measures to that same presentation, so there
+    /// the measurement changes nothing; in a wider window it opens what fits,
+    /// in the same frame (<c>wwwroot/js/actionRowFit.js</c> measures in the
+    /// frame's animation callbacks, before it paints). Every new page starts
+    /// pending: a Show-stats round trip re-creates the page.
+    /// </summary>
+    private bool RowFitPending => _rowFitReport is null;
 
     /// <summary>
     /// <b>Whether the action row's tail folds behind its "⋯"</b>
@@ -539,51 +549,31 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// showing, so showing the "⋯" cannot make the row fit and switch it back.
     /// Where there is no side panel (the phone layout, below 641 px) the tail
     /// takes a line of its own instead (halheinrich/backgammon#236), and it
-    /// never folds.
-    ///
-    /// <para>
-    /// <b>The tail until measured</b> — the row as it always was — because the
-    /// decision is the window's, not the problem's: it is made once per width,
-    /// not once per problem as the pills' form is, so a pending measurement
-    /// happens only as the page arrives, where the panel has not folded yet
-    /// either.
-    /// </para>
+    /// never folds. <b>Folded until measured</b> (<see cref="RowFitPending"/>).
     /// </summary>
-    private bool TailFolded { get; set; }
+    private bool TailFolded => _rowFitReport is not { TailFits: true };
 
     /// <summary>
     /// <b>Whether the cube pills take their short labels</b>
     /// (<c>SPEC-quiz-view.md</c> §4, "Cube labels abbreviate only when the row
-    /// cannot fit them"): unless the row-fit module has measured, for the
-    /// decision on screen, that the full form fits. The measurement is the
-    /// module's, live, under the fonts actually rendering
-    /// (<c>wwwroot/js/actionRowFit.js</c>, halheinrich/backgammon#264's ruling
-    /// of 2026-10-03): the ruler's full-label line at its widest selection,
-    /// the row's gap and the tail's floor, against the row's own width.
+    /// cannot fit them", read under "One budget from the outset"): unless the
+    /// row-fit module has measured that the full form fits. The measurement is
+    /// the module's, live, under the fonts actually rendering: the ruler's
+    /// full-label pills at their widest — the producer's inert copy, both
+    /// readings of the fourth answer and every selection — with Submit and the
+    /// four, the row's gap and the tail's floor, against the row's own width.
     ///
     /// <para>
-    /// <b>The short form until measured</b>, on each decision: a decision the
-    /// module has not reported on — the first render of every cube problem,
-    /// and every render before the module is in — shows the narrower form, so
-    /// no control is covered while a measurement is pending; the full form
-    /// follows the measurement where it fits.
+    /// <b>The window's, for every decision</b>, like the panel's fold and the
+    /// "⋯": a cube problem's first render shows the form the window has
+    /// already measured, and choosing a pill never changes it. A consequence,
+    /// and a layout policy rather than a labelling rule: the full form must
+    /// hold both readings, so where only the narrower Too good reading's full
+    /// row would fit, every cube decision shows the short form. <b>Short until
+    /// measured</b> (<see cref="RowFitPending"/>).
     /// </para>
     /// </summary>
-    private bool ShortCubeLabels =>
-        !(_fullCubeLabelsFit && _fitDecision is not null && ReferenceEquals(_fitDecision, Controller.Current));
-
-    /// <summary>
-    /// The cube decision the ruler's short-form cube row is drawn from: the
-    /// one on screen, or the one the run presented most recently while a
-    /// checker play is on screen (<see cref="QuizController.LastPresentedCube"/>)
-    /// — so, from the run's first cube problem on, the budget includes the
-    /// cube row in every state, on every visit to this page: a Show-stats
-    /// round trip re-creates the page but not the run. Before the run's first
-    /// cube problem it is null and the checker row stands alone; the checker
-    /// row measured the wider of the two in every font surveyed
-    /// (INSTRUCTIONS.md).
-    /// </summary>
-    private CubeDecision? RulerCube => Controller.Current as CubeDecision ?? Controller.LastPresentedCube;
+    private bool ShortCubeLabels => _rowFitReport is not { FullCubeLabelsFit: true };
 
     /// <summary>
     /// The coordinates the ruler's locator shows: three digits each, so the
@@ -593,24 +583,6 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// chip never shrinks them); they would only overrun the budget by a digit.
     /// </summary>
     private const int RulerCoordinate = 999;
-
-    /// <summary>
-    /// The pill the ruler's cube rows show as selected: the fourth answer,
-    /// whose label is the longest at a decision where gammons are not possible
-    /// and whose bold, selected form measured widest in both readings — so the
-    /// measured width covers the widest selection, and choosing a pill never
-    /// changes the form.
-    /// </summary>
-    private static readonly CubeAnswer? RulerSelection = CubeAnswer.NoDoublePass;
-
-    /// <summary>
-    /// The ruler's pills' <c>ValueChanged</c>, which the producer requires: they
-    /// take no input (the ruler is inert), so a selection reaching here would
-    /// be a bug, and it changes nothing.
-    /// </summary>
-    private static void RulerSelectionIgnored(CubeAnswer? answer)
-    {
-    }
 
     /// <summary>
     /// What a Space press does, once the browser has found it eligible

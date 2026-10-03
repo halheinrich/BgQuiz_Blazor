@@ -143,11 +143,11 @@ public sealed class ProblemLocatorTests : E2eTestBase
               '  fonts.check Arial:     ' + document.fonts.check('12px Arial'),
               '  fonts.check Helvetica: ' + document.fonts.check('12px Helvetica'),
               box('.action-row', q('.action-row')),
-              box('.bg-cube-actions', q('.bg-cube-actions')),
+              box('.action-row .bg-cube-actions', q('.action-row .bg-cube-actions')),
               box('.action-row-tail', q('.action-row-tail')),
             ])
             .concat(children('.action-row', q('.action-row')))
-            .concat(children('.bg-cube-actions', q('.bg-cube-actions')))
+            .concat(children('.action-row .bg-cube-actions', q('.action-row .bg-cube-actions')))
             .join(String.fromCharCode(10));
         }
         """;

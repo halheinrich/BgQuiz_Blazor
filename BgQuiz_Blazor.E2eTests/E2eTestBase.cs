@@ -388,6 +388,25 @@ public abstract class E2eTestBase : IAsyncLifetime
     }
 
     /// <summary>
+    /// <see cref="PickSynthesizedFileAsync"/> for several synthesized files in
+    /// one folder — for a scenario that needs problems only different files
+    /// hold together, such as a cube decision in each reading of its fourth
+    /// answer.
+    /// </summary>
+    /// <param name="folderName">The staged folder's name.</param>
+    /// <param name="files">Each file's staged name, extension included, and its content.</param>
+    protected Task PickSynthesizedFilesAsync(string folderName, params (string StagedFileName, byte[] Bytes)[] files)
+    {
+        if (files.Length < 2 || files.Any(f => f.Bytes is not { Length: > 0 }))
+            throw new ArgumentException(
+                "Stage at least two synthesized files, each with content — one is PickSynthesizedFileAsync's, " +
+                "and an empty file would put an unparseable folder under test.",
+                nameof(files));
+
+        return StageAndPickAsync(folderName, files);
+    }
+
+    /// <summary>
     /// Pick a folder holding <paramref name="copies"/> copies of one fixture —
     /// the original plus numbered duplicates, the shape a re-downloaded match
     /// takes in a real problem folder. Every copy is content-identical, so the

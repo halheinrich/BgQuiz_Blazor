@@ -245,33 +245,6 @@ public class QuizRunTests
     }
 
     [Fact]
-    public void LastPresentedCube_IsTheFurthestCubeDecisionPresented_WhereverTheCursorIs()
-    {
-        // The quiz page's row-fit ruler measures the cube answer row from it
-        // while a checker play is on screen, so it is a fact of the run: none
-        // before a cube is presented, then the furthest cube in the presented
-        // sequence — not the cursor's, not the first.
-        var firstCube = CubeProblem(1);
-        var play = PlayProblem(2);
-        var secondCube = CubeProblem(3);
-        var run = Show(Begin(), play);
-        Assert.Null(Begin().LastPresentedCube);
-        Assert.Null(run.LastPresentedCube);
-
-        run = MoveOnTo(run.SubmitPlay(Best(), out _), firstCube);
-        Assert.Same(firstCube, run.LastPresentedCube);
-
-        run = MoveOnTo(run.SubmitCubeAnswer(CubeAnswer.NoDouble, out _), PlayProblem(4));
-        Assert.Same(firstCube, run.LastPresentedCube);   // a checker play on screen
-
-        run = MoveOnTo(run.SubmitPlay(Best(), out _), secondCube);
-        Assert.Same(secondCube, run.LastPresentedCube);
-
-        run = run.GoToFirst();   // the cursor on a checker play, back at the start
-        Assert.Same(secondCube, run.LastPresentedCube);
-    }
-
-    [Fact]
     public void Present_FromALiveReview_DiscardsTheReview_AndShowsTheNewDecision()
     {
         // The completed frontier, its review still on screen: presenting the

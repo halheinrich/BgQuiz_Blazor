@@ -327,14 +327,6 @@ internal sealed class QuizController : IAsyncDisposable
     public int PresentedCount => _run?.Presented.Length ?? 0;
 
     /// <summary>
-    /// The cube decision the run presented most recently
-    /// (<see cref="QuizRun.LastPresentedCube"/>), or null before it has
-    /// presented one and before start. The quiz page's row-fit ruler measures
-    /// the cube answer row from it while a checker play is on screen.
-    /// </summary>
-    public CubeDecision? LastPresentedCube => _run?.LastPresentedCube;
-
-    /// <summary>
     /// True when there is an earlier problem to go back to
     /// (<see cref="QuizRun.CanGoBack"/>): ⏮ and ◀ are unavailable where it is
     /// false — on the first problem, and with nothing on screen

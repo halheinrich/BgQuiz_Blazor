@@ -3865,7 +3865,7 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
         await EndQuizButton(cut).ClickAsync(new());
 
         Assert.True(c.IsFinished);
@@ -3886,7 +3886,7 @@ public class PageTests : BunitContext
         await c.SubmitPlayAsync(BestPlay());
         Assert.NotNull(c.Review);
 
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
 
         Assert.Contains(cut.FindAll("button"), b => b.TextContent.Trim() == "Continue");
         Assert.NotNull(EndQuizButton(cut));
@@ -3905,7 +3905,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
         var labels = cut.FindAll(".action-row button").Select(AccessibleName).ToList();
 
         Assert.Equal("End quiz", labels[^1]);   // the far end of the row...
@@ -5859,19 +5859,33 @@ public class PageTests : BunitContext
         [.. FullPillsTooGood[..3], ("No double / Pass", "No double / Pass")];
 
     /// <summary>
-    /// Report, as the row-fit module does, whether the full-form pills fit the
-    /// row for the decision on screen — with the tail fitting, as it does
-    /// wherever the full form fits.
+    /// The quiz page as a window that holds the whole row measures it: rendered,
+    /// then given the row-fit module's report that the tail fits (and the
+    /// pills' full form does not). Until a first report the row is in its
+    /// pending presentation, the tail behind its "⋯" (SPEC-quiz-view.md §4,
+    /// "One budget from the outset"); a pin about the tail where it fits starts
+    /// here.
+    /// </summary>
+    private async Task<IRenderedComponent<QuizPage>> RenderWithTheTailShowingAsync()
+    {
+        var cut = Render<QuizPage>();
+        await ReportTailFit(cut, tailFits: true);
+        return cut;
+    }
+
+    /// <summary>
+    /// Report, as the row-fit module does, whether the full-form pills fit —
+    /// with the tail fitting, as it does wherever the full form fits.
     /// </summary>
     private static Task ReportCubeLabelsFit(IRenderedComponent<QuizPage> cut, bool fullFits) =>
         cut.InvokeAsync(() => cut.Instance.HandleRowFit(tailFits: true, fullCubeLabelsFit: fullFits));
 
     /// <summary>
     /// Report, as the row-fit module does, whether the tail fits beside the
-    /// row's other controls; <paramref name="fullCubeFits"/> as the module
-    /// sends it, null while no cube is answered.
+    /// row's other controls, and whether the full-form pills do (by default
+    /// not: a row that does not hold the tail does not hold them either).
     /// </summary>
-    private static Task ReportTailFit(IRenderedComponent<QuizPage> cut, bool tailFits, bool? fullCubeFits = null) =>
+    private static Task ReportTailFit(IRenderedComponent<QuizPage> cut, bool tailFits, bool fullCubeFits = false) =>
         cut.InvokeAsync(() => cut.Instance.HandleRowFit(tailFits, fullCubeFits));
 
     [Fact]
@@ -5920,10 +5934,10 @@ public class PageTests : BunitContext
         // fit them", with the switch measured live under the fonts actually
         // rendering (halheinrich/backgammon#264's ruling of 2026-10-03): the
         // row-fit module measures and reports, and the page renders what it is
-        // told, as ShortLabels. Until a report arrives for the decision on
-        // screen the row is short — the narrower form, so no control is
-        // covered while a measurement is pending. No width is spelled here:
-        // the page holds no threshold of its own any more.
+        // told, as ShortLabels. Until the first report arrives the row is
+        // short — the narrower form, the pending presentation, so no control
+        // is covered while a measurement is pending. No width is spelled
+        // here: the page holds no threshold of its own any more.
         var c = WithController(TestFixtures.CubeDecision(cubeOwner: cubeOwner));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
@@ -5943,44 +5957,19 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_CubeActions_AReportRendersOnlyWhereItChangesTheForm()
+    public async Task Quiz_CubeActions_TheFormIsTheWindows_ANewCubeProblemShowsItAtOnce_InEitherReading()
     {
-        // A window dragged across the switch-over re-renders the page once
-        // each way, not once per report: reports that leave the form where it
-        // is cost no render. bUnit's count includes the children a page render
-        // re-renders, so one render of the page is measured first, as a
-        // re-render with nothing changed.
-        var c = WithController(TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
-        var before = cut.RenderCount;
-        cut.Render();
-        var oneRender = cut.RenderCount - before;
-        Assert.True(oneRender > 0);
-
-        var renders = cut.RenderCount;
-        await ReportCubeLabelsFit(cut, false);
-        Assert.Equal(renders, cut.RenderCount);
-
-        await ReportCubeLabelsFit(cut, true);
-        await ReportCubeLabelsFit(cut, true);
-        Assert.Equal(renders + oneRender, cut.RenderCount);
-        Assert.Equal(FullPillsNoDoublePass, CubePills(cut));
-
-        await ReportCubeLabelsFit(cut, false);
-        Assert.Equal(renders + 2 * oneRender, cut.RenderCount);
-        Assert.Equal(ShortPillsNoDoublePass, CubePills(cut));
-    }
-
-    [Fact]
-    public async Task Quiz_CubeActions_ANewCubeProblem_IsShortUntilReportedOn()
-    {
-        // A report is about the decision it was measured for. The next cube
-        // problem — possibly the other reading, with a longer fourth label —
-        // starts short again, and takes the full form only from a report of
-        // its own.
+        // SPEC-quiz-view.md §4, "One budget from the outset": the labels' form
+        // reads the one budget, like the panel's fold and the "⋯" — the
+        // window's, for every decision. Measured once, it holds for the next
+        // cube problem from that problem's first render, whichever reading of
+        // the fourth answer it takes and whatever came between; no report of
+        // its own is needed, and none is waited for. (Until 2026-10-03 the form
+        // was measured per decision, and every cube problem's first render was
+        // short.)
         var c = WithController(
             TestFixtures.CubeDecision(cubeOwner: CubeOwner.OnRoll),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
@@ -5988,26 +5977,27 @@ public class PageTests : BunitContext
         Assert.Equal(FullPillsTooGood, CubePills(cut));
 
         await ButtonNamed(cut, "Skip").ClickAsync(new());
-        Assert.Equal(ShortPillsNoDoublePass, CubePills(cut));
+        Assert.IsAssignableFrom<CheckerPlayDecision>(c.Current);
+        await ButtonNamed(cut, "Skip").ClickAsync(new());
 
-        await ReportCubeLabelsFit(cut, true);
         Assert.Equal(FullPillsNoDoublePass, CubePills(cut));
+        Assert.False(cut.FindComponent<BackgammonCubeActions>().Instance.ShortLabels);
     }
 
     [Fact]
-    public async Task Quiz_RowFitModule_ObservesTheRowAndItsRuler_RefreshesOnANewProblemOrState_AndStopsOnDispose()
+    public async Task Quiz_RowFitModule_ObservesTheRowAndItsRuler_Once_AndStopsOnDispose()
     {
         // The wiring, at the seam the browser sees: with no quiz running there
         // is no row and nothing is observed; once a problem is on screen the
         // module is handed the row, its ruler, the page's reference and the
-        // callback's name (spelled once, on the C# side); a new problem, or the
-        // same problem moving from answering to review, keeps the row but
-        // changes what the ruler holds, so the module is asked to measure
-        // afresh rather than observe again; and the observer stops before the
-        // page's reference is disposed.
+        // callback's name (spelled once, on the C# side). Nothing asks it to
+        // measure again: the ruler holds the same lines for every problem and
+        // every state, so a new problem, or a move to its review, changes
+        // nothing it measures. The observer stops before the page's reference
+        // is disposed.
         var c = WithController(
             TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered),
-            TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered));
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         var cut = Render<QuizPage>();
         _rowFit.VerifyNotInvoke("observe");
 
@@ -6021,15 +6011,12 @@ public class PageTests : BunitContext
         Assert.Equal(ruler, ((ElementReference)observe.Arguments[1]!).Id);
         Assert.IsType<DotNetObjectReference<QuizPage>>(observe.Arguments[2]);
         Assert.Equal(nameof(QuizPage.HandleRowFit), observe.Arguments[3]);
-        _rowFit.VerifyNotInvoke("refresh");
-
-        await ButtonNamed(cut, "Skip").ClickAsync(new());
-        var afterNewProblem = _rowFit.VerifyInvoke("refresh", calledTimes: 1);
 
         await cut.InvokeAsync(() => c.SubmitCubeAnswerAsync(CubeAnswer.NoDouble));
-        _rowFit.VerifyInvoke("refresh", calledTimes: 2);
+        await ButtonNamed(cut, "Continue").ClickAsync(new());
+        Assert.IsAssignableFrom<CheckerPlayDecision>(c.Current);
         _rowFit.VerifyInvoke("observe", calledTimes: 1);
-        _rowFit.VerifyNotInvoke("unobserve");
+        Assert.DoesNotContain(_rowFit.Invocations, i => i.Identifier != "observe");
 
         await DisposeComponentsAsync();
 
@@ -6049,18 +6036,62 @@ public class PageTests : BunitContext
         return cut.FindAll(".tail-menu [role=menu] [role=menuitem]");
     }
 
+    /// <summary>Whether the live row carries the pending marker the layout folds the panel on.</summary>
+    private static bool RowMarkedPending(IRenderedComponent<QuizPage> cut) =>
+        cut.Find(".action-row").HasAttribute("data-nav-fold-pending");
+
     [Fact]
-    public async Task Quiz_Tail_ShowsUntilTheModuleReportsItDoesNotFit_ThenFoldsBehindTheMenu_AndFollowsBothWays()
+    public async Task Quiz_Row_IsPendingUntilTheFirstReport_InItsNarrowestPresentation()
+    {
+        // SPEC-quiz-view.md §4, "One budget from the outset" (Hal, 2026-10-03):
+        // no control is covered at any moment, the first render before any
+        // measurement included. Until the row-fit module first reports, the
+        // row is in its pending presentation — the tail behind its "⋯", the
+        // pills short — and marked data-nav-fold-pending, on which the layout
+        // folds the panel. The first report ends all three at once.
+        var c = WithController(TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var cut = Render<QuizPage>();
+
+        Assert.True(RowMarkedPending(cut));
+        Assert.Equal(["tail-menu"], TailContents(cut));
+        Assert.Equal(ShortPillsNoDoublePass, CubePills(cut));
+
+        await cut.InvokeAsync(() => cut.Instance.HandleRowFit(tailFits: true, fullCubeLabelsFit: true));
+
+        Assert.False(RowMarkedPending(cut));
+        Assert.Equal(["xgid-label", "problem-locator", "Show stats", "End quiz"], TailContents(cut));
+        Assert.Equal(FullPillsNoDoublePass, CubePills(cut));
+    }
+
+    [Fact]
+    public async Task Quiz_Row_EveryNewPageStartsPending()
+    {
+        // A Show-stats round trip re-creates the page: the new page has not
+        // been measured, so it starts pending again, whatever the last page
+        // was told.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var first = await RenderWithTheTailShowingAsync();
+        Assert.False(RowMarkedPending(first));
+
+        var second = Render<QuizPage>();
+
+        Assert.True(RowMarkedPending(second));
+        Assert.Equal(["tail-menu"], TailContents(second));
+    }
+
+    [Fact]
+    public async Task Quiz_Tail_FollowsTheModulesReport_BothWays()
     {
         // SPEC-quiz-view.md §4, halheinrich/backgammon#264's widened fourth
         // (Hal, 2026-10-03): below the width where the tail fits beside the
         // row's other controls, measured live, the whole tail folds behind one
         // "⋯" at the row's far end. The measurement is the row-fit module's;
-        // the page renders what it is told. Until it reports, the tail shows
-        // as it always has.
+        // the page renders what it is told.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
         string[] fullTail = ["xgid-label", "problem-locator", "Show stats", "End quiz"];
         Assert.Equal(fullTail, TailContents(cut));
 
@@ -6070,7 +6101,8 @@ public class PageTests : BunitContext
         Assert.Empty(LiveElements(cut, ".problem-locator"));
         Assert.False(HasButtonNamed(cut, "Show stats"));
         Assert.False(HasButtonNamed(cut, "End quiz"));
-        Assert.Equal("End quiz", RulerLineButtons(cut, 1)[^1]);   // the ruler keeps the tail at full size
+        Assert.False(RowMarkedPending(cut));
+        Assert.Equal("End quiz", RulerLineButtons(cut, 3)[^1]);   // the ruler keeps the tail at full size
 
         await ReportTailFit(cut, tailFits: true);
         Assert.Equal(fullTail, TailContents(cut));
@@ -6078,42 +6110,56 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Quiz_Tail_AReportRendersOnlyWhereItChangesTheTail()
+    public async Task Quiz_Row_AReportRendersOnlyWhereItChangesTheRow()
     {
-        // As with the pills: a window dragged across the switch re-renders the
-        // page once each way, not once per report.
-        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        // A window dragged across a switch re-renders the page once each way,
+        // not once per report: the first report ends the pending presentation
+        // (a render), and from then on only a report that changes the tail or
+        // the pills renders.
+        var c = WithController(TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
         var renders = cut.RenderCount;
+        await ReportTailFit(cut, tailFits: false);
+        Assert.True(cut.RenderCount > renders, "the first report ends the pending presentation");
+        Assert.False(RowMarkedPending(cut));
+
+        renders = cut.RenderCount;
+        await ReportTailFit(cut, tailFits: false);
+        Assert.Equal(renders, cut.RenderCount);
+
+        await ReportTailFit(cut, tailFits: true);
+        Assert.True(cut.RenderCount > renders);
+        renders = cut.RenderCount;
         await ReportTailFit(cut, tailFits: true);
         Assert.Equal(renders, cut.RenderCount);
 
-        await ReportTailFit(cut, tailFits: false);
+        await ReportCubeLabelsFit(cut, true);
         Assert.True(cut.RenderCount > renders);
-        var folded = cut.RenderCount;
-
-        await ReportTailFit(cut, tailFits: false);
-        Assert.Equal(folded, cut.RenderCount);
+        Assert.Equal(FullPillsNoDoublePass, CubePills(cut));
+        renders = cut.RenderCount;
+        await ReportCubeLabelsFit(cut, true);
+        Assert.Equal(renders, cut.RenderCount);
     }
 
     [Fact]
-    public async Task Quiz_Tail_ATailReportLeavesThePillsAsMeasured()
+    public async Task Quiz_Row_TheTailAndThePills_FollowTheirOwnFacts()
     {
-        // The two facts travel together; a report with no cube measured (null)
-        // keeps whatever the pills were last measured at for the decision on
-        // screen, and folding the tail does not touch them.
+        // The two facts travel in one report and are independent: the pills
+        // may take their full form while the tail folds, and the other way
+        // round.
         var c = WithController(TestFixtures.CubeDecision(cubeOwner: CubeOwner.OnRoll));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
-        await ReportCubeLabelsFit(cut, true);
-        Assert.Equal(FullPillsTooGood, CubePills(cut));
 
-        await ReportTailFit(cut, tailFits: false, fullCubeFits: null);
-
+        await ReportTailFit(cut, tailFits: false, fullCubeFits: true);
         Assert.Equal(FullPillsTooGood, CubePills(cut));
         Assert.Equal(["tail-menu"], TailContents(cut));
+
+        await ReportTailFit(cut, tailFits: true, fullCubeFits: false);
+        Assert.Equal(ShortPillsTooGood, CubePills(cut));
+        Assert.Equal(["xgid-label", "problem-locator", "Show stats", "End quiz"], TailContents(cut));
     }
 
     [Fact]
@@ -6211,17 +6257,24 @@ public class PageTests : BunitContext
             .Where(b => !b.ClassList.Contains("xgid-label-copy"))
             .Select(AccessibleName)];
 
+    /// <summary>The ruler's inert pill copies, in document order, by the form each draws.</summary>
+    private static List<bool> RulerPillForms(IRenderedComponent<QuizPage> cut) =>
+        [.. cut.FindComponents<BackgammonCubeActionsRuler>().Select(r => r.Instance.ShortLabels)];
+
     [Fact]
-    public async Task Quiz_Ruler_IsInertAndHidden_HoldingTheCheckerRowAndTheTailAtItsFloor()
+    public async Task Quiz_Ruler_IsInertAndHidden_AndHoldsEveryLineBeforeTheFirstCubeProblem()
     {
-        // halheinrich/backgammon#264's ruling of 2026-10-03: the panel folds by
-        // itself below the width where the row fits beside it, measured live.
-        // What is measured is the ruler: the checker answer row (Undo all,
-        // Undo last, Submit, the four) and the tail, its locator showing
-        // three-digit coordinates whatever the problem — from the very
-        // fragments the row renders, so they measure alike. It takes no input
-        // and is hidden from assistive technology. A checker play, with no
-        // cube decision seen yet: no cube row.
+        // SPEC-quiz-view.md §4, "One budget from the outset" (Hal, 2026-10-03):
+        // the widest the cube pills can be is measured without a cube decision,
+        // never assumed from the checker row and never learned only when the
+        // first cube problem arrives. So a run whose first problem is a checker
+        // play — no cube decision anywhere yet — already holds every line: the
+        // checker row; the pills short, with Submit and the four; the pills in
+        // full, with the same; and the tail at its floor, its locator showing
+        // three-digit coordinates whatever the problem. The pills are the
+        // producer's inert copy (BackgammonCubeActionsRuler), which takes no
+        // decision; no live pill row renders on a checker play. The ruler takes
+        // no input and is hidden from assistive technology.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
@@ -6229,86 +6282,53 @@ public class PageTests : BunitContext
         var ruler = cut.Find(".action-row-ruler");
         Assert.Equal("true", ruler.GetAttribute("aria-hidden"));
         Assert.True(ruler.HasAttribute("inert"));
-        Assert.Equal(["lead", "tail"], RulerLines(cut));
+        Assert.Equal(["lead", "lead", "full-cube", "tail"], RulerLines(cut));
         Assert.Equal(
             ["Undo all", "Undo last", "Submit", "Go to first", "Back", "Skip", "Go to last"],
             RulerLineButtons(cut, 0));
-        Assert.Equal(["Show stats", "End quiz"], RulerLineButtons(cut, 1));
+        string[] submitAndTheFour = ["Submit", "Go to first", "Back", "Skip", "Go to last"];
+        Assert.Equal(submitAndTheFour, RulerLineButtons(cut, 1));
+        Assert.Equal(submitAndTheFour, RulerLineButtons(cut, 2));
+        Assert.Equal(["Show stats", "End quiz"], RulerLineButtons(cut, 3));
+        Assert.Equal([true, false], RulerPillForms(cut));
+        Assert.Equal("short", ruler.Children[1].QuerySelector(".bg-cube-actions-ruler")!.GetAttribute("data-ruler-pills"));
+        Assert.Equal("full", ruler.Children[2].QuerySelector(".bg-cube-actions-ruler")!.GetAttribute("data-ruler-pills"));
+        Assert.Empty(cut.FindComponents<BackgammonCubeActions>());
         Assert.Equal("G999 · M999", ruler.QuerySelector(".problem-locator-where")!.TextContent);
         Assert.NotNull(ruler.QuerySelector(".xgid-label"));
     }
 
     [Fact]
-    public async Task Quiz_Ruler_WhileACubeIsAnswered_AddsTheShortCubeRow_AndTheFullOne_AtTheWidestSelection()
+    public async Task Quiz_Ruler_HoldsTheSameLines_ForEveryProblemAndState()
     {
-        // The cube row joins the budget in its short form, and the labels'
-        // switch measures the full form, both at the fourth answer selected —
-        // the widest bold pill — and both of the decision on screen.
-        var cube = TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered);
-        var c = WithController(cube);
+        // One budget for every state: what the ruler measures does not move
+        // between a checker play, a cube decision in either reading, and a
+        // review. Its answer-row lines are the same markup throughout, but for
+        // what the navigation buttons say about where the run is — disabled or
+        // not, named Skip or Next — which their width does not depend on; only
+        // the tail line's XGID badge carries the problem's own XGID, and the
+        // badge measures at its floor, the copy button, whatever the value.
+        var c = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.CubeDecision(cubeOwner: CubeOwner.OnRoll),
+            TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         var cut = Render<QuizPage>();
 
-        Assert.Equal(["lead", "lead", "full-cube", "tail"], RulerLines(cut));
-        var rows = cut.FindComponents<BackgammonCubeActions>();
-        Assert.Equal(3, rows.Count);
-        var (shortRow, fullRow) = (rows[1].Instance, rows[2].Instance);
-        Assert.Equal((true, false), (shortRow.ShortLabels, fullRow.ShortLabels));
-        Assert.All([shortRow, fullRow], r => Assert.Equal(CubeAnswer.NoDoublePass, r.Value));
-        Assert.All([shortRow, fullRow], r => Assert.Same(cube, r.Decision));
-        Assert.Equal(["Submit", "Go to first", "Back", "Skip", "Go to last"], RulerLineButtons(cut, 1));
-    }
+        string AnswerRowLines() => Regex.Replace(
+            string.Concat(cut.Find(".action-row-ruler").Children.Take(3).Select(line => line.OuterHtml)),
+            @" (disabled|aria-label|title)=""[^""]*""", string.Empty);
 
-    [Fact]
-    public async Task Quiz_Ruler_AtReview_DropsTheFullRow_AndKeepsTheShortOne()
-    {
-        // The full form matters only while the pills are answered; the budget's
-        // cube row stays, so the panel's fold is the same in every state.
-        var c = WithController(TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
-
-        await cut.InvokeAsync(() => c.SubmitCubeAnswerAsync(CubeAnswer.NoDouble));
-
-        Assert.Equal(["lead", "lead", "tail"], RulerLines(cut));
-    }
-
-    [Fact]
-    public async Task Quiz_Ruler_OnACheckerPlayAfterACube_KeepsTheLastCubeRow()
-    {
-        // One budget for every state, from the first cube problem on: a checker
-        // play shown after a cube decision still measures the cube row, drawn
-        // from the last cube decision this page showed.
-        var cube = TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered);
-        var c = WithController(cube, TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
-
+        var onTheCheckerPlay = AnswerRowLines();
         await ButtonNamed(cut, "Skip").ClickAsync(new());
-
-        Assert.IsAssignableFrom<CheckerPlayDecision>(c.Current);
-        Assert.Equal(["lead", "lead", "tail"], RulerLines(cut));
-        Assert.Same(cube, cut.FindComponents<BackgammonCubeActions>().Single().Instance.Decision);
-    }
-
-    [Fact]
-    public async Task Quiz_Ruler_OnANewVisit_ToACheckerPlay_KeepsTheRunsLastCubeRow()
-    {
-        // The cube row is the run's fact, not this page's: a Show-stats round
-        // trip re-creates the page, and a page that arrives on a checker play
-        // after the run has shown a cube still measures the cube row — so the
-        // budget, and with it the panel's fold and the tail's, is the same on
-        // the second visit as on the first.
-        var cube = TestFixtures.CubeDecision(cubeOwner: CubeOwner.Centered);
-        var c = WithController(cube, TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        await c.NextAsync();
-        Assert.IsAssignableFrom<CheckerPlayDecision>(c.Current);
-
-        var cut = Render<QuizPage>();   // a fresh page: it has never shown the cube
-
-        Assert.Equal(["lead", "lead", "tail"], RulerLines(cut));
-        Assert.Same(cube, cut.FindComponents<BackgammonCubeActions>().Single().Instance.Decision);
+        Assert.IsType<CubeDecision>(c.Current);
+        Assert.Equal(onTheCheckerPlay, AnswerRowLines());
+        await ButtonNamed(cut, "Skip").ClickAsync(new());
+        Assert.Equal(onTheCheckerPlay, AnswerRowLines());
+        await cut.InvokeAsync(() => c.SubmitCubeAnswerAsync(CubeAnswer.NoDouble));
+        Assert.NotNull(c.Review);
+        Assert.Equal(onTheCheckerPlay, AnswerRowLines());
+        Assert.Equal(["lead", "lead", "full-cube", "tail"], RulerLines(cut));
     }
 
     [Fact]
@@ -6320,7 +6340,7 @@ public class PageTests : BunitContext
         // the glyph is hidden from assistive technology.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
 
         var tailButtons = cut.Find(".action-row-tail").Children.Where(e => e.LocalName == "button").ToList();
         Assert.Equal(
@@ -6737,7 +6757,7 @@ public class PageTests : BunitContext
         // that and is asserted here; the ms-auto this replaced is gone.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
 
         var tail = cut.Find(".action-row-tail");
         AssertClusterCannotWrap(tail);
@@ -6754,7 +6774,7 @@ public class PageTests : BunitContext
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
         await cut.InvokeAsync(() => c.SubmitPlayAsync(BestPlay()));
         Assert.NotNull(c.Review);
 
@@ -6780,7 +6800,7 @@ public class PageTests : BunitContext
         var d2 = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var c = WithController(d1, d2);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var quizCut = Render<QuizPage>();
+        var quizCut = await RenderWithTheTailShowingAsync();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         await quizCut.InvokeAsync(() => c.SubmitPlayAsync(BestPlay()));
@@ -8251,8 +8271,11 @@ public class PageTests : BunitContext
         var answering = HelpSectionText(cut, HelpSections.AnswerThePosition.Heading);
 
         Assert.Contains(
-            "In a window too narrow for the whole row, its right-hand group — the XGID's copy button, the label naming the file, Show stats and End quiz — folds behind one button at the row's far end, More, drawn as three dots. Click it, or press Enter or Space on it, for a list of the same four under the same names; choosing one does what its button does. Escape, or a click anywhere else, closes the list. Widen the window and the group comes back as it was.",
+            "In a window too narrow for the whole row, its right-hand group — the XGID's copy button, the label naming the file, Show stats and End quiz — folds behind one button at the row's far end, More, drawn as three dots. Click it, or press Enter or Space on it, for a list that holds the location and three actions: Copy XGID to clipboard, Show stats and End quiz. Choosing an action performs it. Escape, or a click anywhere else, closes the list. Widen the window and the group comes back as it was.",
             finishing);
+        // The locator in the list is a line to read, not an action: the list
+        // is never said to hold four of the same kind.
+        Assert.DoesNotContain("the same four", finishing);
         Assert.Contains(
             "In a window too narrow for the whole row, it is one click away, behind the More button at the row's far end.",
             answering);
@@ -8686,7 +8709,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await NormalViewAsync();
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
 
         AssertXgidIsInTheBottomRowOnly(cut);
         Assert.Contains(CurrentXgid, cut.Find(".action-row-tail").TextContent);
@@ -8697,7 +8720,7 @@ public class PageTests : BunitContext
     {
         var c = WithController(TestFixtures.CubeDecision());
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
 
         AssertXgidIsInTheBottomRowOnly(cut);
     }
@@ -8707,7 +8730,7 @@ public class PageTests : BunitContext
     {
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
         await cut.InvokeAsync(() => c.SubmitPlayAsync(BestPlay()));
         Assert.NotNull(c.Review);
 
@@ -8779,7 +8802,7 @@ public class PageTests : BunitContext
             BestPlay(), AltPlay(), location: SampleLocation));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await NormalViewAsync();
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
 
         AssertLocatorIsInTheBottomRowOnly(cut);
 
@@ -8800,7 +8823,7 @@ public class PageTests : BunitContext
         // kind — per-kind chrome is exactly what §2's invariance forbids.
         var c = WithController(TestFixtures.CubeDecision(location: SampleLocation));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
 
         AssertLocatorIsInTheBottomRowOnly(cut);
     }
@@ -8811,7 +8834,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(
             BestPlay(), AltPlay(), location: SampleLocation));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
         await cut.InvokeAsync(() => c.SubmitPlayAsync(BestPlay()));
         Assert.NotNull(c.Review);
 
@@ -8830,7 +8853,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(
             BestPlay(), AltPlay(), location: SampleOnePositionLocation));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
 
         AssertLocatorIsInTheBottomRowOnly(cut);
 
@@ -8858,7 +8881,7 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(
             BestPlay(), AltPlay(), location: SampleLocation));
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
 
         var tail = cut.Find(".action-row-tail");
         var children = tail.Children;
@@ -9254,7 +9277,7 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await MaximizedViewAsync();
 
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
 
         Assert.Empty(cut.FindAll(".status-strip"));   // maximized, as staged
         Assert.Equal(AspectPreset.BoardOnly, RenderedCanvas(cut));
@@ -9283,7 +9306,7 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await MaximizedViewAsync();
 
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
 
         Assert.Empty(cut.FindAll(".status-strip"));   // maximized, as staged
         Assert.Equal(AspectPreset.BoardOnly, RenderedCanvas(cut));
@@ -11483,7 +11506,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         source.ReleaseNext();
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        var cut = Render<QuizPage>();
+        var cut = await RenderWithTheTailShowingAsync();
         Assert.Empty(cut.FindAll("div.app-busy"));
 
         var write = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

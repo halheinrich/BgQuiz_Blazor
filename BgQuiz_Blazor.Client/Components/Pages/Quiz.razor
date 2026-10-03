@@ -150,8 +150,13 @@
             No quiz in progress. <a href="/">Pick filters and start a quiz.</a>
         </Notice>
     }
-    else if (Controller.Current is { } current)
+    else if (Controller.Current is { } current && RowFitReady)
     {
+        @* The board and its chrome render once the row-fit module is in
+           (RowFitReady): the page lays out its board and row when it can fit
+           them, so a first load never shows a row measured by nothing. Until
+           its first measurement the row is in its pending presentation
+           (RowFitPending, the code-behind). *@
         // Captured once: both the board branch and the chrome branch key off
         // review, and two separate `is { } review` patterns would collide in
         // the single generated render method's scope.
@@ -254,8 +259,20 @@
                row-fit ruler after the row renders them a second time to measure
                them. The shared row is also what keeps the states' row heights
                equal by construction — what the board's flex remainder depends
-               on, see the status strip's fixed-height contract. *@
-            <div class="action-row d-flex flex-wrap gap-2 align-items-center" @ref="_actionRow">
+               on, see the status strip's fixed-height contract.
+
+               UNTIL ITS FIRST MEASUREMENT THE ROW IS IN ITS PENDING PRESENTATION
+               (SPEC-quiz-view.md §4, "One budget from the outset": no control is
+               covered at any moment, the first render before any measurement
+               included): the narrowest the page has — the tail behind its "⋯"
+               (TailFolded), the pills short (ShortCubeLabels) — and it carries
+               data-nav-fold-pending, on which the layout folds the navigation
+               panel (MainLayout.razor.css), so the row has the width the panel
+               would otherwise take. All three come from one fact,
+               RowFitPending, and all three end with the module's first
+               report. *@
+            <div class="action-row d-flex flex-wrap gap-2 align-items-center" @ref="_actionRow"
+                 data-nav-fold-pending="@(RowFitPending ? string.Empty : null)">
                 @if (review is not null)
                 {
                     @ContinueControl
@@ -391,25 +408,35 @@
 
             @* THE ROW-FIT RULER (SPEC-quiz-view.md §4: halheinrich/backgammon#264's
                ruling of 2026-10-03 — the row narrows, the board keeps its
-               height — and the cube labels' switch). Invisible and inert
-               (app.css), it renders the row's widest compositions from the very
-               fragments the row renders, so the fonts actually rendering size
-               both alike, and wwwroot/js/actionRowFit.js reads each line's width:
+               height — and "One budget from the outset", Hal, 2026-10-03).
+               Invisible and inert (app.css), it renders the row's widest
+               compositions from the very fragments the row renders, so the
+               fonts actually rendering size both alike, and
+               wwwroot/js/actionRowFit.js reads each line's width. Every line
+               is here from the page's first render, in every state and for
+               every problem kind: nothing it holds depends on the problem on
+               screen, so the budget it gives is one for the whole visit, and
+               no problem — the first cube problem included — can move it.
 
                - data-ruler="lead": the two answer rows in their narrowest form —
                  Undo all, Undo last, Submit and ⏮ ◀ ▶ ⏭; and the cube pills in
-                 their short form, with Submit and the four, once the run has
-                 presented a cube decision (RulerCube). The widest of them, with
-                 the tail's floor, is the budget the navigation panel and the
-                 tail's "⋯" fold by — one
-                 budget for every state, so no state's board or chrome differs
-                 from another's. The review row is not a line: Continue and
-                 Notes replace Undo all, Undo last and Submit, two buttons for
-                 three, and it is narrower in any font.
-               - data-ruler="full-cube", while a cube decision is answered: the
-                 full-label row, the pills at their widest selection (the
-                 fourth answer, bold), which the labels' switch compares with
-                 the row's actual width.
+                 their short form, with Submit and the four. The pills are the
+                 producer's inert copy (BackgammonCubeActionsRuler), which needs
+                 no cube decision: it draws every state the live row can show
+                 in the form, both readings of the fourth answer and every
+                 selection, and its root is as wide as the widest. The widest
+                 lead, with the tail's floor, is the budget the navigation
+                 panel and the tail's "⋯" fold by — one budget for every state,
+                 so no state's board or chrome differs from another's. The
+                 review row is not a line: Continue and Notes replace Undo all,
+                 Undo last and Submit, two buttons for three.
+               - data-ruler="full-cube": the full-label pills, the same copy in
+                 its full form, with Submit and the four — what the labels'
+                 switch compares with the row's width. So the labels' form is
+                 the window's, for every decision, like the panel's fold and
+                 the "⋯": the full form holds both readings of the fourth
+                 answer, and where only the narrower one's full row would fit,
+                 every cube decision shows the short form.
                - data-ruler="tail": the tail at its floor (app.css), its locator
                  showing three-digit coordinates (RulerCoordinate) whatever the
                  problem, so the budget does not move from one problem, or one
@@ -418,29 +445,26 @@
                  the "⋯"'s own decision from depending on itself.
 
                Its controls take no input (inert) and are hidden from assistive
-               technology; nothing reads them but the module. *@
+               technology; nothing reads them but the module. The pills' copies
+               carry the live pills' classes (bg-cube-actions, bg-cube-action),
+               being the same markup: a selector meant for the live pills is
+               scoped to .action-row, which the ruler is beside, not inside. *@
             <div class="action-row-ruler" aria-hidden="true" inert @ref="_actionRowRuler">
                 <div class="action-row-ruler-line d-flex gap-2 align-items-center" data-ruler="lead">
                     @UndoControls
                     @SubmitControl
                     @NavigationControls
                 </div>
-                @if (RulerCube is { } rulerCube)
-                {
-                    <div class="action-row-ruler-line d-flex gap-2 align-items-center" data-ruler="lead">
-                        <BackgammonCubeActions Value="RulerSelection" ValueChanged="RulerSelectionIgnored" Decision="rulerCube" ShortLabels="true" />
-                        @SubmitControl
-                        @NavigationControls
-                    </div>
-                }
-                @if (review is null && current is CubeDecision answeredCube)
-                {
-                    <div class="action-row-ruler-line d-flex gap-2 align-items-center" data-ruler="full-cube">
-                        <BackgammonCubeActions Value="RulerSelection" ValueChanged="RulerSelectionIgnored" Decision="answeredCube" ShortLabels="false" />
-                        @SubmitControl
-                        @NavigationControls
-                    </div>
-                }
+                <div class="action-row-ruler-line d-flex gap-2 align-items-center" data-ruler="lead">
+                    <BackgammonCubeActionsRuler ShortLabels="true" data-ruler-pills="short" />
+                    @SubmitControl
+                    @NavigationControls
+                </div>
+                <div class="action-row-ruler-line d-flex gap-2 align-items-center" data-ruler="full-cube">
+                    <BackgammonCubeActionsRuler ShortLabels="false" data-ruler-pills="full" />
+                    @SubmitControl
+                    @NavigationControls
+                </div>
                 <div class="action-row-ruler-line action-row-ruler-floor d-flex flex-nowrap gap-2 align-items-center"
                      data-ruler="tail">
                     <XgidLabel Xgid="@current.Xgid" />

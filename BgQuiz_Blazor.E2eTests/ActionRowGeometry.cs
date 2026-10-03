@@ -70,15 +70,17 @@ internal static class ActionRowGeometry
     /// <summary>The page's row-fit measurement, read off its ruler and row.</summary>
     internal sealed record Fit(
         double Budget, double FullCubeRow, double Row, double Gap, double PanelWidthIfShown, bool AutoFolded, int RowLines,
-        bool TailFolded);
+        bool TailFolded, bool Pending);
 
     /// <summary>
     /// The row-fit figures as the module computes them: the budget (the widest
     /// answer row on the ruler, the gap, the tail's floor), the full-label cube
-    /// row's need while a cube is answered (0 otherwise), the row's width,
-    /// whether the panel is folded by itself, and whether the row shows its
-    /// tail folded behind the "⋯" (TailMenu) in the tail's place. The panel's
-    /// width if shown is navFold.js's own report.
+    /// row's need (the ruler's full-form pills with Submit and the four, the
+    /// gap and the floor), the row's width, whether the panel is folded by
+    /// itself, whether the row shows its tail folded behind the "⋯" (TailMenu)
+    /// in the tail's place, and whether the row is still in its pending
+    /// presentation, unmeasured. What the showing panel would take beyond
+    /// what it takes now is navFold.js's own report (panelWidths).
     /// </summary>
     internal static async Task<Fit> FitAsync(IPage page) =>
         JsonSerializer.Deserialize<Fit>(await page.EvaluateAsync<string>(@"() => {
@@ -91,13 +93,14 @@ internal static class ActionRowGeometry
             const full = ruler.querySelector('[data-ruler=""full-cube""]');
             return JSON.stringify({
               Budget: Math.max(...leads) + gap + tail,
-              FullCubeRow: full ? w(full) + gap + tail : 0,
+              FullCubeRow: w(full) + gap + tail,
               Row: w(row),
               Gap: gap,
-              PanelWidthIfShown: window.bgquizNavFold.widthIfShown() ?? 0,
+              PanelWidthIfShown: (p => p ? p.showing - p.inFlow : 0)(window.bgquizNavFold.panelWidths()),
               AutoFolded: document.documentElement.hasAttribute('data-nav-autofold'),
               RowLines: Math.round(row.getBoundingClientRect().height / row.querySelector('.btn-lg').getBoundingClientRect().height),
-              TailFolded: row.querySelector('.action-row-tail > .tail-menu') !== null });
+              TailFolded: row.querySelector('.action-row-tail > .tail-menu') !== null,
+              Pending: row.hasAttribute('data-nav-fold-pending') });
           }"))!;
 
     /// <summary>

@@ -28,6 +28,11 @@
 //     the DOM contract that same selector depends on. SIDEBAR_SELECTOR and
 //     the --sidebar-width property name the panel MainLayout.razor.css lays
 //     out, and AUTO_FOLD_ATTRIBUTE is the attribute its auto-fold rule keys on.
+//     The layout also folds the panel, by style alone, while a page carries
+//     data-nav-fold-pending (the quiz row's pending presentation, before its
+//     first measurement); this file never sets that attribute, and
+//     panelWidths() tells its box from its state so the hiding is not
+//     mistaken for a fold.
 // Change either end without the other and the setting silently stops working.
 //
 // THE AUTO-FOLD (SPEC-quiz-view.md §4, halheinrich/backgammon#264's ruling of
@@ -126,20 +131,32 @@
         }
     }
 
-    // How much narrower the page's content would be if the panel were showing
-    // in flow, beyond what it takes now: the panel's width when it is folded or
-    // open as the drawer, nothing when it already shows in flow. Null where
-    // there is no side panel to fold (the phone layout, where the rail is not
-    // displayed). The quiz page subtracts it from its row's width to learn the
-    // row the panel would leave, which does not depend on the fold.
-    function widthIfShown() {
+    // The panel's widths, for the quiz page's row-fit module; null where there
+    // is no side panel to fold (the phone layout, where the rail is not
+    // displayed):
+    //   * showing — what the panel takes from the page in flow when it shows
+    //     (its --sidebar-width for the layout band);
+    //   * inFlow — what its box takes from the page as laid out now: nothing
+    //     while folded, while open as the drawer (fixed, over the page), or
+    //     while the quiz row's pending presentation hides it (the
+    //     data-nav-fold-pending rule in MainLayout.razor.css);
+    //   * taken — what its fold state says it takes: `showing` when it shows,
+    //     nothing when the user or the auto-fold has folded it or it is open as
+    //     the drawer. Read from the state, not the box, so a style that hides
+    //     it for a moment does not count.
+    // The module learns the row the panel would leave if it showed (the row,
+    // plus inFlow, less showing — which does not depend on the fold) and the
+    // row it will stand at once the fold is applied (that, plus showing, less
+    // taken).
+    function panelWidths() {
         const checkbox = document.querySelector(CHECKBOX_SELECTOR);
         const sidebar = document.querySelector(SIDEBAR_SELECTOR);
         if (!checkbox || !sidebar || getComputedStyle(checkbox).display === 'none') return null;
         const style = getComputedStyle(sidebar);
         const showing = parseFloat(style.getPropertyValue(SIDEBAR_WIDTH_PROPERTY)) || 0;
         const inFlow = style.position === 'fixed' ? 0 : sidebar.getBoundingClientRect().width;
-        return showing - inFlow;
+        const taken = checkbox.checked || autoFolded() ? 0 : showing;
+        return { showing, inFlow, taken };
     }
 
     // Storage is user-writable and shared with future settings legs, so every
@@ -173,9 +190,9 @@
     // Takes the value explicitly all the same: the C# side then has no ordering
     // dependency on its own localStorage write having landed first, and this
     // module keeps no opinion about which direction its caller is in.
-    // setAutoFold and widthIfShown are the quiz page's row-fit module's
+    // setAutoFold and panelWidths are the quiz page's row-fit module's
     // (actionRowFit.js; the auto-fold in the header).
-    window.bgquizNavFold = { apply: setFolded, setAutoFold, widthIfShown };
+    window.bgquizNavFold = { apply: setFolded, setAutoFold, panelWidths };
 
     // Initial load: enhancedload does not fire for it.
     applyStored();

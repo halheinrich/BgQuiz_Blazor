@@ -57,7 +57,7 @@ main {
     /* The rail's and the panel's widths, each stated once: the rail's flex
        basis and the drawer's left edge read --rail-width, and the panel's
        width, folded or not, comes from --sidebar-width, which navFold.js also
-       reads (widthIfShown) to tell the quiz page what the panel would take
+       reads (panelWidths) to tell the quiz page what the panel would take
        from its row. */
     .page {
         flex-direction: row;
@@ -117,8 +117,12 @@ main {
     }
 
     /* Collapsed: the chevron reverses to point at the panel it will restore.
-       Only the image changes, so the hover tint above survives both states. */
-    .sidebar-toggle-checkbox:checked {
+       Only the image changes, so the hover tint above survives both states.
+       The quiz row's pending presentation (below) folds the panel by style
+       alone, so it draws the same chevron: the rail looks as the measured
+       fold will leave it. */
+    .sidebar-toggle-checkbox:checked,
+    html:has([data-nav-fold-pending]) .sidebar-toggle-checkbox {
         background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath d='M12.5 9.5 18 15l-5.5 5.5' fill='none' stroke='%23ffffff' stroke-opacity='0.92' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3e%3c/svg%3e"), var(--rail-chip);
     }
 
@@ -144,6 +148,26 @@ main {
        consultant's finding on halheinrich/backgammon#8, comment 5966011660).
        Above the fold width the attribute is gone and the panel is back in
        flow, as the user left it. */
+    /* The quiz row's pending presentation (SPEC-quiz-view.md §4, "One budget
+       from the outset": no control is covered at any moment, the first render
+       before any measurement included). Until the quiz page's row has been
+       measured once, it carries data-nav-fold-pending, and while any element
+       on the page does, the panel is folded here, by style alone, as the
+       auto-fold folds it: the row then has the width the panel would take,
+       which is what the rest of its pending presentation (the tail behind its
+       "⋯", the pills short) is the narrowest for. It is the row's own
+       marker, rendered with the row in the same update, so no script and no
+       timing stands between the row's first render and the fold. The rail's
+       box is not touched: its state stays the user's fold, and navFold.js
+       reads the panel's state, not this box (panelWidths). The first
+       measurement removes the marker, and the panel is then wherever the
+       measured fold and the user's own fold put it. */
+    html:has([data-nav-fold-pending]) .sidebar-toggle-checkbox ~ .sidebar {
+        width: 0;
+        overflow: hidden;
+        --nav-scrollable-display: none;
+    }
+
     html[data-nav-autofold] .sidebar-toggle-checkbox:not(:checked) ~ .sidebar {
         position: fixed;
         top: 0;

@@ -113,11 +113,13 @@ public sealed class RowFitTests : E2eTestBase
     [Fact]
     public async Task OnFirstLoad_AndWhenTheFontsChangeAfterIt_NoControlIsCovered()
     {
-        // First load at a width where the row only fits with the panel folded:
-        // the page's first fit folds it before anything can be tapped. Then a
-        // font finishing loading after the page is up (simulated: the wider
-        // text arrives 300 ms later, on its own) re-fits the row as it lands.
-        await Page.SetViewportSizeAsync(900, 800);
+        // First load at §2's floor corner, 641 x 768, where the row fits only
+        // with the panel folded and the tail behind its "⋯": the page's first
+        // fit has applied both before anything can be tapped (OneBudgetTests
+        // holds that fit and taps the row before it, too). Then a font
+        // finishing loading after the page is up (simulated: the wider text
+        // arrives 300 ms later, on its own) re-fits the row as it lands.
+        await Page.SetViewportSizeAsync(641, 768);
         await BootHomeAsync();
         await PickSynthesizedFileAsync(SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
         await ApplyFilterAsync();

@@ -199,14 +199,51 @@ internal static class SyntheticXgMatch
     internal static byte[] MoneySessionBytes() =>
         Build(XgFileBuilder.ForMoneySession(Player1, Player2), 0, 0);
 
+    /// <summary>
+    /// The name the checker-first match is staged under — as long as
+    /// <see cref="StagedFileName"/>, for the same reason.
+    /// </summary>
+    internal const string CheckerFirstStagedFileName = "synthetic-match-2026-04-13.xg";
+
+    /// <summary>
+    /// The match, with the last play before the cube <b>analysed</b>: its
+    /// first problem is a checker play (<see cref="XgPlayer.Player1"/>'s 5-4,
+    /// game <see cref="CubeGameNumber"/>, move <see cref="CheckerFirstMoveNumber"/>),
+    /// and the cube decision follows it. For scenarios about a quiz that starts
+    /// on a checker play and meets its first cube problem later — the
+    /// moment the action row's budget used to learn the cube row
+    /// (<c>SPEC-quiz-view.md</c> §4, "One budget from the outset"). Its cube
+    /// decision reads the fourth answer as the match's does (Too good).
+    /// </summary>
+    internal static byte[] CheckerFirstBytes() =>
+        Build(XgFileBuilder.ForMatch(MatchLength, Player1, Player2), CubeGameScore1, CubeGameScore2,
+            analyseTheLastPlayBeforeTheCube: true);
+
+    /// <summary>
+    /// The move number of <see cref="CheckerFirstBytes"/>' first problem: the
+    /// last of <see cref="PlaysBeforeTheCube"/>.
+    /// </summary>
+    internal static int CheckerFirstMoveNumber => PlaysBeforeTheCube.Length;
+
     /// <summary>The file's games and decisions, into <paramref name="builder"/>; see <see cref="Bytes"/>.</summary>
-    private static byte[] Build(XgFileBuilder builder, int cubeGameScore1, int cubeGameScore2)
+    private static byte[] Build(
+        XgFileBuilder builder, int cubeGameScore1, int cubeGameScore2, bool analyseTheLastPlayBeforeTheCube = false)
     {
         for (int i = 0; i < GamesBeforeTheCubeGame; i++)
             Replay(builder.AddGame());
 
         var cubeGame = builder.AddGame(cubeGameScore1, cubeGameScore2);
-        Replay(cubeGame);
+        if (analyseTheLastPlayBeforeTheCube)
+        {
+            foreach (var (player, dice, play) in PlaysBeforeTheCube[..^1])
+                cubeGame.UnanalysedPlay(player, dice, play);
+            var (lastPlayer, lastDice, lastPlay) = PlaysBeforeTheCube[^1];
+            cubeGame.Play(lastPlayer, lastDice, lastPlay);
+        }
+        else
+        {
+            Replay(cubeGame);
+        }
         cubeGame.CubeDecision(
             XgPlayer.Player2, CubeEquities, CubePly,
             doublerAction: CubeAction.Double, takerAction: CubeAction.Take,
