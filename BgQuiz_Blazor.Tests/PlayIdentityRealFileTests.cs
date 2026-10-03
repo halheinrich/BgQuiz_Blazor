@@ -126,7 +126,7 @@ public class PlayIdentityRealFileTests
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         Assert.Same(decision, controller.Current);
 
-        controller.SubmitPlay(entered);
+        await controller.SubmitPlayAsync(entered);
 
         Assert.Equal(0, controller.SkippedCount);                       // not an off-list skip
         var review = Assert.IsType<ProblemReview.Play>(controller.Review);

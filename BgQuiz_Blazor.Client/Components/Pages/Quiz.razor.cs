@@ -134,8 +134,9 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// button (issue halheinrich/backgammon#57) — see <see cref="EndQuizAsync"/> for why it sits at the far
 /// end of the row and carries no confirmation. It is the only control here that
 /// finishes a run the source has not exhausted; everything about what that leaves
-/// behind (an unanswered problem counted as a skip, an answered one kept and
-/// folded — the answer of record, not whatever review is on screen) belongs to
+/// behind (an unanswered problem counted as a skip, an answered one kept — the
+/// answer of record, not whatever review is on screen, already in the lifetime
+/// record since its Submit) belongs to
 /// <see cref="QuizController.EndQuizAsync"/>, which this page merely calls.
 /// </para>
 ///
@@ -162,7 +163,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// render from <see cref="QuizController.LastComposition"/>, which lives as long
 /// as the run does, so they used to sit above every problem for the whole quiz.
 /// They disappear once the user submits their first answer, checker or cube alike
-/// (see <see cref="Submit"/>), <i>or</i> the moment the user clicks them
+/// (see <see cref="SubmitAsync"/>), <i>or</i> the moment the user clicks them
 /// (<see cref="DismissComposition"/>): the notice describes how this quiz was
 /// built, worth reading before answering and stale chrome after. Either gesture
 /// ends it. The stats notices dismiss the same way but have no automatic
@@ -239,7 +240,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <i>whether</i> Space acts is the button's own gate
 /// (<see cref="CanContinue"/>, <see cref="CanSubmit"/>,
 /// <see cref="CanSkip"/>), and <i>what</i> it does is the button's own method
-/// (<see cref="ContinueAsync"/>, <see cref="Submit"/>,
+/// (<see cref="ContinueAsync"/>, <see cref="SubmitAsync"/>,
 /// <see cref="SkipAsync"/>), so the key and the button can never differ in
 /// busy gating, in what is recorded, or in how the run advances. Which presses
 /// reach it is decided in the browser, by <c>wwwroot/js/quizKeys.js</c>, from
@@ -426,15 +427,16 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// too, and the rule says Submit first.
     ///
     /// <para>
-    /// <b>It ends with a render, as a click does.</b> Blazor re-renders a
-    /// component after every UI event its markup handles, so a button's method
-    /// may change page state without asking for a render. A JS-invoked
-    /// callback is not a UI event and gets no such render, so this one asks
-    /// for it itself. That is the framework's half of pressing a button, not
-    /// an action of the key's: without it a Space submit left the mix
-    /// composition notice on screen, since <see cref="Submit"/> retires the
-    /// notice after the controller's own state change has already rendered
-    /// (pinned by <c>Quiz_Space_AndTheSubmitButton_ShareOneAction</c>).
+    /// <b>It renders as a click does.</b> Blazor re-renders a component after
+    /// every UI event its markup handles — once the handler's synchronous part
+    /// has run, and again when its task completes — so a button's method may
+    /// change page state without asking for a render. A JS-invoked callback is
+    /// not a UI event and gets neither render, so this one asks for both
+    /// itself. That is the framework's half of pressing a button, not an action
+    /// of the key's: without it a Space submit left the mix composition notice
+    /// on screen, since <see cref="SubmitAsync"/> retires the notice after the
+    /// controller's own state change has already rendered (pinned by
+    /// <c>Quiz_Space_AndTheSubmitButton_ShareOneAction</c>).
     /// </para>
     ///
     /// Public and <see cref="JSInvokableAttribute"/> because the module invokes
@@ -446,19 +448,14 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     [JSInvokable]
     public async Task HandleSpaceKeyAsync()
     {
-        if (CanContinue)
-        {
-            await ContinueAsync();
-        }
-        else if (CanSubmit)
-        {
-            Submit();
-        }
-        else if (CanSkip)
-        {
-            await SkipAsync();
-        }
+        var pressing =
+            CanContinue ? ContinueAsync()
+            : CanSubmit ? SubmitAsync()
+            : CanSkip ? SkipAsync()
+            : Task.CompletedTask;
 
+        StateHasChanged();
+        await pressing;
         StateHasChanged();
     }
 
@@ -823,7 +820,7 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// <summary>
     /// Dismiss the composition notice for <paramref name="composition"/> — the
     /// gesture half of a retirement the first submitted answer also performs (see
-    /// <see cref="Submit"/>). Either gesture ends it, and both record the same
+    /// <see cref="SubmitAsync"/>). Either gesture ends it, and both record the same
     /// dismissal against the same key, so there is no ordering between them to
     /// get wrong.
     /// </summary>
@@ -844,23 +841,23 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     /// composition notice's retirement included: the key calls this method
     /// rather than the controller, so a change here reaches the key and the
     /// buttons together.
+    ///
+    /// <para>
+    /// The task completes when the controller has written the answer to the
+    /// lifetime record (<see cref="QuizController.SubmitPlayAsync"/>); the
+    /// review is on screen, its controls busy, before that.
+    /// </para>
     /// </summary>
-    private void Submit()
+    private async Task SubmitAsync()
     {
         // Route by which answer is latched. The current decision's kind
         // determines which entry component rendered and therefore which latch
-        // is set; the latches are mutually exclusive per problem. Submit scores
-        // and enters the review state synchronously — the advance is deferred to
-        // Continue — so neither call awaits.
-        if (_completedCube is { } cube)
-        {
-            Controller.SubmitCubeAnswer(cube);
-        }
-        else if (_completedPlay is { } play)
-        {
-            Controller.SubmitPlay(play);
-        }
-        // The relevant latch is cleared by HandleStateChanged; nothing else to do.
+        // is set; the latches are mutually exclusive per problem. The relevant
+        // latch is cleared by HandleStateChanged.
+        var submitting =
+            _completedCube is { } cube ? Controller.SubmitCubeAnswerAsync(cube)
+            : _completedPlay is { } play ? Controller.SubmitPlayAsync(play)
+            : Task.CompletedTask;
 
         // The first answer retires the mix composition notice — it described how
         // this quiz was built, which the user has now read and acted on. Gated on
@@ -872,10 +869,16 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
         // submitted answer with a review to read, just an unscored one. Skip is
         // deliberately not a dismissal: it moves past a problem without answering
         // it, so the composition is still the thing the user hasn't engaged with.
+        //
+        // Read before the write is awaited: the controller puts the review up
+        // before its call returns, so the notice goes in the same render as the
+        // review arrives rather than once the write has landed.
         if (Controller.Review is not null && Controller.LastComposition is { } comp)
         {
             DismissComposition(comp);
         }
+
+        await submitting;
     }
 
     /// <summary>

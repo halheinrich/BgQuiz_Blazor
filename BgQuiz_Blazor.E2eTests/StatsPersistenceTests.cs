@@ -6,7 +6,7 @@ namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
 /// The File System Access stats path, end to end: pick → grant → quiz →
-/// Continue → <c>bgquiz-stats.json</c> written into the picked folder — plus
+/// Submit → <c>bgquiz-stats.json</c> written into the picked folder — plus
 /// its degrade rungs (corrupt existing file, denied write permission). Rides
 /// the fake-<c>showDirectoryPicker</c> seam of
 /// <see cref="FsAccessFakeTestBase"/> (shared with the mix-weighting suite).
@@ -20,7 +20,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         : base(app, playwright) { }
 
     [Fact]
-    public async Task FsAccessPick_AnswerAndContinue_WritesStatsJson()
+    public async Task FsAccessPick_Submit_WritesStatsJson_AndContinueWritesNothingMore()
     {
         await BootHomeAsync();
         await PickFakeFolderAsync();
@@ -32,6 +32,15 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
+
+        // The answer is written at Submit (SPEC-scoring.md §2's fold trigger):
+        // Continue lights once the write has landed, and the file holds the
+        // answer before anything moves on — so a tab closed on the review loses
+        // nothing.
+        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton }))
+            .ToBeEnabledAsync();
+        Assert.Single(await CapturedWritesAsync());
+
         await ContinueToDoneAsync();
 
         // Exactly one fold (one answered problem), one write-back — captured by

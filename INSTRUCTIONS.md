@@ -423,6 +423,12 @@ the type holds them.
   things the run holds, so no caller can pair an answer with another problem,
   another ranking, or another record's labels — "one quiz, one ranking" is
   structural.
+- **A submit step says what it made of record.** Its `out` argument is the
+  answer of record that submission wrote — the very instance the disposition
+  now holds — or null for practice and for a skip of record. That is what the
+  controller folds into the lifetime record (`../SPEC-scoring.md` §2: at the
+  first submission itself), so the one place that decides whether a
+  submission is live also decides what folds.
 - **What it is told, because it never asks.** It reads no source, sink,
   clock or random number. The controller hands it each problem with the two
   facts only the orchestration has — how many stream slots were passed over
@@ -444,7 +450,7 @@ the run finishes and converts it — so, once a gesture has landed, the numbers
 a user sees are the ones the controller showed before the run model. `Redo`
 is today's return to a decision and is retired with the Redo button by that
 leg. The lifetime fold is not the run's at all: the sink is outside it, and
-the controller folds (§ `QuizController`).
+the controller folds what a submit step reports (§ `QuizController`).
 
 ### `QuizController` — the per-app orchestrator
 
@@ -462,34 +468,36 @@ drawn positions are shown, take each board's roll, fold answers into the
 lifetime record, and refuse a gesture that lands mid-transition. Pages observe
 transitions via `StateChanged`: each gated async transition (below) fires it
 exactly twice — busy-on, then busy-off with the end state in place — and the
-synchronous mutators (Submit, Redo) fire it once.
+synchronous mutator (Redo) fires it once.
 
-**The transition gate.** The five async transitions — `StartAsync` /
-`RestartAsync` / `ContinueAsync` / `SkipCurrentAsync` / `EndQuizAsync` — share
-one busy gate:
+**The transition gate.** The async transitions — `StartAsync` /
+`RestartAsync` / `SubmitPlayAsync` / `SubmitCubeAnswerAsync` / `ContinueAsync` /
+`SkipCurrentAsync` / `EndQuizAsync` — share one busy gate:
 a second gesture arriving while a transition is in flight **no-ops** (it does
 not queue). The controller owns exactly one live enumerator, and an
 overlapped `MoveNextAsync` — or a dispose during one — throws on a thread-pool
 continuation no page can catch, terminating the WASM runtime. Per-method state
 guards can't close that window: mid-advance they read *stale* state, so
-Skip/Submit would stale-pass and a second Continue would double-fold. The gate
-lives in the controller — pages never need the enumerator contract to be safe
-(which is what makes the Quiz page's dice-click + Continue double-binding safe
-as-is). The synchronous mutators (`SubmitPlay` / `SubmitCubeAnswer` /
-`RedoAsync`) can't overlap an await themselves but can land *inside* one, so
-they no-op on `IsBusy` too. Mechanics: `IsBusy` (observable; pages drive their
-busy affordances from it) flips on inside the gate's check-and-set,
-`StateChanged` fires, and the gate then **yields once, deliberately**, so the
-busy state can paint before the transition's churn begins (the sources'
-time-budgeted yields keep paints possible during the churn itself); a
-`try`/`finally` releases the gate on completion *and* failure, firing
-`StateChanged` again — the single completion signal (`PresentNextAsync` itself
-fires none). Overlapped Start/Restart return `QuizStartOutcome.Busy`, which
-callers treat as do-nothing; overlapped Continue/Skip return silently. The
-never-started `RestartAsync` throw is checked *inside* the gate — an overlap
-is an outcome (Busy), not the caller bug the throw exists for.
-`QuizControllerOverlapTests` pins all of it via `GatedProblemSetSource` and
-the fake sink's `RecordGate`.
+Skip/Submit would stale-pass. Submit holds the gate while it writes its answer
+of record to the lifetime record, so nothing begins a new run, moves on or ends
+the quiz while an answer is on its way there. The gate lives in the controller
+— pages never need the enumerator contract to be safe (which is what makes the
+Quiz page's dice-click + Continue double-binding safe as-is). The synchronous
+mutator (`RedoAsync`) can't overlap an await itself but can land *inside* one,
+so it no-ops on `IsBusy` too. Mechanics: `IsBusy` (observable; pages drive
+their busy affordances from it) flips on inside the gate's one check-and-set
+(`TryEnterGate`) and `StateChanged` fires. The transitions that draw from the
+source then **yield once, deliberately**, so the busy state can paint before
+their churn begins (the sources' time-budgeted yields keep paints possible
+during the churn itself); Submit needs no yield, since its write's own awaits
+let the review paint. A `try`/`finally` releases the gate on completion *and*
+failure, firing `StateChanged` again — the single completion signal
+(`PresentNextAsync` itself fires none). Overlapped Start/Restart return
+`QuizStartOutcome.Busy`, which callers treat as do-nothing; overlapped
+Submit/Continue/Skip return silently. The never-started `RestartAsync` throw is
+checked *inside* the gate — an overlap is an outcome (Busy), not the caller bug
+the throw exists for. `QuizControllerOverlapTests` pins all of it via
+`GatedProblemSetSource` and the fake sink's `RecordGate`.
 
 **Three-state per-problem flow.** Each problem moves through *answering* →
 *review* → *advance*, surfaced via `Current` and the nullable `Review`. Each
@@ -497,14 +505,15 @@ gesture below is the controller's gate and orchestration around one run
 transition, named in brackets; what the transition does to the record is the
 run's rule (§ `QuizRun`):
 
-- **Submit** — `SubmitPlay(Play)` / `SubmitCubeAnswer(CubeAnswer)`
-  [`QuizRun.SubmitPlay` / `SubmitCubeAnswer`] are **synchronous** (the only
-  `await` was the advance, now deferred): the run scores the answer and shows
-  its `Review`, and `StateChanged` fires **without advancing** — `Current`
-  still points at the answered problem. No-ops outside answering. Each answers
-  its own kind — a play a `CheckerPlayDecision`, a cube answer a `CubeDecision` — and
-  the other kind is a caller bug that throws `InvalidOperationException`,
-  since the page routes each kind to its own instrument.
+- **Submit** — `SubmitPlayAsync(Play)` / `SubmitCubeAnswerAsync(CubeAnswer)`
+  [`QuizRun.SubmitPlay` / `SubmitCubeAnswer`]: the run scores the answer and
+  shows its `Review` **without advancing** — `Current` still points at the
+  answered problem — and the answer of record that submission made, if any,
+  is written to the lifetime record (the sink paragraph below). No-ops
+  while busy and outside answering. Each answers its own kind — a play a
+  `CheckerPlayDecision`, a cube answer a `CubeDecision` — and the other kind is
+  a caller bug that throws `InvalidOperationException`, since the page routes
+  each kind to its own instrument.
 - **`Review`** — a closed `ProblemReview` class hierarchy (`Play` / `Cube`)
   carrying the producer's scored outcome whole and what the review needs to
   mark and name the answer. Non-null marks the state.
@@ -515,11 +524,9 @@ run's rule (§ `QuizRun`):
   submission that follows is practice — scored and reviewed, then discarded
   (SPEC-scoring.md §2). No-op outside review.
 - **`ContinueAsync`** [`QuizRun.Next`, then `Present` or `End`] — the forward
-  exit from review: folds the **answer of record** into the
-  `IProblemStatsSink` (see Pitfalls: as the run advances past the problem,
-  never at Submit), moves on, and brings the next problem. Exhausting the
-  source here flips `IsFinished` — after the fold, so the final answer
-  records. No-op outside review.
+  exit from review: moves on and brings the next problem. Exhausting the
+  source here flips `IsFinished`. It folds nothing — the answer of record
+  reached the lifetime record at its Submit. No-op outside review.
 - **`SkipCurrentAsync`** [the same three] — bypasses review and advances
   immediately, but only from answering (no-op while a `Review` is showing).
   It completes nothing: on an unanswered problem nothing is of record and
@@ -529,8 +536,8 @@ run's rule (§ `QuizRun`):
   none, the run finishes and finishing converts it, counted the same. So the
   count does not rise at the press (`SPEC-quiz-history.md` §5's ruled
   transient difference, visible only if a page renders while the draw is
-  pending). Mid-practice-cycle the problem is already answered, so this is the
-  run advancing past it — the answer of record folds and no skip is counted.
+  pending). Mid-practice-cycle the problem is already answered, so no skip is
+  counted, and nothing folds.
 - **`EndQuizAsync`** [`QuizRun.End`] — the user's own exit from the run (issue
   halheinrich/backgammon#57), and the one path that leaves the three-state flow
   rather than moving through it: it finishes where it stands, with problems still
@@ -543,22 +550,22 @@ run's rule (§ `QuizRun`):
   the run finishing converts it to a skip of record, as it converts every
   problem the Skip button deferred, so Done's "problems shown" still counts a
   problem the user
-  saw; **with** an answer of record it **stands and folds**, because it was submitted,
+  saw; **with** an answer of record it **stands**, because it was submitted,
   scored, and read — whether the review is still showing or a redo re-opened the
-  problem for practice. Folding goes through the same `FoldAnswerOfRecordAsync`
-  Continue uses — which is what preserves the standing invariant that **every
-  answer visible on Done has reached the lifetime record** (Done states it to the
-  user; see Pitfalls). The run is a **completed quiz**, ruled: `/done` is
-  unchanged, with no ended-early wording and no flag for one — the
-  partial score is simply the score of the problems answered.
+  problem for practice. It folds nothing: the answer reached the lifetime record
+  at its Submit, which is what makes **every answer visible on Done has reached
+  the lifetime record** true by construction (Done states it to the user; see
+  Pitfalls). The run is a **completed quiz**, ruled: `/done` is unchanged, with
+  no ended-early wording and no flag for one — the partial score is simply the
+  score of the problems answered.
 
-**The order inside an advance is load-bearing.** `MoveOnAsync` asks the run
-what ▶ comes to *before* taking the step — the run is immutable, so asking
-changes nothing — folds while the run with its review is still the current
-one, and only then replaces the run and draws from the source. So a slow
-stats write leaves the review on screen with its buttons showing busy, never
-a fresh decision on a problem the run is leaving. `EndQuizAsync` keeps the
-same order: fold, then end.
+**The order inside Submit: the review first, then the write.** The run's step
+is taken as Submit enters the gate, so the busy-on `StateChanged` already
+carries the review, and the write to the lifetime record is awaited after it,
+inside the gate. So a slow stats write shows the review at once with its
+controls busy, and the call's task completes when the write has landed; the
+Quiz page retires the mix notice off the review being up as the call returns
+(§ Pages → Quiz).
 
 `ProblemReview` lives in `BgQuiz_Blazor.Client` (not BgGame_Lib): it is
 per-app UI state, and adding it to the submodule would cross the boundary.
@@ -728,16 +735,19 @@ pins them there, for Skip and for Continue.
 is the `IProblemStatsSink` (production: `QuizStatsStore`), driven at exactly
 two points: `ResetAndAdvanceAsync` calls `BeginQuizAsync()` — the one shared
 path under Start *and* Restart, so the stats context binds there and nowhere
-else — and **the exits that advance the run past a problem** fold via
-`RecordAsync`, through the one shared `FoldAnswerOfRecordAsync` (`ContinueAsync`,
-`SkipCurrentAsync` and `EndQuizAsync`; there is one encoding of what folds, not
-three), which reads the frontier's disposition off the run and folds the
-answer of record it carries, if it carries one. Reading the frontier alone is
-right only while nothing moves the cursor back: a deferred problem answered
-live on a return would be behind the frontier and out of the fold's reach,
-which is why the navigation leg moves the fold to the first submission before
-it adds any way back (`../SPEC-quiz-history.md` §7). The sink never throws for
-stats trouble, so quiz flow is independent of whether stats are recording.
+else — and **Submit** folds via `RecordAsync`, through the one `FoldAsync`,
+the answer of record that submission made (`../SPEC-scoring.md` §2's fold
+trigger; the rule is read there). The run reports that answer with its submit
+step (the `out` argument of `QuizRun.SubmitPlay` / `SubmitCubeAnswer`) — the
+very instance the problem's disposition now holds, or nothing for practice and
+for a skip of record — so the controller folds exactly what the run recorded
+and decides nothing: not whether the submission was live, not what the review
+shows. Nothing else folds: not moving on, not ending the quiz, not a new run.
+So no answer can fold twice — a draw that faults after a live answer leaves
+that problem on screen, answered, and no gesture there reaches the sink
+(`QuizControllerTests.ASourceFault_OnTheAdvanceAfterALiveAnswer_ThenARetry_AddsNoSecondFold`).
+The sink never throws for stats trouble, so quiz flow is independent of
+whether stats are recording.
 
 **Filter ownership.** `StartAsync` takes a `FilterConfig` (the wire DTO
 emitted through `FilterSurface.OnFilterConfigChanged`), not a runtime
@@ -814,7 +824,7 @@ edit rather than passing through unseen.
 `halheinrich/backgammon#326` — the four answers, what each costs, when a cost
 counts as zero, the verdict, and the session's rows against the lifetime
 record's halves; read the rules there. Here: the answer row offers all four
-answers at every cube decision. `SubmitCubeAnswer(CubeAnswer)` scores every
+answers at every cube decision. `SubmitCubeAnswerAsync(CubeAnswer)` scores every
 answer (no off-list / skip path, unlike plays) through the producer's one
 call, `SubmittedCubeAnswer.Score(answer, decision)`, at the decision on
 screen. Nothing in this app reads an equity, compares answers, or restates a
@@ -885,7 +895,7 @@ point), and reads that candidate's error under the ranking, together. Three
 outcomes:
 
 - **Scored** — a `SubmittedPlay`: the answer of record, counted in `Score`,
-  folding as the run advances. Its `IsCorrect` (error exactly 0) is the
+  folding at its Submit. Its `IsCorrect` (error exactly 0) is the
   producer's one verdict.
 - **Not scored** — under depth first, a candidate analyzed less deeply than the
   best that rated higher: "a skip of record that folds nothing" (§2a).
@@ -1092,9 +1102,10 @@ controller's sink and the pages' status notices observe one instance; deps:
   keeps the untouched `LoadFailed` posture, as does a document claiming a
   retired version without that version's shape. No rename API was lifted into
   BgFolderAccess_Razor for this; a second consumer would be the trigger.
-- `RecordAsync` (from `ContinueAsync`, only while `Ready`): fold then **write
+- `RecordAsync` (from Submit, only while `Ready`): fold then **write
   back immediately** — per-fold write-back is the crash-safety choice (small
-  file; a lost tab loses no answered problem). The fold's base is a **fresh
+  file; a lost tab loses no answered problem, the one left in review
+  included). The fold's base is a **fresh
   read** of the file, not the bind-time snapshot (the ruled pre-write guard,
   SPEC-stats-identity.md §5): whole-document writes mean a second context over
   the same folder would otherwise be silently overwritten, and the re-read
@@ -1103,7 +1114,8 @@ controller's sink and the pages' status notices observe one instance; deps:
   degrade to the in-memory fold, touching no status. A write `JSException`
   keeps the folded document in memory, flips `WriteFailed`, raises
   `StatusChanged`, and stops writing (no per-answer error spam). The store
-  **never throws** — Continue cannot fault on stats trouble.
+  **never throws** — Submit, which awaits the write, cannot fault on stats
+  trouble.
 - The clock is the DI `TimeProvider` (registered `TimeProvider.System` in
   `Program.cs`), handed to the document's `Plus` — ambient time is never read.
 
@@ -2377,8 +2389,12 @@ The asymmetry is pinned three times over: at the service seam
   `BackgammonPlayEntry` (click-driven play assembly, which requires a
   checker-play decision's own request and refuses any other — see Pitfalls), a
   `CubeDecision` to a **board-only** `BackgammonDiagram` (the cube answer is not
-  entered on the board). Submit is a synchronous handler gated on the relevant answer being
-  held: a play via `OnPlayCompleted` → `_completedPlay`; a cube via the
+  entered on the board). Submit (`SubmitAsync`) awaits the controller's
+  write of the answer to the lifetime record — the review is on screen, its
+  controls busy, before that write lands, so the mix notice is retired off
+  the review being up as the controller's call returns. It is gated on the
+  relevant answer being held: a play via `OnPlayCompleted` →
+  `_completedPlay`; a cube via the
   `BackgammonCubeActions` four-answer row in the action row, whose
   `@bind-Value` keeps `_completedCube` (a `CubeAnswer?`) current — null
   until a pill is chosen, and every pill is one whole answer, so the Submit
@@ -2472,19 +2488,20 @@ The asymmetry is pinned three times over: at the service seam
   owns neither half of any case: *whether* it acts is the button's own
   gate (`CanContinue`, `CanSubmit`, `CanSkip` — the one expression each
   that the buttons' `disabled` also reads), and *what* it does is the
-  button's own method (`ContinueAsync`, `Submit`, `SkipAsync`), called by
+  button's own method (`ContinueAsync`, `SubmitAsync`, `SkipAsync`), called by
   the `[JSInvokable]` `HandleSpaceKeyAsync`, which adds no condition and no
   action of its own. Submit is tested before Skip because the ruling says
   so — `CanSubmit` is lit only where `CanSkip` is — not because the key has
   a gate. So the key and the button cannot differ — same busy gating, same
   answer scored or skip recorded, same composition-notice retirement, same
   advance. Don't route the key to the controller directly or give it a
-  gate of its own; either is a second owner. The handler does end with
-  `StateHasChanged`, which is the framework's half of a click, not the
-  key's own action: Blazor re-renders after every UI event a component
-  handles, and a JS-invoked callback gets no such render. Without it, a
-  Space submit left the composition notice on screen, because `Submit`
-  retires it after the controller's state change has already rendered
+  gate of its own; either is a second owner. The handler does render as a
+  click does — once the press's synchronous part has run, and again when its
+  task completes — which is the framework's half of a click, not the key's own
+  action: Blazor re-renders a component around every UI event it handles, and
+  a JS-invoked callback gets neither render. Without them, a Space submit left
+  the composition notice on screen, because `SubmitAsync` retires it after the
+  controller's state change has already rendered
   (`Quiz_Space_AndTheSubmitButton_ShareOneAction` pins it).
   `wwwroot/js/quizKeys.js` — imported as an `IJSObjectReference` on the
   first render, detached and disposed with the page (`IAsyncDisposable`) —
@@ -3463,8 +3480,10 @@ load-bearing and every other e2e scenario runs FS-Access-capable. Both halves
 key on one shared `SilentPickGestureCopy.Account` fragment, because an absence
 pin written against its own literal goes vacuously green the moment the notice
 is reworded.
-`StatsPersistenceTests` pins: one fold ⇒ one captured write with
-`schemaVersion` 3, one `problems` record whose key carries no filename and
+`StatsPersistenceTests` pins: one fold ⇒ one captured write, made at Submit
+— captured once Continue lights, before anything moves on, and no second one
+on Continue — with `schemaVersion` 3, one `problems` record whose key
+carries no filename and
 whose value is the bare tally-plus-date record (no answer-kind token — the
 flat v3 record reinstated by SPEC-stats-identity §3's 2026-09-02
 amendment), a cube answer tallied as two halves (No double's take half a
@@ -3982,31 +4001,28 @@ public (see Pitfalls). The externally visible surface is the route map:
   BgFolderAccess_Razor contract, pinned producer-side).
   Start-time exceptions (this, plus `FilterConfig.Build()` validation) surface
   on `Controller.StartAsync` and `Home.razor` banners them.
-- **Lifetime stats fold as the run advances past a problem, never at Submit,
-  and what folds is the answer of record.** The model is SPEC-scoring.md §2
-  (ratified 2026-08-26) — read it there; its 2026-09-24 amendment moves the
-  trigger to the first submission with the navigation arc
-  (halheinrich/backgammon#8), and until that lands this entry describes the
-  code. What it means here: the *first*
-  submission against a problem is final for `Score` and for the fold the moment
-  it is made; `RedoAsync` re-opens the problem for practice, and the practice
-  submissions are discarded as if they never happened, so `Review` (the
-  displayed review) and the problem's disposition in the run (what folds)
-  genuinely differ after a
-  redo. Folding at Submit would still be wrong, for a new reason: `Score` and
-  `ProblemStatsDocument` are per-problem-once, and the fold's *trigger* is the
-  run advancing past the problem. The deliberate flip side is unchanged — an
-  answer of record the run never advances past (tab close, Start/Restart without
-  continuing) never folds. There are **three** fold sites, not one: `ContinueAsync`,
-  `SkipCurrentAsync` (reachable mid-practice-cycle) and `EndQuizAsync`
-  (halheinrich/backgammon#57), sharing one `FoldAnswerOfRecordAsync`. Each folds
-  for a reason worth keeping — **every answer visible on Done has reached the
-  lifetime record**, an invariant that held for free while Continue was the only
-  route to Done, and which Done's own "nothing here needs saving" line states to
-  the user. A fourth fold site needs that same argument; a *silent* one would
-  break the line. Skips, off-list plays, plays the ranking does not score,
-  practice submissions, and auto-skipped no-choice positions never reach the
-  sink at all (producer contract, plus §2 and §2a).
+- **Lifetime stats fold at a live Submit, and nowhere else; what folds is
+  what the run says that submission made of record.** The trigger is
+  `../SPEC-scoring.md` §2's (amended 2026-09-24, halheinrich/backgammon#8) —
+  read it there. What it means here: the controller folds inside Submit,
+  through its one `FoldAsync`, exactly the answer of record the run reports
+  with its submit step (`QuizRun.SubmitPlay` / `SubmitCubeAnswer`, whose `out`
+  argument is null for practice and for a skip of record). Two tempting edits
+  are both wrong. **Re-deriving what folds in the controller** — reading the
+  cursor's disposition, comparing the run before and after, or reading
+  `Review` — puts a second owner beside the run's of whether a submission was
+  live (`Review` is the displayed review, which after a practice cycle is not
+  the record at all). **Adding a fold anywhere else** — Continue, Skip, End
+  quiz, a new run — folds an answer twice, since the document has no `Minus`;
+  the advance-time trigger this replaced did exactly that when a draw faulted
+  after the fold and a second exit folded the same answer again. Skips,
+  off-list plays, plays the ranking does not score, practice submissions, and
+  auto-skipped no-choice positions never reach the sink at all (producer
+  contract, plus §2 and §2a). The write happens inside the transition gate,
+  so nothing can begin a new run, move on or end the quiz while an answer is
+  on its way, and **every answer visible on Done has reached the lifetime
+  record** by construction — the line Done's "nothing here needs saving"
+  states to the user.
 - **Never clear or rewrite the stored `QuizMix` outside the write-through.**
   The persisted mix (`xg_quizMix`) outlives any session that can't honor it: a
   refused weighted start, the per-run "Start/Restart without mix" override, a

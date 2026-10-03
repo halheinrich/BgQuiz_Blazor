@@ -192,7 +192,7 @@
                                      Request="BuildRenderRequest(current)"
                                      Options="BoardOptions"
                                      OnPlayCompleted="HandlePlayCompleted"
-                                     OnSubmitRequested="Submit" />
+                                     OnSubmitRequested="SubmitAsync" />
             }
         </div>
 
@@ -318,7 +318,7 @@
                        Quiz.razor.cs). *@
                     <BackgammonCubeActions @bind-Value="_completedCube" Decision="cube" />
                     <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanSubmit)"
-                            @onclick="Submit">
+                            @onclick="SubmitAsync">
                         Submit
                     </button>
                     <button class="btn btn-outline-secondary" disabled="@(!CanSkip)"
@@ -329,7 +329,7 @@
                 else
                 {
                     <button class="btn btn-primary btn-lg fw-bold" disabled="@(!CanSubmit)"
-                            @onclick="Submit">
+                            @onclick="SubmitAsync">
                         Submit
                     </button>
                     <button class="btn btn-outline-secondary" disabled="@(!CanSkip)"

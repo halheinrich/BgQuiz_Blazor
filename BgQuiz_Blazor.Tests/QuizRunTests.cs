@@ -76,8 +76,8 @@ public class QuizRunTests
         skipped = PlayProblem(2);
         unresolved = PlayProblem(3);
 
-        var run = Show(Begin(), answered).SubmitPlay(Alt());
-        run = MoveOnTo(run, skipped).SubmitPlay(OffList());
+        var run = Show(Begin(), answered).SubmitPlay(Alt(), out _);
+        run = MoveOnTo(run, skipped).SubmitPlay(OffList(), out _);
         run = MoveOnTo(run, unresolved);
 
         Assert.Equal(
@@ -219,7 +219,7 @@ public class QuizRunTests
         var first = PlayProblem(1);
         var second = PlayProblem(2);
 
-        var run = MoveOnTo(Show(Begin(), first).SubmitPlay(Best()), second);
+        var run = MoveOnTo(Show(Begin(), first).SubmitPlay(Best(), out _), second);
 
         Assert.Equal(2, run.Presented.Length);
         Assert.Same(first, run.Presented[0].Problem);
@@ -234,7 +234,7 @@ public class QuizRunTests
     {
         // The completed frontier, its review still on screen: presenting the
         // next problem is moving on from it, and the landing shows a decision.
-        var run = Show(Begin(), PlayProblem(1)).SubmitPlay(Best());
+        var run = Show(Begin(), PlayProblem(1)).SubmitPlay(Best(), out _);
         Assert.NotNull(run.Review);
 
         run = Show(run, PlayProblem(2));
@@ -274,8 +274,8 @@ public class QuizRunTests
         // "Navigation never presents an unseen problem early": only moving on
         // at the frontier brings a new problem. Whether the frontier is
         // completed makes no difference; the cursor's position is what refuses.
-        var run = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(Best()), PlayProblem(2));
-        if (frontierCompleted) run = run.SubmitPlay(Best());
+        var run = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(Best(), out _), PlayProblem(2));
+        if (frontierCompleted) run = run.SubmitPlay(Best(), out _);
         run = run.GoBack();
         Assert.Equal(frontierCompleted, run.Frontier!.Disposition.IsCompleted);
 
@@ -325,7 +325,7 @@ public class QuizRunTests
         run = run.GoToFirst().Next(out _).GoBack().GoToLast().GoBack();
         Assert.All(Kinds(run), kind => Assert.Equal(ProblemDispositionKind.Unresolved, kind));
 
-        run = run.SubmitCubeAnswer(CubeAnswer.DoubleTake);          // a live submission, on the middle problem
+        run = run.SubmitCubeAnswer(CubeAnswer.DoubleTake, out _);          // a live submission, on the middle problem
         Assert.Equal(
             new[] { ProblemDispositionKind.Unresolved, ProblemDispositionKind.Answered, ProblemDispositionKind.Unresolved },
             Kinds(run));
@@ -346,7 +346,7 @@ public class QuizRunTests
         var problem = PlayProblem(1);
         var run = Show(Begin(), problem);
 
-        run = run.SubmitPlay(Alt());
+        run = run.SubmitPlay(Alt(), out _);
 
         var review = Assert.IsType<ProblemReview.Play>(run.Review);
         Assert.False(review.IsPractice);
@@ -369,7 +369,7 @@ public class QuizRunTests
     [Fact]
     public void SubmitPlay_OffList_OnTheUnresolvedFrontier_IsASkipOfRecord()
     {
-        var run = Show(Begin(), PlayProblem(1)).SubmitPlay(OffList());
+        var run = Show(Begin(), PlayProblem(1)).SubmitPlay(OffList(), out _);
 
         var review = Assert.IsType<ProblemReview.Play>(run.Review);
         Assert.Equal(PlaySubmissionKind.OffList, review.Submission.Kind);
@@ -385,7 +385,7 @@ public class QuizRunTests
     {
         // SPEC-scoring.md §2a: under depth first the 3-ply 8/5 6/5 was analyzed
         // less deeply than the best and rated higher, so it is not scored.
-        var run = Show(Begin(PlayRanking.DepthFirst), TestFixtures.DepthSplitDecision()).SubmitPlay(Best());
+        var run = Show(Begin(PlayRanking.DepthFirst), TestFixtures.DepthSplitDecision()).SubmitPlay(Best(), out _);
 
         var review = Assert.IsType<ProblemReview.Play>(run.Review);
         Assert.Equal(PlaySubmissionKind.NotScored, review.Submission.Kind);
@@ -399,7 +399,7 @@ public class QuizRunTests
     public void SubmitCubeAnswer_OnTheUnresolvedFrontier_IsTheAnswerOfRecord()
     {
         var problem = CubeProblem(7);
-        var run = Show(Begin(), problem).SubmitCubeAnswer(CubeAnswer.NoDoublePass);
+        var run = Show(Begin(), problem).SubmitCubeAnswer(CubeAnswer.NoDoublePass, out _);
 
         var review = Assert.IsType<ProblemReview.Cube>(run.Review);
         Assert.False(review.IsPractice);
@@ -444,8 +444,8 @@ public class QuizRunTests
 
         run = cause switch
         {
-            SkipCause.AnOffListPlay => run.SubmitPlay(OffList()),
-            SkipCause.APlayTheRankingDoesNotScore => run.SubmitPlay(Best()),
+            SkipCause.AnOffListPlay => run.SubmitPlay(OffList(), out _),
+            SkipCause.APlayTheRankingDoesNotScore => run.SubmitPlay(Best(), out _),
             SkipCause.EndQuizOnTheProblem => run.End(),
             SkipCause.TheSourceRunningOutAfterTheSkipGesture => run.Next(out _).End(),
             _ => throw new ArgumentOutOfRangeException(nameof(cause)),
@@ -467,7 +467,7 @@ public class QuizRunTests
         // bug, and it fails loud rather than filing a cube as an off-list play.
         var run = Show(Begin(), CubeProblem(1));
 
-        Assert.Throws<InvalidOperationException>(() => run.SubmitPlay(Best()));
+        Assert.Throws<InvalidOperationException>(() => run.SubmitPlay(Best(), out _));
     }
 
     [Fact]
@@ -475,18 +475,18 @@ public class QuizRunTests
     {
         var run = Show(Begin(), PlayProblem(1));
 
-        Assert.Throws<InvalidOperationException>(() => run.SubmitCubeAnswer(CubeAnswer.DoubleTake));
+        Assert.Throws<InvalidOperationException>(() => run.SubmitCubeAnswer(CubeAnswer.DoubleTake, out _));
     }
 
     [Fact]
     public void Submit_WhileAReviewIsShowing_IsRefused()
     {
         // §4's table: from either review state Submit is no transition at all.
-        var play = Show(Begin(), PlayProblem(1)).SubmitPlay(Best());
-        var cube = Show(Begin(), CubeProblem(1)).SubmitCubeAnswer(CubeAnswer.DoubleTake);
+        var play = Show(Begin(), PlayProblem(1)).SubmitPlay(Best(), out _);
+        var cube = Show(Begin(), CubeProblem(1)).SubmitCubeAnswer(CubeAnswer.DoubleTake, out _);
 
-        Assert.Throws<InvalidOperationException>(() => play.SubmitPlay(Alt()));
-        Assert.Throws<InvalidOperationException>(() => cube.SubmitCubeAnswer(CubeAnswer.NoDoublePass));
+        Assert.Throws<InvalidOperationException>(() => play.SubmitPlay(Alt(), out _));
+        Assert.Throws<InvalidOperationException>(() => cube.SubmitCubeAnswer(CubeAnswer.NoDoublePass, out _));
     }
 
     [Fact]
@@ -495,10 +495,89 @@ public class QuizRunTests
         var notYetPresented = Begin();
         var ended = Show(Begin(), PlayProblem(1)).End();
 
-        Assert.Throws<InvalidOperationException>(() => notYetPresented.SubmitPlay(Best()));
-        Assert.Throws<InvalidOperationException>(() => notYetPresented.SubmitCubeAnswer(CubeAnswer.DoubleTake));
-        Assert.Throws<InvalidOperationException>(() => ended.SubmitPlay(Best()));
-        Assert.Throws<InvalidOperationException>(() => ended.SubmitCubeAnswer(CubeAnswer.DoubleTake));
+        Assert.Throws<InvalidOperationException>(() => notYetPresented.SubmitPlay(Best(), out _));
+        Assert.Throws<InvalidOperationException>(() => notYetPresented.SubmitCubeAnswer(CubeAnswer.DoubleTake, out _));
+        Assert.Throws<InvalidOperationException>(() => ended.SubmitPlay(Best(), out _));
+        Assert.Throws<InvalidOperationException>(() => ended.SubmitCubeAnswer(CubeAnswer.DoubleTake, out _));
+    }
+
+    // -----------------------------------------------------------------------
+    //  SPEC-scoring.md §2 · What a submission made of record, for the fold
+    //
+    //  The fold trigger (amended 2026-09-24): "The answer of record folds into
+    //  lifetime stats at the first submission itself." The run alone decides
+    //  whether a submission is live and what it records, so it says, with the
+    //  step, what each submission made of record; the caller that folds takes
+    //  exactly that and decides nothing.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void ALiveScoredPlay_ReportsTheAnswerOfRecordItMade()
+    {
+        var run = Show(Begin(), PlayProblem(1)).SubmitPlay(Alt(), out var made);
+
+        Assert.NotNull(made);
+        Assert.Same(AnswerOf(run.Cursor!), made);
+    }
+
+    [Fact]
+    public void ALiveCubeAnswer_ReportsTheAnswerOfRecordItMade()
+    {
+        var run = Show(Begin(), CubeProblem(1)).SubmitCubeAnswer(CubeAnswer.NoDoublePass, out var made);
+
+        Assert.NotNull(made);
+        Assert.Same(AnswerOf(run.Cursor!), made);
+        Assert.Same(Assert.IsType<ProblemReview.Cube>(run.Review).Submission, CubeOfRecord(run.Cursor!));
+    }
+
+    [Theory]
+    [InlineData(SkipCause.AnOffListPlay)]
+    [InlineData(SkipCause.APlayTheRankingDoesNotScore)]
+    public void ALivePlay_ThatCompletesTheProblemAsASkip_ReportsNone(SkipCause cause)
+    {
+        // A skip is of record when made and folds nothing (§2): it carries no
+        // answer, so there is none to report.
+        var run = Show(Begin(PlayRanking.DepthFirst), TestFixtures.DepthSplitDecision())
+            .SubmitPlay(cause == SkipCause.AnOffListPlay ? OffList() : Best(), out var made);
+
+        Assert.Null(made);
+        Assert.Same(ProblemDisposition.Skipped, run.Cursor!.Disposition);
+    }
+
+    [Fact]
+    public void ADeferredProblem_AnsweredLiveOnReturn_ReportsTheAnswerOfRecordItMade()
+    {
+        // Live behind the frontier: the submission that a frontier-only fold
+        // could never reach is reported like any other live one.
+        var run = TwoDeferred().GoToFirst().SubmitPlay(Best(), out var made);
+
+        Assert.NotNull(made);
+        Assert.Same(AnswerOf(run.Presented[0]), made);
+        Assert.Same(run.Presented[0], run.Cursor);
+    }
+
+    [Fact]
+    public void APracticeSubmission_ReportsNone_OnAnAnsweredOrASkippedProblem_PlayOrCube()
+    {
+        // Practice records nothing (§2), so it reports nothing — and the reading
+        // was the disposition's, made before the submission was taken.
+        var three = ThreePresented();
+
+        var onAnswered = three.GoToFirst().SubmitPlay(Best(), out var madeOnAnswered);
+        var onSkipped = three.GoBack().SubmitPlay(Best(), out var madeOnSkipped);
+
+        var cubeRun = Show(Begin(), CubeProblem(1)).SubmitCubeAnswer(CubeAnswer.DoubleTake, out _);
+        var onCube = MoveOnTo(cubeRun, CubeProblem(2)).GoBack()
+            .SubmitCubeAnswer(CubeAnswer.NoDouble, out var madeOnCube);
+
+        Assert.Null(madeOnAnswered);
+        Assert.Null(madeOnSkipped);
+        Assert.Null(madeOnCube);
+        Assert.True(onAnswered.Review!.IsPractice);
+        Assert.True(onSkipped.Review!.IsPractice);
+        Assert.True(onCube.Review!.IsPractice);
+        AssertRecordUnchanged(three, onAnswered);
+        AssertRecordUnchanged(three, onSkipped);
     }
 
     // -----------------------------------------------------------------------
@@ -535,7 +614,7 @@ public class QuizRunTests
         run = run.GoToLast();                     // back on the frontier, still unresolved
         Assert.True(run.IsLive);
 
-        run = run.SubmitPlay(Best());             // and now completed
+        run = run.SubmitPlay(Best(), out _);             // and now completed
         Assert.False(run.IsLive);
         run = run.Redo();
         Assert.False(run.IsLive);
@@ -544,10 +623,10 @@ public class QuizRunTests
     [Fact]
     public void SubmitPlay_OnAnAnsweredProblem_IsPractice_AndChangesNothing()
     {
-        var answered = Show(Begin(), PlayProblem(1)).SubmitPlay(Alt());   // of record: not best, 0.05 lost
+        var answered = Show(Begin(), PlayProblem(1)).SubmitPlay(Alt(), out _);   // of record: not best, 0.05 lost
         var recorded = PlayOfRecord(answered.Cursor!);
 
-        var practised = answered.Redo().SubmitPlay(Best());               // practice: the best play
+        var practised = answered.Redo().SubmitPlay(Best(), out _);               // practice: the best play
 
         // Scored on its own merits and reviewed, marked as practice…
         var review = Assert.IsType<ProblemReview.Play>(practised.Review);
@@ -567,9 +646,9 @@ public class QuizRunTests
     {
         // The strongest form: the record is a skip and the practice answer is
         // on the list and correct. It scores nothing, and the skip stays a skip.
-        var skipped = Show(Begin(), PlayProblem(1)).SubmitPlay(OffList());
+        var skipped = Show(Begin(), PlayProblem(1)).SubmitPlay(OffList(), out _);
 
-        var practised = skipped.Redo().SubmitPlay(Best());
+        var practised = skipped.Redo().SubmitPlay(Best(), out _);
 
         var review = Assert.IsType<ProblemReview.Play>(practised.Review);
         Assert.True(review.IsPractice);
@@ -585,9 +664,9 @@ public class QuizRunTests
     {
         // Recordless in the other direction too: a practice play that misses
         // the list must not mint a skip on a problem that is already answered.
-        var answered = Show(Begin(), PlayProblem(1)).SubmitPlay(Best());
+        var answered = Show(Begin(), PlayProblem(1)).SubmitPlay(Best(), out _);
 
-        var practised = answered.Redo().SubmitPlay(OffList());
+        var practised = answered.Redo().SubmitPlay(OffList(), out _);
 
         var review = Assert.IsType<ProblemReview.Play>(practised.Review);
         Assert.True(review.IsPractice);
@@ -600,10 +679,10 @@ public class QuizRunTests
     [Fact]
     public void SubmitCubeAnswer_OnACompletedProblem_IsPractice_AndChangesNothing()
     {
-        var answered = Show(Begin(), CubeProblem(1)).SubmitCubeAnswer(CubeAnswer.NoDoublePass);   // of record: wrong
+        var answered = Show(Begin(), CubeProblem(1)).SubmitCubeAnswer(CubeAnswer.NoDoublePass, out _);   // of record: wrong
         var recorded = CubeOfRecord(answered.Cursor!);
 
-        var practised = answered.Redo().SubmitCubeAnswer(CubeAnswer.DoubleTake);                  // practice: correct
+        var practised = answered.Redo().SubmitCubeAnswer(CubeAnswer.DoubleTake, out _);                  // practice: correct
 
         var review = Assert.IsType<ProblemReview.Cube>(practised.Review);
         Assert.True(review.IsPractice);
@@ -621,10 +700,10 @@ public class QuizRunTests
         // the play that is of record is a practice submission like any other —
         // a second scoring, shown and discarded — and the record is still the
         // first instance, never swapped for an equal one.
-        var answered = Show(Begin(), PlayProblem(1)).SubmitPlay(Best());
+        var answered = Show(Begin(), PlayProblem(1)).SubmitPlay(Best(), out _);
         var recorded = PlayOfRecord(answered.Cursor!);
 
-        var practised = answered.Redo().SubmitPlay(Best());
+        var practised = answered.Redo().SubmitPlay(Best(), out _);
 
         var review = Assert.IsType<ProblemReview.Play>(practised.Review);
         Assert.True(review.IsPractice);
@@ -636,12 +715,12 @@ public class QuizRunTests
     [Fact]
     public void PracticeCycles_AreUnbounded_AndEquallyRecordless()
     {
-        var answered = Show(Begin(), PlayProblem(1)).SubmitPlay(Alt());
+        var answered = Show(Begin(), PlayProblem(1)).SubmitPlay(Alt(), out _);
         var run = answered;
 
         for (var cycle = 0; cycle < 5; cycle++)
         {
-            run = run.Redo().SubmitPlay(cycle % 2 == 0 ? Best() : OffList());
+            run = run.Redo().SubmitPlay(cycle % 2 == 0 ? Best() : OffList(), out _);
             Assert.True(run.Review!.IsPractice);
             AssertRecordUnchanged(answered, run);
         }
@@ -657,12 +736,12 @@ public class QuizRunTests
         // still unresolved after.
         var staged = ThreePresented();
 
-        var onSkipped = staged.GoBack().SubmitPlay(Best());
+        var onSkipped = staged.GoBack().SubmitPlay(Best(), out _);
         Assert.True(onSkipped.Review!.IsPractice);
         Assert.True(ScoredReview(onSkipped.Review).IsCorrect);
         AssertRecordUnchanged(staged, onSkipped);
 
-        var onAnswered = onSkipped.GoBack().SubmitPlay(Best());
+        var onAnswered = onSkipped.GoBack().SubmitPlay(Best(), out _);
         Assert.True(onAnswered.Review!.IsPractice);
         Assert.True(ScoredReview(onAnswered.Review).IsCorrect);
         AssertRecordUnchanged(staged, onAnswered);
@@ -685,7 +764,7 @@ public class QuizRunTests
         Assert.Equal(2, deferred.SkippedCount);
         Assert.Equal(QuizScore.Empty, deferred.Score);
 
-        var answered = deferred.GoToFirst().SubmitPlay(Alt());
+        var answered = deferred.GoToFirst().SubmitPlay(Alt(), out _);
 
         // Of record, not practice: the review says so, and the record is the
         // very submission it shows.
@@ -708,7 +787,7 @@ public class QuizRunTests
         Assert.Same(deferred.Presented[2], answered.Presented[2]);
 
         // And from here it is a completed problem like any other: practice.
-        var practised = answered.Redo().SubmitPlay(Best());
+        var practised = answered.Redo().SubmitPlay(Best(), out _);
         Assert.True(practised.Review!.IsPractice);
         AssertRecordUnchanged(answered, practised);
     }
@@ -721,7 +800,7 @@ public class QuizRunTests
         // count it was provisionally in is the count it stays in, once.
         var deferred = TwoDeferred();
 
-        var skipped = deferred.GoBack().SubmitPlay(OffList());
+        var skipped = deferred.GoBack().SubmitPlay(OffList(), out _);
 
         var review = Assert.IsType<ProblemReview.Play>(skipped.Review);
         Assert.False(review.IsPractice);
@@ -731,7 +810,7 @@ public class QuizRunTests
         Assert.Equal(QuizScore.Empty, skipped.Score);
 
         // Completed now, so a scored answer on it is practice and changes nothing.
-        var practised = skipped.Redo().SubmitPlay(Best());
+        var practised = skipped.Redo().SubmitPlay(Best(), out _);
         Assert.True(practised.Review!.IsPractice);
         AssertRecordUnchanged(skipped, practised);
     }
@@ -743,7 +822,7 @@ public class QuizRunTests
         var deferred = MoveOnTo(Show(Begin(), cube), PlayProblem(2));
         Assert.Equal(1, deferred.SkippedCount);
 
-        var answered = deferred.GoBack().SubmitCubeAnswer(CubeAnswer.DoubleTake);
+        var answered = deferred.GoBack().SubmitCubeAnswer(CubeAnswer.DoubleTake, out _);
 
         var review = Assert.IsType<ProblemReview.Cube>(answered.Review);
         Assert.False(review.IsPractice);
@@ -777,7 +856,7 @@ public class QuizRunTests
     [Fact]
     public void Redo_ReturnsToTheDecision_OnTheSameProblem_AndTheRecordStands()
     {
-        var reviewed = Show(Begin(), PlayProblem(1)).SubmitPlay(Alt());
+        var reviewed = Show(Begin(), PlayProblem(1)).SubmitPlay(Alt(), out _);
 
         var redone = reviewed.Redo();
 
@@ -828,7 +907,7 @@ public class QuizRunTests
     {
         // Continue: the frontier was just completed by a submission, so moving
         // on adds nothing to the record — in particular no skip.
-        var reviewed = Show(Begin(), PlayProblem(1)).SubmitPlay(Alt());
+        var reviewed = Show(Begin(), PlayProblem(1)).SubmitPlay(Alt(), out _);
 
         var moved = reviewed.Next(out var bringsNewProblem);
 
@@ -843,7 +922,7 @@ public class QuizRunTests
     {
         // Practice answering at the frontier — today, Skip pressed after a Redo.
         // The problem is answered, so no skip is counted on top of it.
-        var redone = Show(Begin(), PlayProblem(1)).SubmitPlay(Best()).Redo();
+        var redone = Show(Begin(), PlayProblem(1)).SubmitPlay(Best(), out _).Redo();
 
         var moved = redone.Next(out var bringsNewProblem);
 
@@ -881,7 +960,7 @@ public class QuizRunTests
         // §4: on a practice review ▶ is Continue, and Continue there is "the
         // next problem" — the one after the cursor, not a new one.
         var staged = ThreePresented();
-        var practiceReview = staged.GoToFirst().SubmitPlay(Best());
+        var practiceReview = staged.GoToFirst().SubmitPlay(Best(), out _);
         Assert.True(practiceReview.Review!.IsPractice);
 
         var moved = practiceReview.Next(out var bringsNewProblem);
@@ -991,7 +1070,7 @@ public class QuizRunTests
     {
         // §4, live review: the frontier was just completed by a submission;
         // navigating away and back changes nothing of it.
-        var reviewed = ThreePresented().SubmitPlay(Alt());
+        var reviewed = ThreePresented().SubmitPlay(Alt(), out _);
         var recorded = PlayOfRecord(reviewed.Frontier!);
 
         var returned = reviewed.GoToFirst().GoToLast();
@@ -1040,8 +1119,8 @@ public class QuizRunTests
         // are taken from; the rest from a practice review on the middle problem.
         var staged = ThreePresented();
         var reviewing = landing is Landing.MovingOnFromTheFrontier or Landing.ANewProblem
-            ? staged.SubmitPlay(Best())
-            : staged.GoBack().SubmitPlay(Best());
+            ? staged.SubmitPlay(Best(), out _)
+            : staged.GoBack().SubmitPlay(Best(), out _);
         Assert.NotNull(reviewing.Review);
 
         var landed = landing switch
@@ -1065,7 +1144,7 @@ public class QuizRunTests
     {
         // §5: review state is ephemeral, live or practice alike. The answer of
         // record persists; the review that showed it does not come back.
-        var reviewed = ThreePresented().SubmitPlay(Best());     // a live review on the frontier
+        var reviewed = ThreePresented().SubmitPlay(Best(), out _);     // a live review on the frontier
         Assert.NotNull(reviewed.Review);
 
         var returned = reviewed.GoBack().GoToLast();
@@ -1121,7 +1200,7 @@ public class QuizRunTests
         // answered one, the one skipped of record and a deferred one's later
         // live answer all stand; only what was still unresolved is converted.
         var staged = MoveOnTo(ThreePresented(), PlayProblem(4));      // answered, skipped, deferred, frontier
-        var answeredLate = staged.GoBack().SubmitPlay(Best());        // the deferred problem, answered live
+        var answeredLate = staged.GoBack().SubmitPlay(Best(), out _);        // the deferred problem, answered live
         var recorded = PlayOfRecord(answeredLate.Presented[2]);
 
         var ended = answeredLate.GoToFirst().End();
@@ -1149,7 +1228,7 @@ public class QuizRunTests
         // no new frontier is presented and the run ends. The deferred problem
         // must still become Skipped of record." End quiz is one way of
         // finishing, not the owner of the conversion.
-        var run = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(Best()), PlayProblem(2));
+        var run = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(Best(), out _), PlayProblem(2));
 
         var pending = run.Next(out var bringsNewProblem);             // Skip on the last problem
         Assert.True(bringsNewProblem);
@@ -1173,8 +1252,8 @@ public class QuizRunTests
     {
         // "Completed problems get nothing added" — ended from the frontier's
         // own review, or from an earlier problem with a practice review up.
-        var completed = ThreePresented().SubmitPlay(Alt());
-        var from = fromAnEarlierProblem ? completed.GoToFirst().SubmitPlay(Best()) : completed;
+        var completed = ThreePresented().SubmitPlay(Alt(), out _);
+        var from = fromAnEarlierProblem ? completed.GoToFirst().SubmitPlay(Best(), out _) : completed;
 
         var ended = from.End();
 
@@ -1185,7 +1264,7 @@ public class QuizRunTests
     [Fact]
     public void End_LeavesNothingOnScreen_AndTheRecordToBeRead()
     {
-        var reviewed = ThreePresented().SubmitPlay(Alt());
+        var reviewed = ThreePresented().SubmitPlay(Alt(), out _);
 
         var ended = reviewed.End();
 
@@ -1214,8 +1293,8 @@ public class QuizRunTests
         // "So every problem presented is accounted for on Done": each one is an
         // answer or a skip, so the two totals add up to the sequence.
         var cube = CubeProblem(2);
-        var run = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(Best()), cube)
-            .SubmitCubeAnswer(CubeAnswer.DoubleTake);
+        var run = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(Best(), out _), cube)
+            .SubmitCubeAnswer(CubeAnswer.DoubleTake, out _);
         run = MoveOnTo(run, PlayProblem(3));
         run = MoveOnTo(run, PlayProblem(4));
 
@@ -1258,8 +1337,8 @@ public class QuizRunTests
         Assert.Throws<InvalidOperationException>(() => transition switch
         {
             Transition.Present => Show(ended, PlayProblem(4)),
-            Transition.SubmitPlay => ended.SubmitPlay(Best()),
-            Transition.SubmitCubeAnswer => ended.SubmitCubeAnswer(CubeAnswer.DoubleTake),
+            Transition.SubmitPlay => ended.SubmitPlay(Best(), out _),
+            Transition.SubmitCubeAnswer => ended.SubmitCubeAnswer(CubeAnswer.DoubleTake, out _),
             Transition.Redo => ended.Redo(),
             Transition.Next => ended.Next(out _),
             Transition.GoToFirst => ended.GoToFirst(),
@@ -1280,11 +1359,11 @@ public class QuizRunTests
         var play = PlayProblem(1);
         var cube = CubeProblem(2);
 
-        var run = Show(Begin(), play).SubmitPlay(Alt());
+        var run = Show(Begin(), play).SubmitPlay(Alt(), out _);
         var playOfRecord = PlayOfRecord(run.Cursor!);
-        run = MoveOnTo(run, cube).SubmitCubeAnswer(CubeAnswer.NoDoublePass);
+        run = MoveOnTo(run, cube).SubmitCubeAnswer(CubeAnswer.NoDoublePass, out _);
         var cubeOfRecord = CubeOfRecord(run.Cursor!);
-        run = MoveOnTo(run, PlayProblem(3)).SubmitPlay(OffList());   // a skip of record, which scores nothing
+        run = MoveOnTo(run, PlayProblem(3)).SubmitPlay(OffList(), out _);   // a skip of record, which scores nothing
         run = MoveOnTo(run, PlayProblem(4));
         run = MoveOnTo(run, PlayProblem(5));                         // and a deferred problem, which scores nothing either
 
@@ -1311,10 +1390,10 @@ public class QuizRunTests
         run = Show(run, PlayProblem(2));
         Assert.Equal(1, run.SkippedCount);                  // the first is now deferred, behind the frontier
 
-        run = run.SubmitPlay(OffList());
+        run = run.SubmitPlay(OffList(), out _);
         Assert.Equal(2, run.SkippedCount);                  // a skip of record beside it
 
-        run = MoveOnTo(run, PlayProblem(3)).SubmitPlay(Best());
+        run = MoveOnTo(run, PlayProblem(3)).SubmitPlay(Best(), out _);
         Assert.Equal(2, run.SkippedCount);                  // an answer adds nothing
 
         run = MoveOnTo(run, PlayProblem(4));
@@ -1323,7 +1402,7 @@ public class QuizRunTests
         run = run.GoToFirst();
         Assert.Equal(2, run.SkippedCount);                  // moving the cursor changes nothing
 
-        run = run.SubmitPlay(Best());
+        run = run.SubmitPlay(Best(), out _);
         Assert.Equal(1, run.SkippedCount);                  // the deferred problem, answered live: the count drops
         Assert.Equal(2, run.Score.PlayDecisions.Submitted);
 
@@ -1351,7 +1430,7 @@ public class QuizRunTests
         // increment." So the pressed-and-pending run is
         // indistinguishable, in everything it reports, from the run before
         // the press — and both ways the advance can land count the problem.
-        var before = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(OffList()), PlayProblem(2));
+        var before = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(OffList(), out _), PlayProblem(2));
         Assert.Equal(1, before.SkippedCount);
 
         var pending = before.Next(out var bringsNewProblem);
@@ -1374,19 +1453,19 @@ public class QuizRunTests
         // never move for practice." Every completed problem of the run is
         // practised here, scored and off the list, on plays and on a cube.
         var cube = CubeProblem(2);
-        var run = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(Alt()), cube)
-            .SubmitCubeAnswer(CubeAnswer.NoDoublePass);
-        run = MoveOnTo(run, PlayProblem(3)).SubmitPlay(OffList());
+        var run = MoveOnTo(Show(Begin(), PlayProblem(1)).SubmitPlay(Alt(), out _), cube)
+            .SubmitCubeAnswer(CubeAnswer.NoDoublePass, out _);
+        run = MoveOnTo(run, PlayProblem(3)).SubmitPlay(OffList(), out _);
         var staged = MoveOnTo(run, PlayProblem(4));                      // answered, answered, skipped of record, unresolved
         var score = staged.Score;
         var skipped = staged.SkippedCount;
 
         var practised = staged
-            .GoToFirst().SubmitPlay(Best())                              // a better play than the record's
-            .Next(out _).SubmitCubeAnswer(CubeAnswer.DoubleTake)      // the right cube answer
-            .Next(out _).SubmitPlay(Best())                              // a scored play on the skipped problem
-            .Redo().SubmitPlay(OffList())                                // and an off-list one
-            .GoToFirst().SubmitPlay(OffList());                          // off-list on an answered problem
+            .GoToFirst().SubmitPlay(Best(), out _)                              // a better play than the record's
+            .Next(out _).SubmitCubeAnswer(CubeAnswer.DoubleTake, out _)      // the right cube answer
+            .Next(out _).SubmitPlay(Best(), out _)                              // a scored play on the skipped problem
+            .Redo().SubmitPlay(OffList(), out _)                                // and an off-list one
+            .GoToFirst().SubmitPlay(OffList(), out _);                          // off-list on an answered problem
 
         Assert.True(practised.Review!.IsPractice);
         Assert.Equal(score, practised.Score);
@@ -1424,7 +1503,7 @@ public class QuizRunTests
         // right — adjacent ones differ, so a roll read off the wrong entry
         // would show.
         bool[] sides = [true, false, true];
-        var run = Show(Begin(), PlayProblem(1), sides[0]).SubmitPlay(Best());
+        var run = Show(Begin(), PlayProblem(1), sides[0]).SubmitPlay(Best(), out _);
         run = MoveOnTo(run, PlayProblem(2), sides[1]);
         run = MoveOnTo(run, PlayProblem(3), sides[2]);
 
@@ -1437,13 +1516,13 @@ public class QuizRunTests
         AssertTheCursorShows(2);
         run = run.GoBack();
         AssertTheCursorShows(1);
-        run = run.SubmitPlay(Best());                 // through the deferred problem's live answer…
+        run = run.SubmitPlay(Best(), out _);                 // through the deferred problem's live answer…
         AssertTheCursorShows(1);
         run = run.GoToFirst();
         AssertTheCursorShows(0);
         run = run.Next(out _);
         AssertTheCursorShows(1);
-        run = run.GoToLast().SubmitPlay(Alt());       // …and the frontier's completion
+        run = run.GoToLast().SubmitPlay(Alt(), out _);       // …and the frontier's completion
         AssertTheCursorShows(2);
         run = run.Redo().GoToFirst().GoToLast();
         AssertTheCursorShows(2);
@@ -1495,7 +1574,7 @@ public class QuizRunTests
         var run = ThreePresented();
         Assert.Null(run.ProblemCount);
 
-        Assert.Null(run.SubmitPlay(Best()).GoToFirst().End().ProblemCount);
+        Assert.Null(run.SubmitPlay(Best(), out _).GoToFirst().End().ProblemCount);
     }
 
     [Fact]
@@ -1505,7 +1584,7 @@ public class QuizRunTests
         var run = Begin().WithProblemCount(7);
         Assert.Equal(7, run.ProblemCount);
 
-        run = Show(run, PlayProblem(1)).SubmitPlay(Best());
+        run = Show(run, PlayProblem(1)).SubmitPlay(Best(), out _);
         Assert.Equal(7, run.ProblemCount);
         run = MoveOnTo(run.Redo(), PlayProblem(2));
         Assert.Equal(7, run.ProblemCount);
@@ -1563,7 +1642,7 @@ public class QuizRunTests
         // 13/10 6/5 loses 0.05 to the 3-ply play by equity and is the best when
         // the deepest analysis ranks first. The run is handed no ranking at
         // Submit — it scores under its own.
-        var run = Show(Begin(ranking), TestFixtures.DepthSplitDecision()).SubmitPlay(Alt());
+        var run = Show(Begin(ranking), TestFixtures.DepthSplitDecision()).SubmitPlay(Alt(), out _);
 
         var submitted = PlayOfRecord(run.Cursor!);
         Assert.Equal(ranking, submitted.Ranking);
@@ -1583,13 +1662,13 @@ public class QuizRunTests
 
         run = Show(run, PlayProblem(1));
         Assert.Equal(ranking, run.Ranking);
-        run = run.SubmitPlay(Best());
+        run = run.SubmitPlay(Best(), out _);
         Assert.Equal(ranking, run.Ranking);
         run = run.Redo();
         Assert.Equal(ranking, run.Ranking);
         run = run.Next(out _);
         Assert.Equal(ranking, run.Ranking);
-        run = Show(run, CubeProblem(2)).SubmitCubeAnswer(CubeAnswer.DoubleTake);
+        run = Show(run, CubeProblem(2)).SubmitCubeAnswer(CubeAnswer.DoubleTake, out _);
         Assert.Equal(ranking, run.Ranking);
         run = MoveOnTo(run, PlayProblem(3));
         Assert.Equal(ranking, run.Ranking);
@@ -1618,7 +1697,7 @@ public class QuizRunTests
         var score = before.Score;
         var skipped = before.SkippedCount;
 
-        _ = before.SubmitPlay(Best());
+        _ = before.SubmitPlay(Best(), out _);
         _ = before.Next(out _);
         _ = before.GoBack();
         _ = before.GoToFirst();

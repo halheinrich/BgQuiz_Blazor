@@ -868,7 +868,8 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// context folds; a write failure keeps the folded document (the fold
     /// itself succeeded) but flips to <see cref="QuizStatsStatus.WriteFailed"/>
     /// so no further writes are attempted this quiz. Never throws — the
-    /// controller's Continue must not fault on stats trouble.
+    /// controller's Submit, which awaits this write, must not fault on stats
+    /// trouble.
     ///
     /// <para>
     /// <b>The pre-write guard</b> (ruled; SPEC-stats-identity.md §5). Each fold

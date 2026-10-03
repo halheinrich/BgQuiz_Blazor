@@ -382,12 +382,28 @@ internal sealed class QuizRun
     /// the totals — stand untouched. Which it is was read off the disposition,
     /// before anything was written.
     /// </para>
+    ///
+    /// <para>
+    /// <b>It says what it made of record</b>, through
+    /// <paramref name="answerOfRecord"/>, so the caller that folds answers into
+    /// the lifetime record folds exactly what this submission recorded and
+    /// decides nothing itself — not whether the submission was live, and not
+    /// what the review shows (SPEC-scoring.md §2: the answer of record folds at
+    /// the first submission itself).
+    /// </para>
     /// </summary>
+    /// <param name="play">The play the user submitted, as entered.</param>
+    /// <param name="answerOfRecord">
+    /// The answer of record this submission made — the very instance the
+    /// problem's disposition now holds — or null when it made none: a practice
+    /// submission, which records nothing, and a live play that completes the
+    /// problem as a skip of record, which carries no answer.
+    /// </param>
     /// <exception cref="InvalidOperationException">
     /// The run is not in the answering state, or the problem on screen is a
     /// cube decision, which is answered with <see cref="SubmitCubeAnswer"/>.
     /// </exception>
-    public QuizRun SubmitPlay(Play play)
+    public QuizRun SubmitPlay(Play play, out AnswerOfRecord? answerOfRecord)
     {
         var answering = RequireAnswering();
         if (answering.Problem is not CheckerPlayDecision decision)
@@ -397,21 +413,22 @@ internal sealed class QuizRun
         var practice = answering.Disposition.IsCompleted;
         var outcome = PlaySubmission.Score(play, decision, Ranking);
         var review = new ProblemReview.Play(outcome, play) { IsPractice = practice };
+        answerOfRecord = null;
         if (practice) return WithReview(review);
 
-        return WithCursorCompleted(
-            outcome.TryGetScored(out var submitted)
-                ? ProblemDisposition.Answered(AnswerOfRecord.Of(submitted))
-                : ProblemDisposition.Skipped,
-            review);
+        if (!outcome.TryGetScored(out var submitted))
+            return WithCursorCompleted(ProblemDisposition.Skipped, review);
+
+        answerOfRecord = AnswerOfRecord.Of(submitted);
+        return WithCursorCompleted(ProblemDisposition.Answered(answerOfRecord), review);
     }
 
     /// <summary>
     /// Score the cube <paramref name="answer"/> — one of the four — at the cube
     /// decision on screen and show its review. The cursor does not move. Live
-    /// or practice exactly as <see cref="SubmitPlay"/> describes; every cube
-    /// answer is scored, so a live one is always an answer of record and never
-    /// a skip.
+    /// or practice exactly as <see cref="SubmitPlay"/> describes, and it says
+    /// what it made of record the same way; every cube answer is scored, so a
+    /// live one is always an answer of record and never a skip.
     ///
     /// <para>
     /// <b>Scoring is the producer's, in one call</b>
@@ -424,6 +441,12 @@ internal sealed class QuizRun
     /// of record and the review on screen are one scored answer.
     /// </para>
     /// </summary>
+    /// <param name="answer">The cube answer the user submitted.</param>
+    /// <param name="answerOfRecord">
+    /// The answer of record this submission made — the very instance the
+    /// problem's disposition now holds — or null for a practice submission,
+    /// which records nothing.
+    /// </param>
     /// <exception cref="InvalidOperationException">
     /// The run is not in the answering state, or the problem on screen is a
     /// checker-play decision, which is answered with <see cref="SubmitPlay"/>.
@@ -431,7 +454,7 @@ internal sealed class QuizRun
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="answer"/> is not one of the four answers.
     /// </exception>
-    public QuizRun SubmitCubeAnswer(CubeAnswer answer)
+    public QuizRun SubmitCubeAnswer(CubeAnswer answer, out AnswerOfRecord? answerOfRecord)
     {
         var answering = RequireAnswering();
         if (answering.Problem is not CubeDecision decision)
@@ -440,9 +463,14 @@ internal sealed class QuizRun
 
         var practice = answering.Disposition.IsCompleted;
         var review = new ProblemReview.Cube(answer, decision) { IsPractice = practice };
-        return practice
-            ? WithReview(review)
-            : WithCursorCompleted(ProblemDisposition.Answered(AnswerOfRecord.Of(review.Submission)), review);
+        if (practice)
+        {
+            answerOfRecord = null;
+            return WithReview(review);
+        }
+
+        answerOfRecord = AnswerOfRecord.Of(review.Submission);
+        return WithCursorCompleted(ProblemDisposition.Answered(answerOfRecord), review);
     }
 
     /// <summary>

@@ -60,9 +60,10 @@ internal sealed class FakeProblemStatsSink : IProblemStatsSink
     /// <see cref="RecordAsync(SubmittedCubeAnswer)"/> await this before
     /// folding. Defaults to completed (folds are synchronous, as before); an
     /// overlap test sets a <see cref="TaskCompletionSource"/> task here to
-    /// freeze the controller <i>inside</i> the awaited fold — the window
-    /// where <c>Review</c> is still set and a second Continue would
-    /// double-fold without the transition gate.
+    /// freeze the controller <i>inside</i> a Submit's awaited write — the
+    /// window where the submission's review is already on screen and only the
+    /// transition gate stands between the write and a gesture that would
+    /// begin a new run, move on or end the quiz under it.
     /// </summary>
     public Task RecordGate { get; set; } = Task.CompletedTask;
 
