@@ -299,12 +299,13 @@ internal sealed class QuizPageEvidence
     internal Task PrintAsync(string label) => TakeAsync(label, Print.StateOnly);
 
     /// <summary>
-    /// Run a scenario's own read and keep the value it returned, with when it
-    /// was issued and when it returned. The read is the scenario's, called
-    /// once and returned unchanged; nothing else is read for the line. When
-    /// in that window the page carried it out is not observable, so the way
-    /// out places the page's first row against the window rather than claiming
-    /// what the read saw.
+    /// Run a scenario's own read, or a wait of its own that returns what it
+    /// waited for, and keep the value it returned, with when it was issued
+    /// and when it returned. The call is the scenario's, made once and its
+    /// value returned unchanged; nothing else is read for the line. When in
+    /// that window the page carried a read out is not observable, so the way
+    /// out places the page's first row against the window rather than
+    /// claiming what the read saw.
     /// </summary>
     internal async Task<T> ReadAsync<T>(string what, Func<Task<T>> read)
     {
@@ -316,6 +317,15 @@ internal sealed class QuizPageEvidence
         _lines.Add((returned, $"{what} = {text} (issued {Since(issued)}, returned {Since(returned)})"));
         return value;
     }
+
+    /// <summary>
+    /// A line from outside the page, at the test-clock instant it happened —
+    /// what a harness under the scenario saw, such as
+    /// <see cref="RowFitModuleHold.Events"/> — written in its place in the
+    /// timeline. Reads nothing.
+    /// </summary>
+    internal void Note(DateTimeOffset at, string text) =>
+        _lines.Add(((at - DateTimeOffset.UnixEpoch).TotalMilliseconds, text));
 
     /// <summary>
     /// Run a scenario's navigation gesture, then read the page's state, for a
@@ -552,7 +562,10 @@ internal sealed class QuizPageEvidence
         if (insertion == Edge.After)
             return $"the row was not in the DOM until after the read returned, so the read saw no row: {raw}";
         if (insertion == Edge.During)
-            return $"the row was inserted while the read was in flight, so what the read saw is not known: {raw}";
+        {
+            return "the row was inserted while the read was in flight: issued before the row existed, it returned "
+                + $"after (a one-shot read may have seen either; a wait returns what it waited for): {raw}";
+        }
         if (insertion == Edge.Unclear)
         {
             return "too close to call (the row's insertion and the read overlap within the clocks' bracket), "

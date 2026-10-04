@@ -3999,7 +3999,37 @@ sleep ruled out above — it waits out nothing, ends the moment the assertion
 holds, and is the interval Playwright's own assertions poll on. A single read
 stays correct only where it follows an `Expect` that already proved the settled
 state **and** nothing can still be moving, and every such site says so in a
-remark (`SidebarCollapseTests.PanelWidthAsync`, `CommaDecimalLocaleTests`).
+remark (`SidebarCollapseTests.PanelWidthAsync`, whose read after Start is held
+for its CI evidence under `halheinrich/backgammon#333`;
+`CommaDecimalLocaleTests`).
+
+**A branch waits for the state it branches on** (`halheinrich/backgammon#333`).
+A read that decides which way a scenario goes is the same timing assertion,
+and a wrong branch fails far from its cause. After Start, a navigation,
+Submit, Continue, a pick or a reload the page can still be on its way: on a
+first load the quiz page renders no board and no action row until its row-fit
+module is in. The Too good scenario counted the Too good pill straight after
+Start, saw no row, took the branch for the other problem, skipped the problem
+it wanted and failed, on umbrella CI only. A scenario now establishes the
+problem it is on by waiting for it to land (`E2eTestBase.ExpectCubeProblemAsync`:
+the score panel names it, its row offers the four answers, and ▶ is enabled,
+so no transition is in flight), and after each navigation it waits for the
+problem it goes to before it asserts or acts. A page still showing the problem
+a navigation is leaving satisfies any wait that does not name the destination.
+
+**The proof runs under the condition that broke it.** `RowFitModuleHold` holds
+`actionRowFit.js` until the scenario reports that its first wait has been
+issued, then lets it through on its own continuation, so the row cannot exist
+before the scenario is waiting for it on any runner, which a hold's duration
+alone could not promise. A picked folder's order is the browser's directory
+enumeration: name order on Windows, the file system's own on Linux, where
+umbrella CI run 210 served `TooGoodAndTake.xgp` first and Windows serves
+`BothAnalysis.xgp` first. `E2eTestBase.PickFixturesInOrderAsync` therefore
+sets the order where the page reads it, the fallback input's `files`,
+reordered into a browser-built `FileList`, and
+`QuizFlowTests.TooGoodToDoubleTakePath_WithTheRowArrivingOnlyOnceTheScenarioWaitsForIt`
+runs the scenario in each order. Reverting its decision to a one-shot read
+turns the Too-good-first row red.
 
 **A geometry pin checks its yardstick first.** Every "A sits below B" claim
 here is arithmetic over two boxes, and a box that is absent or zero-sized makes

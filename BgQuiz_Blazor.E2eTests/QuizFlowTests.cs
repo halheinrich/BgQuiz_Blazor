@@ -55,7 +55,65 @@ public sealed class QuizFlowTests : E2eTestBase
     }
 
     [Fact]
-    public async Task TooGoodToDoubleTakePath_TooGoodIsCharged_ThenNoDoubleOnReturnIsPractice()
+    public Task TooGoodToDoubleTakePath_TooGoodIsCharged_ThenNoDoubleOnReturnIsPractice() =>
+        TooGoodToDoubleTakePathAsync(TooGoodConditions.AsTheFolderComes);
+
+    /// <summary>
+    /// <see cref="TooGoodToDoubleTakePath_TooGoodIsCharged_ThenNoDoubleOnReturnIsPractice"/>'s
+    /// scenario, unchanged, under the condition that made it fail on umbrella
+    /// CI (halheinrich/backgammon#333), in both orders: the action row arrives
+    /// only after the scenario has begun waiting for its first problem.
+    ///
+    /// <para>
+    /// There, the scenario read the Too good pill's count straight after
+    /// Start, before the quiz page had any row; it read 0, took the branch
+    /// for the other problem coming first, skipped Too good, and failed
+    /// further on. Reproduced with the row-fit module held across that read
+    /// and Too good served first, it failed that way every time. Now the
+    /// scenario waits for the first problem to land before it branches, and
+    /// every navigation waits for the problem it goes to. This holds the
+    /// module (<see cref="RowFitModuleHold"/>) until that first wait has been
+    /// issued, so the row cannot exist before the scenario is waiting for it
+    /// on any runner, and serves the folder in each order
+    /// (<see cref="E2eTestBase.PickFixturesInOrderAsync"/>), so each branch
+    /// is taken, on every operating system. The scenario checks that its
+    /// first problem is the one ordered first; the hold, that it held the
+    /// module and let it through only after that checkpoint.
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData(TooGoodPosition.First)]
+    [InlineData(TooGoodPosition.Second)]
+    public Task TooGoodToDoubleTakePath_WithTheRowArrivingOnlyOnceTheScenarioWaitsForIt(TooGoodPosition position) =>
+        TooGoodToDoubleTakePathAsync(TooGoodConditions.HeldAndOrdered(position));
+
+    /// <summary>Where the Too good problem stands in the folder the scenario picks.</summary>
+    public enum TooGoodPosition
+    {
+        /// <summary>Served first: the scenario keeps it.</summary>
+        First,
+
+        /// <summary>Served second: the scenario skips the other problem to reach it.</summary>
+        Second,
+    }
+
+    /// <summary>
+    /// How a run of the Too good scenario is set up: the order its folder
+    /// reaches the app in, null for the browser's own enumeration, and
+    /// whether the row-fit module is held until the scenario is waiting for
+    /// its first problem.
+    /// </summary>
+    private sealed record TooGoodConditions(TooGoodPosition? Order, bool RowHeldUntilWaitedFor)
+    {
+        /// <summary>The smoke: the folder as the browser enumerates it, nothing held.</summary>
+        internal static readonly TooGoodConditions AsTheFolderComes = new(Order: null, RowHeldUntilWaitedFor: false);
+
+        /// <summary>The proof's condition, with Too good at <paramref name="position"/>.</summary>
+        internal static TooGoodConditions HeldAndOrdered(TooGoodPosition position) =>
+            new(position, RowHeldUntilWaitedFor: true);
+    }
+
+    private async Task TooGoodToDoubleTakePathAsync(TooGoodConditions conditions)
     {
         // The position that decided SPEC-scoring §3's 2026-09-02 amendment
         // (halheinrich/backgammon#187), end to end: XG labels it "Too good to
@@ -69,35 +127,63 @@ public sealed class QuizFlowTests : E2eTestBase
         // practised), No double, which is correct, marked practice, and changes
         // no score. The first answer is the one of record. A second cube
         // position is in the folder so there is somewhere to go and come back
-        // from; which of the two the source serves first is not this scenario's
-        // business, so it reaches Too good and returns to it either way.
+        // from; its fourth answer reads No double / Pass, which tells the two
+        // apart. Which of the two the source serves first is not this
+        // scenario's business, so it reaches Too good and returns to it either
+        // way — and it acts only once the problem it is on has landed
+        // (ExpectCubeProblemAsync), never on a read taken while the page may
+        // still be on its way (halheinrich/backgammon#333).
         //
         // The evidence prints (QuizPageEvidence) are halheinrich/backgammon#333's
-        // observability: this scenario failed on umbrella CI alone, so the log
-        // shows, on a pass as on a failure, which problem came first, whether
-        // the row existed when the scenario chose its branch, and how each
-        // navigation landed. They observe; nothing below decides or asserts on
-        // them.
+        // observability, kept for the umbrella CI run that reads this
+        // correction back: they show, on a pass as on a failure, which problem
+        // came first, where the first row arrived against the scenario's first
+        // wait, and how each navigation landed. They observe; nothing below
+        // decides or asserts on them.
         var evidence = new QuizPageEvidence(Page, _output);
+        RowFitModuleHold? hold = null;
         try
         {
             await BootHomeAsync();
-            await DisableMaximizeAsync();   // the score panel stays on screen while answering
+            await DisableMaximizeAsync();   // the score panel stays on screen while answering; it names the problem
             await BootHomeAsync();
-            await PickFixturesAsync(TooGoodTakeFixture, CubeFixture);
+            switch (conditions.Order)
+            {
+                case null:
+                    await PickFixturesAsync(TooGoodTakeFixture, CubeFixture);
+                    break;
+                case TooGoodPosition.First:
+                    await PickFixturesInOrderAsync(TooGoodTakeFixture, CubeFixture);
+                    break;
+                case TooGoodPosition.Second:
+                    await PickFixturesInOrderAsync(CubeFixture, TooGoodTakeFixture);
+                    break;
+            }
             await ApplyFilterAsync();
             await evidence.RecordAsync();
+            if (conditions.RowHeldUntilWaitedFor)
+                hold = await RowFitModuleHold.InstallAsync(Page);
             await StartQuizAsync();
 
-            await evidence.PrintAsync("after Start, at the decision: a snapshot taken before its read, which it cannot know");
-            var tooGoodFirst = await evidence.ReadAsync(
-                "the decision's read, the Too good pill's count (1 keeps this problem; anything else skips)",
-                () => CubePill(ExpectedText.TooGoodPill).CountAsync()) == 1;
+            // The branch: which problem the run served first, once it has landed.
+            var first = await evidence.ReadAsync(
+                "the first problem's fourth answer, once problem 1 has landed",
+                () => ExpectCubeProblemAsync(1, () => hold?.Checkpoint("the scenario is waiting for problem 1 to land")));
+            if (conditions.Order is { } order)
+            {
+                Assert.Equal(
+                    order == TooGoodPosition.First ? ExpectedText.TooGoodPill : ExpectedText.NoDoublePassPill, first);
+            }
+            var tooGoodFirst = first == ExpectedText.TooGoodPill;
+            var tooGood = tooGoodFirst ? 1 : 2;
             if (!tooGoodFirst)
+            {
                 await evidence.NavigateAsync("Skip", () => NavButton(ExpectedText.SkipButton).ClickAsync());
+                Assert.Equal(ExpectedText.TooGoodPill, await ExpectCubeProblemAsync(tooGood));
+            }
 
             // All four answers are offered, the fourth labelled Too good.
-            await Expect(Page.Locator(".action-row .bg-cube-actions").GetByRole(AriaRole.Radio)).ToHaveCountAsync(4);
+            await Expect(CubeAnswers).ToHaveCountAsync(4);
             await Expect(CubePill(ExpectedText.TooGoodPill)).ToBeVisibleAsync();
             await Expect(CubePill(ExpectedText.NoDoublePassPill)).ToHaveCountAsync(0);
 
@@ -107,27 +193,33 @@ public sealed class QuizFlowTests : E2eTestBase
             await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-danger"));
             await Expect(Page.GetByText(ExpectedText.Submitted(1))).ToBeVisibleAsync();
 
-            // Away and back: from the first problem ▶ then ◀, from the second ◀ then ▶.
-            if (tooGoodFirst)
-            {
-                await evidence.NavigateAsync("Next", () => NavButton(ExpectedText.NextButton).ClickAsync());
-                await evidence.NavigateAsync("Back", () => NavButton(ExpectedText.BackButton).ClickAsync());
-            }
-            else
-            {
-                await evidence.NavigateAsync("Back", () => NavButton(ExpectedText.BackButton).ClickAsync());
-                await evidence.NavigateAsync("Next", () => NavButton(ExpectedText.NextButton).ClickAsync());
-            }
-            await Expect(CubePill(ExpectedText.TooGoodPill)).ToBeVisibleAsync();
+            // Away and back: from the first problem ▶ then ◀, from the second
+            // ◀ then ▶. Each landing is awaited before the next gesture: a
+            // gesture that met the page still on the problem it was leaving
+            // would act on that one.
+            var other = tooGoodFirst ? 2 : 1;
+            var (away, back) = tooGoodFirst
+                ? (ExpectedText.NextButton, ExpectedText.BackButton)
+                : (ExpectedText.BackButton, ExpectedText.NextButton);
+            await evidence.NavigateAsync(away, () => NavButton(away).ClickAsync());
+            Assert.Equal(ExpectedText.NoDoublePassPill, await ExpectCubeProblemAsync(other));
+            await evidence.NavigateAsync(back, () => NavButton(back).ClickAsync());
+            Assert.Equal(ExpectedText.TooGoodPill, await ExpectCubeProblemAsync(tooGood));
+
             await AnswerCubeNoDoubleAsync();
 
             await Expect(VerdictBand).ToHaveTextAsync(
                 ExpectedText.PracticePrefix + ExpectedText.CubeVerdictNoDoubleCorrect);
             await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-success"));
             await Expect(Page.GetByText(ExpectedText.Submitted(1))).ToBeVisibleAsync();   // the score did not move
+
+            if (hold?.Unmet() is { } unmet)
+                Assert.Fail($"the scenario passed, but not under the condition it claims: {unmet}");
         }
         finally
         {
+            foreach (var (at, what) in hold?.Events() ?? [])
+                evidence.Note(at, what);
             await evidence.PrintOnTheWayOutAsync();
         }
     }

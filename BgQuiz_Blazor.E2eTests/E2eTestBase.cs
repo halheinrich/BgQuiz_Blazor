@@ -19,6 +19,23 @@ namespace BgQuiz_Blazor.E2eTests;
 /// awaiting the user-visible consequence of that transition, so callers can
 /// chain steps without timing knowledge.
 /// </para>
+///
+/// <para>
+/// <b>A read that decides a branch, or is asserted, waits first for the state
+/// it reads</b> (halheinrich/backgammon#333). After Start, a navigation,
+/// Submit, Continue, a pick or a reload the page can still be on its way —
+/// on a first load the quiz page has no action row at all until its row-fit
+/// module is in — so a one-shot read there returns whatever the page showed at
+/// that instant, and a branch on it follows the runner's speed. A scenario
+/// establishes the problem it is on by waiting for it to land
+/// (<see cref="ExpectCubeProblemAsync"/>), and after each navigation waits
+/// for the problem it goes to before it asserts or acts: a page still showing
+/// the problem it is leaving satisfies any wait that does not name the
+/// destination. A single read is correct only where an <c>Expect</c> has
+/// already proved the settled state and nothing can still be moving, and such
+/// a site says so. The Too good scenario is proved under the condition that
+/// broke it (<see cref="RowFitModuleHold"/>).
+/// </para>
 /// </summary>
 [Collection(E2eCollection.Name)]
 public abstract class E2eTestBase : IAsyncLifetime
@@ -357,6 +374,62 @@ public abstract class E2eTestBase : IAsyncLifetime
     }
 
     /// <summary>
+    /// <see cref="PickFixturesAsync"/>, with the folder's files reaching the
+    /// app in <b>exactly the order given</b>, on any operating system — for a
+    /// scenario whose subject is what happens when one particular problem
+    /// comes first (halheinrich/backgammon#333).
+    ///
+    /// <para>
+    /// <b>Why it is needed.</b> A picked folder's order is the browser's
+    /// enumeration of the directory: Playwright hands Chromium the directory
+    /// itself, and nothing between the browser and the quiz sorts it. On
+    /// Windows that enumeration is name order; on Linux it is the file
+    /// system's own order, which in umbrella CI run 210 served the Too good
+    /// scenario's two files the other way round. So a staged file's
+    /// <i>name</i> controls the order on Windows only, and the app's order is
+    /// the product's, which a test does not change.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>How.</b> The order is set where the page reads it: the fallback
+    /// input's <c>files</c>, which the app's folder module takes as the
+    /// folder's encounter order. For this input element only, and for the
+    /// rest of the document's life, reading <c>files</c> returns the browser's
+    /// own list, its <c>File</c> objects unchanged (their
+    /// <c>webkitRelativePath</c> included), reordered by
+    /// <paramref name="fixtureFileNames"/>, as a genuine <c>FileList</c>
+    /// built by the browser's <c>DataTransfer</c>. It fakes the browser API's
+    /// enumeration order and nothing of the app's, in the way
+    /// <c>FsAccessFakeTestBase</c> fakes the directory picker: every line of
+    /// the app's own pick path runs. The order the browser enumerated in is
+    /// read and replaced, never relied on, which is what makes the result the
+    /// same on every operating system.
+    /// </para>
+    /// </summary>
+    /// <param name="fixtureFileNames">The committed fixtures to stage, in the order the app is to receive them.</param>
+    protected async Task PickFixturesInOrderAsync(params string[] fixtureFileNames)
+    {
+        await FallbackFolderInput.EvaluateAsync("""
+            (input, order) => {
+              const own = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'files');
+              const rank = file => { const i = order.indexOf(file.name); return i < 0 ? order.length : i; };
+              Object.defineProperty(input, 'files', {
+                configurable: true,
+                get() {
+                  const enumerated = own.get.call(this);
+                  if (!enumerated) return enumerated;
+                  const transfer = new DataTransfer();
+                  for (const file of [...enumerated].sort((a, b) => rank(a) - rank(b))) transfer.items.add(file);
+                  return transfer.files;
+                },
+                set(value) { own.set.call(this, value); },
+              });
+            }
+            """, fixtureFileNames);
+        await PickFixturesAsync(fixtureFileNames);
+    }
+
+    /// <summary>
     /// Pick a single-problem folder whose one file is <b>synthesized in this
     /// run</b> rather than committed — same staging, same real fallback upload,
     /// content that exists only in memory until it is written.
@@ -685,6 +758,82 @@ public abstract class E2eTestBase : IAsyncLifetime
         {
             NameRegex = new Regex($@"^(?:{name}|\S+ \({name}\))$"),
         });
+    }
+
+    /// <summary>
+    /// The live action row's four cube answers — never the row-fit ruler's
+    /// inert copies beside the row, which carry the same classes.
+    /// </summary>
+    protected ILocator CubeAnswers => Page.Locator(".action-row .bg-cube-actions").GetByRole(AriaRole.Radio);
+
+    /// <summary>
+    /// ▶, by whichever of its two names it carries: Skip where a press would
+    /// add to the skip count, Next elsewhere (SPEC-quiz-history.md §2).
+    /// </summary>
+    protected ILocator ForwardButton => Page.GetByRole(AriaRole.Button, new()
+    {
+        NameRegex = new Regex($"^(?:{ExpectedText.SkipButton}|{ExpectedText.NextButton})$"),
+    });
+
+    /// <summary>
+    /// Wait until the quiz page has <b>landed</b> on cube problem
+    /// <paramref name="number"/>, answerable, and return its fourth answer's
+    /// reading: <see cref="ExpectedText.TooGoodPill"/> or
+    /// <see cref="ExpectedText.NoDoublePassPill"/> (SPEC-scoring §3: the
+    /// fourth reads one or the other at every cube decision), which tells
+    /// apart the committed fixtures that differ in it
+    /// (<see cref="TooGoodTakeFixture"/>, <see cref="CubeFixture"/>).
+    ///
+    /// <para>
+    /// <b>Landed</b> is three facts, each awaited: the score panel names the
+    /// problem; its row offers the four answers; and ▶ is enabled, which, with
+    /// a problem on screen, means the controller is not busy, so no transition
+    /// is in flight (SPEC-quiz-history.md §2). The number comes first and
+    /// carries the identity: a page still showing the problem a navigation is
+    /// leaving names that one, so no wait here can be satisfied by the
+    /// departure. The score panel is the number's only home, so the maximize
+    /// setting, which hides it while answering, must be off.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why a scenario branches on this and never on a one-shot read</b>
+    /// (halheinrich/backgammon#333). After Start, or any navigation, the page
+    /// can still be on its way: on a first load the quiz page shows no row at
+    /// all until its row-fit module is in. A read taken then returns what the
+    /// page showed at that instant, and a branch on it follows the runner's
+    /// speed: the Too good scenario read "no Too good pill" there, skipped
+    /// the very problem it wanted, and failed only on umbrella CI. A wait
+    /// returns once the page shows the state; then the two counts below find
+    /// which reading the fourth answer has, correct as single reads because
+    /// the waits have proved this problem landed and nothing moves the run
+    /// until the scenario acts. Exactly one of them must be there: anything
+    /// else fails here, naming both counts.
+    /// </para>
+    /// </summary>
+    /// <param name="number">The problem's number in the run, as the score panel shows it.</param>
+    /// <param name="waitBegun">
+    /// Called once the wait has been issued, before it is awaited: a
+    /// checkpoint for a harness that must know the scenario is already
+    /// waiting (<see cref="RowFitModuleHold"/>). It must return at once.
+    /// </param>
+    protected async Task<string> ExpectCubeProblemAsync(int number, Action? waitBegun = null)
+    {
+        var landing = ExpectProblemNumberAsync(number);
+        waitBegun?.Invoke();
+        await landing;
+        await Expect(CubeAnswers).ToHaveCountAsync(4);
+        await Expect(ForwardButton).ToBeEnabledAsync();
+
+        var tooGood = await CubePill(ExpectedText.TooGoodPill).CountAsync();
+        var noDoublePass = await CubePill(ExpectedText.NoDoublePassPill).CountAsync();
+        return (tooGood, noDoublePass) switch
+        {
+            (1, 0) => ExpectedText.TooGoodPill,
+            (0, 1) => ExpectedText.NoDoublePassPill,
+            _ => throw new Xunit.Sdk.XunitException(
+                $"problem {number} landed, but its fourth answer is not one reading: {tooGood} Too good pill(s), "
+                + $"{noDoublePass} No double / Pass pill(s)"),
+        };
     }
 
     /// <summary>
