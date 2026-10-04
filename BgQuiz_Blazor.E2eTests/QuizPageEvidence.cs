@@ -12,57 +12,72 @@ namespace BgQuiz_Blazor.E2eTests;
 /// response to a CI-only failure (AGENTS.md, Reliability: "CI-only failure →
 /// observability first"; halheinrich/backgammon#333). The CI step runs with
 /// detailed console verbosity, so a passing test's output reaches the log as a
-/// failing one's does.
+/// failing one's does. Every line claims only what its instrument measured.
 ///
 /// <para>
 /// <b>It observes; it never decides, waits or fails.</b> Nothing here asserts,
 /// and nothing waits for the page to become ready: a print that waited for a
-/// value to appear would change what it reports. A read of the page that fails
-/// is printed as such and never thrown, so the evidence cannot change a
-/// scenario's outcome, nor replace the exception a <c>finally</c> prints on
-/// the way out of. What a print does cost the scenario is one round trip to
-/// the page, the time its next step waits; it does nothing else on the
-/// scenario's path (below).
+/// value to appear would change what it reports. A failure of the evidence
+/// itself — a page that cannot be read, a reply that cannot be parsed — is
+/// printed as such and never thrown, so it cannot fail the test, nor replace
+/// the exception a <c>finally</c> prints on the way out of.
 /// </para>
 ///
 /// <para>
-/// <b>Two sources, one clock.</b> Each print reads the page once, in one
+/// <b>It is not free, and so it can move the race it watches.</b> The
+/// recorder changes no state the page holds or renders, but its callbacks run
+/// on the page's main thread, after every DOM change and on every click, and
+/// every print awaits a round trip to the page before the scenario's next
+/// step. Both take time the page and the scenario would otherwise spend
+/// elsewhere, so the evidence can shift the scheduling of the very race it
+/// observes. Parsing and writing are kept off the scenario's path (below) to
+/// keep that cost to the one round trip.
+/// </para>
+///
+/// <para>
+/// <b>Two sources, two clocks.</b> Each print reads the page once, in one
 /// script, so every field of its line describes the same instant. Between
-/// prints, a recorder in the page (<see cref="RecordAsync"/>) notes every
-/// change of that state as the DOM takes it, every click with the state on
-/// screen as it landed, and the row-fit module's fetch, each stamped when it
-/// happened. That is how the log shows the first problem the page rendered
-/// even where a scenario's own read came before it, with no print having
-/// waited for it. The page and the test read the same machine's clock, so
-/// every line carries one timeline, to within a millisecond or so across the
-/// two: wall-clock time, and milliseconds since the evidence began.
+/// prints, a recorder in the page (<see cref="RecordAsync"/>) notes each
+/// change of that state when its MutationObserver callback sees it, each
+/// click when the click's event reaches its capture listener, and the row-fit
+/// module's fetch as resource timing reports it. The times it notes are those
+/// observations, not the instants the DOM changed: a node is in the DOM no
+/// later than the callback that sees it. That is how the log shows the first
+/// problem the page rendered even where a scenario's own read came before it,
+/// with no print having waited for it. Page-side times come from the page's
+/// clock (<c>performance.timeOrigin + performance.now()</c>), test-side times
+/// from the test's (<see cref="DateTimeOffset.UtcNow"/>), and each line is
+/// stamped with its clock. The run measures how far apart the two are: each
+/// print's page instant lies between the test's issuing it and its returning,
+/// which brackets the offset, and every print narrows the bracket. A page
+/// event is placed before or after a test-side window only where it is
+/// separated by more than that bracket; inside it, the placement is printed
+/// as too close to call, with the raw times.
 /// </para>
 ///
 /// <para>
 /// <b>Written on the way out.</b> A print only keeps what the page returned;
 /// <see cref="PrintOnTheWayOutAsync"/>, in a scenario's <c>finally</c>,
-/// parses and writes everything, the test's own lines and the page's notes
-/// (prefixed "page:") merged in time order. The test's output reaches the log
-/// only when the test ends, so nothing is lost by waiting, and the parsing
-/// stays off the scenario's path, where it would delay the very read a print
-/// stands before.
+/// parses and writes everything, merged into one order by the measured
+/// offset. The test's output reaches the log only when the test ends, so
+/// nothing is lost by waiting.
 /// </para>
 ///
 /// <para>
-/// <b>What a state line says.</b> The page's path. The row-fit module's state
-/// and the row's, kept apart: the module's fetch as the page's resource timing
-/// recorded it, and whether the page's two modules have been imported, which
-/// the keyboard module's readiness mark (<see cref="QuizKeysMark"/>) says,
-/// because the page sets it only after both imports have landed
-/// (<c>Quiz.ImportModulesAsync</c>); then the row absent (the page renders no
-/// row until the module is in), present with its fit pending, or present and
-/// fitted. The problem, by the number the score panel shows and by its fourth
-/// answer's reading, the pill's accessible name as the page gives it. The
-/// status strip's text. The navigation buttons, each enabled or not: with a
-/// problem on screen, ▶ is disabled only while the controller is busy, which
-/// is a transition in flight. A field the page does not show is printed as
-/// absent; the score panel and the status strip are absent while the maximize
-/// setting suppresses them.
+/// <b>What a state line says.</b> The page's path. The row-fit module's fetch
+/// and the row, kept apart: the fetch as resource timing recorded it (a fetch,
+/// not the module imported or evaluated); the keyboard module's readiness
+/// mark (<see cref="QuizKeysMark"/>), which the page sets only after both of
+/// its module imports have completed (<c>Quiz.ImportModulesAsync</c>), so the
+/// mark set confirms both imports and the mark absent confirms nothing; then
+/// the row absent, present with its fit pending, or present and fitted. The
+/// problem, by the number the score panel shows and by its fourth answer's
+/// reading, the pill's accessible name as the page gives it. The status
+/// strip's text. The navigation buttons, each enabled or not: with a problem
+/// on screen, ▶ is disabled only while the controller is busy, which is a
+/// transition in flight. A field the page does not show is printed as absent;
+/// the score panel and the status strip are absent while the maximize setting
+/// suppresses them.
 /// </para>
 /// </summary>
 internal sealed class QuizPageEvidence
@@ -79,7 +94,7 @@ internal sealed class QuizPageEvidence
           const text = e => e ? e.textContent.replace(/\s+/g, ' ').trim() : null;
           return {
             path: location.pathname,
-            imports: document.documentElement.hasAttribute(mark),
+            mark: document.documentElement.hasAttribute(mark),
             row: !row ? 'absent' : row.hasAttribute('data-nav-fold-pending') ? 'pending' : 'fitted',
             problem: text(document.querySelector('.problem-position')),
             answers: pills.length,
@@ -93,10 +108,14 @@ internal sealed class QuizPageEvidence
 
     /// <summary>
     /// The recorder, installed once per document: a MutationObserver noting
-    /// each change of <see cref="StateReader"/>'s state, a capture-phase click
-    /// listener noting what was clicked and the state it landed on, and a
-    /// PerformanceObserver noting the row-fit module's fetch. It changes
-    /// nothing the page does. Returns whether it was installed by this call.
+    /// each change of <see cref="StateReader"/>'s state as its callback sees
+    /// it, a capture-phase click listener noting what was clicked and the
+    /// state on screen as the event reached it, and a PerformanceObserver
+    /// noting the row-fit module's fetch. Until it first sees a row it also
+    /// keeps the last time any of its observations saw none, so the first
+    /// row's insertion is bracketed: after that, and no later than the
+    /// observation that saw it. It writes no state of the page's. Returns
+    /// whether it was installed by this call.
     /// </summary>
     private const string Recorder = $$"""
         mark => {
@@ -104,15 +123,20 @@ internal sealed class QuizPageEvidence
           const read = {{StateReader}};
           const at = () => performance.timeOrigin + performance.now();
           const pending = [], fetches = [];
-          let last = null, first = null, lastClick = null;
+          let last = null, first = null, lastClick = null, lastWithoutRow = null;
+          const observe = (state, when) => {
+            if (first !== null) return;
+            if (state.row === 'absent') lastWithoutRow = when;
+            else first = { kind: 'state', at: when, state, lastWithoutRow };
+          };
           const note = () => {
+            const when = at();
             const state = read(mark);
+            observe(state, when);
             const signature = JSON.stringify(state);
             if (signature === last) return;
             last = signature;
-            const e = { kind: 'state', at: at(), state };
-            pending.push(e);
-            if (first === null && state.row !== 'absent') first = e;
+            pending.push({ kind: 'state', at: when, state });
           };
           const fetched = entries => {
             for (const r of entries) {
@@ -128,15 +152,21 @@ internal sealed class QuizPageEvidence
           const resources = new PerformanceObserver(list => fetched(list.getEntries()));
           resources.observe({ type: 'resource', buffered: true });
           window.addEventListener('click', ev => {
+            const when = at();
             const c = ev.target instanceof Element ? ev.target.closest('button, input, a, label') : null;
             const target = c ? (c.getAttribute('aria-label') || c.textContent.replace(/\s+/g, ' ').trim()) : String(ev.target?.nodeName);
-            lastClick = { kind: 'click', at: at(), target, state: read(mark) };
+            const state = read(mark);
+            observe(state, when);
+            lastClick = { kind: 'click', at: when, target, state };
             pending.push(lastClick);
           }, true);
           window.__quizEvidence = {
             take() {
               fetched(resources.takeRecords());
-              return { recording: true, now: at(), state: read(mark), events: pending.splice(0), first, fetches, lastClick };
+              const now = at();
+              const state = read(mark);
+              observe(state, now);
+              return { recording: true, now, state, events: pending.splice(0), first, fetches, lastClick };
             },
           };
           note();
@@ -166,8 +196,11 @@ internal sealed class QuizPageEvidence
     /// <summary>The test's own lines, each stamped by the test's clock.</summary>
     private readonly List<(double At, string Text)> _lines = [];
 
-    /// <summary>Every print's read, in order: its label, what it adds, and the page's JSON or why there is none.</summary>
-    private readonly List<(string Label, Print Print, double At, string? Json, string? Failure)> _takes = [];
+    /// <summary>
+    /// Every print's read, in order: its label, what it adds, when the test
+    /// issued it and when it returned, and the page's JSON or why there is none.
+    /// </summary>
+    private readonly List<(string Label, Print Print, double Issued, double Returned, string? Json, string? Failure)> _takes = [];
 
     /// <summary>Every <see cref="ReadAsync"/> so far: what it read, and when it was issued and returned.</summary>
     private readonly List<(string What, double Issued, double Returned)> _reads = [];
@@ -185,8 +218,18 @@ internal sealed class QuizPageEvidence
         /// <summary>The state line alone.</summary>
         StateOnly,
 
-        /// <summary>The last click, and whether the page still shows the problem it landed on.</summary>
+        /// <summary>The last click the recorder saw, and whether the page still shows the problem on screen then.</summary>
         WithClick,
+    }
+
+    /// <summary>Which clock stamped a line.</summary>
+    private enum Clock
+    {
+        /// <summary>The test's: <see cref="DateTimeOffset.UtcNow"/>.</summary>
+        Test,
+
+        /// <summary>The page's: <c>performance.timeOrigin + performance.now()</c>.</summary>
+        Page,
     }
 
     /// <summary>
@@ -234,8 +277,8 @@ internal sealed class QuizPageEvidence
 
     /// <summary>
     /// Run a scenario's navigation gesture, then read the page's state, for a
-    /// line with the gesture's timing and the state its click landed on, so it
-    /// says whether the page still shows the problem the navigation is
+    /// line with the gesture's timing and the last click the recorder saw, so
+    /// it says whether the page still shows the problem the navigation is
     /// leaving.
     /// </summary>
     internal async Task NavigateAsync(string what, Func<Task> gesture)
@@ -248,9 +291,9 @@ internal sealed class QuizPageEvidence
 
     /// <summary>
     /// The scenario's <c>finally</c>: read the state it ends in, a timeout's
-    /// included, then write every line, the first problem the page rendered,
-    /// and where that first row falls against each of the scenario's reads.
-    /// Never throws.
+    /// included, then write every line, the clocks' measured offset, the first
+    /// problem the page rendered, and where that first row falls against each
+    /// of the scenario's reads. Never throws.
     /// </summary>
     internal async Task PrintOnTheWayOutAsync()
     {
@@ -269,51 +312,188 @@ internal sealed class QuizPageEvidence
 
     private async Task TakeAsync(string label, Print print)
     {
+        var issued = NowMs();
         try
         {
             var json = await _page.EvaluateAsync<string>(Take, QuizKeysMark.AttachedAttribute);
-            _takes.Add((label, print, NowMs(), json, null));
+            _takes.Add((label, print, issued, NowMs(), json, null));
         }
         catch (Exception ex)
         {
             // Evidence never fails the scenario, and in a finally it must not
             // replace the exception on its way out.
-            _takes.Add((label, print, NowMs(), null, Describe(ex)));
+            _takes.Add((label, print, issued, NowMs(), null, Describe(ex)));
         }
     }
 
     private void WriteAll()
     {
-        var takes = _takes.Select(t => (t.Label, t.Print, t.At, Parsed: Parse(t.Json, t.Failure))).ToList();
+        var takes = _takes.Select(t => (t.Label, t.Print, t.Issued, t.Returned, Parsed: Parse(t.Json, t.Failure))).ToList();
+        var read = takes.Where(t => t.Parsed.Snapshot is not null)
+            .Select(t => (t.Issued, t.Returned, Snapshot: t.Parsed.Snapshot!)).ToList();
+        var offset = MeasureOffset(read);
 
         // The module's fetches as the last read knew them: the recorder keeps
         // every one, and a late-delivered entry is in a later read's list.
-        var last = takes.LastOrDefault(t => t.Parsed.Snapshot is not null).Parsed.Snapshot;
+        var last = read.Count > 0 ? read[^1].Snapshot : null;
         var fetches = last?.Fetches ?? [];
 
-        var lines = new List<(double At, string Text)>(_lines);
+        var lines = new List<(double At, Clock Clock, string Text)>(_lines.Select(l => (l.At, Clock.Test, l.Text)));
         foreach (var t in takes)
         {
             if (t.Parsed.Snapshot is not { } s)
             {
-                lines.Add((t.At, $"{t.Label}: the page could not be read: {t.Parsed.Failure}"));
+                lines.Add((t.Returned, Clock.Test, $"{t.Label}: the page could not be read: {t.Parsed.Failure}"));
                 continue;
             }
-            lines.AddRange(s.Events.Select(e => (e.At, "page: " + DescribeEvent(e, fetches))));
+            lines.AddRange(s.Events.Select(e => (e.At, Clock.Page, DescribeEvent(e, fetches))));
             var line = $"{t.Label}: {DescribeState(s.State, s.Now, fetches)}";
             if (!s.Recording) line += " [no recorder in this document]";
             if (t.Print == Print.WithClick) line += " | " + Leaving(s);
-            lines.Add((s.Now, line));
+            lines.Add((s.Now, Clock.Page, line));
         }
 
-        // Stable: lines stamped alike keep the order they were added in.
-        foreach (var (at, text) in lines.OrderBy(l => l.At))
-            Write(at, text);
+        Write(Clock.Test, NowMs(), DescribeOffset(offset, read.Count));
+
+        // One order for both clocks: a page time is moved onto the test's
+        // clock by the middle of the measured offset. Lines closer together
+        // than the offset's bracket are in no proven order.
+        var middle = offset is { } o ? (o.Low + o.High) / 2 : 0;
+        foreach (var (at, clock, text) in lines.OrderBy(l => l.Clock == Clock.Page ? l.At - middle : l.At))
+            Write(clock, at, text);
 
         // The recorder keeps the first row for the document's life, so the
         // last read that succeeded knows it.
         if (last is not null)
-            WriteFirstProblem(last);
+            WriteFirstProblem(last, offset);
+    }
+
+    /// <summary>
+    /// The page clock's offset from the test's (page minus test), as the run
+    /// measured it: each print ran in the page at its page instant, somewhere
+    /// between the test's issuing it and its returning, so the offset lies
+    /// between that instant less the return and that instant less the issue.
+    /// Every print's bracket holds, so the offset lies in their intersection.
+    /// Null where nothing was read, or where the brackets do not meet, which a
+    /// clock stepping during the run would do.
+    /// </summary>
+    private static (double Low, double High)? MeasureOffset(
+        IReadOnlyCollection<(double Issued, double Returned, Snapshot Snapshot)> reads)
+    {
+        if (reads.Count == 0) return null;
+        var low = reads.Max(r => r.Snapshot.Now - r.Returned);
+        var high = reads.Min(r => r.Snapshot.Now - r.Issued);
+        return low <= high ? (low, high) : null;
+    }
+
+    private static string DescribeOffset((double Low, double High)? offset, int reads) => offset is { } o
+        ? $"clocks: the page's clock minus the test's lies in [{Ms(o.Low)}, {Ms(o.High)}] ms (width {Ms(o.High - o.Low)} ms), "
+          + $"measured from {reads} prints, each run in the page between the test's issuing it and its returning; "
+          + "times closer than that width across the two clocks are too close to call"
+        : $"clocks: the offset between the page's clock and the test's could not be measured ({reads} prints read, "
+          + "or their brackets do not meet); no page time is placed against a test time";
+
+    /// <summary>
+    /// The first problem the page rendered, the bracket on when its row was
+    /// inserted (after the recorder's last observation without a row, no later
+    /// than the observation that saw it, both on the page's clock), and where
+    /// that bracket falls against each of the scenario's reads, moved onto the
+    /// test's clock through the measured offset's whole width. A placement is
+    /// made only where the brackets separate; otherwise the line says what is
+    /// not known, with the raw times.
+    /// </summary>
+    private void WriteFirstProblem(Snapshot snapshot, (double Low, double High)? offset)
+    {
+        if (snapshot.First is not { State: { } first } shown)
+        {
+            Write(Clock.Page, snapshot.Now, "first problem the page rendered: none (the recorder saw no row in this document)");
+            foreach (var r in _reads)
+            {
+                Write(Clock.Test, r.Returned, $"{r.What} (issued {Since(r.Issued)}, returned {Since(r.Returned)}): "
+                    + "the recorder saw no row before it or since");
+            }
+            return;
+        }
+
+        var after = shown.LastWithoutRow;
+        Write(Clock.Page, shown.At, $"first problem the page rendered: problem {first.Problem ?? "absent"}, "
+            + $"4th answer {Quoted(first.Fourth)}, row {first.Row}; first seen by the recorder at {Since(shown.At)}, "
+            + (after is { } a
+                ? $"last seen without a row at {Since(a)}, so inserted after {Since(a)} and by {Since(shown.At)} (page clock)"
+                : "never seen without a row, so inserted at some time by then (page clock)"));
+
+        foreach (var r in _reads)
+            Write(Clock.Test, r.Returned, $"{r.What}: {Place(r.Issued, r.Returned, after, shown.At, offset)}");
+    }
+
+    /// <summary>
+    /// Where a row inserted after <paramref name="insertedAfter"/> and by
+    /// <paramref name="insertedBy"/> (page clock) falls against a read issued
+    /// and returned at the given test-clock times.
+    /// </summary>
+    private string Place(
+        double issued, double returned, double? insertedAfter, double insertedBy, (double Low, double High)? offset)
+    {
+        var raw = $"read issued {Since(issued)} and returned {Since(returned)} (test clock); row inserted "
+            + (insertedAfter is { } a ? $"after {Since(a)} and " : "")
+            + $"by {Since(insertedBy)} (page clock)";
+        if (offset is not { } o)
+            return $"not placed, the clocks' offset unmeasured: {raw}";
+
+        // On the test's clock, the latest the row can have been inserted, and
+        // the earliest, across the offset's whole bracket.
+        var latest = insertedBy - o.Low;
+        double? earliest = insertedAfter is { } after ? after - o.High : null;
+
+        if (latest < issued)
+            return $"the row was in the DOM before the read was issued: {raw}";
+        if (earliest > returned)
+            return $"the row was not in the DOM until after the read returned, so the read saw no row: {raw}";
+        if (earliest >= issued && latest <= returned)
+            return $"the row was inserted while the read was in flight, so what the read saw is not known: {raw}";
+        return $"too close to call (the row's insertion and the read overlap within the clocks' bracket), "
+            + $"so what the read saw is not known: {raw}";
+    }
+
+    /// <summary>
+    /// The last click the recorder saw, against what the page shows now: a
+    /// navigation in flight still shows the problem it is leaving. The click
+    /// is named by its target, so the line shows whether it was the
+    /// gesture's; it is not matched to the gesture by time, which would cross
+    /// the two clocks.
+    /// </summary>
+    private string Leaving(Snapshot snapshot)
+    {
+        if (snapshot.LastClick is not { State: { } then } click)
+            return "the recorder saw no click";
+
+        var now = snapshot.State;
+        var verdict = then.Problem is null && then.Fourth is null
+            ? "no problem was identified on screen then"
+            : then.Problem == now.Problem && then.Fourth == now.Fourth
+                ? "the page still shows that problem"
+                : "the page now shows a different problem";
+        return $"the recorder saw the last click, on {Quoted(click.Target)}, reach it at {Since(click.At)} (page clock) "
+            + $"with problem {then.Problem ?? "absent"}, 4th answer {Quoted(then.Fourth)} on screen: {verdict}";
+    }
+
+    private string DescribeEvent(Event e, IReadOnlyList<Event> fetches) => e.Kind switch
+    {
+        "state" when e.State is { } s => "recorder saw: " + DescribeState(s, e.At, fetches),
+        "click" when e.State is { } s =>
+            $"recorder saw a click on {Quoted(e.Target)} reach it, with on screen: {DescribeState(s, e.At, fetches)}",
+        "fetch" => $"resource timing: actionRowFit.js fetch requested {Since(e.Start ?? e.At)}, "
+            + $"response end {Since(e.At)}, status {e.Status?.ToString(CultureInfo.InvariantCulture) ?? "?"}",
+        _ => $"unrecognized note '{e.Kind}'",
+    };
+
+    private string DescribeState(State s, double at, IReadOnlyList<Event> fetches)
+    {
+        var fetch = fetches.Where(f => f.At <= at).Select(f => (double?)f.At).FirstOrDefault();
+        var fetchText = fetch is { } f ? $"actionRowFit.js fetch complete {Since(f)}" : "no actionRowFit.js fetch complete";
+        var markText = s.Mark ? "readiness mark set: both imports confirmed" : "readiness mark absent: imports not confirmed";
+        return $"{s.Path} | {fetchText} | {markText} | row {s.Row} | problem {s.Problem ?? "absent"} | "
+            + $"4th answer {Quoted(s.Fourth)} of {s.Answers} | status {Quoted(s.Status)} | nav {s.Nav ?? "absent"}";
     }
 
     private static (Snapshot? Snapshot, string? Failure) Parse(string? json, string? failure)
@@ -329,96 +509,30 @@ internal sealed class QuizPageEvidence
         }
     }
 
-    /// <summary>
-    /// The first problem the page rendered, and where that first row falls
-    /// against each of the scenario's reads: before the read was issued, after
-    /// it returned, or inside its window, where what the read saw is not
-    /// known. The page's clock and the test's agree to within a millisecond
-    /// or so, which bounds the placement.
-    /// </summary>
-    private void WriteFirstProblem(Snapshot snapshot)
-    {
-        if (snapshot.First is not { State: { } first } shown)
-        {
-            Write(snapshot.Now, "first problem the page rendered: none (no row in this document since the recorder began)");
-            foreach (var read in _reads)
-                Write(snapshot.Now, $"{read.What}: no row was rendered before it or since");
-            return;
-        }
-
-        Write(snapshot.Now, $"first problem the page rendered, at {Since(shown.At)}: problem {first.Problem ?? "absent"}, "
-            + $"4th answer {Quoted(first.Fourth)}, row {first.Row}");
-        foreach (var read in _reads)
-        {
-            var placed = shown.At < read.Issued ? "the row was there before the read was issued"
-                : shown.At > read.Returned ? "the row came after the read returned, so the read saw no row"
-                : "the row came while the read was in flight, so what the read saw is not known";
-            Write(snapshot.Now, $"{read.What} (issued {Since(read.Issued)}, returned {Since(read.Returned)}): "
-                + $"first row at {Since(shown.At)}: {placed}");
-        }
-    }
-
-    /// <summary>
-    /// What the page's last recorded click landed on, against what the page
-    /// shows now: a navigation in flight still shows the problem it is
-    /// leaving. The click is named by its target, so the line shows whether
-    /// it was the gesture's; it is not matched to the gesture by time, since
-    /// the page's clock and the test's agree only to within a millisecond or
-    /// so.
-    /// </summary>
-    private string Leaving(Snapshot snapshot)
-    {
-        if (snapshot.LastClick is not { State: { } left } click)
-            return "no click recorded";
-
-        var now = snapshot.State;
-        var verdict = left.Problem is null && left.Fourth is null
-            ? "the click landed on no identified problem"
-            : left.Problem == now.Problem && left.Fourth == now.Fourth
-                ? "still the problem the click left"
-                : "a different problem from the one the click left";
-        return $"the last click, on {Quoted(click.Target)}, landed at {Since(click.At)} on problem "
-            + $"{left.Problem ?? "absent"}, 4th answer {Quoted(left.Fourth)}: now {verdict}";
-    }
-
-    private string DescribeEvent(Event e, IReadOnlyList<Event> fetches) => e.Kind switch
-    {
-        "state" when e.State is { } s => DescribeState(s, e.At, fetches),
-        "click" when e.State is { } s => $"click on {Quoted(e.Target)}, landing on: {DescribeState(s, e.At, fetches)}",
-        "fetch" => $"actionRowFit.js fetched: requested {Since(e.Start ?? e.At)}, response complete {Since(e.At)}, "
-            + $"status {e.Status?.ToString(CultureInfo.InvariantCulture) ?? "?"}",
-        _ => $"unrecognized note '{e.Kind}'",
-    };
-
-    private string DescribeState(State s, double at, IReadOnlyList<Event> fetches)
-    {
-        var fetch = fetches.Where(f => f.At <= at).Select(f => (double?)f.At).FirstOrDefault();
-        var module = $"module: fetch {(fetch is { } f ? "complete " + Since(f) : "none complete")}, "
-            + $"imports {(s.Imports ? "landed" : "not landed")}";
-        return $"{s.Path} | {module} | row {s.Row} | problem {s.Problem ?? "absent"} | "
-            + $"4th answer {Quoted(s.Fourth)} of {s.Answers} | status {Quoted(s.Status)} | nav {s.Nav ?? "absent"}";
-    }
-
     private static string Quoted(string? text) => text is null ? "absent" : $"\"{text}\"";
 
     private static string Describe(Exception ex) =>
         $"{ex.GetType().Name}: {ex.Message.Split('\n', 2)[0].Trim()}";
 
-    private void Write(double atMs, string text)
+    private static string Ms(double ms) => ms.ToString("0.0", CultureInfo.InvariantCulture);
+
+    private void Write(Clock clock, double atMs, string text)
     {
         var wall = DateTimeOffset.UnixEpoch.AddMilliseconds(atMs);
-        _output.WriteLine($"[evidence {wall:HH:mm:ss.fff} {Since(atMs)}] {text}");
+        var tag = clock == Clock.Page ? "page" : "test";
+        _output.WriteLine($"[evidence {tag} {wall:HH:mm:ss.fff} {Since(atMs)}] {text}");
     }
 
     private string Since(double atMs) =>
-        "+" + (atMs - _origin).ToString("0", CultureInfo.InvariantCulture) + "ms";
+        "+" + (atMs - _origin).ToString("0.0", CultureInfo.InvariantCulture) + "ms";
 
     private static double NowMs() => (DateTimeOffset.UtcNow - DateTimeOffset.UnixEpoch).TotalMilliseconds;
 
     private sealed record State(
-        string Path, bool Imports, string Row, string? Problem, int Answers, string? Fourth, string? Status, string? Nav);
+        string Path, bool Mark, string Row, string? Problem, int Answers, string? Fourth, string? Status, string? Nav);
 
-    private sealed record Event(string Kind, double At, State? State, string? Target, double? Start, int? Status);
+    private sealed record Event(
+        string Kind, double At, State? State, string? Target, double? Start, int? Status, double? LastWithoutRow);
 
     private sealed record Snapshot(
         bool Recording, double Now, State State, Event[] Events, Event? First, Event[] Fetches, Event? LastClick);
