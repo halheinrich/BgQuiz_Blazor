@@ -169,10 +169,17 @@ public sealed class QuizFlowTests : E2eTestBase
             var first = await evidence.ReadAsync(
                 "the first problem's fourth answer, once problem 1 has landed",
                 () => ExpectCubeProblemAsync(1, () => hold?.Checkpoint("the scenario is waiting for problem 1 to land")));
+            // The order this run was given, checked before anything relies on
+            // it: the folder's order is the browser's enumeration, which the
+            // proof replaces (PickFixturesInOrderAsync), and a replacement that
+            // did not hold on some operating system fails here, naming what
+            // was served, never later as a scenario that went the other way.
             if (conditions.Order is { } order)
             {
-                Assert.Equal(
-                    order == TooGoodPosition.First ? ExpectedText.TooGoodPill : ExpectedText.NoDoublePassPill, first);
+                var ordered = order == TooGoodPosition.First ? ExpectedText.TooGoodPill : ExpectedText.NoDoublePassPill;
+                Assert.True(first == ordered,
+                    $"the folder was ordered with the {ordered} problem first, but problem 1 served the {first} "
+                    + "problem: the order control did not hold");
             }
             var tooGoodFirst = first == ExpectedText.TooGoodPill;
             var tooGood = tooGoodFirst ? 1 : 2;
