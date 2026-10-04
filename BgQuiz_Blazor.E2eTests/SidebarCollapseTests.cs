@@ -1,4 +1,6 @@
+using System.Runtime.CompilerServices;
 using Microsoft.Playwright;
+using Xunit.Abstractions;
 using static Microsoft.Playwright.Assertions;
 
 namespace BgQuiz_Blazor.E2eTests;
@@ -14,8 +16,21 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class SidebarCollapseTests : E2eTestBase
 {
-    public SidebarCollapseTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    private readonly ITestOutputHelper _output;
+
+    /// <summary>
+    /// The evidence of the one scenario that keeps it
+    /// (<see cref="CollapseLastsUntilTheNextNavigationOrReload"/>), null in
+    /// the others: every <see cref="PanelWidthAsync"/> read while it is set is
+    /// recorded, with its value, as evidence.
+    /// </summary>
+    private QuizPageEvidence? _evidence;
+
+    public SidebarCollapseTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright)
+    {
+        _output = output;
+    }
 
     /// <summary>
     /// Comfortably past the 641px breakpoint the rail lives behind — below it the
@@ -107,35 +122,57 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// Exercised through the app's own <c>NavigationManager</c> path (Start Quiz)
     /// rather than an anchor click, because those are different code paths and
     /// only the former is what a user hits mid-quiz.
+    ///
+    /// <para>
+    /// <b>Evidence (halheinrich/backgammon#333).</b> The width read after Start
+    /// failed once on umbrella CI (run 210) and has passed everywhere else, so
+    /// by AGENTS.md's rule for a CI-only failure this scenario prints its
+    /// evidence (<see cref="QuizPageEvidence"/>) before anything is changed.
+    /// Each width read is recorded with the value it returned, and is followed
+    /// by a print of the row's state, the rail's box and the readiness mark;
+    /// the recorder, installed before Start, notes every change of them; and
+    /// on the way out each read is placed against the first row's pending
+    /// window. The reads and assertions are the scenario's own, unchanged: the
+    /// evidence takes no second width read and decides nothing.
+    /// </para>
     /// </summary>
     [Fact]
     public async Task CollapseLastsUntilTheNextNavigationOrReload()
     {
-        await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
-        await BootHomeAsync();
-        await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        var evidence = _evidence = new QuizPageEvidence(Page, _output);
+        try
+        {
+            await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
+            await BootHomeAsync();
+            await PickFixtureAsync(CubeFixture);
+            await ApplyFilterAsync();
 
-        await CollapseRail.ClickAsync();
-        await Expect(CollapseRail).ToBeCheckedAsync();
-        Assert.Equal(0d, await PanelWidthAsync());
+            await CollapseRail.ClickAsync();
+            await Expect(CollapseRail).ToBeCheckedAsync();
+            Assert.Equal(0d, await PanelWidthAsync());
 
-        await StartQuizAsync();
+            await evidence.RecordAsync();
+            await StartQuizAsync();
 
-        await Expect(CollapseRail).Not.ToBeCheckedAsync();
-        Assert.True(await PanelWidthAsync() > 0,
-            "in-app navigation brings the panel back — Help tells the reader so");
+            await Expect(CollapseRail).Not.ToBeCheckedAsync();
+            Assert.True(await PanelWidthAsync() > 0,
+                "in-app navigation brings the panel back — Help tells the reader so");
 
-        await CollapseRail.ClickAsync();
-        await Expect(CollapseRail).ToBeCheckedAsync();
-        Assert.Equal(0d, await PanelWidthAsync());
+            await CollapseRail.ClickAsync();
+            await Expect(CollapseRail).ToBeCheckedAsync();
+            Assert.Equal(0d, await PanelWidthAsync());
 
-        await Page.ReloadAsync();
-        await Expect(PickFolderButton).ToBeVisibleAsync();
+            await Page.ReloadAsync();
+            await Expect(PickFolderButton).ToBeVisibleAsync();
 
-        await Expect(CollapseRail).Not.ToBeCheckedAsync();
-        Assert.True(await PanelWidthAsync() > 0,
-            "a reload brings the panel back — Help tells the reader so");
+            await Expect(CollapseRail).Not.ToBeCheckedAsync();
+            Assert.True(await PanelWidthAsync() > 0,
+                "a reload brings the panel back — Help tells the reader so");
+        }
+        finally
+        {
+            await evidence.PrintOnTheWayOutAsync();
+        }
     }
 
     /// <summary>
@@ -268,8 +305,27 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// What the toggle owes is that folding takes the panel to zero and
     /// unfolding brings it back, and zero-versus-not-zero says exactly that.
     /// </para>
+    ///
+    /// <para>
+    /// <b>Evidence, where the scenario keeps it</b> (<see cref="_evidence"/>):
+    /// the read is recorded with the value it returned, named by the line that
+    /// called it, and a print of the page's state follows it, never precedes
+    /// it, so the read lands when it would have without the evidence. The
+    /// value returned is the read's own.
+    /// </para>
     /// </summary>
-    private Task<double> PanelWidthAsync() =>
+    private async Task<double> PanelWidthAsync([CallerLineNumber] int line = 0)
+    {
+        if (_evidence is not { } evidence)
+            return await ReadPanelWidthAsync();
+
+        var what = $"the panel's width read at SidebarCollapseTests.cs:{line}";
+        var width = await evidence.ReadAsync(what, ReadPanelWidthAsync);
+        await evidence.PrintAsync($"just after {what} returned");
+        return width;
+    }
+
+    private Task<double> ReadPanelWidthAsync() =>
         NavigationPanel.EvaluateAsync<double>("el => el.getBoundingClientRect().width");
 
     /// <summary>
