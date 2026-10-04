@@ -1,4 +1,5 @@
 using Microsoft.Playwright;
+using Xunit.Abstractions;
 using static Microsoft.Playwright.Assertions;
 
 namespace BgQuiz_Blazor.E2eTests;
@@ -11,8 +12,13 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class QuizFlowTests : E2eTestBase
 {
-    public QuizFlowTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    private readonly ITestOutputHelper _output;
+
+    public QuizFlowTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright)
+    {
+        _output = output;
+    }
 
     [Fact]
     public async Task CubePath_PickApplyStartAnswerReviewDone()
@@ -65,45 +71,65 @@ public sealed class QuizFlowTests : E2eTestBase
         // position is in the folder so there is somewhere to go and come back
         // from; which of the two the source serves first is not this scenario's
         // business, so it reaches Too good and returns to it either way.
-        await BootHomeAsync();
-        await DisableMaximizeAsync();   // the score panel stays on screen while answering
-        await BootHomeAsync();
-        await PickFixturesAsync(TooGoodTakeFixture, CubeFixture);
-        await ApplyFilterAsync();
-        await StartQuizAsync();
-
-        var tooGoodFirst = await CubePill(ExpectedText.TooGoodPill).CountAsync() == 1;
-        if (!tooGoodFirst) await NavButton(ExpectedText.SkipButton).ClickAsync();
-
-        // All four answers are offered, the fourth labelled Too good.
-        await Expect(Page.Locator(".action-row .bg-cube-actions").GetByRole(AriaRole.Radio)).ToHaveCountAsync(4);
-        await Expect(CubePill(ExpectedText.TooGoodPill)).ToBeVisibleAsync();
-        await Expect(CubePill(ExpectedText.NoDoublePassPill)).ToHaveCountAsync(0);
-
-        await AnswerCubeAsync(ExpectedText.TooGoodPill);
-
-        await Expect(VerdictBand).ToHaveTextAsync("Not best — Too good lost 0.7992. Best: No double.");
-        await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-danger"));
-        await Expect(Page.GetByText(ExpectedText.Submitted(1))).ToBeVisibleAsync();
-
-        // Away and back: from the first problem ▶ then ◀, from the second ◀ then ▶.
-        if (tooGoodFirst)
+        //
+        // The evidence prints (QuizPageEvidence) are halheinrich/backgammon#333's
+        // observability: this scenario failed on umbrella CI alone, so the log
+        // shows, on a pass as on a failure, which problem came first, whether
+        // the row existed when the scenario chose its branch, and how each
+        // navigation landed. They observe; nothing below decides or asserts on
+        // them.
+        var evidence = new QuizPageEvidence(Page, _output);
+        try
         {
-            await NavButton(ExpectedText.NextButton).ClickAsync();
-            await NavButton(ExpectedText.BackButton).ClickAsync();
-        }
-        else
-        {
-            await NavButton(ExpectedText.BackButton).ClickAsync();
-            await NavButton(ExpectedText.NextButton).ClickAsync();
-        }
-        await Expect(CubePill(ExpectedText.TooGoodPill)).ToBeVisibleAsync();
-        await AnswerCubeNoDoubleAsync();
+            await BootHomeAsync();
+            await DisableMaximizeAsync();   // the score panel stays on screen while answering
+            await BootHomeAsync();
+            await PickFixturesAsync(TooGoodTakeFixture, CubeFixture);
+            await ApplyFilterAsync();
+            await evidence.RecordAsync();
+            await StartQuizAsync();
 
-        await Expect(VerdictBand).ToHaveTextAsync(
-            ExpectedText.PracticePrefix + ExpectedText.CubeVerdictNoDoubleCorrect);
-        await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-success"));
-        await Expect(Page.GetByText(ExpectedText.Submitted(1))).ToBeVisibleAsync();   // the score did not move
+            await evidence.PrintAsync("after Start, at the decision: a snapshot taken before its read, which it cannot know");
+            var tooGoodFirst = await evidence.ReadAsync(
+                "the decision's read, the Too good pill's count (1 keeps this problem; anything else skips)",
+                () => CubePill(ExpectedText.TooGoodPill).CountAsync()) == 1;
+            if (!tooGoodFirst)
+                await evidence.NavigateAsync("Skip", () => NavButton(ExpectedText.SkipButton).ClickAsync());
+
+            // All four answers are offered, the fourth labelled Too good.
+            await Expect(Page.Locator(".action-row .bg-cube-actions").GetByRole(AriaRole.Radio)).ToHaveCountAsync(4);
+            await Expect(CubePill(ExpectedText.TooGoodPill)).ToBeVisibleAsync();
+            await Expect(CubePill(ExpectedText.NoDoublePassPill)).ToHaveCountAsync(0);
+
+            await AnswerCubeAsync(ExpectedText.TooGoodPill);
+
+            await Expect(VerdictBand).ToHaveTextAsync("Not best — Too good lost 0.7992. Best: No double.");
+            await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-danger"));
+            await Expect(Page.GetByText(ExpectedText.Submitted(1))).ToBeVisibleAsync();
+
+            // Away and back: from the first problem ▶ then ◀, from the second ◀ then ▶.
+            if (tooGoodFirst)
+            {
+                await evidence.NavigateAsync("Next", () => NavButton(ExpectedText.NextButton).ClickAsync());
+                await evidence.NavigateAsync("Back", () => NavButton(ExpectedText.BackButton).ClickAsync());
+            }
+            else
+            {
+                await evidence.NavigateAsync("Back", () => NavButton(ExpectedText.BackButton).ClickAsync());
+                await evidence.NavigateAsync("Next", () => NavButton(ExpectedText.NextButton).ClickAsync());
+            }
+            await Expect(CubePill(ExpectedText.TooGoodPill)).ToBeVisibleAsync();
+            await AnswerCubeNoDoubleAsync();
+
+            await Expect(VerdictBand).ToHaveTextAsync(
+                ExpectedText.PracticePrefix + ExpectedText.CubeVerdictNoDoubleCorrect);
+            await Expect(VerdictBand).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("alert-success"));
+            await Expect(Page.GetByText(ExpectedText.Submitted(1))).ToBeVisibleAsync();   // the score did not move
+        }
+        finally
+        {
+            await evidence.PrintOnTheWayOutAsync();
+        }
     }
 
     [Fact]
