@@ -36,8 +36,8 @@ public sealed class MissingPanelOwnerTests : E2eTestBase
     /// <summary>What actionRowFit.js says, once per row it observes, when the owner is missing.</summary>
     private const string RowFitOwnerMissing = "actionRowFit.js: the navigation panel's owner";
 
-    /// <summary>What QuizSettings logs when the unfold cannot reach the owner.</summary>
-    private const string SettingsApplierMissing = "The navigation panel's applier";
+    /// <summary>What QuizSettings logs when the unfold's call fails (here, for want of the owner).</summary>
+    private const string SettingsApplierCallFailed = "The call to the navigation panel's applier";
 
     private ILocator Captions => Page.Locator(".action-row .bg-cube-actions label");
 
@@ -192,7 +192,7 @@ public sealed class MissingPanelOwnerTests : E2eTestBase
         Assert.True(await PanelWidthAsync() > 0);
         await KeepFolded.UncheckAsync();
         await ExpectToPassAsync(async () => Assert.True(
-            await errorUi.IsVisibleAsync() || await ConsoleCountAsync("warning", SettingsApplierMissing) == 1,
+            await errorUi.IsVisibleAsync() || await ConsoleCountAsync("warning", SettingsApplierCallFailed) == 1,
             "the setting's action has not finished"));
         Assert.False(await errorUi.IsVisibleAsync(), "no error banner");
         Assert.Equal(0, await ConsoleCountAsync("error", "Unhandled exception"));

@@ -604,8 +604,9 @@ internal sealed class QuizSettings(IJSRuntime js, ILogger<QuizSettings> logger)
     /// unfold then cannot be made, and the call fails as a
     /// <see cref="JSException"/>. Unhandled, that put Blazor's "An unhandled
     /// error has occurred" banner over the Settings page (measured 2026-10-03,
-    /// halheinrich/backgammon#8). It is caught and logged instead, and nothing
-    /// claims the panel moved: the choice is already persisted (the write comes
+    /// halheinrich/backgammon#8). Any <see cref="JSException"/> from the call
+    /// is caught instead and logged as what it shows — the call failed — with
+    /// the exception attached for the why, and nothing claims the panel moved: the choice is already persisted (the write comes
     /// first), the panel on this page stays as it is (its rail still folds and
     /// opens it by hand, except on the quiz page, whose row keeps the panel
     /// hidden without its owner), and the choice takes effect from the next
@@ -626,7 +627,7 @@ internal sealed class QuizSettings(IJSRuntime js, ILogger<QuizSettings> logger)
             catch (JSException e)
             {
                 logger.LogWarning(e,
-                    "The navigation panel's applier ({Applier}) is missing, so the panel was not unfolded; "
+                    "The call to the navigation panel's applier ({Applier}) failed, so the panel was not unfolded; "
                     + "the choice is saved and takes effect from the next page load on which navFold.js runs.",
                     NavFoldApplyFunction);
             }
