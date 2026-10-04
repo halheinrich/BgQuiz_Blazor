@@ -82,6 +82,11 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
         if (atReview) await AnswerCubeNoDoubleAsync();
+        // The measured row: pending, the tail is behind its "⋯" on the
+        // buttons' line, where measured it takes a line of its own, so a hit
+        // test then would be of the other presentation
+        // (halheinrich/backgammon#333).
+        await ExpectRowFittedAsync();
         await Page.Locator(".action-row .quiz-nav").ScrollIntoViewIfNeededAsync();
 
         var next = atReview ? ExpectedText.NextButton : ExpectedText.SkipButton;

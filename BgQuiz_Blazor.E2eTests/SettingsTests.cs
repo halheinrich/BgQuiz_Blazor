@@ -344,8 +344,14 @@ public sealed class SettingsTests : E2eTestBase
         await ExpectFoldedAsync();
 
         // Start Quiz: the app's NavigationManager path, and the one a user is on
-        // when the fold matters most.
+        // when the fold matters most. Read once the quiz page has its problem:
+        // the box is still checked from Home until the navigation's DOM
+        // synchronization resets it and the stored fold is applied again, so
+        // straight after Start a fold read would be Home's
+        // (halheinrich/backgammon#333). The page renders its problem only after
+        // that synchronization.
         await StartQuizAsync();
+        await Expect(CubeAnswers).ToHaveCountAsync(4);
         await ExpectFoldedAsync();
 
         // A full reload discards the quiz, so this lands back on Home — and the

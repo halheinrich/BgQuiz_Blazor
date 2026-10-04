@@ -96,6 +96,10 @@ public sealed class RowFitTests : E2eTestBase
         // form shows with nothing to spare, then select that answer: nothing
         // runs over, because the bold was already in the measurement.
         await StartOnTheMatchAsync(1600);
+        // The measured row: pending, the panel is folded by style and the row
+        // is wider by the panel's width, so a width read off it would place
+        // the viewport that far short of the need (halheinrich/backgammon#333).
+        await ExpectRowFittedAsync();
         var fit = await ActionRowGeometry.FitAsync(Page);
         await Page.SetViewportSizeAsync(1600 - (int)Math.Floor(fit.Row - fit.FullCubeRow), 800);
         await SettleAsync();
@@ -125,6 +129,9 @@ public sealed class RowFitTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
         await ExpectKeyboardShortcutReadyAsync();
+        // The first fit, awaited: the readiness mark is set before the row is
+        // rendered, so it says nothing of the row (halheinrich/backgammon#333).
+        await ExpectRowFittedAsync();
         Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
         Assert.True((await ActionRowGeometry.FitAsync(Page)).AutoFolded);
         var before = await ActionRowGeometry.FitAsync(Page);

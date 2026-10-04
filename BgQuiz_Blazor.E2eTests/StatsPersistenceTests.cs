@@ -86,12 +86,19 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await TurnOnTheWeightedMixSettingAsync(); // so "the mix is offered" is observable
         await PickFakeFolderAsync();
 
-        await Expect(Page.GetByText(ExpectedText.StatsFileWillBeSetAside)).ToBeHiddenAsync();
+        // The mix first: it is offered off the pick-time probe's reading of
+        // the file, the same reading the absent forecast depends on, so the
+        // absence is observed only once that reading has landed
+        // (halheinrich/backgammon#333).
         await Expect(MixPanel).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.StatsFileWillBeSetAside)).ToBeHiddenAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();
 
+        // The problem first: the quiz page shows the bind's notices from its
+        // first render, and before that render every absence holds.
+        await Expect(CubeAnswers).ToHaveCountAsync(4);
         await Expect(Page.GetByText(ExpectedText.StatsFileHasBeenSetAside)).ToBeHiddenAsync();
         await Expect(Page.GetByText(ExpectedText.StatsFileUnreadable)).ToBeHiddenAsync();
 
@@ -128,12 +135,19 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await TurnOnTheWeightedMixSettingAsync(); // so "the mix is offered" is observable
         await PickFakeFolderAsync();
 
-        await Expect(Page.GetByText(ExpectedText.StatsFileWillBeSetAside)).ToBeHiddenAsync();
+        // The mix first: it is offered off the pick-time probe's reading of
+        // the file, the same reading the absent forecast depends on, so the
+        // absence is observed only once that reading has landed
+        // (halheinrich/backgammon#333).
         await Expect(MixPanel).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.StatsFileWillBeSetAside)).ToBeHiddenAsync();
 
         await ApplyFilterAsync();
         await StartQuizAsync();
 
+        // The problem first: the quiz page shows the bind's notices from its
+        // first render, and before that render every absence holds.
+        await Expect(CubeAnswers).ToHaveCountAsync(4);
         await Expect(Page.GetByText(ExpectedText.StatsFileHasBeenSetAside)).ToBeHiddenAsync();
         await Expect(Page.GetByText(ExpectedText.StatsFileUnreadable)).ToBeHiddenAsync();
         await Expect(Page.GetByText(MergedStatsFileName)).ToHaveCountAsync(0);
@@ -169,6 +183,9 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         // problem joins the two.
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
+        // Done's summary first: the absence is of the page that arrived
+        // (halheinrich/backgammon#333).
+        await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
         await Expect(Page.GetByText("set aside")).ToHaveCountAsync(0);
 
         writes = await CapturedWritesAsync();

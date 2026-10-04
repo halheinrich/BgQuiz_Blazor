@@ -48,6 +48,10 @@ public sealed class CubeLabelsTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
         await Expect(Pills).ToHaveCountAsync(4);
+        // The measured row: pending, the pills are short whatever the fit
+        // decides, so a short form seen then is no reading of the switch
+        // (halheinrich/backgammon#333).
+        await ExpectRowFittedAsync();
     }
 
     private async Task ExpectShortFormAsync()

@@ -138,6 +138,11 @@ public sealed class PanelAutoFoldTests : E2eTestBase
         await PickSynthesizedFileAsync(SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
         await ApplyFilterAsync();
         await StartQuizAsync();
+        // The problem first: straight after Start the page can have no row to
+        // fit, and the box is still Home's until the navigation's DOM
+        // synchronization resets it and the stored fold is applied again
+        // (halheinrich/backgammon#333).
+        await Expect(Page.Locator(".action-row .bg-cube-actions")).ToBeVisibleAsync();
         await Expect(CollapseRail).ToBeCheckedAsync();
         var stored = await StoredSettingsAsync();
 

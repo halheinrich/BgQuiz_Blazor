@@ -4016,6 +4016,16 @@ the score panel names it, its row offers the four answers, and ▶ is enabled,
 so no transition is in flight), and after each navigation it waits for the
 problem it goes to before it asserts or acts. A page still showing the problem
 a navigation is leaving satisfies any wait that does not name the destination.
+Two more shapes of the same read. A read of what the measured row shows
+waits for the row's first fit (`E2eTestBase.ExpectRowFittedAsync`). The row
+appears pending, with the panel folded by style, the tail behind its "⋯" and
+the pills short, and it is fitted a frame or so later. Read in between, it is
+wider by the panel, has fewer controls, and shows the short form whatever the
+fit decides. An absence asserted straight after a transition holds of a page
+that has rendered nothing yet, so it follows a positive wait for the arrival.
+The suite was swept for both against slowed transitions: the row-fit module
+delayed 1.5 s, and the page's animation frames 300 ms. Five scenarios then
+failed on the old reads (eight runs) and none on the corrected ones.
 
 **The proof runs under the condition that broke it.** `RowFitModuleHold` holds
 `actionRowFit.js` until the scenario reports that its first wait has been

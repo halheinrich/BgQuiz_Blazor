@@ -66,16 +66,19 @@ public sealed class MaximizeBoardTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
 
+        // The board and every answer instrument survive: a cube answer must stay
+        // makeable without leaving the maximized view. Awaited first: they are
+        // also the answering composition's arrival, before which the absences
+        // below would hold of a page that had rendered nothing yet
+        // (halheinrich/backgammon#333).
+        await Expect(Page.Locator(".board-container .bg-diagram")).ToBeVisibleAsync();
+        await Expect(CubePill(ExpectedText.NoDoublePill)).ToBeVisibleAsync();
+
         // Answering, maximized: no score panel, no status strip — and therefore
         // no "Problem N of M" progress indicator and no neutral prompt, both
         // ratified as accepted consequences of the mode.
         await Expect(ScorePanel).ToHaveCountAsync(0);
         await Expect(StatusStrip).ToHaveCountAsync(0);
-
-        // The board and every answer instrument survive: a cube answer must stay
-        // makeable without leaving the maximized view.
-        await Expect(Page.Locator(".board-container .bg-diagram")).ToBeVisibleAsync();
-        await Expect(CubePill(ExpectedText.NoDoublePill)).ToBeVisibleAsync();
 
         // And so does the XGID — the badge rides the action row, which this mode
         // keeps. This is the composition halheinrich/backgammon#98 came out of: the badge used to

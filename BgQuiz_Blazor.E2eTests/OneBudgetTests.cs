@@ -656,6 +656,9 @@ public sealed class OneBudgetTests : E2eTestBase
         await PickAsync(FirstProblem.XgCube);
         await StartQuizAsync();
         await Expect(LivePillCaptions).ToHaveCountAsync(4);
+        // The measured row: pending, the tail is behind its "⋯", and the row's
+        // controls are not the ones counted below (halheinrich/backgammon#333).
+        await ExpectRowFittedAsync();
 
         Assert.Equal(21, await Page.Locator(".bg-cube-actions").CountAsync());
         Assert.Equal(84, await Page.Locator(".bg-cube-action").CountAsync());

@@ -84,6 +84,14 @@ public sealed class DesktopActionRowTests : E2eTestBase
             await NavButton(ExpectedText.SkipButton).ClickAsync();
             await Expect(Page.Locator(".bg-play-entry")).ToBeVisibleAsync();
         }
+        else
+        {
+            // Landed on the cube problem before anything is folded or read:
+            // straight after Start the page can have no row yet, and the
+            // navigation's DOM synchronization, which resets the rail, can
+            // still be to come (halheinrich/backgammon#333).
+            await Expect(CubeAnswers).ToHaveCountAsync(4);
+        }
         if (panelFolded)
         {
             await CollapseRail.ClickAsync();

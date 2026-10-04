@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
 
@@ -105,7 +106,10 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await contents.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HelpScoringSection, Exact = true }).ClickAsync();
 
         await Expect(target).ToBeInViewportAsync();
-        Assert.EndsWith("#help-scoring", Page.Url);
+        // Retried, as ExpectUrlAsync is: Page.Url is Playwright's
+        // record of the address, kept by an event from the browser that can
+        // trail the jump (halheinrich/backgammon#333).
+        await Expect(Page).ToHaveURLAsync(new Regex("#help-scoring$"));
     }
 
     /// <summary>
@@ -305,6 +309,6 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await Page.GetByRole(AriaRole.Link, new() { Name = "What the panel remembers" }).ClickAsync();
 
         await Expect(target).ToBeInViewportAsync();
-        Assert.EndsWith("#fh-what-is-remembered", Page.Url);
+        await Expect(Page).ToHaveURLAsync(new Regex("#fh-what-is-remembered$"));
     }
 }

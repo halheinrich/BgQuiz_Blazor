@@ -31,10 +31,15 @@ namespace BgQuiz_Blazor.E2eTests;
 /// (<see cref="ExpectCubeProblemAsync"/>), and after each navigation waits
 /// for the problem it goes to before it asserts or acts: a page still showing
 /// the problem it is leaving satisfies any wait that does not name the
-/// destination. A single read is correct only where an <c>Expect</c> has
-/// already proved the settled state and nothing can still be moving, and such
-/// a site says so. The Too good scenario is proved under the condition that
-/// broke it (<see cref="RowFitModuleHold"/>).
+/// destination. A read of what the measured row shows waits for the row's
+/// first fit (<see cref="ExpectRowFittedAsync"/>): the row appears in its
+/// pending presentation and is fitted a frame or so later. An absence
+/// asserted straight after a transition holds of a page that has rendered
+/// nothing yet, so it follows a positive wait for the arrival. A single read
+/// is correct only where an <c>Expect</c> has already proved the settled
+/// state and nothing can still be moving, and such a site says so. The Too
+/// good scenario is proved under the condition that broke it
+/// (<see cref="RowFitModuleHold"/>).
 /// </para>
 /// </summary>
 [Collection(E2eCollection.Name)]
@@ -566,15 +571,40 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// flaked two runs in three in the producer's own suite until the wait was
     /// added.
     /// </para>
+    ///
+    /// <para>
+    /// <b>The branch waits for the restore first</b> (halheinrich/backgammon#333).
+    /// The container renders folded and restores its stored state after its
+    /// first render, through an interop call, so straight after a pick or a
+    /// reload the toggle can read folded with a stored "open" still to land; a
+    /// click then would race it, and one landing after the restore folds the
+    /// container. So the toggle is first awaited to show what storage holds:
+    /// open where the stored value parses as true, as the producer parses it
+    /// (<c>bool.TryParse</c>), and folded otherwise, where the default stands
+    /// and no restore can move it. Only then does the branch read it.
+    /// </para>
     /// </summary>
     protected async Task OpenMoreFiltersAsync()
     {
         var toggle = Page.Locator("#moreFiltersToggle");
-        if (await toggle.GetAttributeAsync("aria-expanded") == "true") return;
+        var stored = await Page.EvaluateAsync<string?>("key => localStorage.getItem(key)", MoreFiltersKey);
+        var restoredOpen = bool.TryParse(stored, out var open) && open;
+        await Expect(toggle).ToHaveAttributeAsync("aria-expanded", restoredOpen ? "true" : "false");
+        if (restoredOpen) return;
 
         await toggle.ClickAsync();
         await Expect(toggle).ToHaveAttributeAsync("aria-expanded", "true");
     }
+
+    /// <summary>
+    /// The <c>localStorage</c> key the filter panel keeps its <c>More
+    /// filters</c> container's open state under: the producer's
+    /// (XgFilter_Razor's <c>FilterPanel.MoreFiltersKey</c>), spelled here as a
+    /// consumer pin. A key renamed at the producer reads as nothing stored, so
+    /// <see cref="OpenMoreFiltersAsync"/> would wait for a folded container
+    /// that the restore had opened, and fail at that wait.
+    /// </summary>
+    private const string MoreFiltersKey = "xg_moreFiltersOpen";
 
     /// <summary>
     /// Open one of the filter panel's facet rows and wait for it to land. The
@@ -835,6 +865,34 @@ public abstract class E2eTestBase : IAsyncLifetime
                 + $"{noDoublePass} No double / Pass pill(s)"),
         };
     }
+
+    /// <summary>
+    /// Wait until the quiz page's action row has been <b>fitted</b>: the
+    /// row-fit module's first report has ended the row's pending presentation,
+    /// so the row no longer carries <c>data-nav-fold-pending</c>
+    /// (SPEC-quiz-view.md §4, "One budget from the outset"). Located
+    /// positively, so a page with no row at all does not satisfy it.
+    ///
+    /// <para>
+    /// <b>For a read of what the measured row shows</b>
+    /// (halheinrich/backgammon#333). The row appears pending — the panel
+    /// folded by style, the tail behind its "⋯", the pills short — and the
+    /// first fit replaces that within a frame or so. A read taken in between
+    /// reads the pending presentation: its row is wider by the panel, it has
+    /// fewer controls, and it shows the short form whatever the fit decides,
+    /// so a pin on the measured presentation could pass on the pending one,
+    /// or a measurement taken from it be wrong.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Never a shared step.</b> The tests that observe startup or the
+    /// pending presentation itself must be able to reach them, and without
+    /// the panel's owner the row stays pending for the page's life by design
+    /// (<c>MissingPanelOwnerTests</c>), where this would wait out its timeout.
+    /// </para>
+    /// </summary>
+    protected Task ExpectRowFittedAsync() =>
+        Expect(Page.Locator(".action-row:not([data-nav-fold-pending])")).ToBeAttachedAsync();
 
     /// <summary>
     /// Answer the current cube problem with one pill of the row —

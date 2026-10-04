@@ -181,7 +181,10 @@ public sealed class ProblemLocatorTests : E2eTestBase
         // composition the ruling came out of: the producer's title strip is
         // gone, the score panel with it, and a money decision has no score to
         // be framed by — so the chip is the only thing on the page that says
-        // where this position came from.
+        // where this position came from. The cube row first: the absence is
+        // only an observation once the answering composition has arrived
+        // (halheinrich/backgammon#333).
+        await Expect(Page.Locator(".action-row .bg-cube-actions")).ToHaveCountAsync(1);
         await Expect(Page.Locator(".status-strip")).ToHaveCountAsync(0);
 
         // The geometry is read BEFORE anything can throw and written in a
@@ -274,14 +277,16 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
 
-        // The maximized answering composition, as above: no status strip, no
-        // title strip, nothing but this chip saying where the problem came from.
-        await Expect(Page.Locator(".status-strip")).ToHaveCountAsync(0);
         // Positive precondition for the floor: this is a cube answering row —
         // the widest row — and the panel is showing. The tail floor below is a
         // consequence of exactly those two facts.
         await Expect(Page.Locator(".action-row .bg-cube-actions")).ToHaveCountAsync(1);
         await Expect(CollapseRail).Not.ToBeCheckedAsync();
+        // The maximized answering composition, as above: no status strip, no
+        // title strip, nothing but this chip saying where the problem came from.
+        // After the row, so the absence is of an arrived composition
+        // (halheinrich/backgammon#333).
+        await Expect(Page.Locator(".status-strip")).ToHaveCountAsync(0);
 
         string geometry = await CaptureRowGeometryAsync();
         try
@@ -337,6 +342,9 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await ApplyFilterAsync();
         await StartQuizAsync();
         await Expect(Page.Locator(".action-row .bg-cube-actions")).ToHaveCountAsync(1);
+        // The measured row, not the pending one: pending, the tail is behind
+        // its "⋯" whatever the fit decides (halheinrich/backgammon#333).
+        await ExpectRowFittedAsync();
 
         var more = Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.MoreButton, Exact = true });
         await more.ClickAsync();
