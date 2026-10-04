@@ -4023,9 +4023,8 @@ the pills short, and it is fitted a frame or so later. Read in between, it is
 wider by the panel, has fewer controls, and shows the short form whatever the
 fit decides. An absence asserted straight after a transition holds of a page
 that has rendered nothing yet, so it follows a positive wait for the arrival.
-The suite was swept for both against slowed transitions: the row-fit module
-delayed 1.5 s, and the page's animation frames 300 ms. Five scenarios then
-failed on the old reads (eight runs) and none on the corrected ones.
+The suite was swept for both, and the corrected reads were measured against
+slowed transitions: a delayed row-fit module, and slowed animation frames.
 
 **The proof runs under the condition that broke it.** `RowFitModuleHold` holds
 `actionRowFit.js` until the scenario reports that its first wait has been

@@ -16,8 +16,11 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <para>
 /// Waiting policy: Playwright auto-wait and explicit <c>Expect</c> assertions
 /// only — no sleeps. Every helper that triggers an async app transition ends by
-/// awaiting the user-visible consequence of that transition, so callers can
-/// chain steps without timing knowledge.
+/// awaiting a stated consequence of it, which its own summary names. Most
+/// await the transition's user-visible result. <see cref="StartQuizAsync"/>
+/// and <see cref="ContinueToDoneAsync"/> await only the URL, Start's
+/// deliberately, so that the tests holding the quiz page's start can reach
+/// it. What a caller then waits for before it reads or acts is the rule below.
 /// </para>
 ///
 /// <para>
@@ -599,10 +602,14 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// <summary>
     /// The <c>localStorage</c> key the filter panel keeps its <c>More
     /// filters</c> container's open state under: the producer's
-    /// (XgFilter_Razor's <c>FilterPanel.MoreFiltersKey</c>), spelled here as a
-    /// consumer pin. A key renamed at the producer reads as nothing stored, so
-    /// <see cref="OpenMoreFiltersAsync"/> would wait for a folded container
-    /// that the restore had opened, and fail at that wait.
+    /// (XgFilter_Razor's internal <c>FilterPanel.MoreFiltersKey</c>), duplicated
+    /// here, as <see cref="OpenMoreFiltersAsync"/> also duplicates the
+    /// producer's parse of the stored value (<c>bool.TryParse</c>). It is not
+    /// fail-loud protection. A key renamed at the producer reads as nothing
+    /// stored, which means folded, and the container's initial folded render
+    /// can satisfy that wait before the producer's asynchronous restore opens
+    /// it, so the helper's click can still race the restore. The proper fix is
+    /// a restoration signal owned by XgFilter_Razor.
     /// </summary>
     private const string MoreFiltersKey = "xg_moreFiltersOpen";
 
