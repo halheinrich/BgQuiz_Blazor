@@ -132,8 +132,9 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// (<c>MainLayout.razor.css</c>), and its first fit ends that a frame or so
     /// later. A width read in between reads 0 with the box unchecked. Umbrella
     /// CI run 211 measured those values, a width of 0 with the box unchecked,
-    /// with the row's insertion and first fit inside the read's window; it did
-    /// not establish the page's state at the instant the read evaluated.
+    /// with the row inserted while the read was in flight and the first fit's
+    /// bracket overlapping the end of the read's window; it did not establish
+    /// the page's state at the instant the read evaluated.
     /// Holding the first fit across the read reproduces that observed failure
     /// every time, consistent with that evidence. So the scenario first
     /// establishes that the
