@@ -4007,8 +4007,11 @@ fit, since the pending row folds the panel by style whatever the box says. So
 for the row's first fit (`E2eTestBase.ExpectRowFittedAsync`), reads the width
 once and asserts on that value. It never waits for the width it wants, so a
 fitted row that folds the panel fails with the value it read
-(`halheinrich/backgammon#333`; held across the read, the first fit reproduces
-the CI red, and `RowFitFirstFitHold` proves the correction under that hold).
+(`halheinrich/backgammon#333`). Umbrella CI measured a width of 0 with the box
+unchecked, with the row's insertion and first fit inside the read's window,
+but not the page's state at the instant the read evaluated. Holding the first
+fit across the read is a controlled pending condition that reproduces that
+observed failure, and `RowFitFirstFitHold` proves the correction under it.
 
 **A branch waits for the state it branches on** (`halheinrich/backgammon#333`).
 A read that decides which way a scenario goes is the same timing assertion,

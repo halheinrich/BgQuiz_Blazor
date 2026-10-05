@@ -120,7 +120,7 @@ internal sealed class RowFitFirstFitHold
     /// <summary>
     /// What kept the hold from establishing its condition, or null where it
     /// did: the checkpoint was reached; at it the row was present and pending
-    /// with a fit waiting on the held frames; and the frames were released
+    /// with callbacks waiting on the held frames; and the frames were released
     /// after the checkpoint, never before it.
     /// </summary>
     internal string? Unmet()
@@ -136,7 +136,7 @@ internal sealed class RowFitFirstFitHold
             if (state.Row != "pending")
                 return $"at the checkpoint the row was {state.Row}, not present and pending";
             if (state.Queued == 0)
-                return "at the checkpoint no fit was waiting on the held frames";
+                return "at the checkpoint no callbacks were waiting on the held frames";
             if (_waitCompletedWhileHeld)
                 return "the scenario's wait completed while the first fit was still held, so it does not wait for the fit";
             if (_released is not { } released)
@@ -156,7 +156,7 @@ internal sealed class RowFitFirstFitHold
             if (_read is { } read)
             {
                 events.Add((read.At, _state is { } s
-                    ? $"first-fit hold: at the checkpoint, frames held: row {s.Row} | fits waiting on the held frames {s.Queued} | rail {s.Rail}"
+                    ? $"first-fit hold: at the checkpoint, frames held: row {s.Row} | callbacks waiting on the held frames {s.Queued} | rail {s.Rail}"
                       + (_waitCompletedWhileHeld ? " | the scenario's wait had already completed" : " | the scenario's wait still waiting")
                     : $"first-fit hold: the page could not be read at the checkpoint: {_failure}"));
             }

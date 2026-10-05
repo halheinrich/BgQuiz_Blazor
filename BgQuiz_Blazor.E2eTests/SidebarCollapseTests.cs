@@ -130,9 +130,13 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// pending presentation, in which the layout folds the panel by style
     /// alone and leaves the box as the navigation left it
     /// (<c>MainLayout.razor.css</c>), and its first fit ends that a frame or so
-    /// later. A width read in between reads 0 with the box unchecked: umbrella
-    /// CI run 211 read exactly that, and holding the first fit across the read
-    /// reproduces it every time. So the scenario first establishes that the
+    /// later. A width read in between reads 0 with the box unchecked. Umbrella
+    /// CI run 211 measured those values, a width of 0 with the box unchecked,
+    /// with the row's insertion and first fit inside the read's window; it did
+    /// not establish the page's state at the instant the read evaluated.
+    /// Holding the first fit across the read reproduces that observed failure
+    /// every time, consistent with that evidence. So the scenario first
+    /// establishes that the
     /// row exists and has had its first fit (<see cref="E2eTestBase.ExpectRowFittedAsync"/>),
     /// then reads the width once and asserts the navigation contract on the
     /// value it got. It never waits for a width above 0: a fitted row that
@@ -156,12 +160,13 @@ public sealed class SidebarCollapseTests : E2eTestBase
 
     /// <summary>
     /// <see cref="CollapseLastsUntilTheNextNavigationOrReload"/>'s scenario,
-    /// unchanged, under the condition that made its width read fail on
-    /// umbrella CI (halheinrich/backgammon#333): the row present and pending
-    /// when the scenario begins waiting for its first fit. The row's first fit
-    /// is held (<see cref="RowFitFirstFitHold"/>) until that wait has been
-    /// issued; the hold then reads the page, which must show the row present
-    /// and pending with a fit waiting on the held frames, and only then lets
+    /// unchanged, under a controlled pending condition that reproduces the
+    /// failure observed on umbrella CI, consistent with that run's evidence
+    /// (halheinrich/backgammon#333): the row present and pending when the
+    /// scenario begins waiting for its first fit. The row's first fit is held
+    /// (<see cref="RowFitFirstFitHold"/>) until that wait has been issued; the
+    /// hold then reads the page, which must show the row present and pending
+    /// with callbacks waiting on the held frames, and only then lets
     /// the fit through. The read that follows is the measured row's.
     /// </summary>
     [Fact]
