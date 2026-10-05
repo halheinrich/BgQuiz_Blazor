@@ -898,8 +898,18 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// (<c>MissingPanelOwnerTests</c>), where this would wait out its timeout.
     /// </para>
     /// </summary>
-    protected Task ExpectRowFittedAsync() =>
-        Expect(Page.Locator(".action-row:not([data-nav-fold-pending])")).ToBeAttachedAsync();
+    /// <param name="waitIssued">
+    /// Called with the wait once it has been issued, before it is awaited: a
+    /// checkpoint for a harness that must know the scenario is already
+    /// waiting, and can watch the wait itself (<see cref="RowFitFirstFitHold"/>).
+    /// It must return at once.
+    /// </param>
+    protected async Task ExpectRowFittedAsync(Action<Task>? waitIssued = null)
+    {
+        var fitted = Expect(Page.Locator(".action-row:not([data-nav-fold-pending])")).ToBeAttachedAsync();
+        waitIssued?.Invoke(fitted);
+        await fitted;
+    }
 
     /// <summary>
     /// Answer the current cube problem with one pill of the row —

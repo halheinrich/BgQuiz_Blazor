@@ -13,7 +13,9 @@ namespace BgQuiz_Blazor.E2eTests;
 /// observability first"; halheinrich/backgammon#333). Two scenarios keep it:
 /// <c>QuizFlowTests</c>' Too good scenario, and
 /// <c>SidebarCollapseTests.CollapseLastsUntilTheNextNavigationOrReload</c>,
-/// whose panel-width read after Start failed on umbrella CI once. The CI step
+/// whose panel-width read after Start failed on umbrella CI (runs 210 and
+/// 211); both stay until the umbrella has read the CI run that reads the
+/// sidebar's correction back. The CI step
 /// runs with detailed console verbosity, so a passing test's output reaches
 /// the log as a failing one's does. Every line claims only what its instrument
 /// measured.
@@ -77,7 +79,10 @@ namespace BgQuiz_Blazor.E2eTests;
 /// the row absent, present with its fit pending, or present and fitted. The
 /// rail's box, checked or not: checked means the panel is folded, by the user
 /// or by the auto-fold; while the row is pending the layout folds the panel by
-/// style alone and leaves the box as it was (<c>MainLayout.razor.css</c>). The
+/// style alone and leaves the box as it was (<c>MainLayout.razor.css</c>).
+/// The auto-fold, on or off: on, navFold.js has folded the panel by itself
+/// (<c>data-nav-autofold</c>) and checked the box; the box unchecked while
+/// it is on is the drawer, open over the page. The
 /// panel's width is never read here: where a scenario's own read of it is the
 /// question, that read is the evidence (<see cref="ReadAsync"/>). The
 /// problem, by the number the score panel shows and by its fourth answer's
@@ -115,6 +120,7 @@ internal sealed class QuizPageEvidence
             mark: document.documentElement.hasAttribute(mark),
             row: !row ? 'absent' : row.hasAttribute('data-nav-fold-pending') ? 'pending' : 'fitted',
             rail: !rail ? 'absent' : rail.checked ? 'checked' : 'unchecked',
+            autoFold: document.documentElement.hasAttribute('data-nav-autofold'),
             problem: text(document.querySelector('.problem-position')),
             answers: pills.length,
             fourth: pills.length >= 4 ? pills[3].getAttribute('aria-label') : null,
@@ -652,7 +658,8 @@ internal sealed class QuizPageEvidence
             : fetch is { } f ? $"actionRowFit.js fetch complete {Since(f)}"
             : "no actionRowFit.js fetch complete";
         var markText = s.Mark ? "readiness mark set: both imports confirmed" : "readiness mark absent: imports not confirmed";
-        return $"{s.Path} | {fetchText} | {markText} | row {s.Row} | rail {s.Rail} | problem {s.Problem ?? "absent"} | "
+        return $"{s.Path} | {fetchText} | {markText} | row {s.Row} | rail {s.Rail} | auto-fold {(s.AutoFold ? "on" : "off")} | "
+            + $"problem {s.Problem ?? "absent"} | "
             + $"4th answer {Quoted(s.Fourth)} of {s.Answers} | status {Quoted(s.Status)} | nav {s.Nav ?? "absent"}";
     }
 
@@ -689,7 +696,7 @@ internal sealed class QuizPageEvidence
     private static double NowMs() => (DateTimeOffset.UtcNow - DateTimeOffset.UnixEpoch).TotalMilliseconds;
 
     private sealed record State(
-        string Path, bool Mark, string Row, string Rail, string? Problem, int Answers, string? Fourth, string? Status,
+        string Path, bool Mark, string Row, string Rail, bool AutoFold, string? Problem, int Answers, string? Fourth, string? Status,
         string? Nav);
 
     private sealed record Event(

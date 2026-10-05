@@ -18,11 +18,10 @@ namespace BgQuiz_Blazor.E2eTests;
 /// script; the app ships no seam for them):
 /// </para>
 /// <list type="bullet">
-///   <item><b>A frame hold.</b> The row-fit module measures only in a frame's
-///   animation callbacks (<c>actionRowFit.js</c>), so holding
-///   <c>requestAnimationFrame</c> holds every measurement and everything it
-///   applies — the panel's fold and the report to the page — not merely the
-///   report. Released, the held callbacks run in the next real frame.</item>
+///   <item><b>A frame hold</b> (<see cref="AnimationFrames"/>, the one source
+///   for it): holding <c>requestAnimationFrame</c> holds every row-fit
+///   measurement and everything it applies. Released, the held callbacks run
+///   in the next real frame.</item>
 ///   <item><b>A coverage sampler.</b> A MutationObserver that, after every DOM
 ///   change while it runs, hit-tests the centre of every row control and
 ///   counts the row's lines: "no control is covered at any moment", checked at
@@ -40,33 +39,9 @@ public sealed class OneBudgetTests : E2eTestBase
     public OneBudgetTests(PublishedAppFixture app, PlaywrightFixture playwright)
         : base(app, playwright) { }
 
-    protected override string? ContextInitScript => """
-        (() => {
-          // The frame hold: requestAnimationFrame queues while held, and the
-          // queue runs in the next real frame on release.
-          const raf = window.requestAnimationFrame.bind(window);
-          const caf = window.cancelAnimationFrame.bind(window);
-          const queue = new Map();
-          let held = false, next = -1;
-          window.requestAnimationFrame = cb => {
-            if (!held) return raf(cb);
-            const id = next--;
-            queue.set(id, cb);
-            return id;
-          };
-          window.cancelAnimationFrame = id => { if (!queue.delete(id)) caf(id); };
-          window.__frames = {
-            hold() { held = true; },
-            release() {
-              held = false;
-              const callbacks = [...queue.values()];
-              queue.clear();
-              for (const cb of callbacks) raf(cb);
-            },
-            get queued() { return queue.size; },
-            settle: () => new Promise(r => raf(() => raf(r))),
-          };
+    protected override string? ContextInitScript => AnimationFrames.Script + """
 
+        (() => {
           // The coverage sampler.
           const sample = { running: false, samples: 0, violations: [], first: null, observer: null };
           const name = c => c.getAttribute('aria-label')

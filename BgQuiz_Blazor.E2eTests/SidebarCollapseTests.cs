@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using Microsoft.Playwright;
 using Xunit.Abstractions;
@@ -124,22 +125,53 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// only the former is what a user hits mid-quiz.
     ///
     /// <para>
-    /// <b>Evidence (halheinrich/backgammon#333).</b> The width read after Start
-    /// failed once on umbrella CI (run 210) and has passed everywhere else, so
-    /// by AGENTS.md's rule for a CI-only failure this scenario prints its
-    /// evidence (<see cref="QuizPageEvidence"/>) before anything is changed.
-    /// Each width read is recorded with the value it returned, and is followed
-    /// by a print of the row's state, the rail's box and the readiness mark;
-    /// the recorder, installed before Start, notes every change of them; and
-    /// on the way out each read is placed against the first row's pending
-    /// window. The reads and assertions are the scenario's own, unchanged: the
-    /// evidence takes no second width read and decides nothing.
+    /// <b>The read after Start waits for the row's first fit</b>
+    /// (halheinrich/backgammon#333). The quiz page's row appears in its
+    /// pending presentation, in which the layout folds the panel by style
+    /// alone and leaves the box as the navigation left it
+    /// (<c>MainLayout.razor.css</c>), and its first fit ends that a frame or so
+    /// later. A width read in between reads 0 with the box unchecked: umbrella
+    /// CI run 211 read exactly that, and holding the first fit across the read
+    /// reproduces it every time. So the scenario first establishes that the
+    /// row exists and has had its first fit (<see cref="E2eTestBase.ExpectRowFittedAsync"/>),
+    /// then reads the width once and asserts the navigation contract on the
+    /// value it got. It never waits for a width above 0: a fitted row that
+    /// folds the panel, rightly or wrongly, fails here with its value, rather
+    /// than timing out on the answer wanted.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Evidence</b> (<see cref="QuizPageEvidence"/>), kept for the CI run
+    /// that reads this correction back: each width read is recorded with the
+    /// value it returned, and the print that follows it carries that value
+    /// with the row's state, the rail's box and the auto-fold; the recorder,
+    /// installed before Start, notes every change of them; and on the way out
+    /// each read is placed against the first row's pending window. The
+    /// evidence takes no width read of its own and decides nothing.
     /// </para>
     /// </summary>
     [Fact]
-    public async Task CollapseLastsUntilTheNextNavigationOrReload()
+    public Task CollapseLastsUntilTheNextNavigationOrReload() =>
+        CollapseLastsUntilTheNextNavigationOrReloadAsync(fitHeld: false);
+
+    /// <summary>
+    /// <see cref="CollapseLastsUntilTheNextNavigationOrReload"/>'s scenario,
+    /// unchanged, under the condition that made its width read fail on
+    /// umbrella CI (halheinrich/backgammon#333): the row present and pending
+    /// when the scenario begins waiting for its first fit. The row's first fit
+    /// is held (<see cref="RowFitFirstFitHold"/>) until that wait has been
+    /// issued; the hold then reads the page, which must show the row present
+    /// and pending with a fit waiting on the held frames, and only then lets
+    /// the fit through. The read that follows is the measured row's.
+    /// </summary>
+    [Fact]
+    public Task CollapseLastsUntilTheNextNavigationOrReload_WithTheFirstFitHeldUntilTheScenarioWaitsForIt() =>
+        CollapseLastsUntilTheNextNavigationOrReloadAsync(fitHeld: true);
+
+    private async Task CollapseLastsUntilTheNextNavigationOrReloadAsync(bool fitHeld)
     {
         var evidence = _evidence = new QuizPageEvidence(Page, _output);
+        RowFitFirstFitHold? hold = null;
         try
         {
             await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
@@ -152,9 +184,14 @@ public sealed class SidebarCollapseTests : E2eTestBase
             Assert.Equal(0d, await PanelWidthAsync());
 
             await evidence.RecordAsync();
+            if (fitHeld)
+                hold = await RowFitFirstFitHold.HoldAsync(Page);
             await StartQuizAsync();
 
+            // The navigation's reset, then the row: present, then fitted once.
             await Expect(CollapseRail).Not.ToBeCheckedAsync();
+            await Expect(CubeAnswers).ToHaveCountAsync(4);
+            await ExpectRowFittedAsync(wait => hold?.Checkpoint("the scenario is waiting for the row's first fit", wait));
             Assert.True(await PanelWidthAsync() > 0,
                 "in-app navigation brings the panel back — Help tells the reader so");
 
@@ -168,9 +205,14 @@ public sealed class SidebarCollapseTests : E2eTestBase
             await Expect(CollapseRail).Not.ToBeCheckedAsync();
             Assert.True(await PanelWidthAsync() > 0,
                 "a reload brings the panel back — Help tells the reader so");
+
+            if (hold?.Unmet() is { } unmet)
+                Assert.Fail($"the scenario passed, but not under the condition it claims: {unmet}");
         }
         finally
         {
+            foreach (var (at, what) in hold?.Events() ?? [])
+                evidence.Note(at, what);
             await evidence.PrintOnTheWayOutAsync();
         }
     }
@@ -290,11 +332,17 @@ public sealed class SidebarCollapseTests : E2eTestBase
 
     /// <summary>
     /// The panel's rendered width. A single read, deliberately, and every caller
-    /// takes one only after a retrying <c>Expect</c> on the checkbox has already
-    /// landed (<c>halheinrich/backgammon#127</c>): the fold is a
-    /// <c>:checked ~ .sidebar</c> rule with no transition on it, so once the
-    /// control's state is settled the width is settled with it, in the same
-    /// frame. Nothing here can still be in flight.
+    /// takes one only after a retrying <c>Expect</c> has proved what decides the
+    /// width (<c>halheinrich/backgammon#127</c>). Off the quiz page that is the
+    /// checkbox alone: the fold is a <c>:checked ~ .sidebar</c> rule with no
+    /// transition on it, so once the control's state is settled the width is
+    /// settled with it, in the same frame. On the quiz page it is the checkbox
+    /// and the row's first fit (halheinrich/backgammon#333): until that fit the
+    /// row's pending presentation folds the panel by style alone, whatever the
+    /// box says, so a read that expects the panel showing there follows
+    /// <see cref="E2eTestBase.ExpectRowFittedAsync"/>. A read that expects it
+    /// folded with the box checked needs no fit: checked or pending, the width
+    /// is 0.
     ///
     /// <para>
     /// <b>And why <c>&gt; 0</c> is the whole of the open half.</b> That the
@@ -310,8 +358,9 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// <b>Evidence, where the scenario keeps it</b> (<see cref="_evidence"/>):
     /// the read is recorded with the value it returned, named by the line that
     /// called it, and a print of the page's state follows it, never precedes
-    /// it, so the read lands when it would have without the evidence. The
-    /// value returned is the read's own.
+    /// it, so the read lands when it would have without the evidence; that
+    /// print's line carries the width beside the row's state, the rail's box
+    /// and the auto-fold. The value returned is the read's own.
     /// </para>
     /// </summary>
     private async Task<double> PanelWidthAsync([CallerLineNumber] int line = 0)
@@ -321,7 +370,8 @@ public sealed class SidebarCollapseTests : E2eTestBase
 
         var what = $"the panel's width read at SidebarCollapseTests.cs:{line}";
         var width = await evidence.ReadAsync(what, ReadPanelWidthAsync);
-        await evidence.PrintAsync($"just after {what} returned");
+        await evidence.PrintAsync(
+            $"just after {what} returned {width.ToString(CultureInfo.InvariantCulture)}");
         return width;
     }
 
