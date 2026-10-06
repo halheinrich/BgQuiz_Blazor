@@ -254,7 +254,9 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   `MixDraft` and `MixVisibility` (the weighted mix's edit state and its
   visible fact), `ShuffleOption`, `QuizNoticeDismissal` (occurrence-keyed
   dismissal of the notices whose occurrence outlives a page), `QuizLiveMarker` (the
-  sessionStorage was-a-quiz-live marker).
+  sessionStorage was-a-quiz-live marker), `NotesPlacementStore` (where the
+  decision's notes open, with its value `NotesPlacement` and the arithmetic
+  that shows and moves it, `NotesStage`, `NotesPosition` and `NotesStep`).
 - **Wording** — `Quiz/`: `FolderPickDisplay`, `MixDisplay` and
   `AnswerTypeDisplay`, each the one home of copy more than one surface
   renders.
@@ -273,8 +275,10 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   `wwwroot/js/quizKeys.js` is the quiz page's Space-shortcut module;
   `wwwroot/js/actionRowFit.js` fits its action row: it folds the navigation
   panel by itself where the row cannot fit beside it and reports whether the
-  tail and the cube pills' full form fit; and `wwwroot/js/menuButton.js` is
-  `TailMenu`'s keyboard and pointer half.
+  tail and the cube pills' full form fit; `wwwroot/js/menuButton.js` is
+  `TailMenu`'s keyboard and pointer half; and `wwwroot/js/decisionNotes.js`
+  measures the notes overlay's stage and holds its drag's pointer capture
+  for `DecisionNotes`.
 
 **`BgQuiz_Blazor.Tests/`** — xUnit over both app projects, with bUnit for
 components and `WebApplicationFactory` for the host pipeline. Areas: the run
@@ -2996,7 +3000,7 @@ The asymmetry is pinned three times over: at the service seam
 
   - **The overlay is a native `<dialog>`, rendered only while the component's
     own bit is set**, so its `open` attribute accompanies it whenever it exists
-    — no `showModal()`, no `popover`, no authored script. The bit is a field:
+    — no `showModal()`, no `popover`, and no script opens or closes it. The bit is a field:
     never app-scoped, never persisted, set only by the user's click, and cleared
     without a focus move if the host ever hands the instance a different comment
     (another decision's notes were not opened by anyone). Continue and every
@@ -3004,7 +3008,7 @@ The asymmetry is pinned three times over: at the service seam
     the component.
   - **Both pieces are `position: fixed`** (`.decision-notes-backdrop`,
     `.decision-notes[open]` — `AppCss_DecisionNotes_OverlayIsFixed_SoNothingReflows`),
-    so opening reflows nothing and the board never moves. The backdrop covers the
+    so opening or moving it reflows nothing and the board never moves. The backdrop covers the
     whole viewport — measured: `.content`'s inline-size container does not trap
     a fixed descendant in Chromium, and a fixed probe inside it covered the
     viewport and won the hit test over the navigation panel — so any click
@@ -3031,6 +3035,93 @@ The asymmetry is pinned three times over: at the service seam
     never this component's.
   - **The control is a fixed-width button in the leading cluster**, not a member
     of the tail's shrink order; the row's height stays the primary button's.
+
+  **Where the overlay opens, and how it moves** (`SPEC-quiz-view.md` §4, "The
+  notes overlay's placement is a remembered preference", ruled 2026-10-05,
+  issue halheinrich/backgammon#344). What a reader of this code needs beyond §4:
+
+  - **The preference has one home: `NotesPlacementStore`** (`Quiz/`, Scoped),
+    the one reader and writer of its own localStorage key, `xg_notesPlacement`
+    (`StorageKey`, which Help's data section renders). Its own key, not a field
+    of `xg_quizSettings`: it is no Settings-page choice, it is written on every
+    completed move, and kept apart, the settings payload, its byte pin and
+    `navFold.js`'s reading of it stay as they were. The value is
+    `NotesPlacement`: each axis a position from 0 to 1 within the overlay's
+    travel, or `null` for an axis no move has set (centred); unset is both
+    `null`, and is `default`. The payload is `{"horizontal":…,"vertical":…}`,
+    both fields always written, an unset axis as JSON `null`, pinned byte for
+    byte in `NotesPlacementStoreTests`; Reset removes the key. The store loads
+    once per app, when a Notes control first renders, and holds the
+    preference in memory from then on — which is what carries it across
+    closing, the next problem, navigation, End quiz and the next Start;
+    storage carries it across a reload.
+  - **Storage failure never stops the notes.** The read is all or nothing: no
+    entry, text that is not a JSON object, a position that is not a number
+    from 0 to 1 or `null`, and a read that throws all read as unset. A write or
+    removal that throws leaves the new placement in memory for the session.
+    Both are logged as warnings, never raised. A load still reading when the
+    first move lands cannot put the stored value back over it.
+  - **The arithmetic is `NotesStage`'s** (`Quiz/`), in C# and nowhere else: the
+    measured stage — the visible area, the edge clearance, the overlay's size,
+    and how far below the overlay's top edge its title bar ends — and three
+    operations on it. `Show` draws a placement's top-left corner at
+    `clearance + p × travel` on each axis, the travel being the area less the
+    clearance on each side less the overlay; an axis whose travel is under
+    `MinimumTravel` (half a pixel) is centred; and the result is clamped so the
+    whole width, and everything down to the title bar's bottom, stays inside
+    the area, the start edge winning where even that cannot fit. `Drag` and
+    `Step` start from the position shown (the clamp's, where it bit) and
+    change only an axis they actually moved, so a caller tells a move that
+    wrote from one that could not by comparing what it passed in with what
+    came back.
+  - **The step size is `NotesStage.StepFraction`: an eighth of the travel on
+    that axis.** A fraction, because the preference is held in fractions: four
+    steps from the centre reach either edge in any window, landing on eighths
+    a double holds exactly.
+  - **Drawing it.** `wwwroot/js/decisionNotes.js` measures and computes
+    nothing: while the notes are open, its `watch` reports the stage to
+    `DecisionNotes.OnStageMeasured` at once and whenever the overlay or its
+    title bar changes size (a `ResizeObserver`) or the window resizes. The
+    area is the backdrop's box (fixed at inset 0, it is exactly the area a
+    fixed overlay is placed in) and the clearance is its padding —
+    `--notes-edge: 1rem`, stated once in `app.css` and read by the overlay's
+    size caps too. The component renders `data-placed` with `--notes-left` /
+    `--notes-top` from `Show`, and `.decision-notes[open][data-placed]` puts
+    the overlay there; until the first report the stylesheet's centring
+    stands, which is where an unset placement is drawn anyway. The module is
+    imported, and the store loaded, when the control first renders, so a
+    chosen placement is drawn before the overlay first paints. A module that
+    cannot be imported is logged and leaves the overlay centred and
+    unmovable, still opening and closing. A report moves the overlay and never
+    resizes it, so the observer cannot loop.
+  - **The drag is the component's, wired with Blazor pointer events on the
+    title bar** (`.decision-notes-header`: `touch-action: none`,
+    `user-select: none`). `@onpointerdown` starts one — the primary button of
+    the primary pointer, the stage known — and takes pointer capture on the
+    title bar through the module's `capture`, so the moves and the release
+    reach the title bar wherever the pointer goes, and a release over the
+    backdrop is never a click on it. `@onpointermove` draws `Drag` of the
+    starting placement on the stage measured at the start; `@onpointerup`
+    commits it through the store if it changed anything. The title bar's
+    buttons sit in two groups (`.decision-notes-tools`,
+    `.decision-notes-steps`) that stop the press with
+    `@onpointerdown:stopPropagation`, so no button starts a drag.
+    **Cancellation:** `@onlostpointercapture` and `@onpointercancel` drop the
+    drag, and so does Esc during one — the dialog's `@onkeydown`, which then
+    releases the capture through the module and does nothing else. A dropped
+    drag writes nothing, and the overlay is drawn at the stored placement on
+    the current stage. Closing, a new comment and unmounting drop the drag
+    with the overlay, unwritten. The browser delivers a lost capture with the
+    pointer's next event, and a release's own loss of capture arrives after
+    the release has ended the drag, finding nothing.
+  - **The Move control** is a title-bar button (`aria-expanded`,
+    `aria-controls`) that shows a `role="group"` of four step buttons
+    (`NotesStep`, in the ruling's order — up, down, left, right — each named by
+    its `aria-label`, an arrow being all it shows) and Reset. A step writes
+    `Step` of the current placement, or nothing where that is the same
+    placement; Reset writes unset, which removes the key. Both are ignored
+    while a drag runs. Whether the group shows is component-local and shut on
+    every opening.
 
   **The maximize-board mode** (issue halheinrich/backgammon#41 /
   `SPEC-quiz-view.md` §4). With the user's
@@ -3282,9 +3373,13 @@ The asymmetry is pinned three times over: at the service seam
   - `MixDraft.StorageKey` (`xg_quizMix`) — localStorage, the weighted mix as
     last well-formed on screen (the write-through's blob).
   - `QuizSettings.StorageKey` (`xg_quizSettings`) — localStorage, the
-    Settings page's choices as one JSON object. Listed beside the mix (the
-    other localStorage entry) so the sessionStorage one stays the trailing
+    Settings page's choices as one JSON object. Listed beside the mix (another
+    localStorage entry) so the sessionStorage one stays the trailing
     exception the paragraph after it explains.
+  - `NotesPlacementStore.StorageKey` (`xg_notesPlacement`) — localStorage,
+    where the reader last moved the notes overlay; written only by a move,
+    removed by Reset (halheinrich/backgammon#344). Listed with the other
+    localStorage entries, ahead of the sessionStorage one.
   - `QuizLiveMarker.StorageKey` (`bgquiz.quizLive`) — **sessionStorage**,
     described as what it is: current-tab-only, invisible to other tabs, gone
     when the tab closes. Not an implementation detail to gloss —
@@ -3301,14 +3396,14 @@ The asymmetry is pinned three times over: at the service seam
   cannot write into the folder there is no record being kept, and the
   reassurance must not read as a promise that one is.
 
-  Naming the three is only half of it: the section also says **what a reader can
+  Naming the four is only half of it: the section also says **what a reader can
   do about them** (issue halheinrich/backgammon#54). The route it names is the
   one a general reader already has — the browser's own setting for clearing what
   a site has stored, named by *what it does* and never by a menu path, since
   every browser words and places it differently (the claim class
   `FolderPickDisplay` rules out quoting for permission prompts). Devtools survive
   as a signposted trailing parenthesis: they are the only way to inspect the
-  three entries individually — which is what makes the key names above findable —
+  four entries individually — which is what makes the key names above findable —
   but they may never be the sentence's premise again, which is what the original
   wording made them. The paragraph also answers the question clearing site data
   actually raises for its reader (it does not reach the problem folder); that is
@@ -3805,7 +3900,9 @@ the cube first — the widest answer row, at the coordinates the locator pins �
 and only one that answers and continues reaches the play. Each comment carries
 an embedded CRLF and a run of spaces, the two shapes real XG comments have, and
 they cross the real comment table and the real parse before the page sees them;
-no committed fixture has a comment. Those two libraries are this project's only
+no committed fixture has a comment. One variant, `LongNoteBytes`, gives the play
+forty lines of notes instead, so the notes overlay meets a note that fills its
+height cap (halheinrich/backgammon#344). Those two libraries are this project's only
 project references and they are **fixture producers only**: no scenario may
 take an expectation from them, which is what keeps the independent-literal
 posture intact. The pins' coordinates are derived from the builder's own
