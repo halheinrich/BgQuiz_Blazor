@@ -781,6 +781,19 @@
                 equity loss to record against it, so it scores as a skip. You still see the
                 solution.
             </li>
+            @* The not-scored skip (SPEC-scoring.md §2a; halheinrich/backgammon#321),
+               beside the off-list one because it is the same outcome — a skip of
+               record that folds nothing — reached another way. Names the setting
+               by its label on the Settings page, says which play it is in the
+               description's own words, and leaves the review's sentence to the
+               review rather than quoting a second copy of it here. *@
+            <li>
+                <strong>Under depth-first ranking, some plays are not scored.</strong> With
+                <em>Use depth-first ranking</em> turned on in <em>Settings</em>, a play that
+                was analyzed less deeply than the best play, yet rated higher, is not scored:
+                it counts as a skip, just as a play XG never listed does, and its review says
+                why. You still see the solution.
+            </li>
             <li>
                 <strong>A cube answer is judged whole.</strong> The verdict under the board
                 names your answer and says whether it was correct; if it was not, it says what

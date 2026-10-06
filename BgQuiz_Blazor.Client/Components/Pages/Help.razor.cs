@@ -9,7 +9,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// End-user documentation for the quiz: the six beats of the flow (pick files →
 /// filters → answering → scoring → review → stats/done) plus the handful of
 /// semantics a user cannot discover by clicking around — auto-skipped
-/// no-choice positions, off-list plays scoring as skips, a cube answer
+/// no-choice positions, off-list and not-scored plays scoring as skips, a cube answer
 /// judged whole and counted once in the session's Total but as two halves in
 /// the lifetime record, the dice-click shortcut, and reload-resets-everything.
 ///

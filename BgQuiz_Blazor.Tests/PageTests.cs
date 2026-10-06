@@ -8292,6 +8292,27 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public void Help_ExplainsTheNotScoredSkip_BesideTheOffListOne()
+    {
+        // SPEC-scoring.md §2a (halheinrich/backgammon#321): under depth-first
+        // ranking a play the ranking does not score is a skip of record, and
+        // Help says so where it explains the off-list skip, so a user who sees
+        // a skip counted for a play they entered can read why. Pinned whole,
+        // with the setting named by the label the Settings page renders.
+        WithController();
+        var cut = Render<HelpPage>();
+        var worthKnowing = HelpSectionText(cut, HelpSections.ThingsWorthKnowing.Heading);
+
+        Assert.Contains("A play XG never listed counts as a skip, not a wrong answer.", worthKnowing);
+        Assert.Contains(
+            "Under depth-first ranking, some plays are not scored. With Use depth-first ranking turned "
+            + "on in Settings, a play that was analyzed less deeply than the best play, yet rated "
+            + "higher, is not scored: it counts as a skip, just as a play XG never listed does, and "
+            + "its review says why. You still see the solution.",
+            worthKnowing);
+    }
+
+    [Fact]
     public void Help_DescribesShowStatsAsTheIconItIs_AndThePanelFoldingByItself()
     {
         // halheinrich/backgammon#264's ruling of 2026-10-03 made Show stats an
