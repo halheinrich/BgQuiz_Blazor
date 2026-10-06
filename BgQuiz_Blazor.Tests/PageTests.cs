@@ -8131,13 +8131,8 @@ public class PageTests : BunitContext
         // several sections legitimately.
         WithController();
 
-        var cut = Render<HelpPage>();
+        var section = HelpSectionText(Render<HelpPage>(), HelpSections.ChooseFilters.Heading);
 
-        var section = SectionText(
-            cut.FindAll("h3").Single(h => h.TextContent.Trim() == "Choose filters"));
-
-        // Substrings deliberately kept inside a single source line: the rendered
-        // text carries the razor file's own line breaks and indentation.
         Assert.Contains("says how many decisions", section);
         Assert.Contains("not problems you will be shown", section);
         Assert.Contains("can be much smaller than the number shown", section);
@@ -8156,13 +8151,8 @@ public class PageTests : BunitContext
         // rule, and restating it here would be a second copy to keep in step.
         WithController();
 
-        var cut = Render<HelpPage>();
+        var section = HelpSectionText(Render<HelpPage>(), HelpSections.ChooseFilters.Heading);
 
-        var section = SectionText(
-            cut.FindAll("h3").Single(h => h.TextContent.Trim() == "Choose filters"));
-
-        // Substrings deliberately kept inside a single source line: the rendered
-        // text carries the razor file's own line breaks and indentation.
         Assert.Contains("Repeated positions are counted once", section);
         Assert.Contains("the line says how many duplicates it omitted, or that", section);
         Assert.Contains("there are no repeated positions.", section);
