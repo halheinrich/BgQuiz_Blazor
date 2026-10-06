@@ -206,8 +206,10 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
 
     /// <summary>
     /// The preference's load and the module's import, started when the control
-    /// first renders, so both are ready before the reader opens the notes and
-    /// the overlay is drawn at its placement from its first frame.
+    /// first renders, so that both are usually ready before the reader opens
+    /// the notes and the overlay is usually placed before it is first painted.
+    /// Nothing guarantees that: the stage's measurement is asynchronous, and
+    /// an opening early enough can also outrun the import and the load.
     /// </summary>
     private Task? _preparation;
 
@@ -292,8 +294,8 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
     /// asks for one when the stage changed. A report while closed, or of an
     /// element no longer laid out, is not a stage and changes nothing.
     /// </summary>
-    /// <param name="areaWidth">The visible area's width.</param>
-    /// <param name="areaHeight">The visible area's height.</param>
+    /// <param name="areaWidth">The layout viewport's width.</param>
+    /// <param name="areaHeight">The layout viewport's height.</param>
     /// <param name="clearance">The edge clearance on each side.</param>
     /// <param name="overlayWidth">The overlay's width.</param>
     /// <param name="overlayHeight">The overlay's height.</param>

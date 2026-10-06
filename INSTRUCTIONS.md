@@ -3062,7 +3062,7 @@ The asymmetry is pinned three times over: at the service seam
     Both are logged as warnings, never raised. A load still reading when the
     first move lands cannot put the stored value back over it.
   - **The arithmetic is `NotesStage`'s** (`Quiz/`), in C# and nowhere else: the
-    measured stage — the visible area, the edge clearance, the overlay's size,
+    measured stage — the layout viewport, the edge clearance, the overlay's size,
     and how far below the overlay's top edge its title bar ends — and three
     operations on it. `Show` draws a placement's top-left corner at
     `clearance + p × travel` on each axis, the travel being the area less the
@@ -3082,15 +3082,16 @@ The asymmetry is pinned three times over: at the service seam
     nothing: while the notes are open, its `watch` reports the stage to
     `DecisionNotes.OnStageMeasured` at once and whenever the overlay or its
     title bar changes size (a `ResizeObserver`) or the window resizes. The
-    area is the backdrop's box (fixed at inset 0, it is exactly the area a
-    fixed overlay is placed in) and the clearance is its padding —
+    layout viewport is measured as the backdrop's box (fixed at inset 0, it
+    is exactly the area a fixed overlay is placed in) and the clearance is its padding —
     `--notes-edge: 1rem`, stated once in `app.css` and read by the overlay's
     size caps too. The component renders `data-placed` with `--notes-left` /
     `--notes-top` from `Show`, and `.decision-notes[open][data-placed]` puts
     the overlay there; until the first report the stylesheet's centring
     stands, which is where an unset placement is drawn anyway. The module is
     imported, and the store loaded, when the control first renders, so a
-    chosen placement is drawn before the overlay first paints. A module that
+    chosen placement is usually drawn before the overlay first paints; the
+    measurement is asynchronous, so nothing guarantees it. A module that
     cannot be imported is logged and leaves the overlay centred and
     unmovable, still opening and closing. A report moves the overlay and never
     resizes it, so the observer cannot loop.

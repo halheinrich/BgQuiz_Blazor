@@ -7,7 +7,7 @@
 // control and every number that places the overlay: the placement arithmetic
 // is NotesStage's, in C#, and the overlay's position is what the component
 // renders. This side does only what C# cannot:
-//   - measure the stage — the visible area (the backdrop's box: fixed at
+//   - measure the stage — the layout viewport (the backdrop's box: fixed at
 //     inset 0, it covers exactly the area a fixed overlay is placed in), the
 //     edge clearance (the backdrop's padding, where the stylesheet states it
 //     once), the overlay's size, and how far below the overlay's top edge its

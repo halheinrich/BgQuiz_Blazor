@@ -197,7 +197,7 @@ public sealed class NotesPlacementGeometryTests : NotesPlacementTestBase
     }
 
     /// <summary>
-    /// The overlay fills the visible area's width less the clearance on each
+    /// The overlay fills the layout viewport's width less the clearance on each
     /// side — no horizontal travel — and stands centred across it.
     /// </summary>
     private async Task ExpectFillsTheWidthAsync()

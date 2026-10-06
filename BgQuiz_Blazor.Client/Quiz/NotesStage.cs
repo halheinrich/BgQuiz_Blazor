@@ -7,11 +7,11 @@ namespace BgQuiz_Blazor.Client.Quiz;
 /// <c>halheinrich/backgammon#344</c>): where a <see cref="NotesPlacement"/> is
 /// shown (<see cref="Show"/>), what a drag makes of it (<see cref="Drag"/>),
 /// and what a step of the Move control makes of it (<see cref="Step"/>). All
-/// lengths are CSS pixels, relative to the visible area's top-left corner.
+/// lengths are CSS pixels, relative to the layout viewport's top-left corner.
 ///
 /// <para>
-/// <b>The travel.</b> On each axis the overlay travels within the visible
-/// area less <see cref="Clearance"/> on each side, less its own size, so a
+/// <b>The travel.</b> On each axis the overlay travels within the layout
+/// viewport less <see cref="Clearance"/> on each side, less its own size, so a
 /// position <c>p</c> from 0 to 1 shows it <c>Clearance + p × travel</c> from
 /// the start edge. An unset axis is <c>p = ½</c>, which is the overlay centred
 /// — exactly where it opened before the preference existed. An axis whose
@@ -22,9 +22,13 @@ namespace BgQuiz_Blazor.Client.Quiz;
 ///
 /// <para>
 /// <b>The display clamp.</b> Whatever the window, the title bar — and with it
-/// the close control — stays inside the visible area: horizontally the whole
-/// overlay, which the title bar spans; vertically down to the title bar's
-/// bottom edge.
+/// the close control — stays inside the layout viewport, the area a fixed
+/// overlay is placed in, through changes in window size, orientation,
+/// browser page zoom and note length: horizontally the whole overlay, which
+/// the title bar spans; vertically down to the title bar's bottom edge.
+/// Pinch zoom is not followed: it magnifies the page and pans the reader
+/// across it without changing the layout viewport, so the overlay stays
+/// where it was placed (<c>SPEC-quiz-view.md</c> §4, ruled 2026-10-06).
 /// Where even that cannot fit, the start edge wins (the left, the top). The
 /// clamp changes what <see cref="Show"/> returns and never the placement, so a
 /// window that grows again shows the user's placement again. With the
@@ -76,10 +80,10 @@ internal readonly record struct NotesStage
         TitleBarBottom = titleBarBottom;
     }
 
-    /// <summary>The visible area's width: the box the overlay's fixed position is measured in.</summary>
+    /// <summary>The layout viewport's width: the box the overlay's fixed position is measured in.</summary>
     public double AreaWidth { get; }
 
-    /// <summary>The visible area's height.</summary>
+    /// <summary>The layout viewport's height.</summary>
     public double AreaHeight { get; }
 
     /// <summary>The fixed edge clearance kept on each side of the travel.</summary>
@@ -161,7 +165,7 @@ internal readonly record struct NotesStage
     /// One axis of the stage. The two axes are the same arithmetic over their
     /// own lengths, which is all "held independently" asks of the code.
     /// </summary>
-    /// <param name="Area">The visible area's length on this axis.</param>
+    /// <param name="Area">The layout viewport's length on this axis.</param>
     /// <param name="Clearance">The edge clearance on each side.</param>
     /// <param name="Size">The overlay's length on this axis.</param>
     /// <param name="Kept">How much of the overlay, from its start edge, the display clamp keeps inside the area.</param>

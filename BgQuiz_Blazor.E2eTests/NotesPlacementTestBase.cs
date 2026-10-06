@@ -24,7 +24,7 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <para>
 /// <b>Expected positions are computed here from the ruling, not read from
 /// the app.</b> The stage a scenario measures is Playwright's own reading of
-/// the page (the backdrop's box is the visible area, the overlay's box its
+/// the page (the backdrop's box is the layout viewport, the overlay's box its
 /// size), and the clearance is the stylesheet's stated <c>1rem</c> at the
 /// browser's default 16 px. A scenario that says "the overlay is a quarter of
 /// the way along its travel" therefore checks the rule against the screen,
@@ -46,7 +46,7 @@ public abstract class NotesPlacementTestBase : E2eTestBase
     protected const string PlacementKey = "xg_notesPlacement";
 
     /// <summary>
-    /// The edge clearance the overlay keeps from each side of the visible area:
+    /// The edge clearance the overlay keeps from each side of the layout viewport:
     /// the stylesheet's <c>--notes-edge: 1rem</c>, at the browser's default
     /// root font size.
     /// </summary>
@@ -88,7 +88,7 @@ public abstract class NotesPlacementTestBase : E2eTestBase
 
     protected ILocator ContinueButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton });
 
-    /// <summary>The backdrop: fixed at inset 0, its box is the visible area the overlay is placed in.</summary>
+    /// <summary>The backdrop: fixed at inset 0, its box is the layout viewport the overlay is placed in.</summary>
     protected ILocator Backdrop => Page.Locator(".decision-notes-backdrop");
 
     /// <summary>
@@ -143,7 +143,7 @@ public abstract class NotesPlacementTestBase : E2eTestBase
     /// <summary>The overlay's box as laid out now, refusing a degenerate one.</summary>
     protected Task<LocatorBoundingBoxResult> OverlayBoxAsync() => LaidOutBoxAsync(NotesDialog, "the notes overlay");
 
-    /// <summary>The visible area, as the backdrop covers it.</summary>
+    /// <summary>The layout viewport, as the backdrop covers it.</summary>
     protected Task<LocatorBoundingBoxResult> AreaAsync() => LaidOutBoxAsync(Backdrop, "the backdrop");
 
     /// <summary>
@@ -196,7 +196,7 @@ public abstract class NotesPlacementTestBase : E2eTestBase
         });
     }
 
-    /// <summary>Wait until the overlay stands centred in the visible area — where an unset preference shows it.</summary>
+    /// <summary>Wait until the overlay stands centred in the layout viewport — where an unset preference shows it.</summary>
     protected async Task ExpectOverlayCentredAsync(string because)
     {
         await ExpectToPassAsync(async () =>

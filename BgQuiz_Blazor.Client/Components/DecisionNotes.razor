@@ -18,7 +18,7 @@
     {
         @* Covers the whole viewport beneath the dialog, so any click outside
            the notes lands here and closes them — and lands on nothing else. Its
-           box is also the visible area the overlay is placed in, measured by
+           box is also the layout viewport the overlay is placed in, measured by
            decisionNotes.js. *@
         <div class="decision-notes-backdrop" @ref="_backdrop" @onclick="Close"></div>
         @* tabindex -1: focus is moved here on open, and a click on the text

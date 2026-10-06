@@ -749,7 +749,7 @@ h1:focus {
 .decision-notes-backdrop,
 .decision-notes {
     /* THE EDGE CLEARANCE, stated once: the space the overlay keeps from each
-       side of the visible area. The size caps below read it, and so does the
+       side of the layout viewport. The size caps below read it, and so does the
        placement — through the backdrop's padding, a computed length that
        decisionNotes.js reads in pixels. */
     --notes-edge: 1rem;
