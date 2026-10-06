@@ -739,11 +739,30 @@ h1:focus {
 
    z-index 1050 / 1055 are Bootstrap's own modal backdrop and modal values: above
    the layout's sticky top row (z-index 1) and every chip on this page, under
-   nothing the app renders. */
+   nothing the app renders.
+
+   WHERE IT IS SHOWN is the reader's remembered placement (SPEC-quiz-view.md §4,
+   "The notes overlay's placement is a remembered preference", ruled 2026-10-05,
+   halheinrich/backgammon#344). The arithmetic is NotesStage's, in C#; this sheet
+   only states the clearance it works from and puts the overlay where
+   DecisionNotes says (the [data-placed] rule below). */
+.decision-notes-backdrop,
+.decision-notes {
+    /* THE EDGE CLEARANCE, stated once: the space the overlay keeps from each
+       side of the visible area. The size caps below read it, and so does the
+       placement — through the backdrop's padding, a computed length that
+       decisionNotes.js reads in pixels. */
+    --notes-edge: 1rem;
+}
+
 .decision-notes-backdrop {
     position: fixed;
     inset: 0;
     z-index: 1050;
+    /* Nothing is drawn inside the backdrop, so its padding changes nothing on
+       screen: it is where the clearance becomes a length the placement can
+       measure, and its content box is the area the overlay travels in. */
+    padding: var(--notes-edge);
     /* A light tint, deliberately not Bootstrap's 50% black: the notes are
        usually about the position, so the board must stay readable behind them,
        while the tint still says the page is not the thing a click reaches. */
@@ -756,16 +775,17 @@ h1:focus {
    only while open; the scope keeps this rule honest if that ever changes.)
    Centred by inset: 0 plus auto margins against a fit-content height, which the
    max-height caps — a long note scrolls inside .decision-notes-text rather than
-   growing past the viewport. */
+   growing past the viewport. Centred is where an unset placement is shown, and
+   it is where the overlay stands until its stage is first measured. */
 .decision-notes[open] {
     position: fixed;
     inset: 0;
     z-index: 1055;
     display: flex;
     flex-direction: column;
-    width: min(36rem, calc(100vw - 2rem));
+    width: min(36rem, calc(100vw - 2 * var(--notes-edge)));
     height: fit-content;
-    max-height: min(32rem, calc(100vh - 2rem));
+    max-height: min(32rem, calc(100vh - 2 * var(--notes-edge)));
     margin: auto;
     padding: 0;
     border: 1px solid #dee2e6;
@@ -775,13 +795,51 @@ h1:focus {
     box-shadow: 0 0.5rem 1rem rgb(0 0 0 / 0.15);
 }
 
+/* PLACED: once the stage is measured, DecisionNotes states where the placement
+   shows the overlay's top-left corner (NotesStage.Show, the display clamp
+   applied) as --notes-left and --notes-top, and this puts it there. Moving it
+   changes these two lengths and nothing else, so a move, like opening,
+   reflows nothing. */
+.decision-notes[open][data-placed] {
+    inset: var(--notes-top) auto auto var(--notes-left);
+    margin: 0;
+}
+
+/* THE TITLE BAR IS THE DRAG HANDLE, and the only one: the text below stays
+   selectable and scrollable. touch-action: none gives a touch drag to the
+   notes rather than to the page's own panning, and user-select: none keeps a
+   drag from selecting the heading. It wraps, so the Move control's step
+   buttons take a line of their own and nothing in it is pushed outside the
+   overlay at a phone's width. */
 .decision-notes-header {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.5rem 1rem;
     padding: 0.75rem 1rem;
     border-bottom: 1px solid #dee2e6;
+    cursor: move;
+    touch-action: none;
+    user-select: none;
+}
+
+/* The title bar's own buttons — Move and close — and the Move control's step
+   buttons and Reset. Pressing them never starts a drag (DecisionNotes stops the
+   press at these groups), and nothing here looks draggable. */
+.decision-notes-tools {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: auto;
+}
+
+.decision-notes-steps {
+    flex: 1 0 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    cursor: auto;
 }
 
 /* THE TEXT AS THE SOURCE STORED IT (the ruling's own words): pre-wrap keeps

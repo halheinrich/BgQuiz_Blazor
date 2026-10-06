@@ -100,6 +100,15 @@ public class PageTests : BunitContext
         tailMenu.Mode = JSRuntimeMode.Loose;
         tailMenu.SetupModule("attach", _ => true).Mode = JSRuntimeMode.Loose;
 
+        // And the review's Notes control: it imports its placement module when
+        // it first renders and starts its stage reports when the notes open
+        // (halheinrich/backgammon#344). Nothing is measured here, so the
+        // overlay is never placed, and the stylesheet's centring stands. Its
+        // own contract is DecisionNotesTests' and DecisionNotesPlacementTests'.
+        var decisionNotes = JSInterop.SetupModule(DecisionNotes.ModulePath);
+        decisionNotes.Mode = JSRuntimeMode.Loose;
+        decisionNotes.SetupModule("watch", _ => true).Mode = JSRuntimeMode.Loose;
+
         // Home and Done inject the sessionStorage-backed QuizLiveMarker. It needs
         // only the framework IJSRuntime — which bUnit registers in Services — so
         // one fixture-wide registration serves every page render. The marker's
@@ -164,6 +173,12 @@ public class PageTests : BunitContext
         // Settings page's writes are visible to a Quiz page rendered after it —
         // which is the app-scoped behavior the side settings depend on.
         Services.AddScoped<QuizSettings>();
+
+        // The review's Notes control injects the notes' placement preference.
+        // Scoped, as in Program.cs; its read runs under each test's JSInterop
+        // mode, so a fresh browser's — nothing stored — unless a test says
+        // otherwise.
+        Services.AddScoped<NotesPlacementStore>();
 
         // Quiz injects QuizNoticeDismissal (every notice checks it before
         // rendering). Scoped, as in Program.cs, so a test that re-renders the page
@@ -2974,7 +2989,7 @@ public class PageTests : BunitContext
     /// </summary>
     private void WithStoredFilterSelection(FilterConfig stored)
     {
-        string[] hostKeys = [MixDraft.StorageKey, QuizSettings.StorageKey];
+        string[] hostKeys = [MixDraft.StorageKey, QuizSettings.StorageKey, NotesPlacementStore.StorageKey];
         JSInterop.Setup<string?>(
             "localStorage.getItem",
             invocation => invocation.Arguments is [string key] && !hostKeys.Contains(key))
@@ -7937,7 +7952,8 @@ public class PageTests : BunitContext
         // independent literals in the e2e suite). Every entry the app keeps in
         // the browser is rendered from the constant that actually writes it —
         // MixDraft owns xg_quizMix in both directions, QuizSettings owns the
-        // settings entry, QuizLiveMarker owns its sessionStorage mark — so a key
+        // settings entry, NotesPlacementStore the notes' placement, and
+        // QuizLiveMarker its sessionStorage mark — so a key
         // rename that left the prose behind fails here rather than shipping a
         // name the reader can't find in devtools. That is the reason
         // QuizLiveMarker's key was widened from private to internal at all;
@@ -7951,6 +7967,7 @@ public class PageTests : BunitContext
 
         Assert.Contains(MixDraft.StorageKey, section);
         Assert.Contains(QuizSettings.StorageKey, section);
+        Assert.Contains(NotesPlacementStore.StorageKey, section);
         Assert.Contains(QuizLiveMarker.StorageKey, section);
     }
 
@@ -7961,7 +7978,7 @@ public class PageTests : BunitContext
         // what FilterPanel persists inside FilterHelp, rendered from the panel's
         // own key constants; this page links into that anchor and names no key of
         // the panel's. The positive half is the link. The negative half asserts
-        // the section's <code> elements are *exactly* the app's own two keys —
+        // the section's <code> elements are *exactly* the app's own keys —
         // stated that way rather than as "does not contain xg_filter_config",
         // because the panel's key names are internal to another repo, so a
         // literal here could rot into a negative assertion that passes for the
@@ -7998,7 +8015,9 @@ public class PageTests : BunitContext
             a => a.GetAttribute("href")!
                 .EndsWith("#" + FilterHelp.StorageSectionAnchorId, StringComparison.Ordinal));
         Assert.Equal(FilterHelp.StorageSectionHeading, pointer.TextContent.Trim());
-        Assert.Equal([MixDraft.StorageKey, QuizSettings.StorageKey, QuizLiveMarker.StorageKey], codes);
+        Assert.Equal(
+            [MixDraft.StorageKey, QuizSettings.StorageKey, NotesPlacementStore.StorageKey, QuizLiveMarker.StorageKey],
+            codes);
 
         // ...and the pointer lands on a heading that really exists in this
         // render and really carries those words. Not implied by the two

@@ -1,8 +1,10 @@
 using AngleSharp.Dom;
 using BgQuiz_Blazor.Client.Components;
+using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BgQuiz_Blazor.Tests;
 
@@ -28,6 +30,23 @@ namespace BgQuiz_Blazor.Tests;
 public class DecisionNotesTests : BunitContext
 {
     private const string Note = "Hit loose here; the gammons are worth it.";
+
+    public DecisionNotesTests()
+    {
+        // Since halheinrich/backgammon#344 the component also decides where its
+        // overlay opens: it injects the placement store, which reads storage
+        // when the control first renders, and imports its placement module,
+        // which reports the stage once the notes are open. Loose interop
+        // answers those as a fresh browser would — nothing stored, no stage
+        // reported, so the overlay stays where the stylesheet centres it — and
+        // leaves this class's open/close contract exactly as it was. Where the
+        // overlay is drawn, and how it moves, is DecisionNotesPlacementTests'.
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        var module = JSInterop.SetupModule(DecisionNotes.ModulePath);
+        module.Mode = JSRuntimeMode.Loose;
+        module.SetupModule("watch", _ => true).Mode = JSRuntimeMode.Loose;
+        Services.AddScoped<NotesPlacementStore>();
+    }
 
     /// <summary>
     /// The control's element-reference id, read off the first render. Read

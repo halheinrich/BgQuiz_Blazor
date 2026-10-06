@@ -120,6 +120,14 @@ builder.Services.AddScoped<QuizNoticeDismissal>();
 // moment it changes.
 builder.Services.AddScoped<QuizSettings>();
 
+// Per-app holder of the decision's notes' placement preference (localStorage-
+// backed, its own key): where the notes overlay opens, set by moving it and
+// cleared by its Reset (SPEC-quiz-view.md §4, halheinrich/backgammon#344).
+// Scoped like the settings, so the placement survives closing the notes, the
+// next problem, navigation and a new quiz in memory, and a reload in storage —
+// and a write the browser refuses still holds for the session.
+builder.Services.AddScoped<NotesPlacementStore>();
+
 // Per-app marker (sessionStorage-backed) recording that a quiz is live in this
 // tab, so a full reload — which reboots the runtime and discards quiz state —
 // can be acknowledged on the next boot instead of dumping the user on a blank

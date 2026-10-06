@@ -141,6 +141,7 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         // page rendering an empty <code> or the wrong constant.
         await Expect(body).ToContainTextAsync("xg_quizMix");
         await Expect(body).ToContainTextAsync("xg_quizSettings");
+        await Expect(body).ToContainTextAsync("xg_notesPlacement");
         await Expect(body).ToContainTextAsync("bgquiz.quizLive");
 
         // ...and the sessionStorage marker described honestly: per-tab, and gone
@@ -154,12 +155,12 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         // be one sentence routing the whole answer through "your browser's
         // developer tools"; it now leads with the setting every reader already
         // has. Three literals, each a claim that could quietly be dropped: the
-        // agency, the route being complete (all three go at once), and the
+        // agency, the route being complete (all four go at once), and the
         // answer to the question clearing site data actually raises — whether it
         // takes the reader's own positions with it.
         await Expect(body).ToContainTextAsync("they are yours to delete");
         await Expect(body).ToContainTextAsync("site has stored");
-        await Expect(body).ToContainTextAsync("removes all three at once");
+        await Expect(body).ToContainTextAsync("removes all four at once");
         await Expect(body).ToContainTextAsync("files in your problem folder are untouched");
 
         // The consequence the section is now asked to draw (issue halheinrich/backgammon#51): having
@@ -238,6 +239,26 @@ public sealed class HelpAndTitlesTests : E2eTestBase
             .InnerTextAsync();
         Assert.DoesNotContain("Home", note);
         Assert.DoesNotContain("Help", note);
+    }
+
+    /// <summary>
+    /// Help's account of moving the decision's notes (SPEC-quiz-view.md §4,
+    /// "The notes overlay's placement is a remembered preference";
+    /// halheinrich/backgammon#344): both ways to move them, the way to put
+    /// them back, and that the place is kept. Independent literals per the
+    /// copy-pin split; the behaviour is pinned in the NotesPlacement suites.
+    /// </summary>
+    [Fact]
+    public async Task HelpSaysTheNotesCanBeMoved_AndPutBack()
+    {
+        await Page.GotoAsync(BaseUrl + "/help");
+
+        var body = Page.Locator("body");
+
+        await Expect(body).ToContainTextAsync("drag them by their title bar");
+        await Expect(body).ToContainTextAsync("press Move for buttons that step them up, down, left or right");
+        await Expect(body).ToContainTextAsync("Reset puts them back in the middle");
+        await Expect(body).ToContainTextAsync("They open where you last put them, even after you reload the page");
     }
 
     /// <summary>

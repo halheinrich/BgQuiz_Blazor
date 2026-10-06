@@ -225,9 +225,38 @@ internal static class SyntheticXgMatch
     /// </summary>
     internal static int CheckerFirstMoveNumber => PlaysBeforeTheCube.Length;
 
+    /// <summary>
+    /// The name the long-note match is staged under — as long as
+    /// <see cref="StagedFileName"/>, for the same reason.
+    /// </summary>
+    internal const string LongNoteStagedFileName = "synthetic-match-2026-04-14.xg";
+
+    /// <summary>
+    /// A checker play's comment long enough to fill the notes overlay's height
+    /// cap in any window, so the overlay stands at its tallest and the text
+    /// scrolls inside it: forty lines, CRLF-separated as XG writes them.
+    /// Invented here, like the players.
+    /// </summary>
+    internal static readonly string LongPlayComment = string.Join(
+        "\r\n",
+        Enumerable.Range(1, 40).Select(n => $"Line {n}: the 5-point is worth more than the split here."));
+
+    /// <summary>
+    /// The match, with the checker play's comment replaced by
+    /// <see cref="LongPlayComment"/>: its cube decision's notes are the short
+    /// <see cref="CubeComment"/> and its play's are long — one quiz in which
+    /// one placement meets a short note and then a long one
+    /// (<c>SPEC-quiz-view.md</c> §4, halheinrich/backgammon#344: "one
+    /// preference lands proportionally in any window and for any note").
+    /// </summary>
+    internal static byte[] LongNoteBytes() =>
+        Build(XgFileBuilder.ForMatch(MatchLength, Player1, Player2), CubeGameScore1, CubeGameScore2,
+            playComment: LongPlayComment);
+
     /// <summary>The file's games and decisions, into <paramref name="builder"/>; see <see cref="Bytes"/>.</summary>
     private static byte[] Build(
-        XgFileBuilder builder, int cubeGameScore1, int cubeGameScore2, bool analyseTheLastPlayBeforeTheCube = false)
+        XgFileBuilder builder, int cubeGameScore1, int cubeGameScore2, bool analyseTheLastPlayBeforeTheCube = false,
+        string playComment = PlayComment)
     {
         for (int i = 0; i < GamesBeforeTheCubeGame; i++)
             Replay(builder.AddGame());
@@ -248,7 +277,7 @@ internal static class SyntheticXgMatch
             XgPlayer.Player2, CubeEquities, CubePly,
             doublerAction: CubeAction.Double, takerAction: CubeAction.Take,
             comment: CubeComment);
-        cubeGame.Play(XgPlayer.Player2, PlayAfterTheCube.Dice, PlayAfterTheCube.Play, comment: PlayComment);
+        cubeGame.Play(XgPlayer.Player2, PlayAfterTheCube.Dice, PlayAfterTheCube.Play, comment: playComment);
 
         return XgFileWriter.ToBytes(builder.Build());
     }

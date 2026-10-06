@@ -156,6 +156,32 @@ internal static class ExpectedText
     /// </summary>
     internal const string NotesButton = "Notes";
 
+    /// <summary>The notes overlay's close button, by its accessible name (<c>Components/DecisionNotes.razor</c>).</summary>
+    internal const string CloseNotesButton = "Close notes";
+
+    /// <summary>
+    /// The notes overlay's Move control, in its title bar, which shows the step
+    /// buttons and Reset (<c>Components/DecisionNotes.razor</c>;
+    /// halheinrich/backgammon#344). Exact-match it: the step buttons' names
+    /// begin with the same word.
+    /// </summary>
+    internal const string MoveNotesButton = "Move";
+
+    /// <summary>The Move control's up step, by its accessible name and tooltip (an arrow is all it shows).</summary>
+    internal const string MoveUpButton = "Move up";
+
+    /// <summary>The Move control's down step.</summary>
+    internal const string MoveDownButton = "Move down";
+
+    /// <summary>The Move control's left step.</summary>
+    internal const string MoveLeftButton = "Move left";
+
+    /// <summary>The Move control's right step.</summary>
+    internal const string MoveRightButton = "Move right";
+
+    /// <summary>The Move control's Reset, which puts the notes back in the middle.</summary>
+    internal const string ResetNotesButton = "Reset";
+
     /// <summary>
     /// Ending a run early (<c>Quiz.razor</c>): an icon button since
     /// halheinrich/backgammon#264's ruling, this its accessible name and
