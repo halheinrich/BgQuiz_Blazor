@@ -8315,6 +8315,14 @@ public class PageTests : BunitContext
             + "higher, is not scored: it counts as a skip, just as a play XG never listed does, and "
             + "its review says why. You still see the solution.",
             worthKnowing);
+
+        // Lifetime stats names it beside the off-list play among what the
+        // record leaves out: a skip of record folds nothing (§2a).
+        var lifetime = HelpSectionText(cut, HelpSections.LifetimeStats.Heading);
+        Assert.Contains(
+            "Skips, plays XG never listed, plays that are not scored, and positions skipped for "
+            + "you are not part of your lifetime record.",
+            lifetime);
     }
 
     [Fact]
