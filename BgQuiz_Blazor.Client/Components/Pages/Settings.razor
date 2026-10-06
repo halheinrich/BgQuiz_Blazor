@@ -105,7 +105,12 @@
            filing these under "The board" would cost that grouping its meaning.
            The first also decides how checker plays are scored (SPEC-scoring.md
            §2a: the sorting setting is the ranking), which its description
-           says; the panel is still where a reader sees it at work.
+           says; the panel is still where a reader sees it at work. So the
+           legend and the label name the ranking, not a sort
+           (halheinrich/backgammon#322): the legend says the group ranks the
+           plays and decides which are shown, and the label names the setting
+           by the words the not-scored review uses, "depth-first ranking", so
+           a reader who meets that review can find what caused it.
 
            Two controls and not one grouped control: they are independent
            (either, both, or neither is a real choice) and nothing composes them.
@@ -118,14 +123,14 @@
            enumerates them from the producer's enum in its contractual order;
            this page states no level of its own. *@
         <fieldset class="mb-4">
-            <legend class="h5">The analysis panel</legend>
+            <legend class="h5">How plays are ranked and shown</legend>
 
             <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="settingsDepthFirst"
                        checked="@UserSettings.SortAnalysisByDepthFirst"
                        @onchange="@(e => SetSortAnalysisByDepthFirstAsync((bool)e.Value!))" />
                 <label class="form-check-label" for="settingsDepthFirst">
-                    Sort the analysis by depth first
+                    Use depth-first ranking
                 </label>
             </div>
             @* Leads with what changes and rules out the one misreading it
@@ -143,8 +148,9 @@
                 the top rather than wherever its equity leaves it. This ranking
                 decides which play is best, not only the order: your answer is scored
                 against the top play, and the solution lists and numbers the plays by
-                it. A play analyzed less deeply than the best play that rated higher
-                is not scored. A change takes effect from the next quiz you start.
+                it. A play that was analyzed less deeply than the best play, yet
+                rated higher, is not scored. A change takes effect from the next
+                quiz you start.
             </div>
 
             @* The empty option is the default and says what it does ("Hide

@@ -12419,7 +12419,7 @@ public class PageTests : BunitContext
         // …and apart from the navigation panel's.
         Assert.NotSame(fieldset, cut.Find("#settingsKeepNavFolded").Closest("fieldset"));
 
-        Assert.Contains("The analysis panel", Normalize(fieldset.TextContent));
+        Assert.Contains("How plays are ranked and shown", Normalize(fieldset.TextContent));
 
         // Both ship untreated: the only default that leaves an existing user's
         // review exactly as they left it. This is where a fresh visit's state is
@@ -12439,7 +12439,8 @@ public class PageTests : BunitContext
         // "The setting's own description says that it decides the best play and
         // the order, not only the order." The description is pinned whole — an
         // exact sentence cannot go vacuously green on a rewording, as a
-        // fragment could — beside the label, which is unchanged. It says what
+        // fragment could — beside the label, which names the ranking by the
+        // not-scored review's own words (halheinrich/backgammon#322). It says what
         // moves (the most deeply analyzed first, equity within a depth), that it
         // decides the best play and so the scoring, that the solution's order
         // and numbers follow it, what is not scored, and when a change applies.
@@ -12449,7 +12450,7 @@ public class PageTests : BunitContext
 
         var depthFirst = cut.Find("#settingsDepthFirst");
         Assert.Equal(
-            "Sort the analysis by depth first",
+            "Use depth-first ranking",
             Normalize(cut.Find("label[for='settingsDepthFirst']").TextContent));
         var description = depthFirst.Closest(".form-check")!.NextElementSibling!;
         Assert.Contains("form-text", description.ClassList);
@@ -12458,8 +12459,8 @@ public class PageTests : BunitContext
             + "their equity order — so a play you rolled out sits at the top rather than wherever its "
             + "equity leaves it. This ranking decides which play is best, not only the order: your "
             + "answer is scored against the top play, and the solution lists and numbers the plays by "
-            + "it. A play analyzed less deeply than the best play that rated higher is not scored. A "
-            + "change takes effect from the next quiz you start.",
+            + "it. A play that was analyzed less deeply than the best play, yet rated higher, is not "
+            + "scored. A change takes effect from the next quiz you start.",
             Normalize(description.TextContent));
     }
 
