@@ -8347,6 +8347,15 @@ public class PageTests : BunitContext
             + "counts as skipped, and practice answers add nothing.",
             finishing);
         Assert.DoesNotContain("confirm", finishing, StringComparison.OrdinalIgnoreCase);
+
+        // The natural end beside it (§4): the run also finishes when the user
+        // moves on from the last problem and the source has no more, answered
+        // or skipped — not on the answer itself, whose review comes first.
+        Assert.Contains(
+            "When there are no more problems to show, moving on from the last one — after answering "
+            + "it, or with Skip — takes you to the summary page,",
+            finishing);
+        Assert.DoesNotContain("When the last problem is answered", finishing);
     }
 
     [Fact]
