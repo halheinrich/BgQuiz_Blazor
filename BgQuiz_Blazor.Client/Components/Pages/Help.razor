@@ -680,6 +680,27 @@
             problem is answered you land on the summary
             page, where you can restart with the same filters or start over with new ones.
         </p>
+        @* End quiz (SPEC-quiz-history.md §1 and §4; halheinrich/backgammon#335).
+           It acts on the run, not the problem on screen, so the prose says
+           "whichever problem you are viewing". Every problem shown and still
+           unresolved becomes a skip — a problem passed with Skip among them,
+           since Review the solution says that one stays open — and nothing
+           unseen is added. The accounting is said in the summary's own labels
+           (Skipped, Total problems shown); an off-list or not-scored play is
+           already a skip, and practice adds nothing. No confirmation step is
+           ruled (halheinrich/backgammon#57), so the page neither mentions one
+           nor proposes one. *@
+        <p>
+            <em>End quiz</em>, at the far end of the same row — an arrow leaving a box —
+            ends the whole quiz at once, whichever problem you are viewing, and takes you
+            to the summary page. Every problem you have been shown and not yet answered,
+            including one you passed with <em>Skip</em>, counts as skipped; problems you
+            were never shown are left out. So the summary counts each problem shown
+            once, either as your answer or under <em>Skipped</em>, and its
+            <em>Total problems shown</em> is the two together. A play XG never listed,
+            or one that is not scored, already counts as skipped, and practice answers
+            add nothing.
+        </p>
         <p>
             In a window too narrow for the whole row, its right-hand group — the XGID's copy
             button, the label naming the file, <em>Show stats</em> and <em>End quiz</em> —

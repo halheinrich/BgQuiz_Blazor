@@ -8313,6 +8313,30 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public void Help_ExplainsEndQuiz_EndsTheRun_AndHowTheSummaryAccountsForIt()
+    {
+        // SPEC-quiz-history.md §1 and §4 (halheinrich/backgammon#335): End quiz
+        // ends the whole run wherever the user is viewing; every shown problem
+        // still unresolved becomes a skip, nothing unseen is added, and the
+        // summary accounts for each shown problem once, in its own labels. The
+        // paragraph is pinned whole, and it proposes no confirmation step
+        // (ruled absent on halheinrich/backgammon#57).
+        WithController();
+        var finishing = HelpSectionText(Render<HelpPage>(), HelpSections.StatsAndFinishing.Heading);
+
+        Assert.Contains(
+            "End quiz, at the far end of the same row — an arrow leaving a box — ends the whole quiz "
+            + "at once, whichever problem you are viewing, and takes you to the summary page. Every "
+            + "problem you have been shown and not yet answered, including one you passed with Skip, "
+            + "counts as skipped; problems you were never shown are left out. So the summary counts "
+            + "each problem shown once, either as your answer or under Skipped, and its Total problems "
+            + "shown is the two together. A play XG never listed, or one that is not scored, already "
+            + "counts as skipped, and practice answers add nothing.",
+            finishing);
+        Assert.DoesNotContain("confirm", finishing, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Help_DescribesShowStatsAsTheIconItIs_AndThePanelFoldingByItself()
     {
         // halheinrich/backgammon#264's ruling of 2026-10-03 made Show stats an
