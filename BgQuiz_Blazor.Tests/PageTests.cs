@@ -648,14 +648,14 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ApplyFilters_CountSaysRepeatsAreCountedOnce()
+    public async Task Home_ApplyFilters_NoDuplicatesCollapsed_SaysThereAreNoRepeats()
     {
         // Issue halheinrich/backgammon#104. The count has always been a count of distinct positions —
         // the source stack dedupes beneath everything — but the line said
         // nothing about it, so a user comparing it to their file count read the
-        // difference as a bug. The standing sentence makes the number legible as
-        // a deduplicated count whether or not this particular pool collapsed
-        // anything, which is why it renders here with the magnitude at zero.
+        // difference as a bug. With nothing collapsed the line says so in Hal's
+        // words (halheinrich/backgammon#366), not by stating a rule with nothing
+        // to apply to.
         WithCollapsingController(
             0,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
@@ -668,10 +668,11 @@ public class PageTests : BunitContext
         await ApplyFiltersAsync(cut);
 
         var region = Normalize(MatchSummaryRegion(cut).TextContent);
-        Assert.Contains("2 decisions match your filters. Repeated positions are counted once.", region);
-        // Nothing collapsed, so there is no magnitude to state — "left out 0"
-        // is a sentence about nothing.
-        Assert.DoesNotContain("That left out", region);
+        Assert.Contains("2 decisions match your filters. There are no repeated positions.", region);
+        // Nothing collapsed, so neither the rule nor a magnitude is stated —
+        // "0 duplicates are omitted" is a sentence about nothing.
+        Assert.DoesNotContain("Repeated positions are counted once", region);
+        Assert.DoesNotContain("omitted", region);
     }
 
     [Fact]
@@ -679,8 +680,9 @@ public class PageTests : BunitContext
     {
         // The half that actually removes the mystery: "distinct" alone still
         // leaves the user's subtraction unexplained, so the collapse magnitude
-        // is stated whenever there is one. It claims matching *decisions*
-        // dropped — never files, which is a number the stack does not measure.
+        // is stated whenever there is one, after the rule, in Hal's words
+        // (halheinrich/backgammon#366). It counts matching decisions dropped as
+        // duplicates — never files, which is a number the stack does not measure.
         WithCollapsingController(
             21,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
@@ -693,8 +695,8 @@ public class PageTests : BunitContext
         await ApplyFiltersAsync(cut);
 
         var region = Normalize(MatchSummaryRegion(cut).TextContent);
-        Assert.Contains("Repeated positions are counted once.", region);
-        Assert.Contains("That left out 21 more matching decisions.", region);
+        Assert.Contains("Repeated positions are counted once. 21 duplicates are omitted.", region);
+        Assert.DoesNotContain("There are no repeated positions", region);
         // The count itself stays the deduped pool — the collapsed copies are
         // not folded back into it.
         Assert.Contains("2 decisions match your filters", region);
@@ -704,7 +706,7 @@ public class PageTests : BunitContext
     public async Task Home_ApplyFilters_OneDuplicateCollapsed_UsesSingularWording()
     {
         // Pluralization pin for the magnitude sentence, the mate of the count
-        // line's own: one collapsed copy reads "decision", not "decisions".
+        // line's own: one collapsed copy reads "1 duplicate is omitted."
         WithCollapsingController(
             1,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
@@ -717,8 +719,8 @@ public class PageTests : BunitContext
         await ApplyFiltersAsync(cut);
 
         var region = Normalize(MatchSummaryRegion(cut).TextContent);
-        Assert.Contains("That left out 1 more matching decision.", region);
-        Assert.DoesNotContain("more matching decisions", region);
+        Assert.Contains("Repeated positions are counted once. 1 duplicate is omitted.", region);
+        Assert.DoesNotContain("duplicates", region);
     }
 
     [Fact]
@@ -738,6 +740,7 @@ public class PageTests : BunitContext
         var box = Normalize(NoMatchBox(cut).Content.TextContent);
         Assert.Contains("0 decisions match your filters", box);
         Assert.DoesNotContain("Repeated positions are counted once", box);
+        Assert.DoesNotContain("There are no repeated positions", box);
     }
 
     [Fact]
@@ -8146,8 +8149,9 @@ public class PageTests : BunitContext
         // Issue halheinrich/backgammon#104's Help half: the count has always been deduplicated, and
         // the prose that explains the line has to say so — otherwise the gap
         // between a file count and this number has no account anywhere. Both
-        // halves are pinned: the rule, and that the line reports how many the
-        // rule left out. What is NOT pinned — deliberately — is any statement
+        // halves are pinned: the rule, and that the line reports how many
+        // duplicates it omitted or that there are none, the line's two forms
+        // since halheinrich/backgammon#366. What is NOT pinned — deliberately — is any statement
         // of what makes two positions the same; that is the producer's identity
         // rule, and restating it here would be a second copy to keep in step.
         WithController();
@@ -8160,7 +8164,8 @@ public class PageTests : BunitContext
         // Substrings deliberately kept inside a single source line: the rendered
         // text carries the razor file's own line breaks and indentation.
         Assert.Contains("Repeated positions are counted once", section);
-        Assert.Contains("the line says how many they were", section);
+        Assert.Contains("the line says how many duplicates it omitted, or that", section);
+        Assert.Contains("there are no repeated positions.", section);
     }
 
     /// <summary>

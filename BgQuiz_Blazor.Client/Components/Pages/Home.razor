@@ -524,19 +524,21 @@
        The number is a count of distinct positions (the source stack dedupes by
        content identity), and saying nothing about that is what raised issue
        halheinrich/backgammon#104: a user reads their file count, reads this number, subtracts, and
-       has no account for the difference except a bug. Two sentences close that.
-       The first is standing — repeats are counted once, true of every pool — so
-       the count is legible as a deduplicated count even where nothing
-       collapsed. The second is the magnitude, and only the magnitude actually
-       removes the mystery: "distinct" alone still leaves the subtraction
-       unexplained. It renders only when something did collapse, because "left
-       out 0" is a sentence about nothing.
+       has no account for the difference except a bug. The line closes that in
+       one of two forms, by whether anything collapsed (Hal's wording on
+       halheinrich/backgammon#366). Where something did, it states the rule —
+       repeats are counted once — and then the magnitude, naming what was
+       dropped: "2 duplicates are omitted." Only the magnitude actually removes
+       the mystery: "distinct" alone still leaves the subtraction unexplained.
+       Where nothing did, it says so in one sentence, "There are no repeated
+       positions.", rather than stating a rule with nothing to apply to; the
+       count is still legible as a whole count, since it says nothing repeated.
 
-       Both sentences claim exactly what the telemetry measures — matching
+       Every form claims exactly what the telemetry measures — matching
        decisions dropped as duplicates of a position already counted. Not files:
        a file can hold many decisions, and the magnitude is measured on the
        filtered stream, so any claim about how many *files* repeat would be a
-       different number the app does not have. Neither sentence inventories what
+       different number the app does not have. No sentence inventories what
        makes two positions the same; that is the producer's identity rule
        (SPEC-stats-identity.md §4) and restating it here would be a second
        spelling of it to keep in step.
@@ -546,8 +548,8 @@
        Start is dark — a gate reason, by SPEC-notices.md's own test — and it
        renders as the non-dismissible warning box #noMatchNotice: the same
        sentence, the mix caveat inside it when the mix applies, polite because
-       the count is an outcome that lands, not a gesture's answer. The standing
-       sentence, the magnitude and the breakdown do not ride in it: with
+       the count is an outcome that lands, not a gesture's answer. The
+       repeated-positions sentences and the breakdown do not ride in it: with
        nothing matched there is no pool to characterize.
 
        The breakdown answers a different question than the count does — not "how
@@ -597,13 +599,16 @@
             <div>
                 <strong>@pool.Total</strong>
                 @(pool.Total == 1 ? "decision matches" : "decisions match") your filters.
-                Repeated positions are counted once.
                 @if (collapsed > 0)
                 {
                     <text>
-                        That left out @collapsed more matching
-                        @(collapsed == 1 ? "decision" : "decisions").
+                        Repeated positions are counted once. @collapsed
+                        @(collapsed == 1 ? "duplicate is" : "duplicates are") omitted.
                     </text>
+                }
+                else
+                {
+                    <text>There are no repeated positions.</text>
                 }
                 @if (MixInEffect)
                 {

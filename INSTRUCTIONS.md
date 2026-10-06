@@ -2250,16 +2250,17 @@ The asymmetry is pinned three times over: at the service seam
   - **The count is a count of distinct positions, and the line says so**
     (umbrella halheinrich/backgammon#104) — "N decisions match your filters" is
     N *positions*, and it cannot disagree with what a capless quiz then serves
-    (§ Pre-Start match summary for why that agreement is structural). Two
-    sentences carry it. The standing one, "Repeated positions are counted
-    once.", renders on any non-empty pool, so the number reads as deduplicated
-    even where nothing collapsed; it is suppressed on an empty pool for the
-    reason the breakdown is. The magnitude, "That left out N more matching
-    decision(s).", renders only when N > 0 — and it is the half that actually
-    works, since "distinct" alone still leaves the user's file-count
-    subtraction unexplained. Both claim exactly what the telemetry measures:
+    (§ Pre-Start match summary for why that agreement is structural). The
+    line has two forms on a non-empty pool, by whether anything collapsed
+    (Hal's wording, halheinrich/backgammon#366): with N > 0, "Repeated
+    positions are counted once. N duplicates are omitted." ("1 duplicate is
+    omitted"); with none, "There are no repeated positions." — not the rule
+    with nothing to apply to. The magnitude is the half that actually works,
+    since "distinct" alone still leaves the user's file-count subtraction
+    unexplained. Both forms are suppressed on an empty pool for the reason the
+    breakdown is. Every form claims exactly what the telemetry measures:
     matching *decisions* dropped, never files (a file holds many decisions, and
-    the magnitude is measured on the filtered stream). Neither inventories what
+    the magnitude is measured on the filtered stream). No form inventories what
     makes two positions the same — that is the producer's identity rule, not
     this app's to restate.
   - **The count is filter-only, and says so when a mix is in effect.** With
