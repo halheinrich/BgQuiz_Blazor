@@ -620,7 +620,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// (<see cref="PlaySubmission.Score"/>), under the run's ranking. A scored
     /// play is the answer of record: it counts in <see cref="Score"/>, and
     /// folds here. A play the ranking does not score — under depth first, a
-    /// candidate analyzed less deeply than the best that rated higher — and an
+    /// candidate analyzed less deeply than the best play, yet rated higher — and an
     /// off-list play, one no candidate is, are each a skip of record that folds
     /// nothing (SPEC-scoring.md §2 and §2a): <see cref="SkippedCount"/> counts
     /// it, and practice on it later leaves it standing. Every outcome still

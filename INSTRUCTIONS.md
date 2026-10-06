@@ -922,7 +922,7 @@ outcomes:
   folding at its Submit. Its `IsCorrect` (error exactly 0) is the
   producer's one verdict.
 - **Not scored** — under depth first, a candidate analyzed less deeply than the
-  best that rated higher: "a skip of record that folds nothing" (§2a).
+  best play, yet rated higher: "a skip of record that folds nothing" (§2a).
 - **Off list** — no candidate is this play: a skip of record too.
 
 A skip counts in `SkippedCount`, carries no submission, leaves the score
@@ -4542,9 +4542,10 @@ public (see Pitfalls). The externally visible surface is the route map:
   a listed play is ever one — counts as a skip, not a scoring miss: rare on
   well-analyzed positions, and a signal of an analysis omission rather than
   user error. So does a candidate the run's ranking does not score (under depth
-  first, one analyzed less deeply than the best that rated higher; SPEC-scoring
-  §2a). Don't expect every user-submitted play to become an answer of record:
-  these two complete the problem as a skip, which keeps no submission at all.
+  first, one analyzed less deeply than the best play, yet rated higher;
+  SPEC-scoring §2a). Don't expect every user-submitted play to become an
+  answer of record: these two complete the problem as a skip, which keeps no
+  submission at all.
 - **Pass-position sentinel is not empty-list.** `MoveGenerator.GeneratePlays`
   signals "no legal play" with `count == 1 && plays[0].Count == 0`
   (a single zero-move Play, dice forfeited). Code that gates on
