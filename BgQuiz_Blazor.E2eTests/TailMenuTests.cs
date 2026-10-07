@@ -53,6 +53,13 @@ public sealed class TailMenuTests : E2eTestBase
 
     private ILocator Menu => Page.GetByRole(AriaRole.Menu);
 
+    /// <summary>
+    /// The "⋯" toggle whatever it is named now — "More", or for a moment the
+    /// result of a copy chosen from its list (<see cref="More"/> finds it only
+    /// by its own name).
+    /// </summary>
+    private ILocator Toggle => Page.Locator(".tail-menu > button");
+
     private ILocator Items => Page.GetByRole(AriaRole.Menuitem);
 
     private ILocator Item(string name) =>
@@ -239,8 +246,12 @@ public sealed class TailMenuTests : E2eTestBase
     }
 
     [Fact]
-    public async Task CopyXgid_CopiesTheXgid_ClosesTheList_AndFocusReturnsToTheToggle()
+    public async Task CopyXgid_CopiesTheXgid_ClosesTheList_AndConfirmsOnTheToggle_WhereFocusReturns()
     {
+        // The copy confirms as the badge's button does — its name, its tooltip
+        // and the ticked clipboard — on the toggle, which is what is on screen
+        // with the tail folded and where focus goes back to; then the toggle is
+        // "More" again (halheinrich/backgammon#334).
         await StartOnTheMatchAsync();
         var xgid = await Page.Locator(".action-row-tail .xgid-label-text").GetAttributeAsync("title");
         Assert.StartsWith("XGID=", xgid);
@@ -249,11 +260,67 @@ public sealed class TailMenuTests : E2eTestBase
         await More.ClickAsync();
         await Item(ExpectedText.CopyXgidButton).ClickAsync();
 
+        await Expect(Toggle).ToHaveAccessibleNameAsync(ExpectedText.CopiedConfirmation);
+        await Expect(Toggle).ToHaveAttributeAsync("title", ExpectedText.CopiedConfirmation);
+        await ExpectCopyMarkAsync(Toggle.Locator(".xgid-copy-mark"), "is-copied");
         Assert.Equal(xgid, await Page.EvaluateAsync<string>("() => navigator.clipboard.readText()"));
         await Expect(Menu).ToHaveCountAsync(0);
-        await Expect(More).ToHaveAttributeAsync("aria-expanded", "false");
+        await Expect(Toggle).ToHaveAttributeAsync("aria-expanded", "false");
+        Assert.Equal("button " + ExpectedText.CopiedConfirmation, await FocusedAsync());
+
+        await Expect(More).ToBeVisibleAsync();
+        await Expect(Toggle.Locator(".xgid-copy-mark")).ToHaveCountAsync(0);
         Assert.Equal("button " + ExpectedText.MoreButton, await FocusedAsync());
         await ExpectUrlAsync("/quiz");
+    }
+
+    [Fact]
+    public async Task ARefusedCopy_IsReportedWhereItsConfirmationWouldBe_NeverAsCopied_OnBothControls()
+    {
+        // The browser refusing the write — the NotAllowedError a denied
+        // permission or an unfocused page raises — stood in for at the API
+        // itself, as the folder picker's fake stands in for its API. The
+        // refusal is reported on the control that made the copy, the badge's
+        // button and the "⋯" toggle alike, and nothing breaks the page
+        // (halheinrich/backgammon#334).
+        await Page.AddInitScriptAsync("""
+            navigator.clipboard.writeText = () =>
+              Promise.reject(new DOMException('Write permission denied.', 'NotAllowedError'));
+            """);
+        await StartOnTheMatchAsync();
+        var pageErrors = new List<string>();
+        Page.PageError += (_, error) => pageErrors.Add(error);
+
+        var badge = Page.Locator(".action-row-tail .xgid-label-copy");
+        await badge.ClickAsync();
+        await Expect(badge).ToHaveAccessibleNameAsync(ExpectedText.CopyRefused);
+        await Expect(badge).ToHaveAttributeAsync("title", ExpectedText.CopyRefused);
+        await ExpectCopyMarkAsync(badge, "is-failed");
+        await Expect(badge).ToHaveAccessibleNameAsync(ExpectedText.CopyXgidButton);
+
+        await NarrowBelowTheSwitchAsync();
+        await More.ClickAsync();
+        await Item(ExpectedText.CopyXgidButton).ClickAsync();
+        await Expect(Toggle).ToHaveAccessibleNameAsync(ExpectedText.CopyRefused);
+        await ExpectCopyMarkAsync(Toggle.Locator(".xgid-copy-mark"), "is-failed");
+        await Expect(More).ToBeVisibleAsync();
+
+        await Expect(Page.Locator("#blazor-error-ui")).ToBeHiddenAsync();
+        Assert.Empty(pageErrors);
+    }
+
+    /// <summary>
+    /// <paramref name="mark"/> carries the result class <paramref name="result"/>
+    /// and the stylesheet draws it: a box to see, and the glyph in that
+    /// result's colour (app.css — the ticked clipboard green, the crossed one
+    /// red), which only the stylesheet's rule for that result can produce.
+    /// </summary>
+    private static async Task ExpectCopyMarkAsync(ILocator mark, string result)
+    {
+        await Expect(mark).ToBeVisibleAsync();
+        Assert.Contains(result, (await mark.GetAttributeAsync("class"))!.Split(' '));
+        var colour = result == "is-copied" ? "198754" : "dc3545";
+        Assert.Contains(colour, await mark.EvaluateAsync<string>("e => getComputedStyle(e).backgroundImage"));
     }
 
     [Fact]
@@ -331,8 +398,8 @@ public sealed class TailMenuTests : E2eTestBase
         await Page.Keyboard.PressAsync("Enter");   // on Copy XGID, the first item
 
         await Expect(Menu).ToHaveCountAsync(0);
-        await ExpectToPassAsync(async () =>
-            Assert.StartsWith("XGID=", await Page.EvaluateAsync<string>("() => navigator.clipboard.readText()")));
+        await Expect(Toggle).ToHaveAccessibleNameAsync(ExpectedText.CopiedConfirmation);
+        Assert.StartsWith("XGID=", await Page.EvaluateAsync<string>("() => navigator.clipboard.readText()"));
         await ExpectToPassAsync(async () =>
             Assert.Equal("button " + ExpectedText.MoreButton, await FocusedAsync()));
     }

@@ -635,15 +635,17 @@ h1:focus {
     user-select: all;
 }
 
-/* Icon-only copy button — a clipboard glyph, swapping to a ticked clipboard for
-   the post-copy beat. Icon-only because the row's width is board budget (see the
-   cap above) and "Copy" spelled out cost more of it than the label was worth;
-   the accessible name is a visually-hidden span in the markup, not an
-   aria-label, so the same text carries the confirmation to a screen reader.
-   The glyphs are Bootstrap Icons' clipboard / clipboard-check, inlined as data
-   URIs exactly like the nav rail's icons (NavMenu.razor.css) — no icon font is
-   loaded for three shapes. A square, so the hit target stays honest beside the
-   row's Bootstrap buttons. */
+/* Icon-only copy button — a clipboard glyph, swapping for the post-copy beat
+   to a ticked clipboard where the copy landed, or a crossed one where the
+   browser refused it (XgidCopy). Icon-only because the row's width is board
+   budget (see the cap above) and "Copy" spelled out cost more of it than the
+   label was worth; the accessible name is a visually-hidden span in the
+   markup, not an aria-label, so the same text carries the result to a screen
+   reader. The glyphs are Bootstrap Icons' clipboard / clipboard-check, and the
+   clipboard with clipboard-x's cross, inlined as data URIs exactly like the
+   nav rail's icons (NavMenu.razor.css) — no icon font is loaded for four
+   shapes. A square, so the hit target stays honest beside the row's Bootstrap
+   buttons. */
 .xgid-label-copy {
     flex: none;
     width: 1.75rem;
@@ -658,8 +660,30 @@ h1:focus {
     background-color: #e9ecef;
 }
 
-.xgid-label-copy.is-copied {
+/* The result marks, each spelled once for both places a copy confirms: the
+   badge's button above, and the "⋯" toggle's mark (.xgid-copy-mark), which
+   stands in for its dots for the same beat when the copy was chosen from its
+   list (TailMenu). */
+.xgid-label-copy.is-copied,
+.xgid-copy-mark.is-copied {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23198754' viewBox='0 0 16 16'%3E%3Cpath d='M10.854 7.146a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 1 1 .708-.708L7.5 9.793l2.646-2.647a.5.5 0 0 1 .708 0z'/%3E%3Cpath d='M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z'/%3E%3Cpath d='M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z'/%3E%3C/svg%3E");
+}
+
+.xgid-label-copy.is-failed,
+.xgid-copy-mark.is-failed {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23dc3545' viewBox='0 0 16 16'%3E%3Cpath d='M6.146 7.146a.5.5 0 0 1 .708 0L8 8.293l1.146-1.147a.5.5 0 1 1 .708.708L8.707 9l1.147 1.146a.5.5 0 0 1-.708.708L8 9.707l-1.146 1.147a.5.5 0 0 1-.708-.708L7.293 9 6.146 7.854a.5.5 0 0 1 0-.708z'/%3E%3Cpath d='M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z'/%3E%3Cpath d='M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z'/%3E%3C/svg%3E");
+}
+
+/* The toggle's mark: the box its three dots fill (1em square), so swapping one
+   for the other moves nothing. */
+.xgid-copy-mark {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    vertical-align: -0.125em;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
 }
 
 /* The problem's locator — the chip beside the XGID badge naming the file the

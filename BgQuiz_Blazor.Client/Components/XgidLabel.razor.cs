@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 
 namespace BgQuiz_Blazor.Client.Components;
@@ -27,29 +28,18 @@ namespace BgQuiz_Blazor.Client.Components;
 /// </para>
 ///
 /// <para>
-/// Copying uses the browser's <c>navigator.clipboard.writeText</c> through
-/// <see cref="IJSRuntime"/>, matching how the app already calls browser
-/// globals directly (e.g. <c>localStorage.*</c> in the filter panel) rather
-/// than shipping a bespoke JS module. The button flips to a transient
-/// "Copied" confirmation.
+/// The copy button's copy and its confirmation are <see cref="XgidCopy"/>'s,
+/// the one statement the "⋯" list's Copy XGID item (<see cref="TailMenu"/>)
+/// shares: the browser's <c>navigator.clipboard.writeText</c> through
+/// <see cref="IJSRuntime"/>, then, once that resolves, the button flips for a
+/// moment to "Copied" — or, where the browser refused the write, to the
+/// failure — and back. Its accessible name and tooltip are one string, the
+/// control's name or the result showing, because they name the same control
+/// to two audiences.
 /// </para>
 /// </summary>
 public partial class XgidLabel : ComponentBase
 {
-    /// <summary>How long the post-copy "Copied" confirmation stays shown.</summary>
-    private const int CopiedFeedbackMs = 1500;
-
-    /// <summary>
-    /// The copy button's accessible name, and its tooltip — one string for both,
-    /// because they name the same control to two audiences. Internal because
-    /// the action row's "⋯" list offers the same control under the same name
-    /// where the row folds its tail behind it (<see cref="TailMenu"/>).
-    /// </summary>
-    internal const string CopyLabel = "Copy XGID to clipboard";
-
-    /// <summary>The post-copy confirmation, in the same two places.</summary>
-    private const string CopiedLabel = "Copied";
-
     /// <summary>
     /// The XGID to display. Empty (the default) hides the label entirely —
     /// callers need not branch, they can bind it unconditionally.
@@ -60,25 +50,20 @@ public partial class XgidLabel : ComponentBase
     [Inject]
     private IJSRuntime JS { get; set; } = default!;
 
-    private bool _copied;
+    [Inject]
+    private TimeProvider Clock { get; set; } = default!;
 
-    /// <summary>
-    /// What copying an XGID is: the whole value to the clipboard. The one
-    /// statement of it, shared with the "⋯" list's Copy XGID item
-    /// (<see cref="TailMenu"/>), so the item does what this button does.
-    /// </summary>
-    internal static ValueTask WriteToClipboardAsync(IJSRuntime js, string xgid) =>
-        js.InvokeVoidAsync("navigator.clipboard.writeText", xgid);
+    [Inject]
+    private ILogger<XgidCopy> Logger { get; set; } = default!;
 
-    private async Task CopyAsync()
-    {
-        await WriteToClipboardAsync(JS, Xgid);
+    /// <summary>This button's copies and the result it is showing.</summary>
+    private XgidCopy _copy = default!;
 
-        // Show the confirmation immediately, then revert after a beat. The
-        // implicit re-render when this handler completes flips the label back.
-        _copied = true;
-        StateHasChanged();
-        await Task.Delay(CopiedFeedbackMs);
-        _copied = false;
-    }
+    /// <summary>The button's name now: the result showing, else its own.</summary>
+    private string Name => _copy.ShowingLabel ?? XgidCopy.CopyLabel;
+
+    /// <summary>Give this button its copies, over the injected browser, clock and log.</summary>
+    protected override void OnInitialized() => _copy = new XgidCopy(JS, Clock, Logger);
+
+    private Task CopyAsync() => _copy.CopyAsync(Xgid, StateHasChanged);
 }

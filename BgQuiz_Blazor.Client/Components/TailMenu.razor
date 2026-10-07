@@ -9,12 +9,23 @@
     <button type="button" class="btn btn-outline-secondary action-row-icon"
             aria-haspopup="menu" aria-expanded="@(_open ? "true" : "false")"
             aria-controls="@(_open ? _menuId : null)"
-            aria-label="@ToggleName" title="@ToggleName"
+            aria-label="@ToggleLabel" title="@ToggleLabel"
             @ref="_toggle" @onclick="Toggle">
-        @* Bootstrap Icons' three-dots, inline, as the row's other icons are. *@
-        <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
-            <path d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3" fill="currentColor" />
-        </svg>
+        @* Bootstrap Icons' three-dots, inline, as the row's other icons are —
+           or, for the moment a copy chosen from the list shows its result, the
+           badge's own mark for it (app.css, .xgid-copy-mark): the list is
+           closed by then and focus is here, so this is where the copy
+           confirms, as the badge's button confirms on itself. *@
+        @if (_copy.ShowingClass is { } mark)
+        {
+            <span class="xgid-copy-mark @mark" aria-hidden="true"></span>
+        }
+        else
+        {
+            <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
+                <path d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3" fill="currentColor" />
+            </svg>
+        }
     </button>
     @if (_open)
     {
@@ -28,7 +39,7 @@
                 {
                     <button type="button" class="tail-menu-item" role="menuitem" tabindex="-1"
                             @onclick="CopyXgidAsync">
-                        @XgidLabel.CopyLabel
+                        @XgidCopy.CopyLabel
                     </button>
                 }
                 <div class="tail-menu-line" id="@LocatorLineId">

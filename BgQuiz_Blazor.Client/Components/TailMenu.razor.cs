@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 
 namespace BgQuiz_Blazor.Client.Components;
@@ -13,9 +14,9 @@ namespace BgQuiz_Blazor.Client.Components;
 /// home, the tail, one tap away.
 ///
 /// <para>
-/// <b>What the list offers</b>, in the tail's own order: Copy XGID, named and
-/// acting as <see cref="XgidLabel"/>'s copy button does
-/// (<see cref="XgidLabel.CopyLabel"/>, <see cref="XgidLabel.WriteToClipboardAsync"/>);
+/// <b>What the list offers</b>, in the tail's own order: Copy XGID, named,
+/// acting and confirming as <see cref="XgidLabel"/>'s copy button does — the
+/// one statement of both, <see cref="XgidCopy"/>;
 /// the locator, in its full wording (<see cref="ProblemLocatorForm.Line"/>) —
 /// display only, so a line to read and not an item, labelling the group the
 /// copy item sits in; then the host's <see cref="Actions"/>, in its order, each
@@ -37,6 +38,19 @@ namespace BgQuiz_Blazor.Client.Components;
 /// exactly as after pressing the button itself. The keys and the outside
 /// press are <c>wwwroot/js/menuButton.js</c>'s, which closes through
 /// <see cref="CloseList"/>; the state, the markup and every action are here.
+/// </para>
+///
+/// <para>
+/// <b>Copy XGID confirms on the toggle</b> (issue
+/// <c>halheinrich/backgammon#334</c>). Choosing it closes the list and hands
+/// focus to the toggle, as every choice does, and the copy runs; once the
+/// write resolves, the toggle shows its result for the badge's moment — named
+/// "Copied", with the badge's ticked clipboard in place of the dots, or named
+/// by the failure with the crossed one where the browser refused — and then
+/// is "More" again. The toggle because it is what is on screen where the tail
+/// is folded, the badge's button not being, and where focus is: it is the
+/// control the user just used, as the badge's button is when it confirms on
+/// itself. Its width does not change, so the row does not move.
 /// </para>
 ///
 /// <para>
@@ -88,6 +102,18 @@ public partial class TailMenu : ComponentBase, IAsyncDisposable
     [Inject]
     private IJSRuntime JS { get; set; } = default!;
 
+    [Inject]
+    private TimeProvider Clock { get; set; } = default!;
+
+    [Inject]
+    private ILogger<XgidCopy> Logger { get; set; } = default!;
+
+    /// <summary>The Copy XGID item's copies, and the result the toggle is showing.</summary>
+    private XgidCopy _copy = default!;
+
+    /// <summary>The toggle's name and tooltip now: a copy's result while it shows, else <see cref="ToggleName"/>.</summary>
+    private string ToggleLabel => _copy.ShowingLabel ?? ToggleName;
+
     /// <summary>The list's id, for the toggle's <c>aria-controls</c>; unique per instance.</summary>
     private readonly string _menuId = $"tail-menu-{Guid.NewGuid():N}";
 
@@ -114,6 +140,9 @@ public partial class TailMenu : ComponentBase, IAsyncDisposable
 
     /// <summary>Set by <see cref="DisposeAsync"/>, so an import still in flight releases rather than attaches.</summary>
     private bool _disposed;
+
+    /// <summary>Give the Copy XGID item its copies, over the injected browser, clock and log.</summary>
+    protected override void OnInitialized() => _copy = new XgidCopy(JS, Clock, Logger);
 
     /// <summary>
     /// Import and attach the module on the first render, then move focus as
@@ -178,9 +207,12 @@ public partial class TailMenu : ComponentBase, IAsyncDisposable
         StateHasChanged();
     }
 
-    /// <summary>Copy XGID: what <see cref="XgidLabel"/>'s copy button does.</summary>
+    /// <summary>
+    /// Copy XGID: what <see cref="XgidLabel"/>'s copy button does, confirmed
+    /// on the toggle once the write resolves.
+    /// </summary>
     private Task CopyXgidAsync() =>
-        ChooseAsync(() => XgidLabel.WriteToClipboardAsync(JS, Xgid).AsTask());
+        ChooseAsync(() => _copy.CopyAsync(Xgid, StateHasChanged));
 
     /// <summary>
     /// A choice: the list closes and focus goes back to the toggle, as the

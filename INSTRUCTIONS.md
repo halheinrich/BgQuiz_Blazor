@@ -266,7 +266,8 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   and the `ScorePanel` / `ScoreBreakdown` pair. `Components/` itself holds
   `XgidLabel` and `ProblemLocator`, the quiz page's bottom-row XGID badge
   and locator chip (`ProblemLocatorForm`: the chip, or one line in the full
-  wording), `TailMenu`, the "⋯" control the row's tail folds behind where it
+  wording), `XgidCopy`, the copy of an XGID and its confirmation the badge
+  and the "⋯" list share, `TailMenu`, the "⋯" control the row's tail folds behind where it
   does not fit (with `TailMenuAction`, one of the tail's buttons as its list
   offers it), `DecisionNotes`, the review row's Notes control and its
   overlay, `ProblemFolderLabel`, the `Problem folder:` caption Home, Done
@@ -2741,8 +2742,8 @@ The asymmetry is pinned three times over: at the service seam
     `aria-label` and `title`, with `aria-haspopup="menu"` and
     `aria-expanded`. Its list, over the page above the row (app.css
     `.tail-menu-list`, so opening reflows nothing), offers the tail in the
-    tail's order: **Copy XGID** (`XgidLabel.CopyLabel`, and
-    `XgidLabel.WriteToClipboardAsync`, the badge's own copy), **the locator**
+    tail's order: **Copy XGID** (`XgidCopy`, the badge's own copy and
+    confirmation, under its `CopyLabel`), **the locator**
     in its full wording as a line to read, not an item
     (`ProblemLocatorForm.Line`; it labels the `role="group"` the copy item
     sits in, which is how a screen reader moving through the items hears
@@ -2865,6 +2866,21 @@ The asymmetry is pinned three times over: at the service seam
   first item, under its own name: still the tail, one tap away. It is off the
   canvas entirely (§4 for why), so the three board branches render the producer
   components bare.
+  **A copy confirms truthfully, on the control that made it**
+  (halheinrich/backgammon#334). Copying and confirming are one statement,
+  `XgidCopy`, which the badge's button and the list's item each hold an
+  instance of: the clipboard write, then — only once it has resolved — the
+  result for 1.5 s on the injected clock: "Copied" with the ticked clipboard,
+  or, where the browser refused the write (the `JSException` a denied
+  permission, an unfocused page or a missing clipboard raises), the failure
+  with the crossed one, logged as a warning and thrown nowhere. The badge's
+  button shows it on itself, as its name, tooltip and glyph. The item shows it
+  on the "⋯" toggle — what is on screen with the tail folded, and where focus
+  returns after the choice — as the toggle's name and tooltip, with the
+  badge's glyph in place of its dots (`app.css`, `.xgid-copy-mark`, the same
+  rules as the badge's, so each glyph is spelled once), the same width, so
+  the row does not move. A second copy shows its own result for its own full
+  moment.
   Consequences worth knowing before touching it: **one site, not three** (a
   per-branch badge is how one composition ends up rendering it differently);
   and the badge is **in-flow and positions nothing**, so the old `position:

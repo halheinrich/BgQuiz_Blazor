@@ -2,6 +2,7 @@ using AngleSharp.Dom;
 using BgQuiz_Blazor.Client.Components;
 using Bunit;
 using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.JSInterop;
 
 namespace BgQuiz_Blazor.Tests;
@@ -37,8 +38,12 @@ public class TailMenuTests : BunitContext
     /// <summary>The toggle's element-reference id, read off its first render (see DecisionNotesTests for why then).</summary>
     private string? _toggleReferenceId;
 
+    /// <summary>The clock Copy XGID's confirmation runs on; its own contract is <see cref="XgidCopyTests"/>'.</summary>
+    private readonly ManualTimeProvider _clock = new();
+
     public TailMenuTests()
     {
+        Services.AddSingleton<TimeProvider>(_clock);
         JSInterop.Mode = JSRuntimeMode.Loose;
         _module = JSInterop.SetupModule(TailMenu.ModulePath);
         _module.Mode = JSRuntimeMode.Loose;
@@ -151,11 +156,11 @@ public class TailMenuTests : BunitContext
         // One name for one control: the badge's copy button and the item read
         // the same constant, and the badge's button is named by it.
         var badge = Render<XgidLabel>(p => p.Add(c => c.Xgid, Xgid));
-        Assert.Equal(XgidLabel.CopyLabel, badge.Find(".xgid-label-copy").GetAttribute("title"));
+        Assert.Equal(XgidCopy.CopyLabel, badge.Find(".xgid-label-copy").GetAttribute("title"));
 
         var cut = Menu();
         await OpenAsync(cut);
-        Assert.Equal(XgidLabel.CopyLabel, Items(cut)[0].TextContent.Trim());
+        Assert.Equal(XgidCopy.CopyLabel, Items(cut)[0].TextContent.Trim());
     }
 
     [Fact]
@@ -247,12 +252,16 @@ public class TailMenuTests : BunitContext
         var cut = Menu();
         await OpenAsync(cut);
 
-        await Items(cut)[0].ClickAsync(new());
+        // The choice's handler runs on through the copy's confirmation, which
+        // is XgidCopyTests' to pin; it ends once the confirmation's moment does.
+        var choice = Items(cut)[0].ClickAsync(new());
 
         var copy = JSInterop.VerifyInvoke("navigator.clipboard.writeText");
         Assert.Equal(Xgid, copy.Arguments[0]);
         Assert.Empty(cut.FindAll("[role=menu]"));
         AssertFocusOnTheToggle(moves: 1);
+        _clock.Advance(XgidCopy.ConfirmationTime);
+        await choice;
     }
 
     [Theory]

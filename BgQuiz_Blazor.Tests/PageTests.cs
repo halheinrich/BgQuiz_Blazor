@@ -6203,7 +6203,7 @@ public class PageTests : BunitContext
         var items = await OpenTailMenuAsync(cut);
 
         Assert.Equal(
-            [XgidLabel.CopyLabel, QuizPage.ShowStatsName, QuizPage.EndQuizName],
+            [XgidCopy.CopyLabel, QuizPage.ShowStatsName, QuizPage.EndQuizName],
             items.Select(i => i.TextContent.Trim()));
         var menu = cut.FindComponent<TailMenu>().Instance;
         Assert.Equal(c.Current!.Xgid, menu.Xgid);
