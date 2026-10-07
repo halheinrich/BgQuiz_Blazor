@@ -2975,8 +2975,13 @@ The asymmetry is pinned three times over: at the service seam
   returns after the choice — as the toggle's name and tooltip, with the
   badge's glyph in place of its dots (`app.css`, `.xgid-copy-mark`, the same
   rules as the badge's, so each glyph is spelled once), the same width, so
-  the row does not move. A second copy shows its own result for its own full
-  moment.
+  the row does not move. **Only the latest attempt owns what the control
+  shows:** a copy started while an earlier one is still writing or showing
+  makes the earlier one obsolete, and an obsolete attempt neither publishes
+  its result nor expires anything — so a late failure can never replace a
+  newer success, nor stay on the control after it. Ownership is checked
+  rather than overlap prevented: a second press is a newer request and gets
+  its own answer.
   Consequences worth knowing before touching it: **one site, not three** (a
   per-branch badge is how one composition ends up rendering it differently);
   and the badge is **in-flow and positions nothing**, so the old `position:

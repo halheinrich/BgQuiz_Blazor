@@ -191,4 +191,60 @@ public class XgidCopyTests : BunitContext
         await second;
         Assert.Equal(XgidCopy.CopyLabel, copy.Name());
     }
+
+    [Theory]
+    [MemberData(nameof(Controls))]
+    public async Task AnObsoleteCopysLateResult_AfterTheNewerCopysMomentHasEnded_ShowsNothing(string control)
+    {
+        // The ordering halheinrich/backgammon#334's review found: copy A's write
+        // waits; copy B starts, lands, shows and its moment ends; then A's write
+        // fails. Before the one ownership policy A published its failure over
+        // the control's own name and — its expiry being stale — kept it there.
+        var copy = Render(control);
+        var first = await copy.Press();                       // A: its write held open by _write
+
+        var newer = JSInterop.SetupVoid("navigator.clipboard.writeText", _ => true);
+        var second = await copy.Press();                      // B: its write held open by `newer`
+        newer.SetVoidResult();
+        copy.WaitFor(() => Assert.Equal(XgidCopy.CopiedLabel, copy.Name()));
+        _clock.Advance(XgidCopy.ConfirmationTime);
+        await second;
+        Assert.Equal(copy.OwnName, copy.Name());
+
+        _write.SetException(new JSException("NotAllowedError: Document is not focused."));
+
+        // A has run to its end — the positive signal that its completion was
+        // handled, so the reads below are not taken before it could act.
+        copy.WaitFor(() => Assert.True(first.IsCompleted, "the obsolete copy's handler has not finished"));
+        await first;
+        Assert.Equal(copy.OwnName, copy.Name());
+        Assert.Null(copy.Mark());
+        _clock.Advance(XgidCopy.ConfirmationTime);
+        Assert.Equal(copy.OwnName, copy.Name());
+    }
+
+    [Fact]
+    public async Task AnObsoleteCopysLateResult_WhileTheNewerCopyShows_NeitherReplacesNorOutlivesIt()
+    {
+        // The same rule met mid-moment: B is showing "Copied" when A's write
+        // fails. B's result stays, for B's moment, and then the control is its
+        // own again — A neither publishes over B nor keeps anything after it.
+        var copy = Badge();
+        var first = await copy.Press();
+        var newer = JSInterop.SetupVoid("navigator.clipboard.writeText", _ => true);
+        var second = await copy.Press();
+        newer.SetVoidResult();
+        copy.WaitFor(() => Assert.Equal(XgidCopy.CopiedLabel, copy.Name()));
+
+        _write.SetException(new JSException("NotAllowedError: Document is not focused."));
+        copy.WaitFor(() => Assert.True(first.IsCompleted, "the obsolete copy's handler has not finished"));
+        await first;
+        Assert.Equal(XgidCopy.CopiedLabel, copy.Name());
+        Assert.Equal("is-copied", copy.Mark());
+
+        _clock.Advance(XgidCopy.ConfirmationTime);
+        await second;
+        Assert.Equal(XgidCopy.CopyLabel, copy.Name());
+        Assert.Null(copy.Mark());
+    }
 }

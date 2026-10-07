@@ -40,9 +40,21 @@ internal enum XgidCopyResult
 /// <para>
 /// <b>For a moment, then back to the control's own name.</b> The result
 /// shows for <see cref="ConfirmationTime"/>, measured on the injected clock
-/// so a test can stand on it. A second copy while the first is still showing
-/// shows its own result for its own full moment: the earlier copy's moment
-/// ending does not cut the later one short.
+/// so a test can stand on it.
+/// </para>
+///
+/// <para>
+/// <b>Only the latest attempt owns what the control shows</b> (the one
+/// ownership policy, halheinrich/backgammon#334). Each copy is an attempt, and
+/// the moment a newer one starts, every earlier attempt is obsolete: an
+/// obsolete attempt neither publishes its result nor expires anything, at
+/// either of its two awaits. So a write that resolves after a newer copy began
+/// — however late, and whether the newer one is still waiting, showing, or
+/// already back to the control's name — shows nothing and clears nothing, and
+/// the result on the control is always the latest attempt's, for exactly its
+/// own moment. (Ownership is checked rather than overlap prevented: the user's
+/// second press is a real, newer request and gets a real, newer answer.) The
+/// browser's refusal of an obsolete write is still logged, since it happened.
 /// </para>
 /// </summary>
 internal sealed class XgidCopy(IJSRuntime js, TimeProvider clock, ILogger<XgidCopy> logger)
@@ -63,7 +75,7 @@ internal sealed class XgidCopy(IJSRuntime js, TimeProvider clock, ILogger<XgidCo
     /// <summary>How long a copy's result shows on the control that made it.</summary>
     internal static readonly TimeSpan ConfirmationTime = TimeSpan.FromMilliseconds(1500);
 
-    /// <summary>Counts copies, so only the latest one's moment ending clears what shows.</summary>
+    /// <summary>Counts attempts; the attempt holding the latest count is the one that owns what shows.</summary>
     private int _copies;
 
     /// <summary>
@@ -97,16 +109,24 @@ internal sealed class XgidCopy(IJSRuntime js, TimeProvider clock, ILogger<XgidCo
     /// it for <see cref="ConfirmationTime"/>: <paramref name="render"/> is
     /// asked to draw the result once the write has resolved, and the control's
     /// own name is back when this returns (the caller's handler completing
-    /// renders it). Never throws for the browser's refusal.
+    /// renders it) — unless a newer copy has started meanwhile, which then owns
+    /// what shows, and this attempt publishes and clears nothing. Never throws
+    /// for the browser's refusal.
     /// </summary>
     public async Task CopyAsync(string xgid, Action render)
     {
-        var copy = ++_copies;
-        Showing = await TryWriteAsync(xgid) ? XgidCopyResult.Copied : XgidCopyResult.Failed;
+        var attempt = ++_copies;
+        var result = await TryWriteAsync(xgid) ? XgidCopyResult.Copied : XgidCopyResult.Failed;
+        if (!IsCurrent(attempt)) return;
+
+        Showing = result;
         render();
         await Task.Delay(ConfirmationTime, clock);
-        if (copy == _copies) Showing = null;
+        if (IsCurrent(attempt)) Showing = null;
     }
+
+    /// <summary>Whether <paramref name="attempt"/> is still the latest copy — the only one that may publish or expire.</summary>
+    private bool IsCurrent(int attempt) => attempt == _copies;
 
     private async Task<bool> TryWriteAsync(string xgid)
     {
