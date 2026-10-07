@@ -1967,9 +1967,9 @@ is widened exactly as far as that one doc surface needs — `internal`, never
 side by side in that section, and a documented pair reading `Key` /
 `StorageKey` invites a reader to look for a distinction that isn't there.
 
-A browser that refuses storage refuses `sessionStorage` with `localStorage`,
-and the marker is read in Home's first render, so each of its three calls is
-guarded in `NotesPlacementStore`'s shape (§ `BrowserStorageCondition`): a
+The marker's own calls can be refused — a browser blocking site data refuses
+`sessionStorage` too — and it is read in Home's first render, so each of its
+three calls is guarded in `NotesPlacementStore`'s shape (§ `BrowserStorageCondition`): a
 refused read reads as no quiz having been live, a refused write or removal
 leaves things as they were. The cost is the reload notice, and only that.
 
@@ -2004,14 +2004,16 @@ and lasts the visit: every later refusal from any reporter — a remounted
 panel's fresh report, one per mount, included — keeps the same token, so a
 dismissal survives navigation, remounting and duplicate reports
 (`SPEC-notices.md` §2: recreating the panel is not a new condition). A reload
-is a new app, with no occurrence, and shows the notice fresh. **There is no
-recovery within a visit, so there is never a second occurrence:** nothing
-re-tries a refused call, and a later call that succeeds does not put back what
-an earlier refused one lost — a setting whose write was refused is still
-unsaved after another store's write lands, and a read that succeeds says
-nothing about writes (the quota shape, reads served and writes refused, is
-ruled in). Ending the occurrence on a success would tell the user their
-choices are kept while one of them is not.
+is a new app, with no occurrence, and shows the notice fresh. **No global
+recovery is tracked, so there is never a second occurrence.** Recovery can
+happen inside one store: `QuizSettings` writes the whole settings object, so a
+later write that lands repairs an earlier refused one. But a success in one
+store establishes nothing about another — the mix's refused write is still
+unsaved after a settings write lands — and a read that succeeds says nothing
+about writes (the quota shape, reads served and writes refused, is ruled in).
+Nothing records which stores are whole again, so no success ends the
+occurrence: ending it on one would tell the user their choices are kept while
+one may not be.
 
 **It reports; it never gates.** No store consults the fact before calling
 storage: one store's refused write does not establish that another's read
@@ -2210,8 +2212,13 @@ halheinrich/backgammon#50, ruled 2026-08-03):
   stays unfolded on every navigation after (off). A full reload starts the
   script afresh and storage, or the default, applies again. Before this the
   navigation path read storage only: with writes refused, on never took hold
-  and off folded again on the next navigation. The service's log says whether
-  the choice was saved when it cannot reach the applier.
+  and off folded again on the next navigation. The two calls are caught one
+  at a time, and each warning names the call that failed and says only what
+  that failure establishes: `prefer` failing means the applier was never told
+  (the choice then takes effect from the next load if saved, and reaches no
+  panel this visit if not); `apply` failing after `prefer` landed means only
+  that the panel did not open now, and the next navigation applies the
+  choice.
 
 The asymmetry is pinned three times over: at the service seam
 (`QuizSettingsTests`), from the control (`PageTests`), and in a real browser
@@ -3860,14 +3867,15 @@ setting's unfold (§ `QuizSettings`).
   `MissingPanelOwnerTests.APhoneLayout_HasItsOwner_AnsweringNull_AndItsRowIsFitted_NeverFolded`
   (640 × 768).
 - **The setting keeps the user's choice.** Turning "Keep the navigation panel
-  folded" off persists the choice, then cannot make the unfold: the call to
-  `bgquizNavFold.apply` fails as a `JSException`. `QuizSettings` catches it
-  and logs a warning. Before this rule it went unhandled, and Blazor's "An
+  folded" off persists the choice, then cannot hand it to the applier: the
+  call to `bgquizNavFold.prefer`, its first, fails as a `JSException`.
+  `QuizSettings` catches it and logs a warning naming that call. Before this rule it went unhandled, and Blazor's "An
   unhandled error has occurred" banner covered the Settings page, though the
   choice was already saved. On that page the panel stays as the load left it,
   showing, since nothing applied the stored fold either; the rail still folds
   and opens it by hand on every page but the quiz page. Turning the setting on
-  has no call to fail. **Either way the choice takes effect from the next page
+  fails the same way, at the same call, and is logged the same. **Either way
+  the choice takes effect from the next page
   load on which `navFold.js` runs**, not on an in-app navigation within the
   page without it, whose `enhancedload` handler is `navFold.js`'s too. Pinned
   by `MissingPanelOwnerTests.TheKeepFoldedSetting_WithoutTheOwner_NeitherCrashesNorLosesTheChoice`
@@ -4567,8 +4575,8 @@ public (see Pitfalls). The externally visible surface is the route map:
   Home's notice stays silent about it, or worse, a page's first render throws.
   None of them may skip a call because the condition already holds: a refused
   write elsewhere says nothing about this read. And the occurrence must not
-  end on a later success — see § `BrowserStorageCondition` for why that would
-  be a false claim.
+  end on a later success — no global recovery is tracked, and one store's
+  success says nothing about another's (§ `BrowserStorageCondition`).
 - **The `QuizLiveMarker` is `sessionStorage`, not `localStorage` — don't
   "upgrade" it.** `sessionStorage` is per-tab: it survives a reload but is
   invisible to other tabs and dies with the tab — exactly the semantics "a

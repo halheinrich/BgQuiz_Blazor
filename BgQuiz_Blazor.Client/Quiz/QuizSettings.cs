@@ -204,10 +204,7 @@ internal sealed class QuizSettings(
     /// </summary>
     private const string NavFoldApplyFunction = NavFoldGlobal + ".apply";
 
-    /// <summary>
-    /// The global navFold.js publishes its seams on — the applier, by the name
-    /// the log gives it when neither seam can be called.
-    /// </summary>
+    /// <summary>The global navFold.js publishes both of its seams on, named once.</summary>
     private const string NavFoldGlobal = "bgquizNavFold";
 
     /// <summary>
@@ -659,14 +656,17 @@ internal sealed class QuizSettings(
     /// choice then cannot reach the panel, and the call fails as a
     /// <see cref="JSException"/>. Unhandled, that put Blazor's "An unhandled
     /// error has occurred" banner over the Settings page (measured 2026-10-03,
-    /// halheinrich/backgammon#8). Any <see cref="JSException"/> from the calls
-    /// is caught instead and logged as what it shows — the panel was not told,
-    /// so nothing on this page moved — with the exception attached for the
-    /// why, and the log says what is true of the choice: saved, it takes effect
-    /// from the next page load on which navFold.js runs; refused by storage
-    /// too, it reaches no panel this visit. The panel on this page stays as it
-    /// is (its rail still folds and opens it by hand, except on the quiz page,
-    /// whose row keeps the panel hidden without its owner).
+    /// halheinrich/backgammon#8). Each of the two calls is caught on its own
+    /// and logged with the exception attached, saying which call failed and
+    /// only what that failure establishes. The preference not landing means
+    /// the applier was never told and nothing on this page moved: saved, the
+    /// choice takes effect from the next page load on which navFold.js runs;
+    /// refused by storage too, it reaches no panel this visit. The unfold not
+    /// landing after the preference did means only that the panel did not
+    /// open now: the applier holds the choice, so the next navigation applies
+    /// it. The panel on this page stays as it is (its rail still folds and
+    /// opens it by hand, except on the quiz page, whose row keeps the panel
+    /// hidden without its owner).
     /// </para>
     /// </summary>
     public async Task SetKeepNavigationPanelFoldedAsync(bool value)
@@ -676,24 +676,37 @@ internal sealed class QuizSettings(
         try
         {
             await js.InvokeVoidAsync(NavFoldPreferFunction, value);
-            if (!value) await js.InvokeVoidAsync(NavFoldApplyFunction, false);
         }
         catch (JSException e)
         {
             if (saved)
             {
                 logger.LogWarning(e,
-                    "The navigation panel's applier ({Applier}) could not be called, so the panel on this page was not changed; "
+                    "The navigation panel's applier could not be told the choice ({Call} failed), so nothing on this page moved; "
                     + "the choice is saved and takes effect from the next page load on which navFold.js runs.",
-                    NavFoldGlobal);
+                    NavFoldPreferFunction);
             }
             else
             {
                 logger.LogWarning(e,
-                    "The navigation panel's applier ({Applier}) could not be called, so the panel on this page was not changed; "
+                    "The navigation panel's applier could not be told the choice ({Call} failed), so nothing on this page moved; "
                     + "the choice could not be saved either, so it reaches no panel this visit.",
-                    NavFoldGlobal);
+                    NavFoldPreferFunction);
             }
+            return;
+        }
+
+        if (value) return;
+        try
+        {
+            await js.InvokeVoidAsync(NavFoldApplyFunction, false);
+        }
+        catch (JSException e)
+        {
+            logger.LogWarning(e,
+                "The navigation panel's applier holds the choice but could not unfold the panel now ({Call} failed); "
+                + "it unfolds from the next navigation.",
+                NavFoldApplyFunction);
         }
     }
 

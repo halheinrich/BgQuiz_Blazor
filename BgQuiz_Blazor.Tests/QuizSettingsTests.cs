@@ -564,8 +564,38 @@ public class QuizSettingsTests : BunitContext
         var entry = Assert.Single(_log.Entries);
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.IsType<JSException>(entry.Exception);
+        Assert.Contains("bgquizNavFold.prefer failed", entry.Message);
         Assert.Contains("the choice is saved", entry.Message);
         Assert.Null(_storage.Occurrence);
+    }
+
+    [Fact]
+    public async Task SettingTheFoldOff_WhenOnlyTheUnfoldFails_SaysTheNextNavigationAppliesIt_SavedOrNot()
+    {
+        // The preference landed and the unfold did not: the applier holds the
+        // choice, so the next navigation applies it — even with the write
+        // refused. The log names the call that failed and claims nothing the
+        // preference's landing contradicts (halheinrich/backgammon#360 review).
+        JSInterop.SetupVoid("bgquizNavFold.prefer", _ => true).SetVoidResult();
+        JSInterop.SetupVoid("bgquizNavFold.apply", _ => true).SetException(
+            new JSException("TypeError: Cannot read properties of null (reading 'checked')"));
+        JSInterop.SetupVoid("localStorage.setItem", _ => true)
+            .SetException(new JSException("QuotaExceededError: The quota has been exceeded."));
+        StageStored("""{"keepNavigationPanelFolded":true}""");
+        var settings = NewSettings();
+        await settings.EnsureHydratedAsync();
+
+        await settings.SetKeepNavigationPanelFoldedAsync(false);
+
+        Assert.False(settings.KeepNavigationPanelFolded);
+        Assert.Equal([false], JSInterop.Invocations["bgquizNavFold.prefer"].Select(i => i.Arguments[0]));
+        Assert.Equal(2, _log.Entries.Count);   // the refused write, then the unfold
+        var unfold = _log.Entries[^1];
+        Assert.Equal(LogLevel.Warning, unfold.Level);
+        Assert.IsType<JSException>(unfold.Exception);
+        Assert.Contains("bgquizNavFold.apply failed", unfold.Message);
+        Assert.Contains("unfolds from the next navigation", unfold.Message);
+        Assert.DoesNotContain("reaches no panel", unfold.Message);
     }
 
     [Fact]

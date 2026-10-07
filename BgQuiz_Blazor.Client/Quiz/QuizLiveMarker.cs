@@ -47,9 +47,9 @@ using Microsoft.JSInterop;
 ///
 /// <para>
 /// <b>Storage that refuses costs only the reset notice</b> (issue
-/// <c>halheinrich/backgammon#360</c>). A browser that refuses storage
-/// refuses <c>sessionStorage</c> with <c>localStorage</c>, and this marker is
-/// read in <c>Home</c>'s first render, so it degrades in
+/// <c>halheinrich/backgammon#360</c>). This marker's own calls can be
+/// refused — a browser blocking site data refuses <c>sessionStorage</c> too —
+/// and it is read in <c>Home</c>'s first render, so it degrades in
 /// <see cref="NotesPlacementStore"/>'s shape: a refused read reads as no quiz
 /// having been live, a refused write or removal leaves things as they were,
 /// each is logged as a warning with the exception attached and reported to

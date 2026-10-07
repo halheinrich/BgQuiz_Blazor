@@ -30,14 +30,16 @@ namespace BgQuiz_Blazor.Client.Quiz;
 /// reporter — a remounted filter panel's fresh report included — is the same
 /// condition and keeps the same token, so a dismissal survives navigation,
 /// remounting and duplicate reports (<c>SPEC-notices.md</c> §2). A reload
-/// starts a fresh app with no occurrence. <b>There is no recovery within a
-/// visit</b>, so no second occurrence: nothing re-tries a refused call, and a
-/// later call that succeeds does not put back what an earlier refused one
-/// lost — a setting whose write was refused is still unsaved after another
-/// store's write lands, and a read that succeeds says nothing about writes
-/// (the quota case: reads served, writes refused). Ending the occurrence on
-/// any success would tell the user their choices are being kept while one of
-/// them is not.
+/// starts a fresh app with no occurrence. <b>No global recovery is
+/// tracked</b>, so there is no second occurrence. Recovery can happen inside
+/// one store — <see cref="QuizSettings"/> writes the whole settings object,
+/// so a later write that lands repairs an earlier refused one — but a success
+/// in one store establishes nothing about another (the mix's refused write is
+/// still unsaved after a settings write lands), and a read that succeeds says
+/// nothing about writes (the quota case: reads served, writes refused).
+/// Nothing records which stores are whole again, so no success ends the
+/// occurrence: ending it on one would tell the user their choices are kept
+/// while one may not be.
 /// </para>
 ///
 /// <para>

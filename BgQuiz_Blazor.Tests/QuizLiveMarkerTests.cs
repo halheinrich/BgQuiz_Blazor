@@ -7,10 +7,10 @@ namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
 /// <see cref="QuizLiveMarker"/> where the browser refuses its
-/// <c>sessionStorage</c> (issue <c>halheinrich/backgammon#360</c>): a browser
-/// that refuses storage refuses both areas, and the marker is read in
-/// <c>Home</c>'s first render, so a refusal costs the reload notice and
-/// nothing more — logged, reported, never thrown. Its lifecycle across the
+/// <c>sessionStorage</c> (issue <c>halheinrich/backgammon#360</c>): its own
+/// calls can be refused, and the marker is read in <c>Home</c>'s first
+/// render, so a refusal costs the reload notice and nothing more — logged,
+/// reported, never thrown. Its lifecycle across the
 /// pages is <c>PageTests</c>'. Extends <see cref="BunitContext"/> only for the
 /// JSInterop double.
 /// </summary>
