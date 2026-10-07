@@ -1009,7 +1009,12 @@ milliseconds.
   and the source's own reference — makes "stored without its report",
   "replaced by a partial report" and "paired with another parse's decisions"
   unrepresentable. `ParsedProblemSet` refuses an incomplete report, so a
-  cancelled or thrown parse installs neither half at either site; each
+  cancelled or thrown parse installs neither half at either site — and the
+  cache observes cancellation at its own boundaries, before a parse starts
+  and before its result is installed, because a walk whose every file was
+  rejected yields nothing for the loops' token checks to catch and would
+  otherwise complete and be installed under a cancelled token (a previously
+  completed result is still served, never discarded); each
   parsing attempt hands the stream source a **fresh** report through its
   internal `EnumerateAsync(SourceReport?, CancellationToken)` (the producer
   claims a report for one walk and refuses it a second), and a cache hit

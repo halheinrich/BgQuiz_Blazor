@@ -192,6 +192,20 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
     /// neither assignment below: no partial decisions and no partial report
     /// are ever retained or stored, at either site.
     /// </para>
+    ///
+    /// <para>
+    /// <b>Cancellation is observed at this layer's own boundaries</b> — before
+    /// the parse starts and again before its result is installed — not only
+    /// inside the loops over yielded decisions. A walk whose every file was
+    /// rejected yields nothing, so neither loop ever reads the token: it would
+    /// finish, complete its report truthfully, and install an all-rejected
+    /// result under a token cancelled before it began, which this leg's
+    /// contract forbids (an interrupted parse installs neither half). The
+    /// producer's report semantics are untouched: the report still records
+    /// the walk it saw; it is this consumer that declines to publish it. A
+    /// previously completed result — this source's own or the holder's — is
+    /// served regardless, and never discarded.
+    /// </para>
     /// </summary>
     private async ValueTask<ParsedProblemSet> GetOrParseAsync(
         CancellationToken cancellationToken)
@@ -204,6 +218,7 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
             return cached;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         var report = new SourceReport();
         var parsing = ImmutableArray.CreateBuilder<BgDecisionData>();
         await foreach (var decision in _inner.EnumerateAsync(report, cancellationToken))
@@ -211,6 +226,10 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
             parsing.Add(decision);
         }
 
+        // The publication boundary: a cancellation requested during a walk that
+        // yielded nothing arrives here with a complete report and no earlier
+        // check having run.
+        cancellationToken.ThrowIfCancellationRequested();
         var parsed = new ParsedProblemSet(parsing.ToImmutable(), report);
         _parsed = parsed;
         _folder.StoreParsed(_generation, parsed);

@@ -388,4 +388,124 @@ public class CachedProblemSetSourceTests
         Assert.True(report.IsComplete);
         Assert.Same(report, source.Report);
     }
+
+    // -----------------------------------------------------------------------
+    //  Cancellation at the cache's own boundaries: a walk that yields nothing
+    //  never reaches the loops' token checks, so an all-rejected parse under a
+    //  cancelled token would otherwise complete and be installed
+    //  (halheinrich/backgammon#368 correction 1).
+    // -----------------------------------------------------------------------
+
+    private static async Task EnumerateAsync(IProblemSetSource source, CancellationToken token)
+    {
+        await foreach (var _ in source.EnumerateAsync(token)) { }
+    }
+
+    [Fact]
+    public async Task AllRejectedWalk_UnderAnAlreadyCancelledToken_InstallsNothing()
+    {
+        // No decision is ever yielded, so nothing inside the walk can observe
+        // the token: the cache must refuse to start — the file is never read,
+        // so its skip is never logged — and both retention sites stay empty.
+        var parses = new ParseCounter();
+        var folder = FolderOver([Damaged("only.xg")]);
+        var source = MakeSource(folder, loggerFactory: parses);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => EnumerateAsync(source, cancelled.Token));
+
+        Assert.Equal(0, parses.Count); // the walk never began
+        Assert.Null(folder.Parsed);
+        Assert.Null(source.Report);
+    }
+
+    [Fact]
+    public async Task CancellationDuringANoDecisionWalk_IsObservedBeforePublication()
+    {
+        // Cancelled from inside the walk — at the moment the damaged file's
+        // skip is logged, after the token was clear when the walk began — so
+        // the walk finishes with a complete report nobody in a loop refused.
+        // The cache must observe the cancellation before installing it.
+        using var cts = new CancellationTokenSource();
+        var folder = FolderOver([Damaged("only.xg")]);
+        var source = MakeSource(folder, loggerFactory: new CancelOnSkip(cts));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => EnumerateAsync(source, cts.Token));
+
+        Assert.Null(folder.Parsed);
+        Assert.Null(source.Report);
+    }
+
+    [Fact]
+    public async Task RetryAfterACancelledNoDecisionWalk_InstallsAFreshCompletedResult()
+    {
+        // The retry succeeds — which it could not if the cancelled attempt's
+        // report were offered again, since the producer refuses a report for a
+        // second walk — and installs at both sites.
+        using var cts = new CancellationTokenSource();
+        var folder = FolderOver([Damaged("only.xg")]);
+        var source = MakeSource(folder, loggerFactory: new CancelOnSkip(cts));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => EnumerateAsync(source, cts.Token));
+        Assert.Null(folder.Parsed);
+
+        await CollectAllAsync(source);
+
+        var parsed = Assert.IsType<ParsedProblemSet>(folder.Parsed);
+        Assert.True(parsed.Report.IsComplete);
+        Assert.True(parsed.Report.AllRejected);
+        Assert.Same(parsed.Report, source.Report);
+    }
+
+    [Fact]
+    public async Task CancelledToken_NeverDiscardsAPreviouslyCompletedResult()
+    {
+        // The guards sit before the work and before the install, never before
+        // serving a result already completed: a cache hit under a cancelled
+        // token leaves the holder's parse and the source's reference as they
+        // were.
+        var folder = FolderOver([Damaged("only.xg")]);
+        await CollectAllAsync(MakeSource(folder));
+        var before = Assert.IsType<ParsedProblemSet>(folder.Parsed);
+        var source = MakeSource(folder);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+
+        // An all-rejected cached result has no decisions for the loop's check
+        // to throw on, so this enumeration completes; what is pinned is what
+        // it left behind.
+        await EnumerateAsync(source, cancelled.Token);
+
+        Assert.Same(before, folder.Parsed);
+        Assert.Same(before.Report, source.Report);
+    }
+
+    /// <summary>
+    /// A logger factory that cancels <paramref name="cts"/> the moment the
+    /// parse logs a file's skip — the one event inside a walk over nothing but
+    /// damaged files, so the one place a cancellation can be requested mid-walk
+    /// without a decision to hang it on.
+    /// </summary>
+    private sealed class CancelOnSkip(CancellationTokenSource cts) : ILoggerFactory
+    {
+        public ILogger CreateLogger(string categoryName) => new Cancelling(cts);
+
+        public void AddProvider(ILoggerProvider provider) { }
+
+        public void Dispose() { }
+
+        private sealed class Cancelling(CancellationTokenSource cts) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                if (logLevel == LogLevel.Warning) cts.Cancel();
+            }
+        }
+    }
 }
