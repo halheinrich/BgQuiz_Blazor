@@ -8616,6 +8616,20 @@ public class PageTests : BunitContext
             section);
     }
 
+    [Fact]
+    public void Help_ChooseFilters_NamesTheCountAsWhatDescribesTheFiltersOnly()
+    {
+        // halheinrich/backgammon#368, Hal's ruling on the v1.12.1 candidate walk:
+        // the rider sentence above now stands between the count-line sentences
+        // and the filters-only caveat, so the caveat names its subject instead
+        // of an "It" that would read as Home. Pinned whole, section-scoped.
+        WithController();
+
+        var section = HelpSectionText(Render<HelpPage>(), HelpSections.ChooseFilters.Heading);
+
+        Assert.Contains("The count also describes the filters only.", section);
+    }
+
     /// <summary>
     /// The whitespace-normalised text of the Help section under the
     /// <c>h3</c> headed <paramref name="heading"/>.
