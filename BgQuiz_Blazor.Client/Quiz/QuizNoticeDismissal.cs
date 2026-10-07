@@ -88,6 +88,18 @@ internal enum QuizNotice
     /// show at once, and each says its own thing.
     /// </summary>
     PickStatsUnwritableForecast,
+
+    /// <summary>
+    /// <c>Home</c>'s browser-storage notice (issue
+    /// <c>halheinrich/backgammon#360</c>): the browser has refused a storage
+    /// call this visit, so the filters, the mix and the settings work but may
+    /// not be remembered. Occurrence:
+    /// <see cref="BrowserStorageCondition.Occurrence"/>, which begins at the
+    /// first refusal any store or the filter panel reports and lasts the visit
+    /// — so a dismissal holds across navigation, remounting and every later
+    /// report of the same condition, and a reload, a new app, shows it fresh.
+    /// </summary>
+    StorageUnavailable,
 }
 
 /// <summary>
@@ -103,7 +115,8 @@ internal enum QuizNotice
 /// (<c>SPEC-quiz-view.md</c> §4: the composition notice retires on the first
 /// answer, so hiding it while answering means it is never seen, and a
 /// recording failure must be seen). On <c>Home</c> the pick-outcome notices
-/// render for as long as the pick is held (issue halheinrich/backgammon#107). In both cases the
+/// render for as long as the pick is held (issue halheinrich/backgammon#107), and the
+/// browser-storage notice for the rest of the visit (halheinrich/backgammon#360). In every case the
 /// answer to the space they cost is the user dismissing them. <c>Done</c> renders
 /// the same three stats notices as <c>Quiz</c> and binds them to the same slots
 /// and occurrences (<c>SPEC-notices.md</c> Fork B), so one occurrence has one

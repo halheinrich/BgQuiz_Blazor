@@ -374,6 +374,158 @@ public sealed class SettingsTests : E2eTestBase
     }
 
     /// <summary>
+    /// Storage that serves reads and refuses every write — the quota shape —
+    /// with the stored entry seeded to hold <paramref name="storedFold"/> as a
+    /// previous visit left it. Seeded only where the entry is absent, so a
+    /// reload keeps what this run's first load stored; the browser's own
+    /// <c>QuotaExceededError</c> is what each write then meets
+    /// (halheinrich/backgammon#360).
+    /// </summary>
+    private Task RefuseStorageWritesAsync(bool storedFold) =>
+        Page.AddInitScriptAsync($$"""
+            (() => {
+                const key = 'xg_quizSettings';
+                if (localStorage.getItem(key) === null) {
+                    localStorage.setItem(key, JSON.stringify({ keepNavigationPanelFolded: {{(storedFold ? "true" : "false")}} }));
+                }
+                const refuse = () => {
+                    throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+                };
+                Storage.prototype.setItem = refuse;
+                Storage.prototype.removeItem = refuse;
+            })();
+            """);
+
+    /// <summary>
+    /// Start waiting for the settings service's warning that the browser
+    /// refused its write — this scenario's premise observed rather than
+    /// assumed, and the evidence that the change's handler has run: the
+    /// applier is told the choice in the same turn, straight after it.
+    /// </summary>
+    private Task<IConsoleMessage> ExpectTheSettingsWriteRefusedAsync() =>
+        Page.WaitForConsoleMessageAsync(new()
+        {
+            Predicate = m => m.Text.Contains("The settings could not be saved to browser storage", StringComparison.Ordinal),
+        });
+
+    /// <summary>
+    /// Count enhanced navigations from now until the next full load, with a
+    /// listener registered after <c>navFold.js</c>'s own — Blazor calls them in
+    /// registration order, so once this has counted a navigation the applier
+    /// has run for it. A test-side observer: the app ships no seam for it.
+    /// </summary>
+    private Task CountEnhancedLoadsAsync() =>
+        Page.EvaluateAsync("""
+            () => {
+                window.__enhancedLoads = 0;
+                Blazor.addEventListener('enhancedload', () => { window.__enhancedLoads++; });
+            }
+            """);
+
+    /// <summary>
+    /// Wait until at least <paramref name="count"/> enhanced navigations have
+    /// been counted. At least, not exactly: a DOM synchronization that lands
+    /// late raises the event again (umbrella halheinrich/backgammon#46), and
+    /// nothing here depends on how often it fires.
+    /// </summary>
+    private Task ExpectEnhancedLoadsAsync(int count) =>
+        Page.WaitForFunctionAsync("n => window.__enhancedLoads >= n", count);
+
+    /// <summary>What the stored entry says of the fold now — read straight from storage.</summary>
+    private Task<bool> StoredFoldAsync() =>
+        Page.EvaluateAsync<bool>("() => JSON.parse(localStorage.getItem('xg_quizSettings')).keepNavigationPanelFolded === true");
+
+    /// <summary>
+    /// The fold, turned on with its write refused, still takes hold from the
+    /// next enhanced navigation and on the ones after, as a saved choice does
+    /// — the applier honours the session's preference, not only storage
+    /// (halheinrich/backgammon#360). The timing is the ruled one: nothing folds
+    /// on the spot. A full reload has only storage to go on, which still says
+    /// unfolded.
+    /// </summary>
+    [Fact]
+    public async Task KeepFolded_TurnedOnWithItsWriteRefused_StillTakesHoldFromTheNextNavigation()
+    {
+        await RefuseStorageWritesAsync(storedFold: false);
+        await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
+        await BootHomeAsync();
+        await PickFixtureAsync(CubeFixture);
+        await ApplyFilterAsync();
+        await GoToSettingsAsync();
+        await ExpectUnfoldedAsync();
+
+        var refused = ExpectTheSettingsWriteRefusedAsync();
+        await KeepFoldedCheckbox.CheckAsync();
+        await refused;
+
+        Assert.False(await StoredFoldAsync());
+        await ExpectUnfoldedAsync();   // the panel the user is standing in stays
+
+        // Back to Home — an enhanced navigation — and on to the quiz page,
+        // through the app's NavigationManager: folded on each, from the choice
+        // this visit made and storage never received.
+        await Page.GoBackAsync();
+        await Expect(PickFolderButton).ToBeVisibleAsync();
+        await ExpectFoldedAsync();
+        await StartQuizAsync();
+        await Expect(CubeAnswers).ToHaveCountAsync(4);
+        await ExpectFoldedAsync();
+
+        await Page.ReloadAsync();
+        await Expect(PickFolderButton).ToBeVisibleAsync();
+        await ExpectUnfoldedAsync();
+        Assert.False(await StoredFoldAsync());
+    }
+
+    /// <summary>
+    /// The fold, turned off with its write refused, unfolds on the spot and
+    /// stays unfolded on every enhanced navigation after — where the applier,
+    /// reading only storage, used to fold the panel again on the first one
+    /// (halheinrich/backgammon#360). A full reload has only storage to go on,
+    /// which still says folded.
+    /// </summary>
+    [Fact]
+    public async Task KeepFolded_TurnedOffWithItsWriteRefused_StaysUnfoldedAcrossNavigation()
+    {
+        await RefuseStorageWritesAsync(storedFold: true);
+        await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
+        await BootHomeAsync();
+        await ExpectFoldedAsync();
+        await Page.GotoAsync(BaseUrl + "/settings");   // by URL: the nav is folded away
+        await Expect(KeepFoldedCheckbox).ToBeCheckedAsync();
+        await ExpectFoldedAsync();
+
+        var refused = ExpectTheSettingsWriteRefusedAsync();
+        await KeepFoldedCheckbox.UncheckAsync();
+        await refused;
+
+        Assert.True(await StoredFoldAsync());
+        await ExpectUnfoldedAsync();   // at once: the direction that cannot wait
+
+        // Enhanced navigations, through the panel this unfold gave back: Home,
+        // Settings and Home again, unfolded on each. "Unfolded" is also what
+        // each navigation's DOM synchronization leaves before the applier runs,
+        // so each read waits until the applier has run for that navigation.
+        await CountEnhancedLoadsAsync();
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HomeNavLink, Exact = true }).ClickAsync();
+        await Expect(PickFolderButton).ToBeVisibleAsync();
+        await ExpectEnhancedLoadsAsync(1);
+        await ExpectUnfoldedAsync();
+        await GoToSettingsAsync();
+        await ExpectEnhancedLoadsAsync(2);
+        await ExpectUnfoldedAsync();
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HomeNavLink, Exact = true }).ClickAsync();
+        await Expect(PickFolderButton).ToBeVisibleAsync();
+        await ExpectEnhancedLoadsAsync(3);
+        await ExpectUnfoldedAsync();
+
+        await Page.ReloadAsync();
+        await Expect(PickFolderButton).ToBeVisibleAsync();
+        await ExpectFoldedAsync();
+        Assert.True(await StoredFoldAsync());
+    }
+
+    /// <summary>
     /// Assert the panel is folded — both halves, because they can fail apart: the
     /// checkbox is what the applier writes, and the width is what the CSS does
     /// with it.

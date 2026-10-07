@@ -1,6 +1,6 @@
 using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 
 namespace BgQuiz_Blazor.Tests;
@@ -23,7 +23,21 @@ public class NotesPlacementStoreTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Strict;
     }
 
-    private NotesPlacementStore NewStore() => new(JSInterop.JSRuntime, NullLogger<NotesPlacementStore>.Instance);
+    /// <summary>The app's one storage fact, which a refusal here is reported to (halheinrich/backgammon#360).</summary>
+    private readonly BrowserStorageCondition _storage = new();
+
+    private readonly RecordingLogger<NotesPlacementStore> _log = new();
+
+    private NotesPlacementStore NewStore() => new(JSInterop.JSRuntime, _log, _storage);
+
+    /// <summary>A refusal is said twice, and only twice: one warning carrying the browser's exception, and the report.</summary>
+    private void AssertRefusalSaid()
+    {
+        var entry = Assert.Single(_log.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.IsType<JSException>(entry.Exception);
+        Assert.NotNull(_storage.Occurrence);
+    }
 
     private void StageStored(string? json) =>
         JSInterop.Setup<string?>("localStorage.getItem", NotesPlacementStore.StorageKey).SetResult(json);
@@ -55,6 +69,7 @@ public class NotesPlacementStoreTests : BunitContext
         await store.EnsureLoadedAsync();
 
         Assert.Equal(NotesPlacement.Create(horizontal, vertical), store.Current);
+        Assert.Null(_storage.Occurrence); // the control: a read that answers reports nothing
     }
 
     [Theory]
@@ -91,6 +106,7 @@ public class NotesPlacementStoreTests : BunitContext
         await store.EnsureLoadedAsync();
 
         Assert.Equal(NotesPlacement.Unset, store.Current);
+        AssertRefusalSaid();
     }
 
     [Fact]
@@ -167,6 +183,7 @@ public class NotesPlacementStoreTests : BunitContext
         await store.SetAsync(NotesPlacement.Create(0.75, 0.25));
 
         Assert.Equal(NotesPlacement.Create(0.75, 0.25), store.Current);
+        AssertRefusalSaid();
     }
 
     [Fact]
@@ -181,6 +198,7 @@ public class NotesPlacementStoreTests : BunitContext
         await store.SetAsync(NotesPlacement.Unset);
 
         Assert.Equal(NotesPlacement.Unset, store.Current);
+        AssertRefusalSaid();
     }
 
     [Fact]

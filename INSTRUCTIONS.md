@@ -253,7 +253,9 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
 - **Per-tab state** — `Quiz/`: `QuizSettings` (the user settings),
   `MixDraft` and `MixVisibility` (the weighted mix's edit state and its
   visible fact), `ShuffleOption`, `QuizNoticeDismissal` (occurrence-keyed
-  dismissal of the notices whose occurrence outlives a page), `QuizLiveMarker` (the
+  dismissal of the notices whose occurrence outlives a page),
+  `BrowserStorageCondition` (the one fact that the browser has refused a
+  storage call this visit), `QuizLiveMarker` (the
   sessionStorage was-a-quiz-live marker), `NotesPlacementStore` (where the
   decision's notes open, with its value `NotesPlacement` and the arithmetic
   that shows and moves it, `NotesStage`, `NotesPosition` and `NotesStep`).
@@ -1584,10 +1586,12 @@ removal persist `Empty` as ordinary edits (no auto-commit path, no event); an
 invalid mutation skips the write, so **storage always holds the last
 well-formed screen state** and a reload mid-half-edit restores that, not the
 torn edit (ruled). Writes are best-effort (a storage fault must not break
-typing — the same degrade posture as the read). Hydration stays
+typing — the same degrade posture as the read), and a write the browser
+refuses is logged and reported to `BrowserStorageCondition`, no longer
+swallowed silently (halheinrich/backgammon#360). Hydration stays
 **once-per-setup** (`EnsureHydratedAsync`, a cached-task idempotent read —
-absent/corrupt yields a blank draft, never an error, and only a *successful*
-parse projects), triggered by the panel's init, filling the draft only: it
+absent/corrupt, or a read the browser refuses (logged and reported), yields a
+blank draft, never an error, and only a *successful* parse projects), triggered by the panel's init, filling the draft only: it
 never writes storage and never touches the setting. Since the panel is mounted
 only where the mix is visible, a restored mix arrives **in effect** — rule 3's
 explicit activation went with the ruling. Nothing else touches a serializer or
@@ -1809,7 +1813,11 @@ never where the box happens to sit:
   the Quiz page's slots and occurrences** (`SPEC-notices.md` Fork B, which
   overturned Done's old "read once, not dismissible" exception): they are the
   same notices, so one occurrence has one dismissal — closed mid-quiz, it
-  stays closed on Done, and the next occurrence shows fresh on both.
+  stays closed on Done, and the next occurrence shows fresh on both. And
+  Home's browser-storage notice, keyed on the visit-long occurrence of
+  `BrowserStorageCondition` (§ `BrowserStorageCondition`), so remounts and
+  later reports of the same refusal keep it dismissed and a reload shows it
+  fresh.
 - **The page field that is the notice's whole state, for per-visit
   notices.** Home's cancelled-pick and empty-folder notices bind `:get` to
   "the flag is clear" and `:set` to clearing it; the two errors — could not
@@ -1855,6 +1863,9 @@ exist at all:
 - **PickTruncations / PickStatsCapability / PickStatsRetirementForecast** →
   `PickedProblemFolder.PickOccurrence`, the same opaque token for all three of
   Home's pick-band slots (they render side by side and dismiss independently).
+- **StorageUnavailable** → `BrowserStorageCondition.Occurrence`, the same kind
+  of nullable token as `StatsRetiredOccurrence` — the token is the flag —
+  minted at the first refusal of the visit and never replaced.
 
 Keying the stats notice on the `Status` *value* gets two real cases wrong: a
 mid-run `Ready → WriteFailed` is a new thing to say, and **a second quiz bound
@@ -1956,6 +1967,75 @@ is widened exactly as far as that one doc surface needs — `internal`, never
 side by side in that section, and a documented pair reading `Key` /
 `StorageKey` invites a reader to look for a distinction that isn't there.
 
+A browser that refuses storage refuses `sessionStorage` with `localStorage`,
+and the marker is read in Home's first render, so each of its three calls is
+guarded in `NotesPlacementStore`'s shape (§ `BrowserStorageCondition`): a
+refused read reads as no quiz having been live, a refused write or removal
+leaves things as they were. The cost is the reload notice, and only that.
+
+### `BrowserStorageCondition` — browser storage refused (issue halheinrich/backgammon#360)
+
+**One fact, held app-scoped beside `QuizNoticeDismissal` in `Program.cs`:**
+whether the browser has refused any storage call this app makes this visit,
+as an occurrence token — null until the first refusal, one opaque object
+after (the token is the flag, `StatsRetiredOccurrence`'s discipline). Every
+place this app touches browser storage reports into it from its own guard —
+`QuizSettings`, `MixDraft`, `NotesPlacementStore` and `QuizLiveMarker` — and
+Home reports the hosted panel's `FilterSurface.OnStorageUnavailable`. Home
+renders it as one condition notice, `#storageUnavailableNotice` (warning,
+polite, dismissible), its dismissal in `QuizNoticeDismissal` under
+`QuizNotice.StorageUnavailable` keyed on the occurrence.
+
+**Why one fact and not two.** halheinrich/backgammon#102's scope note put the
+question to this leg — one page-level "storage is dead" fact, or the panel's
+report and the app's own failures as separate facts with separate notices.
+One: what the user can do about it, and what it costs them, does not depend
+on which key was refused first or by whom; two notices would say the same
+sentence twice, and could each be dismissed while the other stood. A refusal
+before Home mounts — the settings read on a cold deep link to Settings, the
+notes' placement on the Quiz page — lands in the holder all the same, which
+outlives every page, and is on Home the next time it renders. Before a
+folder is picked there is no panel to report, and the app's own stores still
+do. The notice sits above Home's setup surface, outside the pick's
+disclosure gate, because the condition is the app's, not a pick's.
+
+**The occurrence, and when it ends.** It begins at the first refusal reported
+and lasts the visit: every later refusal from any reporter — a remounted
+panel's fresh report, one per mount, included — keeps the same token, so a
+dismissal survives navigation, remounting and duplicate reports
+(`SPEC-notices.md` §2: recreating the panel is not a new condition). A reload
+is a new app, with no occurrence, and shows the notice fresh. **There is no
+recovery within a visit, so there is never a second occurrence:** nothing
+re-tries a refused call, and a later call that succeeds does not put back what
+an earlier refused one lost — a setting whose write was refused is still
+unsaved after another store's write lands, and a read that succeeds says
+nothing about writes (the quota shape, reads served and writes refused, is
+ruled in). Ending the occurrence on a success would tell the user their
+choices are kept while one of them is not.
+
+**It reports; it never gates.** No store consults the fact before calling
+storage: one store's refused write does not establish that another's read
+will fail, so every store keeps making its calls and keeping what they
+return. Each store logs its own refusal as a warning with the exception and
+what it costs that store; Home logs the panel's report, since the panel logs
+nothing itself; the holder logs nothing.
+
+**What each store does under a refusal** (`JSException` only, as
+`NotesPlacementStore` — the shape — catches, so a fault that is not the
+browser's refusal still surfaces): `QuizSettings` — a refused read leaves
+every setting at its default, a refused write keeps the value for the visit,
+and the fold's choice still reaches the applier (§ `QuizSettings`, "The fold
+it cannot apply itself"); `MixDraft` — a refused read hydrates nothing (the
+generation check stands), a refused write keeps the draft; `NotesPlacementStore`
+— as before, and now reported; `QuizLiveMarker` — above. No store's public
+operation throws for storage, so every page renders on the defaults.
+
+**The wording says the known loss, not more.** "Your browser refused BgQuiz
+the use of its storage, so your filters, mix and settings work for this visit
+but may not be remembered next time." — true when reads were refused, true
+when only writes were: something was refused, and what is set this visit may
+not be there next time. (Hal reads the wording before it ships.)
+
 ### `QuizSettings` — the user settings service (issue halheinrich/backgammon#30 leg 1)
 
 > **The weighted-mix setting** (`WeightQuizzesByStats`, wire
@@ -2009,7 +2089,12 @@ off**, since every quiz begins there; `Quiz` awaits the same cached task, by
 then already completed and so provoking no extra render pass. That ordering —
 not a render gate — is what keeps the board from painting on the default side
 and flipping a frame later. `Settings` gates its own controls on hydration,
-for the one visit that could see it pending: a cold deep link.
+for the one visit that could see it pending: a cold deep link. **A read the
+browser refuses leaves every default standing, and a write it refuses keeps
+the value for the visit**; each is logged with its exception and reported to
+`BrowserStorageCondition`, and neither the hydration nor any setter throws
+(halheinrich/backgammon#360) — so Home, Quiz, Done and Settings all render on
+the defaults where storage is refused.
 
 **The wire format is a two-language contract.** The payload is hand-written
 with fixed property names (the `QuizMixJsonConverter` posture) and pinned
@@ -2106,16 +2191,27 @@ halheinrich/backgammon#50, ruled 2026-08-03):
 
 - **On → deferred.** The setting describes how pages *start*; folding the page
   the user is standing in strands them behind a panel that just vanished, with
-  the checkbox they are looking at as the only clue why. Deferring needs no
-  code — the choice is already in storage and the `enhancedload` handler
-  applies it on the next navigation, where it also self-demonstrates. The
-  control's fine print states the delay so "deferred" cannot read as "broken".
+  the checkbox they are looking at as the only clue why. Deferring is only
+  telling the applier the choice and asking nothing more: the `enhancedload`
+  handler applies it on the next navigation, where it also self-demonstrates.
+  The control's fine print states the delay so "deferred" cannot read as
+  "broken".
 - **Off → immediate.** The user is asking for the panel back, and with it folded
   every navigation that would apply the new value is behind its own folded-away
   links. Without the seam the setting would be a one-way door. On a page
   without the seam's owner, the unfold cannot be made: the choice is kept and
   the failed call is logged, never thrown (§ The host layout, "The panel's
   owner, and a page without it").
+- **Either way the choice holds for the visit, saved or not**
+  (halheinrich/backgammon#360). The applier is told it — `bgquizNavFold.prefer`,
+  in both directions — and its navigation path applies that preference for the
+  rest of the page's life instead of re-reading storage, so a choice whose
+  write the browser refused still takes hold on the next navigation (on), and
+  stays unfolded on every navigation after (off). A full reload starts the
+  script afresh and storage, or the default, applies again. Before this the
+  navigation path read storage only: with writes refused, on never took hold
+  and off folded again on the next navigation. The service's log says whether
+  the choice was saved when it cannot reach the applier.
 
 The asymmetry is pinned three times over: at the service seam
 (`QuizSettingsTests`), from the control (`PageTests`), and in a real browser
@@ -3810,12 +3906,15 @@ end of a run, the mix-activation gating and the pick busy affordance, the
 review's decision notes, quiz navigation (⏮ ◀ ▶ ⏭, the deferred skip and
 practice), the action row's live fit (the panel folding by itself and
 reopening as a drawer, the tail folding behind its "⋯" and that list's
-items, keys and focus, the cube pills' short form, the measurement following
+items, keys and focus — Copy XGID's confirmation and refusal on both its
+controls among them — the cube pills' short form, the measurement following
 changed font metrics, and one budget from the outset: the first fit held and
 the row hit-tested before and after it, a first cube problem moving nothing,
 and the ruler's pill copies against the live row), every action-row control's reach at the old worst
-desktop widths, across the old 641–721 px band and at the phone preset, and
-the stats-persistence suite. It covers the one
+desktop widths, across the old 641–721 px band and at the phone preset, the
+stats-persistence suite, and a browser refusing BgQuiz its storage (the
+whole app on it, and the fold setting kept for the visit with its writes
+refused). It covers the one
 layer the other
 two structurally cannot: bUnit renders components in isolation and the
 `WebApplicationFactory` wire tests run the host pipeline in-process with no
@@ -4446,7 +4545,25 @@ public (see Pitfalls). The externally visible surface is the route map:
   keep going through `@Assets[...]` like its sibling, or a deploy leaves
   browsers running a cached applier against a changed payload. The script also
   never throws on the navigation path — every unreadable storage state means
-  "not folded".
+  "not folded". **And its navigation path applies the session's preference,
+  not storage alone** (halheinrich/backgammon#360): `QuizSettings` hands every
+  change of the setting to `bgquizNavFold.prefer`, and the `enhancedload`
+  handler applies that until the page reloads, storage only where no choice
+  has been made this visit. Put it back to reading storage alone and a browser
+  refusing writes loses the choice on the next navigation, in both directions;
+  `SettingsTests`' two refused-write scenarios are what notice.
+- **A store that touches browser storage guards every call, reports, and
+  never gates** (halheinrich/backgammon#360). Each of `QuizSettings`,
+  `MixDraft`, `NotesPlacementStore` and `QuizLiveMarker` catches `JSException`
+  — only that, so a serialization fault still surfaces — on every
+  `localStorage` / `sessionStorage` call, degrades in its own documented way,
+  logs a warning carrying the exception, and calls
+  `BrowserStorageCondition.ReportRefused()`. A new store does all four, or
+  Home's notice stays silent about it, or worse, a page's first render throws.
+  None of them may skip a call because the condition already holds: a refused
+  write elsewhere says nothing about this read. And the occurrence must not
+  end on a later success — see § `BrowserStorageCondition` for why that would
+  be a false claim.
 - **The `QuizLiveMarker` is `sessionStorage`, not `localStorage` — don't
   "upgrade" it.** `sessionStorage` is per-tab: it survives a reload but is
   invisible to other tabs and dies with the tab — exactly the semantics "a

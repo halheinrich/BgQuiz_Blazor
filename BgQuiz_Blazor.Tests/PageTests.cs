@@ -18,6 +18,7 @@ using Bunit;
 using Bunit.TestDoubles;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
@@ -185,6 +186,10 @@ public class PageTests : BunitContext
         // sees the same dismissal the first instance recorded — the navigate-back
         // case the holder exists for.
         Services.AddScoped<QuizNoticeDismissal>();
+
+        // The one browser-storage fact every store above reports a refusal to,
+        // and Home's storage notice reads (halheinrich/backgammon#360).
+        Services.AddScoped<BrowserStorageCondition>();
     }
 
     /// <summary>The sessionStorage key <see cref="QuizLiveMarker"/> reads/writes.</summary>
@@ -12678,5 +12683,271 @@ public class PageTests : BunitContext
         var reading = RulesWhoseSelector(noComments, s => s.Contains(".option-sized-select"));
         Assert.Contains(".option-sized-field > .option-sized-select", reading);
         Assert.Contains("115%", reading);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Browser storage the browser refuses (halheinrich/backgammon#360): the
+    //  app works on through it, and Home says so once, in one condition notice
+    //  fed by the hosted panel's report and the app's own stores alike.
+    // -----------------------------------------------------------------------
+
+    /// <summary>The storage notice's statement, as the user reads it.</summary>
+    private const string StorageRefusedStatement =
+        "Your browser refused BgQuiz the use of its storage, so your filters, mix and settings work for "
+        + "this visit but may not be remembered next time.";
+
+    /// <summary>What a browser that blocks storage raises in Blazor for a storage call.</summary>
+    private static JSException StorageRefusal() =>
+        new("SecurityError: Failed to read the 'localStorage' property from 'Window': Access is denied for this document.");
+
+    /// <summary>
+    /// Refuse the browser's storage the way a browser that blocks it does: every
+    /// key, in <c>localStorage</c> and <c>sessionStorage</c> alike — the
+    /// quiz-live marker's area is refused with the rest — reads where
+    /// <paramref name="reads"/>, writes and removals where
+    /// <paramref name="writes"/>. Reads served while writes are refused is the
+    /// quota shape, which is ruled in.
+    /// </summary>
+    private void WithStorageRefused(bool reads, bool writes)
+    {
+        foreach (var area in new[] { "localStorage", "sessionStorage" })
+        {
+            if (reads)
+                JSInterop.Setup<string?>($"{area}.getItem", _ => true).SetException(StorageRefusal());
+            if (writes)
+            {
+                JSInterop.SetupVoid($"{area}.setItem", _ => true).SetException(StorageRefusal());
+                JSInterop.SetupVoid($"{area}.removeItem", _ => true).SetException(StorageRefusal());
+            }
+        }
+    }
+
+    /// <summary>The page's log, kept: Home logs the filter panel's report, since the panel logs nothing itself.</summary>
+    private RecordingLogger<HomePage> WithHomeLog()
+    {
+        var log = new RecordingLogger<HomePage>();
+        Services.AddSingleton<ILogger<HomePage>>(log);
+        return log;
+    }
+
+    /// <summary>How many storage refusals the hosted panel has reported to this page.</summary>
+    private static int PanelReports(RecordingLogger<HomePage> log) =>
+        log.Entries.Count(e => e.Message.Contains("filter panel reports", StringComparison.Ordinal));
+
+    private static NoticeBox StorageNotice(IRenderedComponent<HomePage> cut) =>
+        NoticeBox.ById(cut, "storageUnavailableNotice");
+
+    [Fact]
+    public async Task Home_EveryStorageCallRefused_Renders_SaysSoOnce_AndApplyStillReachesBothHandlers()
+    {
+        // halheinrich/backgammon#102 recorded why a whole-page storage-refused
+        // test could not pass: the settings read Home awaits on its way in
+        // threw. Now the page renders, and says so in one notice.
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithStorageRefused(reads: true, writes: true);
+
+        var cut = Render<HomePage>();
+
+        StorageNotice(cut).ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id");
+        Assert.Single(cut.FindAll("#storageUnavailableNotice"));
+        Assert.Equal(StorageRefusedStatement, Normalize(cut.Find("#storageUnavailableNotice").TextContent));
+
+        // Apply on the hosted panel, with an edit the commit carries: the
+        // panel's remember-write is refused, and still the commit reaches
+        // HandleFilterConfigApplied — the count is its side effect — with the
+        // applied config in the holder.
+        await EditFilterControlAsync(cut);   // Min 0.75
+        await ApplyFiltersAsync(cut);
+        Assert.Contains("decisions match your filters", cut.Markup);
+        Assert.Equal(0.75, FilterInEffect()!.ErrorMin);
+
+        // And HandleAppliedStateChanged hears the applied config: edit away
+        // (null — the count goes) and back (the committed config again — the
+        // count returns, which only that handler can do, Apply being disabled
+        // while the selection equals what was committed).
+        await UndoFilterEditAsync(cut);
+        Assert.DoesNotContain("decisions match your filters", cut.Markup);
+        await EditFilterControlAsync(cut);
+        cut.WaitForAssertion(() => Assert.Contains("decisions match your filters", cut.Markup));
+        Assert.Equal(0.75, FilterInEffect()!.ErrorMin);
+
+        Assert.Single(cut.FindAll("#storageUnavailableNotice"));
+    }
+
+    [Theory]
+    [MemberData(nameof(BothGestures))]
+    public void Home_StorageNoticeDismissed_StaysDismissed_ThroughARemountsFreshReportOfTheSameCondition(
+        NoticeDismissGesture gesture)
+    {
+        // SPEC-notices.md §2: recreating the panel is not a new browser-storage
+        // condition. The remounted page mounts a fresh panel, which reports the
+        // refusal again — counted, so the dismissal is shown holding through a
+        // report that happened rather than through silence.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithStorageRefused(reads: true, writes: true);
+        var log = WithHomeLog();
+
+        var cut = Render<HomePage>();
+        cut.WaitForAssertion(() => Assert.Equal(1, PanelReports(log)));
+        StorageNotice(cut).Dismiss(gesture);
+        Assert.Empty(cut.FindAll("#storageUnavailableNotice"));
+
+        var back = Render<HomePage>();
+
+        back.WaitForAssertion(() => Assert.Equal(2, PanelReports(log)));
+        Assert.Empty(back.FindAll("#storageUnavailableNotice"));
+        Assert.Empty(cut.FindAll("#storageUnavailableNotice"));
+    }
+
+    [Fact]
+    public void Home_NoFolderPicked_ASettingsReadRefused_IsSaid_WithNoPanelToReportIt()
+    {
+        // The app's own store, on its own: no folder is held, so no filter
+        // panel is mounted and its report cannot be what puts the notice up.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithAppliedFilter();
+        WithShuffleOption();
+        JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey).SetException(StorageRefusal());
+        var log = WithHomeLog();
+
+        var cut = Render<HomePage>();
+
+        Assert.Empty(cut.FindComponents<FilterSurface>());
+        StorageNotice(cut).ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id");
+        Assert.Equal(0, PanelReports(log));
+    }
+
+    [Fact]
+    public void Home_OnlyThePanelsStorageRefused_ThePanelsReport_PutsTheNoticeUp_AndIsLogged()
+    {
+        // The other feed, on its own: every key BgQuiz owns answers, and only
+        // the panel's reads — the keys this host does not own, matched by
+        // exclusion as WithStoredFilterSelection matches them — are refused.
+        // The notice then exists only if Home binds OnStorageUnavailable.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+        string[] hostKeys = [MixDraft.StorageKey, QuizSettings.StorageKey, NotesPlacementStore.StorageKey];
+        JSInterop.Setup<string?>(
+            "localStorage.getItem",
+            invocation => invocation.Arguments is [string key] && !hostKeys.Contains(key))
+            .SetException(StorageRefusal());
+        var log = WithHomeLog();
+
+        var cut = Render<HomePage>();
+
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("#storageUnavailableNotice")));
+        var entry = log.Entries.Single(e => e.Message.Contains("filter panel reports", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Warning, entry.Level);
+    }
+
+    [Fact]
+    public void Home_TheMixReadRefusedAfterTheFirstRender_PutsTheNoticeUpWithoutAnotherGesture()
+    {
+        // The mix panel's hydration runs from its own init, after Home has
+        // rendered, so the page re-renders when the condition begins — without
+        // it, the notice would wait for some unrelated render.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithMixSettingOn();
+        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey).SetException(StorageRefusal());
+
+        var cut = Render<HomePage>();
+
+        Assert.NotEmpty(cut.FindComponents<MixPanelComponent>());
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("#storageUnavailableNotice")));
+    }
+
+    [Fact]
+    public async Task Home_ReadsServedWritesRefused_ARememberedFilterRestores_ASettingKeepsItsValue_AndTheNoticeShows()
+    {
+        // The quota shape: storage reads answer, writes are refused. What was
+        // remembered is restored — the condition never stops a read — and
+        // what is changed holds for the visit.
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithStoredFilterSelection(new FilterConfig { ErrorMin = 0.5 });
+        WithStorageRefused(reads: false, writes: true);
+
+        // A settings change first, on its page: refused, and kept.
+        var settingsPage = Render<SettingsPage>();
+        await settingsPage.Find("#settingsMaximizeBoard").ChangeAsync(new() { Value = false });
+        Assert.False(Settings().MaximizeBoardWhileAnswering);
+
+        var cut = Render<HomePage>();
+
+        // The remembered filter restored, read through the refusal above…
+        cut.WaitForAssertion(() =>
+            Assert.Equal("0.5", cut.Find("input[placeholder='Min']").GetAttribute("value")));
+        // …and the settings write's refusal, made on another page, said here.
+        StorageNotice(cut).ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id");
+
+        // Apply's remember-write is refused too; the restored selection still
+        // applies.
+        await ApplyFiltersAsync(cut);
+        Assert.Equal(0.5, FilterInEffect()!.ErrorMin);
+        Assert.Contains("decisions match your filters", cut.Markup);
+        Assert.False(Settings().MaximizeBoardWhileAnswering);
+        Assert.Single(cut.FindAll("#storageUnavailableNotice"));
+    }
+
+    [Theory]
+    [InlineData(true)]   // every call refused
+    [InlineData(false)]  // reads served, writes refused
+    public async Task TheWholeFlow_SettingsHomeQuizDone_UnderRefusedStorage_UsesTheSettingsChosenThisVisit(
+        bool readsRefused)
+    {
+        // Settings → Home → Quiz → Done with the browser refusing storage: no
+        // page throws, and a setting changed this visit is the one in use
+        // although its write was refused. Maximize is driven away from its
+        // default (on), because the Quiz page shows it: in the normal view the
+        // score panel stays on screen while answering.
+        var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder();
+        WithAppliedFilter();
+        WithShuffleOption();
+        WithStorageRefused(reads: readsRefused, writes: true);
+
+        var settingsPage = Render<SettingsPage>();
+        await settingsPage.Find("#settingsMaximizeBoard").ChangeAsync(new() { Value = false });
+
+        var home = Render<HomePage>();
+        Assert.Single(home.FindAll("#storageUnavailableNotice"));
+        await ApplyFiltersAsync(home);
+        await StartButton(home).ClickAsync(new());
+        Assert.True(c.HasStarted);
+
+        var quiz = Render<QuizPage>();
+        Assert.NotEmpty(quiz.FindAll(".score-panel"));
+        Assert.NotEmpty(quiz.FindAll(".status-strip"));
+
+        await c.SubmitPlayAsync(BestPlay());
+        await c.NextAsync();
+        Assert.True(c.IsFinished);
+
+        var done = Render<DonePage>();
+        var restart = done.FindAll("button").First(b => b.TextContent.Trim() == "Restart with same filters");
+        await restart.ClickAsync(new());
+        Assert.False(c.IsFinished);
+        Assert.False(Settings().MaximizeBoardWhileAnswering);
+        Assert.Single(Render<HomePage>().FindAll("#storageUnavailableNotice"));
     }
 }

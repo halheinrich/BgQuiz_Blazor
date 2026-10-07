@@ -58,6 +58,7 @@ public class DecisionNotesPlacementTests : BunitContext
         _handle.Mode = JSRuntimeMode.Loose;
         _handle.Setup<bool>("capture", _ => true).SetResult(true);
         Services.AddScoped<NotesPlacementStore>();
+        Services.AddScoped<BrowserStorageCondition>();
     }
 
     private void StageStored(string json) =>

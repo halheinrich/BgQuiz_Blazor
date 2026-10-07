@@ -112,6 +112,15 @@ builder.Services.AddScoped<MixDraft>();
 // store's status are never touched.
 builder.Services.AddScoped<QuizNoticeDismissal>();
 
+// The one fact that the browser has refused a storage call this visit
+// (halheinrich/backgammon#360): every store below that touches localStorage or
+// sessionStorage reports a refusal here, and Home reports the hosted filter
+// panel's, so Home's storage notice has one occurrence however many keys were
+// refused, and by whom. Scoped beside the dismissal holder, which keys that
+// notice on it: the occurrence lasts the visit — remounts, navigation and later
+// refusals keep it, a reload starts afresh — so a dismissal does too.
+builder.Services.AddScoped<BrowserStorageCondition>();
+
 // Per-app user settings (localStorage-backed): the home-board side, whether it
 // re-rolls per problem, whether the board is maximized while answering, and
 // whether the navigation panel stays folded. Scoped like the holders, so one

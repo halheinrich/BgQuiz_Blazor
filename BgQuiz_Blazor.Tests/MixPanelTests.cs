@@ -6,6 +6,7 @@ using BgQuiz_Blazor.Client.Components.Pages;
 using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace BgQuiz_Blazor.Tests;
 
@@ -51,7 +52,7 @@ public class MixPanelTests : BunitContext
         // effect" ruling the panel is a pure view over the draft, and whether
         // it is on screen at all is the host's decision — pinned in PageTests,
         // where the host is.
-        _draft = new MixDraft(JSInterop.JSRuntime);
+        _draft = new MixDraft(JSInterop.JSRuntime, NullLogger<MixDraft>.Instance, new BrowserStorageCondition());
         Services.AddSingleton(_draft);
     }
 

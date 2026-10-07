@@ -3,7 +3,6 @@ using BgDataTypes_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.JSInterop;
 
 namespace BgQuiz_Blazor.Tests;
@@ -30,7 +29,12 @@ public class QuizSettingsTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose; // getItem → null unless a test sets a value
     }
 
-    private QuizSettings NewSettings() => new(JSInterop.JSRuntime, NullLogger<QuizSettings>.Instance);
+    /// <summary>The app's one storage fact, which a refusal here is reported to (halheinrich/backgammon#360).</summary>
+    private readonly BrowserStorageCondition _storage = new();
+
+    private readonly RecordingLogger<QuizSettings> _log = new();
+
+    private QuizSettings NewSettings() => new(JSInterop.JSRuntime, _log, _storage);
 
     /// <summary>The JSON last written under the settings key.</summary>
     private string? LastPersisted() =>
@@ -474,61 +478,210 @@ public class QuizSettingsTests : BunitContext
         // one direction now qualifies.
         var settings = NewSettings();
 
-        // On: recorded and persisted (asserted elsewhere), but nothing is
-        // folded now — navFold.js's enhancedload handler does it on the next
-        // navigation, off the value already in storage. No call at all, rather
-        // than a call with a defused argument: an apply(true) that "means" defer
-        // would be a second, silent contract for the JS side to honour.
+        // On: recorded and persisted (asserted elsewhere), and told to the
+        // applier as the session's preference, but nothing is folded now —
+        // navFold.js's enhancedload handler does it on the next navigation. No
+        // apply call at all, rather than a call with a defused argument: an
+        // apply(true) that "means" defer would be a second, silent contract
+        // for the JS side to honour.
         await settings.SetKeepNavigationPanelFoldedAsync(true);
 
         Assert.DoesNotContain("bgquizNavFold.apply", JSInterop.Invocations.Identifiers);
+        Assert.Equal([true], JSInterop.Invocations["bgquizNavFold.prefer"].Select(i => i.Arguments[0]));
 
         // Off: cannot wait. With the panel folded, every navigation that would
         // otherwise apply the new value is behind the folded panel's own links.
+        // The preference first, then the unfold, so the navigation after it
+        // keeps the panel open.
         await settings.SetKeepNavigationPanelFoldedAsync(false);
 
         var invocation = Assert.Single(JSInterop.Invocations["bgquizNavFold.apply"]);
         Assert.Equal(false, invocation.Arguments[0]);
+        Assert.Equal(
+            ["bgquizNavFold.prefer", "bgquizNavFold.prefer", "bgquizNavFold.apply"],
+            JSInterop.Invocations.Select(i => i.Identifier).Where(id => id.StartsWith("bgquizNavFold.", StringComparison.Ordinal)));
+        Assert.Equal(false, JSInterop.Invocations["bgquizNavFold.prefer"][^1].Arguments[0]);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SettingTheFold_WithItsWriteRefused_StillTellsTheApplierTheChoice(bool folded)
+    {
+        // The navigation path applies what it is told, not what storage holds
+        // (halheinrich/backgammon#360): a choice whose write the browser
+        // refused is handed over exactly as a saved one is, so it holds on
+        // every navigation of the visit — on takes hold, off stays off.
+        StageStored($$"""{"keepNavigationPanelFolded":{{(!folded).ToString().ToLowerInvariant()}}}""");
+        JSInterop.SetupVoid("localStorage.setItem", _ => true)
+            .SetException(new JSException("QuotaExceededError: The quota has been exceeded."));
+        var settings = NewSettings();
+        await settings.EnsureHydratedAsync();
+
+        await settings.SetKeepNavigationPanelFoldedAsync(folded);
+
+        Assert.Equal(folded, settings.KeepNavigationPanelFolded);
+        Assert.Equal([folded], JSInterop.Invocations["bgquizNavFold.prefer"].Select(i => i.Arguments[0]));
+        Assert.Equal(folded ? 0 : 1, JSInterop.Invocations["bgquizNavFold.apply"].Count);
+        AssertRefusalSaid();
+    }
+
+    /// <summary>
+    /// The applier's absence, as Blazor's interop reports it for a global that
+    /// navFold.js never published (the message is the browser's, measured
+    /// 2026-10-03): both of its seams fail alike.
+    /// </summary>
+    private void WithoutTheApplier()
+    {
+        JSInterop.SetupVoid("bgquizNavFold.prefer", _ => true).SetException(
+            new JSException("Could not find 'bgquizNavFold.prefer' ('bgquizNavFold' was undefined)."));
+        JSInterop.SetupVoid("bgquizNavFold.apply", _ => true).SetException(
+            new JSException("Could not find 'bgquizNavFold.apply' ('bgquizNavFold' was undefined)."));
     }
 
     [Fact]
     public async Task SettingTheFoldOff_WithoutTheApplier_KeepsTheChoice_AndLogsRatherThanThrows()
     {
         // navFold.js failed to load, came back empty, or threw: the global the
-        // unfold goes through is missing, and the call fails as Blazor's
-        // interop reports it (the message is the browser's, measured
-        // 2026-10-03). Unhandled, that was the Settings page's error banner.
-        JSInterop.SetupVoid("bgquizNavFold.apply", _ => true).SetException(
-            new JSException("Could not find 'bgquizNavFold.apply' ('bgquizNavFold' was undefined)."));
-        var log = new RecordingLogger();
-        var settings = new QuizSettings(JSInterop.JSRuntime, log);
-        await settings.SetKeepNavigationPanelFoldedAsync(true);
+        // choice goes through is missing. Unhandled, that was the Settings
+        // page's error banner.
+        WithoutTheApplier();
+        StageStored("""{"keepNavigationPanelFolded":true}""");
+        var settings = NewSettings();
+        await settings.EnsureHydratedAsync();
 
         await settings.SetKeepNavigationPanelFoldedAsync(false);
 
         // The choice is the user's and is kept: recorded and persisted before
-        // the unfold was attempted.
+        // the applier was tried, and nothing more is attempted once its first
+        // seam is found missing.
         Assert.False(settings.KeepNavigationPanelFolded);
         Assert.Contains("\"keepNavigationPanelFolded\":false", LastPersisted());
-        Assert.Single(JSInterop.Invocations["bgquizNavFold.apply"]);
-        // And the unfold that did not happen is said, once, as a warning
-        // carrying the interop's own exception.
-        var entry = Assert.Single(log.Entries);
+        Assert.Single(JSInterop.Invocations["bgquizNavFold.prefer"]);
+        Assert.Empty(JSInterop.Invocations["bgquizNavFold.apply"]);
+        // And what did not happen is said, once, as a warning carrying the
+        // interop's own exception — truthfully: the choice was saved.
+        var entry = Assert.Single(_log.Entries);
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.IsType<JSException>(entry.Exception);
+        Assert.Contains("the choice is saved", entry.Message);
+        Assert.Null(_storage.Occurrence);
     }
 
-    /// <summary>A logger that keeps what it is told, for the one test that reads it.</summary>
-    private sealed class RecordingLogger : ILogger<QuizSettings>
+    [Fact]
+    public async Task SettingTheFold_WithoutTheApplier_AndItsWriteRefused_DoesNotClaimItWasSaved()
     {
-        public List<(LogLevel Level, Exception? Exception)> Entries { get; } = [];
+        // Both refusals at once: the log's account of the choice must not say
+        // it was saved when the browser refused the write.
+        WithoutTheApplier();
+        JSInterop.SetupVoid("localStorage.setItem", _ => true)
+            .SetException(new JSException("SecurityError: The operation is insecure."));
+        var settings = NewSettings();
 
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        await settings.SetKeepNavigationPanelFoldedAsync(true);
 
-        public bool IsEnabled(LogLevel logLevel) => true;
+        Assert.True(settings.KeepNavigationPanelFolded);
+        Assert.Equal(2, _log.Entries.Count);
+        Assert.All(_log.Entries, e => Assert.DoesNotContain("saved and", e.Message));
+        Assert.Contains("could not be saved either", _log.Entries[^1].Message);
+        Assert.NotNull(_storage.Occurrence);
+    }
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
-            Func<TState, Exception?, string> formatter) => Entries.Add((logLevel, exception));
+    // -----------------------------------------------------------------------
+    //  Storage the browser refuses (halheinrich/backgammon#360)
+    // -----------------------------------------------------------------------
+
+    /// <summary>A refusal of the settings' own entry is said: one warning carrying the browser's exception, and the report.</summary>
+    private void AssertRefusalSaid()
+    {
+        var entry = Assert.Single(_log.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.IsType<JSException>(entry.Exception);
+        Assert.NotNull(_storage.Occurrence);
+    }
+
+    [Fact]
+    public async Task Hydrate_ARefusedRead_LeavesEveryDefault_IsSaid_AndThrowsNothing()
+    {
+        // The read every page awaits on its way in: refused, the defaults stand
+        // exactly as on a fresh browser.
+        JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey)
+            .SetException(new JSException("SecurityError: The operation is insecure."));
+        var settings = NewSettings();
+        var fresh = NewSettings();
+
+        await settings.EnsureHydratedAsync();
+
+        Assert.Equal(fresh.HomeBoardOnRight, settings.HomeBoardOnRight);
+        Assert.Equal(fresh.RandomizeSidePerProblem, settings.RandomizeSidePerProblem);
+        Assert.Equal(fresh.KeepNavigationPanelFolded, settings.KeepNavigationPanelFolded);
+        Assert.Equal(fresh.MaximizeBoardWhileAnswering, settings.MaximizeBoardWhileAnswering);
+        Assert.Equal(fresh.SortAnalysisByDepthFirst, settings.SortAnalysisByDepthFirst);
+        Assert.Equal(fresh.MaximumHiddenCandidateAnalysisLevel, settings.MaximumHiddenCandidateAnalysisLevel);
+        Assert.Equal(fresh.WeightQuizzesByStats, settings.WeightQuizzesByStats);
+        AssertRefusalSaid();
+    }
+
+    [Fact]
+    public async Task Hydrate_AfterAnotherStoresRefusal_StillReadsAndRestores()
+    {
+        // The fact reports and never gates: a refusal elsewhere — a quota-full
+        // write, say — does not establish that this read will fail.
+        _storage.ReportRefused();
+        StageStored("""{"homeBoardOnRight":false}""");
+        var settings = NewSettings();
+
+        await settings.EnsureHydratedAsync();
+
+        Assert.False(settings.HomeBoardOnRight);
+        Assert.Empty(_log.Entries);
+    }
+
+    /// <summary>Every setter, each driven away from its default.</summary>
+    public static TheoryData<string> Setters() =>
+        ["side", "randomize", "maximize", "depthFirst", "hiddenLevel", "weight", "fold"];
+
+    [Theory]
+    [MemberData(nameof(Setters))]
+    public async Task ASetter_WhoseWriteIsRefused_KeepsTheValue_IsSaid_AndThrowsNothing(string setter)
+    {
+        JSInterop.SetupVoid("localStorage.setItem", _ => true)
+            .SetException(new JSException("QuotaExceededError: The quota has been exceeded."));
+        var settings = NewSettings();
+
+        switch (setter)
+        {
+            case "side":
+                await settings.SetHomeBoardOnRightAsync(false);
+                Assert.False(settings.HomeBoardOnRight);
+                break;
+            case "randomize":
+                await settings.SetRandomizeSidePerProblemAsync(true);
+                Assert.True(settings.RandomizeSidePerProblem);
+                break;
+            case "maximize":
+                await settings.SetMaximizeBoardWhileAnsweringAsync(false);
+                Assert.False(settings.MaximizeBoardWhileAnswering);
+                break;
+            case "depthFirst":
+                await settings.SetSortAnalysisByDepthFirstAsync(true);
+                Assert.Equal(PlayRanking.DepthFirst, settings.Ranking);
+                break;
+            case "hiddenLevel":
+                await settings.SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.Ply4);
+                Assert.Equal(AnalysisLevel.Ply4, settings.MaximumHiddenCandidateAnalysisLevel);
+                break;
+            case "weight":
+                await settings.SetWeightQuizzesByStatsAsync(true);
+                Assert.True(settings.WeightQuizzesByStats);
+                break;
+            case "fold":
+                await settings.SetKeepNavigationPanelFoldedAsync(true);
+                Assert.True(settings.KeepNavigationPanelFolded);
+                break;
+        }
+
+        AssertRefusalSaid();
     }
 
     // -----------------------------------------------------------------------

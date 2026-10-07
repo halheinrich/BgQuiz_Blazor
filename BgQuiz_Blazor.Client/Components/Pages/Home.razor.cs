@@ -124,7 +124,11 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// truncations, stats capability and the retirement forecast, which survive
 /// navigation with the pick they describe — bind to the app-scoped
 /// <see cref="QuizNoticeDismissal"/> keyed on
-/// <see cref="PickedProblemFolder.PickOccurrence"/>; the per-visit pair
+/// <see cref="PickedProblemFolder.PickOccurrence"/>, and the browser-storage
+/// notice, bound to the same holder keyed on
+/// <see cref="BrowserStorageCondition.Occurrence"/> (issue
+/// <c>halheinrich/backgammon#360</c>: one fact, fed by the hosted filter
+/// panel's report and this app's own stores, lasting the visit); the per-visit pair
 /// (<see cref="_cancelledPickNotice"/>, <see cref="_emptyFolderNotice"/>) and
 /// the two errors (<see cref="_pickError"/>, <see cref="_startError"/>) bind to
 /// their own fields, which are each box's whole state; and the reload-reset
@@ -647,6 +651,12 @@ public partial class Home : ComponentBase, IDisposable
         // beside, so a change is always followed by a fresh mount here.
         MixDraft.Changed += StateHasChanged;
 
+        // The storage notice reads the app's one storage fact, which a store
+        // can begin after this page has rendered — the mix panel's hydration
+        // runs from the child's init — so the page re-renders when it does
+        // (halheinrich/backgammon#360). Unsubscribed in Dispose.
+        StorageCondition.Began += StateHasChanged;
+
         // Hydrate the user's settings here, where every quiz begins. Nothing on
         // this page renders them, but the Quiz page's board does, on its very
         // first render — and it gets there only through Start, long after this
@@ -693,6 +703,7 @@ public partial class Home : ComponentBase, IDisposable
     public void Dispose()
     {
         MixDraft.Changed -= StateHasChanged;
+        StorageCondition.Began -= StateHasChanged;
     }
 
     /// <summary>
@@ -1134,6 +1145,23 @@ public partial class Home : ComponentBase, IDisposable
         // Without this the user has no way back to it: Apply is disabled
         // precisely because there is nothing new to apply.
         await ShowMatchSummaryAsync(config);
+    }
+
+    /// <summary>
+    /// The hosted panel's report that the browser refused a <c>localStorage</c>
+    /// call it made (<c>FilterSurface.OnStorageUnavailable</c>, once per mount;
+    /// issue <c>halheinrich/backgammon#360</c>). The panel has already degraded
+    /// and carries no payload, so this page's whole part is to say it: in the
+    /// log, since the panel logs nothing of its own, and to the app's one
+    /// storage fact, which the page's notice renders and a remount's fresh
+    /// report leaves as it was.
+    /// </summary>
+    private void HandleFilterStorageUnavailable()
+    {
+        Logger.LogWarning(
+            "The filter panel reports that the browser refused its storage; its filters work for this visit "
+            + "but may not be remembered.");
+        StorageCondition.ReportRefused();
     }
 
     /// <summary>

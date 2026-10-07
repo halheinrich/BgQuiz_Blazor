@@ -1,5 +1,6 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 
 /// <summary>
@@ -43,6 +44,18 @@ using Microsoft.JSInterop;
 /// making B falsely announce "your quiz was reset" for a quiz it never ran. Do
 /// not "upgrade" this to <c>localStorage</c>.
 /// </para>
+///
+/// <para>
+/// <b>Storage that refuses costs only the reset notice</b> (issue
+/// <c>halheinrich/backgammon#360</c>). A browser that refuses storage
+/// refuses <c>sessionStorage</c> with <c>localStorage</c>, and this marker is
+/// read in <c>Home</c>'s first render, so it degrades in
+/// <see cref="NotesPlacementStore"/>'s shape: a refused read reads as no quiz
+/// having been live, a refused write or removal leaves things as they were,
+/// each is logged as a warning with the exception attached and reported to
+/// <see cref="BrowserStorageCondition"/>, and none throws.
+/// <see cref="JSException"/> only, as the precedent catches.
+/// </para>
 /// </summary>
 internal sealed class QuizLiveMarker
 {
@@ -69,28 +82,72 @@ internal sealed class QuizLiveMarker
     internal const string StorageKey = "bgquiz.quizLive";
 
     private readonly IJSRuntime _js;
+    private readonly ILogger<QuizLiveMarker> _logger;
+    private readonly BrowserStorageCondition _storage;
 
-    public QuizLiveMarker(IJSRuntime js)
+    public QuizLiveMarker(IJSRuntime js, ILogger<QuizLiveMarker> logger, BrowserStorageCondition storage)
     {
         _js = js ?? throw new ArgumentNullException(nameof(js));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _storage = storage ?? throw new ArgumentNullException(nameof(storage));
     }
 
-    /// <summary>Record that a quiz is now live in this tab.</summary>
-    public ValueTask MarkLiveAsync() =>
-        _js.InvokeVoidAsync("sessionStorage.setItem", StorageKey, "1");
+    /// <summary>
+    /// Record that a quiz is now live in this tab. A write the browser refuses
+    /// is logged and reported, and a reload during this quiz then says nothing.
+    /// </summary>
+    public async ValueTask MarkLiveAsync()
+    {
+        try
+        {
+            await _js.InvokeVoidAsync("sessionStorage.setItem", StorageKey, "1");
+        }
+        catch (JSException e)
+        {
+            Refused(e, "could not be set; a reload during this quiz will not be explained");
+        }
+    }
 
     /// <summary>
     /// True when the marker is present — i.e. a quiz <i>was</i> live in this tab
     /// (before a reload, if the caller has confirmed the runtime is fresh). Any
-    /// stored value counts; only <see cref="MarkLiveAsync"/> ever writes one.
+    /// stored value counts; only <see cref="MarkLiveAsync"/> ever writes one. A
+    /// read the browser refuses is logged and reported, and reads as false.
     /// </summary>
-    public async ValueTask<bool> WasLiveAsync() =>
-        await _js.InvokeAsync<string?>("sessionStorage.getItem", StorageKey) is not null;
+    public async ValueTask<bool> WasLiveAsync()
+    {
+        try
+        {
+            return await _js.InvokeAsync<string?>("sessionStorage.getItem", StorageKey) is not null;
+        }
+        catch (JSException e)
+        {
+            Refused(e, "could not be read; no reload is reported");
+            return false;
+        }
+    }
 
     /// <summary>
     /// Clear the marker — on honest quiz completion (Done) or once the reset
-    /// notice has been shown, so it fires only once per reload.
+    /// notice has been shown, so it fires only once per reload. A removal the
+    /// browser refuses is logged and reported.
     /// </summary>
-    public ValueTask ClearAsync() =>
-        _js.InvokeVoidAsync("sessionStorage.removeItem", StorageKey);
+    public async ValueTask ClearAsync()
+    {
+        try
+        {
+            await _js.InvokeVoidAsync("sessionStorage.removeItem", StorageKey);
+        }
+        catch (JSException e)
+        {
+            Refused(e, "could not be cleared");
+        }
+    }
+
+    private void Refused(JSException e, string consequence)
+    {
+        _logger.LogWarning(e,
+            "The quiz-live marker in browser storage ({Key}) {Consequence}.", StorageKey, consequence);
+        _storage.ReportRefused();
+    }
 }

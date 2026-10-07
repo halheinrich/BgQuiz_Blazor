@@ -100,6 +100,18 @@ using XgFilter_Razor;
 /// </para>
 ///
 /// <para>
+/// <b>Storage that refuses never stops the settings</b> (issue
+/// <c>halheinrich/backgammon#360</c>; <see cref="NotesPlacementStore"/>'s
+/// shape). A read the browser refuses leaves every setting at its default; a
+/// write it refuses keeps the new value for the rest of the visit. Each is
+/// logged as a warning with the exception attached and reported to
+/// <see cref="BrowserStorageCondition"/>, the one fact <c>Home</c>'s notice
+/// says; neither <see cref="EnsureHydratedAsync"/> nor any setter throws for
+/// storage. <see cref="JSException"/> only, as the precedent catches: a
+/// serialization fault is not the browser's refusal and still surfaces.
+/// </para>
+///
+/// <para>
 /// <b>Hydrate before the first board renders.</b> <c>Home</c> kicks hydration off
 /// in its init — every quiz starts there — and <c>Quiz</c> awaits the same cached
 /// task, which by then is already completed and therefore costs no extra render
@@ -107,7 +119,8 @@ using XgFilter_Razor;
 /// and flipping a frame later.
 /// </para>
 /// </summary>
-internal sealed class QuizSettings(IJSRuntime js, ILogger<QuizSettings> logger)
+internal sealed class QuizSettings(
+    IJSRuntime js, ILogger<QuizSettings> logger, BrowserStorageCondition storage)
 {
     /// <summary>
     /// The single localStorage key holding every setting as one JSON object.
@@ -189,7 +202,23 @@ internal sealed class QuizSettings(IJSRuntime js, ILogger<QuizSettings> logger)
     /// that must not wait: unfolding. The DOM selector stays in the JS module
     /// rather than being restated here.
     /// </summary>
-    private const string NavFoldApplyFunction = "bgquizNavFold.apply";
+    private const string NavFoldApplyFunction = NavFoldGlobal + ".apply";
+
+    /// <summary>
+    /// The global navFold.js publishes its seams on — the applier, by the name
+    /// the log gives it when neither seam can be called.
+    /// </summary>
+    private const string NavFoldGlobal = "bgquizNavFold";
+
+    /// <summary>
+    /// The applier's other seam: the user's choice for the rest of this page's
+    /// life, which its navigation path applies in place of the stored one —
+    /// so the choice holds on every enhanced navigation whether or not its
+    /// storage write landed (issue <c>halheinrich/backgammon#360</c>). A full
+    /// reload starts the script afresh, and storage, or the default, speaks
+    /// again.
+    /// </summary>
+    private const string NavFoldPreferFunction = NavFoldGlobal + ".prefer";
 
     /// <summary>
     /// True when the on-roll player's home board renders on the right — the
@@ -465,13 +494,27 @@ internal sealed class QuizSettings(IJSRuntime js, ILogger<QuizSettings> logger)
     /// later callers get the cached task back, which (being already completed)
     /// an <c>OnInitializedAsync</c> can await without provoking a second render.
     /// A missing key leaves the defaults standing, and a malformed payload does
-    /// the same rather than throwing — see <see cref="Restore"/>.
+    /// the same rather than throwing — see <see cref="Restore"/> — as does a
+    /// read the browser refuses, which is logged and reported. Never throws for
+    /// storage.
     /// </summary>
     public Task EnsureHydratedAsync() => _hydration ??= HydrateAsync();
 
     private async Task HydrateAsync()
     {
-        var stored = await js.InvokeAsync<string?>("localStorage.getItem", StorageKey);
+        string? stored;
+        try
+        {
+            stored = await js.InvokeAsync<string?>("localStorage.getItem", StorageKey);
+        }
+        catch (JSException e)
+        {
+            logger.LogWarning(e,
+                "The settings could not be read from browser storage ({Key}); every setting takes its default for this visit.",
+                StorageKey);
+            storage.ReportRefused();
+            return;
+        }
         Restore(stored);
     }
 
@@ -572,8 +615,8 @@ internal sealed class QuizSettings(IJSRuntime js, ILogger<QuizSettings> logger)
     /// panel folded" describes how pages <i>start</i>, not a fold to perform on
     /// the spot; folding the page the user is standing in strands them — the
     /// panel they just used to get here vanishes, and the checkbox they are
-    /// looking at is the only thing that could tell them why. Nothing extra is
-    /// needed to defer it: the choice is already in storage, and
+    /// looking at is the only thing that could tell them why. Deferring it is
+    /// only telling the applier the choice and asking nothing more:
     /// <c>navFold.js</c>'s <c>enhancedload</c> handler applies it on the next
     /// navigation, which is also where it self-demonstrates. The checkbox is the
     /// confirmation in the meantime.
@@ -588,54 +631,93 @@ internal sealed class QuizSettings(IJSRuntime js, ILogger<QuizSettings> logger)
     /// </para>
     ///
     /// <para>
+    /// <b>The choice holds for the visit, saved or not</b> (issue
+    /// <c>halheinrich/backgammon#360</c>). The applier's navigation path used to
+    /// read only storage, so where the browser refused the write a choice
+    /// turned on never took hold, and one turned off folded again on the next
+    /// navigation. So the applier is told the choice itself
+    /// (<see cref="NavFoldPreferFunction"/>) in both directions, and its
+    /// navigation path applies that for the rest of the page's life; the
+    /// timing above is unchanged, since telling it folds nothing. A full
+    /// reload starts the applier afresh, and the stored choice, or the
+    /// default, applies again.
+    /// </para>
+    ///
+    /// <para>
     /// The applier is handed its argument <b>explicitly</b> rather than left to
     /// re-read localStorage, deliberately: the seam then carries no dependency on
-    /// this method's write having landed first, so the persist and the unfold
-    /// below cannot be reordered into a silent bug. It is passed the literal
-    /// <c>false</c> rather than <c>value</c> — inside that branch they are the
-    /// same bool, and the literal is the one that says <i>unfold</i> at the call
-    /// site. (The applier's <i>own</i> storage read stays where it belongs — on
-    /// the navigation path, where no C# is running.)
+    /// this method's write having landed — or landed at all — so the persist and
+    /// the applier's calls cannot be reordered into a silent bug. The unfold is
+    /// passed the literal <c>false</c> rather than <c>value</c> — inside that
+    /// branch they are the same bool, and the literal is the one that says
+    /// <i>unfold</i> at the call site.
     /// </para>
     ///
     /// <para>
     /// <b>Without the applier.</b> navFold.js publishes it, and a page where
     /// that script failed to load, came back empty, or threw has none: the
-    /// unfold then cannot be made, and the call fails as a
+    /// choice then cannot reach the panel, and the call fails as a
     /// <see cref="JSException"/>. Unhandled, that put Blazor's "An unhandled
     /// error has occurred" banner over the Settings page (measured 2026-10-03,
-    /// halheinrich/backgammon#8). Any <see cref="JSException"/> from the call
-    /// is caught instead and logged as what it shows — the call failed — with
-    /// the exception attached for the why, and nothing claims the panel moved: the choice is already persisted (the write comes
-    /// first), the panel on this page stays as it is (its rail still folds and
-    /// opens it by hand, except on the quiz page, whose row keeps the panel
-    /// hidden without its owner), and the choice takes effect from the next
-    /// page load on which navFold.js runs. Turning the setting on has no call to
-    /// fail, and the same next load is where it takes effect.
+    /// halheinrich/backgammon#8). Any <see cref="JSException"/> from the calls
+    /// is caught instead and logged as what it shows — the panel was not told,
+    /// so nothing on this page moved — with the exception attached for the
+    /// why, and the log says what is true of the choice: saved, it takes effect
+    /// from the next page load on which navFold.js runs; refused by storage
+    /// too, it reaches no panel this visit. The panel on this page stays as it
+    /// is (its rail still folds and opens it by hand, except on the quiz page,
+    /// whose row keeps the panel hidden without its owner).
     /// </para>
     /// </summary>
     public async Task SetKeepNavigationPanelFoldedAsync(bool value)
     {
         KeepNavigationPanelFolded = value;
-        await PersistAsync();
-        if (!value)
+        var saved = await PersistAsync();
+        try
         {
-            try
-            {
-                await js.InvokeVoidAsync(NavFoldApplyFunction, false);
-            }
-            catch (JSException e)
+            await js.InvokeVoidAsync(NavFoldPreferFunction, value);
+            if (!value) await js.InvokeVoidAsync(NavFoldApplyFunction, false);
+        }
+        catch (JSException e)
+        {
+            if (saved)
             {
                 logger.LogWarning(e,
-                    "The call to the navigation panel's applier ({Applier}) failed, so the panel was not unfolded; "
+                    "The navigation panel's applier ({Applier}) could not be called, so the panel on this page was not changed; "
                     + "the choice is saved and takes effect from the next page load on which navFold.js runs.",
-                    NavFoldApplyFunction);
+                    NavFoldGlobal);
+            }
+            else
+            {
+                logger.LogWarning(e,
+                    "The navigation panel's applier ({Applier}) could not be called, so the panel on this page was not changed; "
+                    + "the choice could not be saved either, so it reaches no panel this visit.",
+                    NavFoldGlobal);
             }
         }
     }
 
-    private async Task PersistAsync() =>
-        await js.InvokeVoidAsync("localStorage.setItem", StorageKey, ToJson());
+    /// <summary>
+    /// Write every setting to storage, reporting whether the write landed. A
+    /// write the browser refuses is logged and reported, and the value stays
+    /// in memory for the rest of the visit. Never throws for storage.
+    /// </summary>
+    private async Task<bool> PersistAsync()
+    {
+        try
+        {
+            await js.InvokeVoidAsync("localStorage.setItem", StorageKey, ToJson());
+            return true;
+        }
+        catch (JSException e)
+        {
+            logger.LogWarning(e,
+                "The settings could not be saved to browser storage ({Key}); the change is kept for this visit only.",
+                StorageKey);
+            storage.ReportRefused();
+            return false;
+        }
+    }
 
     /// <summary>
     /// Serialize every setting as one JSON object, hand-written with fixed

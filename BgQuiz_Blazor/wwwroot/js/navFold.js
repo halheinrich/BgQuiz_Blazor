@@ -78,6 +78,16 @@
     // The user's fold while the auto-fold holds (see the header); null otherwise.
     let savedFold = null;
 
+    // THE SESSION'S PREFERENCE (halheinrich/backgammon#360): the "Keep the
+    // navigation panel folded" choice as the user last made it on this page's
+    // life, told by QuizSettings through prefer() whenever it changes; null
+    // until then. The navigation path applies it in place of the stored value,
+    // so a choice holds on every enhanced navigation whether or not the browser
+    // let its storage write land. It lives exactly as long as this script's
+    // run: a full reload starts afresh, and storage, or the default, speaks
+    // again.
+    let preferredFold = null;
+
     function autoFolded() {
         return document.documentElement.hasAttribute(AUTO_FOLD_ATTRIBUTE);
     }
@@ -174,11 +184,24 @@
         }
     }
 
-    function applyStored() {
+    // The session's preference where the user has made one this page's life,
+    // the stored choice otherwise.
+    function chosenFold() {
+        return preferredFold !== null ? preferredFold : storedFold();
+    }
+
+    function applyChosen() {
         // After a DOM synchronization the attribute is gone with the old
         // layout, and so is any fold saved for it.
         if (!autoFolded()) savedFold = null;
-        setFolded(storedFold());
+        setFolded(chosenFold());
+    }
+
+    // The session's preference (see its declaration). Records the choice and
+    // moves nothing: when it takes hold is the caller's decision, made by
+    // calling apply as well or not.
+    function prefer(folded) {
+        preferredFold = folded === true;
     }
 
     // The seam QuizSettings invokes to move the fold without a navigation. In
@@ -187,17 +210,19 @@
     // is standing in is never folded under them (finding halheinrich/backgammon#50) — turning it OFF
     // cannot wait, because a folded panel offers no navigation to wait for.
     // Takes the value explicitly all the same: the C# side then has no ordering
-    // dependency on its own localStorage write having landed first, and this
-    // module keeps no opinion about which direction its caller is in.
-    // setAutoFold and panelWidths are the quiz page's row-fit module's
-    // (actionRowFit.js; the auto-fold in the header). A page where this line
-    // never runs has no owner for the panel: the quiz row then stays pending,
-    // and QuizSettings logs the unfold it cannot make (INSTRUCTIONS.md, "The
-    // panel's owner, and a page without it").
-    window.bgquizNavFold = { apply: setFolded, setAutoFold, panelWidths };
+    // dependency on its own localStorage write having landed, and this module
+    // keeps no opinion about which direction its caller is in. prefer is the
+    // other half of every change of the setting: it is what the enhancedload
+    // handler applies from then on. setAutoFold and panelWidths are the quiz
+    // page's row-fit module's (actionRowFit.js; the auto-fold in the header).
+    // A page where this line never runs has no owner for the panel: the quiz
+    // row then stays pending, and QuizSettings logs the choice it cannot hand
+    // over (INSTRUCTIONS.md, "The panel's owner, and a page without it").
+    window.bgquizNavFold = { apply: setFolded, prefer, setAutoFold, panelWidths };
 
-    // Initial load: enhancedload does not fire for it.
-    applyStored();
+    // Initial load: enhancedload does not fire for it. No preference exists
+    // yet on a fresh script, so this is the stored choice.
+    applyChosen();
 
     // THE DRAWER'S CLOSES (see the header). Registered once, on the document,
     // which outlives every enhanced navigation; each reads the drawer's state
@@ -251,10 +276,11 @@
     // after a DOM synchronization that lands late (seen at ~500ms on the
     // deployed host, which is what made a fold taken just after arriving pop
     // back open — umbrella issue halheinrich/backgammon#46). Re-applying after each sync is what makes
-    // the stored value the last word rather than the first.
+    // the chosen value — the session's preference, else the stored one — the
+    // last word rather than the first.
     function registerEnhancedLoad() {
         if (window.Blazor && typeof window.Blazor.addEventListener === 'function') {
-            window.Blazor.addEventListener('enhancedload', applyStored);
+            window.Blazor.addEventListener('enhancedload', applyChosen);
             return true;
         }
         return false;

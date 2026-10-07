@@ -1,6 +1,8 @@
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
+using Microsoft.Extensions.Logging;
+using Microsoft.JSInterop;
 
 namespace BgQuiz_Blazor.Tests;
 
@@ -31,7 +33,21 @@ public class MixDraftTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose; // getItem → null unless a test sets a value
     }
 
-    private MixDraft NewDraft() => new(JSInterop.JSRuntime);
+    /// <summary>The app's one storage fact, which a refusal here is reported to (halheinrich/backgammon#360).</summary>
+    private readonly BrowserStorageCondition _storage = new();
+
+    private readonly RecordingLogger<MixDraft> _log = new();
+
+    private MixDraft NewDraft() => new(JSInterop.JSRuntime, _log, _storage);
+
+    /// <summary>A refusal is said twice: one warning carrying the browser's exception, and the report.</summary>
+    private void AssertRefusalSaid()
+    {
+        var entry = Assert.Single(_log.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.IsType<JSException>(entry.Exception);
+        Assert.NotNull(_storage.Occurrence);
+    }
 
     /// <summary>A one-row never-seen mix, deterministic content — what one Add builds (NeverSeen seeds at 100%).</summary>
     private static QuizMix NeverSeenMix() =>
@@ -309,6 +325,75 @@ public class MixDraftTests : BunitContext
 
         Assert.Empty(draft.Rows);
         Assert.Equal(QuizMix.Empty, draft.Build());
+    }
+
+    // -----------------------------------------------------------------------
+    //  Storage the browser refuses (halheinrich/backgammon#360)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Hydration_ARefusedRead_LeavesTheDraftBlank_IsSaid_AndThrowsNothing()
+    {
+        // The read MixPanel's init awaits, on the way to Home's first render:
+        // refused, it hydrates nothing — the blank draft, as for a missing key.
+        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
+            .SetException(new JSException("SecurityError: The operation is insecure."));
+        var draft = NewDraft();
+
+        await draft.EnsureHydratedAsync();
+
+        Assert.Empty(draft.Rows);
+        Assert.Equal(QuizMix.Empty, draft.Build());
+        AssertRefusalSaid();
+    }
+
+    [Fact]
+    public async Task Hydration_ARefusedRead_StaysOncePerSetup()
+    {
+        // The cached task holds for the refused read too: a re-mount does not
+        // ask the browser again within the setup, and Discard still forgets it.
+        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
+            .SetException(new JSException("SecurityError: The operation is insecure."));
+        var draft = NewDraft();
+
+        await draft.EnsureHydratedAsync();
+        await draft.EnsureHydratedAsync();
+        Assert.Single(JSInterop.Invocations["localStorage.getItem"]);
+
+        draft.Discard();
+        await draft.EnsureHydratedAsync();
+        Assert.Equal(2, JSInterop.Invocations["localStorage.getItem"].Count);
+    }
+
+    [Fact]
+    public async Task AWriteTheBrowserRefuses_KeepsTheDraft_IsSaid_AndThrowsNothing()
+    {
+        // Silent before halheinrich/backgammon#360; still the screen's truth,
+        // and now said.
+        JSInterop.SetupVoid("localStorage.setItem", _ => true)
+            .SetException(new JSException("QuotaExceededError: The quota has been exceeded."));
+        var draft = NewDraft();
+
+        await draft.AddRowAsync();
+
+        Assert.Equal(NeverSeenMix(), draft.Build());
+        AssertRefusalSaid();
+    }
+
+    [Fact]
+    public async Task Hydration_AfterAnotherStoresRefusal_StillReadsAndRestores()
+    {
+        // The fact reports and never gates: another store's refused write does
+        // not establish that this read will fail, so it is made and kept.
+        _storage.ReportRefused();
+        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
+            .SetResult(NeverSeenMix().ToJson());
+        var draft = NewDraft();
+
+        await draft.EnsureHydratedAsync();
+
+        Assert.Equal(NeverSeenMix(), draft.Build());
+        Assert.Empty(_log.Entries);
     }
 
     // -----------------------------------------------------------------------

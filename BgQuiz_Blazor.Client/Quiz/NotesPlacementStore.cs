@@ -39,10 +39,13 @@ using Microsoft.JSInterop;
 /// <see cref="NotesPlacement.Unset"/> (<see cref="EnsureLoadedAsync"/>). A
 /// write that throws leaves the new placement in memory for the rest of the
 /// session (<see cref="SetAsync"/>). Both are logged as warnings and neither
-/// is surfaced as an error: the notes open, close and move regardless.
+/// is surfaced as an error: the notes open, close and move regardless. A
+/// refusal is reported to <see cref="BrowserStorageCondition"/>, the one fact
+/// <c>Home</c>'s storage notice says (halheinrich/backgammon#360).
 /// </para>
 /// </summary>
-internal sealed class NotesPlacementStore(IJSRuntime js, ILogger<NotesPlacementStore> logger)
+internal sealed class NotesPlacementStore(
+    IJSRuntime js, ILogger<NotesPlacementStore> logger, BrowserStorageCondition storage)
 {
     /// <summary>
     /// The localStorage key holding the placement as one JSON object, in the
@@ -110,6 +113,7 @@ internal sealed class NotesPlacementStore(IJSRuntime js, ILogger<NotesPlacementS
             logger.LogWarning(e,
                 "The notes' placement could not be saved to browser storage ({Key}); it is kept for this session only.",
                 StorageKey);
+            storage.ReportRefused();
         }
     }
 
@@ -125,6 +129,7 @@ internal sealed class NotesPlacementStore(IJSRuntime js, ILogger<NotesPlacementS
             logger.LogWarning(e,
                 "The notes' placement could not be read from browser storage ({Key}); the notes open centred.",
                 StorageKey);
+            storage.ReportRefused();
             return;
         }
         if (!_setSinceLoadBegan) Current = Parse(stored);

@@ -36,8 +36,11 @@ public sealed class MissingPanelOwnerTests : E2eTestBase
     /// <summary>What actionRowFit.js says, once per row it observes, when the owner is missing.</summary>
     private const string RowFitOwnerMissing = "actionRowFit.js: the navigation panel's owner";
 
-    /// <summary>What QuizSettings logs when the unfold's call fails (here, for want of the owner).</summary>
-    private const string SettingsApplierCallFailed = "The call to the navigation panel's applier";
+    /// <summary>
+    /// What QuizSettings logs when the applier cannot be called (here, for want
+    /// of the owner) — saved or not, the warning opens the same way.
+    /// </summary>
+    private const string SettingsApplierCallFailed = "The navigation panel's applier (bgquizNavFold) could not be called";
 
     private ILocator Captions => Page.Locator(".action-row .bg-cube-actions label");
 

@@ -3,6 +3,7 @@ namespace BgQuiz_Blazor.Client.Quiz;
 using System.Collections.Immutable;
 using System.Globalization;
 using BgGame_Lib;
+using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 
 /// <summary>
@@ -43,6 +44,17 @@ using Microsoft.JSInterop;
 /// </para>
 ///
 /// <para>
+/// <b>Storage that refuses never stops the mix</b> (issue
+/// <c>halheinrich/backgammon#360</c>). A read the browser refuses hydrates
+/// nothing — the draft stays blank, as for a missing key — and a refused
+/// write leaves the draft the screen's truth for the visit. Each is logged as
+/// a warning with the exception attached and reported to
+/// <see cref="BrowserStorageCondition"/>; neither throws.
+/// <see cref="JSException"/> only: a fault that is not the browser's refusal
+/// still surfaces.
+/// </para>
+///
+/// <para>
 /// <b>A pick (or Clear) discards the draft — not the storage.</b>
 /// <c>Home.EndCurrentSetupAsync</c> calls <see cref="Discard"/>, and since the
 /// 2026-09-07 ruling it calls nothing beside it: ending a setup blanks the
@@ -61,7 +73,7 @@ using Microsoft.JSInterop;
 /// single-threaded WASM sync context, so no marshalling is needed.
 /// </para>
 /// </summary>
-internal sealed class MixDraft(IJSRuntime js)
+internal sealed class MixDraft(IJSRuntime js, ILogger<MixDraft> logger, BrowserStorageCondition storage)
 {
     // Single localStorage key holding the last well-formed mix as one
     // serialized QuizMix blob. The lib owns the JSON shape (ToJson /
@@ -160,7 +172,8 @@ internal sealed class MixDraft(IJSRuntime js)
     /// (the panel's init) runs the localStorage read; later calls (re-mounts
     /// after in-app navigation) return the cached task, leaving the surviving
     /// draft — edits included — untouched. A missing key, the literal null
-    /// token, or corrupt JSON leaves the draft blank, never an error; only a
+    /// token, corrupt JSON, or a read the browser refuses (logged and reported)
+    /// leaves the draft blank, never an error; only a
     /// <i>successful</i> parse projects (TryFromJson's Empty fallback is a
     /// usable mix, but projecting it would overwrite the blank draft's own
     /// defaults with Empty's). Hydration fills the draft only — it never
@@ -175,7 +188,19 @@ internal sealed class MixDraft(IJSRuntime js)
     private async Task HydrateAsync()
     {
         var generation = _generation;
-        var stored = await js.InvokeAsync<string?>("localStorage.getItem", StorageKey);
+        string? stored;
+        try
+        {
+            stored = await js.InvokeAsync<string?>("localStorage.getItem", StorageKey);
+        }
+        catch (JSException e)
+        {
+            logger.LogWarning(e,
+                "The mix could not be read from browser storage ({Key}); the mix panel starts blank for this visit.",
+                StorageKey);
+            storage.ReportRefused();
+            return;
+        }
         if (generation != _generation) return; // setup ended mid-read — nothing to land on
 
         if (QuizMix.TryFromJson(stored, out var mix)) Project(mix);
@@ -189,9 +214,9 @@ internal sealed class MixDraft(IJSRuntime js)
     /// state, so a torn half-edit is never what a reload restores). The blank
     /// draft builds <see cref="QuizMix.Empty"/> and therefore <i>does</i>
     /// write through: clearing the rows clears the stored mix too. Best-effort
-    /// by design — a storage fault must not break editing, so a JS failure is
-    /// swallowed here exactly as a corrupt read is swallowed in hydration;
-    /// the cost is silence, the same degrade the read path already accepts.
+    /// by design — a storage fault must not break editing — but not silent: a
+    /// write the browser refuses is logged and reported, so the page can say
+    /// the mix is not being remembered (halheinrich/backgammon#360).
     /// </summary>
     private async Task WriteThroughAsync()
     {
@@ -200,10 +225,14 @@ internal sealed class MixDraft(IJSRuntime js)
         {
             await js.InvokeVoidAsync("localStorage.setItem", StorageKey, mix.ToJson());
         }
-        catch (JSException)
+        catch (JSException e)
         {
-            // Storage unavailable/full: the draft is still the screen's truth;
-            // only durability degrades.
+            // Storage unavailable or full: the draft is still the screen's
+            // truth; only durability degrades.
+            logger.LogWarning(e,
+                "The mix could not be saved to browser storage ({Key}); it is kept for this visit only.",
+                StorageKey);
+            storage.ReportRefused();
         }
     }
 
