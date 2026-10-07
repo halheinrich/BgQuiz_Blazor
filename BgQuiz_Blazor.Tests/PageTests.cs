@@ -3683,12 +3683,24 @@ public class PageTests : BunitContext
         return controller;
     }
 
-    /// <summary>Drives <paramref name="controller"/> through its whole run via Skip, collecting each shown decision's Id in presentation order.</summary>
-    private static async Task<List<DecisionId>> CollectPresentedOrderAsync(QuizController controller)
+    /// <summary>
+    /// Drives <paramref name="controller"/> through its whole run via Skip,
+    /// collecting each shown decision's Id in presentation order — and fails,
+    /// naming the overrun, the moment the run presents more problems than its
+    /// source holds (<paramref name="sourceCount"/>), rather than advancing
+    /// forever on a run that never ends (halheinrich/backgammon#325 item 3; the
+    /// bound <c>PositionDedupeTests</c> already carries).
+    /// </summary>
+    private static async Task<List<DecisionId>> CollectPresentedOrderAsync(
+        QuizController controller, int sourceCount)
     {
         var ids = new List<DecisionId>();
         while (controller.Current is { } current)
         {
+            Assert.True(
+                ids.Count < sourceCount,
+                $"The run presented a problem ({current.Id}) after {ids.Count} problems, "
+                + $"more than the {sourceCount} its source holds — it would never end.");
             ids.Add(current.Id);
             await controller.NextAsync();
         }
@@ -3720,7 +3732,7 @@ public class PageTests : BunitContext
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         await startBtn.ClickAsync(new());
 
-        var order = await CollectPresentedOrderAsync(controller);
+        var order = await CollectPresentedOrderAsync(controller, items.Length);
         Assert.Equal(items.Select(d => d.Id), order);
     }
 
@@ -3746,7 +3758,7 @@ public class PageTests : BunitContext
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         await startBtn.ClickAsync(new());
 
-        var order = await CollectPresentedOrderAsync(controller);
+        var order = await CollectPresentedOrderAsync(controller, items.Length);
         Assert.Equal(items.Select(d => d.Id).ToHashSet(), order.ToHashSet());
         Assert.NotEqual(items.Select(d => d.Id), order);
     }
