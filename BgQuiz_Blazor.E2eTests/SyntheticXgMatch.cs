@@ -4,8 +4,12 @@ using ConvertXgToJson_Lib;
 namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
-/// The suite's one <c>.xg</c> fixture — a short match, built in memory at run
-/// time rather than committed (issue <c>halheinrich/backgammon#125</c>).
+/// The suite's <c>.xg</c> fixtures — a short match and its variants, built in
+/// memory at run time rather than committed (issue
+/// <c>halheinrich/backgammon#125</c>). Each variant is a staged file name and
+/// a bytes method below, documenting the one way that file differs from the
+/// match (<see cref="Bytes"/>); this type is the one place they are listed
+/// (halheinrich/backgammon#361).
 ///
 /// <para>
 /// <b>Why it is synthesized.</b> Every committed fixture here is an
@@ -36,8 +40,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <para>
 /// <b>It also carries the suite's decision notes</b>
 /// (<c>halheinrich/backgammon#31</c>): the builder takes a per-decision
-/// comment and writes it through the same comment table XG does, so both of
-/// the file's problems carry one — see <see cref="CubeComment"/> and
+/// comment and writes it through the same comment table XG does, so the cube
+/// and the play after it carry one in every variant — see <see cref="CubeComment"/> and
 /// <see cref="PlayComment"/> — and the review's Notes overlay is smoked
 /// against text that crossed the real parse. No committed fixture has a
 /// comment, which is what makes those the suite's no-notes case.
@@ -142,9 +146,10 @@ internal static class SyntheticXgMatch
         (new DiceRoll(3, 1), Play.Create(new(8, 5), new(6, 5)));
 
     /// <summary>
-    /// The checker play's comment — the same two shapes as
-    /// <see cref="CubeComment"/>, so both decision kinds' notes are smoked with
-    /// a line break in them.
+    /// The checker play's comment — with an embedded CRLF like
+    /// <see cref="CubeComment"/>'s (the run of spaces is the cube comment's
+    /// alone), so both decision kinds' notes are smoked with a line break in
+    /// them.
     /// </summary>
     internal const string PlayComment = "Make the 5-point.\r\nSplitting the back checkers is second.";
 

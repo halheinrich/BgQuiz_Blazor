@@ -320,7 +320,7 @@ referencing no app project. Three areas:
   `PlaywrightFixture` (one Chromium), `E2eCollection` (the one sequential
   collection), `E2eTestBase` (a context per test and the flow helpers),
   `FsAccessFakeTestBase` (the fake directory picker), `SyntheticXgMatch`
-  (the one `.xg` fixture, built at run time), `ExpectedText` (every phrase
+  (the `.xg` fixtures, built at run time), `ExpectedText` (every phrase
   more than one test pins, named once — § the copy-pin split below).
 - **Fixtures** — `Fixtures/`: the committed single-decision `.xgp` files.
   What each one is, and which are the distinct cube positions a
@@ -3885,26 +3885,23 @@ run needs no knowledge of source ordering), while `PickFixturesAsync` stages
 one copy of each named fixture — the heterogeneous folder a scenario about what
 a pool *contains* needs.
 
-**The one `.xg` fixture is synthesized, not committed**
+**The `.xg` fixtures are synthesized, not committed**
 (halheinrich/backgammon#125). Every committed fixture is an `.xgp`, and
 `SPEC-quiz-view.md` §4 ruling (ii) forks the locator on exactly that
 distinction — so the branch that shows the game and move numbers, and the tail's
 shrink order at its widest, had shipped without ever being smoked. Real `.xg`
 exports cannot fill the gap: the ones on this machine carry real players'
 names, and they live under gitignored `TestData/`, which CI has never seen.
-`SyntheticXgMatch` builds a short match in memory instead — `XgFileBuilder` +
+`SyntheticXgMatch` builds short sessions in memory instead — `XgFileBuilder` +
 `XgFileWriter` from ConvertXgToJson_Lib, whose output is byte-deterministic by
-that builder's own contract — with invented player names and exactly two
-analysed decisions, both commented (halheinrich/backgammon#31): the cube, then
-the doubler's checker play after the take. Every other play is unanalysed, and
-file order is quiz order with shuffle off, so every scenario over the file meets
-the cube first — the widest answer row, at the coordinates the locator pins —
-and only one that answers and continues reaches the play. Each comment carries
-an embedded CRLF and a run of spaces, the two shapes real XG comments have, and
-they cross the real comment table and the real parse before the page sees them;
-no committed fixture has a comment. One variant, `LongNoteBytes`, gives the play
-forty lines of notes instead, so the notes overlay meets a note that fills its
-height cap (halheinrich/backgammon#344). Those two libraries are this project's only
+that builder's own contract — with invented player names and commented
+decisions (halheinrich/backgammon#31) whose comments cross the real comment
+table and the real parse before the page sees them, with the embedded CRLF real
+XG comments have; no committed fixture has a comment. **Which sessions it
+builds is the type's to say**: the match, and each variant beside it — a
+staged file name and a bytes method, documenting the one way that file differs
+from the match — so a scenario's fixture is named there and nowhere else, and
+no list here can drift from it (halheinrich/backgammon#361). Those two libraries are this project's only
 project references and they are **fixture producers only**: no scenario may
 take an expectation from them, which is what keeps the independent-literal
 posture intact. The pins' coordinates are derived from the builder's own
