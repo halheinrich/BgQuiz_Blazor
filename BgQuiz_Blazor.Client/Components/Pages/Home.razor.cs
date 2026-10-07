@@ -589,6 +589,11 @@ public partial class Home : ComponentBase, IDisposable
     /// cannot come apart. The producer draws <c>AllRejected</c> only from a
     /// completed walk over at least one file, so the gate is never vacuous: an
     /// unparsed pick, an empty one and an interrupted parse all leave it open.
+    /// The policy, accepted as such at the 2026-10-07 review: a successfully
+    /// completed parse is sufficient for the gate and its box, with no
+    /// successful count required — including when counting then fails, or
+    /// when Start performs the first parse (see <see cref="StartCoreAsync"/>,
+    /// which then lets the box explain the finished-at-once outcome).
     /// </para>
     ///
     /// <para>

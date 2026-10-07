@@ -834,7 +834,11 @@ since-superseded pick reports its own walk. `MatchSummary` refuses an
 incomplete report, and `SummarizeMatchesAsync` refuses a drained stack that
 reports no walk at all — a composition that lost its reader, not an empty
 selection. The factory and the controller tests pin both through the real
-composition over a readable synthesized match and a truncation of it.
+composition over a readable synthesized match and a truncation of it. Home
+does not wait for this channel to show the facts: whichever operation
+completes the first parse — a count or a Start — publishes them through the
+holder (§ Pages, Home, "Rejected files"); the summary is the count's own
+account of what it counted over.
 
 **The count is `Total`, and there is no second surface for it.** The
 producer's fold contract (every `Add` increments exactly one bucket) makes the
@@ -2420,7 +2424,12 @@ The asymmetry is pinned three times over: at the service seam
   are: `Set`/`Clear` null `Parsed`. Nothing after the parse walks the files
   again, so no Start, Restart or re-count can clear, append to or replace
   them; the summary carries the same report object (`MatchSummary.Sources`),
-  so the count and the record describe one parse by construction. The two
+  so the count and the record describe one parse by construction. **This is
+  a policy, accepted as such at the 2026-10-07 review** (ChatGPT's review of
+  the leg on halheinrich/backgammon#367, Hal approving): a successfully
+  completed parse is sufficient for the notice's first publication, with no
+  successful count required — including when counting then fails, or when
+  Start performs the first parse. The two
   boxes, both non-dismissible, both polite (an outcome of the pick's parse
   that lands, not a gesture that failed; the no-match box's announcement),
   both listing each rejected file as `<code>name</code> — reason` where the

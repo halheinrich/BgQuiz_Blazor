@@ -642,7 +642,11 @@
            reason the gate below reads it: the cause is a property of the
            selection, which stands through a filter edit, a recount and a
            count that fails, and leaves only with the pick (a re-pick or Clear
-           nulls Parsed). A gate reason by SPEC-notices.md's own test — Start
+           nulls Parsed). That is a policy, accepted as such at the 2026-10-07
+           review: a successfully completed parse is sufficient for this
+           notice's first publication, with no successful count required —
+           including when counting then fails, or when Start performs the
+           first parse. A gate reason by SPEC-notices.md's own test — Start
            is dark for it and this box is the only thing saying why — so not
            dismissible, non-vacuous by the producer's contract (AllRejected is
            drawn only from a completed walk over at least one file), and
@@ -721,7 +725,11 @@
        three, so a notice that hid with the summary would say the selection
        was whole exactly while the user edits the filters over it. The summary
        carries the same report object (MatchSummary.Sources), so the count and
-       this record describe one parse by construction.
+       this record describe one parse by construction. The policy, accepted as
+       such at the 2026-10-07 review: a successfully completed parse is
+       sufficient for this notice's first publication, with no successful
+       count required — including when counting then fails, or when Start
+       performs the first parse.
 
        The class Extract's skipped-files notice sits in — the record of what a
        run lost (SPEC-notices.md §4, halheinrich/backgammon#223) — so not
