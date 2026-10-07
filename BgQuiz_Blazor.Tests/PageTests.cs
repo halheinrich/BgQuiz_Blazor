@@ -20,6 +20,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
+using XgFilter_Lib;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 using XgFilter_Razor;
@@ -1014,6 +1015,378 @@ public class PageTests : BunitContext
 
         Assert.DoesNotContain("decisions match your filters", cut.Markup);
         Assert.DoesNotContain("By answer type", cut.Markup);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Rejected files (halheinrich/backgammon#368): the record beside the count,
+    //  and the all-rejected box that replaces the zero count. Both render from
+    //  the holder's parse — the one place the facts exist — so what these pins
+    //  stage is a parsed pick, through PickedProblemFolder.StoreParsed, with a
+    //  report the REAL iterator made over the readable synthesized match and a
+    //  truncation of it (TestFixtures.WalkedReport); the controller's fake
+    //  stack supplies the count. The wire from the real stack to the summary
+    //  and the holder is PickedFolderSourceFactoryTests'; what is owed here is
+    //  the page: what it says, where, and what it survives.
+    // -----------------------------------------------------------------------
+
+    /// <summary>A real report over one readable file and one damaged one: partial.</summary>
+    private static SourceReport PartialReport() =>
+        TestFixtures.WalkedReport(Stream(TestFixtures.ReadableXg()), Stream(TestFixtures.DamagedXg()));
+
+    /// <summary>A real report over one damaged file alone: all rejected.</summary>
+    private static SourceReport AllRejectedReport() =>
+        TestFixtures.WalkedReport(Stream(TestFixtures.DamagedXg()));
+
+    private static XgFileStream Stream(PickedFile file) => new(file.FileName, file.OpenRead());
+
+    /// <summary>
+    /// Seed <paramref name="folder"/>'s parse-once cache as a completed parse
+    /// would leave it: <paramref name="decisions"/> beside
+    /// <paramref name="report"/>, under the current pick's generation. The
+    /// holder's own file list is irrelevant to what the page renders — the
+    /// report names the files — exactly as in production, where the report is
+    /// the walk's record and the file list is the pick's.
+    /// </summary>
+    private static ParsedProblemSet WithParsedPick(
+        PickedProblemFolder folder, SourceReport report, params BgDecisionData[] decisions)
+    {
+        var parsed = new ParsedProblemSet([.. decisions], report);
+        folder.StoreParsed(folder.PickGeneration, parsed);
+        return parsed;
+    }
+
+    private static NoticeBox RejectedFilesNotice(IRenderedComponent<HomePage> cut) =>
+        NoticeBox.ById(cut, "rejectedFilesNotice");
+
+    private static NoticeBox AllRejectedNotice(IRenderedComponent<HomePage> cut) =>
+        NoticeBox.ById(cut, "allRejectedNotice");
+
+    /// <summary>
+    /// A controller whose count fails while <paramref name="failing"/> says so
+    /// and otherwise counts <paramref name="items"/> — for a later count that
+    /// fails over a pick whose parse already stands. <paramref name="attempts"/>
+    /// counts every count or Start that reached the factory, so a test can
+    /// wait for the failing count to have <i>happened</i> before asserting
+    /// what it left behind.
+    /// </summary>
+    private QuizController WithControllerThatCanFail(
+        StrongBox<bool> failing, StrongBox<int> attempts, params BgDecisionData[] items)
+    {
+        var fake = new FakeProblemSetSource(items);
+        var controller = new QuizController(
+            (_, _, _) =>
+            {
+                attempts.Value++;
+                return failing.Value
+                    ? throw new InvalidOperationException("count failed")
+                    : TestFixtures.Composed(fake);
+            },
+            new FakeProblemStatsSink(), TimeProvider.System);
+        Services.AddSingleton(controller);
+        return controller;
+    }
+
+    [Fact]
+    public async Task Home_RejectedFiles_RendersTheRecordBesideTheCount_NamingTheFileAndTheReason()
+    {
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var report = PartialReport();
+        WithParsedPick(WithPickedFolder(), report);
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        // The count line is unchanged — the quiz runs over the readable file.
+        Assert.Contains("2 decisions match your filters", Normalize(MatchSummaryRegion(cut).TextContent));
+
+        // The record: a non-dismissible polite warning, the headline from the
+        // report's own counts, then the file by the name the picker gave it
+        // with the read's own reason.
+        var box = RejectedFilesNotice(cut).ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: false, "id", "class");
+        var text = Normalize(box.Content.TextContent);
+        Assert.StartsWith("1 of 2 files could not be read, so this selection is incomplete:", text);
+        var item = Assert.Single(box.Content.QuerySelectorAll("li"));
+        Assert.Equal("damaged.xg", item.QuerySelector("code")!.TextContent);
+        var reason = Assert.Single(report.Rejected).Reason.Message;
+        Assert.False(string.IsNullOrWhiteSpace(reason));
+        Assert.Equal($"damaged.xg — {reason}", Normalize(item.TextContent));
+
+        // Beside the count, not above the board: after the count's own region
+        // and before the rest of the setup surface.
+        var markup = cut.Markup;
+        Assert.True(markup.IndexOf("match your filters", StringComparison.Ordinal)
+                    < markup.IndexOf("rejectedFilesNotice", StringComparison.Ordinal));
+        Assert.True(markup.IndexOf("rejectedFilesNotice", StringComparison.Ordinal)
+                    < markup.IndexOf("shuffleOrder", StringComparison.Ordinal));
+
+        // Nothing closes it — the box carries no handler at all.
+        await Assert.ThrowsAsync<MissingEventHandlerException>(
+            () => cut.Find("#rejectedFilesNotice").ClickAsync(new()));
+        Assert.Single(cut.FindAll("#rejectedFilesNotice"));
+        Assert.Empty(cut.FindAll("#allRejectedNotice"));
+    }
+
+    [Fact]
+    public async Task Home_RejectedFiles_TheRecordSurvivesAnUncommittedFilterEdit()
+    {
+        // The count goes with the edit (it described the abandoned config);
+        // the record does not: the selection and its rejected files stand.
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithParsedPick(WithPickedFolder(), PartialReport());
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+        Assert.Contains("match your filters", cut.Markup);
+
+        await EditFilterControlAsync(cut);
+
+        Assert.DoesNotContain("match your filters", cut.Markup);
+        Assert.Single(cut.FindAll("#rejectedFilesNotice"));
+    }
+
+    [Fact]
+    public async Task Home_RejectedFiles_TheRecordSurvivesARecount()
+    {
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithParsedPick(WithPickedFolder(), PartialReport());
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+        await EditFilterControlAsync(cut);
+        Assert.DoesNotContain("match your filters", cut.Markup);
+        await UndoFilterEditAsync(cut); // clean again: the count is restored
+
+        // The re-affirm count lands asynchronously, so wait for it.
+        cut.WaitForAssertion(() =>
+            Assert.Contains("2 decisions match your filters", Normalize(MatchSummaryRegion(cut).TextContent)));
+        Assert.Single(cut.FindAll("#rejectedFilesNotice"));
+    }
+
+    [Fact]
+    public async Task Home_RejectedFiles_TheRecordSurvivesALaterCountThatFails()
+    {
+        // A failed count leaves the summary unknown (and Start live, as
+        // before); the parse it would have read still stands, and so does its
+        // record — the count is advisory, the record is the selection's.
+        var failing = new StrongBox<bool>(false);
+        var attempts = new StrongBox<int>(0);
+        WithControllerThatCanFail(
+            failing, attempts,
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithParsedPick(WithPickedFolder(), PartialReport());
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+        Assert.Contains("match your filters", cut.Markup);
+        Assert.Equal(1, attempts.Value);
+
+        failing.Value = true;
+        await EditFilterControlAsync(cut);
+        await UndoFilterEditAsync(cut); // the recount this triggers fails
+
+        // The positive precondition for the absence below: a later count
+        // reached the factory and threw. Without it, "no count on screen"
+        // would hold of a recount that simply had not landed yet. At least
+        // one more, not exactly one: how many times the panel's gesture
+        // reports re-ask is the producer's, not this test's.
+        cut.WaitForAssertion(() => Assert.True(attempts.Value >= 2));
+        Assert.DoesNotContain("match your filters", cut.Markup);
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+        Assert.Single(cut.FindAll("#rejectedFilesNotice"));
+    }
+
+    [Fact]
+    public async Task Home_RejectedFiles_TheRecordSurvivesANavigateAwayAndBackRemount()
+    {
+        // The holder outlives the page, as it does for the truncation notice:
+        // a second Home instance over the same pick shows the record before
+        // any count, from the parse the first instance's count made.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithParsedPick(WithPickedFolder(), PartialReport());
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var first = Render<HomePage>();
+        await ApplyFiltersAsync(first);
+        Assert.Single(first.FindAll("#rejectedFilesNotice"));
+
+        var back = Render<HomePage>();
+
+        Assert.Single(back.FindAll("#rejectedFilesNotice"));
+    }
+
+    [Fact]
+    public async Task Home_RejectedFiles_TheRecordIsGoneAfterANewPick()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var folder = WithPickedFolder();
+        WithParsedPick(folder, PartialReport());
+        WithAppliedFilter();
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = OneFileOutcome();
+
+        var cut = Render<HomePage>();
+        Assert.Single(cut.FindAll("#rejectedFilesNotice"));
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Empty(cut.FindAll("#rejectedFilesNotice"));
+        Assert.Null(folder.Parsed); // the new pick has not been parsed; the old record went with its pick
+    }
+
+    [Fact]
+    public async Task Home_RejectedFiles_TheRecordIsGoneAfterClear()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithParsedPick(WithPickedFolder(), PartialReport());
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        Assert.Single(cut.FindAll("#rejectedFilesNotice"));
+
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear").ClickAsync(new());
+
+        Assert.Empty(cut.FindAll("#rejectedFilesNotice"));
+    }
+
+    [Fact]
+    public async Task Home_RejectedFilesBesideReadableFilesWithZeroMatches_ShowsTheNoMatchBoxAndTheRecord()
+    {
+        // Both, and neither lost inside the other: the ordinary no-match
+        // explanation for the zero, and the partial record for what the
+        // selection lost. Never classified all-rejected — a readable file was
+        // in it.
+        WithController(); // the filters match nothing in the readable file
+        WithParsedPick(WithPickedFolder(), PartialReport());
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        Assert.Equal("0 decisions match your filters.", Normalize(NoMatchBox(cut).Content.TextContent));
+        Assert.Single(cut.FindAll("#rejectedFilesNotice"));
+        Assert.Empty(cut.FindAll("#allRejectedNotice"));
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains(cut.FindAll("small"), s => s.TextContent.Trim()
+            == "No problems match the filters — adjust and re-apply them to enable Start.");
+    }
+
+    [Fact]
+    public async Task Home_AllFilesRejected_ShowsItsOwnBoxInsteadOfTheNoMatchOne_AndStartIsDarkForThatReason()
+    {
+        WithController(); // nothing to count: no file could be read
+        var report = AllRejectedReport();
+        WithParsedPick(WithPickedFolder(), report);
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        var box = AllRejectedNotice(cut).ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: false, "id", "class");
+        var text = Normalize(box.Content.TextContent);
+        Assert.StartsWith("No file in this folder could be read, so there are no decisions to count:", text);
+        var item = Assert.Single(box.Content.QuerySelectorAll("li"));
+        Assert.Equal($"damaged.xg — {Assert.Single(report.Rejected).Reason.Message}", Normalize(item.TextContent));
+
+        // Not the filter outcome, and not the partial record either.
+        Assert.Empty(cut.FindAll("#noMatchNotice"));
+        Assert.DoesNotContain("decisions match your filters", cut.Markup);
+        Assert.Empty(cut.FindAll("#rejectedFilesNotice"));
+
+        // Start is dark for this reason, and says so.
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains(cut.FindAll("small"), s => s.TextContent.Trim()
+            == "No file could be read — pick a different folder to enable Start.");
+        Assert.DoesNotContain("No problems match the filters", cut.Markup);
+
+        await Assert.ThrowsAsync<MissingEventHandlerException>(
+            () => cut.Find("#allRejectedNotice").ClickAsync(new()));
+        Assert.Single(cut.FindAll("#allRejectedNotice"));
+    }
+
+    [Fact]
+    public async Task Home_AllFilesRejected_TheBoxAndTheGateStandWhenTheCountFails()
+    {
+        // The all-rejected box is a gate reason read off the holder, so a
+        // count that fails — which leaves every other pick's Start live —
+        // leaves this one dark, with the box still the thing saying why.
+        var failing = new StrongBox<bool>(true);
+        var attempts = new StrongBox<int>(0);
+        WithControllerThatCanFail(failing, attempts);
+        WithParsedPick(WithPickedFolder(), AllRejectedReport());
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        // The count ran and threw (at least once: a failed commit count leaves
+        // the summary null, so the panel's clean report retries it — the
+        // producer's gesture reports decide how many times, not this test)…
+        cut.WaitForAssertion(() => Assert.True(attempts.Value >= 1));
+        Assert.DoesNotContain("match your filters", cut.Markup);     // …so it is unknown…
+        Assert.Single(cut.FindAll("#allRejectedNotice"));          // …and the box stands regardless
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains(cut.FindAll("small"), s => s.TextContent.Trim()
+            == "No file could be read — pick a different folder to enable Start.");
+    }
+
+    [Fact]
+    public async Task Home_AllFilesRejected_TheBoxSurvivesAnUncommittedFilterEdit()
+    {
+        WithController();
+        WithParsedPick(WithPickedFolder(), AllRejectedReport());
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+        Assert.Single(cut.FindAll("#allRejectedNotice"));
+
+        await EditFilterControlAsync(cut);
+
+        Assert.Single(cut.FindAll("#allRejectedNotice"));
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_ParsedPickWithNothingRejected_RendersNeitherBox()
+    {
+        // The count line in every other case is unchanged: a completed parse
+        // that rejected nothing is the ordinary pick, and neither box renders.
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var folder = WithPickedFolder();
+        folder.StoreParsed(folder.PickGeneration, TestFixtures.Parsed(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())));
+        WithAppliedFilter();
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        Assert.Contains("1 decision matches your filters", Normalize(MatchSummaryRegion(cut).TextContent));
+        Assert.Empty(cut.FindAll("#rejectedFilesNotice"));
+        Assert.Empty(cut.FindAll("#allRejectedNotice"));
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
     }
 
     /// <summary>

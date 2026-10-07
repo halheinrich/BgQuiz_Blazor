@@ -1830,7 +1830,15 @@ unable to say why it is as it is: Home's and Done's weighted-mix refusals
 (each carries its own escape button, "Start without mix" / "Restart without
 mix", which works inside the notice untouched), Home's zero-count box
 `#noMatchNotice` and its after-Start no-match notice (why Start is dark, and
-why a Start found nothing), and Quiz's "No quiz in progress" (the page's whole
+why a Start found nothing), Home's all-rejected box `#allRejectedNotice`
+(halheinrich/backgammon#368 — no picked file could be read, so Start is dark
+and it is the only thing saying why; it replaces the zero count), Home's
+rejected-files record `#rejectedFilesNotice` (the same issue — the account of
+what the selection lost when some files could not be read, the class
+Extract's skipped-files notice sits in, §4; it stands beside the count for as
+long as the selection does, and a dismissed record would let a quiz run over
+a selection the page no longer says is incomplete), and Quiz's "No quiz in
+progress" (the page's whole
 content in that state). On the Quiz page dismissal is also `SPEC-quiz-view.md`
 §4's answer to the board space the notices cost, the maximize mode being
 forbidden from suppressing them. The pre-pick advisory lines are not boxes
@@ -2375,10 +2383,11 @@ The asymmetry is pinned three times over: at the service seam
   `Changed` event Home subscribes to (unsubscribed in `Dispose`) so the derived
   gates re-render. Visibility's other half needs no subscription: the setting
   moves only on the Settings page, which Home cannot be mounted beside. The shuffle checkbox binds to
-  `ShuffleOption` (§ that section). Start is gated on **four** conditions,
+  `ShuffleOption` (§ that section). Start is gated on **five** conditions,
   each with its own sibling hint, read from per-app scoped services (plus the
   advisory summary) so the gate survives navigation:
   `CanStart => FilterInEffect is not null && Folder.HasFiles
+  && Folder.Parsed is not { Report.AllRejected: true }
   && _matchSummary is not { Total: 0 } && EffectiveMix is not null`, where
   `EffectiveMix => MixVisibility.IsVisible ? MixDraft.Build() : QuizMix.Empty` —
   derived per render, never stored (§ MixPanel / MixDraft / MixVisibility).
@@ -2391,7 +2400,44 @@ The asymmetry is pinned three times over: at the service seam
   `#noMatchNotice` — same sentence, mix caveat inside when `MixInEffect`; a
   non-zero count keeps the muted line and its breakdown. A running count
   cannot be raced (the busy state disables the setup fieldset), so the only
-  live Start over an unknown count is one whose count threw. The mix surface — panel and
+  live Start over an unknown count is one whose count threw.
+  **Rejected files** (halheinrich/backgammon#368; Hal's ruling on
+  halheinrich/backgammon#367: continue with the readable files, and on Home,
+  after counting, name the rejected ones and say the selection is
+  incomplete, telling all-rejected apart from readable-but-zero-matches).
+  Both boxes read `Folder.Parsed.Report` — the holder's parse, the one place
+  the facts exist (§ `CachedProblemSetSource`) — and never the transient
+  `_matchSummary`, which Home clears on an uncommitted filter edit, before
+  each count and on a failed count, while the selection and its rejected
+  files stand through all three. So both survive navigate-away-and-back (the
+  holder outlives the page, as for the truncation notice), a filter edit, a
+  recount and a count that fails, and are retired exactly where the facts
+  are: `Set`/`Clear` null `Parsed`. Nothing after the parse walks the files
+  again, so no Start, Restart or re-count can clear, append to or replace
+  them; the summary carries the same report object (`MatchSummary.Sources`),
+  so the count and the record describe one parse by construction. The two
+  boxes, both non-dismissible, both polite (an outcome of the pick's parse
+  that lands, not a gesture that failed; the no-match box's announcement),
+  both listing each rejected file as `<code>name</code> — reason` where the
+  reason is the read's own exception message (the producer names the check
+  that failed; nothing here parses a log) through one `RenderFragment`:
+  - **`#allRejectedNotice`** replaces the count branch when
+    `Report.AllRejected` — "No file in this folder could be read, so there
+    are no decisions to count:" then the list — a **gate reason**: the fifth
+    gate reads the same member, with its own hint "No file could be read —
+    pick a different folder to enable Start.", placed before the zero-pool
+    hint, whose advice (adjust the filters) would be wrong for a zero no
+    filter produced. The producer draws `AllRejected` only from a completed
+    walk over at least one file, so the gate and the box are never vacuous.
+  - **`#rejectedFilesNotice`** renders beside the count line (after the
+    status region, before the mix panel) when the report has rejections but
+    is not all-rejected — "N of M files could not be read, so this selection
+    is incomplete:" then the list, N and M the report's own counts (M ≥ 2 by
+    construction, so no singular form exists) — **the record of what the
+    selection lost**, Extract's skipped-files class. Rejected files beside
+    readable files that match nothing show `#noMatchNotice` *and* this
+    record, and that selection is never classified all-rejected.
+  The mix surface — panel and
   row editing — is deliberately **not** pool-gated; composed-to-zero
   stays the backstop for a non-empty pool whose mix reaches nothing. The mix
   hint is the ruled "Mix applies but isn't valid — fix it or turn the mix off."

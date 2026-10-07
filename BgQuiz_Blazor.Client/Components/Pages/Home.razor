@@ -5,6 +5,7 @@
 @using BgQuiz_Blazor.Client.Quiz
 @using XgFilter_Razor
 @using XgFilter_Razor.Components
+@using XgFilter_Lib
 @using XgFilter_Lib.Filtering
 
 @inject IFolderAccess FolderAccess
@@ -613,9 +614,46 @@
             Your mix applies: the quiz is drawn from these matches rather than
             presenting all of them, so the quiz itself can be much smaller.
         </text>;
+    @* The files the parse could not read, one line each — the file by the
+       name the picker gave it and the read's own reason, the exception's
+       message naming the check that failed (the producer's SourceRejection
+       carries the exception as the value it is; nothing here parses a log).
+       Written once for both boxes below: the all-rejected box lists them as
+       the whole account of its zero, the partial record as what the selection
+       lost. The shape is Extract's skipped-files notice: a headline, then one
+       line per file with its reason. *@
+    RenderFragment<SourceReport> rejectedFiles = report =>
+        @<ul class="mb-0">
+            @foreach (var rejection in report.Rejected)
+            {
+                <li><code>@rejection.SourceName</code> — @rejection.Reason.Message</li>
+            }
+        </ul>;
     @if (_isCounting)
     {
         <div class="text-muted small mb-3" role="status">Counting matching decisions…</div>
+    }
+    else if (Folder.Parsed is { Report: { AllRejected: true } allRejected })
+    {
+        @* EVERY file was rejected (halheinrich/backgammon#368): the zero this
+           pick counts to is not "0 decisions match your filters" — no filter
+           was ever applied to a decision, because no file could be read. Read
+           off the holder's parse, not the transient summary, for the same
+           reason the gate below reads it: the cause is a property of the
+           selection, which stands through a filter edit, a recount and a
+           count that fails, and leaves only with the pick (a re-pick or Clear
+           nulls Parsed). A gate reason by SPEC-notices.md's own test — Start
+           is dark for it and this box is the only thing saying why — so not
+           dismissible, non-vacuous by the producer's contract (AllRejected is
+           drawn only from a completed walk over at least one file), and
+           polite like the no-match box: an outcome that lands, not a gesture's
+           answer. The record of the files rides inside it, so the partial
+           record below does not also render — one account of one selection. *@
+        <Notice id="allRejectedNotice" class="mb-3" Kind="NoticeKind.Warning"
+                Announcement="NoticeAnnouncement.Polite">
+            <div><strong>No file</strong> in this folder could be read, so there are no decisions to count:</div>
+            @rejectedFiles(allRejected)
+        </Notice>
     }
     else if (_matchSummary is { AnswerTypes.Total: 0 })
     {
@@ -663,6 +701,48 @@
                 </ul>
             </div>
         </div>
+    }
+
+    @* The record of what the selection lost (halheinrich/backgammon#368): some
+       of the picked files could not be read, so the count above — and every
+       quiz over this pick — runs over an incomplete selection. Beside the
+       count line, not above the board: it qualifies the number the user is
+       reading, and the quiz runs over the readable files as before.
+
+       Rendered from the holder's parse, the one place the facts exist: the
+       parse happens once per pick and no later Start, Restart or re-count
+       walks the files again, so there is nothing that could clear, append to
+       or replace this record except the pick itself — Set and Clear null
+       Parsed, which is how a new pick or Clear retires it, and how navigating
+       away and back recovers it (the holder outlives the page, as it does for
+       the truncation notice). Deliberately NOT read from _matchSummary, which
+       Home clears on an uncommitted filter edit, before each count and on a
+       failed count: the selection and its rejected files stand through all
+       three, so a notice that hid with the summary would say the selection
+       was whole exactly while the user edits the filters over it. The summary
+       carries the same report object (MatchSummary.Sources), so the count and
+       this record describe one parse by construction.
+
+       The class Extract's skipped-files notice sits in — the record of what a
+       run lost (SPEC-notices.md §4, halheinrich/backgammon#223) — so not
+       dismissible: the selection is incomplete for as long as it stands, and a
+       dismissed record would let a quiz run over a selection the page no
+       longer says is incomplete. Polite: an outcome of the pick's parse that
+       lands, not a gesture that failed. "N of M files" needs no singular —
+       with at least one rejected beside at least one readable, M is at least
+       two — and the counts are the report's own, never the holder's file
+       count, so the sentence claims exactly what the walk measured. Not
+       rendered when every file was rejected: that box carries the list itself. *@
+    @if (Folder.Parsed is { Report: { AllRejected: false, Rejected.Count: > 0 } incomplete })
+    {
+        <Notice id="rejectedFilesNotice" class="mb-3" Kind="NoticeKind.Warning"
+                Announcement="NoticeAnnouncement.Polite">
+            <div>
+                <strong>@incomplete.Rejected.Count</strong> of @incomplete.AttemptedCount files could not
+                be read, so this selection is incomplete:
+            </div>
+            @rejectedFiles(incomplete)
+        </Notice>
     }
 
     @* Weighted mix — VISIBLE MEANS IN EFFECT (SPEC-filtering.md §5, ruled
@@ -727,14 +807,18 @@
         Start Quiz
     </button>
 
-    @* Four sibling hints, one per Start gate, in the gate's own order: each
+    @* Five sibling hints, one per Start gate, in the gate's own order: each
        states its reason, and exactly one shows at a time (the chain mirrors
-       CanStart's conjunction, most-fundamental first). The zero-pool hint
-       renders only on a KNOWN-empty pool — a resolved summary with Total 0 —
-       never while the count is null or still running, matching the gate. The
-       mix hint is the ruled fix-or-turn-off sentence: the panel stays visible
-       (the setting records the choice), Start goes dark, and the panel's own
-       validation line says what specifically is broken. *@
+       CanStart's conjunction, most-fundamental first). The all-rejected hint
+       reads the holder's parse, as its gate does, so it stands whether or not
+       a count is on screen and precedes the zero-pool hint, whose sentence —
+       adjust the filters — would be wrong advice for a zero no filter
+       produced (halheinrich/backgammon#368). The zero-pool hint renders only
+       on a KNOWN-empty pool — a resolved summary with Total 0 — never while
+       the count is null or still running, matching the gate. The mix hint is
+       the ruled fix-or-turn-off sentence: the panel stays visible (the setting
+       records the choice), Start goes dark, and the panel's own validation
+       line says what specifically is broken. *@
     @if (FilterInEffect is null)
     {
         <small class="text-muted ms-2">Apply the filters above to enable Start.</small>
@@ -742,6 +826,10 @@
     else if (!Folder.HasFiles)
     {
         <small class="text-muted ms-2">Pick a folder containing .xg / .xgp files to enable Start.</small>
+    }
+    else if (Folder.Parsed is { Report.AllRejected: true })
+    {
+        <small class="text-muted ms-2">No file could be read — pick a different folder to enable Start.</small>
     }
     else if (_matchSummary is { AnswerTypes.Total: 0 })
     {

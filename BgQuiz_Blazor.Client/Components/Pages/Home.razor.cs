@@ -91,9 +91,13 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// Start is gated on four conditions (<see cref="CanStart"/>): a filter in
+/// Start is gated on five conditions (<see cref="CanStart"/>): a filter in
 /// effect for the pick on screen (<see cref="FilterInEffect"/> — applied, and
-/// not since edited), a folder picked with at least one problem file, a
+/// not since edited), a folder picked with at least one problem file, a pick
+/// whose parse did not reject every file
+/// (<see cref="PickedProblemFolder.Parsed"/>'s report not <c>AllRejected</c>
+/// — the holder's fact, standing until the pick changes;
+/// halheinrich/backgammon#368), a
 /// filtered pool not <i>known</i> to be empty (<see cref="_matchSummary"/>
 /// with <c>Total: 0</c> — known-zero only, so a null or still-computing
 /// summary never gates and the no-match outcome notice stays the backstop
@@ -119,8 +123,15 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// than silence, so no gesture ever returns the user to an unchanged page with
 /// no account of what happened. Every box on this page renders through the
 /// shared <c>Notice</c>, and which of them dismiss is the umbrella's
-/// <c>SPEC-notices.md</c> classification, not colour. The owner of each
-/// occurrence holds its dismissal (§2): the holder-backed pick-band notices —
+/// <c>SPEC-notices.md</c> classification, not colour. Two of them read the
+/// pick's parse straight off the holder and never dismiss
+/// (halheinrich/backgammon#368): the all-rejected box, a gate reason that
+/// replaces the zero count when no picked file could be read, and the
+/// rejected-files record beside the count line, the account of what the
+/// selection lost when some could not — both retired only by the pick that
+/// made them, since nothing after the parse walks the files again. The owner
+/// of each dismissible occurrence holds its dismissal (§2): the holder-backed
+/// pick-band notices —
 /// truncations, stats capability and the retirement forecast, which survive
 /// navigation with the pick they describe — bind to the app-scoped
 /// <see cref="QuizNoticeDismissal"/> keyed on
@@ -560,11 +571,25 @@ public partial class Home : ComponentBase, IDisposable
     private FilterConfig? FilterInEffect => AppliedFilter.ConfigFor(CurrentFilterSource);
 
     /// <summary>
-    /// Four gates, each with its own sibling hint in the markup: a filter in
-    /// effect for this pick, a folder with problem files picked, a filtered
-    /// pool not <i>known</i> to be empty, and an effective mix (see
-    /// <see cref="EffectiveMix"/> — null exactly when the mix panel is visible
-    /// over an invalid draft).
+    /// Five gates, each with its own sibling hint in the markup: a filter in
+    /// effect for this pick, a folder with problem files picked, a pick whose
+    /// parse did not reject every file, a filtered pool not <i>known</i> to be
+    /// empty, and an effective mix (see <see cref="EffectiveMix"/> — null
+    /// exactly when the mix panel is visible over an invalid draft).
+    ///
+    /// <para>
+    /// <b>The all-rejected gate reads the holder, not the count</b>
+    /// (halheinrich/backgammon#368). A pick whose every file the parse refused
+    /// has nothing to quiz on whatever the filters say, and that is a property
+    /// of the selection — standing through a filter edit, a recount and a
+    /// count that fails — so the gate reads
+    /// <see cref="PickedProblemFolder.Parsed"/>'s completed report, which
+    /// only a re-pick or Clear retires, and the page's all-rejected box reads
+    /// the same member: the gate and the one thing saying why it is dark
+    /// cannot come apart. The producer draws <c>AllRejected</c> only from a
+    /// completed walk over at least one file, so the gate is never vacuous: an
+    /// unparsed pick, an empty one and an interrupted parse all leave it open.
+    /// </para>
     ///
     /// <para>
     /// The pool gate is <b>known-zero only</b>, deliberately: it reads the
@@ -585,6 +610,7 @@ public partial class Home : ComponentBase, IDisposable
     private bool CanStart =>
         FilterInEffect is not null
         && Folder.HasFiles
+        && Folder.Parsed is not { Report.AllRejected: true }
         && _matchSummary is not { AnswerTypes.Total: 0 }
         && EffectiveMix is not null;
 
