@@ -355,6 +355,29 @@ h1:focus {
     line-height: 1.35;
 }
 
+/* Below 641px the verdict wraps to the height it needs (halheinrich/backgammon#329,
+   ruled 2026-10-07): no two-line clamp, no hidden overflow, and the box grows
+   to hold it — never shorter than the fixed height above, so a verdict that
+   already fits looks as it did. That is the band where SPEC-quiz-view.md §2's
+   law does not exist and the page flows normally, the same edge the action
+   row's tail wraps at; the clamp cut the very words that tell answers apart
+   ("Double /…", "No double /…") at phone widths. At and above 641px the
+   clamp and the fixed height stand exactly as they are. The edge is the
+   band's, not one measured from any verdict string. */
+@media (max-width: 640px) {
+    .status-verdict {
+        height: auto;
+        min-height: 3.7rem;
+    }
+
+    .status-verdict-text {
+        display: block;
+        -webkit-line-clamp: unset;
+        line-clamp: none;
+        overflow: visible;
+    }
+}
+
 /* The action row's trailing cluster — the XGID badge, the problem locator, then
    the Show stats and End quiz icon buttons (SPEC-quiz-view.md §4). Its one job
    here is the fixed-height contract: THE ROW SHRINKS, IT NEVER GROWS (§4's

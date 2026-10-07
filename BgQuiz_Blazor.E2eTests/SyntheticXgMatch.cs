@@ -258,10 +258,37 @@ internal static class SyntheticXgMatch
         Build(XgFileBuilder.ForMatch(MatchLength, Player1, Player2), CubeGameScore1, CubeGameScore2,
             playComment: LongPlayComment);
 
+    /// <summary>
+    /// The name the three-answer money session is staged under — as long as
+    /// <see cref="StagedFileName"/>, for the same reason.
+    /// </summary>
+    internal const string ThreeAnswerBestStagedFileName = "synthetic-money-2026-04-15.xg";
+
+    /// <summary>
+    /// The cubeful equities that make three of the four answers zero-cost in a
+    /// money session with the cube centred: playing on is worth exactly the
+    /// cash and the take more, so No double, Double / Pass and No double / Pass
+    /// all cost nothing and Double / Take alone loses (0.2000). The longest
+    /// Best list a cube verdict can carry.
+    /// </summary>
+    private static readonly XgCubeEquities ThreeAnswerBestEquities =
+        new(NoDouble: 1.0, DoubleTake: 1.2, DoubleDrop: 1.0);
+
+    /// <summary>
+    /// <see cref="MoneySessionBytes"/> with the cube analysed at
+    /// <see cref="ThreeAnswerBestEquities"/>, so its review reads "Best: No
+    /// double, Double / Pass, No double / Pass." — and, answered Double / Take,
+    /// the longest verdict the quiz writes: the one the verdict band's
+    /// phone-width wrapping is pinned on (halheinrich/backgammon#329).
+    /// Everything else is the money session's.
+    /// </summary>
+    internal static byte[] ThreeAnswerBestBytes() =>
+        Build(XgFileBuilder.ForMoneySession(Player1, Player2), 0, 0, cubeEquities: ThreeAnswerBestEquities);
+
     /// <summary>The file's games and decisions, into <paramref name="builder"/>; see <see cref="Bytes"/>.</summary>
     private static byte[] Build(
         XgFileBuilder builder, int cubeGameScore1, int cubeGameScore2, bool analyseTheLastPlayBeforeTheCube = false,
-        string playComment = PlayComment)
+        string playComment = PlayComment, XgCubeEquities? cubeEquities = null)
     {
         for (int i = 0; i < GamesBeforeTheCubeGame; i++)
             Replay(builder.AddGame());
@@ -279,7 +306,7 @@ internal static class SyntheticXgMatch
             Replay(cubeGame);
         }
         cubeGame.CubeDecision(
-            XgPlayer.Player2, CubeEquities, CubePly,
+            XgPlayer.Player2, cubeEquities ?? CubeEquities, CubePly,
             doublerAction: CubeAction.Double, takerAction: CubeAction.Take,
             comment: CubeComment);
         cubeGame.Play(XgPlayer.Player2, PlayAfterTheCube.Dice, PlayAfterTheCube.Play, comment: playComment);

@@ -2625,6 +2625,15 @@ The asymmetry is pinned three times over: at the service seam
   verdict band — a neutral prompt while answering; the legend
   (`* played · † your answer`) and outcome-coloured verdict at review. Its
   fixed height, and the board sizing that rides on it, are in Pitfalls.
+  **Below 641px the verdict wraps to the height it needs**
+  (halheinrich/backgammon#329, ruled 2026-10-07): no two-line clamp, no hidden
+  overflow, the band growing from its fixed height to hold every word. That is
+  the band where `SPEC-quiz-view.md` §2's law does not exist and the page flows
+  normally — the same edge the action row's tail wraps at — and there the clamp
+  cut exactly the words that tell answers apart ("Double /…", "No double /…").
+  At and above 641px the clamp and the fixed height stand unchanged. The edge
+  is the band's existing one, never a width measured from a verdict string.
+  `VerdictBandTests` pins both sides on the longest verdict the quiz writes.
   **Below the status strip — the page's bottom chrome — sits the `ScorePanel`**
   (`SPEC-quiz-view.md` §5, issue halheinrich/backgammon#41): reference material
   read between problems, not while deciding one, so it sits below the controls
