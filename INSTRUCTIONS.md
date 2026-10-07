@@ -2032,11 +2032,14 @@ generation check stands), a refused write keeps the draft; `NotesPlacementStore`
 — as before, and now reported; `QuizLiveMarker` — above. No store's public
 operation throws for storage, so every page renders on the defaults.
 
-**The wording says the known loss, not more.** "Your browser refused BgQuiz
-the use of its storage, so your filters, mix and settings work for this visit
-but may not be remembered next time." — true when reads were refused, true
-when only writes were: something was refused, and what is set this visit may
-not be there next time. (Hal reads the wording before it ships.)
+**The wording says the known loss, not more** (Hal's, ruled 2026-10-07):
+"BgQuiz had trouble using your browser's storage. You can keep using it, but
+some choices may not be remembered next time." — true when reads were
+refused and when only writes were, and true of a store that later recovered.
+`Help`'s data section says the same thing from the other side: the four
+entries are kept where the browser allows it, and storage problems are
+reported on Home — the page named rather than "the first page", since a user
+can enter through Settings.
 
 ### `QuizSettings` — the user settings service (issue halheinrich/backgammon#30 leg 1)
 

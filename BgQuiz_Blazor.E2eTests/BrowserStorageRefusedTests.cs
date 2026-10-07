@@ -84,8 +84,8 @@ public sealed class BrowserStorageRefusedTests : E2eTestBase
 
         await Expect(StorageNotice).ToHaveCountAsync(1);
         await Expect(StorageNotice).ToContainTextAsync(
-            "Your browser refused BgQuiz the use of its storage, so your filters, mix and settings work for "
-            + "this visit but may not be remembered next time.");
+            "BgQuiz had trouble using your browser's storage. You can keep using it, but some choices may not "
+            + "be remembered next time.");
 
         // Dismissed, and still dismissed after an enhanced navigation away and
         // back — the hosted panel remounting with a fresh pick reports the same

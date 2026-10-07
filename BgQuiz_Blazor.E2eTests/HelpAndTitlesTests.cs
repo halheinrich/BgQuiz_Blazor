@@ -144,6 +144,13 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await Expect(body).ToContainTextAsync("xg_notesPlacement");
         await Expect(body).ToContainTextAsync("bgquiz.quizLive");
 
+        // ...kept only where the browser allows it, and where to look when it
+        // does not (halheinrich/backgammon#360, Hal's wording of 2026-10-07):
+        // Home, named, since a reader can enter through any page.
+        await Expect(body).ToContainTextAsync(
+            "so your setup is still there when you come back, where your browser allows it. "
+            + "Storage problems are reported on Home.");
+
         // ...and the sessionStorage marker described honestly: per-tab, and gone
         // with the tab. Its own XML docs record why it must never be "upgraded"
         // to localStorage, so the user-facing text must not claim otherwise.

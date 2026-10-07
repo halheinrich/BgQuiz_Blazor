@@ -68,17 +68,16 @@
        condition is the app's, not a pick's: a refusal before any folder is
        picked — the settings read on this page's own init, the notes on the
        Quiz page — is said here as soon as this page renders. The wording
-       says what is known to be lost: not that nothing works, but that what
-       the user sets here may not be there next time. *@
+       (Hal's, 2026-10-07) says what is known to be lost: not that nothing
+       works, but that some choices may not be there next time. *@
     @if (StorageCondition.Occurrence is { } storageOccurrence)
     {
         <Notice id="storageUnavailableNotice" Kind="NoticeKind.Warning"
                 Announcement="NoticeAnnouncement.Polite" Dismissible="true"
                 @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.StorageUnavailable, storageOccurrence)"
                 @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.StorageUnavailable, storageOccurrence)">
-            Your browser refused BgQuiz the use of its storage, so your filters,
-            mix and settings work for this visit but may not be remembered next
-            time.
+            BgQuiz had trouble using your browser's storage. You can keep using
+            it, but some choices may not be remembered next time.
         </Notice>
     }
 

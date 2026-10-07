@@ -12693,8 +12693,8 @@ public class PageTests : BunitContext
 
     /// <summary>The storage notice's statement, as the user reads it.</summary>
     private const string StorageRefusedStatement =
-        "Your browser refused BgQuiz the use of its storage, so your filters, mix and settings work for "
-        + "this visit but may not be remembered next time.";
+        "BgQuiz had trouble using your browser's storage. You can keep using it, but some choices may not "
+        + "be remembered next time.";
 
     /// <summary>What a browser that blocks storage raises in Blazor for a storage call.</summary>
     private static JSException StorageRefusal() =>
