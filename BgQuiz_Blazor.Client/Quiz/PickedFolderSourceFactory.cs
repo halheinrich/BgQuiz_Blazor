@@ -53,15 +53,18 @@ using Microsoft.Extensions.Logging;
 /// </para>
 ///
 /// <para>
-/// <b>The stack reports what it collapsed.</b> A count the user cannot
-/// reconcile with their own file count reads as a bug
+/// <b>The stack reports what it collapsed, and what it could not read.</b> A
+/// count the user cannot reconcile with their own file count reads as a bug
 /// (halheinrich/backgammon#104), so the factory returns a
-/// <see cref="ComposedProblemSource"/> rather than a bare source: the pair
-/// carries the stack to enumerate and a reader for the dedupe layer's collapse
+/// <see cref="ComposedProblemSource"/> rather than a bare source: it carries
+/// the stack to enumerate and a reader for the dedupe layer's collapse
 /// magnitude. The magnitude is the producer's own duplicate-class telemetry
 /// (<see cref="DistinctPositionProblemSetSource.LastDuplicateClasses"/>) folded
 /// to one number here — the composition knows which layer holds it, and no
-/// caller has to.
+/// caller has to. A second reader (halheinrich/backgammon#368) hands back the
+/// parse-once layer's <see cref="CachedProblemSetSource.Report"/>: the
+/// <c>SourceReport</c> of the one walk that produced the decisions this stack
+/// draws from, so a count can say the selection it counted was incomplete.
 /// </para>
 ///
 /// <para>
@@ -138,16 +141,20 @@ internal static class PickedFolderSourceFactory
 
         return (filters, ranking, mix) =>
         {
-            var deduped = new DistinctPositionProblemSetSource(
-                new CachedProblemSetSource(picked, filters, ranking, loggerFactory, clock));
+            var cached = new CachedProblemSetSource(picked, filters, ranking, loggerFactory, clock);
+            var deduped = new DistinctPositionProblemSetSource(cached);
             IProblemSetSource composed = mix.IsPassthrough && shuffle.Enabled
                 ? new ShuffledProblemSetSource(deduped)
                 : deduped;
-            // The reader closes over the layer that owns the telemetry, so no
+            // Each reader closes over the layer that owns its telemetry, so no
             // caller has to reach through the conditional shuffle wrapper to
             // find it — see ComposedProblemSource for why a reader travels back
-            // rather than the decorator itself.
-            return new ComposedProblemSource(composed, () => DuplicatesCollapsed(deduped));
+            // rather than the decorator itself. The source report is the
+            // parse-once layer's: the report of the walk whose decisions this
+            // very stack draws from, which is why it is read off `cached` and
+            // never off the holder (halheinrich/backgammon#368).
+            return new ComposedProblemSource(
+                composed, () => DuplicatesCollapsed(deduped), () => cached.Report);
         };
     }
 

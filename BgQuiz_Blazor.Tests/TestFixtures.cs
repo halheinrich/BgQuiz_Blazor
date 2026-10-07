@@ -1,7 +1,9 @@
 using BgDataTypes_Lib;
 using BgDataTypes_Lib.TestSupport;
+using BgFolderAccess_Razor;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
+using BgQuiz_Blazor.E2eTests;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib;
 using XgFilter_Lib.Filtering;
@@ -433,19 +435,44 @@ internal static class TestFixtures
     /// <summary>
     /// A <see cref="ComposedProblemSource"/> over <paramref name="source"/> —
     /// what a substitute <c>ProblemSetSourceFactory</c> hands back where the
-    /// test's subject is the source and not the stack's dedupe telemetry.
+    /// test's subject is the source and not the stack's telemetry.
     ///
     /// <para>
     /// <paramref name="duplicatesCollapsed"/> defaults to <c>0</c> because a
     /// substitute stack has no dedupe layer and so genuinely collapses nothing
-    /// — an honest report, not a stub. A test about the magnitude passes the
-    /// number its stack should report: the composed pair is the contract the
+    /// — an honest report, not a stub. <paramref name="sources"/> defaults the
+    /// same way, to the completed report of a walk over no files
+    /// (<see cref="WalkedReport"/>): a substitute stack has no parse layer, so
+    /// it attempted nothing and rejected nothing. A test about either passes
+    /// what its stack should report: the composed value is the contract the
     /// controller consumes, so driving it directly is what pins the wire.
     /// </para>
     /// </summary>
     public static ComposedProblemSource Composed(
-        IProblemSetSource source, int duplicatesCollapsed = 0) =>
-        new(source, () => duplicatesCollapsed);
+        IProblemSetSource source, int duplicatesCollapsed = 0, SourceReport? sources = null)
+    {
+        var report = sources ?? WalkedReport();
+        return new(source, () => duplicatesCollapsed, () => report);
+    }
+
+    /// <summary>
+    /// The e2e suite's synthesized <c>.xg</c> match (<see cref="SyntheticXgMatch"/>,
+    /// linked into this project) as a picked file — readable by construction,
+    /// so the facts a pin reads come off the real parse of a real match, and
+    /// nothing in <c>TestData</c> is named.
+    /// </summary>
+    public static PickedFile ReadableXg(string name = "readable.xg") =>
+        new(name, [.. SyntheticXgMatch.Bytes()]);
+
+    /// <summary>
+    /// A damaged copy of the same match: its first 200 bytes. An <c>.xg</c> is
+    /// a compressed container, so a truncation is not a shorter match but a
+    /// payload the producer refuses to read — the rejection
+    /// halheinrich/backgammon#343 turned a half-read into. Regenerated per run;
+    /// no corrupt file is committed (halheinrich/backgammon#368).
+    /// </summary>
+    public static PickedFile DamagedXg(string name = "damaged.xg") =>
+        new(name, [.. SyntheticXgMatch.Bytes().AsSpan(0, 200)]);
 
     /// <summary>
     /// A <see cref="SourceReport"/> as the real

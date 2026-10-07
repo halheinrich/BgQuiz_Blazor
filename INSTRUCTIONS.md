@@ -235,15 +235,15 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   types `PresentedProblem`, `ProblemDisposition` and `AnswerOfRecord`;
   `QuizController`, the per-app orchestrator that holds the current run, with
   its `ProblemSetSourceFactory` delegate and `QuizStartOutcome`;
-  `ProblemReview`, the displayed review; `MatchSummary`, the pre-Start pool
-  and what its dedupe collapsed.
+  `ProblemReview`, the displayed review; `MatchSummary`, the pre-Start pool,
+  what its dedupe collapsed, and which picked files its parse could not read.
 - **The source stack** — `Quiz/`: `WasmUploadedProblemSetSource` (the
   in-browser parse), `CachedProblemSetSource` (parse once, filter per Start
   under the quiz's ranking) and `ParsedProblemSet` (what it caches: the
   decisions with the `SourceReport` of the walk that produced them),
   `PickedFolderSourceFactory` (the one statement of the layer order) and
-  `ComposedProblemSource` (its product: the stack plus the dedupe's collapse
-  reader).
+  `ComposedProblemSource` (its product: the stack plus two readers — the
+  dedupe's collapse, and the parse layer's source report).
 - **Folder and lifetime stats** — `Quiz/`: `PickedProblemFolder` (the
   picked-folder holder and its parse-cache seam), `PickedFileLimits` (the
   pick caps, host policy), `PickedFolderDocumentStorage` (XgFilter_Razor's
@@ -620,8 +620,8 @@ submit transitions, and holds it until the problem is left.
 
 **Source construction is factory-injected.** The controller takes a
 `ProblemSetSourceFactory` delegate (`(DecisionFilterSet, PlayRanking,
-QuizMix) → ComposedProblemSource` — the stack plus its collapse-magnitude
-reader). `PickedFolderSourceFactory.Create` builds the production one and is
+QuizMix) → ComposedProblemSource` — the stack plus its two readers, the
+collapse magnitude and the parse's source report). `PickedFolderSourceFactory.Create` builds the production one and is
 the **single statement of the layer stack**; `Program.cs` registers it scoped
 by resolving the app-scoped ingredients and handing them over. The stack,
 innermost first:
@@ -786,7 +786,8 @@ takes the runtime `DecisionFilterSet` (the source's contract is the runtime
 pipeline; the controller is the authority on assembling it), the run's
 ranking, and the run's effective `QuizMix` for shuffle arbitration. It returns a
 `ComposedProblemSource` — the stack to enumerate paired with a reader for the
-dedupe layer's collapse magnitude (§ It counts deduped positions).
+dedupe layer's collapse magnitude (§ It counts deduped positions) and one for
+the parse layer's `SourceReport` (§ It reports what the parse could not read).
 
 **Pre-Start match summary.** `SummarizeMatchesAsync(FilterConfig,
 PlayRanking)` reports what a config would admit under a ranking, as a
@@ -817,6 +818,23 @@ filtered stream — the accounting identity `PositionDedupeTests` pins against a
 real parse. The factory returns the pair rather than the decorator so the
 shuffle wrapper above it needs no type-test, and so a substitute stack with no
 dedupe layer reports `0` honestly instead of fabricating one.
+
+**It reports what the parse could not read** (halheinrich/backgammon#368).
+The stack's second reader hands back the parse-once layer's `SourceReport` —
+the report of the one walk that produced the decisions the count drew from —
+and it rides in the same `MatchSummary` as `Sources`: a count over a
+selection with a rejected file in it says so, and a zero over a selection
+whose every file was refused (`AllRejected`, the producer's conclusion, drawn
+only from a completed walk) is told apart from a filter that matched nothing.
+It is a reference to the very object the cache retains with its decisions,
+never a copy, so what the count says and what the parse found are read off
+one thing; a re-count and a Start over the same pick carry the same report,
+since nothing walks the files again, and a stack built against a
+since-superseded pick reports its own walk. `MatchSummary` refuses an
+incomplete report, and `SummarizeMatchesAsync` refuses a drained stack that
+reports no walk at all — a composition that lost its reader, not an empty
+selection. The factory and the controller tests pin both through the real
+composition over a readable synthesized match and a truncation of it.
 
 **The count is `Total`, and there is no second surface for it.** The
 producer's fold contract (every `Add` increments exactly one bucket) makes the

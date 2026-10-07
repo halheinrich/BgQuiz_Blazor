@@ -577,6 +577,19 @@ internal sealed class QuizController : IAsyncDisposable
     /// which is what keeps that per-instance telemetry out of the way of a live
     /// quiz or a concurrent count.
     /// </para>
+    ///
+    /// <para>
+    /// <b>And it reports what the pool's parse could not read</b>
+    /// (halheinrich/backgammon#368). The stack's second reader hands back the
+    /// <see cref="XgFilter_Lib.SourceReport"/> of the parse the count drew from
+    /// — the same object the parse-once cache retains with the decisions — and
+    /// it rides in <see cref="MatchSummary.Sources"/>, so a count over a
+    /// selection with a rejected file in it says so, and a zero over a
+    /// selection whose every file was refused is told apart from a filter
+    /// that matched nothing. The first count after a pick is the parse that
+    /// makes the report; every later count and every Start read it back, since
+    /// nothing walks the files again.
+    /// </para>
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="userConfig"/> is null.</exception>
     /// <exception cref="ArgumentException">
@@ -595,7 +608,16 @@ internal sealed class QuizController : IAsyncDisposable
         var distribution = AnswerTypeDistribution.Empty;
         await foreach (var decision in composed.Source.EnumerateAsync())
             distribution = distribution.Add(decision);
-        return new MatchSummary(distribution, composed.GetDuplicatesCollapsed());
+
+        // Read after the drain, like the collapse: the parse is resolved by
+        // enumerating. A fully drained stack that still reports no walk is a
+        // composition that lost the reader, not a selection nobody read — so
+        // it is refused here rather than summarized as an empty, complete one.
+        var sources = composed.GetSourceReport()
+            ?? throw new InvalidOperationException(
+                "The composed stack was enumerated to its end but reports no source walk; " +
+                "its factory must hand back the parse layer's report (ComposedProblemSource).");
+        return new MatchSummary(distribution, composed.GetDuplicatesCollapsed(), sources);
     }
 
     /// <summary>

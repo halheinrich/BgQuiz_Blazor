@@ -3,7 +3,6 @@ using BgDataTypes_Lib;
 using BgGame_Lib;
 using BgFolderAccess_Razor;
 using BgQuiz_Blazor.Client.Quiz;
-using BgQuiz_Blazor.E2eTests;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib;
@@ -253,23 +252,11 @@ public class CachedProblemSetSourceTests
     //  The parse's source report rides with the parse (halheinrich/backgammon#368)
     // -----------------------------------------------------------------------
 
-    /// <summary>
-    /// The suite's synthesized match (the e2e fixture builder, linked in) as a
-    /// picked file — readable by construction, so the facts a pin reads come
-    /// off the real parse of a real <c>.xg</c>.
-    /// </summary>
-    private static PickedFile Readable(string name = "readable.xg") =>
-        new(name, [.. SyntheticXgMatch.Bytes()]);
+    /// <summary>The suite's readable synthesized match as a picked file (<see cref="TestFixtures.ReadableXg"/>).</summary>
+    private static PickedFile Readable(string name = "readable.xg") => TestFixtures.ReadableXg(name);
 
-    /// <summary>
-    /// A damaged copy of the same match: its first 200 bytes. An <c>.xg</c>
-    /// is a compressed container, so a truncation is not a shorter match but
-    /// a payload the producer refuses to read — the rejection
-    /// halheinrich/backgammon#343 turned a half-read into. Regenerated per run;
-    /// no corrupt file is committed.
-    /// </summary>
-    private static PickedFile Damaged(string name = "damaged.xg") =>
-        new(name, [.. SyntheticXgMatch.Bytes().AsSpan(0, 200)]);
+    /// <summary>A truncation of it the producer refuses (<see cref="TestFixtures.DamagedXg"/>).</summary>
+    private static PickedFile Damaged(string name = "damaged.xg") => TestFixtures.DamagedXg(name);
 
     [Fact]
     public async Task Parse_StoresTheReportWithTheDecisions_NamingTheRejectedFile()
@@ -400,48 +387,5 @@ public class CachedProblemSetSourceTests
         var report = Assert.IsType<ParsedProblemSet>(folder.Parsed).Report;
         Assert.True(report.IsComplete);
         Assert.Same(report, source.Report);
-    }
-
-    /// <summary>
-    /// A logger factory that counts the parse's per-file skip warnings. The pins
-    /// hand the source unparseable bytes, which the parse logs once per file per
-    /// parse and skips, so a file's warning count is how many times it was
-    /// parsed. The warning's state carries the file name as its <c>File</c>
-    /// value (the iterator's own structured argument), which is what lets a pin
-    /// tell two picks' parses apart.
-    /// </summary>
-    private sealed class ParseCounter : ILoggerFactory
-    {
-        private readonly List<string?> _files = [];
-
-        /// <summary>Every parse counted, whichever file.</summary>
-        public int Count => _files.Count;
-
-        /// <summary>How many times <paramref name="fileName"/> was parsed.</summary>
-        public int CountFor(string fileName) => _files.Count(f => f == fileName);
-
-        public ILogger CreateLogger(string categoryName) => new Counting(this);
-
-        public void AddProvider(ILoggerProvider provider) { }
-
-        public void Dispose() { }
-
-        private sealed class Counting(ParseCounter owner) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(
-                LogLevel logLevel, EventId eventId, TState state, Exception? exception,
-                Func<TState, Exception?, string> formatter)
-            {
-                if (logLevel != LogLevel.Warning) return;
-                var file = state is IReadOnlyList<KeyValuePair<string, object?>> values
-                    ? values.FirstOrDefault(v => v.Key == "File").Value as string
-                    : null;
-                owner._files.Add(file);
-            }
-        }
     }
 }

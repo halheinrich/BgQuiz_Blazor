@@ -1,6 +1,7 @@
 using BgDataTypes_Lib;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
+using XgFilter_Lib;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 
@@ -2175,9 +2176,55 @@ public class QuizControllerTests
     public async Task SummarizeMatchesAsync_EmptySource_ReturnsEmpty()
     {
         var c = Make();
-        Assert.Equal(
-            new MatchSummary(AnswerTypeDistribution.Empty, 0),
-            await c.SummarizeMatchesAsync(new FilterConfig(), PlayRanking.Equity));
+
+        var summary = await c.SummarizeMatchesAsync(new FilterConfig(), PlayRanking.Equity);
+
+        Assert.Equal(AnswerTypeDistribution.Empty, summary.AnswerTypes);
+        Assert.Equal(0, summary.DuplicatesCollapsed);
+        // A substitute stack has no parse layer: a completed walk over no
+        // files, which is not an all-rejected one (nothing was attempted).
+        Assert.True(summary.Sources.IsComplete);
+        Assert.Equal(0, summary.Sources.AttemptedCount);
+        Assert.False(summary.Sources.AllRejected);
+    }
+
+    [Fact]
+    public async Task SummarizeMatchesAsync_CarriesTheStacksSourceReport()
+    {
+        // halheinrich/backgammon#368. The count's summary says which of the
+        // picked files the parse behind it could not read, by carrying the
+        // stack's own report — the very object, not a copy — so what the count
+        // says and what the parse found cannot come apart. The report is a
+        // real one: the real iterator over a stream the producer refuses
+        // (TestFixtures.WalkedReport); what is owed here is that the controller
+        // hands the stack's report through rather than inventing or dropping it.
+        var report = TestFixtures.WalkedReport(
+            new XgFileStream("damaged.xg", new MemoryStream([1, 2, 3])));
+        var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
+        var c = new QuizController(
+            (_, _, _) => TestFixtures.Composed(fake, sources: report),
+            new FakeProblemStatsSink(), TimeProvider.System);
+
+        var summary = await c.SummarizeMatchesAsync(new FilterConfig(), PlayRanking.Equity);
+
+        Assert.Same(report, summary.Sources);
+        Assert.Equal("damaged.xg", Assert.Single(summary.Sources.Rejected).SourceName);
+        Assert.Equal(1, summary.AnswerTypes.Total); // the count itself is untouched by the report
+    }
+
+    [Fact]
+    public async Task SummarizeMatchesAsync_StackReportingNoWalkAfterADrain_IsRefused()
+    {
+        // A fully drained stack that still reports no walk is a composition
+        // that lost its reader — a wiring defect, refused loudly rather than
+        // summarized as an empty, complete selection.
+        var fake = new FakeProblemSetSource([]);
+        var c = new QuizController(
+            (_, _, _) => new ComposedProblemSource(fake, () => 0, () => null),
+            new FakeProblemStatsSink(), TimeProvider.System);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => c.SummarizeMatchesAsync(new FilterConfig(), PlayRanking.Equity));
     }
 
     [Fact]
