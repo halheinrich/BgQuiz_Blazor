@@ -3670,7 +3670,7 @@ land cannot masquerade as survival.
 own click stays route-scoped as above; what the *user* can now ask for is more.
 The **"Keep the navigation panel folded" setting** (§ `QuizSettings`) persists
 the choice, and `wwwroot/js/navFold.js` — a classic script `App.razor` loads
-right after `blazor.web.js`, one of the app's two authored scripts — re-applies
+right after `blazor.web.js`, the host's one authored script — re-applies
 it on initial load and on every `Blazor.addEventListener` `enhancedload`. It lives in
 the **host** project because it must run on static pages with no WASM runtime,
 reads the storage entry itself in JS, and publishes

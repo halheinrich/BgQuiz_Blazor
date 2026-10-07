@@ -1,8 +1,7 @@
 // navFold.js — BgQuiz's navigation-fold applier: the one authored script in the
-// host project. (The .Client's wwwroot/js holds the Quiz page's two ES modules,
-// quizKeys.js for its Space shortcut and actionRowFit.js for its action row. The
-// folder module that came first moved to BgFolderAccess_Razor, which ships it
-// as its own static web asset.)
+// host project. (The client's own ES modules are in BgQuiz_Blazor.Client's
+// wwwroot/js, the one list of them. The folder module that came first moved to
+// BgFolderAccess_Razor, which ships it as its own static web asset.)
 //
 // Why this exists in JS at all. The navigation panel's collapse control is an
 // uncontrolled checkbox in MainLayout, which renders STATICALLY and cannot be
