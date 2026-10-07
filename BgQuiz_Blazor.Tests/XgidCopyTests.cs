@@ -238,6 +238,46 @@ public class XgidCopyTests : BunitContext
         Assert.Equal(copy.OwnName, copy.Name());
     }
 
+    [Theory]
+    [MemberData(nameof(Controls))]
+    public async Task ANewCopy_RetiresTheShownResult_AndShowsItsOwnOnlyOnceItsWriteResolves(string control)
+    {
+        // A lands and "Copied" shows; B starts while it shows and B's write
+        // waits. A's result says nothing about B, so it goes at once — not at
+        // the end of A's moment, which A no longer owns — and the control is
+        // its own until B resolves; then B's result shows for B's own moment
+        // (halheinrich/backgammon#334).
+        var copy = Render(control);
+        var first = await copy.Press();
+        _write.SetVoidResult();
+        copy.WaitFor(() => Assert.Equal(XgidCopy.CopiedLabel, copy.Name()));
+        _clock.Advance(XgidCopy.ConfirmationTime / 3);
+
+        var newer = JSInterop.SetupVoid("navigator.clipboard.writeText", _ => true);
+        var second = await copy.Press();
+
+        copy.WaitFor(() => Assert.Equal(copy.OwnName, copy.Name()));
+        Assert.Null(copy.Mark());
+
+        // A's moment passes while B still waits: nothing shows for B yet.
+        _clock.Advance(XgidCopy.ConfirmationTime);
+        await FinishedAsync(first);
+        Assert.Equal(copy.OwnName, copy.Name());
+        Assert.Null(copy.Mark());
+        Assert.False(second.IsCompleted, "Premise: B's write must still be waiting.");
+
+        newer.SetException(new JSException("NotAllowedError: Document is not focused."));
+        copy.WaitFor(() => Assert.Equal(XgidCopy.FailedLabel, copy.Name()));
+        Assert.Equal("is-failed", copy.Mark());
+
+        _clock.Advance(XgidCopy.ConfirmationTime - TimeSpan.FromTicks(1));
+        Assert.Equal(XgidCopy.FailedLabel, copy.Name());
+        _clock.Advance(TimeSpan.FromTicks(1));
+        await FinishedAsync(second);
+        Assert.Equal(copy.OwnName, copy.Name());
+        Assert.Null(copy.Mark());
+    }
+
     [Fact]
     public async Task AnObsoleteCopysLateResult_WhileTheNewerCopyShows_NeitherReplacesNorOutlivesIt()
     {

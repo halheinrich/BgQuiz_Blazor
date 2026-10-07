@@ -46,9 +46,11 @@ internal enum XgidCopyResult
 /// <para>
 /// <b>Only the latest attempt owns what the control shows</b> (the one
 /// ownership policy, halheinrich/backgammon#334). Each copy is an attempt, and
-/// the moment a newer one starts, every earlier attempt is obsolete: an
-/// obsolete attempt neither publishes its result nor expires anything, at
-/// either of its two awaits. So a write that resolves after a newer copy began
+/// the moment a newer one starts, every earlier attempt is obsolete. Starting
+/// an attempt retires whatever result the control is showing, so the control
+/// is its own until the new attempt's write resolves; and an obsolete attempt
+/// neither publishes its result nor expires anything, at either of its two
+/// awaits. So a write that resolves after a newer copy began
 /// — however late, and whether the newer one is still waiting, showing, or
 /// already back to the control's name — shows nothing and clears nothing, and
 /// the result on the control is always the latest attempt's, for exactly its
@@ -110,12 +112,22 @@ internal sealed class XgidCopy(IJSRuntime js, TimeProvider clock, ILogger<XgidCo
     /// asked to draw the result once the write has resolved, and the control's
     /// own name is back when this returns (the caller's handler completing
     /// renders it) — unless a newer copy has started meanwhile, which then owns
-    /// what shows, and this attempt publishes and clears nothing. Never throws
-    /// for the browser's refusal.
+    /// what shows, and this attempt publishes and clears nothing. Starting it
+    /// first retires any result still showing, rendering the control back to
+    /// its own name until this write resolves. Never throws for the browser's
+    /// refusal.
     /// </summary>
     public async Task CopyAsync(string xgid, Action render)
     {
         var attempt = ++_copies;
+        if (Showing is not null)
+        {
+            // The previous attempt's result is retired with it: it says nothing
+            // about this copy, which has not resolved yet.
+            Showing = null;
+            render();
+        }
+
         var result = await TryWriteAsync(xgid) ? XgidCopyResult.Copied : XgidCopyResult.Failed;
         if (!IsCurrent(attempt)) return;
 

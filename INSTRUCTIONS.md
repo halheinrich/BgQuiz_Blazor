@@ -2996,9 +2996,11 @@ The asymmetry is pinned three times over: at the service seam
   rules as the badge's, so each glyph is spelled once), the same width, so
   the row does not move. **Only the latest attempt owns what the control
   shows:** a copy started while an earlier one is still writing or showing
-  makes the earlier one obsolete, and an obsolete attempt neither publishes
-  its result nor expires anything — so a late failure can never replace a
-  newer success, nor stay on the control after it. Ownership is checked
+  makes the earlier one obsolete. Starting a copy retires the result still
+  showing, so the control reads its own name until the new write resolves;
+  an obsolete attempt neither publishes its result nor expires anything — so
+  neither an earlier result nor a late failure can stand for the newer copy,
+  nor outlast it. Ownership is checked
   rather than overlap prevented: a second press is a newer request and gets
   its own answer.
   Consequences worth knowing before touching it: **one site, not three** (a
