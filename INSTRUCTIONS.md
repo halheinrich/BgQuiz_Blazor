@@ -2436,10 +2436,10 @@ The asymmetry is pinned three times over: at the service seam
   reason is the read's own exception message (the producer names the check
   that failed; nothing here parses a log) through one `RenderFragment`:
   - **`#allRejectedNotice`** replaces the count branch when
-    `Report.AllRejected` — "No file in this folder could be read, so there
-    are no decisions to count:" then the list — a **gate reason**: the fifth
-    gate reads the same member, with its own hint "No file could be read —
-    pick a different folder to enable Start.", placed before the zero-pool
+    `Report.AllRejected` — "None of the selected problem files could be read, so
+    there are no decisions to count:" then the list — a **gate reason**: the fifth
+    gate reads the same member, with its own hint "No selected problem file could be
+    read — pick a folder with readable problem files to enable Start.", placed before the zero-pool
     hint, whose advice (adjust the filters) would be wrong for a zero no
     filter produced. The producer draws `AllRejected` only from a completed
     walk over at least one file, so the gate and the box are never vacuous.

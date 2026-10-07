@@ -655,7 +655,7 @@
            record below does not also render — one account of one selection. *@
         <Notice id="allRejectedNotice" class="mb-3" Kind="NoticeKind.Warning"
                 Announcement="NoticeAnnouncement.Polite">
-            <div><strong>No file</strong> in this folder could be read, so there are no decisions to count:</div>
+            <div><strong>None</strong> of the selected problem files could be read, so there are no decisions to count:</div>
             @rejectedFiles(allRejected)
         </Notice>
     }
@@ -837,7 +837,7 @@
     }
     else if (Folder.Parsed is { Report.AllRejected: true })
     {
-        <small class="text-muted ms-2">No file could be read — pick a different folder to enable Start.</small>
+        <small class="text-muted ms-2">No selected problem file could be read — pick a folder with readable problem files to enable Start.</small>
     }
     else if (_matchSummary is { AnswerTypes.Total: 0 })
     {

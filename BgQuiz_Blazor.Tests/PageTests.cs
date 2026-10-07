@@ -1305,7 +1305,7 @@ public class PageTests : BunitContext
         var box = AllRejectedNotice(cut).ShouldBe(
             NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: false, "id", "class");
         var text = Normalize(box.Content.TextContent);
-        Assert.StartsWith("No file in this folder could be read, so there are no decisions to count:", text);
+        Assert.StartsWith("None of the selected problem files could be read, so there are no decisions to count:", text);
         var item = Assert.Single(box.Content.QuerySelectorAll("li"));
         Assert.Equal($"damaged.xg — {Assert.Single(report.Rejected).Reason.Message}", Normalize(item.TextContent));
 
@@ -1317,7 +1317,7 @@ public class PageTests : BunitContext
         // Start is dark for this reason, and says so.
         Assert.True(StartButton(cut).HasAttribute("disabled"));
         Assert.Contains(cut.FindAll("small"), s => s.TextContent.Trim()
-            == "No file could be read — pick a different folder to enable Start.");
+            == "No selected problem file could be read — pick a folder with readable problem files to enable Start.");
         Assert.DoesNotContain("No problems match the filters", cut.Markup);
 
         await Assert.ThrowsAsync<MissingEventHandlerException>(
@@ -1349,7 +1349,7 @@ public class PageTests : BunitContext
         Assert.Single(cut.FindAll("#allRejectedNotice"));          // …and the box stands regardless
         Assert.True(StartButton(cut).HasAttribute("disabled"));
         Assert.Contains(cut.FindAll("small"), s => s.TextContent.Trim()
-            == "No file could be read — pick a different folder to enable Start.");
+            == "No selected problem file could be read — pick a folder with readable problem files to enable Start.");
     }
 
     [Fact]
@@ -1414,7 +1414,7 @@ public class PageTests : BunitContext
         Assert.Contains("damaged.xg", box.Content.TextContent);
         Assert.True(StartButton(cut).HasAttribute("disabled"));
         Assert.Contains(cut.FindAll("small"), s => s.TextContent.Trim()
-            == "No file could be read — pick a different folder to enable Start.");
+            == "No selected problem file could be read — pick a folder with readable problem files to enable Start.");
         Assert.False(ShowsNoticeSaying(cut, NothingPresentedNotice));
         Assert.False(ShowsNoticeSaying(cut, AllSkippedNotice));
         Assert.Empty(cut.FindAll("#noMatchNotice"));
@@ -8597,6 +8597,23 @@ public class PageTests : BunitContext
         Assert.Contains("Repeated positions are counted once", section);
         Assert.Contains("the line says how many duplicates it omitted, or that", section);
         Assert.Contains("there are no repeated positions.", section);
+    }
+
+    [Fact]
+    public void Help_ChooseFilters_SaysHomeListsTheFilesItCannotRead()
+    {
+        // halheinrich/backgammon#368's Help half, Hal's rider at the 2026-10-07
+        // review: the count line's explanation says that a selected file the
+        // quiz cannot read is listed on Home with its reason, and that the
+        // quiz uses the rest. Pinned as the section's other sentences are —
+        // the sentence whole, section-scoped.
+        WithController();
+
+        var section = HelpSectionText(Render<HelpPage>(), HelpSections.ChooseFilters.Heading);
+
+        Assert.Contains(
+            "Home lists any selected problem files it cannot read and explains why; quizzes use the readable files.",
+            section);
     }
 
     /// <summary>

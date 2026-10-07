@@ -90,7 +90,7 @@ public sealed class RejectedFilesTests : E2eTestBase
         // decision, because no file could be read. The box names the file.
         var box = Page.Locator("#allRejectedNotice");
         await Expect(box).ToBeVisibleAsync();
-        await Expect(box).ToContainTextAsync("No file in this folder could be read, so there are no decisions to count");
+        await Expect(box).ToContainTextAsync("None of the selected problem files could be read, so there are no decisions to count");
         await Expect(box.Locator("li")).ToHaveCountAsync(1);
         await Expect(box.Locator("li")).ToContainTextAsync(DamagedFileName);
         await Expect(box).ToHaveClassAsync(new Regex(@"\balert-warning\b"));
@@ -101,7 +101,7 @@ public sealed class RejectedFilesTests : E2eTestBase
 
         // Start is dark for that reason, and the hint says so.
         await Expect(StartButton).ToBeDisabledAsync();
-        await Expect(Page.GetByText("No file could be read — pick a different folder to enable Start."))
+        await Expect(Page.GetByText("No selected problem file could be read — pick a folder with readable problem files to enable Start."))
             .ToBeVisibleAsync();
     }
 }
