@@ -335,11 +335,15 @@ h1:focus {
 }
 
 .status-verdict {
-    /* Two 1.35-line-height text lines (2.7rem) + 0.5rem vertical padding each
-       side. Overrides .alert's padding/margin so the box is the same size in
-       every state; the colour class (alert-secondary/-success/-danger/-warning)
-       is the only thing that varies. */
-    height: 3.7rem;
+    /* The band's height, spelled once: two 1.35-line-height text lines
+       (2.7rem) + 0.5rem vertical padding each side. The fixed height here,
+       and the floor the phone band grows from below. */
+    --status-verdict-height: 3.7rem;
+
+    /* Overrides .alert's padding/margin so the box is the same size in every
+       state; the colour class (alert-secondary/-success/-danger/-warning) is
+       the only thing that varies. */
+    height: var(--status-verdict-height);
     padding: 0.5rem 1rem;
     margin: 0;
     display: flex;
@@ -357,8 +361,9 @@ h1:focus {
 
 /* Below 641px the verdict wraps to the height it needs (halheinrich/backgammon#329,
    ruled 2026-10-07): no two-line clamp, no hidden overflow, and the box grows
-   to hold it — never shorter than the fixed height above, so a verdict that
-   already fits looks as it did. That is the band where SPEC-quiz-view.md §2's
+   to hold it from a floor of the fixed height above (the same
+   --status-verdict-height), so a verdict that already fits keeps that box —
+   a floor, not a promise that every phone verdict is one height. That is the band where SPEC-quiz-view.md §2's
    law does not exist and the page flows normally, the same edge the action
    row's tail wraps at; the clamp cut the very words that tell answers apart
    ("Double /…", "No double /…") at phone widths. At and above 641px the
@@ -367,7 +372,7 @@ h1:focus {
 @media (max-width: 640px) {
     .status-verdict {
         height: auto;
-        min-height: 3.7rem;
+        min-height: var(--status-verdict-height);
     }
 
     .status-verdict-text {
