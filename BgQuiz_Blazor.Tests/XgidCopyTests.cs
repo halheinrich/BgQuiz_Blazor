@@ -53,10 +53,26 @@ public class XgidCopyTests : BunitContext
     /// <see cref="Mark"/> read the control that confirms — the badge's button,
     /// or the toggle the list hangs from; <see cref="WaitFor"/> retries an
     /// assertion until a render makes it hold, since what follows the write
-    /// runs on the renderer once the write resolves.
+    /// runs on the renderer once the write resolves. It is for what a render
+    /// shows, never for whether a handler has finished — see
+    /// <see cref="FinishedAsync"/>.
     /// </summary>
     private sealed record Control(
         string OwnName, Func<Task<Task>> Press, Func<string> Name, Func<string?> Mark, Action<Action> WaitFor);
+
+    /// <summary>
+    /// Wait for a copy's handler — the click's dispatch task, which
+    /// <see cref="Control.Press"/> returns — to finish, bounded by bUnit's wait
+    /// timeout so a handler that never ends fails the test rather than stalls
+    /// it. Awaited, and never watched with <see cref="Control.WaitFor"/>: that
+    /// retries on renders, and the one render a handler's completion causes
+    /// (the component re-rendering after its event handler — an obsolete
+    /// attempt renders nothing itself) lands before the dispatch task is marked
+    /// complete, measured 2026-10-07 — so a render-driven check of the task's
+    /// completion passes only when its first try happens to run late
+    /// (halheinrich/backgammon#334).
+    /// </summary>
+    private static Task FinishedAsync(Task handler) => handler.WaitAsync(DefaultWaitTimeout);
 
     private Control Render(string control) => control switch
     {
@@ -135,7 +151,7 @@ public class XgidCopyTests : BunitContext
         Assert.Equal(XgidCopy.CopiedLabel, copy.Name());
 
         _clock.Advance(TimeSpan.FromTicks(1));
-        await handler;
+        await FinishedAsync(handler);
 
         Assert.Equal(copy.OwnName, copy.Name());
         Assert.Null(copy.Mark());
@@ -158,7 +174,7 @@ public class XgidCopyTests : BunitContext
         Assert.Equal("is-failed", copy.Mark());
 
         _clock.Advance(XgidCopy.ConfirmationTime);
-        await handler; // completes, rather than rethrowing the refusal
+        await FinishedAsync(handler); // completes, rather than rethrowing the refusal
 
         Assert.Equal(copy.OwnName, copy.Name());
         Assert.Null(copy.Mark());
@@ -184,11 +200,11 @@ public class XgidCopyTests : BunitContext
         copy.WaitFor(() => Assert.Equal(XgidCopy.FailedLabel, copy.Name()));
 
         _clock.Advance(XgidCopy.ConfirmationTime / 2);
-        await first;
+        await FinishedAsync(first);
         Assert.Equal(XgidCopy.FailedLabel, copy.Name());
 
         _clock.Advance(XgidCopy.ConfirmationTime / 2);
-        await second;
+        await FinishedAsync(second);
         Assert.Equal(XgidCopy.CopyLabel, copy.Name());
     }
 
@@ -208,15 +224,14 @@ public class XgidCopyTests : BunitContext
         newer.SetVoidResult();
         copy.WaitFor(() => Assert.Equal(XgidCopy.CopiedLabel, copy.Name()));
         _clock.Advance(XgidCopy.ConfirmationTime);
-        await second;
+        await FinishedAsync(second);
         Assert.Equal(copy.OwnName, copy.Name());
 
         _write.SetException(new JSException("NotAllowedError: Document is not focused."));
 
         // A has run to its end — the positive signal that its completion was
         // handled, so the reads below are not taken before it could act.
-        copy.WaitFor(() => Assert.True(first.IsCompleted, "the obsolete copy's handler has not finished"));
-        await first;
+        await FinishedAsync(first);
         Assert.Equal(copy.OwnName, copy.Name());
         Assert.Null(copy.Mark());
         _clock.Advance(XgidCopy.ConfirmationTime);
@@ -237,13 +252,12 @@ public class XgidCopyTests : BunitContext
         copy.WaitFor(() => Assert.Equal(XgidCopy.CopiedLabel, copy.Name()));
 
         _write.SetException(new JSException("NotAllowedError: Document is not focused."));
-        copy.WaitFor(() => Assert.True(first.IsCompleted, "the obsolete copy's handler has not finished"));
-        await first;
+        await FinishedAsync(first);
         Assert.Equal(XgidCopy.CopiedLabel, copy.Name());
         Assert.Equal("is-copied", copy.Mark());
 
         _clock.Advance(XgidCopy.ConfirmationTime);
-        await second;
+        await FinishedAsync(second);
         Assert.Equal(XgidCopy.CopyLabel, copy.Name());
         Assert.Null(copy.Mark());
     }
