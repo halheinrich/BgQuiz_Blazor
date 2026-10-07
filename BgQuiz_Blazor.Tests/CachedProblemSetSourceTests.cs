@@ -3,8 +3,10 @@ using BgDataTypes_Lib;
 using BgGame_Lib;
 using BgFolderAccess_Razor;
 using BgQuiz_Blazor.Client.Quiz;
+using BgQuiz_Blazor.E2eTests;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using XgFilter_Lib;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
 
@@ -119,7 +121,7 @@ public class CachedProblemSetSourceTests
         var folder = FolderOver(Unparseable("a.xg"));
 
         await CollectAllAsync(MakeSource(folder, loggerFactory: parses));
-        Assert.NotNull(folder.ParsedDecisions);
+        Assert.NotNull(folder.Parsed);
 
         await CollectAllAsync(MakeSource(folder, loggerFactory: parses));
 
@@ -169,12 +171,12 @@ public class CachedProblemSetSourceTests
         // Re-pick (same folder or not — every Set supersedes): the cache is
         // gone and the next Start's source parses the new files.
         folder.Set("Corpus", Unparseable("b.xgp"), FolderWriteCapability.BrowserUnsupported, []);
-        Assert.Null(folder.ParsedDecisions);
+        Assert.Null(folder.Parsed);
 
         await CollectAllAsync(MakeSource(folder, loggerFactory: parses));
 
         Assert.Equal(1, parses.CountFor("b.xgp"));
-        Assert.NotNull(folder.ParsedDecisions);
+        Assert.NotNull(folder.Parsed);
         Assert.Equal(1, parses.CountFor("a.xg")); // the old pick was never re-read
     }
 
@@ -197,7 +199,7 @@ public class CachedProblemSetSourceTests
 
         Assert.Equal(1, parses.CountFor("a.xg")); // parsed its own files, once
         Assert.Equal(0, parses.CountFor("b.xgp")); // and never the new pick's
-        Assert.Null(folder.ParsedDecisions);        // B's cache untouched by A's parse
+        Assert.Null(folder.Parsed);                 // B's cache untouched by A's parse
     }
 
     // -----------------------------------------------------------------------
@@ -214,7 +216,7 @@ public class CachedProblemSetSourceTests
 
         var unfiltered = await CollectAllAsync(MakeSource(folder));
         if (unfiltered.Count == 0) return; // nothing showable in this corpus
-        var cache = folder.ParsedDecisions;
+        var cache = folder.Parsed;
 
         // A second Start with an impossible filter reuses the same parse and
         // yields nothing — the filter ran over the cache, not the bytes: the
@@ -223,7 +225,7 @@ public class CachedProblemSetSourceTests
         var filtered = await CollectAllAsync(MakeSource(folder, impossible));
 
         Assert.Empty(filtered);
-        Assert.True(cache == folder.ParsedDecisions, "the second Start re-parsed instead of reusing the cache");
+        Assert.Same(cache, folder.Parsed); // the second Start re-parsed instead of reusing the cache otherwise
     }
 
     [Fact]
@@ -245,6 +247,159 @@ public class CachedProblemSetSourceTests
         var cached = await CollectAllAsync(MakeSource(FolderOver(corpus), filters));
 
         Assert.Equal(streamed.Select(d => d.Id), cached.Select(d => d.Id));
+    }
+
+    // -----------------------------------------------------------------------
+    //  The parse's source report rides with the parse (halheinrich/backgammon#368)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The suite's synthesized match (the e2e fixture builder, linked in) as a
+    /// picked file — readable by construction, so the facts a pin reads come
+    /// off the real parse of a real <c>.xg</c>.
+    /// </summary>
+    private static PickedFile Readable(string name = "readable.xg") =>
+        new(name, [.. SyntheticXgMatch.Bytes()]);
+
+    /// <summary>
+    /// A damaged copy of the same match: its first 200 bytes. An <c>.xg</c>
+    /// is a compressed container, so a truncation is not a shorter match but
+    /// a payload the producer refuses to read — the rejection
+    /// halheinrich/backgammon#343 turned a half-read into. Regenerated per run;
+    /// no corrupt file is committed.
+    /// </summary>
+    private static PickedFile Damaged(string name = "damaged.xg") =>
+        new(name, [.. SyntheticXgMatch.Bytes().AsSpan(0, 200)]);
+
+    [Fact]
+    public async Task Parse_StoresTheReportWithTheDecisions_NamingTheRejectedFile()
+    {
+        // A damaged file beside a readable one: the readable file's decisions
+        // are the parse, and the report stored with them names the file that
+        // was skipped, with the read's own exception as the reason — one
+        // value, under the pick's generation.
+        var folder = FolderOver([Readable(), Damaged()]);
+        var source = MakeSource(folder);
+
+        var decisions = await CollectAllAsync(source);
+
+        var parsed = Assert.IsType<ParsedProblemSet>(folder.Parsed);
+        Assert.NotEmpty(decisions);
+        Assert.All(decisions, d => Assert.Equal("readable.xg", d.SourceFile));
+        Assert.Equal(decisions.Count, parsed.Decisions.Length);
+
+        var report = parsed.Report;
+        Assert.True(report.IsComplete);
+        Assert.Equal(2, report.AttemptedCount);
+        Assert.Equal(1, report.ReadableCount);
+        Assert.False(report.AllRejected);
+        var rejection = Assert.Single(report.Rejected);
+        Assert.Equal("damaged.xg", rejection.SourceName);
+        Assert.False(string.IsNullOrWhiteSpace(rejection.Reason.Message));
+        Assert.Same(report, source.Report); // the source's own reader reads the parse it holds
+    }
+
+    [Fact]
+    public async Task OnlyFileDamaged_TheReportSaysAllRejected_AndTheParseHoldsNoDecisions()
+    {
+        var folder = FolderOver([Damaged("only.xg")]);
+
+        var decisions = await CollectAllAsync(MakeSource(folder));
+
+        Assert.Empty(decisions);
+        var report = Assert.IsType<ParsedProblemSet>(folder.Parsed).Report;
+        Assert.True(report.AllRejected);
+        Assert.Equal("only.xg", Assert.Single(report.Rejected).SourceName);
+    }
+
+    [Fact]
+    public async Task NoFilesAtAll_IsACompletedWalk_AndNotAllRejected()
+    {
+        // The empty selection: nothing attempted, so the producer's conclusion
+        // is deliberately false — "no file could be read" is not what happened.
+        var folder = FolderOver([]);
+
+        await CollectAllAsync(MakeSource(folder));
+
+        var report = Assert.IsType<ParsedProblemSet>(folder.Parsed).Report;
+        Assert.True(report.IsComplete);
+        Assert.Equal(0, report.AttemptedCount);
+        Assert.False(report.AllRejected);
+    }
+
+    [Fact]
+    public async Task CacheHit_ReusesTheCompletedReport_WithoutWalkingAgain()
+    {
+        // The second Start, the Restart and the re-count all adopt the
+        // holder's parse: the same report object, and no second walk — the
+        // damaged file is skipped (and so logged) exactly once.
+        var parses = new ParseCounter();
+        var folder = FolderOver([Readable(), Damaged()]);
+        var first = MakeSource(folder, loggerFactory: parses);
+        await CollectAllAsync(first);
+        await CollectAllAsync(first); // Restart
+
+        var second = MakeSource(folder, loggerFactory: parses);
+        await CollectAllAsync(second); // the next Start, or a re-count
+
+        Assert.Equal(1, parses.CountFor("damaged.xg"));
+        Assert.Same(first.Report, second.Report);
+        Assert.Same(folder.Parsed!.Report, second.Report);
+    }
+
+    [Fact]
+    public async Task StaleSource_ReportsItsOwnWalk_NeverTheNewPicks()
+    {
+        // The stale-pick shape, extended through the report: a source built
+        // against pick A whose enumeration runs after the re-pick to B must
+        // report A's walk — A's damaged file — publish nothing into B's holder,
+        // and never pair A's decisions with B's report; and B's own parse must
+        // not touch what A's source reports.
+        var folder = FolderOver([Readable("a.xg"), Damaged("a-damaged.xg")]);
+        var staleSource = MakeSource(folder);
+
+        folder.Set("Other", [Damaged("b-damaged.xg")], FolderWriteCapability.BrowserUnsupported, []);
+
+        await CollectAllAsync(staleSource);
+        var staleReport = Assert.IsType<SourceReport>(staleSource.Report);
+        Assert.Equal("a-damaged.xg", Assert.Single(staleReport.Rejected).SourceName);
+        Assert.Null(folder.Parsed); // B's cache untouched by A's parse
+
+        await CollectAllAsync(MakeSource(folder));
+        var current = Assert.IsType<ParsedProblemSet>(folder.Parsed);
+        Assert.Equal("b-damaged.xg", Assert.Single(current.Report.Rejected).SourceName);
+        Assert.True(current.Report.AllRejected);
+        Assert.Same(staleReport, staleSource.Report); // A's source still reports A's walk
+        Assert.NotSame(current.Report, staleSource.Report);
+    }
+
+    [Fact]
+    public async Task InterruptedParse_StoresNothing_AndTheRetryWalksWithAFreshReport()
+    {
+        // A cancelled parse installs neither half: the holder stays unparsed
+        // and the source reports nothing. The retry succeeds — which it could
+        // not if the spent report were offered again, since the producer
+        // refuses a report for a second walk — so the one-walk report is
+        // demonstrably fresh per attempt, and a partial report is never
+        // substituted for a completed one.
+        var folder = FolderOver([Readable(), Damaged()]);
+        var source = MakeSource(folder);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (var _ in source.EnumerateAsync(cancelled.Token)) { }
+        });
+        Assert.Null(folder.Parsed);
+        Assert.Null(source.Report);
+
+        var decisions = await CollectAllAsync(source);
+
+        Assert.NotEmpty(decisions);
+        var report = Assert.IsType<ParsedProblemSet>(folder.Parsed).Report;
+        Assert.True(report.IsComplete);
+        Assert.Same(report, source.Report);
     }
 
     /// <summary>

@@ -239,7 +239,8 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   and what its dedupe collapsed.
 - **The source stack** — `Quiz/`: `WasmUploadedProblemSetSource` (the
   in-browser parse), `CachedProblemSetSource` (parse once, filter per Start
-  under the quiz's ranking),
+  under the quiz's ranking) and `ParsedProblemSet` (what it caches: the
+  decisions with the `SourceReport` of the walk that produced them),
   `PickedFolderSourceFactory` (the one statement of the layer order) and
   `ComposedProblemSource` (its product: the stack plus the dedupe's collapse
   reader).
@@ -974,11 +975,29 @@ the first Start after a pick parses — the cache makes repeat Starts
 milliseconds.
 
 - **Cache home & lifecycle.** The cache slot is
-  `PickedProblemFolder.ParsedDecisions` — on the holder, so cache lifecycle
+  `PickedProblemFolder.Parsed` — on the holder, so cache lifecycle
   *is* pick lifecycle: `Set`/`Clear` null it and bump `PickGeneration`, with
   no separate invalidation wiring to forget. `CachedProblemSetSource` is the
-  slot's only writer, via `StoreParsed(generation, decisions)`, which
+  slot's only writer, via `StoreParsed(generation, parsed)`, which
   **drops** a store whose pick has been superseded (see Pitfalls).
+- **The parse carries its own source report** (halheinrich/backgammon#368).
+  What is stored is a `ParsedProblemSet`: the decisions and, inseparably, the
+  producer's `SourceReport` of the walk that produced them — attempted and
+  readable counts, each rejected file by the name the picker gave it with the
+  read's own exception, and `AllRejected`. The rejection facts exist exactly
+  once per pick, at the parse, because every later enumeration under any
+  filter reads the cache and never walks the files again; pairing them with
+  the decisions in one value at **both** retention sites — the holder's slot
+  and the source's own reference — makes "stored without its report",
+  "replaced by a partial report" and "paired with another parse's decisions"
+  unrepresentable. `ParsedProblemSet` refuses an incomplete report, so a
+  cancelled or thrown parse installs neither half at either site; each
+  parsing attempt hands the stream source a **fresh** report through its
+  internal `EnumerateAsync(SourceReport?, CancellationToken)` (the producer
+  claims a report for one walk and refuses it a second), and a cache hit
+  reuses the completed report stored with the parse. The source's `Report`
+  reads the report of the parse *it* draws from — its own walk for a source
+  built against a since-superseded pick, never whatever the holder holds now.
 - **Unfiltered cache, per-Start filters.** The cached parse applies **no
   filters** so any filter config reuses it; each enumeration re-filters via
   `DecisionFilterSet.Matches(record.ViewFor(ranking))` — each record through
@@ -1298,10 +1317,11 @@ about them — `FolderWriteCapability` and `Truncations`. `Home.razor` writes it
 Start-time bind. Files are buffered bytes (read out of the browser once at
 pick time) so the source can re-enumerate on Restart. **Every collection it
 holds is an immutable array** — `Files` and `Truncations` are the pick
-outcome's own, and `ParsedDecisions` the parse's — and `Set` / `StoreParsed`
-refuse a default array, as the outcome records do (halheinrich/backgammon#273's
-collection rider: the holder used to keep whatever list it was handed, the
-parse cache being the parse's own live `List`). Carrying the
+outcome's own, and `Parsed.Decisions` the parse's — and `Set` and
+`ParsedProblemSet` refuse a default array, as the outcome records do
+(halheinrich/backgammon#273's collection rider: the holder used to keep
+whatever list it was handed, the parse cache being the parse's own live
+`List`). Carrying the
 capability here (not in a component field) keeps Home's stats status notice
 alive across navigate-back — the same holder-vs-field rationale as the start
 gate, and the reason `Truncations` sits beside it: both describe the folder
@@ -1309,9 +1329,13 @@ being *held*, unlike the cancelled / empty-folder flags, which describe a
 gesture that left nothing to describe and so stay per-visit page fields. `Set`
 takes the truncation report rather than defaulting it, so a caller holding the
 fact cannot drop it. The holder also carries the **parse-once cache seam** —
-`ParsedDecisions` / `PickGeneration` / `StoreParsed` — so that invalidation
-is intrinsic to `Set`/`Clear`; see the `CachedProblemSetSource` section for
-the contract — and **`PickOccurrence`**, the opaque per-pick identity token
+`Parsed` / `PickGeneration` / `StoreParsed` — so that invalidation
+is intrinsic to `Set`/`Clear`; `Parsed` is a `ParsedProblemSet`, the
+decisions *and* the `SourceReport` of the walk that produced them, so the
+rejected-file record (halheinrich/backgammon#368) is a fact about the folder
+being held exactly as `Truncations` is, retired by `Set`/`Clear` and by
+nothing else; see the `CachedProblemSetSource` section for the contract — and
+**`PickOccurrence`**, the opaque per-pick identity token
 (replaced exactly where `PickGeneration` bumps) that keys Home's dismissible
 pick-outcome notices in `QuizNoticeDismissal`; opaque rather than the boxed
 generation for the holder's one-rule-one-kind-of-token discipline (issue
@@ -4979,7 +5003,7 @@ public (see Pitfalls). The externally visible surface is the route map:
   `SavedFiltersApplicable` split) would be a second encoding of a producer
   rule — the facet-prose drift hazard in gate form.
 - **The parse cache must stay unfiltered, holder-homed, and
-  generation-guarded.** `PickedProblemFolder.ParsedDecisions` is the parse of
+  generation-guarded.** `PickedProblemFolder.Parsed` is the parse of
   the *whole* pick with no filters — caching a filtered parse would silently
   serve one filter config's subset to every later Start. Its invalidation is
   `Set`/`Clear` nulling it (cache lifecycle = pick lifecycle); don't move the
@@ -4987,6 +5011,13 @@ public (see Pitfalls). The externally visible surface is the route map:
   and don't drop `StoreParsed`'s generation check — the pick gesture is async,
   so a re-pick can complete inside a Start's await points and an unguarded
   store would install the *old* pick's parse as the *new* pick's cache.
+  **And its report rides with it, one walk each** (halheinrich/backgammon#368):
+  never hand the stored `SourceReport` to another enumeration (the producer
+  refuses a report's second walk, so a Restart would throw), never keep a
+  report as a field of a source that re-enumerates, and never store decisions
+  and report separately — `ParsedProblemSet` is the one shape `StoreParsed`
+  takes, and it refuses an incomplete report, so a partial walk can install
+  nothing at either retention site.
   Post-hoc `Matches` over the cache is equivalent to filter-during-parse only
   because the iterator's skip/advance votes are contractually pure early-exit
   hints (the contract lives on `IDecisionFilter`/`IMatchFilter` in

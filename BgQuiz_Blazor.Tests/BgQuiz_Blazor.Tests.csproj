@@ -44,6 +44,16 @@
          declares itself unsupported on the browser platform, so a product
          project using it fails the build. -->
     <ProjectReference Include="..\..\BgDataTypes_Lib\BgDataTypes_Lib.TestSupport\BgDataTypes_Lib.TestSupport.csproj" />
+    <!-- A FIXTURE PRODUCER, on the e2e project's licence (halheinrich/backgammon#125,
+         restated in BgQuiz_Blazor.E2eTests.csproj): the linked SyntheticXgMatch
+         below builds a real .xg match in memory from XgFileBuilder / XgFileWriter,
+         so the rejected-file tests (halheinrich/backgammon#368) can walk a readable
+         file beside a damaged one through the real parse without committing any
+         .xg — and without naming TestData, which CI never sees. The client already
+         depends on this library, so the graph gains nothing; declared directly
+         rather than reached transitively, per the Directory.Packages.props rule.
+         Fixture bytes only: no expectation here may come from it. -->
+    <ProjectReference Include="..\..\ConvertXgToJson_Lib\ConvertXgToJson_Lib\ConvertXgToJson_Lib.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -55,6 +65,11 @@
          app-side constant against the literal the browser suite pins, in the
          2-second suite instead of after a publish and a browser run. -->
     <Compile Include="..\BgQuiz_Blazor.E2eTests\ExpectedText.cs" Link="ExpectedText.cs" />
+    <!-- The e2e suite's synthesized .xg match, compiled in here as well
+         (halheinrich/backgammon#368) — see the ConvertXgToJson_Lib reference
+         above for why. One fixture builder, two suites: a damaged file is a
+         truncation of these bytes, regenerable, never a committed corrupt file. -->
+    <Compile Include="..\BgQuiz_Blazor.E2eTests\SyntheticXgMatch.cs" Link="SyntheticXgMatch.cs" />
   </ItemGroup>
 
   <ItemGroup>

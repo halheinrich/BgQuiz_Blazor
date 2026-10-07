@@ -540,7 +540,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// <b>Warms the parse cache.</b> The count is a byproduct of the source's
     /// in-memory match pass. The first count after a pick pays the one-time
     /// corpus parse and populates the shared cache
-    /// (<see cref="PickedProblemFolder.ParsedDecisions"/>, via the factory's
+    /// (<see cref="PickedProblemFolder.Parsed"/>, via the factory's
     /// <c>CachedProblemSetSource</c>), so the Start that follows reuses it and
     /// is near-instant — the count is not a cost added on top of Start.
     /// </para>

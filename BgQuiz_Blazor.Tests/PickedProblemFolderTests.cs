@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using BgFolderAccess_Razor;
 using BgQuiz_Blazor.Client.Quiz;
 
@@ -149,17 +148,19 @@ public class PickedProblemFolderTests
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void StoreParsed_CurrentGeneration_CachesDecisions()
+    public void StoreParsed_CurrentGeneration_CachesTheParseResult()
     {
         var folder = new PickedProblemFolder();
         folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []);
-        ImmutableArray<BgDataTypes_Lib.BgDecisionData> parsed = [TestFixtures.CubeDecision()];
+        var parsed = TestFixtures.Parsed(TestFixtures.CubeDecision());
 
         folder.StoreParsed(folder.PickGeneration, parsed);
 
-        // The very array stored — ImmutableArray's == compares the array it
-        // wraps — so the cache is the parse, not a copy of it.
-        Assert.True(folder.ParsedDecisions == parsed, "the cache is not the stored parse");
+        // The very object stored, decisions and report together — so the cache
+        // is the parse, not a copy of it, and the rejection record can only
+        // ever be the one the parse that produced these decisions made
+        // (halheinrich/backgammon#368).
+        Assert.Same(parsed, folder.Parsed);
     }
 
     [Fact]
@@ -173,9 +174,9 @@ public class PickedProblemFolderTests
         var staleGeneration = folder.PickGeneration;
 
         folder.Set("Other", [File("b.xgp")], FolderWriteCapability.Enabled, []); // supersedes
-        folder.StoreParsed(staleGeneration, []);
+        folder.StoreParsed(staleGeneration, TestFixtures.Parsed());
 
-        Assert.Null(folder.ParsedDecisions);
+        Assert.Null(folder.Parsed);
     }
 
     [Fact]
@@ -183,12 +184,12 @@ public class PickedProblemFolderTests
     {
         var folder = new PickedProblemFolder();
         folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []);
-        folder.StoreParsed(folder.PickGeneration, []);
+        folder.StoreParsed(folder.PickGeneration, TestFixtures.Parsed());
         var generation = folder.PickGeneration;
 
         folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []); // re-pick, even of the same folder
 
-        Assert.Null(folder.ParsedDecisions);
+        Assert.Null(folder.Parsed);
         Assert.NotEqual(generation, folder.PickGeneration);
     }
 
@@ -197,21 +198,21 @@ public class PickedProblemFolderTests
     {
         var folder = new PickedProblemFolder();
         folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []);
-        folder.StoreParsed(folder.PickGeneration, []);
+        folder.StoreParsed(folder.PickGeneration, TestFixtures.Parsed());
         var generation = folder.PickGeneration;
 
         folder.Clear();
 
-        Assert.Null(folder.ParsedDecisions);
+        Assert.Null(folder.Parsed);
         Assert.NotEqual(generation, folder.PickGeneration);
     }
 
     [Fact]
-    public void StoreParsed_DefaultDecisions_Throws()
+    public void StoreParsed_Null_Throws()
     {
         var folder = new PickedProblemFolder();
-        var refused = Assert.Throws<ArgumentException>(
-            () => folder.StoreParsed(folder.PickGeneration, default));
-        Assert.Equal("decisions", refused.ParamName);
+        var refused = Assert.Throws<ArgumentNullException>(
+            () => folder.StoreParsed(folder.PickGeneration, null!));
+        Assert.Equal("parsed", refused.ParamName);
     }
 }

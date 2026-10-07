@@ -22,7 +22,7 @@ using XgFilter_Lib.Filtering;
 /// <em>bytes</em> (<see cref="PickedFile.Bytes"/>), not open streams, and
 /// opens a fresh read of each (<see cref="PickedFile.OpenRead"/>, positioned at
 /// zero, sharing the bytes without copying them) for every
-/// <see cref="EnumerateAsync"/> call. The stream iterator reads each stream
+/// <see cref="EnumerateAsync(CancellationToken)"/> call. The stream iterator reads each stream
 /// exactly once, forward (see <see cref="XgFileStream"/>); buffering up front
 /// is what lets a Restart re-enumerate the same set without the streams having
 /// been consumed.
@@ -41,8 +41,11 @@ using XgFilter_Lib.Filtering;
 /// the up-front count would require a full filtered pre-pass. Decision-type
 /// admission is governed entirely by the supplied <c>filters</c>;
 /// this source injects no policy of its own. Per-file parse failures inside the
-/// iterator are skipped and logged; a name missing its extension is a usage
-/// error the iterator rejects when it reaches that entry.
+/// iterator are skipped and logged — and recorded, by name and exception, on
+/// the <see cref="SourceReport"/> a caller passes to the internal
+/// <see cref="EnumerateAsync(SourceReport?, CancellationToken)"/>; a name
+/// missing its extension is a usage error the iterator rejects when it
+/// reaches that entry.
 /// </para>
 /// </summary>
 internal sealed class WasmUploadedProblemSetSource : IProblemSetSource
@@ -113,7 +116,32 @@ internal sealed class WasmUploadedProblemSetSource : IProblemSetSource
     public int? Count => null;
 
     /// <inheritdoc />
-    public async IAsyncEnumerable<BgDecisionData> EnumerateAsync(
+    public IAsyncEnumerable<BgDecisionData> EnumerateAsync(
+        CancellationToken cancellationToken = default) =>
+        EnumerateAsync(report: null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="EnumerateAsync(CancellationToken)"/>, recording on
+    /// <paramref name="report"/> which files this enumeration attempted and
+    /// which it could not read (halheinrich/backgammon#368). The report is the
+    /// producer's <see cref="SourceReport"/> and is written only by its
+    /// iterator; this source hands it through to the one walk this enumeration
+    /// is, and reads nothing from it.
+    ///
+    /// <para>
+    /// <b>A report serves one walk, so it is an argument and never a field.</b>
+    /// This source re-enumerates (Restart), and the producer refuses a report
+    /// handed to a second walk — a report held here across enumerations would
+    /// throw on the second. The caller that wants the facts creates a fresh
+    /// report per enumeration and keeps it beside what that enumeration
+    /// yielded; <c>CachedProblemSetSource</c> is that caller, and the interface
+    /// enumeration above records nothing, exactly the behaviour it always had.
+    /// </para>
+    /// </summary>
+    /// <param name="report">Where this walk records its sources, or null to record nothing.</param>
+    /// <param name="cancellationToken">Stops the enumeration between decisions; the report is then incomplete.</param>
+    internal async IAsyncEnumerable<BgDecisionData> EnumerateAsync(
+        SourceReport? report,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         // A fresh read per enumeration keeps the source re-iterable: the
@@ -130,7 +158,7 @@ internal sealed class WasmUploadedProblemSetSource : IProblemSetSource
         // old per-item Task.Yield paid an event-loop round-trip for every
         // decision, which dominated large parses.
         var yielder = new CooperativeYielder(_clock);
-        foreach (var decision in _iterator.IterateXgStreamDiagrams(streams))
+        foreach (var decision in _iterator.IterateXgStreamDiagrams(streams, report))
         {
             cancellationToken.ThrowIfCancellationRequested();
             yield return decision;

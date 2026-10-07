@@ -2,6 +2,9 @@ using BgDataTypes_Lib;
 using BgDataTypes_Lib.TestSupport;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
+using Microsoft.Extensions.Logging.Abstractions;
+using XgFilter_Lib;
+using XgFilter_Lib.Filtering;
 
 namespace BgQuiz_Blazor.Tests;
 
@@ -443,4 +446,34 @@ internal static class TestFixtures
     public static ComposedProblemSource Composed(
         IProblemSetSource source, int duplicatesCollapsed = 0) =>
         new(source, () => duplicatesCollapsed);
+
+    /// <summary>
+    /// A <see cref="SourceReport"/> as the real
+    /// <see cref="FilteredDecisionIterator"/> leaves it after a completed walk
+    /// over <paramref name="streams"/> — this repo's one way to a populated
+    /// report (halheinrich/backgammon#368). The report's writers are the
+    /// producer's and <c>internal</c> to it, deliberately: a test that needs a
+    /// rejection runs the real iterator over a stream the producer refuses,
+    /// so the facts are read off the real read path, never fabricated. Over
+    /// no streams it is the completed report of an empty walk — nothing
+    /// attempted, nothing rejected, not all-rejected — which is the honest
+    /// report for a substitute stack with no parse layer.
+    /// </summary>
+    public static SourceReport WalkedReport(params XgFileStream[] streams)
+    {
+        var report = new SourceReport();
+        var iterator = new FilteredDecisionIterator(
+            new DecisionFilterSet(), PlayRanking.Equity, NullLogger<FilteredDecisionIterator>.Instance);
+        foreach (var _ in iterator.IterateXgStreamDiagrams(streams, report)) { }
+        return report;
+    }
+
+    /// <summary>
+    /// A parse result over <paramref name="decisions"/> nobody walked a file
+    /// for — the completed report of an empty walk beside them — for seeding a
+    /// holder's cache (<c>PickedProblemFolder.StoreParsed</c>) where the test's
+    /// subject is what happens <i>over</i> a parsed pick, not the parse.
+    /// </summary>
+    public static ParsedProblemSet Parsed(params BgDecisionData[] decisions) =>
+        new([.. decisions], WalkedReport());
 }

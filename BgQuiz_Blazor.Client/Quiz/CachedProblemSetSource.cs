@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using BgDataTypes_Lib;
 using BgGame_Lib;
 using Microsoft.Extensions.Logging;
+using XgFilter_Lib;
 using XgFilter_Lib.Filtering;
 
 /// <summary>
@@ -17,12 +18,28 @@ using XgFilter_Lib.Filtering;
 ///
 /// <para>
 /// <b>Cache home &amp; lifecycle.</b> The cache slot lives on
-/// <see cref="PickedProblemFolder"/> (<see cref="PickedProblemFolder.ParsedDecisions"/>),
+/// <see cref="PickedProblemFolder"/> (<see cref="PickedProblemFolder.Parsed"/>),
 /// so cache lifecycle <i>is</i> pick lifecycle: a re-pick or Clear nulls it
 /// by construction, with no invalidation wiring to forget. This source is
 /// the slot's only writer. The cached parse is <b>unfiltered</b> so any
 /// filter config reuses it; the per-Start filters re-apply here, per
 /// enumeration, via <see cref="DecisionFilterSet.Matches"/>.
+/// </para>
+///
+/// <para>
+/// <b>The parse carries its own source report</b> (halheinrich/backgammon#368).
+/// What the cache stores is a <see cref="ParsedProblemSet"/>: the decisions
+/// and, inseparably, the producer's <see cref="SourceReport"/> of the walk
+/// that produced them — which files were attempted, which were rejected and
+/// why. The facts exist exactly once per pick, at the parse, because every
+/// later enumeration under any filter reads the cache and never walks the
+/// files again; pairing them with the decisions in one value at <i>both</i>
+/// retention sites — the holder's slot and this source's own reference — is
+/// what makes "stored without its report", "replaced by a partial report" and
+/// "paired with another parse's decisions" unrepresentable. Each parsing
+/// attempt gets a fresh report (a report serves one walk, by the producer's
+/// contract), and <see cref="Report"/> reads the one belonging to the parse
+/// this source draws from.
 /// </para>
 ///
 /// <para>
@@ -82,7 +99,7 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
     private readonly TimeProvider _clock;
     private readonly WasmUploadedProblemSetSource _inner;
     private readonly int _generation;
-    private ImmutableArray<BgDecisionData>? _decisions;
+    private ParsedProblemSet? _parsed;
 
     /// <summary>
     /// Construct a source over <paramref name="folder"/>'s current pick,
@@ -126,11 +143,24 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
     /// <inheritdoc />
     public int? Count => null;
 
+    /// <summary>
+    /// The completed <see cref="SourceReport"/> of the parse this source draws
+    /// from — the files attempted, the files rejected and why — or null until
+    /// its first enumeration has resolved one (halheinrich/backgammon#368).
+    /// It is <i>this source's</i> parse: adopted from the holder's cache when
+    /// the pick was still current, or its own, so a source built against a
+    /// since-superseded pick reports the walk over its own files and never
+    /// whatever the holder holds now. A cache hit reuses the completed report
+    /// stored with the parse; nothing here walks the files again, so nothing
+    /// can clear, append to or replace it.
+    /// </summary>
+    internal SourceReport? Report => _parsed?.Report;
+
     /// <inheritdoc />
     public async IAsyncEnumerable<BgDecisionData> EnumerateAsync(
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var decisions = await GetOrParseAsync(cancellationToken);
+        var decisions = (await GetOrParseAsync(cancellationToken)).Decisions;
 
         var yielder = new CooperativeYielder(_clock);
         foreach (var decision in decisions)
@@ -147,31 +177,42 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
     }
 
     /// <summary>
-    /// This source's decisions, resolved in cheapest-first order: its own
+    /// This source's parse result, resolved in cheapest-first order: its own
     /// prior resolution, then the holder's cache (only while the pick it was
     /// built from is still current), then a full unfiltered parse — stored
-    /// back to the holder, which drops it if the pick has been superseded. A
-    /// cancelled parse stores nothing (no partial caches).
+    /// back to the holder, which drops it if the pick has been superseded.
+    ///
+    /// <para>
+    /// <b>The report is the parse's own by-product.</b> Each parsing attempt
+    /// hands the inner source a fresh <see cref="SourceReport"/> — the
+    /// producer claims a report for one walk and refuses it a second, so a
+    /// retry after a cancelled or thrown parse never offers the spent one —
+    /// and the decisions and the report become one <see cref="ParsedProblemSet"/>
+    /// only once the walk has finished. A cancelled or thrown parse reaches
+    /// neither assignment below: no partial decisions and no partial report
+    /// are ever retained or stored, at either site.
+    /// </para>
     /// </summary>
-    private async ValueTask<ImmutableArray<BgDecisionData>> GetOrParseAsync(
+    private async ValueTask<ParsedProblemSet> GetOrParseAsync(
         CancellationToken cancellationToken)
     {
-        if (_decisions is { } own) return own;
+        if (_parsed is { } own) return own;
 
-        if (_folder.PickGeneration == _generation && _folder.ParsedDecisions is { } cached)
+        if (_folder.PickGeneration == _generation && _folder.Parsed is { } cached)
         {
-            _decisions = cached;
+            _parsed = cached;
             return cached;
         }
 
+        var report = new SourceReport();
         var parsing = ImmutableArray.CreateBuilder<BgDecisionData>();
-        await foreach (var decision in _inner.EnumerateAsync(cancellationToken))
+        await foreach (var decision in _inner.EnumerateAsync(report, cancellationToken))
         {
             parsing.Add(decision);
         }
 
-        var parsed = parsing.ToImmutable();
-        _decisions = parsed;
+        var parsed = new ParsedProblemSet(parsing.ToImmutable(), report);
+        _parsed = parsed;
         _folder.StoreParsed(_generation, parsed);
         return parsed;
     }

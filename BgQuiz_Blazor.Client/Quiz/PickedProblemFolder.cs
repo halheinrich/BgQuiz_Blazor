@@ -1,8 +1,8 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
 using System.Collections.Immutable;
-using BgDataTypes_Lib;
 using BgFolderAccess_Razor;
+using XgFilter_Lib;
 
 /// <summary>
 /// Per-app holder for the user's picked problem-set folder: its top-level
@@ -46,10 +46,11 @@ using BgFolderAccess_Razor;
 /// <para>
 /// <b>Every collection it holds is immutable</b> (halheinrich/backgammon#273's
 /// collection rider): the files and truncations are the pick outcome's own
-/// immutable arrays, and the parse cache is an immutable array too. A holder
-/// that kept whatever list it was handed would hand a caller's live list back
-/// out behind a read-only interface, and the parse cache used to be exactly
-/// that — the parsing source's own <see cref="List{T}"/>.
+/// immutable arrays, and the parse cache's decisions are an immutable array
+/// too (<see cref="ParsedProblemSet.Decisions"/>). A holder that kept whatever
+/// list it was handed would hand a caller's live list back out behind a
+/// read-only interface, and the parse cache used to be exactly that — the
+/// parsing source's own <see cref="List{T}"/>.
 /// </para>
 /// </summary>
 internal sealed class PickedProblemFolder
@@ -87,7 +88,7 @@ internal sealed class PickedProblemFolder
     /// <see cref="Clear"/>. The parse cache's staleness key: a parse begun
     /// against one pick must not land in the cache once another pick has
     /// superseded it (see <see cref="StoreParsed"/>), and a consumer holding
-    /// a generation can tell whether <see cref="ParsedDecisions"/> still
+    /// a generation can tell whether <see cref="Parsed"/> still
     /// describes <i>its</i> files.
     /// </summary>
     public int PickGeneration { get; private set; }
@@ -120,32 +121,38 @@ internal sealed class PickedProblemFolder
     public object PickOccurrence { get; private set; } = new();
 
     /// <summary>
-    /// The parse-once cache: every decision parsed from <see cref="Files"/>
-    /// with <b>no filters applied</b>, or null when the current pick has not
-    /// been parsed yet. Living on the holder makes cache lifecycle equal pick
-    /// lifecycle by construction — <see cref="Set"/> and <see cref="Clear"/>
-    /// null it (freeing the old parse immediately), so no separate
-    /// invalidation wiring exists to forget. Unfiltered so any filter config
-    /// reuses it: filters re-apply per Start over the cached decisions
+    /// The parse-once cache: the one completed parse of <see cref="Files"/>
+    /// with <b>no filters applied</b> — its decisions and, inseparably, the
+    /// <see cref="SourceReport"/> of the walk that produced them, naming the
+    /// files that could not be read (halheinrich/backgammon#368) — or null
+    /// when the current pick has not been parsed yet. Living on the holder
+    /// makes cache lifecycle equal pick lifecycle by construction —
+    /// <see cref="Set"/> and <see cref="Clear"/> null it (freeing the old
+    /// parse immediately), so no separate invalidation wiring exists to
+    /// forget, and the rejection record is retired with the selection it
+    /// describes and by nothing else. Unfiltered so any filter config reuses
+    /// it: filters re-apply per Start over the cached decisions
     /// (<c>CachedProblemSetSource</c>), which the filter contracts make
     /// exactly equivalent to filtering during the parse. Written only by
     /// <c>CachedProblemSetSource</c> via <see cref="StoreParsed"/>.
     /// </summary>
-    public ImmutableArray<BgDecisionData>? ParsedDecisions { get; private set; }
+    public ParsedProblemSet? Parsed { get; private set; }
 
     /// <summary>
     /// Store the unfiltered parse of the pick identified by
-    /// <paramref name="pickGeneration"/>. Silently dropped when that pick has
-    /// been superseded (the generation no longer matches): the in-flight quiz
-    /// that parsed the old files keeps its own reference, but a stale parse
-    /// must never masquerade as the cache of the <i>new</i> pick.
+    /// <paramref name="pickGeneration"/> — decisions and their report as one
+    /// value, so neither half can be stored without the other. Silently
+    /// dropped when that pick has been superseded (the generation no longer
+    /// matches): the in-flight quiz that parsed the old files keeps its own
+    /// reference, but a stale parse must never masquerade as the cache of the
+    /// <i>new</i> pick.
     /// </summary>
-    /// <exception cref="ArgumentException"><paramref name="decisions"/> is a default array, which holds no decisions at all.</exception>
-    public void StoreParsed(int pickGeneration, ImmutableArray<BgDecisionData> decisions)
+    /// <exception cref="ArgumentNullException"><paramref name="parsed"/> is null.</exception>
+    public void StoreParsed(int pickGeneration, ParsedProblemSet parsed)
     {
-        RefuseDefault(decisions, nameof(decisions));
+        ArgumentNullException.ThrowIfNull(parsed);
         if (pickGeneration != PickGeneration) return;
-        ParsedDecisions = decisions;
+        Parsed = parsed;
     }
 
     /// <summary>
@@ -176,7 +183,7 @@ internal sealed class PickedProblemFolder
     /// <summary>
     /// Replace the pick with <paramref name="files"/> from
     /// <paramref name="folderName"/>. Invalidates the parse cache
-    /// (<see cref="ParsedDecisions"/>) and bumps <see cref="PickGeneration"/>.
+    /// (<see cref="Parsed"/>) and bumps <see cref="PickGeneration"/>.
     /// </summary>
     /// <param name="folderName">The picked folder's leaf name.</param>
     /// <param name="files">The folder's top-level problem files, buffered.</param>
@@ -204,7 +211,7 @@ internal sealed class PickedProblemFolder
         Files = files;
         Capability = capability;
         Truncations = truncations;
-        ParsedDecisions = null;
+        Parsed = null;
         PickGeneration++;
         PickOccurrence = new object();
     }
@@ -220,7 +227,7 @@ internal sealed class PickedProblemFolder
         FolderName = null;
         Capability = FolderWriteCapability.BrowserUnsupported;
         Truncations = [];
-        ParsedDecisions = null;
+        Parsed = null;
         PickGeneration++;
         PickOccurrence = new object();
     }
