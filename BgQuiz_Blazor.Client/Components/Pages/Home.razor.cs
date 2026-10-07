@@ -1289,8 +1289,21 @@ public partial class Home : ComponentBase, IDisposable
             // non-zero count means every match was auto-skipped for offering no
             // play choice. An unknown count — it threw, which leaves Start live
             // — could be either, and the sentence claims neither.
+            //
+            // Unless this Start's parse has just established that no selected
+            // problem file could be read (halheinrich/backgammon#368): the
+            // accepted policy lets a completed parse publish the all-rejected
+            // box and darken Start without a successful count, and that is
+            // exactly the path here — the advisory count failed without a
+            // parse, Start stayed live, and Start performed the first parse.
+            // The box and its file list are the whole explanation; the generic
+            // and mix-empty fallbacks are suppressed, since adjusting filters
+            // or the mix cannot repair unreadable files, and both stay for
+            // selections with readable files.
             if (Controller.IsFinished)
             {
+                if (Folder.Parsed is { Report.AllRejected: true }) return;
+
                 _noMatchNotice = Controller.LastComposition is { DrawnCount: 0 }
                     ? "Your mix drew no problems — no decision in these files matched "
                       + "the selected categories against your lifetime stats. Adjust "

@@ -19,6 +19,7 @@ using Bunit.TestDoubles;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.JSInterop;
 using XgFilter_Lib;
 using XgFilter_Lib.Enums;
@@ -1367,6 +1368,56 @@ public class PageTests : BunitContext
 
         Assert.Single(cut.FindAll("#allRejectedNotice"));
         Assert.True(StartButton(cut).HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_FailedCountThenStart_OverAnAllRejectedPick_TheBoxExplainsAndTheFallbackIsSuppressed()
+    {
+        // The path the accepted policy makes intentional (halheinrich/backgammon#368):
+        // the advisory count fails without a parse, so Start stays live; Start
+        // then performs the first parse — through the production composition
+        // over a holder whose one file is damaged — which establishes the
+        // all-rejected cause. The box and its list explain the outcome, Start
+        // goes dark with the all-rejected hint, and the generic "No quiz
+        // problems could be presented" fallback (which would tell the user to
+        // adjust filters that cannot repair an unreadable file) is not set.
+        var folder = new PickedProblemFolder();
+        folder.Set("Corpus", [TestFixtures.DamagedXg()], FolderWriteCapability.BrowserUnsupported, []);
+        Services.AddSingleton(folder);
+        WithAppliedFilter();
+        var shuffle = WithShuffleOption();
+        var real = PickedFolderSourceFactory.Create(folder, shuffle, NullLoggerFactory.Instance, TimeProvider.System);
+        var failing = new StrongBox<bool>(true);
+        var controller = new QuizController(
+            (filters, ranking, mix) => failing.Value
+                ? throw new InvalidOperationException("count failed")
+                : real(filters, ranking, mix),
+            new FakeProblemStatsSink(), TimeProvider.System);
+        Services.AddSingleton(controller);
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        var cut = Render<HomePage>();
+        await ApplyFiltersAsync(cut);
+
+        // The count threw before any parse: nothing is known, Start is live.
+        Assert.Null(folder.Parsed);
+        Assert.Empty(cut.FindAll("#allRejectedNotice"));
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+
+        failing.Value = false;
+        await StartButton(cut).ClickAsync(new());
+
+        Assert.True(controller.IsFinished);
+        Assert.EndsWith("/", nav.Uri);
+        Assert.True(Assert.IsType<ParsedProblemSet>(folder.Parsed).Report.AllRejected);
+        var box = AllRejectedNotice(cut);
+        Assert.Contains("damaged.xg", box.Content.TextContent);
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains(cut.FindAll("small"), s => s.TextContent.Trim()
+            == "No file could be read — pick a different folder to enable Start.");
+        Assert.False(ShowsNoticeSaying(cut, NothingPresentedNotice));
+        Assert.False(ShowsNoticeSaying(cut, AllSkippedNotice));
+        Assert.Empty(cut.FindAll("#noMatchNotice"));
     }
 
     [Fact]

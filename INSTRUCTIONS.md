@@ -2590,7 +2590,13 @@ The asymmetry is pinned three times over: at the service seam
   non-zero** count, every match was auto-skipped for offering no play choice;
   or, over an **unknown** count (it threw), only that no problems could be
   presented — zero matches and all-skipped are indistinguishable there, so
-  that wording claims neither. `_noMatchNotice` is a sibling field to
+  that wording claims neither. One exception (halheinrich/backgammon#368):
+  when that Start's parse has just established that no selected problem
+  file could be read — the count failed without a parse, Start stayed live,
+  Start performed the first parse — the all-rejected box and its list are
+  the whole explanation, and neither the generic nor the mix-empty fallback
+  is set, since adjusting filters or the mix cannot repair unreadable files;
+  both stay for selections with readable files. `_noMatchNotice` is a sibling field to
   `_startError`, distinct because it reports an *outcome*, not a *failure*:
   a polite warning and a gate reason that does not dismiss, not an assertive
   error that does. Both are genuinely per-visit state, so component fields (see
