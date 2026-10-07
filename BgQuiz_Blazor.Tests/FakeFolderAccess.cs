@@ -195,6 +195,23 @@ internal sealed class FakeFolderAccess : IFolderAccess
     /// <summary>When set, <see cref="ProbePickedFileWritabilityAsync"/> throws it instead.</summary>
     public Exception? WritabilityProbeException { get; set; }
 
+    /// <summary>
+    /// Holds for the picked slot's stats reads, taken one per read in call
+    /// order: a read that finds one here answers only once it completes. The
+    /// answer — content or <see cref="PickedStatsReadException"/> — is the one
+    /// staged <i>when the read was made</i>, as a real read of one folder
+    /// answers for that folder however late it lands; a read that finds the
+    /// queue empty answers at once. How a test parks one pick's probe on its
+    /// read while the next pick's runs (halheinrich/backgammon#263).
+    /// </summary>
+    public Queue<Task> PickedStatsReadHolds { get; } = [];
+
+    /// <summary>
+    /// <see cref="PickedStatsReadHolds"/>' counterpart for
+    /// <see cref="ProbePickedFileWritabilityAsync"/>: the probe's second await.
+    /// </summary>
+    public Queue<Task> WritabilityProbeHolds { get; } = [];
+
     /// <summary>The file name of every writability probe, in call order — pins when the app probes at all.</summary>
     public List<string> WritabilityProbeNames { get; } = [];
 
@@ -268,17 +285,28 @@ internal sealed class FakeFolderAccess : IFolderAccess
         {
             return Task.FromException<string?>(ex);
         }
-        if (PickedStatsReadException is { } statsEx && fileName == QuizStatsFile.FileName)
+        if (fileName == QuizStatsFile.FileName)
         {
-            return Task.FromException<string?>(statsEx);
+            return AnswerAsync(PickedStatsReadHolds, PickedStatsReadException, PickedStatsJson);
         }
         return Task.FromResult(fileName switch
         {
             SavedFiltersDocument.FileName => FiltersJson,
             SavedFiltersDocument.LegacyFileName => LegacyFiltersJson,
-            QuizStatsFile.FileName => PickedStatsJson,
             _ => null,
         });
+    }
+
+    /// <summary>
+    /// The answer staged at the call — <paramref name="exception"/> thrown, or
+    /// else <paramref name="answer"/> returned — given once the call's hold, if
+    /// <paramref name="holds"/> has one for it, completes.
+    /// </summary>
+    private static async Task<T> AnswerAsync<T>(Queue<Task> holds, Exception? exception, T answer)
+    {
+        if (holds.TryDequeue(out var hold)) await hold;
+        if (exception is not null) throw exception;
+        return answer;
     }
 
     public Task WritePickedFileAsync(string fileName, string json)
@@ -293,16 +321,16 @@ internal sealed class FakeFolderAccess : IFolderAccess
 
     /// <summary>
     /// Records the name, then answers <see cref="PickedStatsWritability"/> (or
-    /// throws <see cref="WritabilityProbeException"/>). Writes nothing — the
-    /// real probe aborts its stream, so neither slot changes.
+    /// throws <see cref="WritabilityProbeException"/>) as staged at the call,
+    /// once its hold, if any, completes (<see cref="WritabilityProbeHolds"/>).
+    /// Writes nothing — the real probe aborts its stream, so neither slot
+    /// changes.
     /// </summary>
     public Task<PickedFileWritability> ProbePickedFileWritabilityAsync(string fileName)
     {
         ArgumentNullException.ThrowIfNull(fileName);
         WritabilityProbeNames.Add(fileName);
-        return WritabilityProbeException is { } ex
-            ? Task.FromException<PickedFileWritability>(ex)
-            : Task.FromResult(PickedStatsWritability);
+        return AnswerAsync(WritabilityProbeHolds, WritabilityProbeException, PickedStatsWritability);
     }
 
     public Task<string?> ReadActiveFileAsync(string fileName)

@@ -1536,6 +1536,136 @@ public class QuizStatsStoreTests
     }
 
     // -----------------------------------------------------------------------
+    //  A superseded probe (halheinrich/backgammon#263) — a probe answers for the
+    //  pick it began on, or not at all
+    // -----------------------------------------------------------------------
+
+    /// <summary>Every fact the probe publishes, read through the store's own surface.</summary>
+    private static (bool HasStats, string? SetAsideName, bool Unreadable, bool Unwritable) ProbeFacts(
+        QuizStatsStore store) =>
+        (store.PickedFolderHasStats, store.ForecastStatsSetAsideName,
+         store.ForecastStatsUnreadable, store.ForecastStatsUnwritable);
+
+    /// <summary>
+    /// Re-pick <paramref name="folder"/> to a second capable folder, as Home's
+    /// pick does: a new generation, the same capability.
+    /// </summary>
+    private static void RePick(PickedProblemFolder folder) =>
+        folder.Set("Next", [new PickedFile("b.xgp", [4, 5, 6])], FolderWriteCapability.Enabled, []);
+
+    /// <summary>
+    /// Pick A's late read outcomes, each beside a pick B whose facts differ from
+    /// what A's would be: so a late read that <i>modified</i> B's facts and one
+    /// that <i>replaced</i> them with its own (which then read as nothing, being
+    /// stamped for A) both show as a change.
+    /// </summary>
+    public static TheoryData<string?, bool, string, bool, bool> LateReadOutcomes() => new()
+    {
+        // pick A's stats, A's read refused, pick B's stats, B has stats, B unreadable
+        { StatsDocumentJson(), false, "not json at all", false, true },          // success: stats to weight by
+        { "not json at all", false, StatsDocumentJson(), true, false },          // content that will not parse
+        { RetiredStatsFixture.V1Json, false, StatsDocumentJson(), true, false }, // a retired document: a forecast
+        { null, true, StatsDocumentJson(), true, false },                        // the browser refusing the read
+    };
+
+    [Theory]
+    [MemberData(nameof(LateReadOutcomes))]
+    public async Task Probe_ASupersededRead_LandingAfterTheNextPicksProbe_LeavesItsFactsUnchanged(
+        string? pickAStats, bool pickAReadFails, string pickBStats, bool pickBHasStats, bool pickBUnreadable)
+    {
+        // Pick A's probe parks on its read; the user re-picks B and B's probe
+        // completes; then A's read lands — whatever it says, on the success path
+        // or a catch path, it describes a folder no longer held. Before
+        // halheinrich/backgammon#263 the late read wrote its fact under the
+        // stamp B's probe had set, so B read as A.
+        var folder = EnabledFolder();
+        var holdA = new TaskCompletionSource();
+        var fake = new FakeFolderAccess
+        {
+            PickedStatsJson = pickAStats,
+            PickedStatsReadException = pickAReadFails ? new JSException("read refused") : null,
+        };
+        fake.PickedStatsReadHolds.Enqueue(holdA.Task);
+        var store = MakeStore(fake, folder);
+
+        var probeA = store.RefreshPickedStatsAsync();
+        Assert.False(probeA.IsCompleted, "Premise: pick A's probe must be parked on its read.");
+
+        RePick(folder);
+        fake.PickedStatsJson = pickBStats;
+        fake.PickedStatsReadException = null;
+        await store.RefreshPickedStatsAsync();
+        var pickB = ProbeFacts(store);
+
+        holdA.SetResult();
+        await probeA;
+
+        Assert.Equal((pickBHasStats, (string?)null, pickBUnreadable, false), pickB);
+        Assert.Equal(pickB, ProbeFacts(store));
+    }
+
+    [Fact]
+    public async Task Probe_ASupersededWritabilityProbe_LandingAfterTheNextPicksProbe_LeavesItsFactsUnchanged()
+    {
+        // The probe's second await: pick A's file is read, and its writability
+        // probe parks. B's folder holds a readable, writable stats file, and its
+        // probe completes; then A's "not writable" lands, describing a file in a
+        // folder no longer held.
+        var folder = EnabledFolder();
+        var holdA = new TaskCompletionSource();
+        var fake = new FakeFolderAccess
+        {
+            PickedStatsJson = "not json at all",
+            PickedStatsWritability = PickedFileWritability.NotWritable,
+        };
+        fake.WritabilityProbeHolds.Enqueue(holdA.Task);
+        var store = MakeStore(fake, folder);
+
+        var probeA = store.RefreshPickedStatsAsync();
+        Assert.False(probeA.IsCompleted, "Premise: pick A's probe must be parked on its writability probe.");
+
+        RePick(folder);
+        fake.PickedStatsJson = StatsDocumentJson();
+        fake.PickedStatsWritability = PickedFileWritability.Writable;
+        await store.RefreshPickedStatsAsync();
+        var pickB = ProbeFacts(store);
+
+        holdA.SetResult();
+        await probeA;
+
+        Assert.Equal((true, (string?)null, false, false), pickB);
+        Assert.Equal(pickB, ProbeFacts(store));
+    }
+
+    [Fact]
+    public async Task Probe_HeldAcrossBothAwaits_WithNoRePick_LandsItsFacts()
+    {
+        // The control: the same holds with nothing superseding the probe, so
+        // what it finds lands. Without this the two tests above would pass
+        // against a probe that published nothing at all after an await.
+        var holdRead = new TaskCompletionSource();
+        var holdProbe = new TaskCompletionSource();
+        var fake = new FakeFolderAccess
+        {
+            PickedStatsJson = StatsDocumentJson(),
+            PickedStatsWritability = PickedFileWritability.NotWritable,
+        };
+        fake.PickedStatsReadHolds.Enqueue(holdRead.Task);
+        fake.WritabilityProbeHolds.Enqueue(holdProbe.Task);
+        var store = MakeStore(fake);
+
+        var probe = store.RefreshPickedStatsAsync();
+        Assert.Equal((false, (string?)null, false, false), ProbeFacts(store));
+
+        holdRead.SetResult();
+        Assert.False(probe.IsCompleted, "Premise: the probe must be parked on its writability probe.");
+        holdProbe.SetResult();
+        await probe;
+
+        Assert.Equal((true, (string?)null, false, true), ProbeFacts(store));
+    }
+
+    // -----------------------------------------------------------------------
     //  DocumentTypeInfo — the one serializer contract (halheinrich/backgammon#129)
     // -----------------------------------------------------------------------
 

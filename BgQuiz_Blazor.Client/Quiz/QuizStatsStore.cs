@@ -184,81 +184,87 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     private ProblemStatsDocument _doc = ProblemStatsDocument.Empty;
 
     /// <summary>
-    /// The pick-time probe's verdict: whether the picked folder's stats
-    /// document exists and holds at least one problem. Written only by
-    /// <see cref="RefreshPickedStatsAsync"/>, read only through
-    /// <see cref="PickedFolderHasStats"/> (and so, transitively, through
-    /// <see cref="CanWeightMix"/>), and deliberately never consulted by the
-    /// bind path — a fresh folder with no stats still binds and still records.
-    /// </summary>
-    private bool _pickedHasStats;
-
-    /// <summary>
-    /// The retired schema version the picked folder's stats document declared,
-    /// or <see langword="null"/> when the probe found no document, a current-
-    /// version one, or one it could not identify. Written only by
-    /// <see cref="RefreshPickedStatsAsync"/> and read only through
-    /// <see cref="ForecastStatsSetAsideName"/>.
+    /// What one pick-time probe (<see cref="RefreshPickedStatsAsync"/>) found,
+    /// <b>and the pick it found it about</b> — one immutable value, published
+    /// whole and only while that pick is still the one held, so a fact can
+    /// never be read under another pick's stamp (issue
+    /// <c>halheinrich/backgammon#263</c>). Written only by
+    /// <see cref="RefreshPickedStatsAsync"/>, read only through the members
+    /// that gate on <see cref="ProbeDescribesTheCurrentPick"/>.
     ///
     /// <para>
-    /// <b>A second fact out of the same read, never a second answer to the mix
-    /// question.</b> A retired document is "no stats to weight by" exactly as
-    /// before (<see cref="_pickedHasStats"/> stays false on this path), and the
-    /// probe still writes nothing and retires nothing — the version is simply
-    /// no longer thrown away, so <c>Home</c> can say at pick time what the next
-    /// bind will do (issue <c>halheinrich/backgammon#146</c>).
+    /// <b>One value, not a stamp beside four fields.</b> The probe has two
+    /// awaits, and a re-pick can land during either. While the stamp and the
+    /// facts were separate fields the stamp was set before the awaits and the
+    /// facts after them, so a probe of the previous pick that finished late
+    /// wrote its facts under a stamp the next pick's probe had set — and they
+    /// read as facts about the new folder. A single reference assigned once,
+    /// with the facts and their generation inside it, makes that state
+    /// unrepresentable rather than guarded against.
     /// </para>
     /// </summary>
-    private int? _pickedRetiredSchemaVersion;
-
-    /// <summary>
-    /// Whether the probe found a stats file in the picked folder and could not
-    /// read it — content that would not parse (corrupt, foreign, a newer
-    /// schema, a foldable body the fold reader rejects), or a browser failure
-    /// on the read itself. Written only by <see cref="RefreshPickedStatsAsync"/>
-    /// and read only through <see cref="ForecastStatsUnreadable"/>.
-    ///
-    /// <para>
-    /// <b>A third fact out of the same read, never a second answer to the mix
-    /// question</b> — the retired version's discipline exactly:
-    /// <see cref="_pickedHasStats"/> stays false on this path, and nothing is
-    /// written. Until issue <c>halheinrich/backgammon#260</c> this outcome was
-    /// swallowed as "absent"; it is still absent for weighting, but it is no
-    /// longer thrown away, because the next bind will record nothing over it
-    /// and the user can be told so before they start.
-    /// </para>
-    /// </summary>
-    private bool _pickedStatsUnreadable;
-
-    /// <summary>
+    /// <param name="Generation">
+    /// The <see cref="PickedProblemFolder.PickGeneration"/> the probe was taken
+    /// against, so every fact <b>expires by construction</b> rather than by
+    /// anyone remembering to reset it: every <see cref="PickedProblemFolder.Set"/>
+    /// and <see cref="PickedProblemFolder.Clear"/> bumps the generation, and a
+    /// probe of an older one simply stops matching. The same expires-by-key
+    /// idiom the applied filter uses, where the generation is the source token
+    /// an applied config is keyed to (<c>AppliedFilter.ConfigFor</c>).
+    /// </param>
+    /// <param name="HasStats">
+    /// Whether the picked folder's stats document exists and holds at least
+    /// one problem — the fact under <see cref="PickedFolderHasStats"/> and so,
+    /// transitively, <see cref="CanWeightMix"/>. Deliberately never consulted by
+    /// the bind path: a fresh folder with no stats still binds and still
+    /// records.
+    /// </param>
+    /// <param name="RetiredSchemaVersion">
+    /// The retired schema version the document declared, or
+    /// <see langword="null"/> when the probe found no document, a current-version
+    /// one, or one it could not identify — read through
+    /// <see cref="ForecastStatsSetAsideName"/>. <b>A second fact out of the same
+    /// read, never a second answer to the mix question:</b> a retired document
+    /// is "no stats to weight by" (<paramref name="HasStats"/> stays false on
+    /// that path), and the probe writes nothing and retires nothing — the
+    /// version is kept so <c>Home</c> can say at pick time what the next bind
+    /// will do (issue <c>halheinrich/backgammon#146</c>).
+    /// </param>
+    /// <param name="Unreadable">
+    /// Whether a stats file was found and could not be read — content that
+    /// would not parse (corrupt, foreign, a newer schema, a foldable body the
+    /// fold reader rejects), or a browser failure on the read itself — read
+    /// through <see cref="ForecastStatsUnreadable"/>. The retired version's
+    /// discipline exactly: still absent for weighting, but no longer thrown
+    /// away, because the next bind will record nothing over it (issue
+    /// <c>halheinrich/backgammon#260</c>).
+    /// </param>
+    /// <param name="Unwritable">
     /// Whether the producer's writability probe
     /// (<see cref="IFolderAccess.ProbePickedFileWritabilityAsync"/>) answered
-    /// <see cref="PickedFileWritability.NotWritable"/> for the picked folder's
-    /// stats file. Written only by <see cref="RefreshPickedStatsAsync"/> and
-    /// read only through <see cref="ForecastStatsUnwritable"/>
-    /// (issue <c>halheinrich/backgammon#261</c>).
-    /// </summary>
-    private bool _pickedStatsUnwritable;
+    /// <see cref="PickedFileWritability.NotWritable"/> for the stats file — read
+    /// through <see cref="ForecastStatsUnwritable"/> (issue
+    /// <c>halheinrich/backgammon#261</c>).
+    /// </param>
+    private sealed record PickedStatsProbe(
+        int Generation, bool HasStats, int? RetiredSchemaVersion, bool Unreadable, bool Unwritable)
+    {
+        /// <summary>
+        /// Nothing known yet about the pick of <paramref name="generation"/>:
+        /// no stats, no forecast. What a probe publishes as it starts, so an
+        /// earlier probe of the same pick is not read while this one is out.
+        /// </summary>
+        public static PickedStatsProbe NothingKnown(int generation) => new(generation, false, null, false, false);
+    }
 
     /// <summary>
-    /// The <see cref="PickedProblemFolder.PickGeneration"/> the probe above was
-    /// taken against, so <see cref="CanWeightMix"/> <b>expires by
-    /// construction</b> rather than by anyone remembering to reset it: every
-    /// <see cref="PickedProblemFolder.Set"/> and
-    /// <see cref="PickedProblemFolder.Clear"/> bumps the generation, and a
-    /// probe stamped with an older one simply stops matching. The same
-    /// expires-by-key idiom the applied filter uses, where the generation is
-    /// the source token an applied config is keyed to
-    /// (<c>AppliedFilter.ConfigFor</c>).
-    ///
-    /// <para>
-    /// Starts at <c>-1</c>, not <c>0</c>: a never-probed store must not match
-    /// the generation a freshly-constructed holder sits on, or the pre-probe
-    /// state would read as a probe that found nothing — true by accident today,
-    /// and wrong the moment the initial value changes.
-    /// </para>
+    /// The last probe published. Starts on generation <c>-1</c>, not <c>0</c>:
+    /// a never-probed store must not match the generation a freshly-constructed
+    /// holder sits on, or the pre-probe state would read as a probe that found
+    /// nothing — true by accident today, and wrong the moment the initial value
+    /// changes.
     /// </summary>
-    private int _statsProbeGeneration = -1;
+    private PickedStatsProbe _probe = PickedStatsProbe.NothingKnown(-1);
 
     public QuizStatsStore(IFolderAccess folderAccess, TimeProvider clock, PickedProblemFolder folder)
     {
@@ -346,14 +352,14 @@ internal sealed class QuizStatsStore : IProblemStatsSink
 
     /// <summary>
     /// Whether the last probe still describes the folder currently held — the
-    /// expires-by-construction rule of <see cref="_statsProbeGeneration"/>, in
+    /// expires-by-construction rule of <see cref="PickedStatsProbe.Generation"/>, in
     /// one spelling, so every fact the probe surfaces expires on the same
     /// terms rather than on its own copy of the comparison.
     /// </summary>
-    private bool ProbeDescribesTheCurrentPick => _statsProbeGeneration == _folder.PickGeneration;
+    private bool ProbeDescribesTheCurrentPick => _probe.Generation == _folder.PickGeneration;
 
     /// <inheritdoc/>
-    public bool PickedFolderHasStats => _pickedHasStats && ProbeDescribesTheCurrentPick;
+    public bool PickedFolderHasStats => _probe.HasStats && ProbeDescribesTheCurrentPick;
 
     /// <inheritdoc/>
     ///
@@ -362,7 +368,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// (<c>SPEC-filtering.md</c> §5) rather than a redundancy to fold away.
     /// The two terms happen to be inseparable in <i>this</i> class:
     /// <see cref="RefreshPickedStatsAsync"/> returns early under a false
-    /// <see cref="FolderCanHoldStats"/> leaving <see cref="_pickedHasStats"/>
+    /// <see cref="FolderCanHoldStats"/> leaving <see cref="PickedStatsProbe.HasStats"/>
     /// false, and <see cref="PickedProblemFolder.Capability"/> moves only in
     /// <c>Set</c>/<c>Clear</c>, both of which bump the generation the probe is
     /// stamped with — so a true fact implies a capable folder and this
@@ -410,7 +416,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// </para>
     /// </summary>
     public string? ForecastStatsSetAsideName =>
-        _pickedRetiredSchemaVersion is { } version && ProbeDescribesTheCurrentPick
+        _probe.RetiredSchemaVersion is { } version && ProbeDescribesTheCurrentPick
             ? QuizStatsFile.RetiredNameFor(version)
             : null;
 
@@ -430,7 +436,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// reads nothing otherwise.
     /// </para>
     /// </summary>
-    public bool ForecastStatsUnreadable => _pickedStatsUnreadable && ProbeDescribesTheCurrentPick;
+    public bool ForecastStatsUnreadable => _probe.Unreadable && ProbeDescribesTheCurrentPick;
 
     /// <summary>
     /// <b>The pick-time forecast that the next quiz will record nothing because
@@ -450,7 +456,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// <see cref="ForecastStatsUnreadable"/> is.
     /// </para>
     /// </summary>
-    public bool ForecastStatsUnwritable => _pickedStatsUnwritable && ProbeDescribesTheCurrentPick;
+    public bool ForecastStatsUnwritable => _probe.Unwritable && ProbeDescribesTheCurrentPick;
 
     /// <summary>
     /// Take the pick-time probe <see cref="CanWeightMix"/> reads: does the
@@ -468,7 +474,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// (corrupt, foreign, newer schema, or a browser read failure) are not
     /// three outcomes to distinguish <i>for the mix</i> — they are one answer,
     /// "no stats to weight by". So there is no status and nothing thrown:
-    /// every such path leaves <see cref="_pickedHasStats"/> false and the mix
+    /// every such path leaves <see cref="PickedStatsProbe.HasStats"/> false and the mix
     /// simply isn't offered.
     /// </para>
     ///
@@ -489,7 +495,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// "no stats to weight by" — the producer's recognition signal derives from
     /// <see cref="JsonException"/>, so before this it simply fell into the
     /// swallow below with the corrupt files. Catching it first keeps the mix
-    /// answer identical (nothing sets <see cref="_pickedHasStats"/> on this
+    /// answer identical (nothing sets <see cref="PickedStatsProbe.HasStats"/> on this
     /// path) and keeps the read read-only, while remembering the one fact
     /// <c>Home</c>'s forecast notice needs: the version, from which the
     /// set-aside name derives. A corrupt file, a foreign one, and a
@@ -514,19 +520,33 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// through the same <see cref="FolderCanHoldStats"/> the predicate uses,
     /// leaving no way for the two to drift.
     /// </para>
+    ///
+    /// <para>
+    /// <b>A probe answers for the pick it began on, or not at all</b> (issue
+    /// <c>halheinrich/backgammon#263</c>). The pick's generation is captured
+    /// once, here, and every fact is worked out into locals across both
+    /// awaits — the read and the writability probe — then published as one
+    /// <see cref="PickedStatsProbe"/> carrying that generation, and only if it
+    /// is still the generation held. A re-pick landing during either await
+    /// therefore leaves this probe nothing to publish: it can neither modify
+    /// nor replace the facts the next pick's probe publishes, whichever of the
+    /// two finishes first, on its success path and its catch paths alike.
+    /// </para>
     /// </summary>
     public async Task RefreshPickedStatsAsync()
     {
-        // Stamp first, then answer: a re-pick landing while the read is in
-        // flight bumps the generation past this stamp, so whatever this probe
-        // concludes expires instead of describing the wrong folder.
-        _statsProbeGeneration = _folder.PickGeneration;
-        _pickedHasStats = false;
-        _pickedRetiredSchemaVersion = null;
-        _pickedStatsUnreadable = false;
-        _pickedStatsUnwritable = false;
+        var generation = _folder.PickGeneration;
+
+        // Nothing is known about this pick until this probe answers, so an
+        // earlier probe of it is not read meanwhile.
+        _probe = PickedStatsProbe.NothingKnown(generation);
 
         if (!FolderCanHoldStats) return;
+
+        var hasStats = false;
+        int? retiredSchemaVersion = null;
+        var unreadable = false;
+        var unwritable = false;
 
         // Declared outside the try so the foldable catch can re-read the text
         // it was thrown over: that signal comes from the deserialize, which
@@ -535,7 +555,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
         try
         {
             json = await _folderAccess.ReadPickedFileAsync(QuizStatsFile.FileName);
-            _pickedHasStats = json is not null
+            hasStats = json is not null
                 && JsonSerializer.Deserialize(json, QuizStatsFile.DocumentTypeInfo) is { Count: > 0 };
         }
         catch (RetiredStatsSchemaException retired)
@@ -546,7 +566,7 @@ internal sealed class QuizStatsStore : IProblemStatsSink
             // from JsonException. Nothing is written and nothing is retired
             // here: this is a read of the picked slot, and the act is the
             // bind's alone.
-            _pickedRetiredSchemaVersion = retired.SchemaVersion;
+            retiredSchemaVersion = retired.SchemaVersion;
         }
         catch (FoldableStatsSchemaException)
         {
@@ -562,14 +582,14 @@ internal sealed class QuizStatsStore : IProblemStatsSink
             // fold makes weightable at the first bind either way.
             try
             {
-                _pickedHasStats = ProblemStatsDocument.ReadFoldable(json!).Count > 0;
+                hasStats = ProblemStatsDocument.ReadFoldable(json!).Count > 0;
             }
             catch (JsonException)
             {
                 // The swallow below, reached one level down: the bind's
                 // FoldPreviousStatsAsync reports this body LoadFailed, so it is
                 // unreadable in the same sense and forecast the same way.
-                _pickedStatsUnreadable = true;
+                unreadable = true;
             }
         }
         catch (Exception ex) when (ex is JsonException or JSException)
@@ -578,25 +598,33 @@ internal sealed class QuizStatsStore : IProblemStatsSink
             // it is remembered, so Home can say the next quiz will record
             // nothing. The file itself is left alone; only the bind decides
             // what to do about a document it cannot parse.
-            _pickedStatsUnreadable = true;
+            unreadable = true;
         }
 
         // A file was found — read, or failing its read — so ask whether the
         // next bind could write it. Absent asks nothing: there is no file to
         // probe, and whether one could be created is the capability above.
-        if (json is null && !_pickedStatsUnreadable) return;
+        if (json is not null || unreadable)
+        {
+            try
+            {
+                unwritable =
+                    await _folderAccess.ProbePickedFileWritabilityAsync(QuizStatsFile.FileName)
+                        == PickedFileWritability.NotWritable;
+            }
+            catch (JSException)
+            {
+                // Advisory: a probe the browser failed forecasts nothing, and the
+                // bind and the writes report whatever is really wrong.
+            }
+        }
 
-        try
-        {
-            _pickedStatsUnwritable =
-                await _folderAccess.ProbePickedFileWritabilityAsync(QuizStatsFile.FileName)
-                    == PickedFileWritability.NotWritable;
-        }
-        catch (JSException)
-        {
-            // Advisory: a probe the browser failed forecasts nothing, and the
-            // bind and the writes report whatever is really wrong.
-        }
+        // Superseded: a re-pick landed during an await above, so these facts
+        // describe a folder no longer held, and the current pick's are another
+        // probe's to publish.
+        if (generation != _folder.PickGeneration) return;
+
+        _probe = new PickedStatsProbe(generation, hasStats, retiredSchemaVersion, unreadable, unwritable);
     }
 
     /// <inheritdoc/>

@@ -1192,8 +1192,8 @@ halheinrich/backgammon#87). Beside the *active context* above sits the
   (`ForecastStatsSetAsideName`, halheinrich/backgammon#146): the producer's
   recognition signal derives from `JsonException`, so it used to fall into the
   swallow with the corrupt files and the fact was lost. Caught ahead of that
-  swallow, the mix answer is byte-identical (nothing sets `_pickedHasStats` on
-  that path) and the read stays read-only — the one fact Home's forecast notice
+  swallow, the mix answer is byte-identical (nothing sets the probe's
+  `HasStats` on that path) and the read stays read-only — the one fact Home's forecast notice
   needs is simply no longer thrown away. **Three forecasts, one holder**
   (halheinrich/backgammon#260, halheinrich/backgammon#261): the same read
   also records `ForecastStatsUnreadable` — a file that exists and could not
@@ -1210,7 +1210,16 @@ halheinrich/backgammon#87). Beside the *active context* above sits the
   assigns the active document or `Status`, so a probe during a running quiz
   cannot disturb what that quiz records. Under a
   non-`Enabled` capability the interop is skipped through the same private
-  half the predicate uses, so the two can't drift.
+  half the predicate uses, so the two can't drift. **A probe answers for the
+  pick it began on, or not at all** (halheinrich/backgammon#263): it captures
+  the pick's generation once, works every fact out across its two awaits (the
+  read and the writability probe), and publishes them as one immutable
+  `PickedStatsProbe` that carries the generation — only while that generation
+  is still the one held. The stamp and the facts used to be five fields, the
+  stamp set before the awaits and the facts after them, so a probe of the
+  previous pick finishing late wrote its facts under the stamp the next pick's
+  probe had set; one value assigned once makes that unrepresentable, and a
+  superseded probe, on its success and catch paths alike, publishes nothing.
 - **Two reading points, both `Home`'s**: each successful pick's landing
   (`ApplyPickOutcomeAsync`, after `Set` so it probes the generation it is
   about) and `OnInitializedAsync`. The second is what makes "no mix until its
