@@ -87,13 +87,13 @@ public sealed class PanelAutoFoldTests : E2eTestBase
         Assert.True(await AutoFoldedAsync());
         await Expect(CollapseRail).ToBeCheckedAsync();   // the control says hidden, which is true
         Assert.Equal(0, (await Panel.BoundingBoxAsync())!.Width);
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
 
         await ResizeAsync((int)Math.Ceiling(foldWidth) + 1);
         Assert.False(await AutoFoldedAsync());
         await Expect(CollapseRail).Not.ToBeCheckedAsync();
         Assert.True((await Panel.BoundingBoxAsync())!.Width > 0);
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
     }
 
     [Fact]
@@ -224,8 +224,8 @@ public sealed class PanelAutoFoldTests : E2eTestBase
             Assert.Equal(0, (await Panel.BoundingBoxAsync())!.Width);
             Assert.True(await AutoFoldedAsync());
             Assert.Equal(controls, await ActionRowGeometry.RowControlCountAsync(Page));
-            var covered = await ActionRowGeometry.CoveredControlsAsync(Page);
-            Assert.True(covered.Length == 0, $"after closing by {how}: {string.Join("; ", covered)}");
+            var unreachable = await ActionRowGeometry.UnreachableControlsAsync(Page);
+            Assert.True(unreachable.Count == 0, $"after closing by {how}: {string.Join("; ", unreachable)}");
         }
 
         // No preference moved: widened again, the panel returns as the user
@@ -246,13 +246,17 @@ public sealed class PanelAutoFoldTests : E2eTestBase
         await StartOnTheMatchAsync();
         await ResizeAsync(800);
         await OpenTheDrawerAsync((await ActionRowGeometry.FitAsync(Page)).Row);
-        Assert.NotEmpty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        // Covered, by the drawer — not off-screen: the reach check tells the
+        // two apart (halheinrich/backgammon#341).
+        var underTheDrawer = await ActionRowGeometry.UnreachableControlsAsync(Page);
+        Assert.NotEmpty(underTheDrawer);
+        Assert.All(underTheDrawer, c => Assert.False(c.OffScreen, c.Text));
 
         await Page.Locator(".action-row .bg-cube-action").Last.ClickAsync();
 
         await Expect(CollapseRail).ToBeCheckedAsync();
         await Expect(Page.Locator(".action-row input[type=radio]").Last).ToBeCheckedAsync();
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
     }
 
     [Fact]

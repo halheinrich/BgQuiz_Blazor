@@ -52,8 +52,8 @@ public sealed class DesktopActionRowTests : E2eTestBase
         Page.GetByRole(AriaRole.Checkbox, new() { Name = ExpectedText.HideNavigationPanelCheckbox });
 
     /// <summary>Whether the control named <paramref name="name"/> is among those a centre tap misses.</summary>
-    private static bool IsCovered(IEnumerable<string> covered, string name) =>
-        covered.Any(c => c.StartsWith(name + " <- ", StringComparison.Ordinal));
+    private static bool IsUnreachable(IEnumerable<ActionRowGeometry.UnreachableControl> unreachable, string name) =>
+        unreachable.Any(c => c.Control == name);
 
     [Theory]
     [InlineData(true, false, false)]
@@ -102,15 +102,15 @@ public sealed class DesktopActionRowTests : E2eTestBase
         {
             await Page.SetViewportSizeAsync(width, 800);
             await Page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))");
-            var covered = await ActionRowGeometry.CoveredControlsAsync(Page);
+            var unreachable = await ActionRowGeometry.UnreachableControlsAsync(Page);
             if (SubmitWidths.Contains(width))
             {
-                Assert.False(IsCovered(covered, ExpectedText.SubmitButton), $"Submit covered at {width}px: {string.Join("; ", covered)}");
+                Assert.False(IsUnreachable(unreachable, ExpectedText.SubmitButton), $"Submit unreachable at {width}px: {string.Join("; ", unreachable)}");
             }
             if (ArrowWidths.Contains(width))
             {
                 Assert.All(ArrowNames, name =>
-                    Assert.False(IsCovered(covered, name), $"{name} covered at {width}px: {string.Join("; ", covered)}"));
+                    Assert.False(IsUnreachable(unreachable, name), $"{name} unreachable at {width}px: {string.Join("; ", unreachable)}"));
                 Assert.Equal(1, (await ActionRowGeometry.FitAsync(Page)).RowLines);   // and no line added
             }
         }
@@ -231,8 +231,8 @@ public sealed class DesktopActionRowTests : E2eTestBase
             await Page.SetViewportSizeAsync(width, FloorHeight);
             await Page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))");
             Assert.True(await ActionRowGeometry.RowControlCountAsync(Page) >= 6, $"{state} at {width}px: the row's controls are there");
-            var covered = await ActionRowGeometry.CoveredControlsAsync(Page);
-            Assert.True(covered.Length == 0, $"{state} at {width}px: {string.Join("; ", covered)}");
+            var unreachable = await ActionRowGeometry.UnreachableControlsAsync(Page);
+            Assert.True(unreachable.Count == 0, $"{state} at {width}px: {string.Join("; ", unreachable)}");
             Assert.Equal(1, (await ActionRowGeometry.FitAsync(Page)).RowLines);
         }
     }

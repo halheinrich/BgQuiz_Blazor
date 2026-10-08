@@ -146,7 +146,7 @@ public sealed class MissingPanelOwnerTests : E2eTestBase
         Assert.False(row.AutoFolded, "nothing asked the missing owner to fold");
         Assert.Equal(1, row.RowLines);
         Assert.True(await ActionRowGeometry.RowControlCountAsync(Page) > 0);
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
         Assert.Equal(board, await BoardAsync());
         Assert.Equal(rowsObserved, await ConsoleCountAsync("warning", RowFitOwnerMissing));   // said once per row
     }

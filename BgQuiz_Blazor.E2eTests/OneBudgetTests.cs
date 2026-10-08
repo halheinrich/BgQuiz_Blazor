@@ -23,7 +23,8 @@ namespace BgQuiz_Blazor.E2eTests;
 ///   measurement and everything it applies. Released, the held callbacks run
 ///   in the next real frame.</item>
 ///   <item><b>A coverage sampler.</b> A MutationObserver that, after every DOM
-///   change while it runs, hit-tests the centre of every row control and
+///   change while it runs, hit-tests the centre of every row control (the one
+///   check, <see cref="ActionRowGeometry.UnreachableControlsOfRow"/>) and
 ///   counts the row's lines: "no control is covered at any moment", checked at
 ///   every moment the DOM could be painted in, not only where a test happens
 ///   to look.</item>
@@ -39,27 +40,17 @@ public sealed class OneBudgetTests : E2eTestBase
     public OneBudgetTests(PublishedAppFixture app, PlaywrightFixture playwright)
         : base(app, playwright) { }
 
-    protected override string? ContextInitScript => AnimationFrames.Script + """
+    protected override string? ContextInitScript => AnimationFrames.Script + $$"""
 
         (() => {
           // The coverage sampler.
           const sample = { running: false, samples: 0, violations: [], first: null, observer: null };
-          const name = c => c.getAttribute('aria-label')
-            || c.querySelector('input')?.getAttribute('aria-label') || c.textContent.trim();
+          const unreachableControlsOf = {{ActionRowGeometry.UnreachableControlsOfRow}};
           function check() {
             const row = document.querySelector('.action-row');
             if (!row) return;
             sample.samples++;
-            const covered = [];
-            for (const c of row.querySelectorAll('button, .bg-cube-action')) {
-              if (c.closest('[role=menu]')) continue;
-              const was = c.disabled;
-              if (c instanceof HTMLButtonElement) c.disabled = false;
-              const r = c.getBoundingClientRect();
-              const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-              if (c instanceof HTMLButtonElement) c.disabled = was;
-              if (!c.contains(e)) covered.push(name(c) + ' <- ' + (e ? (e.getAttribute('aria-label') || e.className || e.tagName) : 'nothing'));
-            }
+            const unreachable = unreachableControlsOf(row).map(u => u.text);
             const primary = row.querySelector('.btn-lg');
             const lines = primary ? Math.round(row.getBoundingClientRect().height / primary.getBoundingClientRect().height) : 1;
             const state = {
@@ -70,8 +61,8 @@ public sealed class OneBudgetTests : E2eTestBase
               pills: [...row.querySelectorAll('.bg-cube-action')].map(p => p.textContent.trim()).join('|'),
             };
             if (sample.first === null) sample.first = state;
-            if (covered.length > 0 || lines !== 1) {
-              sample.violations.push(JSON.stringify(state) + ' lines=' + lines + ' covered=[' + covered.join('; ') + ']');
+            if (unreachable.length > 0 || lines !== 1) {
+              sample.violations.push(JSON.stringify(state) + ' lines=' + lines + ' unreachable=[' + unreachable.join('; ') + ']');
             }
             // The hit-test lifted and restored `disabled`: drop those records.
             sample.observer?.takeRecords();
@@ -233,8 +224,8 @@ public sealed class OneBudgetTests : E2eTestBase
         Assert.True(held.TailFolded);
         Assert.Equal(0, (await Panel.BoundingBoxAsync())!.Width);
         await Expect(CollapseRail).Not.ToBeCheckedAsync();
-        var coveredHeld = await ActionRowGeometry.CoveredControlsAsync(Page);
-        Assert.True(coveredHeld.Length == 0, "held: " + string.Join("; ", coveredHeld));
+        var unreachableHeld = await ActionRowGeometry.UnreachableControlsAsync(Page);
+        Assert.True(unreachableHeld.Count == 0, "held: " + string.Join("; ", unreachableHeld));
         var boardHeld = await BoardAsync();
 
         // Phase 2: released, the measured presentation.
@@ -243,8 +234,8 @@ public sealed class OneBudgetTests : E2eTestBase
         var fitted = await ActionRowGeometry.FitAsync(Page);
         Assert.False(fitted.Pending);
         Assert.Equal(1, fitted.RowLines);
-        var coveredFitted = await ActionRowGeometry.CoveredControlsAsync(Page);
-        Assert.True(coveredFitted.Length == 0, "fitted: " + string.Join("; ", coveredFitted));
+        var unreachableFitted = await ActionRowGeometry.UnreachableControlsAsync(Page);
+        Assert.True(unreachableFitted.Count == 0, "fitted: " + string.Join("; ", unreachableFitted));
         // At the floor the measured presentation is the pending one, so the
         // board did not change either: the pending state kept §2's floor.
         Assert.Equal(boardHeld, await BoardAsync());
@@ -287,7 +278,7 @@ public sealed class OneBudgetTests : E2eTestBase
 
         var held = await ActionRowGeometry.FitAsync(Page);
         Assert.True(held.Pending);
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
 
         await Page.EvaluateAsync("() => window.__frames.release()");
         await SettleAsync();
@@ -298,7 +289,7 @@ public sealed class OneBudgetTests : E2eTestBase
         Assert.False(fitted.TailFolded);
         Assert.True(fitted.FullCubeRow > fitted.Row, $"the full form needs {fitted.FullCubeRow} of a {fitted.Row} row");
         await Expect(LivePillCaptions.Nth(0)).ToHaveTextAsync("ND");
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
         await Page.EvaluateAsync("() => window.__coverage.stop()");
         var coverage = await CoverageAsync();
         Assert.True(coverage.Violations.Length == 0, string.Join(Environment.NewLine, coverage.Violations));
@@ -598,7 +589,7 @@ public sealed class OneBudgetTests : E2eTestBase
         // And the "⋯": below the review row's own switch, the tail folds.
         await ResizeAsync((int)Math.Floor(await ActionRowGeometry.TailFoldWidthAsync(Page)) - 1, 800);
         Assert.True((await ActionRowGeometry.FitAsync(Page)).TailFolded);
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
     }
 
     [Fact]

@@ -137,7 +137,7 @@ public sealed class TailMenuTests : E2eTestBase
         Assert.Equal(["tail-menu"], await TailContentsAsync());
         Assert.True((await ActionRowGeometry.FitAsync(Page)).TailFolded);
         await Expect(More).ToHaveAttributeAsync("aria-expanded", "false");
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
         Assert.Equal(1, (await ActionRowGeometry.FitAsync(Page)).RowLines);
 
         await ResizeAsync((int)Math.Ceiling(tailSwitch) + 1);
@@ -145,7 +145,7 @@ public sealed class TailMenuTests : E2eTestBase
             ["xgid-label", "problem-locator", ExpectedText.ShowStatsButton, ExpectedText.EndQuizButton],
             await TailContentsAsync());
         await Expect(More).ToHaveCountAsync(0);
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
     }
 
     [Fact]
@@ -165,7 +165,7 @@ public sealed class TailMenuTests : E2eTestBase
         await Expect(More).ToBeVisibleAsync();
         var after = await ActionRowGeometry.TailFoldWidthAsync(Page);
         Assert.True(after > before + 20, $"switch {before} -> {after}");
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
     }
 
     [Fact]
@@ -485,6 +485,6 @@ public sealed class TailMenuTests : E2eTestBase
 
         await Page.Keyboard.PressAsync("Escape");
         await Expect(rail).ToBeCheckedAsync();
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
     }
 }

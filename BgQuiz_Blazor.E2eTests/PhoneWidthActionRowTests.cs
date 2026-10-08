@@ -122,6 +122,34 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
         await ExpectProblemNumberAsync(1);
     }
 
+    /// <summary>
+    /// <b>A row below the fold is off-screen, not covered, and is not left
+    /// out</b> (halheinrich/backgammon#341). At a phone's width and a short
+    /// window the measured row lies below the fold, where a tap cannot reach
+    /// it until it is scrolled to. The reach check reports every one of the
+    /// row's controls, each as off-screen, never as covered by nothing; and
+    /// once the row is scrolled into view, none.
+    /// </summary>
+    [Fact]
+    public async Task BelowTheFold_EveryRowControlIsReportedOffScreen_AndScrolledToNoneIs()
+    {
+        await Page.SetViewportSizeAsync(375, 400);
+        await BootHomeAsync();
+        await PickFixtureAsync(CubeFixture);
+        await ApplyFilterAsync();
+        await StartQuizAsync();
+        await ExpectRowFittedAsync();
+
+        var controls = await ActionRowGeometry.RowControlCountAsync(Page);
+        Assert.True(controls >= 4 + 1 + 4, $"the row's controls are there to test ({controls})");
+        var belowTheFold = await ActionRowGeometry.UnreachableControlsAsync(Page);
+        Assert.Equal(controls, belowTheFold.Count);
+        Assert.All(belowTheFold, c => Assert.True(c.OffScreen, c.Text));
+
+        await Page.Locator(".action-row").ScrollIntoViewIfNeededAsync();
+        await ExpectToPassAsync(async () => Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page)));
+    }
+
     [Fact]
     public async Task AtReview_EveryControlLiesInsideTheViewport()
     {

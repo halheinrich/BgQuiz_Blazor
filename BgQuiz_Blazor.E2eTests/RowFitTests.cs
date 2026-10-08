@@ -60,7 +60,7 @@ public sealed class RowFitTests : E2eTestBase
         var after = await ActionRowGeometry.FitAsync(Page);
         Assert.True(after.Budget > before.Budget, $"budget {before.Budget} -> {after.Budget}");
         Assert.True(after.AutoFolded, "the panel folds for the wider row");
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
         Assert.True(await ActionRowGeometry.TailOverrunAsync(Page) <= 0.5);
     }
 
@@ -85,7 +85,7 @@ public sealed class RowFitTests : E2eTestBase
         await Expect(Captions.Nth(3)).ToHaveTextAsync("TG");
         var after = await ActionRowGeometry.FitAsync(Page);
         Assert.True(after.FullCubeRow > after.Row, $"full form needs {after.FullCubeRow}, row is {after.Row}");
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public sealed class RowFitTests : E2eTestBase
         await Expect(Captions.Nth(3)).ToHaveTextAsync(ExpectedText.TooGoodPill);   // choosing never changes the form
         Assert.True(await ActionRowGeometry.TailOverrunAsync(Page) <= 0.5,
             $"the tail runs {await ActionRowGeometry.TailOverrunAsync(Page)}px over the bold row");
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public sealed class RowFitTests : E2eTestBase
         // The first fit, awaited: the readiness mark is set before the row is
         // rendered, so it says nothing of the row (halheinrich/backgammon#333).
         await ExpectRowFittedAsync();
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
         Assert.True((await ActionRowGeometry.FitAsync(Page)).AutoFolded);
         var before = await ActionRowGeometry.FitAsync(Page);
 
@@ -147,7 +147,7 @@ public sealed class RowFitTests : E2eTestBase
         await SettleAsync();
 
         Assert.True((await ActionRowGeometry.FitAsync(Page)).Budget > before.Budget, "the measurement followed the font");
-        Assert.Empty(await ActionRowGeometry.CoveredControlsAsync(Page));
+        Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
         Assert.True(await ActionRowGeometry.TailOverrunAsync(Page) <= 0.5);
     }
 

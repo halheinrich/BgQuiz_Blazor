@@ -14,38 +14,83 @@ namespace BgQuiz_Blazor.E2eTests;
 internal static class ActionRowGeometry
 {
     /// <summary>
-    /// The row's controls a tap at the centre would not reach, each as
-    /// "name &lt;- what is hit instead": every button in the row and every cube
-    /// pill (the producer's <c>.bg-cube-action</c> label, whose radio it
-    /// carries). A disabled button's attribute is lifted for the test —
-    /// Chromium does not hit-test a disabled button, so one that is merely
-    /// unavailable would otherwise read as covered. Only the live row's
-    /// controls: the row-fit ruler beside it is a hidden copy. An open "⋯"
-    /// list's items are left out: they lie over the page by design, and the
-    /// list is not the row.
+    /// The script finding the controls of a row element a tap at the centre
+    /// would not reach: every button in the row and every cube pill (the
+    /// producer's <c>.bg-cube-action</c> label, whose radio it carries). Only
+    /// the live row's controls: the row-fit ruler beside it is a hidden copy.
+    /// An open "⋯" list's items are left out: they lie over the page by
+    /// design, and the list is not the row. The one source for that check,
+    /// here and in <c>OneBudgetTests</c>' coverage sampler.
+    ///
+    /// <para>
+    /// <b>Two ways to miss, told apart, neither ignored</b>
+    /// (halheinrich/backgammon#341). A centre inside the viewport that hits
+    /// something else is <b>covered</b>, by what it hits. A centre outside the
+    /// viewport hits nothing at all — <c>elementFromPoint</c> answers null
+    /// there — and is <b>off-screen</b>: a tap cannot reach it until it is
+    /// scrolled to, which is a different fault from one lying under another
+    /// control, and still a fault. The viewport is the one
+    /// <c>elementFromPoint</c> tests against, the document's client area,
+    /// scroll bars excluded. A disabled button's attribute is lifted for the
+    /// test — Chromium does not hit-test a disabled button, so one that is
+    /// merely unavailable would otherwise read as covered.
+    /// </para>
+    ///
+    /// <para>
+    /// Each miss is <c>{ control, offScreen, text }</c>, the text its
+    /// description: "name &lt;- covered by what" or "name &lt;- off-screen:
+    /// centre (x, y) outside the w×h viewport".
+    /// </para>
     /// </summary>
-    internal static async Task<string[]> CoveredControlsAsync(IPage page) =>
-        await page.EvaluateAsync<string[]>(@"() => {
-            const row = document.querySelector('.action-row');
-            const out = [];
-            const name = c => c.getAttribute('aria-label')
-              || c.querySelector('input')?.getAttribute('aria-label') || c.textContent.trim();
-            for (const c of row.querySelectorAll('button, .bg-cube-action')) {
-              if (c.closest('[role=menu]')) continue;
-              const was = c.disabled; if (c instanceof HTMLButtonElement) c.disabled = false;
-              const r = c.getBoundingClientRect();
-              const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-              if (c instanceof HTMLButtonElement) c.disabled = was;
-              if (!c.contains(e)) {
-                out.push(name(c) + ' <- ' + (e ? (e.getAttribute('aria-label') || e.className || e.tagName) : 'nothing'));
+    internal const string UnreachableControlsOfRow = @"row => {
+              const out = [];
+              const name = c => c.getAttribute('aria-label')
+                || c.querySelector('input')?.getAttribute('aria-label') || c.textContent.trim();
+              const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+              for (const c of row.querySelectorAll('button, .bg-cube-action')) {
+                if (c.closest('[role=menu]')) continue;
+                const was = c.disabled; if (c instanceof HTMLButtonElement) c.disabled = false;
+                const r = c.getBoundingClientRect();
+                const x = r.left + r.width / 2, y = r.top + r.height / 2;
+                const offScreen = x < 0 || y < 0 || x > vw || y > vh;
+                const e = offScreen ? null : document.elementFromPoint(x, y);
+                if (c instanceof HTMLButtonElement) c.disabled = was;
+                if (offScreen) {
+                  out.push({ control: name(c), offScreen: true,
+                    text: `${name(c)} <- off-screen: centre (${Math.round(x)}, ${Math.round(y)}) outside the ${vw}x${vh} viewport` });
+                } else if (!c.contains(e)) {
+                  out.push({ control: name(c), offScreen: false,
+                    text: `${name(c)} <- covered by ${e ? (e.getAttribute('aria-label') || e.className || e.tagName) : 'nothing'}` });
+                }
               }
-            }
-            return out;
-          }");
+              return out;
+            }";
 
     /// <summary>
-    /// How many controls <see cref="CoveredControlsAsync"/> examines — so a
-    /// pin that finds none covered can say it looked at the controls it meant.
+    /// A control of the row a tap at its centre would not reach, as
+    /// <see cref="UnreachableControlsOfRow"/> found it: covered by something
+    /// else, or off-screen (<see cref="OffScreen"/>). Its string form is the
+    /// script's description of the miss.
+    /// </summary>
+    internal sealed record UnreachableControl(string Control, bool OffScreen, string Text)
+    {
+        /// <inheritdoc/>
+        public override string ToString() => Text;
+    }
+
+    /// <summary>
+    /// The live action row's controls a tap at the centre would not reach,
+    /// covered or off-screen (<see cref="UnreachableControlsOfRow"/>).
+    /// </summary>
+    internal static async Task<IReadOnlyList<UnreachableControl>> UnreachableControlsAsync(IPage page) =>
+        JsonSerializer.Deserialize<UnreachableControl[]>(
+            await page.EvaluateAsync<string>(
+                "() => JSON.stringify((" + UnreachableControlsOfRow + ")(document.querySelector('.action-row')))"),
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+
+    /// <summary>
+    /// How many controls <see cref="UnreachableControlsAsync"/> examines — so a
+    /// pin that finds none unreachable can say it looked at the controls it meant.
     /// </summary>
     internal static Task<int> RowControlCountAsync(IPage page) =>
         page.EvaluateAsync<int>(@"() => [...document.querySelector('.action-row').querySelectorAll('button, .bg-cube-action')]
