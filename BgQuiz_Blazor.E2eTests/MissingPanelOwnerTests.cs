@@ -129,9 +129,9 @@ public sealed class MissingPanelOwnerTests : E2eTestBase
         {
             await RowFitHasActedAsync(rowsObserved);
             await ShowStatsAsync();
-            await ExpectUrlAsync("/stats");
+            await ExpectUrlAsync(AppRoute.Stats);
             await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton }).ClickAsync();
-            await ExpectUrlAsync("/quiz");
+            await ExpectUrlAsync(AppRoute.Quiz);
             await Expect(Captions).ToHaveCountAsync(4);
             rowsObserved = 2;
         }

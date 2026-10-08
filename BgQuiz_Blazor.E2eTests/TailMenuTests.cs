@@ -271,7 +271,7 @@ public sealed class TailMenuTests : E2eTestBase
         await Expect(More).ToBeVisibleAsync();
         await Expect(Toggle.Locator(".xgid-copy-mark")).ToHaveCountAsync(0);
         Assert.Equal("button " + ExpectedText.MoreButton, await FocusedAsync());
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
     }
 
     [Fact]
@@ -330,19 +330,19 @@ public sealed class TailMenuTests : E2eTestBase
         // leaves focus; then the item, from the list, compared with that.
         await StartOnTheMatchAsync();
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ShowStatsButton, Exact = true }).ClickAsync();
-        await ExpectUrlAsync("/stats");
+        await ExpectUrlAsync(AppRoute.Stats);
         var backToQuiz = Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton });
         await Expect(backToQuiz).ToBeVisibleAsync();
         var focusAfterTheButton = await FocusedAsync();
         await backToQuiz.ClickAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
         await ExpectKeyboardShortcutReadyAsync();
 
         await NarrowBelowTheSwitchAsync();
         await More.ClickAsync();
         await Item(ExpectedText.ShowStatsButton).ClickAsync();
 
-        await ExpectUrlAsync("/stats");
+        await ExpectUrlAsync(AppRoute.Stats);
         await Expect(backToQuiz).ToBeVisibleAsync();
         Assert.Equal(focusAfterTheButton, await FocusedAsync());
     }

@@ -62,7 +62,7 @@ public sealed class TailMenuEndQuizTests : FsAccessFakeTestBase
         // Chosen, it ends the quiz as the button does: one click, no
         // confirmation, the summary, the answer kept.
         await Item(ExpectedText.EndQuizButton).ClickAsync();
-        await ExpectUrlAsync("/done");
+        await ExpectUrlAsync(AppRoute.Done);
         await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = ExpectedText.DoneHeading })).ToBeVisibleAsync();
         var body = Page.Locator("body");
         await Expect(body).ToContainTextAsync(ExpectedText.Submitted(1));

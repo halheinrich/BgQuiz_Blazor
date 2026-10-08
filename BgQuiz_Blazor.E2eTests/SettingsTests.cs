@@ -77,7 +77,7 @@ public sealed class SettingsTests : E2eTestBase
     private async Task GoToSettingsAsync()
     {
         await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink }).ClickAsync();
-        await ExpectUrlAsync("/settings");
+        await ExpectUrlAsync(AppRoute.Settings);
         await Expect(KeepFoldedCheckbox).ToBeVisibleAsync();
     }
 
@@ -258,7 +258,7 @@ public sealed class SettingsTests : E2eTestBase
 
         // Back to the quiz that was left running, by the page's own affordance.
         await BackToQuizButton.ClickAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
         // The board is laid out again — the gate the geometry read below needs.
         // It used to wait on the "Problem 1" counter, which rides in the score
         // panel and is suppressed while answering under the maximize mode (the

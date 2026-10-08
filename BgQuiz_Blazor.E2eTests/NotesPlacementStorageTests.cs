@@ -57,9 +57,9 @@ public sealed class NotesPlacementStorageTests : NotesPlacementTestBase
 
         await CloseNotesButton.ClickAsync();
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ShowStatsButton, Exact = true }).ClickAsync();
-        await ExpectUrlAsync("/stats");
+        await ExpectUrlAsync(AppRoute.Stats);
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton }).ClickAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
         await OpenNotesAsync();
         await ExpectAtPositionAsync(0.625, 0.375, "after Show stats and back");
 

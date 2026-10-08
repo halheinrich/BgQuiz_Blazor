@@ -20,7 +20,27 @@ namespace BgQuiz_Blazor.E2eTests;
 /// await the transition's user-visible result. <see cref="StartQuizAsync"/>
 /// and <see cref="ContinueToDoneAsync"/> await only the URL, Start's
 /// deliberately, so that the tests holding the quiz page's start can reach
-/// it. What a caller then waits for before it reads or acts is the rule below.
+/// it. What a caller then waits for before it reads or acts is the rules below.
+/// </para>
+///
+/// <para>
+/// <b>A navigation completes in three senses, and each has its own
+/// operation</b> (halheinrich/backgammon#374). <i>URL arrived</i>
+/// (<see cref="ExpectUrlAsync"/>): the address names the route, which says
+/// the navigation was requested and no more. It is the whole wait where the
+/// URL is the claim — a test's last word, or a page that must have stayed
+/// put — and where the next step itself waits on content only the
+/// destination renders. <i>Page rendered</i>
+/// (<see cref="ExpectPageRenderedAsync"/>): the URL and the route's landmark
+/// (<see cref="AppRoute"/>), which the page being left cannot show. It comes
+/// before any step that page could take or satisfy: a click on the
+/// persistent navigation, a key press, a read of text both pages show, an
+/// absence. <i>Feature ready</i>: what a page loads after it renders — the
+/// keyboard module's mark (<see cref="ExpectKeyboardShortcutReadyAsync"/>),
+/// the row's first fit (<see cref="ExpectRowFittedAsync"/>), a problem landed
+/// (<see cref="ExpectCubeProblemAsync"/>) — stays an explicit wait in the
+/// test that needs it. A landmark never waits on a feature, so a test holding
+/// one can still establish that its page rendered.
 /// </para>
 ///
 /// <para>
@@ -776,7 +796,7 @@ public abstract class E2eTestBase : IAsyncLifetime
     protected async Task DisableMaximizeAsync()
     {
         await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink }).ClickAsync();
-        await ExpectUrlAsync("/settings");
+        await ExpectUrlAsync(AppRoute.Settings);
         await MaximizeCheckbox.UncheckAsync();
         await Expect(MaximizeCheckbox).Not.ToBeCheckedAsync();
     }
@@ -786,7 +806,7 @@ public abstract class E2eTestBase : IAsyncLifetime
     {
         await Expect(StartButton).ToBeEnabledAsync();
         await StartButton.ClickAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
     }
 
     /// <summary>
@@ -829,7 +849,7 @@ public abstract class E2eTestBase : IAsyncLifetime
     protected async Task TurnOnTheWeightedMixSettingAsync()
     {
         await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink }).ClickAsync();
-        await ExpectUrlAsync("/settings");
+        await ExpectUrlAsync(AppRoute.Settings);
 
         var box = Page.Locator("#settingsWeightQuizzes");
         await box.CheckAsync();
@@ -1049,19 +1069,54 @@ public abstract class E2eTestBase : IAsyncLifetime
     protected async Task ContinueToDoneAsync()
     {
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton }).ClickAsync();
-        await ExpectUrlAsync("/done");
+        await ExpectUrlAsync(AppRoute.Done);
     }
 
     /// <summary>
-    /// Wait for an in-app navigation to land on <paramref name="path"/>.
-    /// Deliberately a polling URL assertion, not <c>WaitForURLAsync</c>: Blazor
-    /// navigates by <c>pushState</c> (a same-document navigation), and the
-    /// navigation-event wait can lose the race when the push lands between the
-    /// triggering click and the wait's registration — observed as a rare
+    /// <b>URL arrived</b>: wait for the address to name <paramref name="route"/>.
+    /// That says a navigation was <i>requested</i>, not that its page
+    /// rendered: Blazor's enhanced navigation pushes the new URL and then
+    /// fetches the page, and the page it is leaving stays on screen until the
+    /// new one replaces it (halheinrich/backgammon#372). So this is the whole
+    /// wait only where the URL is itself the claim, or where the next step
+    /// waits on content only the destination renders; before anything the
+    /// page being left could satisfy, wait with
+    /// <see cref="ExpectPageRenderedAsync"/>.
+    ///
+    /// <para>
+    /// Deliberately a polling URL assertion, not <c>WaitForURLAsync</c>:
+    /// Blazor navigates by <c>pushState</c> (a same-document navigation), and
+    /// the navigation-event wait can lose the race when the push lands between
+    /// the triggering click and the wait's registration — observed as a rare
     /// timeout with the app already sitting on the target URL.
+    /// </para>
     /// </summary>
-    protected Task ExpectUrlAsync(string path) =>
-        Expect(Page).ToHaveURLAsync(BaseUrl + path);
+    protected Task ExpectUrlAsync(AppRoute route) =>
+        Expect(Page).ToHaveURLAsync(BaseUrl + route.Path);
+
+    /// <summary>
+    /// <b>Page rendered</b>: wait for the address to name
+    /// <paramref name="route"/> (<see cref="ExpectUrlAsync"/>) and for that
+    /// route's landmark to be visible (<see cref="AppRoute"/>). The landmark is
+    /// unique to its page, so the page a navigation is leaving can never
+    /// satisfy this; and it is there from the page's first render, so this
+    /// waits for no feature the page loads afterwards — a module, a fit, a
+    /// hydration — and a test that holds one still gets past it.
+    ///
+    /// <para>
+    /// Wait with this after a navigation, before any step the page being left
+    /// could take or satisfy: a click on the persistent navigation, a key
+    /// press, a read of text the old page also shows, an absence. A feature
+    /// the next step needs stays its own explicit wait after it
+    /// (<see cref="ExpectKeyboardShortcutReadyAsync"/>,
+    /// <see cref="ExpectRowFittedAsync"/>, <see cref="ExpectCubeProblemAsync"/>).
+    /// </para>
+    /// </summary>
+    protected async Task ExpectPageRenderedAsync(AppRoute route)
+    {
+        await ExpectUrlAsync(route);
+        await Expect(route.LandmarkOn(Page)).ToBeVisibleAsync();
+    }
 
     /// <summary>
     /// The quiz page's readiness mark (halheinrich/backgammon#198): present on

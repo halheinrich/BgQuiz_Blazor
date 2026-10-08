@@ -146,7 +146,7 @@ public sealed class CommaDecimalLocaleTests : E2eTestBase
         // an Illegal no-op — the correct app behavior. What matters is that the
         // click dispatched and the app stayed put: no error, no navigation, and no
         // play assembled, so Submit is still gated.
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
         await Expect(SubmitButton).ToBeDisabledAsync();
 
         // --- Board points: full app-reaction through fractional-coordinate rects.

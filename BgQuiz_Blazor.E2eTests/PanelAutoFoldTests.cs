@@ -130,7 +130,7 @@ public sealed class PanelAutoFoldTests : E2eTestBase
         await Page.SetViewportSizeAsync(1280, 800);
         await BootHomeAsync();
         await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink }).ClickAsync();
-        await ExpectUrlAsync("/settings");
+        await ExpectUrlAsync(AppRoute.Settings);
         var keepFolded = Page.GetByRole(AriaRole.Checkbox, new() { Name = ExpectedText.KeepNavigationPanelFoldedSetting });
         await keepFolded.CheckAsync();
         await Expect(keepFolded).ToBeCheckedAsync();
@@ -341,7 +341,7 @@ public sealed class PanelAutoFoldTests : E2eTestBase
         await Expect(CollapseRail).Not.ToBeCheckedAsync();
         await Expect(Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton })).ToHaveCountAsync(0);
         await Expect(SubmitButton).ToBeEnabledAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
 
         await Page.Keyboard.PressAsync("Escape");   // and Escape closes it
         await Expect(CollapseRail).ToBeCheckedAsync();

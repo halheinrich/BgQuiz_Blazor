@@ -51,7 +51,7 @@ public sealed class EndQuizEarlyTests : E2eTestBase
 
         // One click, no confirmation, straight to the summary.
         await EndQuizButton.ClickAsync();
-        await ExpectUrlAsync("/done");
+        await ExpectUrlAsync(AppRoute.Done);
 
         var body = Page.Locator("body");
 
@@ -86,7 +86,7 @@ public sealed class EndQuizEarlyTests : E2eTestBase
         await AnswerCubeNoDoubleAsync(); // lands in review, Continue showing
 
         await EndQuizButton.ClickAsync();
-        await ExpectUrlAsync("/done");
+        await ExpectUrlAsync(AppRoute.Done);
 
         var body = Page.Locator("body");
 

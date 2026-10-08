@@ -98,7 +98,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
     /// </summary>
     private async Task ExpectSkippedUnsubmittedAsync()
     {
-        await ExpectUrlAsync("/done");
+        await ExpectUrlAsync(AppRoute.Done);
         var body = Page.Locator("body");
         await Expect(body).ToContainTextAsync(ExpectedText.Skipped(1));
         await Expect(body).ToContainTextAsync(ExpectedText.Submitted(0));
@@ -116,12 +116,12 @@ public sealed class KeyboardShortcutTests : E2eTestBase
     private async Task ExpectSubmittedThenContinuedBySpaceAsync()
     {
         await Expect(ContinueButton).ToBeVisibleAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
         Assert.Equal("body", await ActiveElementAsync());
 
         await Page.Keyboard.PressAsync("Space");
 
-        await ExpectUrlAsync("/done");
+        await ExpectUrlAsync(AppRoute.Done);
         var body = Page.Locator("body");
         await Expect(body).ToContainTextAsync(ExpectedText.Submitted(1));
         await Expect(body).ToContainTextAsync(ExpectedText.Skipped(0));
@@ -145,7 +145,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
 
         // Exactly what Continue does: the one problem is behind us, so Done —
         // with the answer scored and nothing skipped.
-        await ExpectUrlAsync("/done");
+        await ExpectUrlAsync(AppRoute.Done);
         await Expect(Page.Locator("body")).ToContainTextAsync(ExpectedText.Skipped(0));
     }
 
@@ -254,7 +254,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
         await Expect(DoubleTakePill).ToBeCheckedAsync();
         await Expect(NoDoublePill).Not.ToBeCheckedAsync();
         await Expect(SubmitButton).ToBeEnabledAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
         Assert.Equal("radio checked", await ActiveElementAsync());
 
         await Page.Keyboard.PressAsync("Space");
@@ -284,9 +284,9 @@ public sealed class KeyboardShortcutTests : E2eTestBase
 
         // Show stats' effect, and only its: the stats page, then back to the
         // same problem's review, nothing continued.
-        await ExpectUrlAsync("/stats");
+        await ExpectUrlAsync(AppRoute.Stats);
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton }).ClickAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
         await Expect(ContinueButton).ToBeVisibleAsync();
         await Expect(XgidBadgeText).ToHaveTextAsync(xgid);
     }
@@ -305,10 +305,10 @@ public sealed class KeyboardShortcutTests : E2eTestBase
         await StartQuizOnAsync(CubeFixture);
 
         await Page.GetByRole(AriaRole.Button, new() { Name = "Show stats" }).ClickAsync();
-        await ExpectUrlAsync("/stats");
+        await ExpectUrlAsync(AppRoute.Stats);
 
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton }).ClickAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
         await ExpectKeyboardShortcutReadyAsync();
 
         // The mark back means the key is back: the new page's listener
@@ -349,7 +349,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
         // is the nothing-entered scenarios here — the same press, listener
         // attached, skips.
         await Expect(SubmitButton).ToBeVisibleAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
         // A round trip through the page after the press: any error the
         // keydown raised has been dispatched by the time this returns.
         await Page.EvaluateAsync("() => new Promise(requestAnimationFrame)");

@@ -28,7 +28,7 @@ public sealed class ReloadNoticeTests : E2eTestBase
         // on Home, and Home announces the reset.
         await Page.ReloadAsync();
         await Expect(ReloadNotice).ToBeVisibleAsync();
-        await ExpectUrlAsync("/");
+        await ExpectUrlAsync(AppRoute.Home);
 
         // One-shot: showing the notice cleared the marker, so the next reload
         // boots clean. The re-pick round-trip is an ordering guard for the
@@ -54,7 +54,7 @@ public sealed class ReloadNoticeTests : E2eTestBase
         // and Restart must re-set it, or a reload during the restarted quiz
         // falls back to the old silent reset.
         await Page.GetByRole(AriaRole.Button, new() { Name = "Restart with same filters" }).ClickAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
 
         await Page.ReloadAsync();
         await Expect(ReloadNotice).ToBeVisibleAsync();

@@ -150,7 +150,7 @@ public sealed class DecisionNotesTests : E2eTestBase
         await Page.Mouse.ClickAsync(homeLink.X + homeLink.Width / 2, homeLink.Y + homeLink.Height / 2);
         await Expect(NotesDialog).ToHaveCountAsync(0);
         await Expect(NotesButton).ToBeFocusedAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
 
         // And the visible close button, the one route a reader can see.
         await NotesButton.ClickAsync();

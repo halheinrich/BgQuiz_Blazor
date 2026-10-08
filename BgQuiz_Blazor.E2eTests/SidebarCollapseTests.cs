@@ -290,7 +290,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
         // the last problem, and here is just an advance.
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton }).ClickAsync();
         await Expect(XgidBadgeText).Not.ToHaveTextAsync(secondProblem);
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
         Assert.Equal(0d, await PanelWidthAsync());
         await Expect(CollapseRail).ToBeCheckedAsync();
 

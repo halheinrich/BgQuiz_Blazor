@@ -47,7 +47,7 @@ public sealed class MidQuizNavigationTests : E2eTestBase
 
         // Out to Home mid-quiz, the way a user gets there: the nav menu.
         await HomeNavLink.ClickAsync();
-        await ExpectUrlAsync("/");
+        await ExpectUrlAsync(AppRoute.Home);
         await Expect(PickFolderButton).ToBeVisibleAsync();
 
         // The quiz is still live, so this is a navigation and not a reset —
@@ -56,7 +56,7 @@ public sealed class MidQuizNavigationTests : E2eTestBase
         await Expect(ReloadNotice).ToHaveCountAsync(0);
 
         await BackToQuizButton.ClickAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
 
         // Back on the problem, with the run intact: it is still answerable and
         // still unanswered, so nothing was submitted, skipped or restarted by the

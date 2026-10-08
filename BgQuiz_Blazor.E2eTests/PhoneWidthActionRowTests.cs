@@ -48,7 +48,7 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
         // agree the button receives it (a click — the suite's context does
         // not enable touch).
         await ContinueButton.ClickAsync();
-        await ExpectUrlAsync("/done");
+        await ExpectUrlAsync(AppRoute.Done);
     }
 
     /// <summary>

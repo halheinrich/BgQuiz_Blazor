@@ -92,9 +92,9 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         await Expect(StartButton).ToBeEnabledAsync();
 
         await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HelpNavLink }).ClickAsync();
-        await ExpectUrlAsync("/help");
+        await ExpectUrlAsync(AppRoute.Help);
         await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HomeNavLink }).ClickAsync();
-        await ExpectUrlAsync("/");
+        await ExpectUrlAsync(AppRoute.Home);
 
         // The rows are still on screen; the filter half also survived (Scoped
         // holder), so the page is ready to run the mix it is showing.
@@ -173,14 +173,14 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         await StageFirstWriteAsTheFoldersStatsFileAsync();
 
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToSetupButton }).ClickAsync();
-        await ExpectUrlAsync("/");
+        await ExpectUrlAsync(AppRoute.Home);
         await AddDefaultMixRowAsync(); // composing it is putting it in effect
 
         await Expect(StartButton).ToBeEnabledAsync();
         await StartButton.ClickAsync();
 
         await Expect(Page.GetByText("Your mix drew no problems")).ToBeVisibleAsync();
-        await ExpectUrlAsync("/"); // stayed on Home — no 0/0 /quiz → /done bounce
+        await ExpectUrlAsync(AppRoute.Home); // stayed on Home — no 0/0 /quiz → /done bounce
     }
 }
 
@@ -226,11 +226,11 @@ public sealed class MixRefusalTests : FsAccessFakeTestBase
         await Expect(StartButton).ToBeEnabledAsync();
         await StartButton.ClickAsync();
         await Expect(Page.GetByText("weighted mix can't be applied")).ToBeVisibleAsync();
-        await ExpectUrlAsync("/");
+        await ExpectUrlAsync(AppRoute.Home);
 
         // The one-click per-run escape runs this quiz unweighted, to Done.
         await Page.Locator("#startWithoutMix").ClickAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
         await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();

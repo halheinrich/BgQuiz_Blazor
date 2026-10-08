@@ -63,9 +63,9 @@ public sealed class NotesPlacementSurvivalTests : NotesPlacementTestBase
         // Navigating away and back.
         await CloseNotesButton.ClickAsync();
         await ShowStatsButton.ClickAsync();
-        await ExpectUrlAsync("/stats");
+        await ExpectUrlAsync(AppRoute.Stats);
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton }).ClickAsync();
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
         await Expect(NotesButton).ToBeVisibleAsync();
         await OpenNotesAsync();
         await ExpectChosenAsync("after Show stats and back");
@@ -73,9 +73,9 @@ public sealed class NotesPlacementSurvivalTests : NotesPlacementTestBase
         // End quiz, and the next Start.
         await CloseNotesButton.ClickAsync();
         await EndQuizButton.ClickAsync();
-        await ExpectUrlAsync("/done");
+        await ExpectUrlAsync(AppRoute.Done);
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToSetupButton }).ClickAsync();
-        await ExpectUrlAsync("/");
+        await ExpectUrlAsync(AppRoute.Home);
         await StartQuizAsync();
         await AnswerCubeAsync(ExpectedText.DoubleTakePill);
         await OpenNotesAsync();
@@ -83,7 +83,7 @@ public sealed class NotesPlacementSurvivalTests : NotesPlacementTestBase
 
         // A full reload: the quiz is gone, the placement is not.
         await Page.ReloadAsync();
-        await ExpectUrlAsync("/");
+        await ExpectUrlAsync(AppRoute.Home);
         await StartAtTheCubeReviewAsync();
         await OpenNotesAsync();
         await ExpectChosenAsync("after a reload");
@@ -108,7 +108,7 @@ public sealed class NotesPlacementSurvivalTests : NotesPlacementTestBase
         Assert.Null(await StoredPlacementAsync());
 
         await Page.ReloadAsync();
-        await ExpectUrlAsync("/");
+        await ExpectUrlAsync(AppRoute.Home);
         await StartAtTheCubeReviewAsync();
         await OpenNotesAsync();
         await ExpectOverlayCentredAsync("after Reset and a reload");

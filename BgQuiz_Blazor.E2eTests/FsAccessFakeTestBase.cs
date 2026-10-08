@@ -337,7 +337,7 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
         await StageFirstWriteAsTheFoldersStatsFileAsync();
 
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToSetupButton }).ClickAsync();
-        await ExpectUrlAsync("/");
+        await ExpectUrlAsync(AppRoute.Home);
 
         await PickFolderButton.ClickAsync();
         await Expect(MixPanel).ToBeVisibleAsync();

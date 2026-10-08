@@ -56,7 +56,7 @@ public sealed class MixVisibilityTests : FsAccessFakeTestBase
         await ContinueToDoneAsync();
         await StageFirstWriteAsTheFoldersStatsFileAsync();
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToSetupButton }).ClickAsync();
-        await ExpectUrlAsync("/");
+        await ExpectUrlAsync(AppRoute.Home);
         await PickFolderButton.ClickAsync();
 
         // The setup surface really did disclose, so the absence below is the
@@ -95,7 +95,7 @@ public sealed class MixVisibilityTests : FsAccessFakeTestBase
 
         // The setting really is on — the page just has nothing to weight by.
         await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink }).ClickAsync();
-        await ExpectUrlAsync("/settings");
+        await ExpectUrlAsync(AppRoute.Settings);
         await Expect(Page.Locator("#settingsWeightQuizzes")).ToBeCheckedAsync();
     }
 

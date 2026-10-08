@@ -281,7 +281,7 @@ public sealed class BrowserStorageRefusedTests : E2eTestBase
             await Expect(StorageNotice).ToHaveCountAsync(0);
             await PickFixtureAsync(CubeFixture);
             await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink, Exact = true }).ClickAsync();
-            await ExpectUrlAsync("/settings");
+            await ExpectUrlAsync(AppRoute.Settings);
             // The URL alone does not show that Settings replaced Home
             // (halheinrich/backgammon#372): its heading is up and Home's
             // folder-pick control is gone before Home is clicked.

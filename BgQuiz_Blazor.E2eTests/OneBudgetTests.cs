@@ -195,7 +195,7 @@ public sealed class OneBudgetTests : E2eTestBase
             });
             await Page.EvaluateAsync("() => { window.__frames.hold(); window.__coverage.start(); }");
             await StartQuizAsync();
-            await ExpectUrlAsync("/quiz");
+            await ExpectUrlAsync(AppRoute.Quiz);
 
             // No row is shown that nothing can fit: none while the module waits.
             await Expect(Row).ToHaveCountAsync(0);
@@ -208,13 +208,13 @@ public sealed class OneBudgetTests : E2eTestBase
             await SettleAsync();
             await More.ClickAsync();
             await Page.GetByRole(AriaRole.Menuitem, new() { Name = ExpectedText.ShowStatsButton, Exact = true }).ClickAsync();
-            await ExpectUrlAsync("/stats");
+            await ExpectUrlAsync(AppRoute.Stats);
             var back = Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton });
             await Expect(back).ToBeVisibleAsync();
             await Expect(CollapseRail).Not.ToBeCheckedAsync();
             await Page.EvaluateAsync("() => { window.__frames.hold(); window.__coverage.start(); }");
             await back.ClickAsync();
-            await ExpectUrlAsync("/quiz");
+            await ExpectUrlAsync(AppRoute.Quiz);
         }
 
         // Phase 1: the first fit held. The row is in its pending presentation,

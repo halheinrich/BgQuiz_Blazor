@@ -216,7 +216,7 @@ public sealed class NotesPlacementDragTests : NotesPlacementTestBase
         // The browser's Back, with the button still down: the quiz page goes,
         // and the overlay and its drag with it.
         await Page.EvaluateAsync("() => history.back()");
-        await ExpectUrlAsync("/");
+        await ExpectUrlAsync(AppRoute.Home);
         await Expect(PickFolderButton).ToBeVisibleAsync();
         await ReleaseOverNothingAsync();
         Assert.Null(await StoredPlacementAsync());
@@ -224,7 +224,7 @@ public sealed class NotesPlacementDragTests : NotesPlacementTestBase
         // Back on the review, the notes open where they were before the drag:
         // centred, the preference still unset.
         await Page.EvaluateAsync("() => history.forward()");
-        await ExpectUrlAsync("/quiz");
+        await ExpectUrlAsync(AppRoute.Quiz);
         await Expect(NotesButton).ToBeVisibleAsync();
         await OpenNotesAsync();
         await ExpectOverlayCentredAsync("the abandoned drag wrote nothing");
