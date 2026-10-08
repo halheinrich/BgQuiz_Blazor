@@ -22,7 +22,7 @@ public sealed class HelpAndTitlesTests : E2eTestBase
     {
         // Cold visit to /help — the page never redirects, from any state.
         await Page.GotoAsync(BaseUrl + "/help");
-        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "How BgQuiz works" }))
+        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = ExpectedText.HelpHeading }))
             .ToBeVisibleAsync();
         await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Pick your folder" }))
             .ToBeVisibleAsync();

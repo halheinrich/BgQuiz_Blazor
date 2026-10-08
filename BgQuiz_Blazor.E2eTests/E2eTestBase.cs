@@ -263,6 +263,90 @@ public abstract class E2eTestBase : IAsyncLifetime
     protected ILocator BarHitRect => HitRects.Nth(24);
 
     // -----------------------------------------------------------------------
+    //  Routes — every page the suite navigates to, and its landmark, once
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// A page of the app the suite navigates to: its path, and its
+    /// <b>landmark</b>, the element whose presence says that page has
+    /// rendered. Every route's landmark is defined here and nowhere else.
+    ///
+    /// <para>
+    /// <b>What makes a landmark: two properties, both required.</b> It is
+    /// <b>unique to its page</b>: no other route renders it, so the page being
+    /// left can never satisfy a wait for it. A URL cannot promise that: the
+    /// URL changes when a navigation is requested, and the page it is leaving
+    /// can still be on screen (halheinrich/backgammon#372). And it is
+    /// <b>present from the page's first render</b>, behind no feature's
+    /// asynchronous load (a module import, storage hydration, a fit), so a
+    /// test that holds a feature on purpose can still establish that the page
+    /// rendered while the feature is held.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The landmarks.</b> Every page but the quiz page opens with a
+    /// level-one heading in its own words, unconditional markup ahead of
+    /// anything the page waits for (Settings' controls wait on hydration;
+    /// its heading does not), so that heading, matched exactly, is the
+    /// landmark: Home's is the app's name, which Help's heading contains, and
+    /// the exact match keeps the two apart. The quiz page has no heading. Its
+    /// root element, <c>.board-page</c>, is rendered on its first render in
+    /// every state of the run, and no other page carries the class; its board
+    /// and action row are not the landmark, because they wait for the row-fit
+    /// module (<c>Quiz.RowFitReady</c>).
+    /// </para>
+    /// </summary>
+    protected sealed class AppRoute
+    {
+        private readonly Func<IPage, ILocator> _landmark;
+
+        private AppRoute(string path, string landmark, Func<IPage, ILocator> locate)
+        {
+            Path = path;
+            Landmark = landmark;
+            _landmark = locate;
+        }
+
+        /// <summary>Home: the setup page.</summary>
+        public static AppRoute Home { get; } = Heading("/", ExpectedText.HomeHeading);
+
+        /// <summary>The quiz page.</summary>
+        public static AppRoute Quiz { get; } =
+            new("/quiz", "the quiz page's root, .board-page", page => page.Locator(".board-page"));
+
+        /// <summary>The summary at the end of a run.</summary>
+        public static AppRoute Done { get; } = Heading("/done", ExpectedText.DoneHeading);
+
+        /// <summary>The settings page.</summary>
+        public static AppRoute Settings { get; } = Heading("/settings", ExpectedText.SettingsHeading);
+
+        /// <summary>The help page.</summary>
+        public static AppRoute Help { get; } = Heading("/help", ExpectedText.HelpHeading);
+
+        /// <summary>The progress page a running quiz's Show stats opens.</summary>
+        public static AppRoute Stats { get; } = Heading("/stats", ExpectedText.StatsHeading);
+
+        /// <summary>Every route, for a scenario about the landmarks themselves.</summary>
+        public static IReadOnlyList<AppRoute> All { get; } = [Home, Quiz, Done, Settings, Help, Stats];
+
+        /// <summary>The route's path, as the app routes it.</summary>
+        public string Path { get; }
+
+        /// <summary>What the landmark is, in words, for a failure message.</summary>
+        public string Landmark { get; }
+
+        /// <summary>The landmark on <paramref name="page"/>.</summary>
+        internal ILocator LandmarkOn(IPage page) => _landmark(page);
+
+        /// <inheritdoc/>
+        public override string ToString() => Path;
+
+        private static AppRoute Heading(string path, string heading) =>
+            new(path, $"its level-one heading \"{heading}\"",
+                page => page.GetByRole(AriaRole.Heading, new() { Name = heading, Exact = true, Level = 1 }));
+    }
+
+    // -----------------------------------------------------------------------
     //  Flow helpers
     // -----------------------------------------------------------------------
 

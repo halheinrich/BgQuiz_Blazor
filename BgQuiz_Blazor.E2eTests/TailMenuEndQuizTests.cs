@@ -63,7 +63,7 @@ public sealed class TailMenuEndQuizTests : FsAccessFakeTestBase
         // confirmation, the summary, the answer kept.
         await Item(ExpectedText.EndQuizButton).ClickAsync();
         await ExpectUrlAsync("/done");
-        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Quiz complete" })).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = ExpectedText.DoneHeading })).ToBeVisibleAsync();
         var body = Page.Locator("body");
         await Expect(body).ToContainTextAsync(ExpectedText.Submitted(1));
         await Expect(body).ToContainTextAsync(ExpectedText.Skipped(0));

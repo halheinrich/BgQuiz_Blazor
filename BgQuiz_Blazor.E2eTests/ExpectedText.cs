@@ -300,6 +300,30 @@ internal static class ExpectedText
     internal const string BackToHomeButton = "Back to Home";
 
     // ------------------------------------------------------------------
+    //  Page headings — each page's level-one heading, which is also its
+    //  landmark (E2eTestBase.AppRoute): the element whose presence says that
+    //  page, and no other, has rendered
+    // ------------------------------------------------------------------
+
+    /// <summary>Home's heading (<c>Home.razor</c>) — the app's name, matched exactly, since Help's heading contains it.</summary>
+    internal const string HomeHeading = "BgQuiz";
+
+    /// <summary>The Settings page's heading (<c>Settings.razor</c>); the same word as its navigation link, and a different surface.</summary>
+    internal const string SettingsHeading = "Settings";
+
+    /// <summary>The Help page's heading (<c>Help.razor</c>).</summary>
+    internal const string HelpHeading = "How BgQuiz works";
+
+    /// <summary>
+    /// Done's heading (<c>Done.razor</c>) — the same for a run finished and a
+    /// run ended early, by ruling: there is no second kind of ending.
+    /// </summary>
+    internal const string DoneHeading = "Quiz complete";
+
+    /// <summary>The Stats page's heading (<c>Stats.razor</c>).</summary>
+    internal const string StatsHeading = "Quiz progress";
+
+    // ------------------------------------------------------------------
     //  The layout and the settings page
     // ------------------------------------------------------------------
 

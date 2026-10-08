@@ -57,7 +57,7 @@ public sealed class EndQuizEarlyTests : E2eTestBase
 
         // Received as the completed quiz it is — ruled deliberately: no
         // ended-early wording, no second kind of ending.
-        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Quiz complete" }))
+        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = ExpectedText.DoneHeading }))
             .ToBeVisibleAsync();
 
         // The partial score: the cube answered counts once in the Total

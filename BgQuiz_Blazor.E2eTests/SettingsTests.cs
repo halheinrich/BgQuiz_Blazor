@@ -89,7 +89,7 @@ public sealed class SettingsTests : E2eTestBase
         await GoToSettingsAsync();
 
         await Expect(Page).ToHaveTitleAsync("BgQuiz — Settings");
-        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = ExpectedText.SettingsNavLink })).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = ExpectedText.SettingsHeading })).ToBeVisibleAsync();
 
         // The side and fold defaults, as a fresh visitor sees them. (The maximize
         // default is on since halheinrich/backgammon#113 and is pinned by MaximizeBoardTests, which

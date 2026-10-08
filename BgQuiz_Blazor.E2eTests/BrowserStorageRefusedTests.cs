@@ -285,7 +285,7 @@ public sealed class BrowserStorageRefusedTests : E2eTestBase
             // The URL alone does not show that Settings replaced Home
             // (halheinrich/backgammon#372): its heading is up and Home's
             // folder-pick control is gone before Home is clicked.
-            await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Settings", Level = 1, Exact = true })).ToBeVisibleAsync();
+            await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = ExpectedText.SettingsHeading, Level = 1, Exact = true })).ToBeVisibleAsync();
             await Expect(PickFolderButton).ToHaveCountAsync(0);
             await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HomeNavLink, Exact = true }).ClickAsync();
             await Expect(PickFolderButton).ToBeVisibleAsync();
