@@ -134,14 +134,10 @@ public sealed class QuizFlowTests : E2eTestBase
         // (ExpectCubeProblemAsync), never on a read taken while the page may
         // still be on its way (halheinrich/backgammon#333).
         //
-        // The evidence prints (QuizPageEvidence) are halheinrich/backgammon#333's
-        // observability, kept for the umbrella CI run that reads this
-        // correction back: they show, on a pass as on a failure, which problem
-        // came first, where the first row arrived against the scenario's first
-        // wait, and how each navigation landed. They observe; nothing below
-        // decides or asserts on them.
-        var evidence = new QuizPageEvidence(Page, _output);
+        // On the way out, pass or fail, the output says which problem the run
+        // served first, and what the hold saw when it held one.
         RowFitModuleHold? hold = null;
+        string? first = null;
         try
         {
             await BootHomeAsync();
@@ -160,15 +156,12 @@ public sealed class QuizFlowTests : E2eTestBase
                     break;
             }
             await ApplyFilterAsync();
-            await evidence.RecordAsync();
             if (conditions.RowHeldUntilWaitedFor)
                 hold = await RowFitModuleHold.InstallAsync(Page);
             await StartQuizAsync();
 
             // The branch: which problem the run served first, once it has landed.
-            var first = await evidence.ReadAsync(
-                "the first problem's fourth answer, once problem 1 has landed",
-                () => ExpectCubeProblemAsync(1, () => hold?.Checkpoint("the scenario is waiting for problem 1 to land")));
+            first = await ExpectCubeProblemAsync(1, () => hold?.Checkpoint("the scenario is waiting for problem 1 to land"));
             // The order this run was given, checked before anything relies on
             // it: the folder's order is the browser's enumeration, which the
             // proof replaces (PickFixturesInOrderAsync), and a replacement that
@@ -185,7 +178,7 @@ public sealed class QuizFlowTests : E2eTestBase
             var tooGood = tooGoodFirst ? 1 : 2;
             if (!tooGoodFirst)
             {
-                await evidence.NavigateAsync("Skip", () => NavButton(ExpectedText.SkipButton).ClickAsync());
+                await NavButton(ExpectedText.SkipButton).ClickAsync();
                 Assert.Equal(ExpectedText.TooGoodPill, await ExpectCubeProblemAsync(tooGood));
             }
 
@@ -208,9 +201,9 @@ public sealed class QuizFlowTests : E2eTestBase
             var (away, back) = tooGoodFirst
                 ? (ExpectedText.NextButton, ExpectedText.BackButton)
                 : (ExpectedText.BackButton, ExpectedText.NextButton);
-            await evidence.NavigateAsync(away, () => NavButton(away).ClickAsync());
+            await NavButton(away).ClickAsync();
             Assert.Equal(ExpectedText.NoDoublePassPill, await ExpectCubeProblemAsync(other));
-            await evidence.NavigateAsync(back, () => NavButton(back).ClickAsync());
+            await NavButton(back).ClickAsync();
             Assert.Equal(ExpectedText.TooGoodPill, await ExpectCubeProblemAsync(tooGood));
 
             await AnswerCubeNoDoubleAsync();
@@ -225,9 +218,8 @@ public sealed class QuizFlowTests : E2eTestBase
         }
         finally
         {
-            foreach (var (at, what) in hold?.Events() ?? [])
-                evidence.Note(at, what);
-            await evidence.PrintOnTheWayOutAsync();
+            _output.WriteLine($"problem 1's fourth answer: {first ?? "(problem 1 never landed)"}");
+            HoldEvents.Write(_output, hold?.Events() ?? []);
         }
     }
 

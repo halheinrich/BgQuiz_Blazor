@@ -1,5 +1,3 @@
-using System.Globalization;
-using System.Runtime.CompilerServices;
 using Microsoft.Playwright;
 using Xunit.Abstractions;
 using static Microsoft.Playwright.Assertions;
@@ -18,14 +16,6 @@ namespace BgQuiz_Blazor.E2eTests;
 public sealed class SidebarCollapseTests : E2eTestBase
 {
     private readonly ITestOutputHelper _output;
-
-    /// <summary>
-    /// The evidence of the one scenario that keeps it
-    /// (<see cref="CollapseLastsUntilTheNextNavigationOrReload"/>), null in
-    /// the others: every <see cref="PanelWidthAsync"/> read while it is set is
-    /// recorded, with its value, as evidence.
-    /// </summary>
-    private QuizPageEvidence? _evidence;
 
     public SidebarCollapseTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
         : base(app, playwright)
@@ -144,16 +134,6 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// folds the panel, rightly or wrongly, fails here with its value, rather
     /// than timing out on the answer wanted.
     /// </para>
-    ///
-    /// <para>
-    /// <b>Evidence</b> (<see cref="QuizPageEvidence"/>), kept for the CI run
-    /// that reads this correction back: each width read is recorded with the
-    /// value it returned, and the print that follows it carries that value
-    /// with the row's state, the rail's box and the auto-fold; the recorder,
-    /// installed before Start, notes every change of them; and on the way out
-    /// each read is placed against the first row's pending window. The
-    /// evidence takes no width read of its own and decides nothing.
-    /// </para>
     /// </summary>
     [Fact]
     public Task CollapseLastsUntilTheNextNavigationOrReload() =>
@@ -176,7 +156,6 @@ public sealed class SidebarCollapseTests : E2eTestBase
 
     private async Task CollapseLastsUntilTheNextNavigationOrReloadAsync(bool fitHeld)
     {
-        var evidence = _evidence = new QuizPageEvidence(Page, _output);
         RowFitFirstFitHold? hold = null;
         try
         {
@@ -189,7 +168,6 @@ public sealed class SidebarCollapseTests : E2eTestBase
             await Expect(CollapseRail).ToBeCheckedAsync();
             Assert.Equal(0d, await PanelWidthAsync());
 
-            await evidence.RecordAsync();
             if (fitHeld)
                 hold = await RowFitFirstFitHold.HoldAsync(Page);
             await StartQuizAsync();
@@ -217,9 +195,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
         }
         finally
         {
-            foreach (var (at, what) in hold?.Events() ?? [])
-                evidence.Note(at, what);
-            await evidence.PrintOnTheWayOutAsync();
+            HoldEvents.Write(_output, hold?.Events() ?? []);
         }
     }
 
@@ -359,29 +335,8 @@ public sealed class SidebarCollapseTests : E2eTestBase
     /// What the toggle owes is that folding takes the panel to zero and
     /// unfolding brings it back, and zero-versus-not-zero says exactly that.
     /// </para>
-    ///
-    /// <para>
-    /// <b>Evidence, where the scenario keeps it</b> (<see cref="_evidence"/>):
-    /// the read is recorded with the value it returned, named by the line that
-    /// called it, and a print of the page's state follows it, never precedes
-    /// it, so the read lands when it would have without the evidence; that
-    /// print's line carries the width beside the row's state, the rail's box
-    /// and the auto-fold. The value returned is the read's own.
-    /// </para>
     /// </summary>
-    private async Task<double> PanelWidthAsync([CallerLineNumber] int line = 0)
-    {
-        if (_evidence is not { } evidence)
-            return await ReadPanelWidthAsync();
-
-        var what = $"the panel's width read at SidebarCollapseTests.cs:{line}";
-        var width = await evidence.ReadAsync(what, ReadPanelWidthAsync);
-        await evidence.PrintAsync(
-            $"just after {what} returned {width.ToString(CultureInfo.InvariantCulture)}");
-        return width;
-    }
-
-    private Task<double> ReadPanelWidthAsync() =>
+    private Task<double> PanelWidthAsync() =>
         NavigationPanel.EvaluateAsync<double>("el => el.getBoundingClientRect().width");
 
     /// <summary>

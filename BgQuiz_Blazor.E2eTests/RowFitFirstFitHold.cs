@@ -145,24 +145,24 @@ internal sealed class RowFitFirstFitHold
         }
     }
 
-    /// <summary>What the hold saw, each at its instant on the test's clock.</summary>
+    /// <summary>What the hold saw, in the order it saw it, each at its instant on the test's clock.</summary>
     internal IReadOnlyList<(DateTimeOffset At, string What)> Events()
     {
         lock (_gate)
         {
-            var events = new List<(DateTimeOffset, string)>(3);
+            var events = new List<(Seen Seen, string What)>(3);
             if (_checkpointed is { } checkpointed)
-                events.Add((checkpointed.At, $"first-fit hold: the scenario's checkpoint, \"{_step}\"; the hold reads the page, then releases the frames"));
+                events.Add((checkpointed, $"first-fit hold: the scenario's checkpoint, \"{_step}\"; the hold reads the page, then releases the frames"));
             if (_read is { } read)
             {
-                events.Add((read.At, _state is { } s
+                events.Add((read, _state is { } s
                     ? $"first-fit hold: at the checkpoint, frames held: row {s.Row} | callbacks waiting on the held frames {s.Queued} | rail {s.Rail}"
                       + (_waitCompletedWhileHeld ? " | the scenario's wait had already completed" : " | the scenario's wait still waiting")
                     : $"first-fit hold: the page could not be read at the checkpoint: {_failure}"));
             }
             if (_released is { } released)
-                events.Add((released.At, "first-fit hold: frames released"));
-            return events;
+                events.Add((released, "first-fit hold: frames released"));
+            return [.. events.OrderBy(e => e.Seen.Order).Select(e => (e.Seen.At, e.What))];
         }
     }
 

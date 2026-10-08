@@ -57,7 +57,7 @@ internal sealed class RowFitModuleHold
     /// <summary>
     /// One thing the hold saw: its place in the order the hold saw things in,
     /// which is what <see cref="Unmet"/> judges by, and its instant on the
-    /// test's clock, for the evidence's timeline.
+    /// test's clock, for the timeline a scenario writes (<see cref="HoldEvents"/>).
     /// </summary>
     private readonly record struct Seen(int Order, DateTimeOffset At);
 
@@ -110,19 +110,23 @@ internal sealed class RowFitModuleHold
         }
     }
 
-    /// <summary>What the hold saw, each at its instant on the test's clock.</summary>
+    /// <summary>
+    /// What the hold saw, in the order it saw it, each at its instant on the
+    /// test's clock. The page can ask for the module before the scenario's
+    /// checkpoint or after it; either way the module goes through only after.
+    /// </summary>
     internal IReadOnlyList<(DateTimeOffset At, string What)> Events()
     {
         lock (_gate)
         {
-            var events = new List<(DateTimeOffset, string)>(3);
+            var events = new List<(Seen Seen, string What)>(3);
             if (_requested is { } requested)
-                events.Add((requested.At, "row-fit module hold: the page requested actionRowFit.js; the request is held"));
+                events.Add((requested, "row-fit module hold: the page requested actionRowFit.js; the request is held"));
             if (_checkpointed is { } checkpointed)
-                events.Add((checkpointed.At, $"row-fit module hold: the scenario's checkpoint, \"{_step}\"; the hold lets the module through from here"));
+                events.Add((checkpointed, $"row-fit module hold: the scenario's checkpoint, \"{_step}\"; the hold lets the module through from here"));
             if (_released is { } released)
-                events.Add((released.At, "row-fit module hold: actionRowFit.js let through"));
-            return events;
+                events.Add((released, "row-fit module hold: actionRowFit.js let through"));
+            return [.. events.OrderBy(e => e.Seen.Order).Select(e => (e.Seen.At, e.What))];
         }
     }
 
