@@ -42,8 +42,6 @@ public sealed class SidebarCollapseTests : E2eTestBase
     private ILocator CollapseRail =>
         Page.GetByRole(AriaRole.Checkbox, new() { Name = ExpectedText.HideNavigationPanelCheckbox });
 
-    private ILocator NavigationPanel => Page.Locator(".sidebar");
-
     /// <summary>
     /// The XGID badge's text node — the identity of the problem currently on
     /// screen, and this suite's per-step "the app advanced" marker. It lives in
@@ -83,7 +81,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
 
         await Expect(CollapseRail).ToBeVisibleAsync();
         await Expect(CollapseRail).Not.ToBeCheckedAsync();
-        Assert.True(await PanelWidthAsync() > 0, "the panel should start out showing");
+        Assert.True(await NavigationPanelWidthAsync() > 0, "the panel should start out showing");
 
         string expandedChevron = await RailChevronAsync();
         Assert.NotEqual("none", expandedChevron);
@@ -91,7 +89,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
         await CollapseRail.ClickAsync();
 
         await Expect(CollapseRail).ToBeCheckedAsync();
-        Assert.Equal(0d, await PanelWidthAsync());
+        Assert.Equal(0d, await NavigationPanelWidthAsync());
 
         // The affordance's whole point (umbrella issue halheinrich/backgammon#29): the control reads as
         // a control and says which state it is in. The artwork is craft and
@@ -102,7 +100,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
         // ...and it is a toggle, not a one-way door.
         await CollapseRail.ClickAsync();
         await Expect(CollapseRail).Not.ToBeCheckedAsync();
-        Assert.True(await PanelWidthAsync() > 0);
+        Assert.True(await NavigationPanelWidthAsync() > 0);
     }
 
     /// <summary>
@@ -166,7 +164,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
 
             await CollapseRail.ClickAsync();
             await Expect(CollapseRail).ToBeCheckedAsync();
-            Assert.Equal(0d, await PanelWidthAsync());
+            Assert.Equal(0d, await NavigationPanelWidthAsync());
 
             if (fitHeld)
                 hold = await RowFitFirstFitHold.HoldAsync(Page);
@@ -176,18 +174,18 @@ public sealed class SidebarCollapseTests : E2eTestBase
             await Expect(CollapseRail).Not.ToBeCheckedAsync();
             await Expect(CubeAnswers).ToHaveCountAsync(4);
             await ExpectRowFittedAsync(wait => hold?.Checkpoint("the scenario is waiting for the row's first fit", wait));
-            Assert.True(await PanelWidthAsync() > 0,
+            Assert.True(await NavigationPanelWidthAsync() > 0,
                 "in-app navigation brings the panel back — Help tells the reader so");
 
             await CollapseRail.ClickAsync();
             await Expect(CollapseRail).ToBeCheckedAsync();
-            Assert.Equal(0d, await PanelWidthAsync());
+            Assert.Equal(0d, await NavigationPanelWidthAsync());
 
             await Page.ReloadAsync();
             await Expect(PickFolderButton).ToBeVisibleAsync();
 
             await Expect(CollapseRail).Not.ToBeCheckedAsync();
-            Assert.True(await PanelWidthAsync() > 0,
+            Assert.True(await NavigationPanelWidthAsync() > 0,
                 "a reload brings the panel back — Help tells the reader so");
 
             if (hold?.Unmet() is { } unmet)
@@ -249,35 +247,35 @@ public sealed class SidebarCollapseTests : E2eTestBase
 
         await CollapseRail.ClickAsync();
         await Expect(CollapseRail).ToBeCheckedAsync();
-        Assert.Equal(0d, await PanelWidthAsync());
+        Assert.Equal(0d, await NavigationPanelWidthAsync());
         string firstProblem = await CurrentProblemXgidAsync();
 
         // ▶, named Skip: advances without scoring, entirely in-page.
         await NavButton(ExpectedText.SkipButton).ClickAsync();
         await Expect(XgidBadgeText).Not.ToHaveTextAsync(firstProblem);
         string secondProblem = await CurrentProblemXgidAsync();
-        Assert.Equal(0d, await PanelWidthAsync());
+        Assert.Equal(0d, await NavigationPanelWidthAsync());
 
         // Submit: scores and shows the solution, still in-page.
         await AnswerCubeNoDoubleAsync();
-        Assert.Equal(0d, await PanelWidthAsync());
+        Assert.Equal(0d, await NavigationPanelWidthAsync());
 
         // Continue through that solution — the step that ends a run when it is
         // the last problem, and here is just an advance.
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton }).ClickAsync();
         await Expect(XgidBadgeText).Not.ToHaveTextAsync(secondProblem);
         await ExpectUrlAsync(AppRoute.Quiz);
-        Assert.Equal(0d, await PanelWidthAsync());
+        Assert.Equal(0d, await NavigationPanelWidthAsync());
         await Expect(CollapseRail).ToBeCheckedAsync();
 
         // The last Continue exhausts the source and navigates to /done — and
         // that navigation, not the answering before it, is what unfolds it.
         await AnswerCubeNoDoubleAsync();
-        Assert.Equal(0d, await PanelWidthAsync());
+        Assert.Equal(0d, await NavigationPanelWidthAsync());
         await ContinueToDoneAsync();
 
         await Expect(CollapseRail).Not.ToBeCheckedAsync();
-        Assert.True(await PanelWidthAsync() > 0,
+        Assert.True(await NavigationPanelWidthAsync() > 0,
             "the navigation that ends the run brings the panel back");
     }
 
@@ -313,39 +311,12 @@ public sealed class SidebarCollapseTests : E2eTestBase
         Expect(CollapseRail).Not.ToBeCheckedAsync();
 
     /// <summary>
-    /// The panel's rendered width. A single read, deliberately, and every caller
-    /// takes one only after a retrying <c>Expect</c> has proved what decides the
-    /// width (<c>halheinrich/backgammon#127</c>). Off the quiz page that is the
-    /// checkbox alone: the fold is a <c>:checked ~ .sidebar</c> rule with no
-    /// transition on it, so once the control's state is settled the width is
-    /// settled with it, in the same frame. On the quiz page it is the checkbox
-    /// and the row's first fit (halheinrich/backgammon#333): until that fit the
-    /// row's pending presentation folds the panel by style alone, whatever the
-    /// box says, so a read that expects the panel showing there follows
-    /// <see cref="E2eTestBase.ExpectRowFittedAsync"/>. A read that expects it
-    /// folded with the box checked needs no fit: checked or pending, the width
-    /// is 0.
-    ///
-    /// <para>
-    /// <b>And why <c>&gt; 0</c> is the whole of the open half.</b> That the
-    /// panel is 250px wide rather than merely wider than nothing is a fact about
-    /// the layout stylesheet, pinned once by <c>EnvironmentFidelityTests</c> and
-    /// deliberately not restated here — a second statement of it is a second
-    /// source, and this scenario's subject is the toggle, not the panel's size.
-    /// What the toggle owes is that folding takes the panel to zero and
-    /// unfolding brings it back, and zero-versus-not-zero says exactly that.
-    /// </para>
-    /// </summary>
-    private Task<double> PanelWidthAsync() =>
-        NavigationPanel.EvaluateAsync<double>("el => el.getBoundingClientRect().width");
-
-    /// <summary>
     /// The rail's chevron as the browser resolves it. Computed style, not the
     /// markup: the state signal is drawn entirely by CSS, so nothing in the DOM
     /// would show a stuck glyph.
     ///
     /// <para>
-    /// Read once, for <see cref="PanelWidthAsync"/>'s reason: both calls follow
+    /// Read once, for <see cref="E2eTestBase.NavigationPanelWidthAsync"/>'s reason: both calls follow
     /// a settled <c>Expect</c> on the checkbox, and the swap is a
     /// <c>:checked</c> rule over <c>background-image</c> — the rail's only
     /// transition is on <c>background-color</c>, so there is no animation for a

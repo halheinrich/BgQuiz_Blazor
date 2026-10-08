@@ -284,6 +284,60 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </summary>
     protected ILocator BarHitRect => HitRects.Nth(24);
 
+    /// <summary>The layout's navigation panel (<c>MainLayout.razor</c>'s <c>.sidebar</c>).</summary>
+    protected ILocator NavigationPanel => Page.Locator(NavigationPanelSelector);
+
+    /// <summary>The navigation panel's selector, which <see cref="NavigationPanel"/> and <see cref="NavigationPanelWidthScript"/> share.</summary>
+    private const string NavigationPanelSelector = ".sidebar";
+
+    /// <summary>
+    /// <see cref="NavigationPanelWidthAsync"/>'s read as a script expression,
+    /// for a script that reads the width beside other figures at one instant
+    /// (<see cref="ActionRowGeometry"/>, <c>OneBudgetTests</c>' coverage
+    /// sampler). When the value is settled is
+    /// <see cref="NavigationPanelWidthAsync"/>'s rule.
+    /// </summary>
+    internal const string NavigationPanelWidthScript =
+        $"document.querySelector('{NavigationPanelSelector}').getBoundingClientRect().width";
+
+    /// <summary>
+    /// The navigation panel's laid-out width, read once. The one read of it,
+    /// and the one statement of when it is settled
+    /// (halheinrich/backgammon#351).
+    ///
+    /// <para>
+    /// <b>A single read, and correct only once what decides the width has
+    /// settled</b> (halheinrich/backgammon#127). Never wait for the width
+    /// wanted: read once and assert on the value, so a wrong width fails with
+    /// the value it is. What decides it:
+    /// </para>
+    /// <list type="bullet">
+    ///   <item><b>Off the quiz page, the rail's checkbox alone.</b> The fold is
+    ///   a <c>:checked ~ .sidebar</c> rule with no transition, so once an
+    ///   <c>Expect</c> has proved the box's state, the width is settled with
+    ///   it, in the same frame. The panel folding by itself (navFold.js) checks
+    ///   the box too.</item>
+    ///   <item><b>On the quiz page, the box and the row's first fit</b>
+    ///   (halheinrich/backgammon#333). Until that fit the row's pending
+    ///   presentation folds the panel by style alone, whatever the box says,
+    ///   so a read that expects the panel showing there follows
+    ///   <see cref="ExpectRowFittedAsync"/>. A read that expects it folded with
+    ///   the box checked needs no fit: checked or pending, the width is 0. A
+    ///   read of the pending presentation itself says so where it is
+    ///   taken.</item>
+    /// </list>
+    ///
+    /// <para>
+    /// <b>And <c>&gt; 0</c> is the whole of the open half.</b> That the panel
+    /// is 250px wide rather than merely wider than nothing is a fact about the
+    /// layout stylesheet, pinned once by <c>EnvironmentFidelityTests</c>; a
+    /// second statement of it would be a second source. What a fold owes is
+    /// zero against not zero.
+    /// </para>
+    /// </summary>
+    protected Task<double> NavigationPanelWidthAsync() =>
+        Page.EvaluateAsync<double>("() => " + NavigationPanelWidthScript);
+
     // -----------------------------------------------------------------------
     //  Routes — every page the suite navigates to, and its landmark, once
     // -----------------------------------------------------------------------

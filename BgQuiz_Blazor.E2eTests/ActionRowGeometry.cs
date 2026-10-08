@@ -132,7 +132,7 @@ internal static class ActionRowGeometry
               RowLines: Math.round(row.getBoundingClientRect().height / row.querySelector('.btn-lg').getBoundingClientRect().height),
               TailFolded: row.querySelector('.action-row-tail > .tail-menu') !== null,
               Pending: row.hasAttribute('data-nav-fold-pending'),
-              PanelWidth: document.querySelector('.sidebar').getBoundingClientRect().width })";
+              PanelWidth: " + E2eTestBase.NavigationPanelWidthScript + @" })";
 
     /// <summary>
     /// The row's presentation (<see cref="PresentationOfRow"/>), which needs

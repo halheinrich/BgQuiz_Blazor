@@ -50,7 +50,6 @@ public sealed class PanelAutoFoldTests : E2eTestBase
     private ILocator CollapseRail =>
         Page.GetByRole(AriaRole.Checkbox, new() { Name = ExpectedText.HideNavigationPanelCheckbox });
 
-    private ILocator Panel => Page.Locator(".sidebar");
 
     private Task<bool> AutoFoldedAsync() =>
         Page.EvaluateAsync<bool>("() => document.documentElement.hasAttribute('data-nav-autofold')");
@@ -86,13 +85,13 @@ public sealed class PanelAutoFoldTests : E2eTestBase
         await ResizeAsync((int)Math.Floor(foldWidth) - 1);
         Assert.True(await AutoFoldedAsync());
         await Expect(CollapseRail).ToBeCheckedAsync();   // the control says hidden, which is true
-        Assert.Equal(0, (await Panel.BoundingBoxAsync())!.Width);
+        Assert.Equal(0, await NavigationPanelWidthAsync());
         Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
 
         await ResizeAsync((int)Math.Ceiling(foldWidth) + 1);
         Assert.False(await AutoFoldedAsync());
         await Expect(CollapseRail).Not.ToBeCheckedAsync();
-        Assert.True((await Panel.BoundingBoxAsync())!.Width > 0);
+        Assert.True(await NavigationPanelWidthAsync() > 0);
         Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
     }
 
@@ -170,8 +169,8 @@ public sealed class PanelAutoFoldTests : E2eTestBase
         await CollapseRail.ClickAsync();
         await Expect(CollapseRail).Not.ToBeCheckedAsync();
         Assert.True(await AutoFoldedAsync());   // still the narrow layout
-        Assert.True((await Panel.BoundingBoxAsync())!.Width > 0, "the drawer shows");
-        Assert.Equal("fixed", await Panel.EvaluateAsync<string>("e => getComputedStyle(e).position"));
+        Assert.True(await NavigationPanelWidthAsync() > 0, "the drawer shows");
+        Assert.Equal("fixed", await NavigationPanel.EvaluateAsync<string>("e => getComputedStyle(e).position"));
         Assert.Equal(rowWidth, (await ActionRowGeometry.FitAsync(Page)).Row, 0.5);   // no width taken from the row
     }
 
@@ -221,7 +220,7 @@ public sealed class PanelAutoFoldTests : E2eTestBase
             await CloseTheDrawerAsync(how);
 
             await Expect(CollapseRail).ToBeCheckedAsync();
-            Assert.Equal(0, (await Panel.BoundingBoxAsync())!.Width);
+            Assert.Equal(0, await NavigationPanelWidthAsync());
             Assert.True(await AutoFoldedAsync());
             Assert.Equal(controls, await ActionRowGeometry.RowControlCountAsync(Page));
             var unreachable = await ActionRowGeometry.UnreachableControlsAsync(Page);
@@ -334,7 +333,7 @@ public sealed class PanelAutoFoldTests : E2eTestBase
         await CubePill(ExpectedText.NoDoublePill).CheckAsync();
         await Expect(SubmitButton).ToBeEnabledAsync();
         await OpenTheDrawerAsync((await ActionRowGeometry.FitAsync(Page)).Row);
-        var panel = (await Panel.BoundingBoxAsync())!;
+        var panel = (await NavigationPanel.BoundingBoxAsync())!;
         await Page.Mouse.ClickAsync(panel.X + panel.Width / 2, panel.Y + panel.Height - 20);
         await Expect(CollapseRail).Not.ToBeCheckedAsync();
         Assert.Equal("BODY", await Page.EvaluateAsync<string>("() => document.activeElement.tagName"));

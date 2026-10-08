@@ -4354,10 +4354,12 @@ sleep ruled out above — it waits out nothing, ends the moment the assertion
 holds, and is the interval Playwright's own assertions poll on. A single read
 stays correct only where it follows an `Expect` that already proved the settled
 state **and** nothing can still be moving, and every such site says so in a
-remark (`SidebarCollapseTests.PanelWidthAsync`; `CommaDecimalLocaleTests`).
-What "settled" takes depends on what decides the value: the panel's width is
-settled by its box alone off the quiz page, but on it also by the row's first
-fit, since the pending row folds the panel by style whatever the box says. So
+remark (`E2eTestBase.NavigationPanelWidthAsync`; `CommaDecimalLocaleTests`).
+What "settled" takes depends on what decides the value. The navigation
+panel's width has one read and one statement of its rule,
+`E2eTestBase.NavigationPanelWidthAsync` (`halheinrich/backgammon#351`): the
+box alone off the quiz page, and on it also the row's first fit, since the
+pending row folds the panel by style whatever the box says. So
 `SidebarCollapseTests`' read after Start waits for the box's reset and then
 for the row's first fit (`E2eTestBase.ExpectRowFittedAsync`), reads the width
 once and asserts on that value. It never waits for the width it wants, so a

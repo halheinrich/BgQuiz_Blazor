@@ -258,7 +258,7 @@ public sealed class EnvironmentFidelityTests : E2eTestBase
         // only as an attribute-scoped `.sidebar[b-…]` rule inside the generated
         // bundle. The b-* hash itself is deliberately not pinned: it is derived
         // per build, and the fact worth pinning is that the rule took effect.
-        await Expect(Page.Locator(".sidebar"))
+        await Expect(NavigationPanel)
             .ToHaveCSSAsync("background-image", SidebarGradient);
     }
 

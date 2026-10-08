@@ -56,7 +56,7 @@ public sealed class OneBudgetTests : E2eTestBase
             const state = {
               pending: row.hasAttribute('data-nav-fold-pending'),
               autoFolded: document.documentElement.hasAttribute('data-nav-autofold'),
-              panel: Math.round(document.querySelector('.sidebar').getBoundingClientRect().width),
+              panel: Math.round({{NavigationPanelWidthScript}}),
               tailFolded: row.querySelector('.action-row-tail > .tail-menu') !== null,
               pills: [...row.querySelectorAll('.bg-cube-action')].map(p => p.textContent.trim()).join('|'),
             };
@@ -222,7 +222,7 @@ public sealed class OneBudgetTests : E2eTestBase
         Assert.True(await Page.EvaluateAsync<int>("() => window.__frames.queued") > 0, "a fit is waiting on the held frame");
         Assert.Equal(1, held.RowLines);
         Assert.True(held.TailFolded);
-        Assert.Equal(0, (await Panel.BoundingBoxAsync())!.Width);
+        Assert.Equal(0, await NavigationPanelWidthAsync());
         await Expect(CollapseRail).Not.ToBeCheckedAsync();
         var unreachableHeld = await ActionRowGeometry.UnreachableControlsAsync(Page);
         Assert.True(unreachableHeld.Count == 0, "held: " + string.Join("; ", unreachableHeld));
@@ -251,8 +251,6 @@ public sealed class OneBudgetTests : E2eTestBase
         Assert.True(coverage.Samples > 0, "the sampler saw the row");
         Assert.True(coverage.Violations.Length == 0, string.Join(Environment.NewLine, coverage.Violations));
     }
-
-    private ILocator Panel => Page.Locator(".sidebar");
 
     [Fact]
     public async Task AtAWideWindow_TheFirstFitOpensWhatFits_ForTheRowThePanelWillLeave()

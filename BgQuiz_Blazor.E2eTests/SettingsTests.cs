@@ -28,7 +28,6 @@ public sealed class SettingsTests : E2eTestBase
 
     private const int DesktopHeight = 800;
 
-    private ILocator NavigationPanel => Page.Locator(".sidebar");
 
     /// <summary>The layout's collapse checkbox — the control the applier writes.</summary>
     private ILocator CollapseCheckbox => Page.Locator(".sidebar-toggle-checkbox");
@@ -531,27 +530,24 @@ public sealed class SettingsTests : E2eTestBase
     /// with it.
     ///
     /// <para>
-    /// The width is a single read and correct as one
-    /// (<c>halheinrich/backgammon#127</c>): it follows the retrying checkbox
-    /// assertion above, and the fold is a <c>:checked ~ .sidebar</c> rule with no
-    /// transition, so the settled control is the settled width. The mirror below
-    /// reads <c>&gt; 0</c> rather than the panel's designed width for
-    /// <c>SidebarCollapseTests.PanelWidthAsync</c>'s reason — that the layout
-    /// stylesheet applied is <c>EnvironmentFidelityTests</c>' pin, and stating it
-    /// again here would be a second source for it.
+    /// The width is read once, after the checkbox assertion has settled it, by
+    /// <see cref="E2eTestBase.NavigationPanelWidthAsync"/>'s rule. On the quiz
+    /// page this is a fold with the box checked, which reads 0 whether or not
+    /// the row has had its first fit; the mirror below runs only on Settings.
+    /// The mirror reads <c>&gt; 0</c>, for that read's reason too.
     /// </para>
     /// </summary>
     private async Task ExpectFoldedAsync()
     {
         await Expect(CollapseCheckbox).ToBeCheckedAsync();
-        Assert.Equal(0d, await PanelWidthAsync());
+        Assert.Equal(0d, await NavigationPanelWidthAsync());
     }
 
     /// <summary>The mirror of <see cref="ExpectFoldedAsync"/>: panel open, both halves.</summary>
     private async Task ExpectUnfoldedAsync()
     {
         await Expect(CollapseCheckbox).Not.ToBeCheckedAsync();
-        Assert.True(await PanelWidthAsync() > 0);
+        Assert.True(await NavigationPanelWidthAsync() > 0);
     }
 
     /// <summary>
@@ -614,9 +610,6 @@ public sealed class SettingsTests : E2eTestBase
             }
             """,
             token);
-
-    private Task<double> PanelWidthAsync() =>
-        NavigationPanel.EvaluateAsync<double>("el => el.getBoundingClientRect().width");
 
     /// <summary>
     /// Which side of the bar the board's point-1 region sits on — i.e. which side

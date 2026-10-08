@@ -70,8 +70,6 @@ public sealed class MissingPanelOwnerTests : E2eTestBase
         return (Math.Round(b.X, 1), Math.Round(b.Y, 1), Math.Round(b.Width, 1), Math.Round(b.Height, 1));
     }
 
-    private async Task<double> PanelWidthAsync() => (await Page.Locator(".sidebar").BoundingBoxAsync())!.Width;
-
     /// <summary>
     /// Wait until the row-fit module has acted on the current row: its fit
     /// completed (the row no longer pending), or it said, once for each of the
@@ -194,7 +192,7 @@ public sealed class MissingPanelOwnerTests : E2eTestBase
         await Page.GotoAsync(BaseUrl + "/settings");
         Assert.False(await PanelOwner.PresentAsync(Page), "the owner is missing");
         await Expect(KeepFolded).ToBeCheckedAsync();
-        Assert.True(await PanelWidthAsync() > 0);
+        Assert.True(await NavigationPanelWidthAsync() > 0);
         await KeepFolded.UncheckAsync();
         await ExpectToPassAsync(async () => Assert.True(
             await errorUi.IsVisibleAsync() || await ConsoleCountAsync("warning", SettingsApplierCallFailed) == 1,
@@ -208,7 +206,7 @@ public sealed class MissingPanelOwnerTests : E2eTestBase
         await Page.ReloadAsync();
         await Expect(KeepFolded).Not.ToBeCheckedAsync();
         await Expect(Rail).Not.ToBeCheckedAsync();
-        Assert.True(await PanelWidthAsync() > 0);
+        Assert.True(await NavigationPanelWidthAsync() > 0);
 
         // On, without it: nothing to fail, and the choice is kept the same way.
         await PanelOwner.WithholdAsync(Page, absence);
@@ -223,7 +221,7 @@ public sealed class MissingPanelOwnerTests : E2eTestBase
         await Page.ReloadAsync();
         await Expect(KeepFolded).ToBeCheckedAsync();
         await Expect(Rail).ToBeCheckedAsync();
-        Assert.Equal(0, await PanelWidthAsync());
+        Assert.Equal(0, await NavigationPanelWidthAsync());
         Assert.Equal(0, await ConsoleCountAsync("error", "Unhandled exception"));
     }
 }
