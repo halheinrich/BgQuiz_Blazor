@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Playwright;
+using Xunit.Abstractions;
 using static Microsoft.Playwright.Assertions;
 
 namespace BgQuiz_Blazor.E2eTests;
@@ -36,10 +38,19 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class BrowserStorageRefusedTests : E2eTestBase
 {
-    public BrowserStorageRefusedTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    /// <summary>xUnit's per-test output sink, for the remount report's evidence.</summary>
+    private readonly ITestOutputHelper _output;
+
+    public BrowserStorageRefusedTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright)
+    {
+        _output = output;
+    }
 
     private ILocator StorageNotice => Page.Locator("#storageUnavailableNotice");
+
+    /// <summary>The warning Home logs each time the hosted filter panel reports the refusal.</summary>
+    private const string PanelReportWarning = "The filter panel reports that the browser refused its storage";
 
     /// <summary>
     /// How many times the hosted filter panel has reported the refusal to
@@ -47,8 +58,98 @@ public sealed class BrowserStorageRefusedTests : E2eTestBase
     /// nothing itself) — the evidence that a remounted panel reported again.
     /// </summary>
     private async Task<int> PanelReportsAsync() =>
-        (await Page.ConsoleMessagesAsync()).Count(m =>
-            m.Text.Contains("The filter panel reports that the browser refused its storage", StringComparison.Ordinal));
+        (await Page.ConsoleMessagesAsync()).Count(m => m.Text.Contains(PanelReportWarning, StringComparison.Ordinal));
+
+    /// <summary>
+    /// Every console message a page logs from the moment this is made, in
+    /// arrival order — diagnostics for <c>halheinrich/backgammon#372</c>. A
+    /// listener attached before the first navigation, unlike
+    /// <see cref="IPage.ConsoleMessagesAsync"/>, keeps a record whose start
+    /// is known and from which nothing is dropped.
+    /// </summary>
+    private sealed class ConsoleLog
+    {
+        private readonly Stopwatch _clock = Stopwatch.StartNew();
+        private readonly List<string> _entries = [];
+        private readonly object _gate = new();
+
+        public ConsoleLog(IPage page) => page.Console += Record;
+
+        private void Record(object? sender, IConsoleMessage message)
+        {
+            var received = _clock.ElapsedMilliseconds;
+            lock (_gate)
+            {
+                _entries.Add(
+                    $"#{_entries.Count + 1} +{received} ms [{message.Type}] {message.Text}"
+                    + Environment.NewLine + $"    at {message.Location}");
+            }
+        }
+
+        /// <summary>The messages recorded so far.</summary>
+        public IReadOnlyList<string> Entries
+        {
+            get { lock (_gate) return [.. _entries]; }
+        }
+    }
+
+    /// <summary>
+    /// The page's state at the remount report's count check, read whether
+    /// the check passed or failed (<c>halheinrich/backgammon#372</c>): the
+    /// URL, whether the hosted filter panel is mounted, the notice and the
+    /// folder line, both counts of the panel's warning, and the unhandled
+    /// records. Each read is taken on its own and a failed read is reported
+    /// in its place, so collecting this never throws over the check's own
+    /// outcome.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> CountCheckStateAsync(ConsoleLog console)
+    {
+        var state = new List<string>();
+        async Task ReadAsync(string what, Func<Task<string>> read)
+        {
+            try { state.Add($"{what}: {await read()}"); }
+            catch (Exception e) { state.Add($"{what}: (could not read — {e.GetType().Name}: {e.Message})"); }
+        }
+
+        await ReadAsync("URL", () => Task.FromResult(Page.Url));
+        await ReadAsync("Apply Filter controls (the hosted panel mounted)", async () =>
+            (await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ApplyFilterButton }).CountAsync()).ToString());
+        await ReadAsync("#storageUnavailableNotice elements", async () => (await StorageNotice.CountAsync()).ToString());
+        await ReadAsync("Folder line", async () =>
+        {
+            var lines = await Page.Locator(".problem-folder-label").AllInnerTextsAsync();
+            return lines.Count == 0 ? "(none)" : string.Join(" | ", lines);
+        });
+        await ReadAsync("Panel warnings in the listener's log", () =>
+            Task.FromResult(console.Entries.Count(e => e.Contains(PanelReportWarning, StringComparison.Ordinal)).ToString()));
+        await ReadAsync("Listener's log length", () => Task.FromResult(console.Entries.Count.ToString()));
+        await ReadAsync("Panel warnings in ConsoleMessagesAsync (the check's source)", async () => (await PanelReportsAsync()).ToString());
+        await ReadAsync("ConsoleMessagesAsync length", async () => (await Page.ConsoleMessagesAsync()).Count.ToString());
+        await ReadAsync("window.__unhandled", async () =>
+        {
+            var unhandled = await UnhandledAsync();
+            return unhandled.Length == 0
+                ? "(none)"
+                : unhandled.Length + " record(s)" + string.Concat(unhandled.Select((u, i) =>
+                    Environment.NewLine + $"  [{i}] {u.Kind} {u.Name}: {u.Message}"
+                    + (u.ReadFrom is null ? "" : Environment.NewLine + "      readFrom: " + u.ReadFrom.ReplaceLineEndings(Environment.NewLine + "        "))));
+        });
+        return state;
+    }
+
+    /// <summary>
+    /// Print the remount report's evidence (<c>halheinrich/backgammon#372</c>)
+    /// to the test output: the state at the count check, if it was reached,
+    /// then every console message from the test's start.
+    /// </summary>
+    private void WriteRemountEvidence(ConsoleLog console, IReadOnlyList<string>? atCountCheck)
+    {
+        _output.WriteLine("[halheinrich/backgammon#372] state at the remount report's count check:");
+        foreach (var line in atCountCheck ?? ["(the count check was not reached)"]) _output.WriteLine("  " + line);
+        var entries = console.Entries;
+        _output.WriteLine($"[halheinrich/backgammon#372] console messages from the test's start ({entries.Count}):");
+        foreach (var entry in entries) _output.WriteLine("  " + entry);
+    }
 
     /// <summary>The event the control's init-script listener answers with an unrelated unhandled failure.</summary>
     private const string UnrelatedFailureEvent = "bgquiz-test:unrelated-failure";
@@ -153,39 +254,58 @@ public sealed class BrowserStorageRefusedTests : E2eTestBase
     [Fact]
     public async Task HomeSaysSoOnce_TheDismissalHoldsAcrossNavigation_AndAQuizStillRuns()
     {
-        await RefuseStorageAsync();
+        // Diagnostics for halheinrich/backgammon#372, printed whether or not
+        // the test passes: the console from before the first navigation, and
+        // the page's state at the remount report's count check.
+        var console = new ConsoleLog(Page);
+        IReadOnlyList<string>? atCountCheck = null;
+        try
+        {
+            await RefuseStorageAsync();
 
-        await BootHomeAsync();
+            await BootHomeAsync();
 
-        // The premise, observed: the page itself cannot reach storage.
-        Assert.Equal("SecurityError", await Page.EvaluateAsync<string>(
-            "() => { try { localStorage.length; return 'readable'; } catch (e) { return e.name; } }"));
+            // The premise, observed: the page itself cannot reach storage.
+            Assert.Equal("SecurityError", await Page.EvaluateAsync<string>(
+                "() => { try { localStorage.length; return 'readable'; } catch (e) { return e.name; } }"));
 
-        await Expect(StorageNotice).ToHaveCountAsync(1);
-        await Expect(StorageNotice).ToContainTextAsync(
-            "BgQuiz had trouble using your browser's storage. You can keep using it, but some choices may not "
-            + "be remembered next time.");
+            await Expect(StorageNotice).ToHaveCountAsync(1);
+            await Expect(StorageNotice).ToContainTextAsync(
+                "BgQuiz had trouble using your browser's storage. You can keep using it, but some choices may not "
+                + "be remembered next time.");
 
-        // Dismissed, and still dismissed after an enhanced navigation away and
-        // back — the hosted panel remounting with a fresh pick reports the same
-        // condition again on the way.
-        await StorageNotice.GetByRole(AriaRole.Button).ClickAsync();
-        await Expect(StorageNotice).ToHaveCountAsync(0);
-        await PickFixtureAsync(CubeFixture);
-        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink, Exact = true }).ClickAsync();
-        await ExpectUrlAsync("/settings");
-        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HomeNavLink, Exact = true }).ClickAsync();
-        await Expect(PickFolderButton).ToBeVisibleAsync();
-        await ExpectToPassAsync(async () => Assert.Equal(2, await PanelReportsAsync()));
-        await Expect(StorageNotice).ToHaveCountAsync(0);
+            // Dismissed, and still dismissed after an enhanced navigation away and
+            // back — the hosted panel remounting with a fresh pick reports the same
+            // condition again on the way.
+            await StorageNotice.GetByRole(AriaRole.Button).ClickAsync();
+            await Expect(StorageNotice).ToHaveCountAsync(0);
+            await PickFixtureAsync(CubeFixture);
+            await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink, Exact = true }).ClickAsync();
+            await ExpectUrlAsync("/settings");
+            await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HomeNavLink, Exact = true }).ClickAsync();
+            await Expect(PickFolderButton).ToBeVisibleAsync();
+            try
+            {
+                await ExpectToPassAsync(async () => Assert.Equal(2, await PanelReportsAsync()));
+            }
+            finally
+            {
+                atCountCheck = await CountCheckStateAsync(console);
+            }
+            await Expect(StorageNotice).ToHaveCountAsync(0);
 
-        // And the quiz runs on it: apply, start, answer.
-        await ApplyFilterAsync();
-        await StartQuizAsync();
-        await Expect(CubeAnswers).ToHaveCountAsync(4);
-        await AnswerCubeNoDoubleAsync();
+            // And the quiz runs on it: apply, start, answer.
+            await ApplyFilterAsync();
+            await StartQuizAsync();
+            await Expect(CubeAnswers).ToHaveCountAsync(4);
+            await AnswerCubeNoDoubleAsync();
 
-        await AssertNothingUnhandledButTheFrameworksStartUpReadAsync();
+            await AssertNothingUnhandledButTheFrameworksStartUpReadAsync();
+        }
+        finally
+        {
+            WriteRemountEvidence(console, atCountCheck);
+        }
     }
 
     [Theory]
