@@ -31,6 +31,18 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </para>
 ///
 /// <para>
+/// <b>The scenario's wait is watched too</b> (halheinrich/backgammon#350,
+/// the check <see cref="RowFitFirstFitHold"/> has). Until the module goes
+/// through no row can exist, so no problem can land; a wait for one found
+/// complete at the release is not a wait for it, and <see cref="Unmet"/> says
+/// so. The release follows the checkpoint at once, so a step that does not
+/// wait can also complete only after the release and pass by winning the race
+/// with the row: that case is not seen here. Issued well before the page asks
+/// for the module, such a step loses that race, which is why the proof under
+/// this hold starts its quiz on the URL alone (<c>QuizFlowTests</c>).
+/// </para>
+///
+/// <para>
 /// A Playwright route turns the page's HTTP cache off while it is active, so
 /// every request for the module, cold or not, comes through the hold. The
 /// module is served unchanged: the hold delays the request and alters
@@ -49,6 +61,8 @@ internal sealed class RowFitModuleHold
     private Seen? _checkpointed;
     private Seen? _released;
     private string? _step;
+    private Task? _wait;
+    private bool _waitCompletedWhileHeld;
 
     private RowFitModuleHold()
     {
@@ -75,16 +89,18 @@ internal sealed class RowFitModuleHold
 
     /// <summary>
     /// The scenario has begun <paramref name="step"/>, the step the hold is
-    /// for: from here the module goes through, on the hold's own continuation.
-    /// Only the first call counts.
+    /// for, by issuing <paramref name="wait"/>: from here the module goes
+    /// through, on the hold's own continuation, and the wait is looked at as
+    /// it goes. Only the first call counts.
     /// </summary>
-    internal void Checkpoint(string step)
+    internal void Checkpoint(string step, Task wait)
     {
         lock (_gate)
         {
             if (_checkpointed is not null) return;
             _checkpointed = Next();
             _step = step;
+            _wait = wait;
         }
         _checkpoint.TrySetResult();
     }
@@ -92,7 +108,8 @@ internal sealed class RowFitModuleHold
     /// <summary>
     /// What kept the hold from doing its work, or null where it did: the
     /// module was requested and held, the scenario reached its checkpoint,
-    /// and the module was let through after the checkpoint, never before it.
+    /// its wait had not completed when the module was let through, and the
+    /// module was let through after the checkpoint, never before it.
     /// </summary>
     internal string? Unmet()
     {
@@ -104,6 +121,8 @@ internal sealed class RowFitModuleHold
                 return "the scenario never reached its checkpoint, so the module was never let through";
             if (_released is not { } released)
                 return "the module was not let through after the checkpoint";
+            if (_waitCompletedWhileHeld)
+                return "the scenario's wait had completed before the module was let through, so it does not wait for the problem to land";
             return released.Order > checkpointed.Order
                 ? null
                 : "the module was let through before the scenario's checkpoint, so nothing was held across it";
@@ -125,7 +144,10 @@ internal sealed class RowFitModuleHold
             if (_checkpointed is { } checkpointed)
                 events.Add((checkpointed, $"row-fit module hold: the scenario's checkpoint, \"{_step}\"; the hold lets the module through from here"));
             if (_released is { } released)
-                events.Add((released, "row-fit module hold: actionRowFit.js let through"));
+            {
+                events.Add((released, "row-fit module hold: actionRowFit.js let through"
+                    + (_waitCompletedWhileHeld ? "; the scenario's wait had already completed" : "; the scenario's wait still waiting")));
+            }
             return [.. events.OrderBy(e => e.Seen.Order).Select(e => (e.Seen.At, e.What))];
         }
     }
@@ -134,7 +156,14 @@ internal sealed class RowFitModuleHold
     {
         lock (_gate) _requested ??= Next();
         await _checkpoint.Task;
-        lock (_gate) _released ??= Next();
+        lock (_gate)
+        {
+            if (_released is null)
+            {
+                _waitCompletedWhileHeld = _wait?.IsCompleted == true;
+                _released = Next();
+            }
+        }
         await route.ContinueAsync();
     }
 

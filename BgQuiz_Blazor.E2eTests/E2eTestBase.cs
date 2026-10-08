@@ -973,15 +973,16 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </para>
     /// </summary>
     /// <param name="number">The problem's number in the run, as the score panel shows it.</param>
-    /// <param name="waitBegun">
-    /// Called once the wait has been issued, before it is awaited: a
-    /// checkpoint for a harness that must know the scenario is already
-    /// waiting (<see cref="RowFitModuleHold"/>). It must return at once.
+    /// <param name="waitIssued">
+    /// Called with the wait for the problem's number once it has been issued,
+    /// before it is awaited: a checkpoint for a harness that must know the
+    /// scenario is already waiting, and can watch the wait itself
+    /// (<see cref="RowFitModuleHold"/>). It must return at once.
     /// </param>
-    protected async Task<string> ExpectCubeProblemAsync(int number, Action? waitBegun = null)
+    protected async Task<string> ExpectCubeProblemAsync(int number, Action<Task>? waitIssued = null)
     {
         var landing = ExpectProblemNumberAsync(number);
-        waitBegun?.Invoke();
+        waitIssued?.Invoke(landing);
         await landing;
         await Expect(CubeAnswers).ToHaveCountAsync(4);
         await Expect(ForwardButton).ToBeEnabledAsync();

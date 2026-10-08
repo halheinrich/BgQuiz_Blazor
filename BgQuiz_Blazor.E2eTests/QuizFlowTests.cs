@@ -173,7 +173,7 @@ public sealed class QuizFlowTests : E2eTestBase
             await ExpectUrlAsync(AppRoute.Quiz);
 
             // The branch: which problem the run served first, once it has landed.
-            first = await ExpectCubeProblemAsync(1, () => hold?.Checkpoint("the scenario is waiting for problem 1 to land"));
+            first = await ExpectCubeProblemAsync(1, wait => hold?.Checkpoint("the scenario is waiting for problem 1 to land", wait));
             // The order this run was given, checked before anything relies on
             // it: the folder's order is the browser's enumeration, which the
             // proof replaces (PickFixturesInOrderAsync), and a replacement that
