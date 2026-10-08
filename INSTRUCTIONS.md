@@ -4333,11 +4333,48 @@ pins the four pills on it with the fourth reading **No double / Pass**, by
 exact accessible name, and the fourth reading **Too good** on the match
 `TooGoodTakeFixture`, where answering it is charged SPEC-scoring §3's
 convention. Pills are found by exact name (`CubePill`): Playwright matches a
-name by substring, and "No double" is inside "No double / Pass". In-app navigation is asserted with polling URL assertions
-(`Expect(Page).ToHaveURLAsync`), **not** `WaitForURLAsync` — Blazor navigates by
-`pushState` (same-document), and the navigation-event wait can lose the race
-when the push lands between the triggering click and the wait's registration
-(observed as a rare timeout with the app already on the target URL).
+name by substring, and "No double" is inside "No double / Pass".
+
+**A navigation completes in three senses, and each has its own operation**
+(`halheinrich/backgammon#374`). Blazor's enhanced navigation pushes the new
+URL and then fetches the page, and the page it is leaving stays on screen
+until the new one replaces it. So a URL says a navigation was requested, not
+that its page rendered: on production's slower start, a test that clicked the
+persistent Home link once the Settings URL was up acted on the Home still
+showing (`halheinrich/backgammon#372`).
+
+- **URL arrived** — `E2eTestBase.ExpectUrlAsync(route)`. A polling URL
+  assertion (`Expect(Page).ToHaveURLAsync`), **not** `WaitForURLAsync`:
+  Blazor navigates by `pushState` (same-document), and the navigation-event
+  wait can lose the race when the push lands between the triggering click
+  and the wait's registration (observed as a rare timeout with the app
+  already on the target URL). It is the whole wait only where the URL is the
+  claim — a test's last word, or a page that must have stayed put — or where
+  the next step itself waits on content only the destination renders.
+- **Page rendered** — `E2eTestBase.ExpectPageRenderedAsync(route)`: the URL,
+  then the route's landmark visible. It comes after a navigation and before
+  any step the page being left could take or satisfy: a click on the
+  persistent navigation, a key press, a read of text both pages show (the
+  score panel's counts, the stats notices), an absence. The navigating flow
+  helpers end on it (`StartQuizAsync`, `ContinueToDoneAsync`).
+- **Feature ready** — what a page loads after it renders: the keyboard
+  module's mark, the row's first fit, a problem landed
+  (`ExpectKeyboardShortcutReadyAsync`, `ExpectRowFittedAsync`,
+  `ExpectCubeProblemAsync`). Always an explicit wait in the test that needs
+  it; page rendered never waits on one.
+
+**The landmark rule.** Every route the suite navigates to has one landmark,
+defined once, beside its path, in `E2eTestBase.AppRoute`. A landmark is
+**unique to its page**, so the page being left can never satisfy it, and
+**present from the page's first render**, behind no feature's asynchronous
+load, so a test that holds a feature on purpose (the row-fit module, the
+page's frames) can still establish that its page rendered. A route that
+cannot supply such a landmark is a conflict to report, never a reason to add
+a seam to the app or to weaken page rendered. `PageRenderedTests` enforces
+both halves: each landmark is on its own page and on no other, and at a
+checkpoint held by routing the destination's enhanced-navigation fetch (the
+URL up, the old page showing, the landmark absent) URL arrived completes
+while page rendered does not.
 
 **One-shot reads after an action are timing assertions in disguise** (issues
 `halheinrich/backgammon#126`, `halheinrich/backgammon#127`). A value read
@@ -4406,7 +4443,15 @@ sets the order where the page reads it, the fallback input's `files`,
 reordered into a browser-built `FileList`, and
 `QuizFlowTests.TooGoodToDoubleTakePath_WithTheRowArrivingOnlyOnceTheScenarioWaitsForIt`
 runs the scenario in each order. Reverting its decision to a one-shot read
-turns the Too-good-first row red.
+turns the Too-good-first row red. The hold also fails a wait it finds
+already complete when it lets the module through
+(`halheinrich/backgammon#350`); with the one-shot read reported as the
+scenario's wait, that check failed the Too-good-second row as well, 3 runs
+of 3. Catching the one-shot read depends on a margin, so the scenario starts
+its quiz by hand and waits for the URL alone: started through
+`StartQuizAsync`, which waits for the quiz page to render, the read can win
+its race with the module, and was caught in 2 Too-good-first runs of 3
+(`halheinrich/backgammon#374`).
 
 **A geometry pin checks its yardstick first.** Every "A sits below B" claim
 here is arithmetic over two boxes, and a box that is absent or zero-sized makes
