@@ -158,7 +158,19 @@ public sealed class QuizFlowTests : E2eTestBase
             await ApplyFilterAsync();
             if (conditions.RowHeldUntilWaitedFor)
                 hold = await RowFitModuleHold.InstallAsync(Page);
-            await StartQuizAsync();
+
+            // Started by hand, waiting for the URL alone, not by StartQuizAsync,
+            // which waits for the quiz page to render: the scenario's first wait
+            // for its problem is then issued before the page has rendered, so
+            // before the page has even asked for the row-fit module. That margin
+            // is what lets the held proof catch a step that does not wait: with
+            // the branch mutated back to a one-shot read, Too good first, it was
+            // caught in 3 of 3 runs started this way and 2 of 3 started by the
+            // helper (halheinrich/backgammon#374). The next step is that wait,
+            // for content only the quiz page renders, so Home cannot satisfy it.
+            await Expect(StartButton).ToBeEnabledAsync();
+            await StartButton.ClickAsync();
+            await ExpectUrlAsync(AppRoute.Quiz);
 
             // The branch: which problem the run served first, once it has landed.
             first = await ExpectCubeProblemAsync(1, () => hold?.Checkpoint("the scenario is waiting for problem 1 to land"));

@@ -816,7 +816,11 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// the tests holding the quiz page's start could reach it: nothing on the
     /// quiz page they could wait for was free of the module. The page's
     /// landmark is, and a URL alone leaves the caller's next step free to be
-    /// taken, or met, by Home.
+    /// taken, or met, by Home. One scenario still needs the URL alone, for a
+    /// margin rather than for reach: the held Too good proof in
+    /// <c>QuizFlowTests</c> catches a step that does not wait only while its
+    /// first wait is issued well before the page asks for the module, so it
+    /// starts the quiz itself and says why.
     /// </para>
     /// </summary>
     protected async Task StartQuizAsync()
