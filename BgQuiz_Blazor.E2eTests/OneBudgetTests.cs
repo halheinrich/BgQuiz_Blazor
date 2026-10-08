@@ -195,7 +195,11 @@ public sealed class OneBudgetTests : E2eTestBase
             });
             await Page.EvaluateAsync("() => { window.__frames.hold(); window.__coverage.start(); }");
             await StartQuizAsync();
-            await ExpectUrlAsync(AppRoute.Quiz);
+            // The quiz page has rendered, with the module still held: its
+            // landmark needs no module. StartQuizAsync has waited for this
+            // already; it is restated because the absence below means nothing
+            // without it — Home has no row either.
+            await ExpectPageRenderedAsync(AppRoute.Quiz);
 
             // No row is shown that nothing can fit: none while the module waits.
             await Expect(Row).ToHaveCountAsync(0);

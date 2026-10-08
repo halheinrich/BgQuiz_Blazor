@@ -16,11 +16,13 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <para>
 /// Waiting policy: Playwright auto-wait and explicit <c>Expect</c> assertions
 /// only — no sleeps. Every helper that triggers an async app transition ends by
-/// awaiting a stated consequence of it, which its own summary names. Most
-/// await the transition's user-visible result. <see cref="StartQuizAsync"/>
-/// and <see cref="ContinueToDoneAsync"/> await only the URL, Start's
-/// deliberately, so that the tests holding the quiz page's start can reach
-/// it. What a caller then waits for before it reads or acts is the rules below.
+/// awaiting a stated consequence of it, which its own summary names: the
+/// transition's user-visible result. A helper that navigates ends on the
+/// destination page rendered (<see cref="StartQuizAsync"/>,
+/// <see cref="ContinueToDoneAsync"/>), and on no feature that page loads
+/// afterwards, so a test holding the quiz page's row-fit module or its frames
+/// still gets past Start. What a caller then waits for before it reads or
+/// acts is the rules below.
 /// </para>
 ///
 /// <para>
@@ -801,12 +803,27 @@ public abstract class E2eTestBase : IAsyncLifetime
         await Expect(MaximizeCheckbox).Not.ToBeCheckedAsync();
     }
 
-    /// <summary>Click Start Quiz and wait for the quiz page.</summary>
+    /// <summary>
+    /// Click Start Quiz and wait for the quiz page to render
+    /// (<see cref="ExpectPageRenderedAsync"/>) — and for nothing the page
+    /// loads afterwards. Its landmark needs no module, so a test holding the
+    /// row-fit module or the page's frames gets past this with the hold in
+    /// place; the problem, the row, its fit and the keyboard module are each
+    /// the caller's to wait for.
+    ///
+    /// <para>
+    /// It waited for the URL alone until halheinrich/backgammon#374, so that
+    /// the tests holding the quiz page's start could reach it: nothing on the
+    /// quiz page they could wait for was free of the module. The page's
+    /// landmark is, and a URL alone leaves the caller's next step free to be
+    /// taken, or met, by Home.
+    /// </para>
+    /// </summary>
     protected async Task StartQuizAsync()
     {
         await Expect(StartButton).ToBeEnabledAsync();
         await StartButton.ClickAsync();
-        await ExpectUrlAsync(AppRoute.Quiz);
+        await ExpectPageRenderedAsync(AppRoute.Quiz);
     }
 
     /// <summary>
@@ -1065,11 +1082,17 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </summary>
     protected Task AnswerCubeNoDoubleAsync() => AnswerCubeAsync(ExpectedText.NoDoublePill);
 
-    /// <summary>Continue past the review of the (only) problem and land on Done.</summary>
+    /// <summary>
+    /// Continue past the review of the (only) problem and wait for Done to
+    /// render (<see cref="ExpectPageRenderedAsync"/>). Not the URL alone: the
+    /// review being left shows much of what a caller reads on Done next — the
+    /// score panel's counts, the stats notices — so a read after the URL alone
+    /// could pass on the quiz page.
+    /// </summary>
     protected async Task ContinueToDoneAsync()
     {
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton }).ClickAsync();
-        await ExpectUrlAsync(AppRoute.Done);
+        await ExpectPageRenderedAsync(AppRoute.Done);
     }
 
     /// <summary>

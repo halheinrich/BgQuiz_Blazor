@@ -91,8 +91,11 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
 
         await Expect(StartButton).ToBeEnabledAsync();
 
+        // Help rendered, not merely its URL, before the persistent Home link is
+        // clicked: clicked while Home still showed, it would return to a Home
+        // that never left, and the survival below would prove nothing.
         await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HelpNavLink }).ClickAsync();
-        await ExpectUrlAsync(AppRoute.Help);
+        await ExpectPageRenderedAsync(AppRoute.Help);
         await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HomeNavLink }).ClickAsync();
         await ExpectUrlAsync(AppRoute.Home);
 

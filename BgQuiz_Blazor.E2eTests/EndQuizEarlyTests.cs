@@ -85,8 +85,10 @@ public sealed class EndQuizEarlyTests : E2eTestBase
 
         await AnswerCubeNoDoubleAsync(); // lands in review, Continue showing
 
+        // Done rendered, not merely its URL: the review being left shows the
+        // same score panel, with the same Submitted and Skipped counts.
         await EndQuizButton.ClickAsync();
-        await ExpectUrlAsync(AppRoute.Done);
+        await ExpectPageRenderedAsync(AppRoute.Done);
 
         var body = Page.Locator("body");
 

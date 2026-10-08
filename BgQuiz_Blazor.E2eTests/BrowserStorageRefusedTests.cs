@@ -281,12 +281,12 @@ public sealed class BrowserStorageRefusedTests : E2eTestBase
             await Expect(StorageNotice).ToHaveCountAsync(0);
             await PickFixtureAsync(CubeFixture);
             await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink, Exact = true }).ClickAsync();
-            await ExpectUrlAsync(AppRoute.Settings);
-            // The URL alone does not show that Settings replaced Home
-            // (halheinrich/backgammon#372): its heading is up and Home's
-            // folder-pick control is gone before Home is clicked.
-            await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = ExpectedText.SettingsHeading, Level = 1, Exact = true })).ToBeVisibleAsync();
-            await Expect(PickFolderButton).ToHaveCountAsync(0);
+            // Settings has rendered, not merely its URL arrived, before Home is
+            // clicked: the link is persistent, so a click while Home still
+            // showed would be taken there. On production, with the URL alone
+            // waited for, the second report never came; with Settings' page
+            // waited for, it did (halheinrich/backgammon#372).
+            await ExpectPageRenderedAsync(AppRoute.Settings);
             await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HomeNavLink, Exact = true }).ClickAsync();
             await Expect(PickFolderButton).ToBeVisibleAsync();
             try

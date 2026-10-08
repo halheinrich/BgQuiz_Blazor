@@ -94,11 +94,13 @@ public sealed class KeyboardShortcutTests : E2eTestBase
 
     /// <summary>
     /// The one-problem run ended by a skip: on <c>Done</c>, one problem
-    /// skipped and nothing submitted.
+    /// skipped and nothing submitted. Done rendered first, not merely its
+    /// URL: the counts are the score panel's, and the quiz page renders that
+    /// panel too, whenever it is not hidden by the maximized answering view.
     /// </summary>
     private async Task ExpectSkippedUnsubmittedAsync()
     {
-        await ExpectUrlAsync(AppRoute.Done);
+        await ExpectPageRenderedAsync(AppRoute.Done);
         var body = Page.Locator("body");
         await Expect(body).ToContainTextAsync(ExpectedText.Skipped(1));
         await Expect(body).ToContainTextAsync(ExpectedText.Submitted(0));
@@ -111,7 +113,9 @@ public sealed class KeyboardShortcutTests : E2eTestBase
     /// nothing skipped. The score's Total counts each answer once, a checker
     /// play or a cube answer alike (SPEC-scoring §3, 2026-10-01). Focus is on
     /// the body for the second press whatever it was on for the first: the
-    /// review render removes every answering control.
+    /// review render removes every answering control. Done rendered before the
+    /// counts are read, not merely its URL: the review being left shows the
+    /// same score panel, already reading one submitted and none skipped.
     /// </summary>
     private async Task ExpectSubmittedThenContinuedBySpaceAsync()
     {
@@ -121,7 +125,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
 
         await Page.Keyboard.PressAsync("Space");
 
-        await ExpectUrlAsync(AppRoute.Done);
+        await ExpectPageRenderedAsync(AppRoute.Done);
         var body = Page.Locator("body");
         await Expect(body).ToContainTextAsync(ExpectedText.Submitted(1));
         await Expect(body).ToContainTextAsync(ExpectedText.Skipped(0));
@@ -144,8 +148,9 @@ public sealed class KeyboardShortcutTests : E2eTestBase
         await Page.Keyboard.PressAsync("Space");
 
         // Exactly what Continue does: the one problem is behind us, so Done —
-        // with the answer scored and nothing skipped.
-        await ExpectUrlAsync(AppRoute.Done);
+        // with the answer scored and nothing skipped. Done rendered, not
+        // merely its URL: the review being left reads "Skipped: 0" too.
+        await ExpectPageRenderedAsync(AppRoute.Done);
         await Expect(Page.Locator("body")).ToContainTextAsync(ExpectedText.Skipped(0));
     }
 
