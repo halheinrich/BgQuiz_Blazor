@@ -12254,6 +12254,25 @@ public class PageTests : BunitContext
             : cut.FindComponent<BackgammonDiagram>().Instance.Request!.HomeBoardOnRight;
 
     [Fact]
+    public void Settings_Lead_PromisesRememberingOnlyWhereTheBrowserStores()
+    {
+        // Ruled copy (halheinrich/backgammon#374; the wording Hal approved in
+        // comment 6087873844), pinned word for word against an independent
+        // literal: the page no longer promises remembering unconditionally,
+        // because a browser that refuses storage keeps the settings for the
+        // visit only.
+        WithController();
+
+        var cut = Render<SettingsPage>();
+
+        Assert.Equal(
+            "Every change here is kept as you make it — there is nothing to save. This browser remembers your "
+            + "settings for next time unless it refuses to store them; then they last for this visit, including "
+            + "navigation within the app.",
+            Normalize(cut.Find("p.lead").TextContent));
+    }
+
+    [Fact]
     public void Settings_RendersEveryControl_ReflectingTheStoredValues()
     {
         // The page is a view over the service and nothing else: what it shows is

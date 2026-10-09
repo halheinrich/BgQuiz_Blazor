@@ -10,15 +10,24 @@
 
 <div class="container py-3" style="max-width:800px">
     <h1>Settings</h1>
-    @* The lead promises persistence, not visible effect: one setting below
+    @* The lead promises keeping, not visible effect: one setting below
        deliberately shows itself on the next page rather than on this one (the
        fold — see its own fine print), so a blanket "takes effect immediately"
        would be a claim the page then breaks. "Kept as you make it" is the part
-       that is true of every one of them, and it is also the part a reader is looking
-       for when they wonder where the Save button is. *@
+       that is true of every one of them, and it is also the part a reader is
+       looking for when they wonder where the Save button is.
+
+       Remembering is promised conditionally (halheinrich/backgammon#374, the
+       wording Hal approved in comment 6087873844): a browser that refuses
+       storage keeps the settings for the visit only — every store holds its
+       value in memory when a write is refused — and the lead says exactly
+       that, in the words FilterHelp uses for the filters. Ruled copy, so it
+       is pinned word for word (PageTests). *@
     <p class="lead">
-        Every change here is kept as you make it and remembered in this
-        browser — there is nothing to save.
+        Every change here is kept as you make it — there is nothing to save.
+        This browser remembers your settings for next time unless it refuses
+        to store them; then they last for this visit, including navigation
+        within the app.
     </p>
 
     @* Gated on hydration so no control paints a default the stored settings are
