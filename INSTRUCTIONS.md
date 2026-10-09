@@ -2595,11 +2595,16 @@ The asymmetry is pinned three times over: at the service seam
   foreground work — the pick's scan), and `IsParsingThePick` — the pick's
   first count, which parses the corpus; disabling the surface then prevents a
   Start racing that parse. **A count over a parse the pick already holds is
-  not busy**: a recount after an edit runs on the cached parse, and disabling
-  the fieldset for it would take focus out of the box being typed in and lose
-  keystrokes (found in the browser suite, halheinrich/backgammon#374; pinned
-  by `Home_ACountOverAParseThePickHolds_LeavesTheControlsAlone` and the
-  browser suite's field-entry checks). **Raising it is single-sourced**: `EnterBusyAsync()` sets `_busy`,
+  not busy** — Hal's ruling (halheinrich/backgammon#374, comment 6090571891):
+  cached recounts leave the controls usable, and the current pick's first
+  parse remains busy. A recount after an edit runs on the cached parse, and a
+  count and a Start each enumerate their own stack over it, so nothing a Start
+  could race is shared — the justification, not the recount being short.
+  Disabling the fieldset for it would take focus out of the box being typed
+  in and lose keystrokes (found in the browser suite; pinned by
+  `Home_ACountOverAParseThePickHolds_LeavesTheControlsAlone` and the browser
+  suite's field-entry checks), and it leaves Start live over an unknown
+  count, which is what a failed count already does. **Raising it is single-sourced**: `EnterBusyAsync()` sets `_busy`,
   calls `StateHasChanged`, and **yields**, while `RunBusyAsync(work)` is the
   whole-operation form (enter, run, lower in a `finally`). Every site uses one
   of them — the fallback pick's collection and the FS-Access

@@ -817,13 +817,18 @@ public partial class Home : ComponentBase, IDisposable
     /// Disabling the fieldset for such a count would disable the box the user
     /// is typing in, and a focused control that is disabled loses its focus,
     /// against the ruled "typing keeps its focus and caret" (SPEC-filtering.md
-    /// §1). Those counts read a parse the pick already holds, so they are
-    /// short, parse nothing, and the holder supersedes a stale one; they leave
-    /// the controls — Start included — alone and show only the counting line.
-    /// The first count after a pick is different — it parses the corpus, the
-    /// one long stretch, and it runs before anyone is typing — so it keeps the
-    /// whole-surface busy state, which also keeps a Start or a second count
-    /// from parsing the same corpus beside it.
+    /// §1). Those counts read a parse the pick already holds, so they parse
+    /// nothing, and a count and a Start each enumerate their own stack over
+    /// that parse, sharing nothing a Start could race — the reason they may
+    /// leave the controls, Start included, alone, however long one runs; they
+    /// show only the counting line, and the holder supersedes a stale one.
+    /// The first count after a pick is different — it parses the corpus, and
+    /// it runs before anyone is typing — so it keeps the whole-surface busy
+    /// state, which also keeps a Start or a second count from parsing the same
+    /// corpus beside it. The policy is Hal's ruling (halheinrich/backgammon#374,
+    /// comment 6090571891): cached recounts leave the controls usable, and the
+    /// current pick's first parse remains busy — "current" being the count of
+    /// the inputs on screen (<see cref="IsParsingThePick"/>).
     /// </para>
     /// </summary>
     private bool IsBusy => Controller.IsBusy || _busy || IsParsingThePick;
