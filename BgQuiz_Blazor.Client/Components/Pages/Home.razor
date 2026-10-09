@@ -10,8 +10,8 @@
 
 @inject IFolderAccess FolderAccess
 @inject PickedProblemFolder Folder
-@inject AppliedFilter AppliedFilter
-@inject FilterRestoreNotice FilterRestoreNotice
+@inject FilterSetup FilterSetup
+@inject MatchCount MatchCount
 @inject MixVisibility MixVisibility
 @inject MixDraft MixDraft
 @inject ShuffleOption ShuffleOption
@@ -23,13 +23,11 @@
 @inject QuizSettings Settings
 @inject QuizNoticeDismissal Notices
 @inject BrowserStorageCondition StorageCondition
-@inject ILogger<Home> Logger
 
 <PageTitle>BgQuiz</PageTitle>
 
 @* app-busy: the progress-cursor idiom (app.css) whenever this page is working
-   — a controller transition, a pick's scan-and-buffer, or an Apply's match
-   count. The predicate is IsBusy for all of them, and the fieldset below
+   — a controller transition, a pick's scan-and-buffer, or a match count. The predicate is IsBusy for all of them, and the fieldset below
    reads the same one, so cursor and disabled controls cannot disagree. *@
 <div class="container py-3 @(IsBusy ? "app-busy" : null)">
     <h1>BgQuiz</h1>
@@ -57,13 +55,14 @@
 
     @* Browser storage refused (issue halheinrich/backgammon#360): a condition
        notice (SPEC-notices.md §1), so polite, a warning and dismissible per
-       occurrence. One fact however it arose — the hosted filter panel's report
-       (OnStorageUnavailable, below) and this app's own stores' refusals all
-       feed BrowserStorageCondition — so one notice, with one occurrence that
-       lasts the visit: a dismissal holds across navigation, a remounted
-       panel's fresh report and every later refusal, and a reload, a new app,
-       shows it fresh. QuizNoticeDismissal holds the dismissal because the
-       occurrence outlives this page (§2).
+       occurrence. One fact however it arose — the filter surface's refusals
+       (through the registered FilterStorageRefusalSink) and this app's own
+       stores' all feed BrowserStorageCondition — so one notice, with one
+       occurrence that lasts the visit: a dismissal holds across navigation,
+       every later refusal from any reporter, and a refusal answered after
+       this page had gone; a reload, a new app, shows it fresh.
+       QuizNoticeDismissal holds the dismissal because the occurrence outlives
+       this page (§2).
 
        Above the setup surface and outside its disclosure gate, because the
        condition is the app's, not a pick's: a refusal before any folder is
@@ -485,64 +484,48 @@
        toggle, and Start button (with all their hints and notices) appear only
        once a folder with problem files is picked. Before a pick there is
        nothing to filter, weight, or start, so showing them is noise that buries
-       the one required first step — picking a folder. Hiding them also makes
-       "Apply the filters to enable Start" true by construction (the panel isn't
-       there to apply pre-pick). Following the enclosing <fieldset>'s
+       the one required first step — picking a folder. Following the enclosing <fieldset>'s
        whole-setup-surface convention, this wrapper does not re-indent its body. *@
     @if (Folder.HasFiles)
     {
 
     @* The whole filter surface — saved filters, their degrade/refusal notices,
-       and the filter panel — is one producer composite now: FilterSurface owns
-       the panels and every interaction between them (load→stage, save/delete,
-       the applied-state mediation onto the AppliedFilter holder, the notice
-       copy), so this host binds facts and side effects only.
+       and the filter panel — is one producer composite: FilterSurface owns the
+       panels and every interaction between them, and injects the app-scoped
+       FilterSetup that holds the selection, so this host binds only what is
+       the host's to say: the saved-filters seam and its capability ruling.
 
-       Source is the pick's identity, minted once in CurrentFilterSource and
-       read here and by every gate, so what a commit is keyed to and what a
-       gate compares can never disagree; this region renders only while a
-       folder is held, so a token always exists here.
+       Nothing about the selection is bound here. The pick is reported to the
+       owner where this page latches it (ReportFilterSource), whether or not
+       this region is mounted; the gate, the filter to run and the match
+       count read the owner's snapshot (see the code-behind); and the
+       surface's storage refusals reach BrowserStorageCondition through the
+       sink Program.cs registers. Unmounting this region on Clear or a pick
+       therefore loses nothing: a remount over an unchanged pick finds its
+       setup as it was left, and a new pick has already ended the old one.
 
-       RestoreNotice is the app-scoped instance registered in Program.cs, bound
-       and nothing more: its movers are producer-internal, so the composite
-       decides entirely on its own when a boot's restored selection is
-       announced and when the announcement dies. Storage is the picked-slot
-       adapter — supplied only while the pick's
+       Storage is the picked-slot adapter — supplied only while the pick's
        capability exposes a readable directory handle, so a fallback pick
        (BrowserUnsupported) gets no saved-filters section at all, and
        PermissionDenied stays load-only through CanPersist with the host's
-       FS-Access wording. The two events keep their panel-shaped contracts, so
-       the match-summary side effects and gate re-derivation bind as before.
-
-       Note the composite is UNMOUNTED whenever no folder is held (this gate),
-       so its source-change rule cannot run for this host's pick/Clear gestures
-       — EndCurrentSetupAsync documents the one line that covers the gap. What
-       each successful pick gets instead is a fresh mount: Apply re-armed (the
-       panel's committed config died with the old instance) and this folder's
-       saved-filters document read through the seam.
-
-       OnStorageUnavailable is the panel's report that the browser refused a
-       localStorage call it made (once per mount; the panel has already
-       degraded, and Apply still raises both events above). This page feeds it
-       to BrowserStorageCondition, the one fact its storage notice says. *@
-    <FilterSurface AppliedFilter="AppliedFilter"
-                   RestoreNotice="FilterRestoreNotice"
-                   Source="CurrentFilterSource"
-                   Storage="Storage"
+       FS-Access wording. *@
+    <FilterSurface Storage="Storage"
                    CanPersist="Folder.Capability == FolderWriteCapability.Enabled"
-                   PersistDisabledReason="@SavedFiltersDisabledReason"
-                   OnFilterConfigChanged="HandleFilterConfigApplied"
-                   OnAppliedStateChanged="HandleAppliedStateChanged"
-                   OnStorageUnavailable="HandleFilterStorageUnavailable" />
+                   PersistDisabledReason="@SavedFiltersDisabledReason" />
 
-    @* Match summary on Apply: how many decisions the applied filters selected —
-       the pre-mix pool the quiz (and any weighted mix) draws from — and what
+    @* Match summary: how many decisions the filter in effect selects — the
+       pre-mix pool the quiz (and any weighted mix) draws from — and what
        kinds of answer those decisions call for. Positions offering no play
        choice (a pass, or a forced play) are included because they auto-skip at
        quiz time, so the wording is "decisions that match", not "problems you'll
        see". Polite role="status"; advisory only
        (Start is gated by CanStart, not by this). The busy line shows during the
-       first-parse after a pick.
+       first parse after a pick.
+
+       Read from the app-scoped MatchCount holder, keyed by the pick, the
+       filter in effect and the ranking (CurrentMatchSummary), so it is shown
+       only for the inputs on screen, and a navigate-back finds the count it
+       left — and the known-zero gate with it.
 
        The count is filter-only by construction — SummarizeMatchesAsync passes
        QuizMix.Empty — so with a mix in effect the number describes the pool the
@@ -629,7 +612,7 @@
                 <li><code>@rejection.SourceName</code> — @rejection.Reason.Message</li>
             }
         </ul>;
-    @if (_isCounting)
+    @if (MatchCount.IsCounting)
     {
         <div class="text-muted small mb-3" role="status">Counting matching decisions…</div>
     }
@@ -659,7 +642,7 @@
             @rejectedFiles(allRejected)
         </Notice>
     }
-    else if (_matchSummary is { AnswerTypes.Total: 0 })
+    else if (CurrentMatchSummary is { AnswerTypes.Total: 0 })
     {
         <Notice id="noMatchNotice" class="mb-3" Kind="NoticeKind.Warning"
                 Announcement="NoticeAnnouncement.Polite">
@@ -670,7 +653,7 @@
             }
         </Notice>
     }
-    else if (_matchSummary is { AnswerTypes: var pool, DuplicatesCollapsed: var collapsed })
+    else if (CurrentMatchSummary is { AnswerTypes: var pool, DuplicatesCollapsed: var collapsed })
     {
         <div class="text-muted small mb-3" role="status">
             <div>
@@ -719,9 +702,9 @@
        or replace this record except the pick itself — Set and Clear null
        Parsed, which is how a new pick or Clear retires it, and how navigating
        away and back recovers it (the holder outlives the page, as it does for
-       the truncation notice). Deliberately NOT read from _matchSummary, which
-       Home clears on an uncommitted filter edit, before each count and on a
-       failed count: the selection and its rejected files stand through all
+       the truncation notice). Deliberately NOT read from the match summary,
+       which is absent while the filters are edited away from what is in
+       effect, while a count runs and after a count fails: the selection and its rejected files stand through all
        three, so a notice that hid with the summary would say the selection
        was whole exactly while the user edits the filters over it. The summary
        carries the same report object (MatchSummary.Sources), so the count and
@@ -839,7 +822,7 @@
     {
         <small class="text-muted ms-2">No selected problem file could be read — pick a folder with readable problem files to enable Start.</small>
     }
-    else if (_matchSummary is { AnswerTypes.Total: 0 })
+    else if (CurrentMatchSummary is { AnswerTypes.Total: 0 })
     {
         <small class="text-muted ms-2">No problems match the filters — adjust and re-apply them to enable Start.</small>
     }

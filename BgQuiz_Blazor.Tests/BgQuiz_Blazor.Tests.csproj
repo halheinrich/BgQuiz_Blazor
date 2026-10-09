@@ -37,6 +37,13 @@
          reference it. Its bunit and AngleSharp versions are the floor for
          this repository's (Directory.Packages.props). -->
     <ProjectReference Include="..\..\BgUiPrimitives_Razor\BgUiPrimitives_Razor.TestSupport\BgUiPrimitives_Razor.TestSupport.csproj" />
+    <!-- The filter surface's storage, stated on a BrowserStoragePlan in the
+         surface's own terms (FilterSurfaceStorage: a previous visit's
+         selection restored, a panel mount, a commit), so no test here names
+         the surface's storage keys or an interop call
+         (halheinrich/backgammon#374). Test projects only, like the planner it
+         builds on; its bunit and AngleSharp versions are the same floor. -->
+    <ProjectReference Include="..\..\XgFilter_Razor\XgFilter_Razor.TestSupport\XgFilter_Razor.TestSupport.csproj" />
     <!-- The record builders (TestRecords): the one way a test builds a
          decision record, owned by the producer that owns the records'
          construction rules, so no fixture here restates them

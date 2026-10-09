@@ -25,7 +25,7 @@ using XgFilter_Razor;
 ///
 /// <para>
 /// <b>No draft, no commit, no dirty flag — deliberately.</b> Unlike the
-/// start-gate state (<see cref="AppliedFilter"/>, <see cref="MixDraft"/>),
+/// start-gate state (XgFilter_Razor's <c>FilterSetup</c>, <see cref="MixDraft"/>),
 /// nothing here is composed into a quiz at a Start
 /// gesture, so there is no half-edited state to guard against and no gate to
 /// derive: a toggle is a complete, immediately valid choice, the same reasoning

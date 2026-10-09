@@ -92,25 +92,27 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// Start is gated on five conditions (<see cref="CanStart"/>): a filter in
-/// effect for the pick on screen (<see cref="FilterInEffect"/> — applied, and
-/// not since edited), a folder picked with at least one problem file, a pick
-/// whose parse did not reject every file
+/// effect for the pick on screen (<see cref="FilterInEffect"/> —
+/// <see cref="FilterSetup"/>'s reading: the selection applied and not since
+/// edited, or the ready empty selection, which needs no Apply;
+/// halheinrich/backgammon#266), a folder picked with at least one problem
+/// file, a pick whose parse did not reject every file
 /// (<see cref="PickedProblemFolder.Parsed"/>'s report not <c>AllRejected</c>
 /// — the holder's fact, standing until the pick changes;
 /// halheinrich/backgammon#368), a
-/// filtered pool not <i>known</i> to be empty (<see cref="_matchSummary"/>
+/// filtered pool not <i>known</i> to be empty (<see cref="CurrentMatchSummary"/>
 /// with <c>Total: 0</c> — known-zero only, so a null or still-computing
 /// summary never gates and the no-match outcome notice stays the backstop
 /// for races), and an effective mix (<see cref="EffectiveMix"/> non-null —
 /// null means the panel is visible over an invalid draft, the one mix state
 /// that gates; a hidden mix never does, per the spec's §5). Each
 /// gate has its own sibling hint stating its reason. Everything the gate
-/// reads lives in per-app scoped services (<see cref="AppliedFilter"/>,
-/// <see cref="PickedProblemFolder"/>, <see cref="MixVisibility"/>,
-/// <see cref="MixDraft"/>) rather than transient component fields, so the
-/// gate survives in-app navigation — when the page is re-instantiated on
-/// navigate-back it re-derives from the holders instead of resetting. On
-/// Start the applied <see cref="FilterConfig"/> and the effective
+/// reads lives in per-app scoped services (<see cref="FilterSetup"/>,
+/// <see cref="MatchCount"/>, <see cref="PickedProblemFolder"/>,
+/// <see cref="MixVisibility"/>, <see cref="MixDraft"/>) rather than transient
+/// component fields, so the gate survives in-app navigation — when the page
+/// is re-instantiated on navigate-back it re-derives from the holders instead
+/// of resetting. On Start the in-effect <see cref="FilterConfig"/> and the effective
 /// <see cref="BgGame_Lib.QuizMix"/> — the on-screen draft's build while the
 /// panel is visible, the passthrough otherwise — are handed to the
 /// <see cref="QuizController"/>, whose source factory builds a
@@ -156,7 +158,8 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// returns the whole setup surface to its pre-setup state
 /// (<see cref="EndCurrentSetupAsync"/>, shared with the <c>Clear</c> affordance,
 /// which encodes the same decision): folder and picked slot, the mix draft, the
-/// applied filter, and every pick-scoped notice and match count. The mix
+/// filter setup (by reporting the source's end to <see cref="FilterSetup"/>),
+/// and every pick-scoped notice. The mix
 /// setting is deliberately untouched — it is a choice, and choices outlive
 /// setups (§4).
 /// Nothing the user selected against the previous corpus can be assumed to mean
@@ -179,21 +182,31 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// <b>The filter half of that reset rides on the composite's lifecycle.</b>
-/// The <c>FilterSurface</c> this page hosts lives behind the same
-/// <c>HasFiles</c> gate as the rest of the setup surface, so ending a setup
-/// <i>unmounts</i> it and a successful pick mounts a fresh instance — whose
-/// first parameters-set initializes against the new pick's token and re-reads
-/// that folder's saved-filters document, and whose fresh panel has committed
-/// nothing, so Apply is re-armed with no host reset call. (Its
-/// <c>localStorage</c> restore re-stages the persisted config as dirty on
-/// every pick — the accepted fresh-load behavior.) The composite's own
-/// source-change rule is therefore <i>dormant</i> in this host: it runs only
-/// when the bound token changes on a mounted instance, and this page's
-/// gestures always change the token across an unmount. The one thing neither
-/// remount nor rule covers — clearing the holder's applied config, whose
-/// staleness the Start gate reads — is the single line of filter choreography
-/// <see cref="EndCurrentSetupAsync"/> keeps host-side.
+/// <b>The filter half of that reset is one report.</b> The selection's state
+/// lives in the app-scoped <see cref="FilterSetup"/>, not in the
+/// <c>FilterSurface</c> this page hosts, so it does not care that the surface
+/// sits behind the same <c>HasFiles</c> gate as the rest of the setup surface
+/// and unmounts with it. This page reports its source wherever it latches one
+/// (<see cref="ReportFilterSource"/>, after every change to the folder
+/// holder): a different source ends the filter setup in the owner — a new
+/// generation, the applied baseline dropped, the draft kept — whether or not
+/// the surface is mounted, and the same source again (a remount, a
+/// navigate-back) changes nothing. There is no other filter choreography
+/// here: no clear of an applied filter, no mount gate, no copy-back of a
+/// restored selection. The gate and the filter to run are read off the
+/// owner's snapshot, source-relatively (<see cref="FilterInEffect"/>).
+/// </para>
+///
+/// <para>
+/// <b>The match count is keyed, and outlives the page.</b> What the filter in
+/// effect matches is held by the app-scoped <see cref="MatchCount"/> under the
+/// pick, the filter in effect and the ranking
+/// (<see cref="MatchCountInputs"/>). This page asks for the count of its
+/// current inputs on every mount and every filter snapshot
+/// (<see cref="SyncMatchCountAsync"/>); equal inputs reuse the count — so a
+/// navigate-back shows it, and the known-zero gate it feeds, at once — and
+/// different ones recount, superseding any count still running. It renders
+/// only a count of its current inputs (<see cref="CurrentMatchSummary"/>).
 /// </para>
 ///
 /// <para>
@@ -401,76 +414,29 @@ public partial class Home : ComponentBase, IDisposable
     private bool _mixRefused;
 
     /// <summary>
-    /// What the last-applied filter matched, shown near the filters so the user
-    /// knows what they selected before starting; <see langword="null"/> when
-    /// nothing is shown (before an Apply, after a filter edit, or after a
-    /// new/cleared pick). A per-visit affordance, so a component field. Set from
-    /// <see cref="QuizController.SummarizeMatchesAsync"/> on Apply — the pre-mix
-    /// pool, "decisions that match", not "problems you'll see" (positions
-    /// offering no play choice auto-skip at quiz time).
-    ///
-    /// <para>
-    /// <b>One value carries every half of the display.</b> The count line
-    /// renders <see cref="AnswerTypeDistribution.Total"/> off
-    /// <see cref="MatchSummary.AnswerTypes"/>, the breakdown renders that same
-    /// distribution's five buckets, and the collapse sentence renders
-    /// <see cref="MatchSummary.DuplicatesCollapsed"/> — one fold of one
-    /// enumeration, so the number, its decomposition and what it left out
-    /// cannot disagree. That is the reason this field is the summary record
-    /// rather than an <c>int</c> with figures parked beside it.
-    /// </para>
-    ///
-    /// <para>
-    /// Because the summary is filter-only (<see cref="QuizController.SummarizeMatchesAsync"/>
-    /// composes with <see cref="QuizMix.Empty"/>), a mix in effect makes it the
-    /// pool the quiz is <i>drawn from</i> rather than the quiz itself —
-    /// potentially far larger. The markup states that relationship beside the
-    /// number whenever <see cref="MixInEffect"/>; the summary itself stays
-    /// pool-only. Showing the composed length instead would mean composing
-    /// against the lifetime stats before Start, which is Start's job and
-    /// deliberately not attempted here.
-    /// </para>
-    ///
-    /// <para>
-    /// A resolved summary with <c>Total: 0</c> also <b>gates Start</b> (see
-    /// <see cref="CanStart"/> — the known-zero pool rule): the count stays
-    /// advisory in every other respect, but a pool the page has just told the
-    /// user is empty is not one a Start click should dead-end against.
-    /// </para>
+    /// This page's attachment to <see cref="FilterSetup"/>, made in
+    /// <see cref="OnInitializedAsync"/>: every published change re-renders the
+    /// page and re-asks for the match count (<see cref="OnFilterSetupPublished"/>).
+    /// The page keeps no copy of what it is told — the gate, the filter to run
+    /// and the count's inputs are read off the owner's
+    /// <see cref="FilterSetup.Current"/> snapshot at the moment they are
+    /// needed. Disposed in <see cref="Dispose"/>, which stops the snapshots and
+    /// cancels nothing.
     /// </summary>
-    private MatchSummary? _matchSummary;
-
-    /// <summary>
-    /// True while <see cref="QuizController.SummarizeMatchesAsync"/> runs on Apply.
-    /// The first count after a pick parses the corpus once (warming the shared
-    /// cache so Start is then instant), so the whole setup surface disables and
-    /// the busy cursor shows — folded into the same fieldset-disable / app-busy
-    /// boundary the controller's transition gate drives, which also serializes
-    /// the count against a Start (no concurrent parse of the same corpus).
-    /// </summary>
-    private bool _isCounting;
+    private IDisposable? _filterAttachment;
 
     /// <summary>
     /// True while this page is running a foreground operation the user must
-    /// wait out: the scan-and-buffer half of a folder pick (issue halheinrich/backgammon#48), and
-    /// the match count. One flag, not one per site — the affordance is a
-    /// property of the <i>page</i> ("BgQuiz is working, don't touch anything"),
-    /// not of the operation, and the operations cannot overlap because the busy
-    /// state disables every control that could start a second one. Raised only
-    /// through <see cref="EnterBusyAsync"/> / <see cref="RunBusyAsync"/>, which
-    /// own the paint-before-the-work discipline.
+    /// wait out: the scan-and-buffer half of a folder pick (issue
+    /// halheinrich/backgammon#48). One flag, not one per site — the affordance
+    /// is a property of the <i>page</i> ("BgQuiz is working, don't touch
+    /// anything"), not of the operation. Raised only through
+    /// <see cref="EnterBusyAsync"/> / <see cref="RunBusyAsync"/>, which own the
+    /// paint-before-the-work discipline. The match count's busy state is the
+    /// count holder's own (<see cref="MatchCount.IsCounting"/>), because the
+    /// count outlives this page; <see cref="IsBusy"/> reads both.
     /// </summary>
     private bool _busy;
-
-    /// <summary>
-    /// Monotonic id stamped on each count request so a stale result never
-    /// lands: <see cref="HandleFilterConfigApplied"/> captures it before the
-    /// await and discards the count if a newer Apply, a filter edit, or a
-    /// re-pick has bumped it since. Defence in depth — the busy fieldset also
-    /// blocks a second gesture mid-count — so the count stays correct even if
-    /// that busy strategy later changes.
-    /// </summary>
-    private int _countRequestId;
 
     /// <summary>
     /// The <c>Storage</c> the hosted <c>FilterSurface</c> gets: the picked-slot
@@ -545,30 +511,89 @@ public partial class Home : ComponentBase, IDisposable
 
     /// <summary>
     /// This page's identity for the corpus a filter can be applied against —
-    /// the pick, named by its generation counter. <b>Minted here and nowhere
-    /// else</b>: the hosted <c>FilterSurface</c>'s <c>Source</c> binding (what
-    /// a commit is keyed to) and every gate that asks
-    /// <see cref="AppliedFilter.ConfigFor"/> (what a read is compared against)
-    /// both read this one property, so the two sides of the key cannot encode
-    /// the pick differently. Two inline mints used to state that agreement in
-    /// prose; one property makes it structural.
+    /// the pick, named by its generation counter — or <see langword="null"/>
+    /// while no folder with problem files is held. <b>Minted here and nowhere
+    /// else</b>: what this page reports to <see cref="FilterSetup"/>
+    /// (<see cref="ReportFilterSource"/>), what every gate asks the owner's
+    /// snapshot about (<see cref="FilterInEffect"/>) and what the match count
+    /// is keyed by (<see cref="CurrentCountInputs"/>) all read this one
+    /// property, so the report and the reads cannot encode the pick
+    /// differently. <see langword="null"/> means "no source exists", which is
+    /// the only thing the owner may be told it means — never "not yet known":
+    /// the holder's state is read synchronously and is always known.
     /// </summary>
-    private FilterSourceToken CurrentFilterSource =>
-        FilterSourceToken.FromGeneration(Folder.PickGeneration);
+    private FilterSourceToken? FilterSource =>
+        Folder.HasFiles ? FilterSourceToken.FromGeneration(Folder.PickGeneration) : null;
 
     /// <summary>
     /// The filter in effect for the pick on screen right now, or
     /// <see langword="null"/> when none is — the single fact this page's whole
     /// filter story reads: Start's filter gate (<see cref="CanStart"/>), its
-    /// hint, and the config <see cref="StartCoreAsync"/> actually runs — the
-    /// mix's activation gate was the third reader until the 2026-09-07 ruling
-    /// deleted activation itself (SPEC-filtering.md §5). Source-relative by
-    /// construction, so a config applied against an earlier pick expires
-    /// without anyone clearing anything: the generation bumps and the key stops
-    /// matching. Nothing here can answer "has this folder ever been filtered" —
-    /// that fact no longer exists in the model (the spec's §3).
+    /// hint, and the config <see cref="StartCoreAsync"/> actually runs.
+    ///
+    /// <para>
+    /// <b>The owner's answer, whole.</b> <see cref="FilterSetupSnapshot.ConfigInEffectFor"/>
+    /// is the selection applied for this pick and not since edited, or the
+    /// ready empty selection, which needs no Apply (halheinrich/backgammon#266);
+    /// this page adds no empty-filter exception of its own and no "Apply
+    /// required" rule. Source-relative by construction, so a config applied
+    /// against an earlier pick expires without anyone clearing anything: the
+    /// generation bumps, the owner is told, and the key stops matching. A new
+    /// instance on every read, so nothing this page does with it reaches the
+    /// owner.
+    /// </para>
     /// </summary>
-    private FilterConfig? FilterInEffect => AppliedFilter.ConfigFor(CurrentFilterSource);
+    private FilterConfig? FilterInEffect =>
+        FilterSource is { } source ? FilterSetup.Current.ConfigInEffectFor(source) : null;
+
+    /// <summary>
+    /// The settled count of what is on screen — the pick, the filter in effect
+    /// and the ranking — or <see langword="null"/> when nothing is in effect,
+    /// the count is still running, or it failed. The one reading the count
+    /// line, the zero box, the known-zero gate and the no-match fallback all
+    /// take, so none of them can show or gate on a count of other inputs.
+    ///
+    /// <para>
+    /// <b>One value carries every half of the display.</b> The count line
+    /// renders <see cref="AnswerTypeDistribution.Total"/> off
+    /// <see cref="MatchSummary.AnswerTypes"/>, the breakdown renders that same
+    /// distribution's five buckets, and the collapse sentence renders
+    /// <see cref="MatchSummary.DuplicatesCollapsed"/> — one fold of one
+    /// enumeration, so the number, its decomposition and what it left out
+    /// cannot disagree. The pre-mix pool, "decisions that match", not
+    /// "problems you'll see" (positions offering no play choice auto-skip at
+    /// quiz time).
+    /// </para>
+    ///
+    /// <para>
+    /// Because the summary is filter-only (<see cref="QuizController.SummarizeMatchesAsync"/>
+    /// composes with <see cref="QuizMix.Empty"/>), a mix in effect makes it the
+    /// pool the quiz is <i>drawn from</i> rather than the quiz itself —
+    /// potentially far larger. The markup states that relationship beside the
+    /// number whenever <see cref="MixInEffect"/>; the summary itself stays
+    /// pool-only. Showing the composed length instead would mean composing
+    /// against the lifetime stats before Start, which is Start's job and
+    /// deliberately not attempted here.
+    /// </para>
+    ///
+    /// <para>
+    /// A resolved summary with <c>Total: 0</c> also <b>gates Start</b> (see
+    /// <see cref="CanStart"/> — the known-zero pool rule): the count stays
+    /// advisory in every other respect, but a pool the page has just told the
+    /// user is empty is not one a Start click should dead-end against.
+    /// </para>
+    /// </summary>
+    private MatchSummary? CurrentMatchSummary => MatchCount.SummaryFor(CurrentCountInputs(Settings.Ranking));
+
+    /// <summary>
+    /// The match count's inputs for what is on screen under
+    /// <paramref name="ranking"/>, or <see langword="null"/> when no filter is
+    /// in effect for the pick — the key <see cref="MatchCount"/> holds its
+    /// result under. Read off the owner's current snapshot, which the inputs
+    /// keep, so the key is a stable reading and never a copy of the selection.
+    /// </summary>
+    private MatchCountInputs? CurrentCountInputs(PlayRanking ranking) =>
+        FilterSource is { } source ? MatchCountInputs.For(FilterSetup.Current, source, ranking) : null;
 
     /// <summary>
     /// Five gates, each with its own sibling hint in the markup: a filter in
@@ -598,25 +623,27 @@ public partial class Home : ComponentBase, IDisposable
     ///
     /// <para>
     /// The pool gate is <b>known-zero only</b>, deliberately: it reads the
-    /// advisory <see cref="_matchSummary"/> where it happens to be resolved
-    /// with <c>Total: 0</c>, and a null or still-computing summary gates
-    /// nothing — the gate takes no async dependency. A count still running
-    /// cannot be raced (the page's busy state disables the whole setup
-    /// fieldset while it runs), so a null summary here means the count
-    /// failed; the no-match outcome notice in <see cref="StartCoreAsync"/> is
-    /// the backstop for that Start, and says only that nothing could be
-    /// presented, since the page does not know why. The mix surface is
-    /// deliberately <i>not</i> pool-gated (rows are dir-independent choices,
-    /// and pool-gating activation would freeze a checked box when a re-apply
-    /// empties the pool); the composed-to-zero outcome stays the backstop for
-    /// a non-empty pool whose mix reaches nothing.
+    /// advisory <see cref="CurrentMatchSummary"/> where it happens to be
+    /// resolved with <c>Total: 0</c>, and a null or still-computing summary
+    /// gates nothing — the gate takes no async dependency. A count still
+    /// running cannot be raced (the page's busy state disables the whole setup
+    /// fieldset while it runs), so a null summary here means the count failed
+    /// or nothing is in effect; the no-match outcome notice in
+    /// <see cref="StartCoreAsync"/> is the backstop for that Start, and says
+    /// only that nothing could be presented, since the page does not know why.
+    /// Because the count is keyed and outlives this page, a navigate-back over
+    /// unchanged inputs reads the same zero and the gate stays closed. The mix
+    /// surface is deliberately <i>not</i> pool-gated (rows are dir-independent
+    /// choices, and pool-gating activation would freeze a checked box when a
+    /// re-apply empties the pool); the composed-to-zero outcome stays the
+    /// backstop for a non-empty pool whose mix reaches nothing.
     /// </para>
     /// </summary>
     private bool CanStart =>
         FilterInEffect is not null
         && Folder.HasFiles
         && Folder.Parsed is not { Report.AllRejected: true }
-        && _matchSummary is not { AnswerTypes.Total: 0 }
+        && CurrentMatchSummary is not { AnswerTypes.Total: 0 }
         && EffectiveMix is not null;
 
     /// <summary>
@@ -688,6 +715,23 @@ public partial class Home : ComponentBase, IDisposable
         // (halheinrich/backgammon#360). Unsubscribed in Dispose.
         StorageCondition.Began += StateHasChanged;
 
+        // The match count outlives this page and settles on its own schedule,
+        // so the page re-renders when it starts or settles. Unsubscribed in
+        // Dispose.
+        MatchCount.Changed += StateHasChanged;
+
+        // Tell the filter setup's owner which source this page holds, as the
+        // host contract asks at page initialization. An unchanged source — a
+        // navigate-back over the same pick — costs nothing and keeps the
+        // setup; the owner cannot otherwise know a source the page latched
+        // while it was not observing.
+        ReportFilterSource();
+
+        // Observe the setup: the owner delivers the current snapshot before
+        // Attach returns, which is what asks for this mount's match count, and
+        // then each real change. Disposed in Dispose.
+        _filterAttachment = FilterSetup.Attach(_ => OnFilterSetupPublished());
+
         // Hydrate the user's settings here, where every quiz begins. Nothing on
         // this page renders them, but the Quiz page's board does, on its very
         // first render — and it gets there only through Start, long after this
@@ -718,23 +762,26 @@ public partial class Home : ComponentBase, IDisposable
     }
 
     /// <summary>
-    /// Detach from the app-scoped mix draft — the page dies before the Scoped
-    /// services do.
+    /// Detach from the app-scoped holders this page observes — the page dies
+    /// before the Scoped services do. Detaching cancels nothing: a match count
+    /// still running settles into its holder, and a filter write still pending
+    /// reports any refusal to the app's sink.
     ///
     /// <para>
-    /// One handler now, not two: the consent bit's subscription went with the
-    /// bit. Its side job — retiring a standing weighted-start refusal when the
-    /// user re-decided what the mix should be doing — needs no replacement,
-    /// because the setting that replaced it can only be changed from another
-    /// page, and <see cref="_mixRefused"/> is a component field that a fresh
-    /// mount clears for free. The notice's other clear points — a new pick,
-    /// every Start attempt — are unchanged.
+    /// No consent-bit handler any more: its side job — retiring a standing
+    /// weighted-start refusal when the user re-decided what the mix should be
+    /// doing — needs no replacement, because the setting that replaced it can
+    /// only be changed from another page, and <see cref="_mixRefused"/> is a
+    /// component field that a fresh mount clears for free. The notice's other
+    /// clear points — a new pick, every Start attempt — are unchanged.
     /// </para>
     /// </summary>
     public void Dispose()
     {
         MixDraft.Changed -= StateHasChanged;
         StorageCondition.Began -= StateHasChanged;
+        MatchCount.Changed -= StateHasChanged;
+        _filterAttachment?.Dispose();
     }
 
     /// <summary>
@@ -744,12 +791,11 @@ public partial class Home : ComponentBase, IDisposable
     /// and the disabled controls can never disagree about whether the page is
     /// working. A union of the independent sources: the controller's transition
     /// gate (Start / Restart), this page's own foreground work
-    /// (<see cref="_busy"/>), and the match count, which keeps its own flag
-    /// because it also owns a message and a stale-request id
-    /// (<see cref="_isCounting"/>) — anything still claiming to be counting must
-    /// still read busy.
+    /// (<see cref="_busy"/>), and the match count, whose running state is its
+    /// holder's (<see cref="MatchCount.IsCounting"/>) — a count still running
+    /// reads busy, on this mount or a later one.
     /// </summary>
-    private bool IsBusy => Controller.IsBusy || _busy || _isCounting;
+    private bool IsBusy => Controller.IsBusy || _busy || MatchCount.IsCounting;
 
     /// <summary>
     /// Raise the busy affordance <i>and let it paint</i>, then return.
@@ -864,7 +910,7 @@ public partial class Home : ComponentBase, IDisposable
         }
         catch (Exception ex)
         {
-            Folder.Clear();
+            ClearFolder();
             _pickError = ex.Message;
         }
         finally
@@ -900,7 +946,7 @@ public partial class Home : ComponentBase, IDisposable
         }
         catch (Exception ex)
         {
-            Folder.Clear();
+            ClearFolder();
             _pickError = ex.Message;
         }
     });
@@ -960,7 +1006,7 @@ public partial class Home : ComponentBase, IDisposable
             // since could have set it. Re-stated so this shared landing carries
             // its own postcondition ("an empty pick holds no folder") rather
             // than inheriting it from whoever called it.
-            Folder.Clear();
+            ClearFolder();
             _emptyFolderNotice = true;
             return;
         }
@@ -970,19 +1016,43 @@ public partial class Home : ComponentBase, IDisposable
         // it is about — including across navigate-back, which a page field would
         // not survive.
         //
-        // The render this triggers also mounts a fresh FilterSurface behind the
-        // HasFiles gate, and the composite loads this folder's saved-filters
+        // Reporting the new source ends the outgoing filter setup in the owner
+        // (the click's ClearFolder already did, with null) and begins this
+        // pick's. The render this triggers also mounts the FilterSurface behind
+        // the HasFiles gate, and the composite loads this folder's saved-filters
         // document itself — a setup-time, degrade-tolerant read through the
         // picked-slot storage adapter (null under a fallback pick, so no
         // context). Nothing to await for that: saved-filters trouble can never
         // block a pick.
         Folder.Set(outcome.DirectoryName, outcome.Files, outcome.Capability, outcome.Truncations);
+        ReportFilterSource();
 
         // Now that the holder describes this pick, ask whether a mix can mean
         // anything for it. Degrade-tolerant end to end (see the store), so this
         // await can neither fail the pick nor surface a notice of its own.
         await StatsStore.RefreshPickedStatsAsync();
     }
+
+    /// <summary>
+    /// Empty the folder holder and tell the filter setup's owner no source is
+    /// held — one step, so no path that drops the folder can leave the owner
+    /// believing in the pick it held.
+    /// </summary>
+    private void ClearFolder()
+    {
+        Folder.Clear();
+        ReportFilterSource();
+    }
+
+    /// <summary>
+    /// Report the source this page holds now (<see cref="FilterSource"/>) to
+    /// <see cref="FilterSetup"/> — at page initialization, and after every
+    /// change to the folder holder, whether or not the filter surface is
+    /// mounted. A different source ends the filter setup (a new generation,
+    /// the applied baseline dropped, the draft kept); the same one does
+    /// nothing. This is the whole of the filter half of ending a setup.
+    /// </summary>
+    private void ReportFilterSource() => FilterSetup.ReportSource(FilterSource);
 
     /// <summary>
     /// End the current setup: return the whole surface to its pre-setup,
@@ -995,47 +1065,17 @@ public partial class Home : ComponentBase, IDisposable
     /// <b>Everything pick-scoped goes.</b> The folder holder and the JS module's
     /// picked slot, the mix draft (<see cref="MixDraft.Discard"/> —
     /// see the inline comment; the <i>stored</i> mix deliberately survives),
-    /// the applied filter (see below), and every pick-scoped notice
-    /// and match count (<see cref="ClearPickNotices"/>). The saved-filters
-    /// context needs no line here: it lives in the hosted <c>FilterSurface</c>,
-    /// which the <c>HasFiles</c> gate unmounts when <see cref="PickedProblemFolder.Clear"/>
-    /// renders — its store, notices, and any typed state die with it, and a
-    /// successful pick's fresh mount re-reads the new folder's document. Two
-    /// things deliberately survive, and the class summary says why:
+    /// the filter setup, and every pick-scoped notice
+    /// (<see cref="ClearPickNotices"/>). The filter setup ends by
+    /// <see cref="ClearFolder"/>'s report: the owner drops the applied
+    /// baseline and keeps the draft, so the selection on screen survives into
+    /// the next pick and must be in effect there by the owner's rules, never
+    /// by this page's. The match count needs no line either: it is keyed by
+    /// the pick, so no count of the outgoing pick can be read for the next
+    /// one. The saved-filters context lives in the hosted
+    /// <c>FilterSurface</c>, which rebuilds it when the owner's generation
+    /// moves. Two things deliberately survive, and the class summary says why:
     /// <see cref="ShuffleOption"/> and the lifetime-stats slot.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>The <see cref="AppliedFilter.Clear"/> is the one line of filter
-    /// choreography left host-side, and it is now residue-dropping rather than
-    /// gate-closing.</b> It used to be load-bearing: the applied config was
-    /// readable absolutely, so a config applied against the outgoing corpus
-    /// would have stayed in force across the gap the composite cannot cover
-    /// (its source-change rule runs on a <i>mounted</i> component receiving a
-    /// changed parameter, and this page's token changes all happen across an
-    /// unmount — <see cref="PickedProblemFolder.Clear"/> closes the
-    /// <c>HasFiles</c> gate before the composite could observe the new token,
-    /// and the eventual re-mount's first parameters-set is, by the producer's
-    /// ruled pin, initialization only). Source-keying closed that hazard
-    /// structurally: <see cref="PickedProblemFolder.Clear"/> bumps the
-    /// generation on the line above, so <see cref="FilterInEffect"/> is already
-    /// null for every subsequent read whether or not this line runs. What the
-    /// line still does is drop the pair itself, so no config outlives the setup
-    /// that applied it even unreachably — which is exactly the end-of-setup
-    /// call <see cref="AppliedFilter.Clear"/> documents as its purpose, made
-    /// here because this is where this host's setups end.
-    /// </para>
-    ///
-    /// <para>
-    /// <b><see cref="AppliedFilter"/> is reset here too</b> — superseding an
-    /// earlier ruling that <c>Clear</c> should leave it alone as "edit-coupled,
-    /// not pick-coupled". Under one shared reset the applied filter is coupled to
-    /// neither gesture in particular but to the <i>setup</i>: ending one ends it.
-    /// (It stays edit-coupled as well — the composite clears it while the panel
-    /// reports uncommitted edits. The two rules are independent, not
-    /// duplicates.) On the <c>Clear</c> path this is invisible in the UI, since
-    /// the panel and Start are both behind the disclosure gate a cleared folder
-    /// closes; the value is that there is one reset to reason about.
     /// </para>
     ///
     /// <para>
@@ -1053,12 +1093,12 @@ public partial class Home : ComponentBase, IDisposable
     /// the outgoing setup's populated screen. <c>StateHasChanged</c>
     /// queues the returned-to-initial paint and the awaited picked-slot interop
     /// yields the thread for it to land — the same paint-before-the-churn idiom
-    /// <see cref="HandleFilterConfigApplied"/> uses.
+    /// <see cref="EnterBusyAsync"/> uses.
     /// </para>
     /// </summary>
     private async Task EndCurrentSetupAsync()
     {
-        Folder.Clear();
+        ClearFolder();
         // The mix's rows outlive the setup (§4), so this is the draft's
         // in-memory reset and not a deletion: Discard blanks the builder and
         // forgets hydration — deliberately without touching localStorage — so
@@ -1072,13 +1112,6 @@ public partial class Home : ComponentBase, IDisposable
         // no capability fork in the gate. Into a folder that HAS stats it does
         // carry, and applies, which is the ruling.
         MixDraft.Discard();
-        // Drop the applied pair outright — see the method summary for why this
-        // is residue-dropping now rather than the gate close it once was. The
-        // user's last-applied filter is untouched in the panel's own
-        // localStorage (a later mount re-stages it, shown but never claimed as
-        // applied), so this clears the session's claim, not the panel's
-        // persistence.
-        AppliedFilter.Clear();
         ClearPickNotices();
 
         StateHasChanged();
@@ -1093,154 +1126,72 @@ public partial class Home : ComponentBase, IDisposable
         _startError = null;
         _noMatchNotice = null;
         _mixRefused = false; // a new pick can change stats capability
-        // A new/cleared pick changes the corpus, so any match summary is stale;
-        // the bumped id also discards a count still in flight from before.
-        _matchSummary = null;
-        _countRequestId++;
     }
 
     /// <summary>
-    /// The composite's re-raise of the panel's <i>Apply</i> (and <i>Clear
-    /// filters</i>) commit — the gesture that moves the committed config. By the
-    /// time this fires, <c>FilterSurface</c> has already recorded the applied
-    /// state on the shared <see cref="AppliedFilter"/> holder, keyed to the
-    /// pick's source token (the producer rule: <i>a commit applies the
-    /// filter</i>, honored before the host hears about it) — so this handler
-    /// owns only the host side effects the composite can't know: the outcome
-    /// notices a new commit moots, and the match summary.
+    /// The filter setup's observer (<see cref="FilterSetup.Attach"/>): told of
+    /// the current snapshot as this page attaches, then of every real change —
+    /// an edit, a commit, a restoration settling, a source reported. It only
+    /// schedules: an observer must not call the owner and records nothing
+    /// here, because this page reads the owner's <see cref="FilterSetup.Current"/>
+    /// whenever it needs the setup. The scheduled work re-renders the page and
+    /// re-asks for the match count (<see cref="SyncMatchCountAsync"/>).
     /// </summary>
-    private async Task HandleFilterConfigApplied(FilterConfig cfg)
-    {
-        _startError = null;
-        _noMatchNotice = null;
-        await ShowMatchSummaryAsync(cfg);
-    }
+    private void OnFilterSetupPublished() => _ = InvokeAsync(FilterSetupChangedAsync);
 
-    /// <summary>
-    /// The composite's re-raise of the panel's applied-state report, raised
-    /// after <em>every</em> gesture that touches its edit buffers (a control
-    /// edit, a saved-filter load's staging, Apply, Clear filters). The payload
-    /// is the committed <see cref="FilterConfig"/> the buffers now equal, or
-    /// <c>null</c> when they equal none — so it is the whole answer to "is the
-    /// panel's selection still the one the user applied?", which is the filter
-    /// half of the start gate.
-    ///
-    /// <para>
-    /// <b>The holder is no longer this handler's business.</b>
-    /// <c>FilterSurface</c> mirrors the payload onto <see cref="AppliedFilter"/>
-    /// (Set on a clean report, Clear on <c>null</c>) before re-raising, so by
-    /// the time this runs the gate is already correct — a clean report has
-    /// re-applied (an edit undone back to the applied values re-enables Start
-    /// without a re-Apply, which it must: the panel's own Apply is disabled in
-    /// exactly that state) and an uncommitted-edits report has re-gated. What
-    /// remains host-side is the match summary, handled statelessly per the
-    /// producer's per-gesture contract: react to the payload, never diff it
-    /// against a remembered previous one.
-    /// </para>
-    ///
-    /// <para>
-    /// The <see cref="PickedProblemFolder.HasFiles"/> guard is defence in
-    /// depth, not a live path: the composite lives behind the
-    /// progressive-disclosure gate, so every report originates with a folder
-    /// held. Should a report ever straggle past a teardown (the state
-    /// <see cref="EndCurrentSetupAsync"/> leaves), counting matches against a
-    /// corpus being torn down is the wrong side effect, and the setup-end's
-    /// explicit <see cref="AppliedFilter.Clear"/> must stay the last word.
-    /// </para>
-    /// </summary>
-    private async Task HandleAppliedStateChanged(FilterConfig? config)
+    private async Task FilterSetupChangedAsync()
     {
-        if (!Folder.HasFiles) return;
-
-        if (config is null)
+        try
         {
-            // Uncommitted edits pending: the composite already cleared the
-            // holder (Start is re-gated). Any shown or in-flight match summary
-            // described the config now abandoned; the bumped id discards a
-            // late-landing result.
-            _matchSummary = null;
-            _countRequestId++;
-            return;
+            StateHasChanged();
+            await SyncMatchCountAsync();
+        }
+        catch (Exception e)
+        {
+            // Nothing here is expected to fail — the count holder catches its
+            // own failures — so anything that does is a bug, and goes to the
+            // renderer's error path as this page's, not to a task nobody reads.
+            await DispatchExceptionAsync(e);
+        }
+    }
+
+    /// <summary>
+    /// Ask <see cref="MatchCount"/> for the count of what is on screen: the
+    /// pick, the filter in effect for it and the user's ranking. Equal inputs
+    /// reuse the held count — settled, or still running — which is what lets a
+    /// navigate-back show its count and keep its known-zero gate at once;
+    /// different inputs recount, superseding any count of older ones. Nothing
+    /// is asked while no filter is in effect (an edit pending, a restoration
+    /// still being read, no pick): the held count simply is not the current
+    /// one, so nothing shows, and an edit undone back to the counted filter
+    /// finds it again.
+    ///
+    /// <para>
+    /// Runs on every mount and every filter snapshot. The ranking comes from
+    /// the Settings page, which this page cannot be mounted beside, so a
+    /// change to it is always followed by a fresh mount here — and a recount.
+    /// A recount is a new count for the user to read, so the outcome notices
+    /// of the last Start, which described other inputs, go with it.
+    /// </para>
+    /// </summary>
+    private async Task SyncMatchCountAsync()
+    {
+        var ranking = await UserRankingAsync();
+        if (CurrentCountInputs(ranking) is not { } inputs) return;
+
+        if (!inputs.Equals(MatchCount.Inputs))
+        {
+            _startError = null;
+            _noMatchNotice = null;
         }
 
-        // Idempotence: the report is per-gesture, and a commit raises it right
-        // after HandleFilterConfigApplied has already counted the same config —
-        // so re-running the summary here would count the same pool twice (two
-        // parses, two busy flashes). The payload always equals the holder's
-        // config here (the composite assigned it from this very report), so
-        // currency is what the summary state answers: a summary is shown, or a
-        // count for it is in flight.
-        if (_matchSummary is not null || _isCounting) return;
-
-        // Clean again after an edit — restore the count the edit dropped.
-        // Without this the user has no way back to it: Apply is disabled
-        // precisely because there is nothing new to apply.
-        await ShowMatchSummaryAsync(config);
-    }
-
-    /// <summary>
-    /// The hosted panel's report that the browser refused a <c>localStorage</c>
-    /// call it made (<c>FilterSurface.OnStorageUnavailable</c>, once per mount;
-    /// issue <c>halheinrich/backgammon#360</c>). The panel has already degraded
-    /// and carries no payload, so this page's whole part is to say it: in the
-    /// log, since the panel logs nothing of its own, and to the app's one
-    /// storage fact, which the page's notice renders and a remount's fresh
-    /// report leaves as it was.
-    /// </summary>
-    private void HandleFilterStorageUnavailable()
-    {
-        Logger.LogWarning(
-            "The filter panel reports that the browser refused its storage; its filters work for this visit "
-            + "but may not be remembered.");
-        StorageCondition.ReportRefused();
-    }
-
-    /// <summary>
-    /// Show what <paramref name="cfg"/> matches — how many decisions, and what
-    /// kinds of answer they call for. The first pass after a pick parses the
-    /// corpus once and warms the shared cache, so the Start that follows is
-    /// instant — the count is not a separate cost. Summarizing lives in the
-    /// controller; Home only stamps a request id (so a stale result can't land)
-    /// and drives the busy affordance. Shared by the two paths that can leave
-    /// the panel clean — a commit and a re-affirm — so the count is defined
-    /// once.
-    /// </summary>
-    private async Task ShowMatchSummaryAsync(FilterConfig cfg)
-    {
-        var requestId = ++_countRequestId;
-        _matchSummary = null;
-        _isCounting = true;
-        // Under the page's shared busy affordance, which paints before the
-        // (possibly one-time-parse) count begins. _isCounting stays this site's
-        // own flag: it also drives the "Counting matching decisions…" line and
-        // is subject to the stale-request rule, neither of which the generic
-        // affordance knows about.
-        await RunBusyAsync(async () =>
-        {
-            try
-            {
-                var summary = await Controller.SummarizeMatchesAsync(cfg, await UserRankingAsync());
-                if (requestId != _countRequestId) return; // superseded — discard
-                _matchSummary = summary;
-            }
-            catch
-            {
-                // The count is advisory: never let it block Apply or fault the
-                // app. Start still validates the config and surfaces any real
-                // error.
-                if (requestId == _countRequestId) _matchSummary = null;
-            }
-            finally
-            {
-                if (requestId == _countRequestId) _isCounting = false;
-            }
-        });
+        await MatchCount.EnsureAsync(inputs);
     }
 
     private void HandleShuffleToggled(ChangeEventArgs e)
     {
         // A checkbox has no half-edited state, so the toggle is recorded live —
-        // no applied/dirty gate the way AppliedFilter needs one.
+        // no applied/edited distinction of the kind the filter setup keeps.
         ShuffleOption.Set(e.Value is true);
     }
 
@@ -1313,7 +1264,7 @@ public partial class Home : ComponentBase, IDisposable
                     ? "Your mix drew no problems — no decision in these files matched "
                       + "the selected categories against your lifetime stats. Adjust "
                       + "the mix, the filters, or the files."
-                    : _matchSummary is { AnswerTypes.Total: > 0 }
+                    : CurrentMatchSummary is { AnswerTypes.Total: > 0 }
                         ? "Every decision matching these filters was skipped for offering "
                           + "no play choice — adjust the filters or pick different files."
                         : "No quiz problems could be presented — try again, or adjust the "

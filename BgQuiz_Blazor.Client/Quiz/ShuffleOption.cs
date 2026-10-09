@@ -4,8 +4,9 @@ using XgFilter_Razor;
 
 /// <summary>
 /// Per-app holder for the "Shuffle order" toggle on <c>Home</c>'s quiz-start
-/// gate — the presentation-only complement to <see cref="AppliedFilter"/>
-/// (admission: which decisions are in scope) and <see cref="PickedProblemFolder"/>
+/// gate — the presentation-only complement to the filter setup
+/// (<see cref="FilterSetup"/>; admission: which decisions are in scope) and
+/// <see cref="PickedProblemFolder"/>
 /// (which files are in scope). Shuffling changes only the order decisions are
 /// presented in; it is deliberately not folded into <c>FilterConfig</c>.
 ///
@@ -18,7 +19,7 @@ using XgFilter_Razor;
 /// </para>
 ///
 /// <para>
-/// <b>No applied/dirty gate.</b> Unlike <see cref="AppliedFilter"/>, a checkbox
+/// <b>No applied/edited distinction.</b> Unlike the filter setup, a checkbox
 /// has no half-edited state to guard against — every toggle is a complete,
 /// immediately valid choice. <see cref="Enabled"/> is simply read live at
 /// Start; there is nothing to "apply".

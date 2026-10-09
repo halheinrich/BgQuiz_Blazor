@@ -6,6 +6,7 @@
 
 using BgFolderAccess_Razor;
 using BgQuiz_Blazor.Client.Quiz;
+using BgUiPrimitives_Razor;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Microsoft.Extensions.Logging;
 using XgFilter_Razor;
@@ -53,22 +54,33 @@ builder.Services.AddScoped<PickedProblemFolder>();
 builder.Services.AddScoped<QuizStatsStore>();
 builder.Services.AddScoped<IProblemStatsSink>(sp => sp.GetRequiredService<QuizStatsStore>());
 
-// Per-app holder for the filter half of Home's start gate — XgFilter_Razor's
-// AppliedFilter, mediated by the FilterSurface Home hosts (a commit Sets it
-// keyed to the pick's source token; uncommitted-edit reports Clear it).
-// Scoped so the gate survives in-app navigation (Home is re-instantiated on
-// navigate-back, and the composite dies with the page while this holder must
-// not); read only by Home, and only ever source-relatively.
-builder.Services.AddScoped<AppliedFilter>();
+// The one guarded access to the browser's localStorage and sessionStorage
+// (BgUiPrimitives_Razor, halheinrich/backgammon#374): QuizSettings, MixDraft,
+// NotesPlacementStore and QuizLiveMarker make every storage call through it,
+// and each keeps its own parsing, defaults and refusal reporting.
+// AddFilterSurface below registers it too; stated here because this app's own
+// stores use it, and a dependency a project uses is one it states. A second
+// call adds nothing.
+builder.Services.AddBrowserStorage();
 
-// The restored-filter notice's state, beside the holder above and for the same
-// reason: a full reload constructs a fresh instance, and that construction is
-// precisely what tells a boot's localStorage restore (say so — the spec's §4
-// legibility rule) apart from a navigate-back remount over the same setup
-// (say nothing). Scoped, therefore, not per-page. Deliberately opaque to this
-// host: every member that moves it is producer-internal, so Home's whole
-// contract is to register the instance here and bind it to FilterSurface.
-builder.Services.AddScoped<FilterRestoreNotice>();
+// The filter surface (XgFilter_Razor): the app-scoped setup-state owner,
+// FilterSetup — the draft, what is applied, what this boot restored — which
+// Home and the FilterSurface it hosts both inject, so they share one instance
+// by construction, and the surface's storage, whose every refusal goes to the
+// sink named here. The sink is this app's adapter onto BrowserStorageCondition
+// (registered below), so the surface's refusals and the app's own stores'
+// reach one occurrence and one notice (SPEC-notices.md §2). Scoped is the app
+// in WebAssembly, which is what lets the setup outlive every page. Client
+// only: every BgQuiz page renders with prerender: false, so the server never
+// renders the surface.
+builder.Services.AddScoped<FilterStorageRefusalSink>();
+builder.Services.AddFilterSurface<FilterStorageRefusalSink>();
+
+// Home's match count, keyed by the selection, the filter in effect and the
+// ranking, held here so a navigate-back reuses the count it left — and the
+// known-zero Start gate it feeds — rather than losing it with the page.
+// Scoped beside the filter setup it describes.
+builder.Services.AddScoped<MatchCount>();
 
 // The document-storage seam: XgFilter_Razor's IDocumentStorage over
 // BgFolderAccess_Razor's picked-slot file I/O — the one-line adapter glue the
@@ -80,8 +92,8 @@ builder.Services.AddScoped<FilterRestoreNotice>();
 builder.Services.AddScoped<PickedFolderDocumentStorage>();
 
 // Per-app holder for the "Shuffle order" toggle — a presentation-only choice,
-// deliberately separate from AppliedFilter/FilterConfig. Scoped for the same
-// navigate-back-survival reason as the other start-gate holders.
+// deliberately separate from the filter setup and its FilterConfig. Scoped for
+// the same navigate-back-survival reason as the other start-gate holders.
 builder.Services.AddScoped<ShuffleOption>();
 
 // The stats-weighted mix, as two sibling per-app services with one lifetime:
@@ -114,9 +126,9 @@ builder.Services.AddScoped<QuizNoticeDismissal>();
 
 // The one fact that the browser has refused a storage call this visit
 // (halheinrich/backgammon#360): every store below that touches localStorage or
-// sessionStorage reports a refusal here, and Home reports the hosted filter
-// panel's, so Home's storage notice has one occurrence however many keys were
-// refused, and by whom. Scoped beside the dismissal holder, which keys that
+// sessionStorage reports a refusal here, and so does the filter surface,
+// through FilterStorageRefusalSink above, so Home's storage notice has one
+// occurrence however many keys were refused, and by whom. Scoped beside the dismissal holder, which keys that
 // notice on it: the occurrence lasts the visit — remounts, navigation and later
 // refusals keep it, a reload starts afresh — so a dismissal does too.
 builder.Services.AddScoped<BrowserStorageCondition>();

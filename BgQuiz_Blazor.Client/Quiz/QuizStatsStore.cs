@@ -209,8 +209,9 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// anyone remembering to reset it: every <see cref="PickedProblemFolder.Set"/>
     /// and <see cref="PickedProblemFolder.Clear"/> bumps the generation, and a
     /// probe of an older one simply stops matching. The same expires-by-key
-    /// idiom the applied filter uses, where the generation is the source token
-    /// an applied config is keyed to (<c>AppliedFilter.ConfigFor</c>).
+    /// idiom the filter gate uses, where the generation is the source token
+    /// <c>Home</c> reports to the filter setup and reads its in-effect filter
+    /// for (<c>FilterSetupSnapshot.ConfigInEffectFor</c>).
     /// </param>
     /// <param name="HasStats">
     /// Whether the picked folder's stats document exists and holds at least

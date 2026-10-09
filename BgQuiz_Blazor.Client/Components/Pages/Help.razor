@@ -285,11 +285,13 @@
            here, never what its controls do.
 
            What is left is exactly the half FilterHelp cannot know: that in BgQuiz
-           an applied filter is the gate on Start (with the rider that navigating
-           the panel is not an edit, so looking around never costs the reader that
-           gate — phrased without naming a control, since the rows have no
-           antecedent this early and belong to FilterHelp to introduce), and that
-           Shuffle order is this app's control, not the panel's. Extending any of it
+           a filter in effect is the gate on Start — the empty selection on its
+           own, with no Apply (halheinrich/backgammon#266), and any other
+           selection once applied — with the rider that navigating the panel is
+           not an edit, so looking around never costs the reader that gate
+           (phrased without naming a control, since the rows have no antecedent
+           this early and belong to FilterHelp to introduce), and that Shuffle
+           order is this app's control, not the panel's. Extending any of it
            means extending FilterHelp in XgFilter_Razor, never restoring prose
            here. *@
         <p>
@@ -297,10 +299,12 @@
             ask you.
         </p>
         <p>
-            Filters must be <strong>applied</strong> before Start becomes available —
-            editing any control un-applies them until you press <em>Apply Filter</em>
-            again. Only edits count: expanding or collapsing part of the panel to see
-            what is in it never un-applies anything. Optionally tick
+            With no filter set, every decision is in, and Start is available as soon
+            as you pick a folder. Once you set a filter, it must be
+            <strong>applied</strong> before Start becomes available — editing any
+            control un-applies it until you press <em>Apply Filter</em> again, or put
+            it back as it was. Only edits count: expanding or collapsing part of the
+            panel to see what is in it never un-applies anything. Optionally tick
             <em>Shuffle order</em> to see positions in a random order rather than in
             file order.
         </p>
@@ -320,8 +324,8 @@
            prose, per FolderPickDisplay's "Help's prose stays prose" rule (a shared
            constant is earned only by two surfaces rendering the same sentence). *@
         <p>
-            Each time you press Apply, a line below the panel says how many decisions
-            your filters matched. That is the pool your quiz is drawn from — and it
+            Whenever a filter is in effect, a line below the panel says how many
+            decisions it matches. That is the pool your quiz is drawn from — and it
             counts <em>decisions</em>, not problems you will be shown: a position whose
             dice leave no legal play is counted here and then skipped for you at quiz
             time. Repeated positions are counted once: where the same position turns
@@ -368,7 +372,7 @@
            app-level framing only, and prose FilterHelp lacks is extended there,
            never written here.
 
-           Placed last in the section so the app's own framing — that Apply gates
+           Placed last in the section so the app's own framing — that a filter in effect gates
            Start, what the count means — reads as continuous prose before the
            reference block.
 
@@ -395,8 +399,8 @@
             to store the filters as they currently stand; <em>Load</em> puts a saved
             set back into the panel below, and <em>Delete</em> removes one (both
             overwriting and deleting ask you to confirm first). A loaded set arrives
-            as an edit, not as a decision — Start stays disabled until you press
-            Apply, so you are free to adjust it first.
+            as an edit, not as a decision — a set that narrows anything takes effect
+            only when you press Apply, so you are free to adjust it first.
         </p>
         @* Both file names are rendered from SavedFiltersDocument's constants — the
            producer's SSOT for the document identity and its two-name migration rule

@@ -11,8 +11,10 @@ namespace BgQuiz_Blazor.Client.Quiz;
 /// <b>One fact, many reporters.</b> Every store that touches browser storage
 /// reports a refusal here from its own guard — <see cref="QuizSettings"/>,
 /// <see cref="MixDraft"/>, <see cref="NotesPlacementStore"/> and
-/// <see cref="QuizLiveMarker"/> — and <c>Home</c> reports the hosted filter
-/// panel's <c>FilterSurface.OnStorageUnavailable</c>. They feed one occurrence
+/// <see cref="QuizLiveMarker"/> — and the filter surface reports every refusal
+/// of its own through <see cref="FilterStorageRefusalSink"/>, the sink this app
+/// registers with it, also after the page that started the call has gone
+/// (halheinrich/backgammon#374). They feed one occurrence
 /// because the user is told one thing: the browser is not keeping what BgQuiz
 /// asks it to keep, so the filters, the mix and the settings work for this
 /// visit and may not be there for the next. Which key was refused first, and
