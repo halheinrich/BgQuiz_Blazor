@@ -711,7 +711,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ApplyFilters_ShowsMatchCount()
+    public async Task Home_FilterInEffect_ShowsMatchCount()
     {
         // Task U: applying filters shows how many decisions matched, sourced
         // from the controller's SummarizeMatchesAsync over the source's items (the
@@ -730,7 +730,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ApplyFilters_SingleMatch_UsesSingularWording()
+    public async Task Home_FilterInEffect_SingleMatch_UsesSingularWording()
     {
         // Pluralization pin: exactly one match reads "decision matches", not
         // "decisions match".
@@ -747,7 +747,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ApplyFilters_NoDuplicatesCollapsed_SaysThereAreNoRepeats()
+    public async Task Home_FilterInEffect_NoDuplicatesCollapsed_SaysThereAreNoRepeats()
     {
         // Issue halheinrich/backgammon#104. The count has always been a count of distinct positions —
         // the source stack dedupes beneath everything — but the line said
@@ -774,7 +774,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ApplyFilters_DuplicatesCollapsed_StatesTheMagnitude()
+    public async Task Home_FilterInEffect_DuplicatesCollapsed_StatesTheMagnitude()
     {
         // The half that actually removes the mystery: "distinct" alone still
         // leaves the user's subtraction unexplained, so the collapse magnitude
@@ -800,7 +800,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ApplyFilters_OneDuplicateCollapsed_UsesSingularWording()
+    public async Task Home_FilterInEffect_OneDuplicateCollapsed_UsesSingularWording()
     {
         // Pluralization pin for the magnitude sentence, the mate of the count
         // line's own: one collapsed copy reads "1 duplicate is omitted."
@@ -820,7 +820,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ApplyFilters_NoMatches_SaysNothingAboutRepeats()
+    public async Task Home_FilterInEffect_NoMatches_SaysNothingAboutRepeats()
     {
         // Suppressed on an empty pool for the reason the breakdown is: with
         // nothing matched there is no pool to characterize, so a qualification
@@ -839,7 +839,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ApplyFilters_MixInEffect_CountCarriesThePoolCaveat()
+    public async Task Home_FilterInEffect_MixInEffect_CountCarriesThePoolCaveat()
     {
         // The count is filter-only (SummarizeMatchesAsync composes with QuizMix.Empty),
         // so with a mix in effect the number is the pool the quiz is *drawn from* —
@@ -867,7 +867,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ApplyFilters_NoMix_CountCarriesNoCaveat()
+    public async Task Home_FilterInEffect_NoMix_CountCarriesNoCaveat()
     {
         // Passthrough (the default): the quiz presents what the filters matched, so
         // there is nothing to qualify — the caveat must not appear.
@@ -885,7 +885,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ApplyFilters_BreaksThePoolDownByAnswerType()
+    public async Task Home_FilterInEffect_BreaksThePoolDownByAnswerType()
     {
         // Issue halheinrich/backgammon#35: the count line is joined by the answer-type breakdown, so a
         // user can see what their collection is made of before starting. The
@@ -917,7 +917,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ApplyFilters_CountAndBreakdownComeFromOneDistribution()
+    public async Task Home_FilterInEffect_CountAndBreakdownComeFromOneDistribution()
     {
         // The wiring guarantee behind replacing the int-returning count: the
         // number the user reads and the buckets under it are two renderings of
@@ -948,7 +948,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ApplyFilters_NoMatches_ShowsTheCountWithoutABreakdown()
+    public async Task Home_FilterInEffect_NoMatches_ShowsTheCountWithoutABreakdown()
     {
         // The one case the breakdown is suppressed: an empty pool has no
         // make-up to describe, and five zeros under "0 decisions match" would be
