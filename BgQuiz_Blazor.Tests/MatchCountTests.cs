@@ -94,7 +94,8 @@ public class MatchCountTests : BunitContext
     [InlineData(false)]
     public async Task AnOlderCount_CompletingWhileANewerOneIsPending_ChangesNothing(bool olderSucceeds)
     {
-        var older = await StartAsync(InputsFor(PlayRanking.Equity));
+        var olderInputs = InputsFor(PlayRanking.Equity);
+        var older = await StartAsync(olderInputs);
         _equity.WaitUntilReached();
         var newerInputs = InputsFor(PlayRanking.DepthFirst);
         var newer = await StartAsync(newerInputs);
@@ -104,14 +105,15 @@ public class MatchCountTests : BunitContext
         await Settled(older); // the older continuation has run
 
         Assert.Same(newerInputs, _count.Inputs);
-        Assert.True(_count.IsCounting);  // the newer request's busy state stands
-        Assert.Null(_count.Summary);      // and no result replaced its pending one
+        Assert.Same(MatchCountReading.Counting, _count.ReadingFor(newerInputs)); // the newer request's busy state stands, with no result
+        Assert.Same(MatchCountReading.Unknown, _count.ReadingFor(olderInputs));  // and the older inputs read as nothing
 
         _depthFirst.Answer(succeed: true);
         await Settled(newer);
 
-        Assert.False(_count.IsCounting);
-        Assert.Equal(1, _count.Summary!.AnswerTypes.Total); // the newer count's, not the older's 2
+        var reading = _count.ReadingFor(newerInputs);
+        Assert.False(reading.IsCounting);
+        Assert.Equal(1, reading.Summary!.AnswerTypes.Total); // the newer count's, not the older's 2
     }
 
     [Theory]
@@ -127,15 +129,14 @@ public class MatchCountTests : BunitContext
 
         _depthFirst.Answer(succeed: true);
         await Settled(newer);
-        var published = _count.Summary;
-        Assert.NotNull(published);
+        var published = _count.ReadingFor(newerInputs);
+        Assert.NotNull(published.Summary);
 
         _equity.Answer(olderSucceeds);
         await Settled(older);
 
         Assert.Same(newerInputs, _count.Inputs);
-        Assert.Same(published, _count.Summary);
-        Assert.False(_count.IsCounting);
+        Assert.Same(published, _count.ReadingFor(newerInputs));
     }
 
     [Fact]
@@ -148,9 +149,7 @@ public class MatchCountTests : BunitContext
         _equity.Answer(succeed: false);
         await Settled(request);
 
-        Assert.False(_count.IsCounting);
-        Assert.Null(_count.Summary);
-        Assert.Null(_count.SummaryFor(inputs));
+        Assert.Same(MatchCountReading.Unknown, _count.ReadingFor(inputs)); // not counting, and no result — never zero
         var entry = Assert.Single(_log.Entries);
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.IsType<InvalidOperationException>(entry.Exception);
@@ -170,32 +169,36 @@ public class MatchCountTests : BunitContext
 
         var whilePending = await StartAsync(again);
         Assert.True(whilePending.IsCompleted); // reused: nothing started
-        Assert.True(_count.IsCounting);
+        Assert.Same(MatchCountReading.Counting, _count.ReadingFor(again));
 
         _equity.Answer(succeed: true);
         await Settled(first);
-        var settled = _count.Summary;
+        var settled = _count.ReadingFor(again);
+        Assert.NotNull(settled.Summary);
 
         var afterSettling = await StartAsync(InputsFor(PlayRanking.Equity));
         Assert.True(afterSettling.IsCompleted);
-        Assert.Same(settled, _count.Summary);
+        Assert.Same(settled, _count.ReadingFor(InputsFor(PlayRanking.Equity)));
         Assert.Equal(1, _built);
     }
 
     [Fact]
     public async Task DifferentInputs_Recount()
     {
-        var first = await StartAsync(InputsFor(PlayRanking.Equity));
+        var firstInputs = InputsFor(PlayRanking.Equity);
+        var first = await StartAsync(firstInputs);
         _equity.Answer(succeed: true);
         await Settled(first);
-        Assert.Equal(2, _count.Summary!.AnswerTypes.Total);
+        Assert.Equal(2, _count.ReadingFor(firstInputs).Summary!.AnswerTypes.Total);
 
-        var second = await StartAsync(InputsFor(PlayRanking.DepthFirst));
-        Assert.Null(_count.Summary); // the held count is not these inputs'
+        var secondInputs = InputsFor(PlayRanking.DepthFirst);
+        var second = await StartAsync(secondInputs);
+        Assert.Same(MatchCountReading.Counting, _count.ReadingFor(secondInputs)); // the held count is not these inputs'
+        Assert.Same(MatchCountReading.Unknown, _count.ReadingFor(firstInputs));   // nor still the first's
         _depthFirst.Answer(succeed: true);
         await Settled(second);
 
-        Assert.Equal(1, _count.Summary!.AnswerTypes.Total);
+        Assert.Equal(1, _count.ReadingFor(secondInputs).Summary!.AnswerTypes.Total);
         Assert.Equal(2, _built);
     }
 

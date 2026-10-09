@@ -22,6 +22,18 @@ using Microsoft.Extensions.Logging;
 /// </para>
 ///
 /// <para>
+/// <b>Read only for the inputs on screen.</b> Activity and result are one
+/// reading, and the only reading is for given inputs
+/// (<see cref="ReadingFor"/>): a page asks about the inputs it shows, and
+/// learns nothing of a request for any others. So a request left running
+/// after its inputs went — the pick cleared or replaced, the filter edited
+/// out of effect — shows no result and makes no page busy, while it still
+/// runs on, so a return to its inputs reuses it. Nothing here answers "is
+/// anything counting", because no page decision may depend on that
+/// (halheinrich/backgammon#374).
+/// </para>
+///
+/// <para>
 /// <b>One request is current.</b> Each recount is a new request, and only the
 /// newest may publish: a completion for superseded inputs — success or failure,
 /// whether the newer request is still running or has already published —
@@ -32,7 +44,7 @@ using Microsoft.Extensions.Logging;
 ///
 /// <para>
 /// <b>A failed count is unknown, never zero.</b> The count is advisory: a
-/// failure is logged and leaves <see cref="Summary"/> null for its inputs, so
+/// failure is logged and reads as <see cref="MatchCountReading.Unknown"/> for its inputs, so
 /// the known-zero gate cannot close on it and Start's own validation stays the
 /// word on the config. It is settled for those inputs — a remount over them
 /// does not retry it, any change to them does — so nothing re-runs a failing
@@ -48,9 +60,13 @@ internal sealed class MatchCount(QuizController controller, ILogger<MatchCount> 
 {
     /// <summary>
     /// The request counting <see cref="Inputs"/>, or <see langword="null"/>
-    /// when their count has settled. Compared by reference only.
+    /// when their count has settled. Compared by reference only. Non-null
+    /// exactly while <see cref="_reading"/> is <see cref="MatchCountReading.Counting"/>.
     /// </summary>
     private object? _pending;
+
+    /// <summary>What is known of <see cref="Inputs"/>: counting, counted, or unknown.</summary>
+    private MatchCountReading _reading = MatchCountReading.Unknown;
 
     /// <summary>
     /// Raised whenever what this holds changes — a count started, or the
@@ -63,24 +79,17 @@ internal sealed class MatchCount(QuizController controller, ILogger<MatchCount> 
     public MatchCountInputs? Inputs { get; private set; }
 
     /// <summary>
-    /// What <see cref="Inputs"/> matched, or <see langword="null"/> while it is
-    /// counting or when the count failed.
-    /// </summary>
-    public MatchSummary? Summary { get; private set; }
-
-    /// <summary>Whether the count of <see cref="Inputs"/> is still running.</summary>
-    public bool IsCounting => _pending is not null;
-
-    /// <summary>
-    /// The settled count of <paramref name="inputs"/>, or <see langword="null"/>
-    /// when they are not the current inputs, are still counting, or failed —
-    /// the one reading a page renders and gates from, so a count of anything
-    /// but what is on screen is never shown.
+    /// What is known of <paramref name="inputs"/>: that they are being
+    /// counted, what they matched, or — when they are not the inputs being
+    /// counted, or their count failed — nothing
+    /// (<see cref="MatchCountReading.Unknown"/>). The one reading a page
+    /// renders, gates and decides busy from, so neither a result nor activity
+    /// for anything but what is on screen ever reaches it.
     /// </summary>
     /// <param name="inputs">The page's current inputs, or <see langword="null"/> when nothing is in effect.</param>
-    /// <returns>The summary, or <see langword="null"/>.</returns>
-    public MatchSummary? SummaryFor(MatchCountInputs? inputs) =>
-        inputs is not null && inputs.Equals(Inputs) ? Summary : null;
+    /// <returns>The reading.</returns>
+    public MatchCountReading ReadingFor(MatchCountInputs? inputs) =>
+        inputs is not null && inputs.Equals(Inputs) ? _reading : MatchCountReading.Unknown;
 
     /// <summary>
     /// Make <paramref name="inputs"/> the current count: reuse it when it
@@ -101,8 +110,8 @@ internal sealed class MatchCount(QuizController controller, ILogger<MatchCount> 
 
         var request = new object();
         Inputs = inputs;
-        Summary = null;
         _pending = request;
+        _reading = MatchCountReading.Counting;
         Changed?.Invoke();
 
         // Let the page paint the count's state before the count begins — the
@@ -122,10 +131,16 @@ internal sealed class MatchCount(QuizController controller, ILogger<MatchCount> 
             result = null;
         }
 
-        if (!ReferenceEquals(_pending, request)) return; // superseded — a newer request owns the state
+        if (!ReferenceEquals(_pending, request))
+        {
+            // Superseded — a newer request owns the state. Said at Debug, as
+            // the one trace that this completion happened and was dropped.
+            logger.LogDebug("The match count for {Inputs} finished after newer inputs superseded it; it changes nothing.", inputs);
+            return;
+        }
 
         _pending = null;
-        Summary = result;
+        _reading = result is null ? MatchCountReading.Unknown : MatchCountReading.Counted(result);
         Changed?.Invoke();
     }
 }

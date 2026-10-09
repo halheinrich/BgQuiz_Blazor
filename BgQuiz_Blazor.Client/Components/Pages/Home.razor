@@ -523,13 +523,16 @@
        choice (a pass, or a forced play) are included because they auto-skip at
        quiz time, so the wording is "decisions that match", not "problems you'll
        see". Polite role="status"; advisory only
-       (Start is gated by CanStart, not by this). The busy line shows during the
-       first parse after a pick.
+       (Start is gated by CanStart, not by this). The counting line shows while
+       the count of the inputs on screen runs; only the first after a pick,
+       which parses it, also makes the page busy.
 
        Read from the app-scoped MatchCount holder, keyed by the pick, the
-       filter in effect and the ranking (CurrentMatchSummary), so it is shown
-       only for the inputs on screen, and a navigate-back finds the count it
-       left — and the known-zero gate with it.
+       filter in effect and the ranking (CurrentCount), so the counting line
+       and the result are both shown only for the inputs on screen — a count
+       left running for a cleared pick or an edited-away filter shows neither
+       — and a navigate-back finds the count it left, and the known-zero gate
+       with it.
 
        The count is filter-only by construction — SummarizeMatchesAsync passes
        QuizMix.Empty — so with a mix in effect the number describes the pool the
@@ -616,7 +619,7 @@
                 <li><code>@rejection.SourceName</code> — @rejection.Reason.Message</li>
             }
         </ul>;
-    @if (MatchCount.IsCounting)
+    @if (CurrentCount.IsCounting)
     {
         <div class="text-muted small mb-3" role="status">Counting matching decisions…</div>
     }

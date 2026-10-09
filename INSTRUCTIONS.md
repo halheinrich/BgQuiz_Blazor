@@ -2457,8 +2457,10 @@ The asymmetry is pinned three times over: at the service seam
   `MatchCount` (`Quiz/`), not on the page, keyed by `MatchCountInputs`: the
   selection (the pick's `FilterSourceToken`), the filter in effect — compared
   **by value**, through a fresh `NewConfig()` on each side — and the ranking.
-  The holder keeps the current inputs, their `Summary` and the pending
-  request's identity (a fresh object per request, compared by reference).
+  The holder keeps the current inputs, what is known of them (a
+  `MatchCountReading`: counting, counted with its `MatchSummary`, or
+  unknown) and the pending request's identity (a fresh object per request,
+  compared by reference).
   Home asks for the count of its current inputs on every mount and every
   `FilterSetup` snapshot (`SyncMatchCountAsync`; the ranking is read from
   `QuizSettings` there, so a ranking changed on Settings recounts on the way
@@ -2468,8 +2470,21 @@ The asymmetry is pinned three times over: at the service seam
   after the newer has published, success or failure, changes nothing. A
   failed count is logged and left unknown (null), never zero, so the
   known-zero gate cannot close on it; it is settled for its inputs and not
-  retried until they change. Home renders only a count of its current inputs
-  (`CurrentMatchSummary => MatchCount.SummaryFor(CurrentCountInputs(…))`).
+  retried until they change. **Activity and result are one reading, for
+  the inputs on screen** (the C3 correction, halheinrich/backgammon#374):
+  the holder's only read is `ReadingFor(inputs)`, and Home makes it once,
+  `CurrentCount => MatchCount.ReadingFor(CurrentCountInputs(…))`; the
+  counting line and the first-parse busy decision take its `IsCounting`,
+  everything else its `Summary` (`CurrentMatchSummary`). Nothing answers
+  "is anything counting". So a request left running after its inputs went
+  — Clear, a re-pick, an edit out of effect — neither shows a result nor
+  makes the page busy, while it runs on and stays reusable; the bug this
+  closed was a global activity read, under which Clear during a recount
+  over the held parse read as a first parse and held the folder picker
+  disabled (`Home_ClearDuringACountOverTheHeldParse_*`,
+  `Home_AnEditThatLeavesNoFilterInEffect_*`, and, for the opposite
+  requirement — activity that is the page's stands —
+  `Home_RePickDuringACountOverTheHeldParse_*`).
   This is what makes navigate-back honest: before it, the count was the
   page's field, started by the panel's commit event, so Settings → Home
   showed no count and **Start went live over a known-zero filter** —
@@ -2521,9 +2536,9 @@ The asymmetry is pinned three times over: at the service seam
     for its axis, leaving the region free for issue halheinrich/backgammon#3's
     composition preview; nothing is built for that, the name is simply not claimed.
   The first count after a pick parses the corpus once (warming the cache), so
-  that count — and only that one (`IsParsingThePick`: counting while
-  `Folder.Parsed` is null) — folds into the busy boundary (Busy affordances
-  below). Help documents the count in
+  that count — and only that one (`IsParsingThePick`: the current inputs'
+  reading is counting while `Folder.Parsed` is null) — folds into the busy
+  boundary (Busy affordances below). Help documents the count in
   its own prose — a shared constant is earned only when two surfaces render
   the same sentence, which these don't.
   **Start.** Hands `FilterInEffect` + `EffectiveMix` (the on-screen draft's

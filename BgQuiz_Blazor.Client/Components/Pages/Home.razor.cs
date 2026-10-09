@@ -433,9 +433,10 @@ public partial class Home : ComponentBase, IDisposable
     /// anything"), not of the operation. Raised only through
     /// <see cref="EnterBusyAsync"/> / <see cref="RunBusyAsync"/>, which own the
     /// paint-before-the-work discipline. The match count's running state is the
-    /// count holder's own (<see cref="MatchCount.IsCounting"/>), because the
-    /// count outlives this page; <see cref="IsBusy"/> reads it only while the
-    /// count is the pick's first parse (<see cref="IsParsingThePick"/>).
+    /// count holder's own, read for the inputs on screen
+    /// (<see cref="CurrentCount"/>), because the count outlives this page;
+    /// <see cref="IsBusy"/> reads it only while the count is the pick's first
+    /// parse (<see cref="IsParsingThePick"/>).
     /// </summary>
     private bool _busy;
 
@@ -548,11 +549,25 @@ public partial class Home : ComponentBase, IDisposable
         FilterSource is { } source ? FilterSetup.Current.ConfigInEffectFor(source) : null;
 
     /// <summary>
-    /// The settled count of what is on screen — the pick, the filter in effect
-    /// and the ranking — or <see langword="null"/> when nothing is in effect,
-    /// the count is still running, or it failed. The one reading the count
-    /// line, the zero box, the known-zero gate and the no-match fallback all
-    /// take, so none of them can show or gate on a count of other inputs.
+    /// What the count holder knows of what is on screen — the pick, the filter
+    /// in effect and the ranking: being counted, counted, or nothing
+    /// (<see cref="MatchCountReading"/>; nothing too when no filter is in
+    /// effect). The one read of the count this page makes: the counting line
+    /// and the first-parse busy decision take its activity
+    /// (<see cref="IsParsingThePick"/>), everything else its result
+    /// (<see cref="CurrentMatchSummary"/>). A request for other inputs — left
+    /// running by a Clear, a re-pick or an edit out of effect — is invisible
+    /// here, so it can neither show a result nor make the page busy
+    /// (halheinrich/backgammon#374).
+    /// </summary>
+    private MatchCountReading CurrentCount => MatchCount.ReadingFor(CurrentCountInputs(Settings.Ranking));
+
+    /// <summary>
+    /// The settled count of what is on screen (<see cref="CurrentCount"/>), or
+    /// <see langword="null"/> when nothing is in effect, the count is still
+    /// running, or it failed. The one result the count line, the zero box, the
+    /// known-zero gate and the no-match fallback all take, so none of them can
+    /// show or gate on a count of other inputs.
     ///
     /// <para>
     /// <b>One value carries every half of the display.</b> The count line
@@ -584,7 +599,7 @@ public partial class Home : ComponentBase, IDisposable
     /// user is empty is not one a Start click should dead-end against.
     /// </para>
     /// </summary>
-    private MatchSummary? CurrentMatchSummary => MatchCount.SummaryFor(CurrentCountInputs(Settings.Ranking));
+    private MatchSummary? CurrentMatchSummary => CurrentCount.Summary;
 
     /// <summary>
     /// The match count's inputs for what is on screen under
@@ -814,12 +829,15 @@ public partial class Home : ComponentBase, IDisposable
     private bool IsBusy => Controller.IsBusy || _busy || IsParsingThePick;
 
     /// <summary>
-    /// Whether the running match count is the pick's first parse: a count is
-    /// running and no completed parse of this pick is held yet
-    /// (<see cref="PickedProblemFolder.Parsed"/>, which the parse stores and
-    /// every pick and Clear drops).
+    /// Whether the count of what is on screen is the pick's first parse: it is
+    /// running (<see cref="CurrentCount"/>) and no completed parse of this pick
+    /// is held yet (<see cref="PickedProblemFolder.Parsed"/>, which the parse
+    /// stores and every pick and Clear drops). Only the current inputs'
+    /// count can say so: a recount left running when its pick was cleared
+    /// also finds no parse held, and must not hold the next setup — the
+    /// folder picker included — busy for work nobody is waiting on.
     /// </summary>
-    private bool IsParsingThePick => MatchCount.IsCounting && Folder.Parsed is null;
+    private bool IsParsingThePick => CurrentCount.IsCounting && Folder.Parsed is null;
 
     /// <summary>
     /// Raise the busy affordance <i>and let it paint</i>, then return.
@@ -1187,8 +1205,9 @@ public partial class Home : ComponentBase, IDisposable
     /// different inputs recount, superseding any count of older ones. Nothing
     /// is asked while no filter is in effect (an edit pending, a restoration
     /// still being read, no pick): the held count simply is not the current
-    /// one, so nothing shows, and an edit undone back to the counted filter
-    /// finds it again.
+    /// one, so nothing shows — a request it left running included, which
+    /// this page reads only for its current inputs (<see cref="CurrentCount"/>)
+    /// — and an edit undone back to the counted filter finds it again.
     ///
     /// <para>
     /// Runs on every mount and every filter snapshot. The ranking comes from

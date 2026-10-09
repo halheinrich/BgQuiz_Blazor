@@ -352,7 +352,7 @@ public class PageTests : BunitContext
 
             var count = Services.GetRequiredService<MatchCount>();
             Assert.Equal(source, count.Inputs?.Selection);
-            Assert.False(count.IsCounting);
+            Assert.False(count.ReadingFor(count.Inputs).IsCounting);
         });
 
         // Then the page as rendered: what the settled state says, in the DOM.
@@ -13397,6 +13397,160 @@ public class PageTests : BunitContext
         WaitForHomeToSettle(cut);
     }
 
+    // -----------------------------------------------------------------------
+    //  The count's activity belongs to the inputs on screen, as its result
+    //  does (halheinrich/backgammon#374, the C3 correction to Arc 2 leg 6).
+    //  A request left running when its inputs went — the pick cleared or
+    //  replaced, the filter edited out of effect — is no longer the page's:
+    //  it must neither show a result nor make the page busy, while a request
+    //  for what is on screen keeps both. Each scenario holds a count open on
+    //  a gated source and finishes it in the order it chooses.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// A controller whose every count or Start takes the next of
+    /// <paramref name="sources"/>, in order — for a test that holds two counts
+    /// open and finishes them in the order it chooses. A build past the last
+    /// source fails the test, so an unexpected extra count cannot pass unseen.
+    /// </summary>
+    private QuizController WithGatedControllerInOrder(params GatedProblemSetSource[] sources)
+    {
+        var built = 0;
+        var controller = new QuizController(
+            (_, _, _) => TestFixtures.Composed(sources[built++]),
+            new FakeProblemStatsSink(), TimeProvider.System);
+        Services.AddSingleton(controller);
+        return controller;
+    }
+
+    private static bool SetupIsDisabled(IRenderedComponent<HomePage> cut) =>
+        cut.Find("fieldset").HasAttribute("disabled");
+
+    [Fact]
+    public async Task Home_ClearDuringACountOverTheHeldParse_LeavesThePickerUsable_AndTheOldCountShowsNothing()
+    {
+        // Clear drops the pick and its parse while a recount over that parse
+        // still runs. The request is no longer anyone's, so it must not read
+        // as the next pick's first parse: the busy fieldset encloses the
+        // folder picker, and a user who cleared would be locked out of
+        // picking until work for the discarded selection finished. Its later
+        // completion settles into the holder for its own inputs, and brings
+        // back neither activity nor a result.
+        var decision = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        WithGatedController(out var source, out _, decision);
+        var folder = WithPickedFolder();
+        WithParsedPick(folder, PartialReport(), decision);
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        source.WaitForDrawRequest(1); // the recount is parked on its one item
+        cut.WaitForAssertion(() => Assert.Contains("Counting matching decisions", cut.Markup));
+        Assert.False(SetupIsDisabled(cut)); // a count over a held parse: the controls stay usable
+
+        await cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear").ClickAsync(new());
+
+        // Before the old count is released: no parse is held, and a count is
+        // still running — but not for anything on screen.
+        Assert.Null(folder.Parsed);
+        Assert.False(SetupIsDisabled(cut));
+        Assert.Empty(cut.FindAll("div.app-busy"));
+        Assert.False(cut.Find("#pickProblemFolder").HasAttribute("disabled"));
+        Assert.DoesNotContain("Counting matching decisions", cut.Markup);
+
+        source.ReleaseNext();
+        var count = Services.GetRequiredService<MatchCount>();
+        cut.WaitForAssertion(() => Assert.False(count.ReadingFor(count.Inputs).IsCounting)); // settled, for its own inputs
+
+        Assert.False(SetupIsDisabled(cut));
+        Assert.Empty(cut.FindAll("div.app-busy"));
+        Assert.DoesNotContain("Counting matching decisions", cut.Markup);
+        Assert.DoesNotContain("your filters", cut.Markup);
+    }
+
+    [Fact]
+    public async Task Home_AnEditThatLeavesNoFilterInEffect_TakesTheCountingLineAway()
+    {
+        // The counting line says the filter on screen is being counted. Once
+        // an edit takes the filter out of effect there is nothing on screen
+        // to count, so the line goes — though the request for the filter that
+        // was in effect runs on, and is reusable if the edit is undone.
+        var decision = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        WithGatedController(out var source, out _, decision);
+        WithParsedPick(WithPickedFolder(), PartialReport(), decision);
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        source.WaitForDrawRequest(1); // the count of the empty selection is parked
+        cut.WaitForAssertion(() => Assert.Contains("Counting matching decisions", cut.Markup));
+
+        await EditFilterControlAsync(cut); // Min 0.75: nothing in effect
+        Assert.Null(FilterInEffect());
+        cut.WaitForAssertion(() => Assert.DoesNotContain("Counting matching decisions", cut.Markup));
+
+        source.ReleaseNext();
+        var count = Services.GetRequiredService<MatchCount>();
+        cut.WaitForAssertion(() => Assert.False(count.ReadingFor(count.Inputs).IsCounting));
+
+        Assert.DoesNotContain("Counting matching decisions", cut.Markup);
+        Assert.DoesNotContain("your filters", cut.Markup); // its result is not the edit's
+        Assert.False(SetupIsDisabled(cut));
+    }
+
+    [Fact]
+    public async Task Home_RePickDuringACountOverTheHeldParse_KeepsTheNewPicksFirstParseBusy_UntilItsOwnCountLands()
+    {
+        // The opposite requirement to Clear's: activity that *is* the page's
+        // must stand. Pick A's recount over its held parse is parked; pick B
+        // starts B's first parse with the empty selection ready, and parks
+        // too. A finishing while B runs changes nothing — B stays busy and
+        // A's count (2) is never shown — and B finishing shows B's count (1)
+        // and settles the controls.
+        var decision = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        var countA = new GatedProblemSetSource([decision, decision], "A");
+        var countB = new GatedProblemSetSource([decision], "B");
+        WithGatedControllerInOrder(countA, countB);
+        var log = new RecordingLogger<MatchCount>();
+        Services.AddSingleton<ILogger<MatchCount>>(log);
+        WithParsedPick(WithPickedFolder(), PartialReport(), decision);
+        WithShuffleOption();
+        _folderAccess.NextPickOutcome = OneFileOutcome("Second", "second.xg");
+
+        var cut = Render<HomePage>();
+        countA.WaitForDrawRequest(1); // A's recount over its held parse, parked
+        cut.WaitForAssertion(() => Assert.Contains("Counting matching decisions", cut.Markup));
+        Assert.False(SetupIsDisabled(cut));
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        countB.WaitForDrawRequest(1); // B's first parse, parked
+        cut.WaitForAssertion(() => Assert.True(SetupIsDisabled(cut)));
+        Assert.Contains("Counting matching decisions", cut.Markup);
+
+        countA.ReleaseNext(2);
+        // A's completion has run and been dropped: the holder's one trace of
+        // it. Polled, not WaitForAssertion — that re-checks on renders, and a
+        // dropped completion by design renders nothing. The log is read on the
+        // renderer's dispatcher, the one thread that writes it.
+        Assert.True(
+            SpinWait.SpinUntil(
+                () => cut.InvokeAsync(() => log.Entries.Exists(
+                    e => e.Level == LogLevel.Debug && e.Message.Contains("superseded"))).Result,
+                TimeSpan.FromSeconds(10)),
+            "Pick A's count never reported finishing after it was superseded.");
+
+        Assert.True(SetupIsDisabled(cut));
+        Assert.NotEmpty(cut.FindAll("div.app-busy"));
+        Assert.Contains("Counting matching decisions", cut.Markup);
+        Assert.DoesNotContain("your filters", cut.Markup);
+
+        countB.ReleaseNext();
+        WaitForHomeToSettle(cut);
+
+        Assert.Contains("1 decision matches your filters", Normalize(MatchSummaryRegion(cut).TextContent));
+        Assert.False(SetupIsDisabled(cut));
+        Assert.Empty(cut.FindAll("div.app-busy"));
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+    }
+
     [Fact]
     public async Task Home_ChangingTheSelection_Recounts_ForTheNewPick()
     {
@@ -13486,7 +13640,8 @@ public class PageTests : BunitContext
         cut.WaitForAssertion(() => Assert.Equal(1, attempts.Value));
         WaitForHomeToSettle(cut);
 
-        Assert.Null(Services.GetRequiredService<MatchCount>().Summary);
+        var count = Services.GetRequiredService<MatchCount>();
+        Assert.Same(MatchCountReading.Unknown, count.ReadingFor(count.Inputs));
         Assert.Empty(cut.FindAll("#noMatchNotice"));
         Assert.DoesNotContain("match your filters", cut.Markup);
         Assert.False(StartButton(cut).HasAttribute("disabled"));
