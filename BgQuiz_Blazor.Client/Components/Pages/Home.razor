@@ -27,8 +27,12 @@
 <PageTitle>BgQuiz</PageTitle>
 
 @* app-busy: the progress-cursor idiom (app.css) whenever this page is working
-   — a controller transition, a pick's scan-and-buffer, or a match count. The predicate is IsBusy for all of them, and the fieldset below
-   reads the same one, so cursor and disabled controls cannot disagree. *@
+   — a controller transition, a pick's scan-and-buffer, or the match count
+   that parses a new pick. The predicate is IsBusy for all of them, and the
+   fieldset below reads the same one, so cursor and disabled controls cannot
+   disagree. A later count, over the parse the pick holds, is not page-busy:
+   it runs whenever the filter in effect changes, typing included, and must
+   not disable the box being typed in (IsBusy's remarks). *@
 <div class="container py-3 @(IsBusy ? "app-busy" : null)">
     <h1>BgQuiz</h1>
 
@@ -791,7 +795,11 @@
     </div>
 
     @* The busy half is redundant under the enclosing fieldset, but explicit:
-       the gate condition and the busy condition are both visible here. *@
+       the gate condition and the busy condition are both visible here. A
+       count over a parse the pick already holds does not hold Start back:
+       it parses nothing, so a Start beside it reads the same held parse, and
+       a Start made before it knows a zero has the no-match outcome as its
+       backstop. The pick's first parse does hold it, through the fieldset. *@
     <button class="btn btn-primary"
             disabled="@(!CanStart || Controller.IsBusy)"
             @onclick="StartQuizAsync">

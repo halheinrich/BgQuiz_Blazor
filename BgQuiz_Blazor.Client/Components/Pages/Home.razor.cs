@@ -432,9 +432,10 @@ public partial class Home : ComponentBase, IDisposable
     /// is a property of the <i>page</i> ("BgQuiz is working, don't touch
     /// anything"), not of the operation. Raised only through
     /// <see cref="EnterBusyAsync"/> / <see cref="RunBusyAsync"/>, which own the
-    /// paint-before-the-work discipline. The match count's busy state is the
+    /// paint-before-the-work discipline. The match count's running state is the
     /// count holder's own (<see cref="MatchCount.IsCounting"/>), because the
-    /// count outlives this page; <see cref="IsBusy"/> reads both.
+    /// count outlives this page; <see cref="IsBusy"/> reads it only while the
+    /// count is the pick's first parse (<see cref="IsParsingThePick"/>).
     /// </summary>
     private bool _busy;
 
@@ -791,11 +792,34 @@ public partial class Home : ComponentBase, IDisposable
     /// and the disabled controls can never disagree about whether the page is
     /// working. A union of the independent sources: the controller's transition
     /// gate (Start / Restart), this page's own foreground work
-    /// (<see cref="_busy"/>), and the match count, whose running state is its
-    /// holder's (<see cref="MatchCount.IsCounting"/>) — a count still running
-    /// reads busy, on this mount or a later one.
+    /// (<see cref="_busy"/>), and a match count that is parsing the pick
+    /// (<see cref="IsParsingThePick"/>).
+    ///
+    /// <para>
+    /// <b>Not every count.</b> The count is no longer a gesture's: it runs on
+    /// its own whenever the filter in effect changes — and an edit that empties
+    /// a box puts the empty selection in effect (halheinrich/backgammon#266).
+    /// Disabling the fieldset for such a count would disable the box the user
+    /// is typing in, and a focused control that is disabled loses its focus,
+    /// against the ruled "typing keeps its focus and caret" (SPEC-filtering.md
+    /// §1). Those counts read a parse the pick already holds, so they are
+    /// short, parse nothing, and the holder supersedes a stale one; they leave
+    /// the controls — Start included — alone and show only the counting line.
+    /// The first count after a pick is different — it parses the corpus, the
+    /// one long stretch, and it runs before anyone is typing — so it keeps the
+    /// whole-surface busy state, which also keeps a Start or a second count
+    /// from parsing the same corpus beside it.
+    /// </para>
     /// </summary>
-    private bool IsBusy => Controller.IsBusy || _busy || MatchCount.IsCounting;
+    private bool IsBusy => Controller.IsBusy || _busy || IsParsingThePick;
+
+    /// <summary>
+    /// Whether the running match count is the pick's first parse: a count is
+    /// running and no completed parse of this pick is held yet
+    /// (<see cref="PickedProblemFolder.Parsed"/>, which the parse stores and
+    /// every pick and Clear drops).
+    /// </summary>
+    private bool IsParsingThePick => MatchCount.IsCounting && Folder.Parsed is null;
 
     /// <summary>
     /// Raise the busy affordance <i>and let it paint</i>, then return.

@@ -105,9 +105,10 @@ internal sealed class MatchCount(QuizController controller, ILogger<MatchCount> 
         _pending = request;
         Changed?.Invoke();
 
-        // Let the busy state paint before the count begins: WebAssembly runs
-        // the renderer on this one thread, and the first count after a pick
-        // parses the corpus.
+        // Let the page paint the count's state before the count begins — the
+        // counting line, and for a pick's first count the busy state over a
+        // parse of the corpus: WebAssembly runs the renderer on this one
+        // thread, and the work below may not yield to it soon.
         await Task.Yield();
 
         MatchSummary? result;

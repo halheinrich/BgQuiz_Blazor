@@ -337,7 +337,8 @@ public class PageTests : BunitContext
     /// in effect, there is nothing to wait for. Not for a test whose count is
     /// held on purpose: that count never settles.
     /// </summary>
-    private void WaitForHomeToSettle(IRenderedComponent<HomePage> cut) =>
+    private void WaitForHomeToSettle(IRenderedComponent<HomePage> cut)
+    {
         cut.WaitForAssertion(() =>
         {
             var folder = Services.GetRequiredService<PickedProblemFolder>();
@@ -352,8 +353,11 @@ public class PageTests : BunitContext
             var count = Services.GetRequiredService<MatchCount>();
             Assert.Equal(source, count.Inputs?.Selection);
             Assert.False(count.IsCounting);
-            Assert.False(cut.Find("fieldset").HasAttribute("disabled"));
         });
+
+        // Then the page as rendered: what the settled state says, in the DOM.
+        cut.WaitForAssertion(() => Assert.DoesNotContain("Counting matching decisions", cut.Markup));
+    }
 
     /// <summary>Render Home and wait for it to settle (<see cref="WaitForHomeToSettle"/>).</summary>
     private IRenderedComponent<HomePage> RenderHomeSettled()
@@ -13345,6 +13349,35 @@ public class PageTests : BunitContext
         WaitForHomeToSettle(back);
         Assert.Contains("1 decision matches your filters", Normalize(MatchSummaryRegion(back).TextContent));
         Assert.Equal(1, source.EnumerateCallCount);
+    }
+
+    [Fact]
+    public void Home_ACountOverAParseThePickHolds_LeavesTheControlsAlone()
+    {
+        // A count runs on its own whenever the filter in effect changes —
+        // emptying a box while typing included — so it must not disable the
+        // setup surface: a focused box that is disabled loses its focus
+        // (SPEC-filtering.md §1, "typing keeps its focus and caret"). Only
+        // the pick's first parse is page-busy; this pick's parse is held, so
+        // the count is not that one, and parses nothing a Start would race.
+        // The counting line is the count's whole show. (The first-parse case
+        // is the navigate-back test above, whose pick holds no parse and
+        // whose fieldset is off while it counts.)
+        var decision = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
+        WithGatedController(out var source, out _, decision);
+        WithParsedPick(WithPickedFolder(), PartialReport(), decision);
+        WithShuffleOption();
+
+        var cut = Render<HomePage>();
+        source.WaitForDrawRequest(1); // the count is parked on its one item
+        cut.WaitForAssertion(() => Assert.Contains("Counting matching decisions", cut.Markup));
+
+        Assert.False(cut.Find("fieldset").HasAttribute("disabled"));
+        Assert.Empty(cut.FindAll("div.app-busy"));
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+
+        source.ReleaseNext();
+        WaitForHomeToSettle(cut);
     }
 
     [Fact]
