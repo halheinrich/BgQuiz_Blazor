@@ -141,7 +141,7 @@ public sealed class OneBudgetTests : E2eTestBase
                 await PickFixtureAsync(CubeFixture);
                 break;
         }
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
     }
 
     private async Task ExpectTheFirstProblemAsync(FirstProblem problem)
@@ -269,7 +269,7 @@ public sealed class OneBudgetTests : E2eTestBase
         await Page.SetViewportSizeAsync(1100, 800);
         await BootHomeAsync();
         await PickSynthesizedFileAsync(SyntheticXgMatch.MoneyStagedFileName, SyntheticXgMatch.MoneySessionBytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await Page.EvaluateAsync("() => { window.__frames.hold(); window.__coverage.start(); }");
         await StartQuizAsync();
         await Expect(LivePillCaptions).ToHaveCountAsync(4);
@@ -413,7 +413,7 @@ public sealed class OneBudgetTests : E2eTestBase
         await PickSynthesizedFilesAsync("readings",
             (SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes()),
             (SyntheticXgMatch.MoneyStagedFileName, SyntheticXgMatch.MoneySessionBytes()));
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
     }
 
     [Fact]

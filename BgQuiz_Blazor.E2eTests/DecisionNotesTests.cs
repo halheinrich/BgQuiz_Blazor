@@ -73,7 +73,7 @@ public sealed class DecisionNotesTests : E2eTestBase
         await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
         await BootHomeAsync();
         await PickSynthesizedFileAsync(SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
     }
 
@@ -201,7 +201,7 @@ public sealed class DecisionNotesTests : E2eTestBase
         // converter), so the primary-path cube fixture is the no-notes case.
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
 

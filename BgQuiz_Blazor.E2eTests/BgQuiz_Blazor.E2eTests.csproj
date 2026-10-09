@@ -46,6 +46,17 @@
          is a latent break. -->
     <ProjectReference Include="..\..\BgDataTypes_Lib\BgDataTypes_Lib\BgDataTypes_Lib.csproj" />
     <ProjectReference Include="..\..\ConvertXgToJson_Lib\ConvertXgToJson_Lib\ConvertXgToJson_Lib.csproj" />
+    <!-- A HANDSHAKE PRODUCER, on the QuizKeysMark link's licence below, not an
+         expectation source: XgFilter_Razor.TestSupport's FilterRestorationMarker
+         gives the CSS selector that matches the filter panel once this boot's
+         restoration — and the mount's own preferences — have settled
+         (halheinrich/backgammon#346, halheinrich/backgammon#374). Scenarios wait
+         on it before acting on the panel, so no scenario races the restore and
+         none mirrors a producer storage key or its parse to find out whether it
+         landed. Plain strings, made for a browser-driving suite; nothing a user
+         reads comes from it. Test support only, never product: the assembly
+         is not packable and no app project references it. -->
+    <ProjectReference Include="..\..\XgFilter_Razor\XgFilter_Razor.TestSupport\XgFilter_Razor.TestSupport.csproj" />
   </ItemGroup>
 
   <ItemGroup>

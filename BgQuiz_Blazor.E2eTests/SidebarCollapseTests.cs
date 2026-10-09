@@ -160,7 +160,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
             await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
             await BootHomeAsync();
             await PickFixtureAsync(CubeFixture);
-            await ApplyFilterAsync();
+            await ExpectFilterInEffectAsync();
 
             await CollapseRail.ClickAsync();
             await Expect(CollapseRail).ToBeCheckedAsync();
@@ -237,7 +237,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
         await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
         await BootHomeAsync();
         await PickCubeProblemsAsync(3);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
 
         // Fold BEFORE starting, purely so the navigation's DOM synchronization
         // has something to visibly undo — see WaitForTheEnhancedNavSettleAsync.

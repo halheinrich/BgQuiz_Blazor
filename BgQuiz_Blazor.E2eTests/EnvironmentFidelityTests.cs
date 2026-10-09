@@ -205,7 +205,7 @@ public sealed class EnvironmentFidelityTests : E2eTestBase
 
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await Expect(HitOverlaySvg).ToBeVisibleAsync();
 

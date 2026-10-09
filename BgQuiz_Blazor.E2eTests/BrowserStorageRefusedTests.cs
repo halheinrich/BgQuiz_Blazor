@@ -49,13 +49,17 @@ public sealed class BrowserStorageRefusedTests : E2eTestBase
 
     private ILocator StorageNotice => Page.Locator("#storageUnavailableNotice");
 
-    /// <summary>The warning Home logs each time the hosted filter panel reports the refusal.</summary>
-    private const string PanelReportWarning = "The filter panel reports that the browser refused its storage";
+    /// <summary>
+    /// The warning BgQuiz logs for each storage call of the filter surface's
+    /// that the browser refuses — written by the refusal sink BgQuiz registers
+    /// with the surface, since the surface logs nothing itself.
+    /// </summary>
+    private const string PanelReportWarning = "The browser refused a storage call the filter panel made";
 
     /// <summary>
-    /// How many times the hosted filter panel has reported the refusal to
-    /// Home, read off the warning Home logs for each report (the panel logs
-    /// nothing itself) — the evidence that a remounted panel reported again.
+    /// How many of the filter surface's storage calls the browser has refused,
+    /// read off the warning logged for each — the evidence that a remounted
+    /// panel's calls were made, and refused, again.
     /// </summary>
     private async Task<int> PanelReportsAsync() =>
         (await Page.ConsoleMessagesAsync()).Count(m => m.Text.Contains(PanelReportWarning, StringComparison.Ordinal));
@@ -291,7 +295,12 @@ public sealed class BrowserStorageRefusedTests : E2eTestBase
             await Expect(PickFolderButton).ToBeVisibleAsync();
             try
             {
-                await ExpectToPassAsync(async () => Assert.Equal(2, await PanelReportsAsync()));
+                // Every refused call is reported, none latched
+                // (halheinrich/backgammon#374): the first mount's two
+                // preference reads and the boot's one restoration read, then
+                // the remount's two preference reads — restoration is once a
+                // boot — so five.
+                await ExpectToPassAsync(async () => Assert.Equal(5, await PanelReportsAsync()));
             }
             finally
             {
@@ -299,7 +308,11 @@ public sealed class BrowserStorageRefusedTests : E2eTestBase
             }
             await Expect(StorageNotice).ToHaveCountAsync(0);
 
-            // And the quiz runs on it: apply, start, answer.
+            // And the quiz runs on it: apply, start, answer. Apply, because the
+            // browser refused the restoration read, which is no evidence the
+            // user chose no filter: the empty defaults it leaves wait for the
+            // user's Apply (SPEC-filtering.md §1, "Reload") — the owner's
+            // rule, with no exception of Home's.
             await ApplyFilterAsync();
             await StartQuizAsync();
             await Expect(CubeAnswers).ToHaveCountAsync(4);

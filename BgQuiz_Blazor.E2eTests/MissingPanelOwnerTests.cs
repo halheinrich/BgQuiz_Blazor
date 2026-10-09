@@ -55,7 +55,7 @@ public sealed class MissingPanelOwnerTests : E2eTestBase
     private async Task StartTheMatchAsync()
     {
         await PickSynthesizedFileAsync(SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await Expect(Captions).ToHaveCountAsync(4);
     }

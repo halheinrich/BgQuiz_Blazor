@@ -21,7 +21,7 @@ public sealed class ReloadNoticeTests : E2eTestBase
     {
         await BootHomeAsync();
         await PickFixtureAsync(CheckerFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         // A full reload mid-quiz: the fresh boot finds no quiz for /quiz, lands
@@ -45,7 +45,7 @@ public sealed class ReloadNoticeTests : E2eTestBase
     {
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();

@@ -40,7 +40,7 @@ public sealed class DeduplicatedCountTests : E2eTestBase
         // Three copies of one position: the count will read 1, three files are
         // on screen, and two records were dropped.
         await PickDuplicatedFixtureAsync(CheckerFixture, copies: 3);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
 
         var body = Page.Locator("body");
 
@@ -57,7 +57,7 @@ public sealed class DeduplicatedCountTests : E2eTestBase
     {
         await BootHomeAsync();
         await PickDuplicatedFixtureAsync(CheckerFixture, copies: 2);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
 
         var body = Page.Locator("body");
 

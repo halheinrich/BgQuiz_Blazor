@@ -37,7 +37,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         await Expect(Page.Locator("#mixApplies")).ToHaveCountAsync(0);
         await Expect(Page.Locator("#mixClear")).ToHaveCountAsync(0);
 
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
@@ -60,7 +60,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         // which here is everything.
         await BootHomeAsync();
         await SeedStatsHistoryAsync();
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
 
         await AddDefaultMixRowAsync();
         await Page.GetByLabel(ExpectedText.MixCategoryLabel).SelectOptionAsync("EverythingElse");
@@ -86,7 +86,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         // gesture in between. Start is live before, during, and after.
         await BootHomeAsync();
         await SeedStatsHistoryAsync(); // no stats history, no mix panel to edit
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await AddDefaultMixRowAsync(); // rows on screen — and in effect
 
         await Expect(StartButton).ToBeEnabledAsync();
@@ -120,7 +120,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         // unchecked.
         await BootHomeAsync();
         await SeedStatsHistoryAsync();
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await AddDefaultMixRowAsync();
         await Page.GetByLabel(ExpectedText.MixCategoryLabel).SelectOptionAsync("EverythingElse");
         await Expect(StartButton).ToBeEnabledAsync();
@@ -141,7 +141,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
 
         // A reload is the arrival at a fresh setup: pick and re-apply.
         await PickFakeFolderAsync();
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
 
         // The mix came back from localStorage — same row, same category — and
         // so did the setting, so the panel is here and what it shows applies.
@@ -168,7 +168,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         await BootHomeAsync();
         await TurnOnTheWeightedMixSettingAsync(); // the mix's other half, before anything
         await PickFakeFolderAsync();
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
@@ -212,7 +212,7 @@ public sealed class MixRefusalTests : FsAccessFakeTestBase
         // effect — at all.
         await BootHomeAsync();
         await SeedStatsHistoryAsync();
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await AddDefaultMixRowAsync();
         await Page.GetByLabel(ExpectedText.MixCategoryLabel).SelectOptionAsync("EverythingElse");
 
@@ -276,7 +276,7 @@ public sealed class MixRefusalTests : FsAccessFakeTestBase
         await Page.SetViewportSizeAsync(1280, 900);
         await BootHomeAsync();
         await SeedStatsHistoryAsync();
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await AddDefaultMixRowAsync();
 
         // Every option is present before anything is measured: the width comes

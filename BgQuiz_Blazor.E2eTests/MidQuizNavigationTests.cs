@@ -37,7 +37,7 @@ public sealed class MidQuizNavigationTests : E2eTestBase
     {
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         // The answering state is on screen. Keyed on the cube radios rather than
         // the "Problem N" counter: the counter rides in the score panel, which

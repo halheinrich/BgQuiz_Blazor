@@ -60,7 +60,7 @@ public sealed class VerdictBandTests : E2eTestBase
         await BootHomeAsync();
         await PickSynthesizedFileAsync(
             SyntheticXgMatch.ThreeAnswerBestStagedFileName, SyntheticXgMatch.ThreeAnswerBestBytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await ExpectCubeProblemAsync(1);
         await AnswerCubeAsync(ExpectedText.DoubleTakePill);

@@ -105,7 +105,7 @@ public sealed class TailMenuTests : E2eTestBase
         await Page.SetViewportSizeAsync(1000, 768);
         await BootHomeAsync();
         await PickSynthesizedFileAsync(SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await Expect(Page.Locator(".action-row .bg-cube-actions")).ToBeVisibleAsync();
         await ExpectKeyboardShortcutReadyAsync();

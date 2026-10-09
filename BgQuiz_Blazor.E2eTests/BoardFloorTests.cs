@@ -43,7 +43,7 @@ public sealed class BoardFloorTests : E2eTestBase
         await Page.SetViewportSizeAsync(width, height);
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
     }

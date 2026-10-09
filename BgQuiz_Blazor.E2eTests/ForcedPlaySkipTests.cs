@@ -34,7 +34,7 @@ public sealed class ForcedPlaySkipTests : E2eTestBase
     {
         await BootHomeAsync();
         await PickFixturesAsync(ForcedFixture, CheckerFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
 
         var body = Page.Locator("body");
 

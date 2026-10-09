@@ -45,7 +45,7 @@ public sealed class CubeLabelsTests : E2eTestBase
     {
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await Expect(Pills).ToHaveCountAsync(4);
         // The measured row: pending, the pills are short whatever the fit

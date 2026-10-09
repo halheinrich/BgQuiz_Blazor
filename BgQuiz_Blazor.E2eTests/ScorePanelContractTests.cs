@@ -63,7 +63,7 @@ public sealed class ScorePanelContractTests : E2eTestBase
         await DisableMaximizeAsync();
         await BootHomeAsync();
         await PickFixtureUnderNameAsync(CubeFixture, stagedFileName, folderName: "ScorePanel");
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await Expect(ScorePanel).ToBeVisibleAsync();
     }

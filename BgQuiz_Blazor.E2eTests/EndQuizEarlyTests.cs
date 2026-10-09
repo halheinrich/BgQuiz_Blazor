@@ -36,7 +36,7 @@ public sealed class EndQuizEarlyTests : E2eTestBase
         // one abandoned, one never reached.
         await BootHomeAsync();
         await PickCubeProblemsAsync(3);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         await AnswerCubeNoDoubleAsync();
@@ -80,7 +80,7 @@ public sealed class EndQuizEarlyTests : E2eTestBase
         // would make this scenario indistinguishable from finishing the quiz.
         await BootHomeAsync();
         await PickCubeProblemsAsync(2);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         await AnswerCubeNoDoubleAsync(); // lands in review, Continue showing

@@ -33,7 +33,7 @@ public sealed class TailMenuEndQuizTests : FsAccessFakeTestBase
         await Page.SetViewportSizeAsync(1280, 768);
         await BootHomeAsync();
         await PickFakeFolderAsync();
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         // A Submit whose write is held: the review is up and the quiz is busy.

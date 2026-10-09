@@ -77,7 +77,7 @@ public sealed class PageRenderedTests : E2eTestBase
         if (gesture == Gesture.StartQuiz)
         {
             await PickFixtureAsync(CubeFixture);
-            await ApplyFilterAsync();
+            await ExpectFilterInEffectAsync();
         }
 
         var requested = new TaskCompletionSource<IRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -159,7 +159,7 @@ public sealed class PageRenderedTests : E2eTestBase
         await ExpectOnlyTheLandmarkOfAsync(AppRoute.Home);
 
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await ExpectOnlyTheLandmarkOfAsync(AppRoute.Quiz);
 

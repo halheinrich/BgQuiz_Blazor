@@ -22,7 +22,7 @@ public sealed class NavigationTests : E2eTestBase
         await DisableMaximizeAsync();
         await BootHomeAsync();
         await PickCubeProblemsAsync(2);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await ExpectProblemNumberAsync(1);
     }

@@ -329,7 +329,7 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     {
         await TurnOnTheWeightedMixSettingAsync();
         await PickFakeFolderAsync();
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();

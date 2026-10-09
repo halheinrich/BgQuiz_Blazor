@@ -63,7 +63,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
         // that produces the other composition is driven in the test below.
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         // The board and every answer instrument survive: a cube answer must stay
@@ -162,7 +162,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
         await Expect(PickFolderButton).ToBeVisibleAsync();
 
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         await Expect(ScorePanel).ToHaveCountAsync(1);
@@ -197,7 +197,7 @@ public sealed class MaximizeBoardTests : E2eTestBase
         // branch, so the order is the same order in either state.
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
 

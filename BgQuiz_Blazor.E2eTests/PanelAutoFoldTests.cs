@@ -62,7 +62,7 @@ public sealed class PanelAutoFoldTests : E2eTestBase
         await Page.SetViewportSizeAsync(1000, 800);
         await BootHomeAsync();
         await PickSynthesizedFileAsync(SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await Expect(Page.Locator(".action-row .bg-cube-actions")).ToBeVisibleAsync();
     }
@@ -135,7 +135,7 @@ public sealed class PanelAutoFoldTests : E2eTestBase
         await Expect(keepFolded).ToBeCheckedAsync();
         await BootHomeAsync();
         await PickSynthesizedFileAsync(SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         // The problem first: straight after Start the page can have no row to
         // fit, and the box is still Home's until the navigation's DOM

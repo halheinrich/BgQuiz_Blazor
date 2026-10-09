@@ -22,13 +22,13 @@ public sealed class EmptyFilterBannerTests : E2eTestBase
         : base(app, playwright) { }
 
     [Fact]
-    public async Task RaceFilterAgainstContactPosition_DarkensStart_UntilRelaxedAndReapplied()
+    public async Task RaceFilterAgainstContactPosition_DarkensStart_UntilRelaxed()
     {
         await BootHomeAsync();
 
-        // Pick first: waiting for the picked-file summary also guarantees the
-        // filter panel's first-render localStorage restore has settled, so the
-        // Race click below cannot be overwritten by a late hydrate.
+        // Pick first; opening the row below waits for the panel to report its
+        // restoration settled, so the Race click cannot be overwritten by a
+        // late restore.
         await PickFixtureAsync(CubeFixture);
 
         // Contact type is one of the panel's collapsed rows, so open that row
@@ -46,10 +46,12 @@ public sealed class EmptyFilterBannerTests : E2eTestBase
                 "No problems match the filters — adjust and re-apply them to enable Start."))
             .ToBeVisibleAsync();
 
-        // Adjust and re-apply — exactly what the hint says — and the page
-        // recovers: a non-empty count, the hint gone, Start live.
+        // Adjust — what the hint says — and the page recovers: a non-empty
+        // count, the hint gone, Start live. Relaxed all the way back to no
+        // filter there is nothing to re-apply: the empty selection is in
+        // effect on its own (halheinrich/backgammon#266), and Apply is off.
         await Page.GetByLabel("Race", new() { Exact = true }).UncheckAsync();
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
 
         await Expect(Page.GetByText(ExpectedText.DecisionsMatchYourFilters(1))).ToBeVisibleAsync();
         await Expect(Page.GetByText("No problems match the filters")).ToHaveCountAsync(0);

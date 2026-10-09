@@ -29,7 +29,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await Expect(Page.GetByText(ExpectedText.StatsWillBeSaved)).ToBeVisibleAsync();
         await Expect(Page.GetByText(StatsFileName)).ToBeVisibleAsync();
 
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
 
@@ -93,7 +93,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await Expect(MixPanel).ToBeVisibleAsync();
         await Expect(Page.GetByText(ExpectedText.StatsFileWillBeSetAside)).ToBeHiddenAsync();
 
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         // The problem first: the quiz page shows the bind's notices from its
@@ -142,7 +142,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await Expect(MixPanel).ToBeVisibleAsync();
         await Expect(Page.GetByText(ExpectedText.StatsFileWillBeSetAside)).ToBeHiddenAsync();
 
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         // The problem first: the quiz page shows the bind's notices from its
@@ -272,7 +272,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         // It will never be set aside, so nothing on Home may promise that.
         await Expect(Page.GetByText(ExpectedText.StatsFileWillBeSetAside)).ToBeHiddenAsync();
 
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         // The bind still reports it: the file can change between the pick and
@@ -307,7 +307,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await Expect(Page.GetByText(ExpectedText.StatsWillBeSaved)).ToBeHiddenAsync();
         await Expect(Page.Locator("#statsUnreadableForecastNotice")).ToHaveCountAsync(0);
 
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
@@ -333,7 +333,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         // substring, the less a copy polish breaks it spuriously.
         await Expect(Page.GetByText(ExpectedText.LifetimeRecordConsequence)).ToBeVisibleAsync();
 
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
@@ -365,7 +365,7 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
         await Expect(Page.GetByText(ExpectedText.CouldNotReadTheFolder)).ToBeHiddenAsync();
         await Expect(Page.GetByText(ExpectedText.LifetimeRecordConsequence)).ToBeVisibleAsync();
 
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
@@ -422,7 +422,7 @@ public sealed class FallbackPickNoticeTests : E2eTestBase
         // which is the only place that condition is reachable.
         await Expect(Page.GetByText(ExpectedText.BrowserWillAskAboutTheFolder)).ToBeHiddenAsync();
 
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();

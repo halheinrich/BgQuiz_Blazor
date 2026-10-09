@@ -25,7 +25,7 @@ public sealed class QuizFlowTests : E2eTestBase
     {
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         // Answering state: cube problems offer the radio row, and the
@@ -155,7 +155,7 @@ public sealed class QuizFlowTests : E2eTestBase
                     await PickFixturesInOrderAsync(CubeFixture, TooGoodTakeFixture);
                     break;
             }
-            await ApplyFilterAsync();
+            await ExpectFilterInEffectAsync();
             if (conditions.RowHeldUntilWaitedFor)
                 hold = await RowFitModuleHold.InstallAsync(Page);
 
@@ -251,7 +251,7 @@ public sealed class QuizFlowTests : E2eTestBase
         await Page.SetViewportSizeAsync(1600, 900);
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         var pills = Page.Locator(".action-row .bg-cube-actions").GetByRole(AriaRole.Radio);
@@ -273,7 +273,7 @@ public sealed class QuizFlowTests : E2eTestBase
     {
         await BootHomeAsync();
         await PickFixtureAsync(CheckerFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         // Answering state: checker problems get the click-to-build board, and

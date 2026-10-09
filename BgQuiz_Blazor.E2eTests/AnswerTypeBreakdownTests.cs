@@ -43,17 +43,16 @@ public sealed class AnswerTypeBreakdownTests : E2eTestBase
         : base(app, playwright) { }
 
     [Fact]
-    public async Task AppliedFiltersReportThePoolsAnswerTypesIncludingTheEmptyOnes()
+    public async Task TheCountReportsThePoolsAnswerTypesIncludingTheEmptyOnes()
     {
         await BootHomeAsync();
         await PickFixturesAsync(CheckerFixture, CubeFixture);
 
-        // Nothing is claimed about a pool before the user has applied a filter to
-        // define one: the breakdown arrives with the count, not before it.
+        // The breakdown arrives with the count of the filter in effect — here
+        // the empty selection, in effect with no Apply
+        // (halheinrich/backgammon#266).
         var body = Page.Locator("body");
-        await Expect(Page.GetByText(ExpectedText.AnswerTypeHeading)).ToHaveCountAsync(0);
-
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
 
         // The count line's own semantics are unchanged — still decisions, still
         // filter-only — and the breakdown sits with it.
@@ -89,7 +88,7 @@ public sealed class AnswerTypeBreakdownTests : E2eTestBase
         // row does not count it.
         await BootHomeAsync();
         await PickFixturesAsync(CheckerFixture, TooGoodTakeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
 
         var body = Page.Locator("body");
         await Expect(body).ToContainTextAsync(ExpectedText.DecisionsMatchYourFilters(2));
@@ -114,7 +113,7 @@ public sealed class AnswerTypeBreakdownTests : E2eTestBase
     {
         await BootHomeAsync();
         await PickFixturesAsync(CheckerFixture, CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
 
         var status = Page.Locator("[role=status]")
                          .Filter(new() { HasText = "decisions match your filters" });

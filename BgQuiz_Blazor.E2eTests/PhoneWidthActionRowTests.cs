@@ -24,7 +24,7 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
         await Page.SetViewportSizeAsync(375, 812);
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueButton.ScrollIntoViewIfNeededAsync();
@@ -79,7 +79,7 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
         await Page.SetViewportSizeAsync(375, 812);
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         if (atReview) await AnswerCubeNoDoubleAsync();
         // The measured row: pending, the tail is behind its "⋯" on the
@@ -108,7 +108,7 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
         await Page.SetViewportSizeAsync(375, 812);
         await BootHomeAsync();
         await PickCubeProblemsAsync(2);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await ExpectProblemNumberAsync(1);
 
@@ -136,7 +136,7 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
         await Page.SetViewportSizeAsync(375, 400);
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await ExpectRowFittedAsync();
 

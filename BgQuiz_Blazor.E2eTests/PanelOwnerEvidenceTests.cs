@@ -33,7 +33,7 @@ public sealed class PanelOwnerEvidenceTests : E2eTestBase
         await Page.SetViewportSizeAsync(1000, 800);
         await BootHomeAsync();
         await PickSynthesizedFileAsync(SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await Expect(Page.Locator(".action-row .bg-cube-actions label")).ToHaveCountAsync(4);
 

@@ -103,7 +103,7 @@ public abstract class NotesPlacementTestBase : E2eTestBase
         await Page.SetViewportSizeAsync(width, height);
         await BootHomeAsync();
         await PickSynthesizedFileAsync(stagedFileName, bytes ?? SyntheticXgMatch.Bytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeAsync(ExpectedText.DoubleTakePill);
         await Expect(NotesButton).ToBeVisibleAsync();

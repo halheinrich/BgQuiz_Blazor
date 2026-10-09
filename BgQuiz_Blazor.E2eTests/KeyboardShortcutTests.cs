@@ -87,7 +87,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
     {
         await BootHomeAsync();
         await PickFixtureAsync(fixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await ExpectKeyboardShortcutReadyAsync();
     }

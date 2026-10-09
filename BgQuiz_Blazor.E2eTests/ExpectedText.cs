@@ -71,8 +71,30 @@ internal static class ExpectedText
     /// <summary>The filter panel's commit button — XgFilter_Razor's <c>FilterPanel.razor</c>.</summary>
     internal const string ApplyFilterButton = "Apply Filter";
 
-    /// <summary>Home's Start hint while no filter is applied (<c>Home.razor</c>).</summary>
+    /// <summary>
+    /// Home's Start hint while no filter is in effect — an edited selection
+    /// not yet applied (<c>Home.razor</c>). The untouched panel's empty
+    /// selection is in effect without Apply, so it never shows this.
+    /// </summary>
     internal const string ApplyFiltersHint = "Apply the filters above to enable Start";
+
+    /// <summary>
+    /// The error range's feedback line, its opening words — XgFilter_Razor's
+    /// <c>FilterPanel.razor</c>, one line for both bounds and every fault.
+    /// </summary>
+    internal const string ErrorRangeFeedback = "Each bound must be a finite number, zero or greater";
+
+    /// <summary>The match-score line's words for a malformed token (<c>FilterPanel.razor</c>).</summary>
+    internal const string MatchScoreMalformed = "Not a valid score";
+
+    /// <summary>The match-score line's words for the retired money token (<c>FilterPanel.razor</c>).</summary>
+    internal const string MatchScoreRetired = "token is retired";
+
+    /// <summary>
+    /// The retired money token itself — XgFilter_Lib's
+    /// <c>MatchScoreToken.RetiredMoney</c> — as a user would type it.
+    /// </summary>
+    internal const string RetiredMoneyToken = "money";
 
     /// <summary>Home's Start button (<c>Home.razor</c>).</summary>
     internal const string StartQuizButton = "Start Quiz";

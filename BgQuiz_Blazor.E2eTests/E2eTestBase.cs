@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 using BgQuiz_Blazor.Client.Components.Pages;
 using Microsoft.Playwright;
+using XgFilter_Razor.TestSupport;
 using static Microsoft.Playwright.Assertions;
 
 namespace BgQuiz_Blazor.E2eTests;
@@ -718,12 +719,12 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// around it.
     ///
     /// <para>
-    /// <b>Conditional, and so idempotent.</b> The container's open state lives in
-    /// localStorage under its own key and is restored on every fresh mount,
-    /// exactly as the rows' is, so it survives a re-pick or a reload and can
-    /// already be open when this is called. The button is a toggle: an
-    /// unconditional click on an open container would fold it, and the row
-    /// locator that followed would fail far from the cause.
+    /// <b>Conditional, and so idempotent.</b> The container's open state is a
+    /// remembered preference the panel restores on every fresh mount, exactly
+    /// as the rows' is, so it survives a re-pick or a reload and can already
+    /// be open when this is called. The button is a toggle: an unconditional
+    /// click on an open container would fold it, and the row locator that
+    /// followed would fail far from the cause.
     /// </para>
     ///
     /// <para>
@@ -736,42 +737,42 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </para>
     ///
     /// <para>
-    /// <b>The branch waits for the restore first</b> (halheinrich/backgammon#333).
-    /// The container renders folded and restores its stored state after its
-    /// first render, through an interop call, so straight after a pick or a
-    /// reload the toggle can read folded with a stored "open" still to land; a
-    /// click then would race it, and one landing after the restore folds the
-    /// container. So the toggle is first awaited to show what storage holds:
-    /// open where the stored value parses as true, as the producer parses it
-    /// (<c>bool.TryParse</c>), and folded otherwise, where the default stands
-    /// and no restore can move it. Only then does the branch read it.
+    /// <b>The branch waits for the restore first</b> (halheinrich/backgammon#333,
+    /// halheinrich/backgammon#346). The container renders folded and restores
+    /// its stored state after its first render, through an interop call, so
+    /// straight after a pick or a reload the toggle can read folded with a
+    /// stored "open" still to land; a click then would race it, and one
+    /// landing after the restore folds the container. So the panel is first
+    /// awaited to report its restoration settled
+    /// (<see cref="WaitForFilterRestorationAsync"/>) — the producer's own
+    /// signal, which it raises only once this mount's preferences are applied
+    /// — and only then does the branch read the toggle. Nothing here knows
+    /// where or how the panel stores the preference.
     /// </para>
     /// </summary>
     protected async Task OpenMoreFiltersAsync()
     {
+        await WaitForFilterRestorationAsync();
+
         var toggle = Page.Locator("#moreFiltersToggle");
-        var stored = await Page.EvaluateAsync<string?>("key => localStorage.getItem(key)", MoreFiltersKey);
-        var restoredOpen = bool.TryParse(stored, out var open) && open;
-        await Expect(toggle).ToHaveAttributeAsync("aria-expanded", restoredOpen ? "true" : "false");
-        if (restoredOpen) return;
+        if (await toggle.GetAttributeAsync("aria-expanded") == "true") return;
 
         await toggle.ClickAsync();
         await Expect(toggle).ToHaveAttributeAsync("aria-expanded", "true");
     }
 
     /// <summary>
-    /// The <c>localStorage</c> key the filter panel keeps its <c>More
-    /// filters</c> container's open state under: the producer's
-    /// (XgFilter_Razor's internal <c>FilterPanel.MoreFiltersKey</c>), duplicated
-    /// here, as <see cref="OpenMoreFiltersAsync"/> also duplicates the
-    /// producer's parse of the stored value (<c>bool.TryParse</c>). It is not
-    /// fail-loud protection. A key renamed at the producer reads as nothing
-    /// stored, which means folded, and the container's initial folded render
-    /// can satisfy that wait before the producer's asynchronous restore opens
-    /// it, so the helper's click can still race the restore. The proper fix is
-    /// a restoration signal owned by XgFilter_Razor.
+    /// Wait for the mounted filter panel to report this boot's restoration
+    /// settled — whatever its outcome — through the producer's marker
+    /// (<see cref="FilterRestorationMarker.SettledSelector"/>,
+    /// halheinrich/backgammon#346). Every scenario waits on it before acting on
+    /// the panel: before it, the panel's own restores (the remembered
+    /// selection, the open container and rows) may still be in flight, and a
+    /// gesture can race them. It says nothing about Apply or Start, which are
+    /// different facts.
     /// </summary>
-    private const string MoreFiltersKey = "xg_moreFiltersOpen";
+    protected async Task WaitForFilterRestorationAsync() =>
+        await Expect(Page.Locator(FilterRestorationMarker.SettledSelector)).ToBeAttachedAsync();
 
     /// <summary>
     /// Open one of the filter panel's facet rows and wait for it to land. The
@@ -819,12 +820,30 @@ public abstract class E2eTestBase : IAsyncLifetime
     }
 
     /// <summary>
-    /// Apply the filter panel as-is and wait for the applied state to land
-    /// (the "apply filters to enable Start" hint disappears).
+    /// Apply the filters as they stand on the panel after an edit, and wait for
+    /// the applied state to land (the "apply filters to enable Start" hint
+    /// disappears). Only for an edited selection: the untouched panel's empty
+    /// selection is in effect without Apply, whose button is then off —
+    /// <see cref="ExpectFilterInEffectAsync"/> is that case.
     /// </summary>
     protected async Task ApplyFilterAsync()
     {
+        await WaitForFilterRestorationAsync();
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ApplyFilterButton }).ClickAsync();
+        await Expect(Page.GetByText(ExpectedText.ApplyFiltersHint)).ToHaveCountAsync(0);
+    }
+
+    /// <summary>
+    /// Wait for the filter on screen to be in effect with no gesture: after a
+    /// pick over the untouched panel, the empty selection is ready once the
+    /// boot's restoration has settled — no Apply (halheinrich/backgammon#266).
+    /// The proof is the page's own: the panel reports restoration settled, and
+    /// no "apply the filters" hint stands under Start. The match count of it
+    /// runs on its own from there; a Start click waits for the page to be idle.
+    /// </summary>
+    protected async Task ExpectFilterInEffectAsync()
+    {
+        await WaitForFilterRestorationAsync();
         await Expect(Page.GetByText(ExpectedText.ApplyFiltersHint)).ToHaveCountAsync(0);
     }
 

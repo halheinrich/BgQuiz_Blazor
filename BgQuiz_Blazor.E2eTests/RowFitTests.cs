@@ -33,7 +33,7 @@ public sealed class RowFitTests : E2eTestBase
         await Page.SetViewportSizeAsync(width, 800);
         await BootHomeAsync();
         await PickSynthesizedFileAsync(SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await Expect(Captions).ToHaveCountAsync(4);
     }
@@ -126,7 +126,7 @@ public sealed class RowFitTests : E2eTestBase
         await Page.SetViewportSizeAsync(641, 768);
         await BootHomeAsync();
         await PickSynthesizedFileAsync(SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await ExpectKeyboardShortcutReadyAsync();
         // The first fit, awaited: the readiness mark is set before the row is

@@ -49,7 +49,7 @@ public sealed class RejectedFilesTests : E2eTestBase
         await PickSynthesizedFilesAsync("damaged-beside-readable",
             (SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes()),
             (DamagedFileName, DamagedBytes()));
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
 
         // The record beside the count: the headline, then the file by the name
         // it was picked under. A non-dismissible warning — nothing closes it.
@@ -84,7 +84,7 @@ public sealed class RejectedFilesTests : E2eTestBase
     {
         await BootHomeAsync();
         await PickSynthesizedFileAsync(DamagedFileName, DamagedBytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
 
         // Not "0 decisions match your filters": no filter was applied to any
         // decision, because no file could be read. The box names the file.

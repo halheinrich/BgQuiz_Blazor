@@ -174,7 +174,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
         await BootHomeAsync();
         await PickFixtureUnderNameAsync(CubeFixture, StagedFileName);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         // Answering, maximized (the default since halheinrich/backgammon#113). This is the
@@ -274,7 +274,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await BootHomeAsync();
         await PickSynthesizedFileAsync(
             SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         // Positive precondition for the floor: this is a cube answering row —
@@ -339,7 +339,7 @@ public sealed class ProblemLocatorTests : E2eTestBase
         await BootHomeAsync();
         await PickSynthesizedFileAsync(
             SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await Expect(Page.Locator(".action-row .bg-cube-actions")).ToHaveCountAsync(1);
         // The measured row, not the pending one: pending, the tail is behind

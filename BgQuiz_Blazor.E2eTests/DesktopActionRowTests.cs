@@ -77,7 +77,7 @@ public sealed class DesktopActionRowTests : E2eTestBase
             await BootHomeAsync();
         }
         await PickSynthesizedFileAsync(SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         if (!cube)
         {
@@ -178,7 +178,7 @@ public sealed class DesktopActionRowTests : E2eTestBase
                 await PickFixtureAsync(CubeFixture);
                 break;
         }
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         if (kind == ProblemKind.XgChecker)
         {

@@ -246,7 +246,7 @@ public sealed class SettingsTests : E2eTestBase
     {
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         await ExpectPointOneAsync(onTheRight: true,
@@ -324,7 +324,7 @@ public sealed class SettingsTests : E2eTestBase
         await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await GoToSettingsAsync();
 
         await KeepFoldedCheckbox.CheckAsync();
@@ -449,7 +449,7 @@ public sealed class SettingsTests : E2eTestBase
         await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await GoToSettingsAsync();
         await ExpectUnfoldedAsync();
 

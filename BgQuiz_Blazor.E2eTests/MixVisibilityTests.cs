@@ -50,7 +50,7 @@ public sealed class MixVisibilityTests : FsAccessFakeTestBase
         // SeedStatsHistoryAsync's body minus its Settings visit, spelled out
         // because the difference from it is precisely what is under test.
         await PickFakeFolderAsync();
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
@@ -68,7 +68,7 @@ public sealed class MixVisibilityTests : FsAccessFakeTestBase
         await Expect(Page.Locator("#mixApplies")).ToHaveCountAsync(0);
 
         // The quiz runs, unweighted, exactly as for a folder with no stats.
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
@@ -110,7 +110,7 @@ public sealed class MixVisibilityTests : FsAccessFakeTestBase
     {
         await BootHomeAsync();
         await SeedStatsHistoryAsync(); // turns the setting on, then seeds a record
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
 
         await Expect(MixPanel).ToBeVisibleAsync();
         await Expect(Page.Locator("#mixApplies")).ToHaveCountAsync(0); // nothing to arm
@@ -138,16 +138,16 @@ public sealed class MixVisibilityTests : FsAccessFakeTestBase
     public async Task MixComposesWithNoFilterApplied_AndSurvivesADirtyFilter()
     {
         await BootHomeAsync();
-        await SeedStatsHistoryAsync(); // ends with no filter in effect for this pick
+        await SeedStatsHistoryAsync(); // ends on a fresh pick, with nothing applied for it
 
-        // No filter applied, and the panel is here and composable anyway.
+        // Nothing applied, and the panel is here and composable anyway; the
+        // empty selection is in effect on its own (halheinrich/backgammon#266),
+        // so the filter's gate is open without Apply.
         await Expect(MixPanel).ToBeVisibleAsync();
         await Expect(Page.GetByText("the mix draws its problems from the filtered pool"))
             .ToHaveCountAsync(0);
         await AddDefaultMixRowAsync();
-        await Expect(StartButton).ToBeDisabledAsync(); // the FILTER's gate, not the mix's
-
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await Expect(StartButton).ToBeEnabledAsync();
 
         // A filter edit takes Start away and leaves the mix alone — the old
@@ -157,8 +157,8 @@ public sealed class MixVisibilityTests : FsAccessFakeTestBase
         await Expect(MixPanel).ToBeVisibleAsync();
         await Expect(Page.Locator(".mix-row")).ToHaveCountAsync(1);
 
-        // Undo the edit and the applied filter is back in effect — one gesture,
-        // no wedge, and the mix never moved.
+        // Undo the edit and the empty selection is back in effect — one
+        // gesture, no wedge, and the mix never moved.
         await Page.Locator("#errorMin").FillAsync("");
         await Expect(StartButton).ToBeEnabledAsync();
         await Expect(Page.Locator(".mix-row")).ToHaveCountAsync(1);

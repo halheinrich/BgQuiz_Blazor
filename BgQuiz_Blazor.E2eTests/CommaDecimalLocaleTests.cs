@@ -67,7 +67,7 @@ public sealed class CommaDecimalLocaleTests : E2eTestBase
     {
         await BootHomeAsync();
         await PickFixtureAsync(CheckerFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         // The overlay only exists once the play-entry board has rendered.
@@ -110,7 +110,7 @@ public sealed class CommaDecimalLocaleTests : E2eTestBase
     {
         await BootHomeAsync();
         await PickFixtureAsync(CheckerFixture);
-        await ApplyFilterAsync();
+        await ExpectFilterInEffectAsync();
         await StartQuizAsync();
 
         // The hit overlay is both this scenario's subject and its readiness gate.
