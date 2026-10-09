@@ -135,17 +135,19 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
 - **XgFilter_Razor** — `FilterSurface.razor`, the one composite hosted on `/`:
   it owns `FilterPanel` (`XgFilter_Razor.Components.Internal` — banned from
   host use, host tests included) and its saved-filters mount of the public
-  generic `NamedEntriesPanel`, and the whole filter interaction lifecycle —
-  load→stage, save/save-as/delete mediation, the applied-state mediation onto
-  the shared `AppliedFilter` holder, the restored-selection notice, the
-  saved-filters degrade/refusal notices with producer-owned copy, and the
-  source-change rule over the host-minted `FilterSourceToken`. Also the
-  non-visual model this app binds: `AppliedFilter` (the start-gate holder,
-  registered Scoped here), `FilterRestoreNotice` (the restored-selection
-  notice's state — registered Scoped and bound, nothing else: every member
-  that moves it is producer-internal), `FilterSourceToken` (minted once, in
-  `Home.CurrentFilterSource`, `FromGeneration(PickGeneration)`),
-  `IDocumentStorage` + `DocumentStorageException` (the storage seam this app
+  generic `NamedEntriesPanel`, the saved-filters degrade/refusal notices with
+  producer-owned copy, and the setup-change rule for the saved-filters
+  context. The selection itself lives in the app-scoped setup-state owner
+  **`FilterSetup`** (halheinrich/backgammon#374): the draft, what is applied,
+  this boot's restoration and its two notices — Home and the surface inject
+  the one instance; a host moves it only by reporting its source
+  (`ReportSource`) and reads it through `FilterSetupSnapshot`
+  (`IsInEffectFor` / `ConfigInEffectFor`). Registered with
+  **`AddFilterSurface<TRefusalSink>`**, whose sink is this app's
+  `FilterStorageRefusalSink` (§ Browser storage). Also
+  `FilterSourceToken` (minted once, in `Home.FilterSource`,
+  `FromGeneration(PickGeneration)` while a folder with files is held, `null`
+  otherwise), `IDocumentStorage` + `DocumentStorageException` (the storage seam this app
   adapts over the folder library), and `SavedFiltersDocument`
   (`FileName` = `xg-filters.json` / `LegacyFileName` = `bgquiz-filters.json` —
   the saved-filters document identity and two-name migration rule, rendered
@@ -180,15 +182,29 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `NoticeAnnouncement`: every box this app draws in alert styling renders
   through it (§ Notices), and the Client references it directly — it also
   arrives through XgFilter_Razor, but a dependency a project uses is one it
-  states. Its scoped CSS (the dismissible box's pointer cursor and the
+  states. And **`BrowserStorage`** (`AddBrowserStorage`), the one guarded
+  access to `localStorage` and `sessionStorage`: every storage call of this
+  app's four stores goes through it (§ Browser storage). Its scoped CSS (the dismissible box's pointer cursor and the
   pointer transparency that makes the whole box the dismiss target) reaches
   the browser inside this host's `BgQuiz_Blazor.styles.css` bundle, which
   `App.razor` already links; `EnvironmentFidelityTests` pins that it arrives.
   **`BgUiPrimitives_Razor.TestSupport`** — `NoticeBox`, `NoticeDismissGesture`,
-  `NoticeAssertionException`: the component's test reader, referenced by
-  `BgQuiz_Blazor.Tests` **only** (it carries bunit; no product project may
-  reference it, and the umbrella's member gate fails one that does). Its
-  bunit and AngleSharp versions are the floor for this repository's.
+  `NoticeAssertionException`: the component's test reader; and
+  **`BrowserStoragePlan`** (halheinrich/backgammon#377), the storage
+  planner every bUnit test here states browser storage on where storage is
+  its subject — no test spells an interop identifier. Referenced directly by
+  `BgQuiz_Blazor.Tests`, and reached by the e2e project only through
+  XgFilter_Razor's test support below; test projects only (it carries bunit;
+  no product project may reference it, and the umbrella's member gate fails
+  one that does). Its bunit and AngleSharp versions are the floor for this
+  repository's.
+  **`XgFilter_Razor.TestSupport`** — `FilterSurfaceStorage`, the filter
+  surface's storage calls stated on a `BrowserStoragePlan` in the surface's
+  own terms (a restore, a panel mount, a commit), so no test here names a
+  producer storage key; and `FilterRestorationMarker`, whose
+  `SettledSelector` every browser scenario waits on before acting on the
+  panel (halheinrich/backgammon#346). Referenced by `BgQuiz_Blazor.Tests` and
+  `BgQuiz_Blazor.E2eTests`; test projects only.
   **`BgDataTypes_Lib.TestSupport`** — `TestRecords`, the producer's record
   builders and the one way a test here builds a decision record, so no
   fixture restates the records' construction rules; referenced by
@@ -778,7 +794,7 @@ The sink never throws for stats trouble, so quiz flow is independent of
 whether stats are recording.
 
 **Filter ownership.** `StartAsync` takes a `FilterConfig` (the wire DTO
-emitted through `FilterSurface.OnFilterConfigChanged`), not a runtime
+Home reads from `FilterSetup`'s snapshot as the filter in effect), not a runtime
 `DecisionFilterSet`, and calls `FilterConfig.Build()` to produce its own
 pipeline, which it owns end-to-end — no shared mutable state ever exists
 between page and controller. The `ProblemSetSourceFactory` delegate still
@@ -797,7 +813,8 @@ controller-owned pipeline `StartAsync` would and folds a source from the
 factory over a **throwaway** enumerator, so the shared enumerator and the
 current run are never touched and a summary is safe against a
 live quiz; it deliberately takes **no** transition gate (no shared enumerator
-to protect, and callers serialize Apply against Start on their side). The pass
+to protect; the one thing a count and a Start could race over, the pick's
+first parse, Home serializes by holding the page busy for that count). The pass
 is a byproduct of the source's in-memory `Matches` filter and it **warms the
 parse cache**, front-loading Start's one-time corpus parse rather than adding
 a cost on top of it. It counts every matching decision, forced-move pass
@@ -1444,106 +1461,79 @@ table-crosses-the-wire pin lives producer-side now. The constants stay
 `internal`; the `.Client` csproj grants `InternalsVisibleTo` to the test
 project rather than widening them to public.
 
-### `AppliedFilter` — the filter half of the start gate (XgFilter_Razor's holder now)
+### `FilterSetup` — the filter half of the start gate (XgFilter_Razor's owner)
 
-The Scoped holder (see Pitfalls: resets on full reload) for the `FilterConfig`
-the user has **deliberately applied** on `Home` — the sibling of
-`PickedProblemFolder` for the filter half of the start gate. The type is
-**XgFilter_Razor's** since the `FilterSurface` adoption (it was hoisted from
-this app's original), registered Scoped here and bound to the composite's
-`[EditorRequired] AppliedFilter` parameter. **The composite mediates it**: a
-commit (Apply / Clear filters) `Set`s it keyed to the bound `Source` token, an
-uncommitted-edits report `Clear`s it, a clean re-affirm re-`Set`s it — Home
-writes it in exactly one place (the setup-end clear below) and otherwise only
-reads, always through `ConfigFor`.
+The filter setup's state lives in **XgFilter_Razor's `FilterSetup`** — the
+app-scoped owner `SPEC-filtering.md` §4 rules ("The setup-state owner";
+`halheinrich/backgammon#374`), adopted in v1.12.2. It holds the setup's
+identity (the source this host reported, and a generation), the draft on
+screen, the committed baseline, this boot's restoration outcome and the two
+restoration notices, so all of it outlives the pages that show it. BgQuiz
+neither stores nor mirrors any of it; it does three things.
 
-**One fact, keyed to its source.** The holder is a single nullable
-(config, source) pair. There is no bare `Config` / `IsApplied` and no
-`WasAppliedFor` stamp: the only question it answers is the source-relative
-*"what is applied for this source?"*, so a config applied against a superseded
-pick is not applied at all, and reading applied-ness absolutely — the old
-conflation — is unrepresentable. Nothing anywhere answers "has this corpus ever
-been filtered"; that fact is deleted from the model with nothing replacing it
-(`SPEC-filtering.md` §3, Fork A).
+**It registers the owner, in the WASM client only.** `Program.cs` calls
+`AddFilterSurface<FilterStorageRefusalSink>()` beside its own Scoped
+registration of the sink (Scoped is the app in WebAssembly — the lifetime the
+producer requires). The server registers nothing filter-related: every page
+renders with `prerender: false`, so no `FilterSurface` is ever rendered there.
+A page that prerenders a `FilterSurface` would need the registration on the
+server too; that is the producer's stated condition, not something this host
+meets today. A full reload constructs a fresh owner — a fresh setup and a
+fresh restoration (§4's last row) — while every in-app navigation finds the
+same one.
 
-**One derivation, three readers.** Home mints the token once, in
-`CurrentFilterSource` (`FromGeneration(Folder.PickGeneration)`), and derives
-`FilterInEffect => AppliedFilter.ConfigFor(CurrentFilterSource)` from it. The
-composite's `Source` binding reads the first; `CanStart`, its Apply-hint, and
-`StartCoreAsync` all read the second. So what a commit
-is keyed to and what every gate compares cannot encode the pick differently —
-structurally, not by a documented promise that two inline mints agree. (There
-were four until 2026-09-07: `MixActivationEnabled` was the mix's activation
-gate, deleted with rule 2 — `SPEC-filtering.md` §5, "Visible means in effect".)
+**It reports its source where the source latches.** Home's `FilterSource`
+(`FromGeneration(Folder.PickGeneration)` while the pick holds files, else
+`null`) is reported by `ReportFilterSource()` after every change to the
+folder — `ClearFolder()` (the setup end, at the pick click and in each
+failure path) and the successful `Folder.Set` — whether or not the panel is
+mounted, and once more on each mount. A different source ends the setup (the
+baseline dropped, the draft kept, §1 "The dir is changed"); the same source
+again does nothing, which is how navigate-back keeps an applied filter armed
+without a re-Apply. `null` is reported only for "no folder", never for "not
+yet known". The pin is `Home_ReportsThePickAsTheFilterSource_AndNoSourceOnceCleared`;
+the remount and re-pick behaviour are
+`Home_NavigateBack_AppliedFilterStillInEffect_WithoutReApply` and
+`Home_RePick_EndsTheFilterSetup_KeepingTheSelectionButNotItsApply`.
 
-The applied config is **edit-coupled** (a half-edited set clears it via the
-composite's mediation) **and setup-coupled** (`PickGeneration` is monotonic and
-bumped by both `PickedProblemFolder.Set` and `.Clear`, so ending a setup
-expires it by key inequality — the staleness idiom `StoreParsed` already uses).
-`EndCurrentSetupAsync`'s `Clear()` is a third, now-redundant safeguard; see
-below.
+**It reads its gate from the snapshot, source-relatively.** Home attaches
+once (`FilterSetup.Attach`, disposed with the page) and derives
+`FilterInEffect => FilterSetup.Current.ConfigInEffectFor(FilterSource)` —
+`CanStart`, its Apply hint, `StartCoreAsync` and the match count all read that
+one derivation, so what is in effect and what every gate compares cannot
+encode the pick differently. `ConfigInEffectFor` returns a fresh config each
+call; nothing here holds one. Applied-ness is the owner's: an edit away from
+the baseline takes the filter out of effect and an edit undone back to it
+puts it back (`Home_FilterEditedAwayFromWhatIsInEffect_DisablesStart`,
+`Home_EditUndoneBackToTheAppliedValues_IsInEffectAgain`).
 
-**The setup-end clear is host-side, and the reason is structural (ruled, this
-migration).** The composite owns a source-change rule that would do this — but
-the rule runs on a *mounted* component receiving a changed parameter, and in
-this host the composite lives behind Home's `HasFiles` gate: every token
-change passes through an unmount (`Folder.Clear()` renders the gate closed
-before any parameter could be observed), and the eventual re-mount's
-first-parameters-set is, by the producer's ruled pin, initialization only — no
-holder clear, precisely so navigate-back over an *unchanged* source leaves an
-applied gate armed. So the composite's rule is **dormant in BgQuiz** (kept
-bound as defence in depth); what each pick actually gets from the producer is
-the remount: a fresh panel with Apply re-armed and the new folder's
-saved-filters document read. `EndCurrentSetupAsync` keeps the single line of
-filter choreography that covered that gap — but **source-keying demoted it from
-gate-closing to residue-dropping**: `Folder.Clear()` on the line above bumps
-the generation, so `FilterInEffect` is already null for every later read
-whether or not the `Clear()` runs. What it still buys is that no config outlives
-the setup that applied it even unreachably, which is the end-of-setup call the
-holder documents as `Clear`'s purpose.
+**The empty selection is ready (`halheinrich/backgammon#266`).** With nothing
+selected the owner reports the empty filter in effect as soon as a source
+exists and restoration has settled — no Apply. Home has no exception for it:
+the same `FilterInEffect` covers it, and Help says so ("With no filter set,
+every decision is in…"). The pins are
+`Home_FolderPicked_TheEmptySelectionIsInEffect_StartWithoutApply` and
+`Home_RePickOverTheEmptySelection_IsReadyForTheNewPick_AndCountsIt`. A
+restoration the browser refused or could not read leaves the draft
+unresolved, and then an Apply is needed even for the empty selection — the
+owner's rule, not this host's.
 
-Holding the applied state in a Scoped holder rather than a transient component
-field is what lets the gate survive in-app navigation: on navigate-back `Home`
-re-derives `CanStart` from the persisted holders instead of resetting to
-"not applied" and forcing a needless re-click of Apply.
+**Storage refusals reach the host through one sink.** The surface reads and
+writes its selection and saved filters through `BrowserStorage`; every
+refused call is reported, per call, to `IFilterStorageRefusalSink`, which
+BgQuiz implements as `FilterStorageRefusalSink` (`Quiz/`): it logs one
+warning and reports the occurrence to `BrowserStorageCondition`, the same
+condition the app's own stores report to (§ `BrowserStorageCondition`).
+There is no host handler on the component and no latch: the condition owns
+the notice's wording and lifetime, unchanged by the adoption.
 
-**Gate semantics — applied, not merely present.** A non-null `ConfigFor` means
-the user took the Apply action, so a half-edited set must clear it (the composite
-mirrors the panel's `null` report onto the holder) — and an edit *undone* back
-to the applied values makes the panel report the committed config again, which
-re-`Set`s it. That direction is not a nicety: the panel disables its own Apply
-whenever the buffers equal what it committed, so without the re-`Set` an
-edit-then-undo would leave Start and Apply both dead (issue
-halheinrich/backgammon#49). The interaction with the panel's localStorage restore
-is safe by construction: restore writes the panel's own fields directly and
-raises **neither** callback, so it can't spuriously mark applied or clear an
-existing applied state — the holder is the sole authority on "applied".
+**The restoration notices are the producer's.** The restored-selection and
+failed-restore notices are rendered by the panel from the owner's snapshot
+and dismissed through it, so a navigate-back cannot bring a closed notice
+back, while a reload — a fresh owner — restores and announces afresh. BgQuiz
+binds nothing for them and adds no copy about them.
 
-### `FilterRestoreNotice` — the reload is legible (`SPEC-filtering.md` §4)
-
-A reload ends the setup, and §4 rules that the resulting state must say what it
-is rather than look like a defect. `FilterRestoreNotice` (XgFilter_Razor's,
-rendered by the panel as `#filterRestoredNotice`) is the state that copy hangs
-on.
-
-**This host's entire contract is two lines**: register it Scoped in
-`Program.cs` beside `AppliedFilter`, and bind it to `FilterSurface`. Every
-member that moves it (`Arm` / `Dismiss` / `IsVisible`) is producer-internal, so
-BgQuiz cannot read or steer it and the notice behaves identically in both
-hosts by construction. Do not add host copy about it — the sentence is the
-producer's.
-
-**Scoped is the mechanism, not a convention.** A full reload reboots the WASM
-app and constructs a fresh instance; *that construction* is what distinguishes
-a boot from a navigate-back remount, which also restores a selection and also
-finds nothing applied. Register it Transient and every navigation re-announces
-a restore that already happened, which §4 forbids ("navigating away and back
-changes nothing"). The pin is
-`Home_RestoredFilterSelection_ShowsTheNotice_UntilAnEditSupersedesIt`, whose
-last leg fails on a Transient registration while its binding half still passes.
-It stages the stored selection *by exclusion* — answering every
-`localStorage.getItem` for a key BgQuiz does not own — because the panel's key
-is a producer internal no host may name.
+**The match count is keyed host-side.** See § Home, "The match count".
 
 ### `MixPanel` / `MixDraft` / `MixVisibility` — the stats-weighted mix
 
@@ -1975,8 +1965,7 @@ the component's scoped stylesheet produces (`EnvironmentFidelityTests`).
 ### `ShuffleOption` — the "Shuffle order" toggle holder
 
 The Scoped holder (see Pitfalls: resets on full reload) for the **"Shuffle
-order"** checkbox on `Home` — a sibling of `PickedProblemFolder` and
-`AppliedFilter`. Surface: `bool Enabled` (private setter) + `Set(bool)`.
+order"** checkbox on `Home` — a sibling of `PickedProblemFolder`. Surface: `bool Enabled` (private setter) + `Set(bool)`.
 `Home.razor` writes it on the checkbox's `@onchange`; the
 `ProblemSetSourceFactory` reads `Enabled` at **invocation** time
 (`StartAsync`) — the same read-live-at-Start discipline as
@@ -1992,9 +1981,9 @@ clearing the mix restores the prior preference (pinned).
 ### `QuizLiveMarker` — the reload-reset honesty marker
 
 The app-scoped service recording that a quiz is **live** in this tab, backed
-by the browser's `sessionStorage` through `IJSRuntime` — BgQuiz's first
-JS-interop *service*, encapsulated because it has a lifecycle spread across
-two pages and a storage constraint worth stating once. This is the **honesty
+by the browser's `sessionStorage` through BgUiPrimitives_Razor's
+`BrowserStorage` (session area) — encapsulated because it has a lifecycle
+spread across two pages and a storage constraint worth stating once. This is the **honesty
 slice of reload-resume, not resume itself**: a full reload reboots the WASM
 runtime and silently discards all quiz state; the marker is the one thing that
 survives, so a fresh boot that finds it can *explain* the loss. Surface:
@@ -2028,9 +2017,10 @@ side by side in that section, and a documented pair reading `Key` /
 
 The marker's own calls can be refused — a browser blocking site data refuses
 `sessionStorage` too — and it is read in Home's first render, so each of its
-three calls is guarded in `NotesPlacementStore`'s shape (§ `BrowserStorageCondition`): a
-refused read reads as no quiz having been live, a refused write or removal
-leaves things as they were. The cost is the reload notice, and only that.
+three calls reads `BrowserStorage`'s refusal result in the stores' common
+shape (§ `BrowserStorageCondition`): a refused read reads as no quiz having
+been live, a refused write or removal leaves things as they were. The cost is
+the reload notice, and only that.
 
 ### `BrowserStorageCondition` — browser storage refused (issue halheinrich/backgammon#360)
 
@@ -2040,8 +2030,9 @@ as an occurrence token — null until the first refusal, one opaque object
 after (the token is the flag, `StatsRetiredOccurrence`'s discipline). Every
 place this app touches browser storage reports into it from its own guard —
 `QuizSettings`, `MixDraft`, `NotesPlacementStore` and `QuizLiveMarker` — and
-Home reports the hosted panel's `FilterSurface.OnStorageUnavailable`. Home
-renders it as one condition notice, `#storageUnavailableNotice` (warning,
+the filter surface's refusals arrive through `FilterStorageRefusalSink`, the
+`IFilterStorageRefusalSink` this app registers with `AddFilterSurface`
+(§ `FilterSetup`). Home renders it as one condition notice, `#storageUnavailableNotice` (warning,
 polite, dismissible), its dismissal in `QuizNoticeDismissal` under
 `QuizNotice.StorageUnavailable` keyed on the occurrence.
 
@@ -2054,15 +2045,15 @@ sentence twice, and could each be dismissed while the other stood. A refusal
 before Home mounts — the settings read on a cold deep link to Settings, the
 notes' placement on the Quiz page — lands in the holder all the same, which
 outlives every page, and is on Home the next time it renders. Before a
-folder is picked there is no panel to report, and the app's own stores still
-do. The notice sits above Home's setup surface, outside the pick's
+folder is picked the filter surface makes no storage call, and the app's own
+stores still report. The notice sits above Home's setup surface, outside the pick's
 disclosure gate, because the condition is the app's, not a pick's.
 
 **The occurrence, and when it ends.** It begins at the first refusal reported
-and lasts the visit: every later refusal from any reporter — a remounted
-panel's fresh report, one per mount, included — keeps the same token, so a
+and lasts the visit: every later refusal from any reporter — the filter
+surface reports each refused call, not once — keeps the same token, so a
 dismissal survives navigation, remounting and duplicate reports
-(`SPEC-notices.md` §2: recreating the panel is not a new condition). A reload
+(`SPEC-notices.md` §2: a further refusal is not a new condition). A reload
 is a new app, with no occurrence, and shows the notice fresh. **No global
 recovery is tracked, so there is never a second occurrence.** Recovery can
 happen inside one store: `QuizSettings` writes the whole settings object, so a
@@ -2078,17 +2069,20 @@ one may not be.
 storage: one store's refused write does not establish that another's read
 will fail, so every store keeps making its calls and keeping what they
 return. Each store logs its own refusal as a warning with the exception and
-what it costs that store; Home logs the panel's report, since the panel logs
-nothing itself; the holder logs nothing.
+what it costs that store; `FilterStorageRefusalSink` logs the filter
+surface's, since the producer logs nothing itself; the holder logs nothing.
 
-**What each store does under a refusal** (`JSException` only, as
-`NotesPlacementStore` — the shape — catches, so a fault that is not the
-browser's refusal still surfaces): `QuizSettings` — a refused read leaves
+**What each store does under a refusal.** Every store reaches storage through
+`BrowserStorage` (BgUiPrimitives_Razor), whose results carry the refusal
+(`IsRefused`, with the `JSException` as `Refusal`) instead of throwing it; a
+fault that is not the browser's refusal still throws and surfaces. Each store
+reads the result, logs, and reports: `QuizSettings` — a refused read leaves
 every setting at its default, a refused write keeps the value for the visit,
 and the fold's choice still reaches the applier (§ `QuizSettings`, "The fold
 it cannot apply itself"); `MixDraft` — a refused read hydrates nothing (the
-generation check stands), a refused write keeps the draft; `NotesPlacementStore`
-— as before, and now reported; `QuizLiveMarker` — above. No store's public
+generation check stands), a refused write keeps the draft;
+`NotesPlacementStore` — a refused read is no stored placement, a refused write
+keeps the placement for the visit; `QuizLiveMarker` — above. No store's public
 operation throws for storage, so every page renders on the defaults.
 
 **The wording says the known loss, not more** (Hal's, ruled 2026-10-07):
@@ -2373,18 +2367,17 @@ The asymmetry is pinned three times over: at the service seam
   filter panel so load-then-refine reads top-down, plus every saved-filters
   notice), the match-count line, the `MixPanel`,
   the shuffle checkbox, and Start — renders only once `Folder.HasFiles`, which
-  also makes the filter half of the gate true by construction — and which
-  makes the composite's mount lifecycle part of the choreography (see the
-  setup-end paragraph below and § `AppliedFilter`). Home binds the composite:
-  the shared `AppliedFilter` holder, the app-scoped `FilterRestoreNotice`
-  (bound and nothing more — § `AppliedFilter`), `Source = CurrentFilterSource`
-  (the one mint — inside this gate a folder is always held), `Storage` = the Scoped
+  also makes the filter half of the gate true by construction. The
+  composite's state is not its own — it reads and edits the app-scoped
+  `FilterSetup` (§ that section), so its mount and unmount behind this gate
+  change nothing about the filter setup. Home binds only the saved-filters
+  context: `Storage` = the Scoped
   `PickedFolderDocumentStorage` while the capability exposes a readable handle
   (`null` under `BrowserUnsupported` ⇒ no saved-filters section),
   `CanPersist = (Capability == Enabled)` with `PersistDisabledReason` from
   `FolderPickDisplay.WriteAccessNotGranted` — **capability-only, deliberately
-  not the mix predicate** (see Pitfalls) — and the two re-raised
-  panel-shaped events. The `MixPanel`
+  not the mix predicate** (see Pitfalls). It handles no event from the
+  composite. The `MixPanel`
   carries a *second* gate, `MixVisibility.IsVisible` (§ that section; the
   setting **and** the folder's stats fact), and a `@key` on
   `Folder.PickGeneration` (see Pitfalls: load-bearing); it raises no events and
@@ -2397,7 +2390,7 @@ The asymmetry is pinned three times over: at the service seam
   advisory summary) so the gate survives navigation:
   `CanStart => FilterInEffect is not null && Folder.HasFiles
   && Folder.Parsed is not { Report.AllRejected: true }
-  && _matchSummary is not { Total: 0 } && EffectiveMix is not null`, where
+  && CurrentMatchSummary is not { Total: 0 } && EffectiveMix is not null`, where
   `EffectiveMix => MixVisibility.IsVisible ? MixDraft.Build() : QuizMix.Empty` —
   derived per render, never stored (§ MixPanel / MixDraft / MixVisibility).
   **The pool gate is known-zero only** (found dogfooding, ruled): a resolved
@@ -2407,18 +2400,19 @@ The asymmetry is pinned three times over: at the service seam
   the line** (halheinrich/backgammon#262): with Start dark it is the only
   thing saying why, so it renders as the non-dismissible polite warning
   `#noMatchNotice` — same sentence, mix caveat inside when `MixInEffect`; a
-  non-zero count keeps the muted line and its breakdown. A running count
-  cannot be raced (the busy state disables the setup fieldset), so the only
-  live Start over an unknown count is one whose count threw.
+  non-zero count keeps the muted line and its breakdown. Start over an
+  unknown count — a recount still running, or a failed count — is live: the
+  gate is advisory,
+  and Start's own validation and empty-result guard stay the word.
   **Rejected files** (halheinrich/backgammon#368; Hal's ruling on
   halheinrich/backgammon#367: continue with the readable files, and on Home,
   after counting, name the rejected ones and say the selection is
   incomplete, telling all-rejected apart from readable-but-zero-matches).
   Both boxes read `Folder.Parsed.Report` — the holder's parse, the one place
-  the facts exist (§ `CachedProblemSetSource`) — and never the transient
-  `_matchSummary`, which Home clears on an uncommitted filter edit, before
-  each count and on a failed count, while the selection and its rejected
-  files stand through all three. So both survive navigate-away-and-back (the
+  the facts exist (§ `CachedProblemSetSource`) — and never the count, which
+  is absent while a filter is out of effect, while a count runs and after a
+  failed one, while the selection and its rejected files stand through all
+  three. So both survive navigate-away-and-back (the
   holder outlives the page, as for the truncation notice), a filter edit, a
   recount and a count that fails, and are retired exactly where the facts
   are: `Set`/`Clear` null `Parsed`. Nothing after the parse walks the files
@@ -2456,12 +2450,34 @@ The asymmetry is pinned three times over: at the service seam
   stays the backstop for a non-empty pool whose mix reaches nothing. The mix
   hint is the ruled "Mix applies but isn't valid — fix it or turn the mix off."
   (visible + invalid — the only mix state that gates).
-  **Match summary and answer-type breakdown** (umbrella halheinrich/backgammon#35). On Apply, Home
-  calls `Controller.SummarizeMatchesAsync` (§ Pre-Start match summary) and
-  holds the returned `MatchSummary` in `_matchSummary`. Home owns
-  only display and lifecycle: a request id stamped per Apply discards a stale
-  result landing after a newer Apply, and the summary clears on any filter
-  edit or new/cleared pick. One `role="status"` region carries all of it — the
+  **Match summary and answer-type breakdown** (umbrella halheinrich/backgammon#35).
+  Whenever a filter is in effect, Home shows what it matches, counted by
+  `Controller.SummarizeMatchesAsync` (§ Pre-Start match summary).
+  **The match count** (halheinrich/backgammon#374) lives in the app-scoped
+  `MatchCount` (`Quiz/`), not on the page, keyed by `MatchCountInputs`: the
+  selection (the pick's `FilterSourceToken`), the filter in effect — compared
+  **by value**, through a fresh `NewConfig()` on each side — and the ranking.
+  The holder keeps the current inputs, their `Summary` and the pending
+  request's identity (a fresh object per request, compared by reference).
+  Home asks for the count of its current inputs on every mount and every
+  `FilterSetup` snapshot (`SyncMatchCountAsync`; the ranking is read from
+  `QuizSettings` there, so a ranking changed on Settings recounts on the way
+  back): equal inputs **reuse** what the holder has — settled or still
+  counting — and anything else **recounts**, superseding the running count.
+  Only the newest request publishes; an older one completing, before or
+  after the newer has published, success or failure, changes nothing. A
+  failed count is logged and left unknown (null), never zero, so the
+  known-zero gate cannot close on it; it is settled for its inputs and not
+  retried until they change. Home renders only a count of its current inputs
+  (`CurrentMatchSummary => MatchCount.SummaryFor(CurrentCountInputs(…))`).
+  This is what makes navigate-back honest: before it, the count was the
+  page's field, started by the panel's commit event, so Settings → Home
+  showed no count and **Start went live over a known-zero filter** —
+  reproduced on the v1.12.1 production build, 2026-10-09. The pins are in
+  `PageTests` (`Home_NavigateBack_*`, `Home_Changing*_Recount*`,
+  `Home_ACurrentCountThatFailed_IsUnknown_NeverZero`), `MatchCountTests` for
+  the races, and the browser suite's `MatchCountNavigationTests`.
+  One `role="status"` region carries all of it — the
   count from `AnswerTypes.Total`, the dedupe sentences, the mix caveat, and the
   breakdown — so a screen reader gets the pool and its make-up in one
   announcement. Settled rules:
@@ -2505,8 +2521,9 @@ The asymmetry is pinned three times over: at the service seam
     for its axis, leaving the region free for issue halheinrich/backgammon#3's
     composition preview; nothing is built for that, the name is simply not claimed.
   The first count after a pick parses the corpus once (warming the cache), so
-  `_isCounting` folds into the same busy boundary as the transition gate,
-  which also serializes the count against a Start. Help documents the count in
+  that count — and only that one (`IsParsingThePick`: counting while
+  `Folder.Parsed` is null) — folds into the busy boundary (Busy affordances
+  below). Help documents the count in
   its own prose — a shared constant is earned only when two surfaces render
   the same sentence, which these don't.
   **Start.** Hands `FilterInEffect` + `EffectiveMix` (the on-screen draft's
@@ -2528,12 +2545,12 @@ The asymmetry is pinned three times over: at the service seam
   share one spelling): folder holder + JS picked slot, the mix draft
   (`Discard` — the stored rows survive, and nothing sits beside it: there is no
   consent to revoke, and the mix setting is a choice that outlives every setup),
-  the applied filter
-  (`AppliedFilter.Clear` — the one line of filter choreography left host-side,
-  see § `AppliedFilter` for the unmount-gap ruling), and every pick-scoped
-  notice and the match summary. The saved-filters context needs no line — it
-  dies with the composite the closing `HasFiles` gate unmounts (§
-  `AppliedFilter` for that unmount/re-mount ruling). Nothing selected
+  the filter setup (`ClearFolder()` reports the source's end to
+  `FilterSetup` — the one line of filter choreography here, § `FilterSetup`),
+  and every pick-scoped notice. The match count needs no line: it is keyed
+  by the pick, so a new pick recounts. The saved-filters context needs none
+  either — it dies with the composite the closing `HasFiles` gate unmounts.
+  Nothing selected
   against the previous corpus can be assumed
   to mean the same thing against the next one, so **a pick re-gates Start** —
   never inherited across one. It runs at the **start of the gesture**, before
@@ -2541,11 +2558,11 @@ The asymmetry is pinned three times over: at the service seam
   before the OS picker appears; a `StateHasChanged()` plus the awaited
   picked-slot interop lets that paint land first. Settled consequences: a
   **cancelled pick loses the folder that was held** (the gesture ended the
-  setup whatever the picker then returned), and a successful pick re-mounts
-  the composite, whose panel's `localStorage` restore re-stages the persisted
-  config as dirty on **every** pick — accepted, and routine (staged without a
-  commit, so it is shown but never claimed as applied; the same hands-off
-  treatment `MixDraft.Discard` gives the stored mix). Two things are
+  setup whatever the picker then returned), and a successful pick keeps the
+  selection on screen but not its Apply: the owner keeps the draft and drops
+  the baseline, so a non-empty selection is shown but never claimed as
+  applied, and the empty selection is ready for the new pick at once (§
+  `FilterSetup`). Two things are
   deliberately *not* reset: `ShuffleOption` (presentation-only preference) and
   the lifetime-stats slot, whose whole point is to *resume* when its folder is
   picked again. `PageTests` pins the reset, the at-the-click timing (sampled
@@ -2557,28 +2574,28 @@ The asymmetry is pinned three times over: at the service seam
   container carries `app-busy` (`cursor: progress`, `app.css`) on the *same*
   predicate, so cursor and disabled controls cannot disagree. `IsBusy` unions
   `Controller.IsBusy` (the transition gate), `_busy` (this page's own
-  foreground work — the pick's scan), and `_isCounting`, which keeps its own
-  flag because it also owns a message and a stale-request id;
-  disabling the surface during the count also prevents a Start racing its
-  parse. **Raising it is single-sourced**: `EnterBusyAsync()` sets `_busy`,
+  foreground work — the pick's scan), and `IsParsingThePick` — the pick's
+  first count, which parses the corpus; disabling the surface then prevents a
+  Start racing that parse. **A count over a parse the pick already holds is
+  not busy**: a recount after an edit runs on the cached parse, and disabling
+  the fieldset for it would take focus out of the box being typed in and lose
+  keystrokes (found in the browser suite, halheinrich/backgammon#374; pinned
+  by `Home_ACountOverAParseThePickHolds_LeavesTheControlsAlone` and the
+  browser suite's field-entry checks). **Raising it is single-sourced**: `EnterBusyAsync()` sets `_busy`,
   calls `StateHasChanged`, and **yields**, while `RunBusyAsync(work)` is the
   whole-operation form (enter, run, lower in a `finally`). Every site uses one
-  of them — the match count, the fallback pick's collection, and the FS-Access
+  of them — the fallback pick's collection and the FS-Access
   pick, whose raise point sits *inside* `IFolderAccess.PickFolderAsync` (handed
   `EnterBusyAsync` as the `onPickAccepted` hook — § Folder picking) while its
   lowering belongs to the whole gesture's `finally`. Cancelled picks never
   raise it. Why the yield is load-bearing, and why the pins sit where they do,
   is in Pitfalls.
-  **Callback wiring.** No `StateChanged` subscription — the page's own
-  suspended handlers trigger the re-renders. The composite mediates the
-  holder *before* re-raising, so Home's handlers own only host side effects:
-  `OnFilterConfigChanged` clears the start/no-match notices and counts;
-  `OnAppliedStateChanged` manages only the match summary (the holder is
-  already correct by the time it fires — § `AppliedFilter`). The count is
-  single-sourced in `ShowMatchSummaryAsync`,
-  called from both — and the applied-state handler skips it when a summary is
-  shown or in flight, because a commit
-  raises both callbacks and would otherwise parse the corpus twice.
+  **Filter wiring.** Home attaches to `FilterSetup` once
+  (`OnFilterSetupPublished`, the attachment disposed in `Dispose`) and
+  subscribes to `MatchCount.Changed`; each snapshot re-renders the page and
+  syncs the count, and when the count's inputs move it also clears the
+  start-error and no-match notices, which described the old ones. There are
+  no composite events to handle.
   **The filter does not sequence the mix, and the `MixPanel` takes no
   parameters at all.** Rule 2's activation gate — the panel handed
   `CanActivate` plus a reason sentence, darkened until a filter was in effect
@@ -3449,7 +3466,14 @@ The asymmetry is pinned three times over: at the service seam
   page's job in that split is the fine print that says so). The board's side
   and maximize rows share one fieldset; the fold's is its own. **No Apply button — pinned
   as a design constraint, not a coincidence:** an Apply is the front end of
-  the draft/commit lifetime split behind finding (AK)'s wedge. The only page
+  the draft/commit lifetime split behind finding (AK)'s wedge. **The lead
+  promises remembering only where the browser stores** (Hal's wording,
+  halheinrich/backgammon#374, comment 6087873844): every change is kept as it
+  is made; the browser remembers the settings for next time unless it refuses
+  to store them, and then they last for this visit, including in-app
+  navigation — true under `BrowserStorageCondition`'s refusals, which an
+  unconditional "remembered" was not. `PageTests` pins the sentence
+  (`Settings_Lead_PromisesRememberingOnlyWhereTheBrowserStores`). The only page
   state is whether hydration landed, which gates the controls so none can
   paint a default the stored settings are about to overwrite. Reachable from
   the host `NavMenu` beside Help (`NavMenuTests` pins the link, as it does
@@ -4360,8 +4384,16 @@ showing (`halheinrich/backgammon#372`).
 - **Feature ready** — what a page loads after it renders: the keyboard
   module's mark, the row's first fit, a problem landed
   (`ExpectKeyboardShortcutReadyAsync`, `ExpectRowFittedAsync`,
-  `ExpectCubeProblemAsync`). Always an explicit wait in the test that needs
-  it; page rendered never waits on one.
+  `ExpectCubeProblemAsync`), and the filter surface's restoration settled
+  (`WaitForFilterRestorationAsync`, on XgFilter_Razor.TestSupport's
+  `FilterRestorationMarker.SettledSelector` — the flow helpers that touch the
+  panel, `OpenMoreFiltersAsync` and `ApplyFilterAsync`, wait on it first,
+  because until it settles neither the draft nor Apply's gate is final;
+  `ExpectFilterInEffectAsync` waits on it and then on Start's Apply hint
+  being gone, the page's own word that a filter is in effect). Always an explicit wait in
+  the test that needs it; page rendered never waits on one. No test names a
+  producer storage key or a stored disclosure state
+  (halheinrich/backgammon#346).
 
 **The landmark rule.** Every route the suite navigates to has one landmark,
 defined once, beside its path, in `E2eTestBase.AppRoute`. A landmark is
@@ -4616,9 +4648,10 @@ public (see Pitfalls). The externally visible surface is the route map:
   reader doesn't have to follow a link" is the tempting edit and is exactly the
   defect. The pin
   (`Help_DataSection_PointsAtTheFilterPanelsStorageInsteadOfDescribingIt`)
-  asserts the section's `<code>` elements are *exactly* BgQuiz's own two keys
+  asserts the section's `<code>` elements are *exactly* BgQuiz's own keys
   — a form that survives the panel renaming its keys, which a
-  `DoesNotContain("xg_filter_config")` would not.
+  `DoesNotContain` naming one of them would not (and naming one would mirror
+  a producer internal, halheinrich/backgammon#346).
 - **The deep link's slug and its words are both the producer's.** Build them
   from `FilterHelp.StorageSectionAnchorId` / `StorageSectionHeading`; never
   spell either here. Held as host literals they drifted in a way nothing
@@ -4662,8 +4695,7 @@ public (see Pitfalls). The externally visible surface is the route map:
   would hide a control that had quietly moved. The e2e helper finds the
   toggle by id, not accessible name: a collapsed active row carries a badge,
   and whether it joins the button's name is the producer's layout. Toggling
-  raises no applied-state report, so it never disturbs an applied/dirty
-  expectation. Error-range edits, Apply, and Clear filters need no row. Two
+  changes no draft, so it never disturbs an applied/dirty expectation. Error-range edits, Apply, and Clear filters need no row. Two
   related traps: address the panel in an ordering assertion by an
   *always-rendered* element (a row toggle — the page test uses
   `#facetToggle_Players`), not `#positionPattern`; and Playwright's
@@ -4734,14 +4766,16 @@ public (see Pitfalls). The externally visible surface is the route map:
   has been made this visit. Put it back to reading storage alone and a browser
   refusing writes loses the choice on the next navigation, in both directions;
   `SettingsTests`' two refused-write scenarios are what notice.
-- **A store that touches browser storage guards every call, reports, and
-  never gates** (halheinrich/backgammon#360). Each of `QuizSettings`,
-  `MixDraft`, `NotesPlacementStore` and `QuizLiveMarker` catches `JSException`
-  — only that, so a serialization fault still surfaces — on every
-  `localStorage` / `sessionStorage` call, degrades in its own documented way,
-  logs a warning carrying the exception, and calls
-  `BrowserStorageCondition.ReportRefused()`. A new store does all four, or
-  Home's notice stays silent about it, or worse, a page's first render throws.
+- **A store that touches browser storage goes through `BrowserStorage`,
+  reads every result, reports, and never gates** (halheinrich/backgammon#360,
+  halheinrich/backgammon#374). Each of `QuizSettings`, `MixDraft`,
+  `NotesPlacementStore` and `QuizLiveMarker` calls BgUiPrimitives_Razor's
+  `BrowserStorage` — never `IJSRuntime` for `localStorage` / `sessionStorage`
+  — and on a refused result (`IsRefused`) degrades in its own documented way,
+  logs a warning carrying the result's `Refusal`, and calls
+  `BrowserStorageCondition.ReportRefused()`. A new store does all of that, or
+  Home's notice stays silent about it. (`QuizSettings` keeps `IJSRuntime` for
+  `bgquizNavFold.prefer` only, whose `JSException` guards are not storage.)
   None of them may skip a call because the condition already holds: a refused
   write elsewhere says nothing about this read. And the occurrence must not
   end on a later success — no global recovery is tracked, and one store's
@@ -5050,16 +5084,20 @@ public (see Pitfalls). The externally visible surface is the route map:
   mid-pick, which unmounts and re-mounts the whole `FilterSurface`.** The
   pick's reset
   runs at the click, so the paint that follows finds `HasFiles` false and the
-  progressive-disclosure gate closed. That re-mount is production behavior, and
-  load-bearing — § `AppliedFilter` owns what it buys and why the composite's
-  source-change rule never runs here.
-  So a page test that opens a facet row before a pick must open it *again*
-  afterwards — in bUnit the re-mounted panel restores every row collapsed,
-  because the loose interop mock answers its stored open-row set with
-  nothing, where a real browser restores the rows left open (an e2e
-  scenario must therefore *not* re-open one) — and one that pre-arms
-  `WithAppliedFilter` then picks through the UI must re-apply, exactly as a
-  user would.
+  progressive-disclosure gate closed. That re-mount is production behavior,
+  and harmless to the filter setup, which lives in `FilterSetup` rather than
+  the component (§ `FilterSetup`): the pick changes it only through the
+  source report. What the re-mount does redo is the panel's own display
+  reads — which rows are expanded — once per mount, which is why a bUnit
+  plan states its panel mounts (`ExpectHomeOverAFolder(mounts, panelMounts)`
+  over `FilterSurfaceStorage.ExpectFilterPanelMount`). So a page test that
+  opens a facet row before a pick must open it *again* afterwards — the plan
+  answers the stored open rows with nothing, so the re-mounted panel shows
+  every row collapsed, where a real browser restores the rows left open (an
+  e2e scenario must therefore *not* re-open one, and opens "More filters"
+  through `OpenMoreFiltersAsync`, which reads `aria-expanded` rather than any
+  stored key) — and one that applies a filter and then re-picks must apply
+  again, exactly as a user would: a new source drops the baseline.
 - **The stage-2 refusal's re-bind is a real side effect — including the
   WriteFailed sub-case.** Stage 1 (capability peek) refuses with zero side
   effects, but a stage-2 refusal has already run `BeginQuizAsync`, which

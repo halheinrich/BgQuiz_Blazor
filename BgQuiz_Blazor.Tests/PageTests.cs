@@ -614,9 +614,9 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_FilterPanelEmitsConfig_EnablesStartButton()
     {
-        // FilterPanel binding contract: Home subscribes to OnFilterConfigChanged
-        // (FilterConfig payload). With a file already picked, applying filters
-        // satisfies the second gate and flips Start to enabled.
+        // The filter gate read off FilterSetup: with a file already picked,
+        // applying filters puts a filter in effect for the pick and Start is
+        // enabled.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder();
         WithShuffleOption();
@@ -2985,8 +2985,8 @@ public class PageTests : BunitContext
     {
         // The load chain the arc turns on: clicking a saved filter's Load stages
         // its config into the FilterPanel as a bulk edit. The staged config is not
-        // the committed one, so the panel's applied-state report carries null,
-        // which clears AppliedFilter and re-gates Start until the user re-Applies.
+        // the committed one, so no filter is in effect for the pick and Start is
+        // re-gated until the user re-Applies.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
@@ -3008,8 +3008,8 @@ public class PageTests : BunitContext
         // The config staged into the panel — its players input now shows the value.
         Assert.Equal("Magriel",
             cut.Find("input[placeholder='e.g. Hal, Magriel']").GetAttribute("value"));
-        // …and the load's null applied-state report cleared the applied filter,
-        // re-gating Start.
+        // …and the staged draft is not what was applied, so no filter is in
+        // effect, re-gating Start.
         startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.True(startBtn.HasAttribute("disabled"));
     }
@@ -3109,9 +3109,9 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_ClearFilters_ClearsAStaleSaveRefusal()
     {
-        // The save refusal is mooted by a commit, not only by an edit: the
-        // applied-state report fires on every buffer-affecting gesture, so the
-        // handler clears the notice for commits too. "Clear filters" is the
+        // The save refusal is mooted by a commit, not only by an edit: every
+        // gesture that changes the selection clears it, commits included.
+        // "Clear filters" is the
         // gesture that reaches this state — it commits without requiring a
         // parseable pattern, where Apply is disabled by exactly the condition
         // that produced the refusal, so a user holding an invalid pattern can
@@ -3533,12 +3533,12 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_Apply_CountsTheMatchesOnce()
     {
-        // Idempotence at the seam where the two callbacks overlap: a commit
-        // raises OnFilterConfigChanged *and* then the applied-state report
-        // carrying the config it just committed. Both paths can summarize, so
-        // without the already-current guard one Apply would parse the corpus
-        // twice and flash the busy affordance twice. EnumerateCallCount is the
-        // observable — SummarizeMatchesAsync enumerates the source once per call.
+        // Idempotence of the keyed count: Apply publishes a snapshot, and Home
+        // asks MatchCount for the count of its inputs on every snapshot and
+        // mount. Inputs equal to the ones held are reused, so one Apply parses
+        // the corpus once however many snapshots it raises. EnumerateCallCount
+        // is the observable — SummarizeMatchesAsync enumerates the source once
+        // per call.
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         Services.AddSingleton(
             new QuizController((_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System));
@@ -3560,23 +3560,22 @@ public class PageTests : BunitContext
         // XgFilter_Razor f227f25), driven through the panel's real controls: the
         // facet is now three per-mode toggles, each with its own level list, and
         // nothing here re-derives that — the arc pinned is edit → dirty → Start
-        // re-gated → Apply → the raw intent lands in AppliedFilter.
+        // re-gated → Apply → the raw intent is the filter in effect.
         //
         // Worth its own case because BgQuiz names no depth member anywhere: the
         // compiler could not have caught the facet's rewrite, and no existing test
-        // touched a depth control. Asserting IncludeRollouts off the *applied*
-        // config (rather than the panel's checkbox) is what proves the toggle
-        // reaches the config the quiz is built from, across the panel's emit.
+        // touched a depth control. Asserting IncludeRollouts off the config *in
+        // effect* (rather than the panel's checkbox) is what proves the toggle
+        // reaches the config the quiz is built from.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
         _folderAccess.NextPickOutcome = OneFileOutcome();
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
-        // Apply through the panel's own button, not ApplyFiltersAsync: that helper
-        // invokes OnFilterConfigChanged with a *fresh* FilterConfig, which arms the
-        // gate but discards whatever the panel's controls hold — it could never
-        // carry a depth selection, and this case is about exactly that payload.
+        // Apply through the panel's own button (ApplyFiltersAsync clicks it), so
+        // the config in effect is whatever the panel's controls hold — this case
+        // is about exactly that payload.
         await ApplyFiltersAsync(cut);
 
         Assert.False(StartButton(cut).HasAttribute("disabled"));
@@ -3880,7 +3879,7 @@ public class PageTests : BunitContext
     {
         // UI wire: the checkbox's @onchange must reach the ShuffleOption holder —
         // no intermediate transient field to desync on navigate-back, matching
-        // AppliedFilter / PickedProblemFolder's holder-first pattern.
+        // PickedProblemFolder's holder-first pattern.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(); // progressive disclosure: the checkbox shows only post-pick
         var shuffle = WithShuffleOption();
@@ -8416,8 +8415,8 @@ public class PageTests : BunitContext
         // own key constants; this page links into that anchor and names no key of
         // the panel's. The positive half is the link. The negative half asserts
         // the section's <code> elements are *exactly* the app's own keys —
-        // stated that way rather than as "does not contain xg_filter_config",
-        // because the panel's key names are internal to another repo, so a
+        // stated that way rather than as "does not contain" one of the panel's
+        // keys, because those names are internal to another repo, so a
         // literal here could rot into a negative assertion that passes for the
         // wrong reason. An inlined copy of the panel's list would add <code>
         // elements and fail, whatever those keys end up being called.
@@ -10496,10 +10495,9 @@ public class PageTests : BunitContext
     /// <summary>
     /// Make a real edit on the always-visible error-range Min input (to
     /// <c>0.75</c>, a value no fixture commits), moving the buffers off any
-    /// committed config — the panel reports "uncommitted edits" (<c>null</c>)
-    /// through the composite, which clears the applied holder and re-gates
-    /// Start. The DOM-gesture successor of the retired synthetic
-    /// applied-state raise. Undo with <see cref="UndoFilterEditAsync"/>.
+    /// committed config — the draft is no longer the baseline, so no filter is
+    /// in effect and Start is re-gated. Undo with
+    /// <see cref="UndoFilterEditAsync"/>.
     /// </summary>
     private static Task EditFilterControlAsync(IRenderedComponent<HomePage> cut) =>
         cut.Find("input[placeholder='Min']")
@@ -10554,8 +10552,8 @@ public class PageTests : BunitContext
     /// <c>Find</c> for a row on the next line can outrun it — a bare
     /// click-then-find flaked two runs in three in the producer's own suite
     /// until this wait was added. Opening the container is navigation, not an
-    /// edit, so like a row it raises no applied-state report and never
-    /// disturbs a test's applied/dirty expectations.
+    /// edit, so like a row it changes no draft and never disturbs a test's
+    /// applied/dirty expectations.
     /// </para>
     /// </summary>
     private static async Task OpenMoreFiltersAsync(IRenderedComponent<HomePage> cut)
@@ -10590,8 +10588,8 @@ public class PageTests : BunitContext
     /// rather than a flip: a click on a row that is already open closes it, and
     /// the <c>aria-expanded</c> read fails right there instead of at a later
     /// <c>Find</c> that cannot say why. Toggling is navigation, not an edit —
-    /// the panel raises no applied-state report for it, so calling this never
-    /// disturbs a test's applied/dirty expectations.
+    /// it changes no draft, so calling this never disturbs a test's
+    /// applied/dirty expectations.
     /// </para>
     /// </summary>
     private static async Task ExpandFacetRowAsync(IRenderedComponent<HomePage> cut, FilterFacet facet)
