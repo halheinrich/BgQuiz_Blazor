@@ -8512,6 +8512,14 @@ public class PageTests : BunitContext
         // rename or a dropped fallback fails here rather than shipping silent.
         Assert.Contains(SavedFiltersDocument.LegacyFileName, SectionText(savedFilters));
         Assert.Contains("lifetime stats", SectionText(mix), StringComparison.OrdinalIgnoreCase);
+
+        // What a load leaves is Home's to say, in Hal's wording
+        // (halheinrich/backgammon#374, comment 6090571891) — not a rule that
+        // every narrowing set needs Apply, which a set equal to the one
+        // applied does not.
+        var savedProse = Normalize(SectionText(savedFilters));
+        Assert.Contains("After loading a set, Home shows whether Apply is needed.", savedProse);
+        Assert.DoesNotContain("arrives as an edit", savedProse);
     }
 
     [Fact]
@@ -8566,7 +8574,7 @@ public class PageTests : BunitContext
 
         var section = HelpSectionText(Render<HelpPage>(), HelpSections.ChooseFilters.Heading);
 
-        Assert.Contains("says how many decisions", section);
+        Assert.Contains("shows how many decisions match your filters", Normalize(section));
         Assert.Contains("not problems you will be shown", section);
         Assert.Contains("can be much smaller than the number shown", section);
     }
@@ -8978,10 +8986,11 @@ public class PageTests : BunitContext
     public void Help_ChooseFilters_KeepsAppFramingAndDescribesNoneOfThePanelsControls()
     {
         // The other half of the ruling: what stays app-level is what FilterHelp
-        // cannot know — that in BgQuiz an applied filter is the gate on Start,
-        // and that Shuffle order is this app's control rather than the panel's.
-        // Pinned so a later "the producer documents filters now" sweep can't
-        // take the framing with it.
+        // cannot know — that Home is where this app says whether Apply is
+        // needed, with a pointer to FilterHelp for when it is, and that Shuffle
+        // order is this app's control rather than the panel's. Pinned so a
+        // later "the producer documents filters now" sweep can't take the
+        // framing with it.
         //
         // Every assertion here reads HOST prose only, with the embedded block
         // subtracted. That is load-bearing rather than tidy: FilterHelp is
@@ -8997,14 +9006,28 @@ public class PageTests : BunitContext
         var heading = cut.FindAll("h3").Single(h => h.TextContent.Trim() == "Choose filters");
         var hostProse = HostProseInSection(heading);
 
-        Assert.Contains("before Start becomes available", hostProse);
-        Assert.Contains("un-applies it until you press", hostProse);
+        // Hal's wording (halheinrich/backgammon#374, comment 6090571891), whole
+        // sentences: Home says whether Apply is needed and FilterHelp says
+        // when, and the count is promised only when available — it is absent
+        // while it runs and after a failure.
+        var normalized = Normalize(hostProse);
+        Assert.Contains(
+            "Home shows whether you need to apply the filters before starting; "
+            + "the filter help further down this page explains when Apply is needed.",
+            normalized);
+        Assert.Contains(
+            "When available, the match count below the panel shows how many decisions match your filters.",
+            normalized);
         Assert.Contains("Shuffle order", hostProse);
 
-        // Readiness (halheinrich/backgammon#266): the empty selection is in
-        // effect without Apply, so the framing says so, and no sentence makes
-        // Apply a condition of Start for every filter, the empty one included.
-        Assert.Contains("With no filter set, every decision is in", hostProse);
+        // No second statement of the filter rules here: not the rules a
+        // filter is applied by (whose owner is FilterHelp), not the empty
+        // selection's readiness (halheinrich/backgammon#266), and no sentence
+        // making Apply a condition of Start for every filter.
+        Assert.DoesNotContain("Start becomes available", hostProse);
+        Assert.DoesNotContain("un-applies", hostProse);
+        Assert.DoesNotContain("With no filter set", hostProse);
+        Assert.DoesNotContain("Whenever a filter is in effect", hostProse);
         Assert.DoesNotContain("Filters must be", hostProse);
         Assert.DoesNotContain("Each time you press Apply", hostProse);
 

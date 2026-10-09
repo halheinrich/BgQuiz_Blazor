@@ -1510,8 +1510,10 @@ puts it back (`Home_FilterEditedAwayFromWhatIsInEffect_DisablesStart`,
 **The empty selection is ready (`halheinrich/backgammon#266`).** With nothing
 selected the owner reports the empty filter in effect as soon as a source
 exists and restoration has settled — no Apply. Home has no exception for it:
-the same `FilterInEffect` covers it, and Help says so ("With no filter set,
-every decision is in…"). The pins are
+the same `FilterInEffect` covers it, and Help does not restate the rule:
+it says Home shows whether Apply is needed and points at `FilterHelp` for
+when (Hal's wording, halheinrich/backgammon#374, comment 6090571891). The
+pins are
 `Home_FolderPicked_TheEmptySelectionIsInEffect_StartWithoutApply` and
 `Home_RePickOverTheEmptySelection_IsReadyForTheNewPick_AndCountsIt`. A
 restoration the browser refused or could not read leaves the draft
@@ -2451,7 +2453,8 @@ The asymmetry is pinned three times over: at the service seam
   hint is the ruled "Mix applies but isn't valid — fix it or turn the mix off."
   (visible + invalid — the only mix state that gates).
   **Match summary and answer-type breakdown** (umbrella halheinrich/backgammon#35).
-  Whenever a filter is in effect, Home shows what it matches, counted by
+  Whenever a filter is in effect and its count is known, Home shows what it
+  matches, counted by
   `Controller.SummarizeMatchesAsync` (§ Pre-Start match summary).
   **The match count** (halheinrich/backgammon#374) lives in the app-scoped
   `MatchCount` (`Quiz/`), not on the page, keyed by `MatchCountInputs`: the
@@ -3620,9 +3623,17 @@ The asymmetry is pinned three times over: at the service seam
   different things), feedback + version from `AppInfo`. The *Choose filters*
   section extends that discipline one tier up: it embeds `XgFilter_Razor`'s
   `FilterHelp` as its panel reference and writes **no facet or chrome prose of
-  its own**, keeping only app-level framing `FilterHelp` cannot know — that an
-  applied filter gates Start, what the match count means, that the mix draws
-  from that pool, and that `Shuffle order` is this app's control. `FilterHelp`
+  its own**, keeping only app-level framing `FilterHelp` cannot know — that
+  Home shows whether Apply is needed (with a pointer to `FilterHelp` for
+  when), what the match count means where it is available, that the mix draws
+  from that pool, and that `Shuffle order` is this app's control. **No second
+  statement of the filter rules**, the empty selection's readiness and a
+  loaded set's included: the saved-filters section says only that Home shows
+  whether Apply is needed after a load. Those sentences are Hal's
+  (halheinrich/backgammon#374, comment 6090571891); a version that restated
+  the rules promised a Start right after a pick, a count whenever a filter
+  was in effect, and an Apply after every narrowing load, none of which the
+  owner guarantees. `FilterHelp`
   takes one `[EditorRequired]` parameter, `HeadingLevel`, bound to **4** here:
   this page's parts are `<h2>` and its sections `<h3>` (the `h4` class on a
   section is Bootstrap sizing, not a level) and the block is embedded inside a
