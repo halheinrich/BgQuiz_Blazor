@@ -1,6 +1,8 @@
 using BackgammonDiagram_Lib;
 using BgDataTypes_Lib;
 using BgQuiz_Blazor.Client.Quiz;
+using BgUiPrimitives_Razor;
+using BgUiPrimitives_Razor.TestSupport;
 using Bunit;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
@@ -19,14 +21,16 @@ namespace BgQuiz_Blazor.Tests;
 /// format</b> byte-for-byte (a durable payload with a second reader in another
 /// language — see <see cref="Persist_WritesThePinnedWireFormat"/>), and the
 /// tolerance rules a format that later legs will extend has to hold. Extends
-/// <see cref="BunitContext"/> only for the JSInterop double behind the storage
-/// reads/writes and the fold applier.
+/// <see cref="BunitContext"/> for the JSInterop double: storage is planned
+/// with <see cref="BrowserStoragePlan"/> where it is a test's subject (see
+/// <see cref="Plan"/>) and incidental elsewhere, and the fold applier's calls,
+/// which are not storage, are answered by the double directly.
 /// </summary>
 public class QuizSettingsTests : BunitContext
 {
     public QuizSettingsTests()
     {
-        JSInterop.Mode = JSRuntimeMode.Loose; // getItem → null unless a test sets a value
+        JSInterop.Mode = JSRuntimeMode.Loose; // incidental storage: nothing stored, every write lands
     }
 
     /// <summary>The app's one storage fact, which a refusal here is reported to (halheinrich/backgammon#360).</summary>
@@ -34,16 +38,30 @@ public class QuizSettingsTests : BunitContext
 
     private readonly RecordingLogger<QuizSettings> _log = new();
 
-    private QuizSettings NewSettings() => new(JSInterop.JSRuntime, _log, _storage);
+    private QuizSettings NewSettings() =>
+        new(new BrowserStorage(JSInterop.JSRuntime), JSInterop.JSRuntime, _log, _storage);
 
-    /// <summary>The JSON last written under the settings key.</summary>
-    private string? LastPersisted() =>
-        JSInterop.Invocations["localStorage.setItem"]
-            .Last(i => (string?)i.Arguments[0] == QuizSettings.StorageKey)
-            .Arguments[1] as string;
+    private BrowserStoragePlan? _plan;
 
+    /// <summary>
+    /// The storage plan, put on the runtime by the first test step that states
+    /// a storage call. From then on storage is the test's subject: every call
+    /// is answered as declared, an undeclared one fails where it is made, and
+    /// the test ends with <see cref="BrowserStoragePlan.Verify"/>. A test that
+    /// never states one leaves storage incidental — Loose, through the real
+    /// <see cref="BrowserStorage"/>: nothing stored, every write landing.
+    /// </summary>
+    private BrowserStoragePlan Plan => _plan ??= BrowserStoragePlan.On(JSInterop);
+
+    /// <summary>The settings entry as the browser holds it, or no entry for <see langword="null"/>.</summary>
     private void StageStored(string? json) =>
-        JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey).SetResult(json);
+        Plan.ExpectRead(
+            BrowserStorageArea.Local, QuizSettings.StorageKey,
+            json is null ? BrowserStorageReadAnswer.Absent : BrowserStorageReadAnswer.Stored(json));
+
+    /// <summary>One write of exactly <paramref name="json"/> under the settings key, answered with <paramref name="answer"/>.</summary>
+    private BrowserStorageExpectation ExpectPersisted(string json, BrowserStorageWriteAnswer? answer = null) =>
+        Plan.ExpectWrite(BrowserStorageArea.Local, QuizSettings.StorageKey, json, answer ?? BrowserStorageWriteAnswer.Succeeded);
 
     // -----------------------------------------------------------------------
     //  Defaults
@@ -79,8 +97,8 @@ public class QuizSettingsTests : BunitContext
     [Fact]
     public async Task Hydrate_NoStoredEntry_LeavesEveryDefaultStanding()
     {
-        // Loose mode answers getItem with null — a browser that has never seen
-        // this app.
+        // No entry — a browser that has never seen this app.
+        StageStored(null);
         var settings = NewSettings();
 
         await settings.EnsureHydratedAsync();
@@ -91,6 +109,7 @@ public class QuizSettingsTests : BunitContext
         Assert.True(settings.MaximizeBoardWhileAnswering);
         Assert.False(settings.SortAnalysisByDepthFirst);
         Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
+        Plan.Verify();
     }
 
     // -----------------------------------------------------------------------
@@ -248,6 +267,7 @@ public class QuizSettingsTests : BunitContext
         // Unknown is not "the shallowest level" — it means the depth was never
         // recorded (clause (a)), so hiding "through not recorded" is nonsense
         // and null is how you hide nothing.
+        ExpectPersisted(SettingsPayload.Of(maximumHiddenCandidateAnalysisLevel: "Ply4"));
         var settings = NewSettings();
         await settings.SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.Ply4);
 
@@ -255,9 +275,10 @@ public class QuizSettingsTests : BunitContext
             () => settings.SetMaximumHiddenCandidateAnalysisLevelAsync(bad));
 
         // Refused, not half-applied: the previous choice is untouched and
-        // nothing was persisted over it.
+        // nothing was persisted over it — one write declared, so a second
+        // would have failed where it was made.
         Assert.Equal(AnalysisLevel.Ply4, settings.MaximumHiddenCandidateAnalysisLevel);
-        Assert.Contains("\"maximumHiddenCandidateAnalysisLevel\":\"Ply4\"", LastPersisted());
+        Plan.Verify();
     }
 
     [Theory]
@@ -340,32 +361,47 @@ public class QuizSettingsTests : BunitContext
         // half that IS uniform across every one of them — when a change becomes
         // is the fold's own question, pinned in
         // SettingTheFold_ReachesTheApplier_ToUnfoldOnly.
+        //
+        // Each write is declared just before its setter and verified just
+        // after it returns, so "persisted immediately" is the plan's own
+        // statement: a write still outstanding at that Verify would fail it.
         var settings = NewSettings();
 
+        ExpectPersisted(SettingsPayload.Of(homeBoardOnRight: false));
         await settings.SetHomeBoardOnRightAsync(false);
         Assert.False(settings.HomeBoardOnRight);
-        Assert.Contains("\"homeBoardOnRight\":false", LastPersisted());
+        Plan.Verify();
 
+        ExpectPersisted(SettingsPayload.Of(homeBoardOnRight: false, randomizeSidePerProblem: true));
         await settings.SetRandomizeSidePerProblemAsync(true);
         Assert.True(settings.RandomizeSidePerProblem);
-        Assert.Contains("\"randomizeSidePerProblem\":true", LastPersisted());
+        Plan.Verify();
 
+        ExpectPersisted(SettingsPayload.Of(homeBoardOnRight: false, randomizeSidePerProblem: true, keepNavigationPanelFolded: true));
         await settings.SetKeepNavigationPanelFoldedAsync(true);
         Assert.True(settings.KeepNavigationPanelFolded);
-        Assert.Contains("\"keepNavigationPanelFolded\":true", LastPersisted());
+        Plan.Verify();
 
+        // Maximize is already on by default: the same payload again, written
+        // again — a setter persists whether or not the value moved.
+        ExpectPersisted(SettingsPayload.Of(homeBoardOnRight: false, randomizeSidePerProblem: true, keepNavigationPanelFolded: true));
         await settings.SetMaximizeBoardWhileAnsweringAsync(true);
         Assert.True(settings.MaximizeBoardWhileAnswering);
-        Assert.Contains("\"maximizeBoardWhileAnswering\":true", LastPersisted());
+        Plan.Verify();
 
+        ExpectPersisted(SettingsPayload.Of(
+            homeBoardOnRight: false, randomizeSidePerProblem: true, keepNavigationPanelFolded: true,
+            sortAnalysisByDepthFirst: true));
         await settings.SetSortAnalysisByDepthFirstAsync(true);
         Assert.True(settings.SortAnalysisByDepthFirst);
-        Assert.Contains("\"sortAnalysisByDepthFirst\":true", LastPersisted());
+        Plan.Verify();
 
+        ExpectPersisted(SettingsPayload.Of(
+            homeBoardOnRight: false, randomizeSidePerProblem: true, keepNavigationPanelFolded: true,
+            sortAnalysisByDepthFirst: true, maximumHiddenCandidateAnalysisLevel: "XgRollerPlusPlus"));
         await settings.SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.XgRollerPlusPlus);
         Assert.Equal(AnalysisLevel.XgRollerPlusPlus, settings.MaximumHiddenCandidateAnalysisLevel);
-        Assert.Contains(
-            "\"maximumHiddenCandidateAnalysisLevel\":\"XgRollerPlusPlus\"", LastPersisted());
+        Plan.Verify();
     }
 
     [Fact]
@@ -394,13 +430,17 @@ public class QuizSettingsTests : BunitContext
         // Unset is a JSON null — the setting's own default and the producer's,
         // spelled the way JSON spells "no value" rather than as an empty string
         // or the word Unknown.
+        //
+        // The literal is the declared write: the plan matches a write by its
+        // exact value, so any other bytes are an undeclared call that fails at
+        // the setter.
+        ExpectPersisted(
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":null,"weightQuizzesByStats":false}""");
         var settings = NewSettings();
 
         await settings.SetRandomizeSidePerProblemAsync(true);
 
-        Assert.Equal(
-            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":null,"weightQuizzesByStats":false}""",
-            LastPersisted());
+        Plan.Verify();
     }
 
     [Fact]
@@ -414,13 +454,13 @@ public class QuizSettingsTests : BunitContext
         // this entry unreadable after a relabel or a level insertion. Ply3Red's
         // insertion into the middle of the ladder is the precedent: it moved
         // every later ordinal and no token.
+        ExpectPersisted(
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":false,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":"XgRollerPlusPlus","weightQuizzesByStats":false}""");
         var settings = NewSettings();
 
         await settings.SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.XgRollerPlusPlus);
 
-        Assert.Equal(
-            """{"homeBoardOnRight":true,"randomizeSidePerProblem":false,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":"XgRollerPlusPlus","weightQuizzesByStats":false}""",
-            LastPersisted());
+        Plan.Verify();
     }
 
     [Theory]
@@ -442,6 +482,25 @@ public class QuizSettingsTests : BunitContext
         // and "the level the user picked last session is the level in force this
         // session" has to hold for all eleven — XG Roller++, the top of the
         // ladder, included.
+        //
+        // What the writer writes is declared write by write, so the last
+        // payload below is exactly the one it wrote — the plan matches writes
+        // by value — and that same payload is what the next boot reads.
+        ExpectPersisted(SettingsPayload.Of(homeBoardOnRight: false));
+        ExpectPersisted(SettingsPayload.Of(homeBoardOnRight: false, randomizeSidePerProblem: true));
+        ExpectPersisted(SettingsPayload.Of(homeBoardOnRight: false, randomizeSidePerProblem: true, keepNavigationPanelFolded: true));
+        ExpectPersisted(SettingsPayload.Of(
+            homeBoardOnRight: false, randomizeSidePerProblem: true, keepNavigationPanelFolded: true,
+            maximizeBoardWhileAnswering: false));
+        ExpectPersisted(SettingsPayload.Of(
+            homeBoardOnRight: false, randomizeSidePerProblem: true, keepNavigationPanelFolded: true,
+            maximizeBoardWhileAnswering: false, sortAnalysisByDepthFirst: true));
+        var written = SettingsPayload.Of(
+            homeBoardOnRight: false, randomizeSidePerProblem: true, keepNavigationPanelFolded: true,
+            maximizeBoardWhileAnswering: false, sortAnalysisByDepthFirst: true,
+            maximumHiddenCandidateAnalysisLevel: level.ToString());
+        ExpectPersisted(written);
+
         var writer = NewSettings();
         await writer.SetHomeBoardOnRightAsync(false);
         await writer.SetRandomizeSidePerProblemAsync(true);
@@ -450,9 +509,10 @@ public class QuizSettingsTests : BunitContext
         await writer.SetSortAnalysisByDepthFirstAsync(true);
         await writer.SetMaximumHiddenCandidateAnalysisLevelAsync(level);
 
-        StageStored(LastPersisted());
+        StageStored(written);
         var reader = NewSettings();
         await reader.EnsureHydratedAsync();
+        Plan.Verify();
 
         Assert.False(reader.HomeBoardOnRight);
         Assert.True(reader.RandomizeSidePerProblem);
@@ -513,8 +573,7 @@ public class QuizSettingsTests : BunitContext
         // refused is handed over exactly as a saved one is, so it holds on
         // every navigation of the visit — on takes hold, off stays off.
         StageStored($$"""{"keepNavigationPanelFolded":{{(!folded).ToString().ToLowerInvariant()}}}""");
-        JSInterop.SetupVoid("localStorage.setItem", _ => true)
-            .SetException(new JSException("QuotaExceededError: The quota has been exceeded."));
+        ExpectPersisted(SettingsPayload.Of(keepNavigationPanelFolded: folded), BrowserStorageWriteAnswer.Refused);
         var settings = NewSettings();
         await settings.EnsureHydratedAsync();
 
@@ -524,6 +583,7 @@ public class QuizSettingsTests : BunitContext
         Assert.Equal([folded], JSInterop.Invocations["bgquizNavFold.prefer"].Select(i => i.Arguments[0]));
         Assert.Equal(folded ? 0 : 1, JSInterop.Invocations["bgquizNavFold.apply"].Count);
         AssertRefusalSaid();
+        Plan.Verify();
     }
 
     /// <summary>
@@ -547,6 +607,7 @@ public class QuizSettingsTests : BunitContext
         // page's error banner.
         WithoutTheApplier();
         StageStored("""{"keepNavigationPanelFolded":true}""");
+        ExpectPersisted(SettingsPayload.Of(keepNavigationPanelFolded: false));
         var settings = NewSettings();
         await settings.EnsureHydratedAsync();
 
@@ -556,7 +617,7 @@ public class QuizSettingsTests : BunitContext
         // the applier was tried, and nothing more is attempted once its first
         // seam is found missing.
         Assert.False(settings.KeepNavigationPanelFolded);
-        Assert.Contains("\"keepNavigationPanelFolded\":false", LastPersisted());
+        Plan.Verify();
         Assert.Single(JSInterop.Invocations["bgquizNavFold.prefer"]);
         Assert.Empty(JSInterop.Invocations["bgquizNavFold.apply"]);
         // And what did not happen is said, once, as a warning carrying the
@@ -579,14 +640,14 @@ public class QuizSettingsTests : BunitContext
         JSInterop.SetupVoid("bgquizNavFold.prefer", _ => true).SetVoidResult();
         JSInterop.SetupVoid("bgquizNavFold.apply", _ => true).SetException(
             new JSException("TypeError: Cannot read properties of null (reading 'checked')"));
-        JSInterop.SetupVoid("localStorage.setItem", _ => true)
-            .SetException(new JSException("QuotaExceededError: The quota has been exceeded."));
         StageStored("""{"keepNavigationPanelFolded":true}""");
+        ExpectPersisted(SettingsPayload.Of(keepNavigationPanelFolded: false), BrowserStorageWriteAnswer.Refused);
         var settings = NewSettings();
         await settings.EnsureHydratedAsync();
 
         await settings.SetKeepNavigationPanelFoldedAsync(false);
 
+        Plan.Verify();
         Assert.False(settings.KeepNavigationPanelFolded);
         Assert.Equal([false], JSInterop.Invocations["bgquizNavFold.prefer"].Select(i => i.Arguments[0]));
         Assert.Equal(2, _log.Entries.Count);   // the refused write, then the unfold
@@ -604,12 +665,12 @@ public class QuizSettingsTests : BunitContext
         // Both refusals at once: the log's account of the choice must not say
         // it was saved when the browser refused the write.
         WithoutTheApplier();
-        JSInterop.SetupVoid("localStorage.setItem", _ => true)
-            .SetException(new JSException("SecurityError: The operation is insecure."));
+        ExpectPersisted(SettingsPayload.Of(keepNavigationPanelFolded: true), BrowserStorageWriteAnswer.Refused);
         var settings = NewSettings();
 
         await settings.SetKeepNavigationPanelFoldedAsync(true);
 
+        Plan.Verify();
         Assert.True(settings.KeepNavigationPanelFolded);
         Assert.Equal(2, _log.Entries.Count);
         Assert.All(_log.Entries, e => Assert.DoesNotContain("saved and", e.Message));
@@ -635,8 +696,7 @@ public class QuizSettingsTests : BunitContext
     {
         // The read every page awaits on its way in: refused, the defaults stand
         // exactly as on a fresh browser.
-        JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey)
-            .SetException(new JSException("SecurityError: The operation is insecure."));
+        Plan.ExpectRead(BrowserStorageArea.Local, QuizSettings.StorageKey, BrowserStorageReadAnswer.Refused);
         var settings = NewSettings();
         var fresh = NewSettings();
 
@@ -675,43 +735,68 @@ public class QuizSettingsTests : BunitContext
     [MemberData(nameof(Setters))]
     public async Task ASetter_WhoseWriteIsRefused_KeepsTheValue_IsSaid_AndThrowsNothing(string setter)
     {
-        JSInterop.SetupVoid("localStorage.setItem", _ => true)
-            .SetException(new JSException("QuotaExceededError: The quota has been exceeded."));
+        var refused = BrowserStorageWriteAnswer.Refused;
         var settings = NewSettings();
 
         switch (setter)
         {
             case "side":
+                ExpectPersisted(SettingsPayload.Of(homeBoardOnRight: false), refused);
                 await settings.SetHomeBoardOnRightAsync(false);
                 Assert.False(settings.HomeBoardOnRight);
                 break;
             case "randomize":
+                ExpectPersisted(SettingsPayload.Of(randomizeSidePerProblem: true), refused);
                 await settings.SetRandomizeSidePerProblemAsync(true);
                 Assert.True(settings.RandomizeSidePerProblem);
                 break;
             case "maximize":
+                ExpectPersisted(SettingsPayload.Of(maximizeBoardWhileAnswering: false), refused);
                 await settings.SetMaximizeBoardWhileAnsweringAsync(false);
                 Assert.False(settings.MaximizeBoardWhileAnswering);
                 break;
             case "depthFirst":
+                ExpectPersisted(SettingsPayload.Of(sortAnalysisByDepthFirst: true), refused);
                 await settings.SetSortAnalysisByDepthFirstAsync(true);
                 Assert.Equal(PlayRanking.DepthFirst, settings.Ranking);
                 break;
             case "hiddenLevel":
+                ExpectPersisted(SettingsPayload.Of(maximumHiddenCandidateAnalysisLevel: "Ply4"), refused);
                 await settings.SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.Ply4);
                 Assert.Equal(AnalysisLevel.Ply4, settings.MaximumHiddenCandidateAnalysisLevel);
                 break;
             case "weight":
+                ExpectPersisted(SettingsPayload.Of(weightQuizzesByStats: true), refused);
                 await settings.SetWeightQuizzesByStatsAsync(true);
                 Assert.True(settings.WeightQuizzesByStats);
                 break;
             case "fold":
+                ExpectPersisted(SettingsPayload.Of(keepNavigationPanelFolded: true), refused);
                 await settings.SetKeepNavigationPanelFoldedAsync(true);
                 Assert.True(settings.KeepNavigationPanelFolded);
                 break;
         }
 
         AssertRefusalSaid();
+        Plan.Verify();
+    }
+
+    [Fact]
+    public async Task ARefusedWrite_DisablesNoLaterOne_AndALaterWriteThatLandsRepairsTheEntry()
+    {
+        // No latch (halheinrich/backgammon#374): after a refused write the next
+        // change is written all the same, and — the whole object being written
+        // each time — a write that lands holds every setting, the one whose
+        // own write was refused included.
+        ExpectPersisted(SettingsPayload.Of(homeBoardOnRight: false), BrowserStorageWriteAnswer.Refused);
+        ExpectPersisted(SettingsPayload.Of(homeBoardOnRight: false, randomizeSidePerProblem: true));
+        var settings = NewSettings();
+
+        await settings.SetHomeBoardOnRightAsync(false);
+        await settings.SetRandomizeSidePerProblemAsync(true);
+
+        AssertRefusalSaid();
+        Plan.Verify();
     }
 
     // -----------------------------------------------------------------------
@@ -730,7 +815,7 @@ public class QuizSettingsTests : BunitContext
         await settings.EnsureHydratedAsync();
         await settings.EnsureHydratedAsync();
 
-        Assert.Single(JSInterop.Invocations["localStorage.getItem"]);
+        Plan.Verify(); // one read declared: a second would have failed where it was made
         Assert.False(settings.HomeBoardOnRight);
     }
 

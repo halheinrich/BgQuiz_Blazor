@@ -1,6 +1,8 @@
 using AngleSharp.Dom;
 using BgQuiz_Blazor.Client.Components;
 using BgQuiz_Blazor.Client.Quiz;
+using BgUiPrimitives_Razor;
+using BgUiPrimitives_Razor.TestSupport;
 using Bunit;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
@@ -57,14 +59,39 @@ public class DecisionNotesPlacementTests : BunitContext
         _handle = _module.SetupModule("watch", _ => true);
         _handle.Mode = JSRuntimeMode.Loose;
         _handle.Setup<bool>("capture", _ => true).SetResult(true);
+        Services.AddBrowserStorage();
         Services.AddScoped<NotesPlacementStore>();
         Services.AddScoped<BrowserStorageCondition>();
+
+        // Storage is planned for every test: what is written, and that nothing
+        // is, are this suite's statements. Notes() declares the store's one
+        // load; each test declares the writes it expects, so an undeclared
+        // write fails where it is made and Verify reports a missing one.
+        _plan = BrowserStoragePlan.On(JSInterop);
     }
 
-    private void StageStored(string json) =>
-        JSInterop.Setup<string?>("localStorage.getItem", NotesPlacementStore.StorageKey).SetResult(json);
+    private readonly BrowserStoragePlan _plan;
 
-    private IRenderedComponent<DecisionNotes> Notes() => Render<DecisionNotes>(p => p.Add(c => c.Comment, Note));
+    /// <summary>The placement the store's load finds; nothing stored unless a test says otherwise.</summary>
+    private BrowserStorageReadAnswer _stored = BrowserStorageReadAnswer.Absent;
+
+    private void StageStored(string json) => _stored = BrowserStorageReadAnswer.Stored(json);
+
+    /// <summary>Expect the move or Reset that writes <paramref name="json"/> — or removes the entry, for <see langword="null"/>.</summary>
+    private void ExpectWritten(string? json)
+    {
+        if (json is null)
+            _plan.ExpectRemove(BrowserStorageArea.Local, NotesPlacementStore.StorageKey, BrowserStorageWriteAnswer.Succeeded);
+        else
+            _plan.ExpectWrite(BrowserStorageArea.Local, NotesPlacementStore.StorageKey, json, BrowserStorageWriteAnswer.Succeeded);
+    }
+
+    /// <summary>The notes, rendered, with the store's one load of this app declared.</summary>
+    private IRenderedComponent<DecisionNotes> Notes()
+    {
+        _plan.ExpectRead(BrowserStorageArea.Local, NotesPlacementStore.StorageKey, _stored);
+        return Render<DecisionNotes>(p => p.Add(c => c.Comment, Note));
+    }
 
     private static async Task OpenAsync(IRenderedComponent<DecisionNotes> cut) =>
         await cut.Find("button.decision-notes-toggle").ClickAsync(new());
@@ -101,12 +128,6 @@ public class DecisionNotesPlacementTests : BunitContext
         cut.Find(".decision-notes-header").TriggerEventAsync("onpointerup", Pointer(x, y, id));
 
     private int Captures => _handle.Invocations["capture"].Count;
-
-    /// <summary>Every write to the placement's key — a set or a removal.</summary>
-    private IReadOnlyList<JSRuntimeInvocation> Writes() =>
-        [.. JSInterop.Invocations.Where(i =>
-            i.Identifier is "localStorage.setItem" or "localStorage.removeItem"
-            && (string?)i.Arguments[0] == NotesPlacementStore.StorageKey)];
 
     private static IElement StepButton(IRenderedComponent<DecisionNotes> cut, string name) =>
         cut.FindAll(".decision-notes-steps button").Single(b =>
@@ -173,7 +194,7 @@ public class DecisionNotesPlacementTests : BunitContext
 
         // No horizontal travel at a phone's width: centred across it.
         Assert.Equal("--notes-left: 16px; --notes-top: 16px", Drawn(cut));
-        Assert.Empty(Writes());
+        _plan.Verify(); // nothing written: every write is declared
     }
 
     // -----------------------------------------------------------------------
@@ -190,24 +211,25 @@ public class DecisionNotesPlacementTests : BunitContext
 
         await MoveToAsync(cut, 400 + 84, 330 + 71);
         Assert.Equal("--notes-left: 436px; --notes-top: 371px", Drawn(cut));
-        Assert.Empty(Writes());
+        _plan.Verify(); // nothing written: every write is declared
 
+        ExpectWritten("""{"horizontal":0.625,"vertical":0.625}""");
         await ReleaseAtAsync(cut, 400 + 84, 330 + 71);
-        var write = Assert.Single(Writes());
-        Assert.Equal("""{"horizontal":0.625,"vertical":0.625}""", write.Arguments[1]);
+        _plan.Verify();
         Assert.Equal("--notes-left: 436px; --notes-top: 371px", Drawn(cut));
     }
 
     [Fact]
     public async Task ThePressCommitsWhereItIsReleased_NotWhereItWasLastSeen()
     {
+        ExpectWritten("""{"horizontal":0.75,"vertical":null}""");
         var cut = await PlacedAsync();
 
         await GrabAsync(cut);
         await MoveToAsync(cut, 450, 330);
         await ReleaseAtAsync(cut, 400 + 168, 330);
 
-        Assert.Equal("""{"horizontal":0.75,"vertical":null}""", Assert.Single(Writes()).Arguments[1]);
+        _plan.Verify();
     }
 
     [Fact]
@@ -218,7 +240,7 @@ public class DecisionNotesPlacementTests : BunitContext
         await GrabAsync(cut);
         await ReleaseAtAsync(cut, 400, 330);
 
-        Assert.Empty(Writes());
+        _plan.Verify(); // nothing written: every write is declared
         Assert.Equal(Centred, Drawn(cut));
     }
 
@@ -284,7 +306,7 @@ public class DecisionNotesPlacementTests : BunitContext
         await ReleaseAtAsync(cut, 500, 400);
 
         Assert.Equal(Centred, Drawn(cut));
-        Assert.Empty(Writes());
+        _plan.Verify(); // nothing written: every write is declared
     }
 
     [Fact]
@@ -296,7 +318,7 @@ public class DecisionNotesPlacementTests : BunitContext
         await MoveToAsync(cut, 500, 400, id: 7);
         Assert.Equal(Centred, Drawn(cut));
         await ReleaseAtAsync(cut, 500, 400, id: 7);
-        Assert.Empty(Writes());
+        _plan.Verify(); // nothing written: every write is declared
 
         // The dragging pointer still drags.
         await MoveToAsync(cut, 400 + 84, 330);
@@ -318,7 +340,7 @@ public class DecisionNotesPlacementTests : BunitContext
 
         // The release that follows finds no drag; nothing is written.
         await ReleaseAtAsync(cut, 500, 400);
-        Assert.Empty(Writes());
+        _plan.Verify(); // nothing written: every write is declared
 
         await Dialog(cut).KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
         Assert.Empty(cut.FindAll("dialog"));
@@ -338,12 +360,13 @@ public class DecisionNotesPlacementTests : BunitContext
         Assert.Equal(Centred, Drawn(cut));
         Assert.Single(cut.FindAll("dialog"));
         await ReleaseAtAsync(cut, 500, 400);
-        Assert.Empty(Writes());
+        _plan.Verify(); // nothing written: every write is declared
     }
 
     [Fact]
     public async Task TheReleasesOwnLossOfCapture_FindsNothingToCancel()
     {
+        ExpectWritten("""{"horizontal":0.625,"vertical":null}"""); // the release's, and only that
         var cut = await PlacedAsync();
         await GrabAsync(cut);
         await MoveToAsync(cut, 400 + 84, 330);
@@ -352,7 +375,7 @@ public class DecisionNotesPlacementTests : BunitContext
         await cut.Find(".decision-notes-header").TriggerEventAsync("onlostpointercapture", Pointer(400 + 84, 330));
 
         Assert.Equal("--notes-left: 436px; --notes-top: 300px", Drawn(cut));
-        Assert.Single(Writes());
+        _plan.Verify();
     }
 
     [Fact]
@@ -364,7 +387,7 @@ public class DecisionNotesPlacementTests : BunitContext
 
         await cut.Find("button.btn-close").ClickAsync(new());
         Assert.Empty(cut.FindAll("dialog"));
-        Assert.Empty(Writes());
+        _plan.Verify(); // nothing written: every write is declared
 
         await OpenAsync(cut);
         await ReportAsync(cut, Desktop);
@@ -381,7 +404,7 @@ public class DecisionNotesPlacementTests : BunitContext
         cut.Render(p => p.Add(c => c.Comment, "Another decision's note."));
 
         Assert.Empty(cut.FindAll("dialog"));
-        Assert.Empty(Writes());
+        _plan.Verify(); // nothing written: every write is declared
     }
 
     [Fact]
@@ -393,7 +416,7 @@ public class DecisionNotesPlacementTests : BunitContext
 
         await DisposeComponentsAsync();
 
-        Assert.Empty(Writes());
+        _plan.Verify(); // nothing written: every write is declared
         _handle.VerifyInvoke("stop");
     }
 
@@ -434,7 +457,7 @@ public class DecisionNotesPlacementTests : BunitContext
             ["Move up", "Move down", "Move left", "Move right", "Reset"],
             steps.QuerySelectorAll("button").Select(b => b.GetAttribute("aria-label") ?? b.TextContent.Trim()));
         Assert.All(steps.QuerySelectorAll("button"), b => Assert.Equal("button", b.GetAttribute("type")));
-        Assert.Empty(Writes());
+        _plan.Verify(); // nothing written: every write is declared
         Assert.Equal(Centred, Drawn(cut));
     }
 
@@ -445,12 +468,13 @@ public class DecisionNotesPlacementTests : BunitContext
     [InlineData("Move right", """{"horizontal":0.625,"vertical":null}""", "--notes-left: 436px; --notes-top: 300px")]
     public async Task EachStep_MovesOneStepOfItsAxis_AndWritesIt(string step, string written, string drawn)
     {
+        ExpectWritten(written);
         var cut = await PlacedAsync();
         await OpenMoveAsync(cut);
 
         await StepButton(cut, step).ClickAsync(new());
 
-        Assert.Equal(written, Assert.Single(Writes()).Arguments[1]);
+        _plan.Verify();
         Assert.Equal(drawn, Drawn(cut));
     }
 
@@ -462,25 +486,26 @@ public class DecisionNotesPlacementTests : BunitContext
         var cut = await PlacedAsync();
         await OpenMoveAsync(cut);
         await StepButton(cut, "Move right").ClickAsync(new());
-        Assert.Empty(Writes());
+        _plan.Verify(); // nothing written: every write is declared
 
         // Across an axis with no travel: unset stays unset.
         await ReportAsync(cut, Phone);
         await StepButton(cut, "Move left").ClickAsync(new());
         await StepButton(cut, "Move right").ClickAsync(new());
-        Assert.Empty(Writes());
+        _plan.Verify(); // nothing written: every write is declared
     }
 
     [Fact]
     public async Task Reset_RemovesTheEntry_AndDrawsTheOverlayCentred()
     {
         StageStored("""{"horizontal":0.25,"vertical":0.75}""");
+        ExpectWritten(null); // the removal
         var cut = await PlacedAsync();
         await OpenMoveAsync(cut);
 
         await StepButton(cut, "Reset").ClickAsync(new());
 
-        Assert.Equal("localStorage.removeItem", Assert.Single(Writes()).Identifier);
+        _plan.Verify();
         Assert.Equal(Centred, Drawn(cut));
     }
 
@@ -495,7 +520,7 @@ public class DecisionNotesPlacementTests : BunitContext
         await StepButton(cut, "Move up").ClickAsync(new());
         await StepButton(cut, "Reset").ClickAsync(new());
 
-        Assert.Empty(Writes());
+        _plan.Verify(); // nothing written: every write is declared
     }
 
     [Fact]

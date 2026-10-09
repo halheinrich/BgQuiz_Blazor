@@ -1,4 +1,6 @@
 using BgQuiz_Blazor.Client.Quiz;
+using BgUiPrimitives_Razor;
+using BgUiPrimitives_Razor.TestSupport;
 using Bunit;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
@@ -12,15 +14,20 @@ namespace BgQuiz_Blazor.Tests;
 /// or unavailable reads as unset, a failed write keeps the preference in
 /// memory for the session, and neither ever stops the notes"; issue
 /// <c>halheinrich/backgammon#344</c>). Pinned here: the tolerant read, the
-/// wire format byte for byte, Reset removing the entry, and a failed write or
-/// a late read never costing the session its placement. Extends
-/// <see cref="BunitContext"/> only for the JSInterop double behind storage.
+/// wire format byte for byte, Reset removing the entry, and a refused write or
+/// a late read never costing the session its placement. Storage is planned
+/// with <see cref="BrowserStoragePlan"/> — the store's key is the store's own
+/// to name, the interop calls are not — so the real <see cref="BrowserStorage"/>
+/// runs, and every test verifies the plan: a call nobody declared fails.
 /// </summary>
 public class NotesPlacementStoreTests : BunitContext
 {
+    private readonly BrowserStoragePlan _plan;
+
     public NotesPlacementStoreTests()
     {
         JSInterop.Mode = JSRuntimeMode.Strict;
+        _plan = BrowserStoragePlan.On(JSInterop);
     }
 
     /// <summary>The app's one storage fact, which a refusal here is reported to (halheinrich/backgammon#360).</summary>
@@ -28,7 +35,7 @@ public class NotesPlacementStoreTests : BunitContext
 
     private readonly RecordingLogger<NotesPlacementStore> _log = new();
 
-    private NotesPlacementStore NewStore() => new(JSInterop.JSRuntime, _log, _storage);
+    private NotesPlacementStore NewStore() => new(new BrowserStorage(JSInterop.JSRuntime), _log, _storage);
 
     /// <summary>A refusal is said twice, and only twice: one warning carrying the browser's exception, and the report.</summary>
     private void AssertRefusalSaid()
@@ -39,11 +46,13 @@ public class NotesPlacementStoreTests : BunitContext
         Assert.NotNull(_storage.Occurrence);
     }
 
-    private void StageStored(string? json) =>
-        JSInterop.Setup<string?>("localStorage.getItem", NotesPlacementStore.StorageKey).SetResult(json);
+    private void ExpectStored(string? json) =>
+        _plan.ExpectRead(
+            BrowserStorageArea.Local, NotesPlacementStore.StorageKey,
+            json is null ? BrowserStorageReadAnswer.Absent : BrowserStorageReadAnswer.Stored(json));
 
-    private IReadOnlyList<JSRuntimeInvocation> Writes() =>
-        [.. JSInterop.Invocations.Where(i => i.Identifier is "localStorage.setItem" or "localStorage.removeItem")];
+    private void ExpectWritten(string json, BrowserStorageWriteAnswer answer) =>
+        _plan.ExpectWrite(BrowserStorageArea.Local, NotesPlacementStore.StorageKey, json, answer);
 
     [Fact]
     public void TheKey_IsItsOwn_InTheXgFamily()
@@ -63,13 +72,14 @@ public class NotesPlacementStoreTests : BunitContext
     [InlineData("""{"horizontal":0.5,"vertical":0.5,"later":"a newer build's field"}""", 0.5, 0.5)]
     public async Task Load_AWellFormedPayload_IsThePreference(string stored, double? horizontal, double? vertical)
     {
-        StageStored(stored);
+        ExpectStored(stored);
         var store = NewStore();
 
         await store.EnsureLoadedAsync();
 
         Assert.Equal(NotesPlacement.Create(horizontal, vertical), store.Current);
         Assert.Null(_storage.Occurrence); // the control: a read that answers reports nothing
+        _plan.Verify();
     }
 
     [Theory]
@@ -88,37 +98,39 @@ public class NotesPlacementStoreTests : BunitContext
     [InlineData("""{"horizontal":{"x":1},"vertical":0.5}""")]
     public async Task Load_AnythingElse_IsUnset_AllOrNothing(string? stored)
     {
-        StageStored(stored);
+        ExpectStored(stored);
         var store = NewStore();
 
         await store.EnsureLoadedAsync();
 
         Assert.Equal(NotesPlacement.Unset, store.Current);
+        _plan.Verify();
     }
 
     [Fact]
-    public async Task Load_StorageThatThrows_IsUnset_AndDoesNotThrow()
+    public async Task Load_AReadTheBrowserRefuses_IsUnset_AndDoesNotThrow()
     {
-        JSInterop.Setup<string?>("localStorage.getItem", NotesPlacementStore.StorageKey)
-            .SetException(new JSException("SecurityError: storage is unavailable"));
+        _plan.ExpectRead(BrowserStorageArea.Local, NotesPlacementStore.StorageKey, BrowserStorageReadAnswer.Refused);
         var store = NewStore();
 
         await store.EnsureLoadedAsync();
 
         Assert.Equal(NotesPlacement.Unset, store.Current);
         AssertRefusalSaid();
+        _plan.Verify();
     }
 
     [Fact]
     public async Task Load_ReadsStorageOnce_HoweverManyAsk()
     {
-        StageStored("""{"horizontal":0.25,"vertical":0.75}""");
+        // One read declared: a second would be an undeclared call, and fail.
+        ExpectStored("""{"horizontal":0.25,"vertical":0.75}""");
         var store = NewStore();
 
         await store.EnsureLoadedAsync();
         await store.EnsureLoadedAsync();
 
-        Assert.Single(JSInterop.Invocations["localStorage.getItem"]);
+        _plan.Verify();
     }
 
     [Fact]
@@ -126,72 +138,77 @@ public class NotesPlacementStoreTests : BunitContext
     {
         // The exact bytes: both fields always written, an unset axis as JSON
         // null, field order horizontal then vertical. A change here is a change
-        // to a format browsers already hold.
-        JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
+        // to a format browsers already hold. Writes match by value, and the
+        // order is required, so these two literals are the whole statement.
+        var first = _plan.ExpectWrite(
+            BrowserStorageArea.Local, "xg_notesPlacement", """{"horizontal":0.625,"vertical":null}""",
+            BrowserStorageWriteAnswer.Succeeded);
+        var second = _plan.ExpectWrite(
+            BrowserStorageArea.Local, "xg_notesPlacement", """{"horizontal":0,"vertical":1}""",
+            BrowserStorageWriteAnswer.Succeeded);
+        _plan.RequireOrder(first, second);
         var store = NewStore();
 
         await store.SetAsync(NotesPlacement.Create(0.625, null));
         await store.SetAsync(NotesPlacement.Create(0, 1));
 
-        var writes = Writes();
-        Assert.Equal(2, writes.Count);
-        Assert.Equal(new object?[] { "xg_notesPlacement", """{"horizontal":0.625,"vertical":null}""" }, writes[0].Arguments);
-        Assert.Equal(new object?[] { "xg_notesPlacement", """{"horizontal":0,"vertical":1}""" }, writes[1].Arguments);
         Assert.Equal(NotesPlacement.Create(0, 1), store.Current);
+        _plan.Verify();
     }
 
     [Theory]
-    [InlineData(0.0, 1.0)]
-    [InlineData(0.1 + 0.2, null)]
-    [InlineData(null, 0.3333333333333333)]
-    [InlineData(1.0, 0.000123)]
-    public async Task WhatIsWritten_ReadsBackAsTheSamePlacement(double? horizontal, double? vertical)
+    [InlineData(0.0, 1.0, """{"horizontal":0,"vertical":1}""")]
+    [InlineData(0.1 + 0.2, null, """{"horizontal":0.30000000000000004,"vertical":null}""")]
+    [InlineData(null, 0.3333333333333333, """{"horizontal":null,"vertical":0.3333333333333333}""")]
+    [InlineData(1.0, 0.000123, """{"horizontal":1,"vertical":0.000123}""")]
+    public async Task WhatIsWritten_ReadsBackAsTheSamePlacement(double? horizontal, double? vertical, string written)
     {
-        JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
+        // Written by one app boot, read by the next: the literal is what the
+        // first store writes (a different value would be an undeclared write)
+        // and what the second one reads.
+        ExpectWritten(written, BrowserStorageWriteAnswer.Succeeded);
+        ExpectStored(written);
         var placement = NotesPlacement.Create(horizontal, vertical);
-        await NewStore().SetAsync(placement);
-        var written = (string?)Writes().Single().Arguments[1];
 
-        StageStored(written);
+        await NewStore().SetAsync(placement);
         var next = NewStore();
         await next.EnsureLoadedAsync();
 
         Assert.Equal(placement, next.Current);
+        _plan.Verify();
     }
 
     [Fact]
     public async Task SetUnset_RemovesTheEntry()
     {
         // Reset: the browser keeps nothing for an unset preference.
-        JSInterop.SetupVoid("localStorage.removeItem", NotesPlacementStore.StorageKey).SetVoidResult();
+        _plan.ExpectRemove(BrowserStorageArea.Local, NotesPlacementStore.StorageKey, BrowserStorageWriteAnswer.Succeeded);
         var store = NewStore();
 
         await store.SetAsync(NotesPlacement.Unset);
 
-        var write = Assert.Single(Writes());
-        Assert.Equal("localStorage.removeItem", write.Identifier);
         Assert.Equal(NotesPlacement.Unset, store.Current);
+        _plan.Verify();
     }
 
     [Fact]
-    public async Task AWriteThatFails_KeepsThePlacementForTheSession()
+    public async Task AWriteTheBrowserRefuses_KeepsThePlacementForTheSession()
     {
-        JSInterop.SetupVoid("localStorage.setItem", _ => true)
-            .SetException(new JSException("QuotaExceededError"));
+        ExpectWritten("""{"horizontal":0.75,"vertical":0.25}""", BrowserStorageWriteAnswer.Refused);
         var store = NewStore();
 
         await store.SetAsync(NotesPlacement.Create(0.75, 0.25));
 
         Assert.Equal(NotesPlacement.Create(0.75, 0.25), store.Current);
         AssertRefusalSaid();
+        _plan.Verify();
     }
 
     [Fact]
-    public async Task ARemovalThatFails_StillResetsTheSession()
+    public async Task ARemovalTheBrowserRefuses_StillResetsTheSession()
     {
-        JSInterop.SetupVoid("localStorage.removeItem", NotesPlacementStore.StorageKey)
-            .SetException(new JSException("SecurityError"));
-        JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
+        ExpectWritten("""{"horizontal":0.75,"vertical":0.25}""", BrowserStorageWriteAnswer.Succeeded);
+        _plan.ExpectRemove(BrowserStorageArea.Local, NotesPlacementStore.StorageKey, BrowserStorageWriteAnswer.Refused);
         var store = NewStore();
         await store.SetAsync(NotesPlacement.Create(0.75, 0.25));
 
@@ -199,6 +216,23 @@ public class NotesPlacementStoreTests : BunitContext
 
         Assert.Equal(NotesPlacement.Unset, store.Current);
         AssertRefusalSaid();
+        _plan.Verify();
+    }
+
+    [Fact]
+    public async Task ARefusedWrite_DisablesNoLaterOne()
+    {
+        // No latch (halheinrich/backgammon#374): the next move is written
+        // all the same, and the one refusal is the only thing said.
+        ExpectWritten("""{"horizontal":0.75,"vertical":0.25}""", BrowserStorageWriteAnswer.Refused);
+        ExpectWritten("""{"horizontal":0.5,"vertical":0.5}""", BrowserStorageWriteAnswer.Succeeded);
+        var store = NewStore();
+
+        await store.SetAsync(NotesPlacement.Create(0.75, 0.25));
+        await store.SetAsync(NotesPlacement.Create(0.5, 0.5));
+
+        AssertRefusalSaid();
+        _plan.Verify();
     }
 
     [Fact]
@@ -206,15 +240,17 @@ public class NotesPlacementStoreTests : BunitContext
     {
         // The read is still in flight when the user's move lands; the stored
         // value it brings back is older than the move, so the move stands.
-        var read = JSInterop.Setup<string?>("localStorage.getItem", NotesPlacementStore.StorageKey);
-        JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
+        var read = _plan.ExpectHeldRead(BrowserStorageArea.Local, NotesPlacementStore.StorageKey);
+        ExpectWritten("""{"horizontal":1,"vertical":0}""", BrowserStorageWriteAnswer.Succeeded);
         var store = NewStore();
         var loading = store.EnsureLoadedAsync();
+        Assert.True(read.IsReached);
 
         await store.SetAsync(NotesPlacement.Create(1, 0));
-        read.SetResult("""{"horizontal":0.25,"vertical":0.75}""");
-        await loading;
+        read.Release(BrowserStorageReadAnswer.Stored("""{"horizontal":0.25,"vertical":0.75}"""));
+        await loading.WaitAsync(DefaultWaitTimeout); // the load's continuation has run
 
         Assert.Equal(NotesPlacement.Create(1, 0), store.Current);
+        _plan.Verify();
     }
 }

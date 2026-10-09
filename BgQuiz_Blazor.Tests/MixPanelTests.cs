@@ -4,6 +4,8 @@ using System.Text.RegularExpressions;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Components.Pages;
 using BgQuiz_Blazor.Client.Quiz;
+using BgUiPrimitives_Razor;
+using BgUiPrimitives_Razor.TestSupport;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -39,10 +41,9 @@ public class MixPanelTests : BunitContext
 
     public MixPanelTests()
     {
-        // Loose mode — the draft's hydration issues a localStorage.getItem; the
-        // mock returns default (null) = "no persisted mix" unless a test sets
-        // up an explicit value. The write-through's setItem lands in the same
-        // mock for assertion.
+        // Loose mode: where storage is incidental, the draft's hydration finds
+        // no persisted mix and every write-through lands. A test whose subject
+        // is storage plans it instead (Plan), and states every call.
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         // The panel injects the app-scoped draft and nothing else; one
@@ -52,7 +53,8 @@ public class MixPanelTests : BunitContext
         // effect" ruling the panel is a pure view over the draft, and whether
         // it is on screen at all is the host's decision — pinned in PageTests,
         // where the host is.
-        _draft = new MixDraft(JSInterop.JSRuntime, NullLogger<MixDraft>.Instance, new BrowserStorageCondition());
+        _draft = new MixDraft(
+            new BrowserStorage(JSInterop.JSRuntime), NullLogger<MixDraft>.Instance, new BrowserStorageCondition());
         Services.AddSingleton(_draft);
     }
 
@@ -81,14 +83,28 @@ public class MixPanelTests : BunitContext
         [.. cut.FindAll(".mix-row")
             .Select(r => r.QuerySelector("option[selected]")!.GetAttribute("value")!)];
 
-    /// <summary>The last blob written under the mix key, parsed back through the lib; null when none was.</summary>
-    private QuizMix? LastPersistedMix() =>
-        JSInterop.Invocations
-            .LastOrDefault(i => i.Identifier == "localStorage.setItem"
-                             && (string?)i.Arguments[0] == MixDraft.StorageKey)
-            is { Arguments: [_, string blob] }
-            ? QuizMix.FromJson(blob)
-            : null;
+    private BrowserStoragePlan? _plan;
+
+    /// <summary>
+    /// The storage plan, put on the runtime by the first test step that states
+    /// a storage call: from then on every call is answered as declared, an
+    /// undeclared one fails where it is made, and the test verifies the plan.
+    /// </summary>
+    private BrowserStoragePlan Plan => _plan ??= BrowserStoragePlan.On(JSInterop);
+
+    /// <summary>The panel mount's hydration read: the mix entry as stored, or none for <see langword="null"/>.</summary>
+    private void StageStored(string? json) =>
+        Plan.ExpectRead(
+            BrowserStorageArea.Local, MixDraft.StorageKey,
+            json is null ? BrowserStorageReadAnswer.Absent : BrowserStorageReadAnswer.Stored(json));
+
+    /// <summary>One write-through of <paramref name="mix"/>, in the lib's own wire format.</summary>
+    private BrowserStorageExpectation ExpectPersisted(QuizMix mix) =>
+        Plan.ExpectWrite(BrowserStorageArea.Local, MixDraft.StorageKey, mix.ToJson(), BrowserStorageWriteAnswer.Succeeded);
+
+    /// <summary>One NeverSeen row at 100% — what the first Add builds.</summary>
+    private static QuizMix NeverSeenMix(int? quizLength = null, bool randomOrder = true) =>
+        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength, randomOrder);
 
     // -----------------------------------------------------------------------
     //  No activation control — the absence is the ruling
@@ -143,14 +159,16 @@ public class MixPanelTests : BunitContext
         // the passthrough, ruled — so the panel is still here afterwards and
         // still applying. Turning the mix off is the Settings page's, which is
         // also what takes this panel off screen.
+        StageStored(null);
+        Plan.RequireOrder(ExpectPersisted(NeverSeenMix()), ExpectPersisted(QuizMix.Empty));
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow");
 
         await ClickAsync(cut, "#mixClear");
 
         Assert.Empty(cut.FindAll(".mix-row"));
-        Assert.True(LastPersistedMix()!.IsPassthrough);
         Assert.Empty(cut.FindAll("#mixApplies")); // no off-switch appeared either
+        Plan.Verify(); // the blank mix was the last thing written
     }
 
     [Fact]
@@ -174,10 +192,12 @@ public class MixPanelTests : BunitContext
     [Fact]
     public void Hydrate_NothingPersisted_BlankBuilder_NothingWritten()
     {
+        StageStored(null);
+
         var cut = RenderPanel();
 
         Assert.Empty(cut.FindAll(".mix-row"));
-        Assert.Null(LastPersistedMix()); // hydration is a read, never an echo write
+        Plan.Verify(); // hydration is a read, never an echo write: no write declared
     }
 
     [Fact]
@@ -186,13 +206,12 @@ public class MixPanelTests : BunitContext
         // Corrupt is the absent case's twin: the builder is blank. The stored
         // blob is left untouched (never-silently-clear) — no write happens
         // until the user's next valid edit replaces it.
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
-            .SetResult("}{ not valid json");
+        StageStored("}{ not valid json");
 
         var cut = RenderPanel();
 
         Assert.Empty(cut.FindAll(".mix-row"));
-        Assert.Null(LastPersistedMix());
+        Plan.Verify();
     }
 
     [Fact]
@@ -216,8 +235,7 @@ public class MixPanelTests : BunitContext
                 new QuizMixEntry(QuizCategory.SeenFewerThan(3), 40),
             ],
             quizLength: 25, randomOrder: false);
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
-            .SetResult(mix.ToJson());
+        StageStored(mix.ToJson());
 
         var cut = RenderPanel();
 
@@ -241,6 +259,7 @@ public class MixPanelTests : BunitContext
         // withhold. The host mounting this panel IS the activation, and the
         // absence of any control to check is pinned above.
         Assert.Empty(cut.FindAll("#mixApplies"));
+        Plan.Verify();
     }
 
     [Fact]
@@ -249,13 +268,13 @@ public class MixPanelTests : BunitContext
         // A persisted passthrough (e.g. after a prior Clear mix) round-trips to
         // zero rows — the same blank state the nothing-stored case reaches the
         // other way.
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
-            .SetResult(QuizMix.Empty.ToJson());
+        StageStored(QuizMix.Empty.ToJson());
 
         var cut = RenderPanel();
 
         Assert.Empty(cut.FindAll(".mix-row"));
         Assert.Equal(QuizMix.Empty, _draft.Build());
+        Plan.Verify();
     }
 
     [Fact]
@@ -265,6 +284,8 @@ public class MixPanelTests : BunitContext
         // is app-scoped and hydration is once per setup, so a re-mounted panel
         // (navigate away and back) re-renders the surviving edits — it does
         // NOT re-run the restore over them.
+        StageStored(null);                 // one read, the first mount's
+        ExpectPersisted(NeverSeenMix());
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow"); // an edit (persisted by write-through)
         await DisposeComponentsAsync();      // navigate away: the panel unmounts
@@ -273,7 +294,7 @@ public class MixPanelTests : BunitContext
 
         var row = Assert.Single(back.FindAll(".mix-row"));
         Assert.Equal("NeverSeen", row.QuerySelector("option[selected]")!.GetAttribute("value"));
-        Assert.Single(JSInterop.Invocations["localStorage.getItem"]); // no re-read
+        Plan.Verify(); // no re-read: a second would have been undeclared
     }
 
     [Fact]
@@ -282,19 +303,24 @@ public class MixPanelTests : BunitContext
         // Edit in one setup (the write-through persists it), Discard (the
         // pick / Clear path), and the next panel mount re-offers exactly the
         // persisted content from storage — the localStorage round-trip driven
-        // the way Home actually drives it.
+        // the way Home actually drives it. The write the edit makes is
+        // declared by value, so the payload the next mount reads is exactly
+        // the one written.
+        var persisted = new QuizMix(
+            [new QuizMixEntry(QuizCategory.WrongRateOver(0.25), 100)], quizLength: null, randomOrder: true);
+        StageStored(null);
+        ExpectPersisted(NeverSeenMix());
+        ExpectPersisted(persisted);
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow");
         await cut.FindAll(".mix-row")[0].QuerySelector("select")!.ChangeAsync(new() { Value = "WrongRateOver" });
 
-        var stored = JSInterop.Invocations["localStorage.setItem"]
-            .Last(i => (string?)i.Arguments[0] == MixDraft.StorageKey)
-            .Arguments[1] as string;
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey).SetResult(stored);
+        StageStored(persisted.ToJson());
         await DisposeComponentsAsync();
         _draft.Discard(); // the setup ended; hydration is forgotten
 
         var remounted = RenderPanel();
+        Plan.Verify();
 
         var row = Assert.Single(remounted.FindAll(".mix-row"));
         Assert.Equal("WrongRateOver",
@@ -312,18 +338,18 @@ public class MixPanelTests : BunitContext
         // Persistence follows the screen — no commit gesture exists. Each
         // valid edit leaves the current screen state as the stored blob, in
         // the unchanged lib wire format.
+        StageStored(null);
         var cut = RenderPanel();
 
+        ExpectPersisted(NeverSeenMix());
         await ClickAsync(cut, "#mixAddRow"); // NeverSeen, auto-percent 100
-        Assert.Equal(
-            new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], null, randomOrder: true),
-            LastPersistedMix());
+        Plan.Verify();
 
+        ExpectPersisted(NeverSeenMix(quizLength: 10));
         await cut.Find("#mixQuizLength").InputAsync(new() { Value = "10" });
+        ExpectPersisted(NeverSeenMix(quizLength: 10, randomOrder: false));
         await cut.Find("#mixRandomOrder").ChangeAsync(new() { Value = false });
-        Assert.Equal(
-            new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], 10, randomOrder: false),
-            LastPersistedMix());
+        Plan.Verify();
     }
 
     [Fact]
@@ -332,15 +358,15 @@ public class MixPanelTests : BunitContext
         // The ruled half-edit story at the panel seam: blanking the percent
         // mid-retype writes nothing, so what a reload would restore is the
         // last well-formed mix, never the torn edit.
+        StageStored(null);
+        ExpectPersisted(NeverSeenMix()); // the Add's write, and the only one
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow");
-        var writesAfterAdd = JSInterop.Invocations["localStorage.setItem"].Count;
 
         await cut.FindAll(".mix-row")[0].QuerySelector(".mix-percent")!
             .InputAsync(new() { Value = "" });
 
-        Assert.Equal(writesAfterAdd, JSInterop.Invocations["localStorage.setItem"].Count);
-        Assert.Equal(100, Assert.Single(LastPersistedMix()!.Entries).Percent);
+        Plan.Verify();
     }
 
     [Fact]
@@ -352,6 +378,8 @@ public class MixPanelTests : BunitContext
         // than the removed mix. Nothing gates Start on the way (the old
         // pre-beta wedge is unrepresentable: there is no commitment to
         // diverge from).
+        StageStored(null);
+        Plan.RequireOrder(ExpectPersisted(NeverSeenMix()), ExpectPersisted(QuizMix.Empty));
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow"); // one row
         Assert.Single(cut.FindAll(".mix-row"));
@@ -359,24 +387,27 @@ public class MixPanelTests : BunitContext
         await ClickRowButtonAsync(cut, 0, "Remove");
 
         Assert.Empty(cut.FindAll(".mix-row"));
-        Assert.True(LastPersistedMix()!.IsPassthrough);
+        Plan.Verify();
     }
 
     [Fact]
     public async Task WrongRate_DisplaysPercent_StoresFraction()
     {
+        // The UI says 40 (percent); the built and persisted category carries
+        // the producer's fraction — thresholds are fractions, rendering is a
+        // display concern. The persisted half is the declared write.
+        StageStored(null);
+        ExpectPersisted(NeverSeenMix());
+        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.WrongRateOver(0.25), 100)], null, randomOrder: true));
+        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.WrongRateOver(0.40), 100)], null, randomOrder: true));
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow");
         await cut.FindAll(".mix-row")[0].QuerySelector("select")!.ChangeAsync(new() { Value = "WrongRateOver" });
         await cut.FindAll(".mix-row")[0].QuerySelector(".mix-param")!.InputAsync(new() { Value = "40" });
 
-        // The UI said 40 (percent); the built and persisted category carries
-        // the producer's fraction — thresholds are fractions, rendering is a
-        // display concern.
-        Assert.Equal(QuizCategory.WrongRateOver(0.40),
-            Assert.Single(LastPersistedMix()!.Entries).Category);
         Assert.Equal(QuizCategory.WrongRateOver(0.40),
             Assert.Single(_draft.Build()!.Entries).Category);
+        Plan.Verify();
     }
 
     // -----------------------------------------------------------------------
@@ -452,6 +483,17 @@ public class MixPanelTests : BunitContext
     [Fact]
     public async Task Reorder_MoveUp_CarriesPercentsWithTheirRows()
     {
+        // Every valid step writes through, the reorder last; the hand edit's
+        // first keystroke leaves the percents at 110 and writes nothing.
+        StageStored(null);
+        ExpectPersisted(NeverSeenMix());
+        ExpectPersisted(new QuizMix(
+            [new QuizMixEntry(QuizCategory.NeverSeen, 50), new QuizMixEntry(QuizCategory.GotWrong, 50)], null, true));
+        var beforeTheMove = ExpectPersisted(new QuizMix(
+            [new QuizMixEntry(QuizCategory.NeverSeen, 60), new QuizMixEntry(QuizCategory.GotWrong, 40)], null, true));
+        var theMove = ExpectPersisted(new QuizMix(
+            [new QuizMixEntry(QuizCategory.GotWrong, 40), new QuizMixEntry(QuizCategory.NeverSeen, 60)], null, true));
+        Plan.RequireOrder(beforeTheMove, theMove);
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow"); // NeverSeen
         await ClickAsync(cut, "#mixAddRow"); // GotWrong — the next unused kind (AI)
@@ -472,7 +514,7 @@ public class MixPanelTests : BunitContext
         // change, so it does not rebalance (that would silently retune the mix).
         Assert.Equal(40, built.Entries[0].Percent);
         Assert.Equal(60, built.Entries[1].Percent);
-        Assert.Equal(built, LastPersistedMix()); // the reorder wrote through
+        Plan.Verify(); // the reorder wrote through, after the edit it reordered
     }
 
     [Fact]

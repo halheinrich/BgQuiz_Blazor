@@ -3,8 +3,8 @@ namespace BgQuiz_Blazor.Client.Quiz;
 using System.Collections.Immutable;
 using System.Globalization;
 using BgGame_Lib;
+using BgUiPrimitives_Razor;
 using Microsoft.Extensions.Logging;
-using Microsoft.JSInterop;
 
 /// <summary>
 /// The per-app (Scoped, one-per-tab in WASM) <b>mix draft</b>: the edit state
@@ -49,9 +49,10 @@ using Microsoft.JSInterop;
 /// nothing — the draft stays blank, as for a missing key — and a refused
 /// write leaves the draft the screen's truth for the visit. Each is logged as
 /// a warning with the exception attached and reported to
-/// <see cref="BrowserStorageCondition"/>; neither throws.
-/// <see cref="JSException"/> only: a fault that is not the browser's refusal
-/// still surfaces.
+/// <see cref="BrowserStorageCondition"/>; neither throws. Every call goes
+/// through <see cref="BrowserStorage"/>, which answers the browser's refusal as
+/// a result and lets a fault that is not the browser's refusal still surface;
+/// it keeps no latch, so a refusal disables no later call.
 /// </para>
 ///
 /// <para>
@@ -73,7 +74,7 @@ using Microsoft.JSInterop;
 /// single-threaded WASM sync context, so no marshalling is needed.
 /// </para>
 /// </summary>
-internal sealed class MixDraft(IJSRuntime js, ILogger<MixDraft> logger, BrowserStorageCondition storage)
+internal sealed class MixDraft(BrowserStorage browser, ILogger<MixDraft> logger, BrowserStorageCondition storage)
 {
     // Single localStorage key holding the last well-formed mix as one
     // serialized QuizMix blob. The lib owns the JSON shape (ToJson /
@@ -188,14 +189,10 @@ internal sealed class MixDraft(IJSRuntime js, ILogger<MixDraft> logger, BrowserS
     private async Task HydrateAsync()
     {
         var generation = _generation;
-        string? stored;
-        try
+        var read = await browser.ReadAsync(BrowserStorageArea.Local, StorageKey);
+        if (read.IsRefused)
         {
-            stored = await js.InvokeAsync<string?>("localStorage.getItem", StorageKey);
-        }
-        catch (JSException e)
-        {
-            logger.LogWarning(e,
+            logger.LogWarning(read.Refusal,
                 "The mix could not be read from browser storage ({Key}); the mix panel starts blank for this visit.",
                 StorageKey);
             storage.ReportRefused();
@@ -203,7 +200,7 @@ internal sealed class MixDraft(IJSRuntime js, ILogger<MixDraft> logger, BrowserS
         }
         if (generation != _generation) return; // setup ended mid-read — nothing to land on
 
-        if (QuizMix.TryFromJson(stored, out var mix)) Project(mix);
+        if (QuizMix.TryFromJson(read.Value, out var mix)) Project(mix);
         Changed?.Invoke();
     }
 
@@ -221,15 +218,12 @@ internal sealed class MixDraft(IJSRuntime js, ILogger<MixDraft> logger, BrowserS
     private async Task WriteThroughAsync()
     {
         if (Build() is not { } mix) return;
-        try
-        {
-            await js.InvokeVoidAsync("localStorage.setItem", StorageKey, mix.ToJson());
-        }
-        catch (JSException e)
+        var written = await browser.WriteAsync(BrowserStorageArea.Local, StorageKey, mix.ToJson());
+        if (written.IsRefused)
         {
             // Storage unavailable or full: the draft is still the screen's
             // truth; only durability degrades.
-            logger.LogWarning(e,
+            logger.LogWarning(written.Refusal,
                 "The mix could not be saved to browser storage ({Key}); it is kept for this visit only.",
                 StorageKey);
             storage.ReportRefused();

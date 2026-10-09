@@ -68,12 +68,14 @@ public class PageTests : BunitContext
     public PageTests()
     {
         // Loose JSInterop, for the whole fixture and stated in exactly this one
-        // place. Every page render reaches localStorage on the way in —
+        // place. Every page render reaches browser storage on the way in —
         // QuizSettings hydrates from Home, Quiz and Settings alike — so strict
         // mode would make an unrelated page test fail on a storage read it has
-        // no opinion about. A test that cares what is stored still says so with
-        // its own Setup, which takes precedence; no test in this fixture asserts
-        // on an *unhandled* call.
+        // no opinion about: where storage is incidental, Loose answers it
+        // through the real BrowserStorage as a fresh browser would (nothing
+        // stored, every write landing). A test that cares what is stored puts
+        // a BrowserStoragePlan on the runtime instead (Plan, below), which
+        // answers every storage call from then on as the test declares it.
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         // The Quiz page imports its keyboard module on first render
@@ -114,10 +116,9 @@ public class PageTests : BunitContext
         decisionNotes.SetupModule("watch", _ => true).Mode = JSRuntimeMode.Loose;
 
         // Home and Done inject the sessionStorage-backed QuizLiveMarker. It needs
-        // only the framework IJSRuntime — which bUnit registers in Services — so
-        // one fixture-wide registration serves every page render. The marker's
-        // JS calls are handled per-test through JSInterop (Loose mode, or an
-        // explicit Setup where a test drives a specific stored value).
+        // only BrowserStorage (registered with the filter surface, below), so
+        // one fixture-wide registration serves every page render. Its storage
+        // is incidental unless a test plans it (ExpectMarkerRead and friends).
         Services.AddScoped<QuizLiveMarker>();
 
         // Home injects IFolderAccess; Quiz and Done inject QuizStatsStore, whose
@@ -165,13 +166,12 @@ public class PageTests : BunitContext
         // Home injects both halves of the mix state: MixVisibility (the one
         // derivation — the QuizSettings choice AND the picked folder's stats
         // fact; SPEC-filtering.md §5's "Visible means in effect") and MixDraft
-        // (the app-scoped edit state MixPanel views; its hydration runs under
-        // each test's JSInterop mode, resolving the bUnit IJSRuntime from the
-        // container).
+        // (the app-scoped edit state MixPanel views; its hydration reads browser
+        // storage through BrowserStorage — incidental, or the test's plan).
         //
         // The fixture default leaves the SETTING off, so the mix is simply not
         // in effect and no panel mounts — the posture a fresh browser has.
-        // WithMixSettingOn stages the stored setting; WithActiveMix stages it
+        // WithMixSettingOn plans the stored setting; WithActiveMix plans it
         // together with the stored rows for a test that needs a mix in effect
         // from the first render. Neither writes an "in effect" flag anywhere,
         // because none exists: the effective mix derives from visibility and
@@ -186,9 +186,8 @@ public class PageTests : BunitContext
         Services.AddScoped<QuizSettings>();
 
         // The review's Notes control injects the notes' placement preference.
-        // Scoped, as in Program.cs; its read runs under each test's JSInterop
-        // mode, so a fresh browser's — nothing stored — unless a test says
-        // otherwise.
+        // Scoped, as in Program.cs; its read is incidental storage, so a fresh
+        // browser's — nothing stored — unless a test plans otherwise.
         Services.AddScoped<NotesPlacementStore>();
 
         // Quiz injects QuizNoticeDismissal (every notice checks it before
@@ -202,8 +201,6 @@ public class PageTests : BunitContext
         Services.AddScoped<BrowserStorageCondition>();
     }
 
-    /// <summary>The sessionStorage key <see cref="QuizLiveMarker"/> reads/writes.</summary>
-    private const string QuizLiveKey = "bgquiz.quizLive";
 
     private static Play BestPlay() => TestFixtures.OpeningBest();
     private static Play AltPlay() => TestFixtures.OpeningAlternative();
@@ -381,13 +378,85 @@ public class PageTests : BunitContext
         return holder;
     }
 
+    // -----------------------------------------------------------------------
+    //  Planned storage
+    //
+    //  The fixture runs Loose, so where storage is incidental every read finds
+    //  nothing and every write lands, through the real BrowserStorage. A test
+    //  that needs anything stored states its storage on a BrowserStoragePlan
+    //  (BgUiPrimitives_Razor.TestSupport) — the stores' calls by their own
+    //  keys, the filter surface's through FilterSurfaceStorage — and from that
+    //  moment every storage call the test makes is the plan's: an undeclared
+    //  one fails where it is made. No interop call is spelled here.
+    // -----------------------------------------------------------------------
+
+    private BrowserStoragePlan? _plan;
+
+    /// <summary>The storage plan, put on this test's runtime by the first step that states a storage call.</summary>
+    private BrowserStoragePlan Plan => _plan ??= BrowserStoragePlan.On(JSInterop);
+
+    /// <summary>The settings payload a stored mix setting holds, and nothing else (see <see cref="WithMixSettingOn"/>).</summary>
+    private const string StoredMixSettingOn = """{"weightQuizzesByStats":true}""";
+
+    /// <summary>The settings' one hydration read this app boot, answered with <paramref name="answer"/>.</summary>
+    private static void ExpectSettingsRead(BrowserStoragePlan plan, BrowserStorageReadAnswer answer) =>
+        plan.ExpectRead(BrowserStorageArea.Local, QuizSettings.StorageKey, answer);
+
+    /// <summary>One write of the settings entry, exactly <paramref name="payload"/> (<see cref="SettingsPayload.Of"/>).</summary>
+    private BrowserStorageExpectation ExpectSettingsWritten(string payload, int times = 1) =>
+        Plan.ExpectWrite(BrowserStorageArea.Local, QuizSettings.StorageKey, payload, BrowserStorageWriteAnswer.Succeeded, times);
+
+    /// <summary>Each Home mount's read of the quiz-live marker, answered with <paramref name="answer"/>.</summary>
+    private static void ExpectMarkerRead(BrowserStoragePlan plan, BrowserStorageReadAnswer answer, int times = 1) =>
+        plan.ExpectRead(BrowserStorageArea.Session, QuizLiveMarker.StorageKey, answer, times);
+
+    /// <summary>
+    /// <paramref name="mounts"/> Home mounts over a held folder in a browser
+    /// that has nothing of the filter surface's stored: each Home mount reads
+    /// the quiz-live marker, each of <paramref name="panelMounts"/> filter
+    /// panel mounts (one per Home mount unless a pick unmounts and remounts
+    /// it) reads its two preferences and finds nothing, and the boot's one
+    /// restoration finds nothing either.
+    /// </summary>
+    private void ExpectHomeOverAFolder(int mounts = 1, int? panelMounts = null)
+    {
+        ExpectMarkerRead(Plan, BrowserStorageReadAnswer.Absent, mounts);
+        Plan.ExpectFilterPanelMount(panelMounts ?? mounts);
+        Plan.ExpectFilterRestore(FilterRestoration.NothingStored);
+    }
+
+    /// <summary>The quiz-live marker cleared — by Home once its reset notice is shown, or by Done.</summary>
+    private void ExpectMarkerCleared() =>
+        Plan.ExpectRemove(BrowserStorageArea.Session, QuizLiveMarker.StorageKey, BrowserStorageWriteAnswer.Succeeded);
+
+    /// <summary>The quiz-live marker set by a Start or a Restart that begins a live quiz.</summary>
+    private void ExpectMarkedLive(int times = 1) =>
+        Plan.ExpectWrite(BrowserStorageArea.Session, QuizLiveMarker.StorageKey, "1", BrowserStorageWriteAnswer.Succeeded, times);
+
+    /// <summary><paramref name="times"/> mix-panel hydrations finding <paramref name="mix"/> stored.</summary>
+    private void ExpectStoredMix(QuizMix mix, int times = 1) =>
+        Plan.ExpectRead(BrowserStorageArea.Local, MixDraft.StorageKey, BrowserStorageReadAnswer.Stored(mix.ToJson()), times);
+
+    /// <summary><paramref name="times"/> mix-panel hydrations finding nothing stored.</summary>
+    private void ExpectNoStoredMix(int times = 1) =>
+        Plan.ExpectRead(BrowserStorageArea.Local, MixDraft.StorageKey, BrowserStorageReadAnswer.Absent, times);
+
+    /// <summary>One write-through of <paramref name="mix"/>, in the lib's own wire format.</summary>
+    private BrowserStorageExpectation ExpectMixWritten(QuizMix mix, int times = 1) =>
+        Plan.ExpectWrite(BrowserStorageArea.Local, MixDraft.StorageKey, mix.ToJson(), BrowserStorageWriteAnswer.Succeeded, times);
+
+    /// <summary>What one Add on a blank panel builds and writes: NeverSeen at 100%, the blank builder's random order.</summary>
+    private static QuizMix AddedRowMix() =>
+        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null, randomOrder: true);
+
     /// <summary>
     /// Turn the weighted-mix setting on for the rendered page, through the
     /// <b>real hydration wire</b>: a stored <c>QuizSettings</c> payload the
-    /// service reads on <c>Home</c>'s init. Nothing else is arranged — the
-    /// setting is only half of <i>visible</i>, so a folder that holds stats
-    /// (<see cref="WithPickedFolder"/>'s <c>withStatsHistory</c>, or a staged
-    /// <c>PickedStatsJson</c>) is still needed before any panel mounts.
+    /// service reads on <c>Home</c>'s init, stated on the plan. Nothing else is
+    /// arranged — the setting is only half of <i>visible</i>, so a folder that
+    /// holds stats (<see cref="WithPickedFolder"/>'s <c>withStatsHistory</c>,
+    /// or a staged <c>PickedStatsJson</c>) is still needed before any panel
+    /// mounts, and the test states the rest of its storage itself.
     /// <para>
     /// The payload deliberately carries this one field. Every other setting
     /// restores to its default, which exercises <c>Restore</c>'s absent-field
@@ -396,15 +465,15 @@ public class PageTests : BunitContext
     /// </para>
     /// </summary>
     private void WithMixSettingOn() =>
-        JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey)
-            .SetResult("""{"weightQuizzesByStats":true}""");
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Stored(StoredMixSettingOn));
 
     /// <summary>
     /// Put <paramref name="mix"/> in effect for the rendered <c>Home</c> page:
     /// the setting on (<see cref="WithMixSettingOn"/>) <b>and</b>
-    /// <paramref name="mix"/> staged in localStorage, so the rendered panel's
-    /// hydration fills the draft with that content and Home's effective mix
-    /// derives to exactly <paramref name="mix"/>.
+    /// <paramref name="mix"/> stored, so the rendered panel's hydration — each
+    /// of <paramref name="hydrations"/> of them, one per setup — fills the
+    /// draft with that content and Home's effective mix derives to exactly
+    /// <paramref name="mix"/>.
     /// <para>
     /// <b>Two stored choices and no consent, which is the ruling</b>
     /// (<c>SPEC-filtering.md</c> §5, "Visible means in effect"). Both halves
@@ -414,11 +483,10 @@ public class PageTests : BunitContext
     /// "on screen but not in effect", because that state no longer exists.
     /// </para>
     /// </summary>
-    private void WithActiveMix(QuizMix mix)
+    private void WithActiveMix(QuizMix mix, int hydrations = 1)
     {
         WithMixSettingOn();
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
-            .SetResult(mix.ToJson());
+        ExpectStoredMix(mix, hydrations);
     }
 
     /// <summary>Whether the mix is visible — and so, by the ruling, in effect — as the page is currently arranged.</summary>
@@ -479,6 +547,8 @@ public class PageTests : BunitContext
         // gate and the mix's own visibility are independent, and only the
         // former is under test here.
         WithMixSettingOn();
+        ExpectHomeOverAFolder(); // the panel mounts with the pick
+        ExpectNoStoredMix();
         _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
 
         var cut = Render<HomePage>();
@@ -497,6 +567,7 @@ public class PageTests : BunitContext
         Assert.Single(cut.FindComponents<MixPanelComponent>());
         Assert.NotEmpty(cut.FindAll("#shuffleOrder"));
         Assert.Contains(cut.FindAll("button"), b => b.TextContent.Trim() == "Start Quiz");
+        Plan.Verify();
     }
 
     [Fact]
@@ -778,6 +849,7 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
         WithActiveMix(NeverSeenMix()); // checked, non-passthrough
+        ExpectHomeOverAFolder();
 
         var cut = Render<HomePage>();
         await ApplyFiltersAsync(cut);
@@ -787,6 +859,7 @@ public class PageTests : BunitContext
         Assert.Contains("2", count.TextContent);
         Assert.Contains("the quiz is drawn from these matches", count.TextContent);
         Assert.Contains("can be much smaller", count.TextContent);
+        Plan.Verify();
     }
 
     [Fact]
@@ -943,6 +1016,7 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
         WithActiveMix(NeverSeenMix());
+        ExpectHomeOverAFolder();
 
         var cut = Render<HomePage>();
         await ApplyFiltersAsync(cut);
@@ -953,6 +1027,7 @@ public class PageTests : BunitContext
             "Your mix applies: the quiz is drawn from these matches rather than presenting "
             + "all of them, so the quiz itself can be much smaller.",
             text);
+        Plan.Verify();
     }
 
     [Fact]
@@ -1687,6 +1762,13 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
         WithMixSettingOn();
+        // Each pick mounts the panels afresh: two filter-panel mounts, and the
+        // mix hydrates once per setup — nothing stored for the first, the
+        // row the first wrote for the second.
+        ExpectHomeOverAFolder(panelMounts: 2);
+        ExpectNoStoredMix();
+        ExpectMixWritten(AddedRowMix());
+        ExpectStoredMix(AddedRowMix());
         _folderAccess.NextPickOutcome = OneFileOutcome("First", "first.xg");
         _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay()); // so a mix can be built at all
 
@@ -1717,6 +1799,7 @@ public class PageTests : BunitContext
         Assert.False(heldAtPicker);            // the picker opened over the initial screen
         Assert.False(appliedAtPicker);
         Assert.False(mixedAtPicker);
+        Plan.Verify();
     }
 
     [Fact]
@@ -1731,6 +1814,9 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
         WithMixSettingOn();
+        ExpectHomeOverAFolder();      // the cancelled re-pick mounts nothing
+        ExpectNoStoredMix();
+        ExpectMixWritten(AddedRowMix());
         _folderAccess.FiltersJson = SavedFiltersJson();
         _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay()); // so a mix can be built at all
         _folderAccess.NextPickOutcome = OneFileOutcome("Held", "held.xg");
@@ -1770,6 +1856,7 @@ public class PageTests : BunitContext
         // …and the screen is the initial one, with the cancellation accounted for.
         Assert.Contains("Your browser will ask about the selected folder", cut.Markup);
         Assert.Contains("No folder is picked", cut.Markup);
+        Plan.Verify();
     }
 
     [Fact]
@@ -2016,8 +2103,8 @@ public class PageTests : BunitContext
 
         var cut = RenderHomeSettled();
         TruncationNotice(cut).ShouldBe(
-            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id", "class")
-            .Dismiss(gesture);
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
+        TruncationNotice(cut).Dismiss(gesture);
 
         Assert.Empty(cut.FindAll("#truncationNotice"));
         // BrowserUnsupported is WithPickedFolder's default capability, so its
@@ -2039,8 +2126,8 @@ public class PageTests : BunitContext
 
         var cut = RenderHomeSettled();
         NoticeBox.ById(cut, "statsCapabilityNotice").ShouldBe(
-            NoticeKind.Information, NoticeAnnouncement.Polite, dismissible: true, "id", "class")
-            .Dismiss(gesture);
+            NoticeKind.Information, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
+        NoticeBox.ById(cut, "statsCapabilityNotice").Dismiss(gesture);
 
         Assert.DoesNotContain("will be saved to", cut.Markup);
         Assert.Contains("files chosen at random", Normalize(cut.Markup));
@@ -2056,7 +2143,7 @@ public class PageTests : BunitContext
         WithShuffleOption();
         WithPickedFolder(capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
 
-        var cut = Render<HomePage>();
+        var cut = RenderHomeSettled();
         TruncationNotice(cut).Dismiss(NoticeDismissGesture.WholeBox);
         NoticeBox.ById(cut, "statsCapabilityNotice").Dismiss(NoticeDismissGesture.CloseButton);
 
@@ -2075,7 +2162,7 @@ public class PageTests : BunitContext
         WithShuffleOption();
         WithPickedFolder(capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
 
-        var cut = Render<HomePage>();
+        var cut = RenderHomeSettled();
         TruncationNotice(cut).Dismiss(NoticeDismissGesture.WholeBox);
         NoticeBox.ById(cut, "statsCapabilityNotice").Dismiss(NoticeDismissGesture.CloseButton);
         Assert.DoesNotContain("files chosen at random", Normalize(cut.Markup));
@@ -2237,7 +2324,7 @@ public class PageTests : BunitContext
         _folderAccess.PickedStatsJson = RetiredStatsFixture.V1Json;
         WithPickedFolder(capability: FolderWriteCapability.Enabled);
 
-        var cut = Render<HomePage>();
+        var cut = RenderHomeSettled();
         NoticeBox.ById(cut, "statsRetirementForecastNotice").Dismiss(NoticeDismissGesture.WholeBox);
 
         var back = Render<HomePage>();
@@ -2287,6 +2374,7 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
+        WaitForHomeToSettle(cut); // the pick's restoration and count, before the caller acts
         return cut;
     }
 
@@ -3349,7 +3437,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
         _folderAccess.NextPickOutcome = OneFileOutcome();
-        var storage = PlanStorage();
+        var storage = Plan;
         ExpectSettingsRead(storage, BrowserStorageReadAnswer.Absent);
         ExpectMarkerRead(storage, BrowserStorageReadAnswer.Absent, times: 2);
         storage.ExpectFilterPanelMount(times: 2);
@@ -3644,8 +3732,9 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        // The empty selection is in effect, so the count runs — and fails —
+        // on its own; it settles before the Start, as a user's would.
+        var cut = RenderHomeSettled();
         await StartButton(cut).ClickAsync(new());
         return cut;
     }
@@ -3675,8 +3764,8 @@ public class PageTests : BunitContext
         var cut = await RenderWithAFailingStartAsync();
 
         NoticeSaying(cut, "Could not start quiz").ShouldBe(
-            NoticeKind.Error, NoticeAnnouncement.Assertive, dismissible: true, "class")
-            .Dismiss(gesture);
+            NoticeKind.Error, NoticeAnnouncement.Assertive, dismissible: true, "class");
+        NoticeSaying(cut, "Could not start quiz").Dismiss(gesture);
 
         Assert.False(ShowsNoticeSaying(cut, "Could not start quiz"));
     }
@@ -3814,7 +3903,9 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())); // not started
         // (empty PickedProblemFolder comes from the fixture default)
         WithShuffleOption();
-        JSInterop.Setup<string?>("sessionStorage.getItem", QuizLiveKey).SetResult("1");
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent);
+        ExpectMarkerRead(Plan, BrowserStorageReadAnswer.Stored("1"));
+        ExpectMarkerCleared();
 
         var cut = Render<HomePage>();
 
@@ -3822,7 +3913,7 @@ public class PageTests : BunitContext
         // with nothing on its tag but what it is.
         NoticeSaying(cut, "previous quiz was reset by the page reload").ShouldBe(
             NoticeKind.Information, NoticeAnnouncement.Polite, dismissible: true);
-        JSInterop.VerifyInvoke("sessionStorage.removeItem"); // cleared when shown
+        Plan.Verify(); // cleared when shown
     }
 
     [Theory]
@@ -3836,13 +3927,15 @@ public class PageTests : BunitContext
         // dismissing it clears nothing more.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
-        JSInterop.Setup<string?>("sessionStorage.getItem", QuizLiveKey).SetResult("1");
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent);
+        ExpectMarkerRead(Plan, BrowserStorageReadAnswer.Stored("1"));
+        ExpectMarkerCleared(); // once: a second clear would be undeclared
 
         var cut = Render<HomePage>();
         NoticeSaying(cut, "previous quiz was reset by the page reload").Dismiss(gesture);
 
         Assert.False(ShowsNoticeSaying(cut, "previous quiz was reset"));
-        JSInterop.VerifyInvoke("sessionStorage.removeItem", calledTimes: 1);
+        Plan.Verify();
     }
 
     [Fact]
@@ -3856,34 +3949,38 @@ public class PageTests : BunitContext
         // holds the dismissal.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
-        var marker = JSInterop.Setup<string?>("sessionStorage.getItem", QuizLiveKey);
-        marker.SetResult("1");
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent);
+        ExpectMarkerRead(Plan, BrowserStorageReadAnswer.Stored("1")); // the first mount's read
+        ExpectMarkerCleared();
+        // What the clear leaves in sessionStorage, for the second mount's read
+        // — declared after the first, so answered second.
+        ExpectMarkerRead(Plan, BrowserStorageReadAnswer.Absent);
 
         var cut = Render<HomePage>();
         Assert.True(ShowsNoticeSaying(cut, "previous quiz was reset")); // positive precondition
-        JSInterop.VerifyInvoke("sessionStorage.removeItem");
 
-        // What the removeItem just verified leaves in sessionStorage.
-        marker.SetResult(null);
         var back = Render<HomePage>();
 
         Assert.False(ShowsNoticeSaying(back, "previous quiz was reset"));
         Assert.DoesNotContain("previous quiz was reset", back.Markup);
+        Plan.Verify();
     }
 
     [Fact]
     public void Home_BootWithoutMarker_ShowsNoResetNotice()
     {
         // A2 over-trigger guard: an ordinary cold boot (no marker) must not
-        // announce a reset. getItem returns null → no notice.
+        // announce a reset. No marker stored → no notice, and nothing cleared.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         // (empty PickedProblemFolder comes from the fixture default)
         WithShuffleOption();
-        JSInterop.Setup<string?>("sessionStorage.getItem", QuizLiveKey).SetResult(null);
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent);
+        ExpectMarkerRead(Plan, BrowserStorageReadAnswer.Absent);
 
         var cut = Render<HomePage>();
 
         Assert.DoesNotContain("previous quiz was reset", cut.Markup);
+        Plan.Verify();
     }
 
     [Fact]
@@ -3893,17 +3990,18 @@ public class PageTests : BunitContext
         // side. In-app navigation back to Home mid-quiz keeps the same per-tab
         // controller (quiz still live) and leaves the marker set. That is not a
         // reload, so no notice fires; the marker is also left in place for a real
-        // later reload (VerifyNotInvoke on removeItem).
+        // later reload (no clear is declared, so one would fail where it was made).
         var controller = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity); // HasStarted true
         // (empty PickedProblemFolder comes from the fixture default)
         WithShuffleOption();
-        JSInterop.Setup<string?>("sessionStorage.getItem", QuizLiveKey).SetResult("1");
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent);
+        ExpectMarkerRead(Plan, BrowserStorageReadAnswer.Stored("1"));
 
         var cut = Render<HomePage>();
 
         Assert.DoesNotContain("previous quiz was reset", cut.Markup);
-        JSInterop.VerifyNotInvoke("sessionStorage.removeItem"); // marker left in place
+        Plan.Verify(); // marker left in place
     }
 
     [Fact]
@@ -3915,14 +4013,16 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder();
         WithShuffleOption();
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent);
+        ExpectHomeOverAFolder();
+        ExpectMarkedLive();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled();
 
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         await startBtn.ClickAsync(new());
 
-        JSInterop.VerifyInvoke("sessionStorage.setItem");
+        Plan.Verify();
     }
 
     [Fact]
@@ -3934,14 +4034,18 @@ public class PageTests : BunitContext
         WithController(); // empty source → finishes on Start
         WithPickedFolder();
         WithShuffleOption();
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent);
+        ExpectHomeOverAFolder(); // and no marker write: one would be undeclared
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled();
 
+        // The count of nothing closes Start (the known-zero rule); bUnit
+        // dispatches the click whatever the button's disabled state, which
+        // stands in for the Start the no-match outcome is the backstop for.
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         await startBtn.ClickAsync(new());
 
-        JSInterop.VerifyNotInvoke("sessionStorage.setItem");
+        Plan.Verify();
     }
 
     [Fact]
@@ -7824,10 +7928,12 @@ public class PageTests : BunitContext
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
         await c.NextAsync(); // exhausts → IsFinished
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent); // Done hydrates the settings its Restart reads
+        ExpectMarkerCleared();
 
         Render<DonePage>();
 
-        JSInterop.VerifyInvoke("sessionStorage.removeItem");
+        Plan.Verify();
     }
 
     [Fact]
@@ -7873,12 +7979,15 @@ public class PageTests : BunitContext
         await c.SubmitPlayAsync(BestPlay());
         await c.NextAsync();
         Assert.True(c.IsFinished);
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent); // Done hydrates the settings its Restart reads
+        ExpectMarkerCleared(); // reaching Done
+        ExpectMarkedLive();    // re-marked live on Restart
 
         var cut = Render<DonePage>();
         var restart = cut.FindAll("button").First(b => b.TextContent.Trim().StartsWith("Restart"));
         await restart.ClickAsync(new());
 
-        JSInterop.VerifyInvoke("sessionStorage.setItem"); // re-marked live on Restart
+        Plan.Verify();
     }
 
     [Fact]
@@ -10520,6 +10629,10 @@ public class PageTests : BunitContext
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
         WithMixSettingOn();
+        ExpectHomeOverAFolder();
+        ExpectNoStoredMix();
+        ExpectMixWritten(AddedRowMix());
+        ExpectMarkedLive();
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
 
@@ -10532,6 +10645,7 @@ public class PageTests : BunitContext
         Assert.Equal(1, c.LastComposition!.DrawnCount);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
         Assert.EndsWith("/quiz", nav.Uri);
+        Plan.Verify();
     }
 
     [Fact]
@@ -10548,9 +10662,12 @@ public class PageTests : BunitContext
         sink.CurrentDocument = ProblemStatsDocument.Empty;
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
-        // The rows are stored — only the setting is off.
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
-            .SetResult(NeverSeenMix().ToJson());
+        // Whatever rows are stored, only the setting is off — stored as off
+        // here — so the panel that would read them never mounts: the plan
+        // declares no mix read, and Verify proves none was made.
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Stored("""{"weightQuizzesByStats":false}"""));
+        ExpectHomeOverAFolder();
+        ExpectMarkedLive();
 
         var cut = Render<HomePage>();
 
@@ -10562,6 +10679,7 @@ public class PageTests : BunitContext
 
         Assert.True(c.HasStarted);
         Assert.Null(c.LastComposition); // passthrough — the stored rows played no part
+        Plan.Verify();
     }
 
     // -----------------------------------------------------------------------
@@ -10581,12 +10699,14 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
         WithMixSettingOn();
+        ExpectHomeOverAFolder(); // the pick mounts the filter panel; a caller declares its mix reads
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
         // The other half of visible: this folder already holds stats.
         _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
+        WaitForHomeToSettle(cut); // the pick's restoration and count, before the caller acts
         return cut;
     }
 
@@ -10611,6 +10731,8 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_MixComposesWithNoFilterApplied_AndSurvivesADirtyFilter()
     {
+        ExpectNoStoredMix();
+        ExpectMixWritten(AddedRowMix());
         var cut = await RenderWithUiPickAsync();
 
         // A fresh pick has applied nothing; the empty selection is in effect
@@ -10636,6 +10758,7 @@ public class PageTests : BunitContext
         Assert.True(MixIsInEffect());
         Assert.Single(cut.FindComponents<MixPanelComponent>());
         Assert.NotEmpty(cut.FindAll(".mix-row"));
+        Plan.Verify();
     }
 
     /// <summary>
@@ -10649,13 +10772,15 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_NewPickWithStats_CarriesTheMixIntoIt_InEffect()
     {
-        // The rows are staged in storage rather than composed through the
-        // panel: a pick discards the draft and the re-mounted panel re-hydrates
-        // from localStorage, which the bUnit interop mock does not echo writes
-        // back into. Staging is what the user's storage actually holds here
-        // anyway — the write-through persisted this mix the moment it validated.
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
-            .SetResult(NeverSeenMix().ToJson());
+        // The rows are stored rather than composed through the panel: a pick
+        // discards the draft and the re-mounted panel re-hydrates from
+        // storage, and the plan holds no items, so what each hydration reads
+        // is declared. Storing is what the user's storage actually holds here
+        // anyway — the write-through persisted this mix the moment it
+        // validated. Two setups, two hydrations; the second pick mounts the
+        // filter panel a second time.
+        ExpectStoredMix(NeverSeenMix(), times: 2);
+        Plan.ExpectFilterPanelMount();
 
         var cut = await RenderWithUiPickAsync();
         await ApplyFiltersAsync(cut);
@@ -10673,6 +10798,7 @@ public class PageTests : BunitContext
         Assert.True(MixIsInEffect());
         // Nothing re-armed it, because there is nothing to re-arm.
         Assert.Empty(cut.FindAll("#mixApplies"));
+        Plan.Verify();
     }
 
     [Fact]
@@ -10684,6 +10810,10 @@ public class PageTests : BunitContext
         // its new second escape, and both repair paths are pinned — fixing the
         // mix, or turning the setting off.
         WithMixSettingOn();
+        ExpectHomeOverAFolder(mounts: 2);          // the page, and the page after Settings
+        ExpectNoStoredMix();
+        ExpectMixWritten(AddedRowMix(), times: 2); // the Add, and the repair; a broken mix writes nothing
+        ExpectSettingsWritten(SettingsPayload.Of()); // the mix setting turned off: every setting at its default
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
@@ -10720,6 +10850,7 @@ public class PageTests : BunitContext
         Assert.False(MixIsInEffect());
         Assert.Empty(back.FindComponents<MixPanelComponent>()); // the broken mix is off screen…
         Assert.False(StartButton(back).HasAttribute("disabled")); // …and gates nothing
+        Plan.Verify();
     }
 
     [Fact]
@@ -10731,6 +10862,10 @@ public class PageTests : BunitContext
         // persisted it, so it exists nowhere else — and gates nothing, because
         // gating follows visibility and nothing else.
         WithMixSettingOn();
+        ExpectHomeOverAFolder(mounts: 2);
+        ExpectNoStoredMix();
+        ExpectMixWritten(AddedRowMix()); // the Add; the broken edit writes nothing
+        ExpectSettingsWritten(SettingsPayload.Of()); // the mix setting turned off: every setting at its default
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
@@ -10748,6 +10883,7 @@ public class PageTests : BunitContext
         Assert.NotNull(Services.GetRequiredService<MixDraft>().ValidationError); // still broken…
         Assert.False(StartButton(back).HasAttribute("disabled"));                // …and inert
         Assert.DoesNotContain("fix it or turn the mix off", back.Markup);
+        Plan.Verify();
     }
 
     [Fact]
@@ -10762,6 +10898,11 @@ public class PageTests : BunitContext
         sink.CanWeightMix = true;
         sink.CurrentDocument = ProblemStatsDocument.Empty;
         WithMixSettingOn();
+        ExpectHomeOverAFolder();
+        ExpectNoStoredMix();
+        ExpectMixWritten(AddedRowMix());
+        ExpectMixWritten(QuizMix.Empty);
+        ExpectMarkedLive();
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
 
@@ -10778,6 +10919,7 @@ public class PageTests : BunitContext
         await StartButton(cut).ClickAsync(new());
         Assert.True(c.HasStarted);
         Assert.Null(c.LastComposition); // the blank mix in effect = passthrough run
+        Plan.Verify();
     }
 
     [Fact]
@@ -10797,6 +10939,8 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
         WithActiveMix(NeverSeenMix());
+        ExpectHomeOverAFolder();
+        ExpectMarkedLive();
 
         var cut = Render<HomePage>();
 
@@ -10810,6 +10954,7 @@ public class PageTests : BunitContext
 
         Assert.True(c.HasStarted);
         Assert.NotNull(c.LastComposition); // the restored mix, composed, first click
+        Plan.Verify();
     }
 
     [Fact]
@@ -10822,6 +10967,8 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
         WithActiveMix(NeverSeenMix());
+        ExpectHomeOverAFolder();
+        ExpectMixWritten(QuizMix.Empty);
 
         var cut = Render<HomePage>();
         Assert.NotEmpty(cut.FindAll(".mix-row"));
@@ -10831,6 +10978,7 @@ public class PageTests : BunitContext
 
         Assert.Empty(cut.FindAll(".mix-row"));
         Assert.False(StartButton(cut).HasAttribute("disabled"));
+        Plan.Verify();
     }
 
     [Fact]
@@ -10843,11 +10991,13 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
         WithActiveMix(QuizMix.Empty);
+        ExpectHomeOverAFolder();
 
         var cut = Render<HomePage>();
 
         Assert.Empty(cut.FindAll(".mix-row"));
         Assert.False(StartButton(cut).HasAttribute("disabled"));
+        Plan.Verify();
     }
 
     [Fact]
@@ -10861,6 +11011,7 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
         WithActiveMix(NeverSeenMix()); // composed and turned on earlier
+        ExpectHomeOverAFolder();
 
         var cut = Render<HomePage>();
 
@@ -10869,6 +11020,7 @@ public class PageTests : BunitContext
         Assert.False(StartButton(cut).HasAttribute("disabled"));
         // And the in-effect derivations read it live: the mix owns order.
         Assert.True(cut.Find("#shuffleOrder").HasAttribute("disabled"));
+        Plan.Verify();
     }
 
     [Fact]
@@ -10880,6 +11032,9 @@ public class PageTests : BunitContext
         // blank panel with the edit existing nowhere — stays unrepresentable,
         // now for a simpler reason than before: what gates is what is shown.
         WithMixSettingOn();
+        ExpectHomeOverAFolder(mounts: 2);
+        ExpectNoStoredMix();             // one setup, one hydration: the remount keeps the draft
+        ExpectMixWritten(AddedRowMix());
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true); // the stats half of visible
         WithShuffleOption();
@@ -10900,6 +11055,7 @@ public class PageTests : BunitContext
         Assert.Equal("NeverSeen", row.QuerySelector("option[selected]")!.GetAttribute("value"));
         Assert.True(MixIsInEffect());
         Assert.False(StartButton(back).HasAttribute("disabled")); // valid mix in effect
+        Plan.Verify();
     }
 
     [Fact]
@@ -10910,6 +11066,10 @@ public class PageTests : BunitContext
         // — un-gated — while staying every bit as much in effect as before.
         // Clear is not the off-switch and this is where it would become one.
         WithMixSettingOn();
+        ExpectHomeOverAFolder();
+        ExpectNoStoredMix();
+        ExpectMixWritten(AddedRowMix());
+        ExpectMixWritten(QuizMix.Empty); // Clear; the broken edit writes nothing
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
@@ -10927,6 +11087,7 @@ public class PageTests : BunitContext
         Assert.True(MixIsInEffect()); // Clear is not an off-switch
         Assert.Single(cut.FindComponents<MixPanelComponent>());
         Assert.False(StartButton(cut).HasAttribute("disabled"));
+        Plan.Verify();
     }
 
     [Fact]
@@ -10949,6 +11110,8 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
         WithActiveMix(NeverSeenMix());
+        ExpectHomeOverAFolder();
+        ExpectMarkedLive(); // the override's Start; the refused one marks nothing
 
         var cut = Render<HomePage>();
         await StartButton(cut).ClickAsync(new());
@@ -10968,6 +11131,7 @@ public class PageTests : BunitContext
         Assert.True(MixIsInEffect());            // per-run escape: the setting untouched…
         Assert.NotEmpty(cut.FindAll(".mix-row")); // …and the rows kept, as the notice promises
         Assert.EndsWith("/quiz", nav.Uri);
+        Plan.Verify();
     }
 
     [Fact]
@@ -10982,6 +11146,8 @@ public class PageTests : BunitContext
         // conjunction from both sides; neither half alone makes the mix visible.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithMixSettingOn();
+        ExpectHomeOverAFolder();
+        ExpectMarkedLive();
         WithShuffleOption();
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.BrowserUnsupported);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
@@ -11003,6 +11169,7 @@ public class PageTests : BunitContext
         Assert.True(c.HasStarted);
         Assert.Null(c.LastComposition); // passthrough — no composition
         Assert.EndsWith("/quiz", nav.Uri);
+        Plan.Verify();
     }
 
     [Fact]
@@ -11019,6 +11186,10 @@ public class PageTests : BunitContext
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
         WithMixSettingOn();
+        ExpectHomeOverAFolder(panelMounts: 2); // the second pick mounts the filter panel again…
+        ExpectNoStoredMix();                   // …but no mix panel: that folder has no stats
+        ExpectMixWritten(AddedRowMix());
+        ExpectMarkedLive();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
         var cut = Render<HomePage>();
@@ -11052,6 +11223,7 @@ public class PageTests : BunitContext
         Assert.Null(c.LastComposition);
         Assert.DoesNotContain("weighted mix can't be applied", cut.Markup);
         Assert.EndsWith("/quiz", nav.Uri);
+        Plan.Verify();
     }
 
     [Fact]
@@ -11071,7 +11243,8 @@ public class PageTests : BunitContext
         //    on, untouched, ready for the next folder that has stats.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
-        WithActiveMix(NeverSeenMix()); // persisted rows + the setting, from a prior session
+        WithActiveMix(NeverSeenMix(), hydrations: 2); // persisted rows + the setting, from a prior session; one hydration per pick
+        ExpectHomeOverAFolder(panelMounts: 2);
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
         // Every pick in this lifecycle lands on a folder that satisfies the mix
         // predicate — the transitions under test are pick/re-pick/Clear, not the
@@ -11105,6 +11278,7 @@ public class PageTests : BunitContext
         Assert.False(MixIsInEffect());
         Assert.True(Services.GetRequiredService<QuizSettings>().WeightQuizzesByStats);
         Assert.Empty(Services.GetRequiredService<MixDraft>().Rows);
+        Plan.Verify();
     }
 
     [Fact]
@@ -11122,6 +11296,7 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
         WithActiveMix(NeverSeenMix());
+        ExpectHomeOverAFolder(); // the Start composes to zero and stays here: nothing is marked live
 
         var cut = Render<HomePage>();
         await StartButton(cut).ClickAsync(new());
@@ -11129,6 +11304,7 @@ public class PageTests : BunitContext
         Assert.Contains("Your mix drew no problems", cut.Markup);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
         Assert.DoesNotContain("/quiz", nav.Uri);
+        Plan.Verify();
     }
 
     [Fact]
@@ -11142,6 +11318,8 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true); // the mix predicate: can-save-stats AND has-stats
         var shuffle = WithShuffleOption(enabled: true);
         WithActiveMix(NeverSeenMix());
+        ExpectHomeOverAFolder(mounts: 2);
+        ExpectSettingsWritten(SettingsPayload.Of()); // the mix setting turned off: every setting at its default
 
         var cut = Render<HomePage>();
 
@@ -11154,6 +11332,7 @@ public class PageTests : BunitContext
 
         Assert.False(back.Find("#shuffleOrder").HasAttribute("disabled"));
         Assert.True(shuffle.Enabled); // untouched throughout
+        Plan.Verify();
     }
 
     // -----------------------------------------------------------------------
@@ -11173,12 +11352,15 @@ public class PageTests : BunitContext
         WithShuffleOption();
         // The setting is ON throughout these arms, so the stats document really
         // is the only variable: every hidden panel below is the FACT's doing.
+        // No mix read is declared: a mix panel that mounted would make one.
         WithMixSettingOn();
+        ExpectHomeOverAFolder();
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
         _folderAccess.PickedStatsJson = pickedStats;
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
+        WaitForHomeToSettle(cut); // the pick's restoration and count, before the caller acts
         return cut;
     }
 
@@ -11196,6 +11378,7 @@ public class PageTests : BunitContext
         Assert.NotEmpty(cut.FindAll("#shuffleOrder"));                            // …surface disclosed…
         Assert.Empty(cut.FindComponents<MixPanelComponent>());                    // …but no mix
         Assert.False(MixIsInEffect());                                            // and none in effect
+        Plan.Verify();
     }
 
     [Fact]
@@ -11208,6 +11391,7 @@ public class PageTests : BunitContext
 
         Assert.Empty(cut.FindComponents<MixPanelComponent>());
         Assert.False(MixIsInEffect());
+        Plan.Verify();
     }
 
     [Fact]
@@ -11226,6 +11410,7 @@ public class PageTests : BunitContext
         // Fully runnable: apply the filters and Start is live, unweighted.
         await ApplyFiltersAsync(cut);
         Assert.False(StartButton(cut).HasAttribute("disabled"));
+        Plan.Verify();
     }
 
     [Fact]
@@ -11241,6 +11426,10 @@ public class PageTests : BunitContext
         sink.CurrentDocument = ProblemStatsDocument.Empty;
         WithShuffleOption();
         WithMixSettingOn();
+        ExpectHomeOverAFolder();
+        ExpectNoStoredMix();
+        ExpectMixWritten(AddedRowMix());
+        ExpectMarkedLive();
         _folderAccess.NextPickOutcome = OneFileOutcome(capability: FolderWriteCapability.Enabled);
         _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
 
@@ -11254,6 +11443,7 @@ public class PageTests : BunitContext
 
         Assert.True(c.HasStarted);
         Assert.NotNull(c.LastComposition);
+        Plan.Verify();
     }
 
     [Fact]
@@ -11269,6 +11459,9 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
         WithMixSettingOn();
+        ExpectHomeOverAFolder(panelMounts: 2);
+        ExpectNoStoredMix(); // the folder without stats mounts no mix panel
+        ExpectMixWritten(AddedRowMix());
         _folderAccess.NextPickOutcome = OneFileOutcome("WithStats", "a.xg", FolderWriteCapability.Enabled);
         _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
 
@@ -11287,6 +11480,7 @@ public class PageTests : BunitContext
         Assert.Empty(cut.FindComponents<MixPanelComponent>()); // and so it is not re-offered
         Assert.True(Services.GetRequiredService<QuizSettings>().WeightQuizzesByStats); // nothing revoked
         Assert.DoesNotContain("fix it or turn the mix off", cut.Markup);
+        Plan.Verify();
     }
 
     [Fact]
@@ -11305,11 +11499,16 @@ public class PageTests : BunitContext
         _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
 
         // Navigate away and back — Home is re-instantiated exactly as it is on
-        // the return from Done's "Back to setup".
+        // the return from Done's "Back to setup". Home and its filter panel
+        // mount again, and now a mix panel too, which hydrates.
+        ExpectMarkerRead(Plan, BrowserStorageReadAnswer.Absent);
+        Plan.ExpectFilterPanelMount();
+        ExpectNoStoredMix();
         await DisposeComponentsAsync();
         var back = Render<HomePage>();
 
         Assert.Single(back.FindComponents<MixPanelComponent>());
+        Plan.Verify();
     }
 
     // -----------------------------------------------------------------------
@@ -11727,6 +11926,9 @@ public class PageTests : BunitContext
         WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await MakeTheMixVisibleAsync();
+        ExpectSettingsWritten(SettingsPayload.Of()); // the mix setting turned off: every setting at its default
+        ExpectMarkerCleared(); // Done reached
+        ExpectMarkedLive(); // the Restart
         var c = await FinishAWeightedQuizAsync(sink);
 
         // The user turns the mix off from Settings while the quiz is finishing.
@@ -11751,6 +11953,7 @@ public class PageTests : BunitContext
         Assert.DoesNotContain("weighted mix can't be applied", cut.Markup);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
         Assert.EndsWith("/quiz", nav.Uri);
+        Plan.Verify();
     }
 
     /// <summary>
@@ -11774,6 +11977,8 @@ public class PageTests : BunitContext
         WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await MakeTheMixVisibleAsync();
+        ExpectMarkerCleared(); // Done reached
+        ExpectMarkedLive(); // the override's Restart; the refused one marks nothing
         var c = await FinishAWeightedQuizAsync(sink);
 
         // The mix is still on screen, so Restart weights — but the bind now
@@ -11801,6 +12006,7 @@ public class PageTests : BunitContext
         Assert.Null(c.LastComposition);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
         Assert.EndsWith("/quiz", nav.Uri);
+        Plan.Verify();
     }
 
     // -----------------------------------------------------------------------
@@ -12059,15 +12265,16 @@ public class PageTests : BunitContext
         // opposite is any level at all — and XG Roller++ is the one worth
         // spending it on, being the selection a checkbox could never have made.
         WithController();
-        JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey).SetResult(
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Stored(
             """
             {"homeBoardOnRight":false,"randomizeSidePerProblem":true,
              "keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false,
              "sortAnalysisByDepthFirst":true,
              "maximumHiddenCandidateAnalysisLevel":"XgRollerPlusPlus"}
-            """);
+            """));
 
         var cut = Render<SettingsPage>();
+        Plan.Verify();
 
         // One question, three answers: a stored random side is the Random
         // radio, whatever side is stored beneath it.
@@ -12302,46 +12509,67 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Settings_ChangingAControl_AppliesAndPersistsOnTheSpot()
     {
+        // Each change lands in the one storage entry with no further gesture:
+        // every write is declared just before its gesture and verified just
+        // after it, so a write that waited — or wrote anything else — fails.
         WithController();
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent);
         var cut = Render<SettingsPage>();
 
+        // A fixed side is one answer stored as two fields — the side, then "not
+        // random" — so two writes, here of the same payload.
+        ExpectSettingsWritten(SettingsPayload.Of(homeBoardOnRight: false), times: 2);
         await cut.Find("#settingsSideLeft").ChangeAsync(new() { Value = true });
         Assert.False(Settings().HomeBoardOnRight);
+        Plan.Verify();
 
+        ExpectSettingsWritten(SettingsPayload.Of(homeBoardOnRight: false, randomizeSidePerProblem: true));
         await cut.Find("#settingsSideRandom").ChangeAsync(new() { Value = true });
         Assert.True(Settings().RandomizeSidePerProblem);
+        Plan.Verify();
 
+        ExpectSettingsWritten(SettingsPayload.Of(
+            homeBoardOnRight: false, randomizeSidePerProblem: true, keepNavigationPanelFolded: true));
         await cut.Find("#settingsKeepNavFolded").ChangeAsync(new() { Value = true });
         Assert.True(Settings().KeepNavigationPanelFolded);
+        Plan.Verify();
 
         // Off, not on: every control here is driven AWAY from its default, so a
         // handler wired to nothing cannot pass. Ticking maximize on has been a
         // no-op against the service's state since halheinrich/backgammon#113 made on the default.
+        ExpectSettingsWritten(SettingsPayload.Of(
+            homeBoardOnRight: false, randomizeSidePerProblem: true, keepNavigationPanelFolded: true,
+            maximizeBoardWhileAnswering: false));
         await cut.Find("#settingsMaximizeBoard").ChangeAsync(new() { Value = false });
         Assert.False(Settings().MaximizeBoardWhileAnswering);
+        Plan.Verify();
 
         // The depth-first box defaults off, so away from the default is on.
+        var depthFirst = SettingsPayload.Of(
+            homeBoardOnRight: false, randomizeSidePerProblem: true, keepNavigationPanelFolded: true,
+            maximizeBoardWhileAnswering: false, sortAnalysisByDepthFirst: true);
+        ExpectSettingsWritten(depthFirst);
         await cut.Find("#settingsDepthFirst").ChangeAsync(new() { Value = true });
         Assert.True(Settings().SortAnalysisByDepthFirst);
+        Plan.Verify();
 
         // The dropdown's away-from-default is any level; the change carries the
         // OPTION VALUE a browser would post, which is the member-name token —
         // proving the page's handler reads the same vocabulary its options are
-        // written in, rather than the label the user clicked.
+        // written in, rather than the label the user clicked. The payload is
+        // spelled out here, byte for byte, as the entry ends up holding it.
+        ExpectSettingsWritten(
+            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false,"sortAnalysisByDepthFirst":true,"maximumHiddenCandidateAnalysisLevel":"Ply4","weightQuizzesByStats":false}""");
         await cut.Find("#settingsHiddenLevel").ChangeAsync(new() { Value = "Ply4" });
         Assert.Equal(AnalysisLevel.Ply4, Settings().MaximumHiddenCandidateAnalysisLevel);
-
-        // …and each landed in the one storage entry, with no further gesture.
-        var stored = JSInterop.Invocations["localStorage.setItem"]
-            .Last(i => (string?)i.Arguments[0] == QuizSettings.StorageKey).Arguments[1] as string;
-        Assert.Equal(
-            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false,"sortAnalysisByDepthFirst":true,"maximumHiddenCandidateAnalysisLevel":"Ply4","weightQuizzesByStats":false}""",
-            stored);
+        Plan.Verify();
 
         // And back to none the way a user clears it: the empty option, which is
         // the only thing on the page that means "hide nothing".
+        ExpectSettingsWritten(depthFirst);
         await cut.Find("#settingsHiddenLevel").ChangeAsync(new() { Value = "" });
         Assert.Null(Settings().MaximumHiddenCandidateAnalysisLevel);
+        Plan.Verify();
     }
 
     [Fact]
@@ -12374,8 +12602,8 @@ public class PageTests : BunitContext
         // this itself and neither can the service — the control is an
         // uncontrolled checkbox in the statically rendered layout.
         WithController();
-        JSInterop.Setup<string?>("localStorage.getItem", QuizSettings.StorageKey).SetResult(
-            """{"keepNavigationPanelFolded":true}""");
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Stored("""{"keepNavigationPanelFolded":true}"""));
+        ExpectSettingsWritten(SettingsPayload.Of(keepNavigationPanelFolded: false));
         var cut = Render<SettingsPage>();
 
         await cut.Find("#settingsKeepNavFolded").ChangeAsync(new() { Value = false });
@@ -12383,6 +12611,7 @@ public class PageTests : BunitContext
         Assert.False(Settings().KeepNavigationPanelFolded);
         var apply = Assert.Single(JSInterop.Invocations["bgquizNavFold.apply"]);
         Assert.Equal(false, apply.Arguments[0]);
+        Plan.Verify();
     }
 
     [Fact]
@@ -13228,30 +13457,6 @@ public class PageTests : BunitContext
         + "be remembered next time.";
 
     /// <summary>
-    /// The settings payload with the maximize-while-answering choice turned
-    /// off and every other setting at its default — what the Settings page
-    /// writes for the one change these tests make. This test's own statement
-    /// of it; the wire format itself is pinned in <c>QuizSettingsTests</c>.
-    /// </summary>
-    private const string SettingsWithMaximizeOff =
-        """{"homeBoardOnRight":true,"randomizeSidePerProblem":false,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":false,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":null,"weightQuizzesByStats":false}""";
-
-    /// <summary>
-    /// Put a storage plan on this test's runtime: from here on every storage
-    /// call is answered by what the test declares, and an undeclared one fails
-    /// where it is made.
-    /// </summary>
-    private BrowserStoragePlan PlanStorage() => BrowserStoragePlan.On(JSInterop);
-
-    /// <summary>The settings' one hydration read this app boot, answered with <paramref name="answer"/>.</summary>
-    private static void ExpectSettingsRead(BrowserStoragePlan plan, BrowserStorageReadAnswer answer) =>
-        plan.ExpectRead(BrowserStorageArea.Local, QuizSettings.StorageKey, answer);
-
-    /// <summary>Each Home mount's read of the quiz-live marker, answered with <paramref name="answer"/>.</summary>
-    private static void ExpectMarkerRead(BrowserStoragePlan plan, BrowserStorageReadAnswer answer, int times = 1) =>
-        plan.ExpectRead(BrowserStorageArea.Session, QuizLiveMarker.StorageKey, answer, times);
-
-    /// <summary>
     /// The refusals the filter surface has reported to this app's sink — read
     /// off the sink's own log, which is the only log those refusals get.
     /// </summary>
@@ -13276,7 +13481,7 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder();
         WithShuffleOption();
-        var storage = PlanStorage();
+        var storage = Plan;
         ExpectSettingsRead(storage, BrowserStorageReadAnswer.Refused);
         ExpectMarkerRead(storage, BrowserStorageReadAnswer.Refused);
         storage.ExpectFilterPanelMountRefused();
@@ -13323,7 +13528,7 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
         var log = WithSinkLog();
-        var storage = PlanStorage();
+        var storage = Plan;
         ExpectSettingsRead(storage, BrowserStorageReadAnswer.Refused);
         ExpectMarkerRead(storage, BrowserStorageReadAnswer.Refused, times: 2);
         storage.ExpectFilterPanelMountRefused(times: 2);
@@ -13350,7 +13555,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
         var log = WithSinkLog();
-        var storage = PlanStorage();
+        var storage = Plan;
         ExpectSettingsRead(storage, BrowserStorageReadAnswer.Refused);
         ExpectMarkerRead(storage, BrowserStorageReadAnswer.Absent);
 
@@ -13375,7 +13580,7 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
         var log = WithSinkLog();
-        var storage = PlanStorage();
+        var storage = Plan;
         ExpectSettingsRead(storage, BrowserStorageReadAnswer.Absent);
         ExpectMarkerRead(storage, BrowserStorageReadAnswer.Absent);
         storage.ExpectFilterPanelMountRefused();
@@ -13402,7 +13607,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithShuffleOption();
-        var storage = PlanStorage();
+        var storage = Plan;
         ExpectSettingsRead(storage, BrowserStorageReadAnswer.Stored("""{"weightQuizzesByStats":true}"""));
         ExpectMarkerRead(storage, BrowserStorageReadAnswer.Absent);
         storage.ExpectFilterPanelMount();
@@ -13429,10 +13634,10 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
         var remembered = new FilterConfig { ErrorMin = 0.5 };
-        var storage = PlanStorage();
+        var storage = Plan;
         ExpectSettingsRead(storage, BrowserStorageReadAnswer.Absent);
         storage.ExpectWrite(
-            BrowserStorageArea.Local, QuizSettings.StorageKey, SettingsWithMaximizeOff, BrowserStorageWriteAnswer.Refused);
+            BrowserStorageArea.Local, QuizSettings.StorageKey, SettingsPayload.Of(maximizeBoardWhileAnswering: false), BrowserStorageWriteAnswer.Refused);
         ExpectMarkerRead(storage, BrowserStorageReadAnswer.Absent);
         storage.ExpectFilterPanelMount();
         storage.ExpectFilterRestore(remembered);
@@ -13478,10 +13683,10 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
         var read = readsRefused ? BrowserStorageReadAnswer.Refused : BrowserStorageReadAnswer.Absent;
-        var storage = PlanStorage();
+        var storage = Plan;
         ExpectSettingsRead(storage, read);
         storage.ExpectWrite(
-            BrowserStorageArea.Local, QuizSettings.StorageKey, SettingsWithMaximizeOff, BrowserStorageWriteAnswer.Refused);
+            BrowserStorageArea.Local, QuizSettings.StorageKey, SettingsPayload.Of(maximizeBoardWhileAnswering: false), BrowserStorageWriteAnswer.Refused);
         ExpectMarkerRead(storage, read, times: 2);
         if (readsRefused) storage.ExpectFilterPanelMountRefused(times: 2);
         else storage.ExpectFilterPanelMount(times: 2);

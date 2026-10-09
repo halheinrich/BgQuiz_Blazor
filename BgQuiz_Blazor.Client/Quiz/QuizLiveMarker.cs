@@ -1,16 +1,16 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
+using BgUiPrimitives_Razor;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 
 /// <summary>
 /// Per-app marker recording that a quiz is currently <i>live</i> in this browser
 /// tab, backed by the browser's <c>sessionStorage</c> through
-/// <see cref="IJSRuntime"/>. BgQuiz's first JS-interop <i>service</i> — the
-/// clipboard and localStorage calls elsewhere are inline in their components;
-/// this one is encapsulated because it has a lifecycle (set / read / clear)
-/// spread across two pages, and the storage choice carries a subtle constraint
-/// (below) worth stating once.
+/// <see cref="BrowserStorage"/>, BgUiPrimitives_Razor's one guarded access to
+/// the browser's storage areas (halheinrich/backgammon#374). Encapsulated
+/// because it has a lifecycle (set / read / clear) spread across two pages, and
+/// the storage choice carries a subtle constraint (below) worth stating once.
 ///
 /// <para>
 /// <b>Why it exists.</b> A full browser reload re-boots the WASM runtime and
@@ -53,8 +53,11 @@ using Microsoft.JSInterop;
 /// <see cref="NotesPlacementStore"/>'s shape: a refused read reads as no quiz
 /// having been live, a refused write or removal leaves things as they were,
 /// each is logged as a warning with the exception attached and reported to
-/// <see cref="BrowserStorageCondition"/>, and none throws.
-/// <see cref="JSException"/> only, as the precedent catches.
+/// <see cref="BrowserStorageCondition"/>, and none throws. Which failure is
+/// the browser's refusal is <see cref="BrowserStorage"/>'s line to draw: it
+/// answers a refusal as a result carrying the browser's
+/// <see cref="JSException"/>, lets every other failure propagate, and keeps no
+/// latch, so every later call is made.
 /// </para>
 /// </summary>
 internal sealed class QuizLiveMarker
@@ -81,13 +84,13 @@ internal sealed class QuizLiveMarker
     /// </summary>
     internal const string StorageKey = "bgquiz.quizLive";
 
-    private readonly IJSRuntime _js;
+    private readonly BrowserStorage _browser;
     private readonly ILogger<QuizLiveMarker> _logger;
     private readonly BrowserStorageCondition _storage;
 
-    public QuizLiveMarker(IJSRuntime js, ILogger<QuizLiveMarker> logger, BrowserStorageCondition storage)
+    public QuizLiveMarker(BrowserStorage browser, ILogger<QuizLiveMarker> logger, BrowserStorageCondition storage)
     {
-        _js = js ?? throw new ArgumentNullException(nameof(js));
+        _browser = browser ?? throw new ArgumentNullException(nameof(browser));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
     }
@@ -98,14 +101,9 @@ internal sealed class QuizLiveMarker
     /// </summary>
     public async ValueTask MarkLiveAsync()
     {
-        try
-        {
-            await _js.InvokeVoidAsync("sessionStorage.setItem", StorageKey, "1");
-        }
-        catch (JSException e)
-        {
-            Refused(e, "could not be set; a reload during this quiz will not be explained");
-        }
+        var written = await _browser.WriteAsync(BrowserStorageArea.Session, StorageKey, "1");
+        if (written.IsRefused)
+            Refused(written.Refusal, "could not be set; a reload during this quiz will not be explained");
     }
 
     /// <summary>
@@ -116,15 +114,10 @@ internal sealed class QuizLiveMarker
     /// </summary>
     public async ValueTask<bool> WasLiveAsync()
     {
-        try
-        {
-            return await _js.InvokeAsync<string?>("sessionStorage.getItem", StorageKey) is not null;
-        }
-        catch (JSException e)
-        {
-            Refused(e, "could not be read; no reload is reported");
-            return false;
-        }
+        var read = await _browser.ReadAsync(BrowserStorageArea.Session, StorageKey);
+        if (read.IsRefused)
+            Refused(read.Refusal, "could not be read; no reload is reported");
+        return read.IsStored;
     }
 
     /// <summary>
@@ -134,14 +127,9 @@ internal sealed class QuizLiveMarker
     /// </summary>
     public async ValueTask ClearAsync()
     {
-        try
-        {
-            await _js.InvokeVoidAsync("sessionStorage.removeItem", StorageKey);
-        }
-        catch (JSException e)
-        {
-            Refused(e, "could not be cleared");
-        }
+        var removed = await _browser.RemoveAsync(BrowserStorageArea.Session, StorageKey);
+        if (removed.IsRefused)
+            Refused(removed.Refusal, "could not be cleared");
     }
 
     private void Refused(JSException e, string consequence)

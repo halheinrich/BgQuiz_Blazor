@@ -1,5 +1,7 @@
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
+using BgUiPrimitives_Razor;
+using BgUiPrimitives_Razor.TestSupport;
 using Bunit;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
@@ -22,15 +24,16 @@ namespace BgQuiz_Blazor.Tests;
 /// <see cref="MixDraft.ClearAsync"/> keeps hydration and persists blank). The
 /// builder policies the draft inherited from the panel (rebalance,
 /// next-unused-kind, validation wording) stay pinned where they are
-/// user-visible, in <see cref="MixPanelTests"/>. Extends
-/// <see cref="BunitContext"/> only for the JSInterop double behind the draft's
-/// localStorage reads/writes.
+/// user-visible, in <see cref="MixPanelTests"/>. Storage is planned with
+/// <see cref="BrowserStoragePlan"/> where it is a test's subject (see
+/// <see cref="Plan"/>), so the real <see cref="BrowserStorage"/> runs and no
+/// interop call is spelled here; elsewhere it is incidental (Loose).
 /// </summary>
 public class MixDraftTests : BunitContext
 {
     public MixDraftTests()
     {
-        JSInterop.Mode = JSRuntimeMode.Loose; // getItem → null unless a test sets a value
+        JSInterop.Mode = JSRuntimeMode.Loose; // incidental storage: nothing stored, every write lands
     }
 
     /// <summary>The app's one storage fact, which a refusal here is reported to (halheinrich/backgammon#360).</summary>
@@ -38,7 +41,31 @@ public class MixDraftTests : BunitContext
 
     private readonly RecordingLogger<MixDraft> _log = new();
 
-    private MixDraft NewDraft() => new(JSInterop.JSRuntime, _log, _storage);
+    private MixDraft NewDraft() => new(new BrowserStorage(JSInterop.JSRuntime), _log, _storage);
+
+    private BrowserStoragePlan? _plan;
+
+    /// <summary>
+    /// The storage plan, put on the runtime by the first test step that states
+    /// a storage call: from then on every call is answered as declared, an
+    /// undeclared one — a write nobody expected, a second read — fails where it
+    /// is made, and the test verifies the plan.
+    /// </summary>
+    private BrowserStoragePlan Plan => _plan ??= BrowserStoragePlan.On(JSInterop);
+
+    /// <summary>The mix entry as the browser holds it, or no entry for <see langword="null"/>.</summary>
+    private void StageStored(string? json) =>
+        Plan.ExpectRead(
+            BrowserStorageArea.Local, MixDraft.StorageKey,
+            json is null ? BrowserStorageReadAnswer.Absent : BrowserStorageReadAnswer.Stored(json));
+
+    /// <summary>
+    /// One write of <paramref name="mix"/>, in the lib's own wire format — the
+    /// one format, owned by the lib, that stored mixes have always had.
+    /// </summary>
+    private BrowserStorageExpectation ExpectPersisted(QuizMix mix, BrowserStorageWriteAnswer? answer = null) =>
+        Plan.ExpectWrite(
+            BrowserStorageArea.Local, MixDraft.StorageKey, mix.ToJson(), answer ?? BrowserStorageWriteAnswer.Succeeded);
 
     /// <summary>A refusal is said twice: one warning carrying the browser's exception, and the report.</summary>
     private void AssertRefusalSaid()
@@ -52,13 +79,6 @@ public class MixDraftTests : BunitContext
     /// <summary>A one-row never-seen mix, deterministic content — what one Add builds (NeverSeen seeds at 100%).</summary>
     private static QuizMix NeverSeenMix() =>
         new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null, randomOrder: true);
-
-    /// <summary>Every persisted blob so far, oldest first, parsed back through the lib.</summary>
-    private QuizMix[] PersistedMixes() =>
-        [.. JSInterop.Invocations
-            .Where(i => i.Identifier == "localStorage.setItem"
-                     && (string?)i.Arguments[0] == MixDraft.StorageKey)
-            .Select(i => QuizMix.FromJson((string)i.Arguments[1]!))];
 
     // -----------------------------------------------------------------------
     //  Build — the effect derivation's substrate
@@ -121,11 +141,12 @@ public class MixDraftTests : BunitContext
         // Persistence follows the screen: no commit gesture exists, so the
         // mutation itself is what writes. The blob is the built mix in the
         // unchanged lib wire format (same key, no migration).
+        ExpectPersisted(NeverSeenMix());
         var draft = NewDraft();
 
         await draft.AddRowAsync();
 
-        Assert.Equal(NeverSeenMix(), PersistedMixes().Last());
+        Plan.Verify();
     }
 
     [Fact]
@@ -134,19 +155,19 @@ public class MixDraftTests : BunitContext
         // RULED (design point A): a mutation that leaves the draft invalid
         // writes nothing, so a reload restores the last well-formed screen
         // state — never a torn half-edit.
+        ExpectPersisted(NeverSeenMix());
         var draft = NewDraft();
         await draft.AddRowAsync();
-        var writesAfterAdd = PersistedMixes().Length;
+        Plan.Verify();
 
         await draft.SetPercentTextAsync(0, string.Empty); // invalid: no percent
 
-        Assert.Equal(writesAfterAdd, PersistedMixes().Length);
-        Assert.Equal(NeverSeenMix(), PersistedMixes().Last()); // the Add's blob still stands
+        Plan.Verify(); // nothing new was written: any write would have been undeclared
 
         // The edit that restores validity writes through again.
+        ExpectPersisted(NeverSeenMix());
         await draft.SetPercentTextAsync(0, "100");
-        Assert.Equal(writesAfterAdd + 1, PersistedMixes().Length);
-        Assert.Equal(NeverSeenMix(), PersistedMixes().Last());
+        Plan.Verify();
     }
 
     [Fact]
@@ -156,13 +177,14 @@ public class MixDraftTests : BunitContext
         // following the screen. The blank draft builds Empty (see the Build
         // pin above), so the write-through persists the blank mix rather than
         // skipping.
+        Plan.RequireOrder(ExpectPersisted(NeverSeenMix()), ExpectPersisted(QuizMix.Empty));
         var draft = NewDraft();
         await draft.AddRowAsync();
 
         await draft.ClearAsync();
 
         Assert.Empty(draft.Rows);
-        Assert.True(PersistedMixes().Last().IsPassthrough);
+        Plan.Verify();
     }
 
     [Fact]
@@ -171,13 +193,14 @@ public class MixDraftTests : BunitContext
         // The last-row removal is an edit like any other now — no panel
         // auto-commit path. It lands blank, blank builds Empty, Empty writes
         // through.
+        Plan.RequireOrder(ExpectPersisted(NeverSeenMix()), ExpectPersisted(QuizMix.Empty));
         var draft = NewDraft();
         await draft.AddRowAsync();
 
         await draft.RemoveRowAsync(0);
 
         Assert.Empty(draft.Rows);
-        Assert.True(PersistedMixes().Last().IsPassthrough);
+        Plan.Verify();
     }
 
     [Fact]
@@ -189,15 +212,14 @@ public class MixDraftTests : BunitContext
         // ending a setup blanks the DRAFT and must leave the STORED mix for the
         // next setup's hydration to re-offer. A Discard that wrote blank
         // through would delete the user's mix on every pick.
+        ExpectPersisted(NeverSeenMix());
         var draft = NewDraft();
         await draft.AddRowAsync();
-        var writesBeforeDiscard = PersistedMixes().Length;
 
         draft.Discard();
 
         Assert.Empty(draft.Rows);
-        Assert.Equal(writesBeforeDiscard, PersistedMixes().Length);
-        Assert.Equal(NeverSeenMix(), PersistedMixes().Last());
+        Plan.Verify(); // the Add's write and nothing after it
     }
 
     // -----------------------------------------------------------------------
@@ -210,8 +232,7 @@ public class MixDraftTests : BunitContext
         var stored = new QuizMix(
             [new QuizMixEntry(QuizCategory.GotWrong, 60), new QuizMixEntry(QuizCategory.SeenFewerThan(3), 40)],
             quizLength: 25, randomOrder: false);
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
-            .SetResult(stored.ToJson());
+        StageStored(stored.ToJson());
         var draft = NewDraft();
 
         await draft.EnsureHydratedAsync();
@@ -227,18 +248,19 @@ public class MixDraftTests : BunitContext
         Assert.Equal(stored, draft.Build());
 
         // Idempotent per setup: a re-mounting panel triggers no second read and
-        // cannot overwrite edits the surviving draft holds.
+        // cannot overwrite edits the surviving draft holds. One read declared.
         await draft.EnsureHydratedAsync();
-        Assert.Single(JSInterop.Invocations["localStorage.getItem"]);
+        Plan.Verify();
     }
 
-    [Fact]
-    public async Task EnsureHydrated_CorruptOrMissing_LeavesBlankDraftDefaults()
+    [Theory]
+    [InlineData(null)]                 // missing
+    [InlineData("}{ not valid json")]  // corrupt
+    public async Task EnsureHydrated_CorruptOrMissing_LeavesBlankDraftDefaults(string? stored)
     {
         // Tolerant restore, and only a SUCCESSFUL parse projects: TryFromJson's
         // Empty fallback must not overwrite the blank draft's own defaults.
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
-            .SetResult("}{ not valid json");
+        StageStored(stored);
         var draft = NewDraft();
 
         await draft.EnsureHydratedAsync();
@@ -246,6 +268,7 @@ public class MixDraftTests : BunitContext
         Assert.Empty(draft.Rows);
         Assert.True(draft.RandomOrder);
         Assert.Equal(QuizMix.Empty, draft.Build()); // blank hydration is inert
+        Plan.Verify();
     }
 
     [Fact]
@@ -253,21 +276,22 @@ public class MixDraftTests : BunitContext
     {
         // Hydration is a read: restoring the stored mix must not echo it back
         // as a write (screen-follows-storage is about EDITS; a boot that wrote
-        // storage would churn the blob for no gesture at all).
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
-            .SetResult(NeverSeenMix().ToJson());
+        // storage would churn the blob for no gesture at all). No write is
+        // declared, so one would fail where it was made.
+        StageStored(NeverSeenMix().ToJson());
         var draft = NewDraft();
 
         await draft.EnsureHydratedAsync();
 
-        Assert.Empty(PersistedMixes());
+        Plan.Verify();
     }
 
     [Fact]
     public async Task Discard_BlanksTheDraft_AndForgetsHydration()
     {
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
-            .SetResult(NeverSeenMix().ToJson());
+        StageStored(NeverSeenMix().ToJson());
+        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null, randomOrder: false));
+        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: 7, randomOrder: false));
         var draft = NewDraft();
         await draft.EnsureHydratedAsync();
         await draft.SetRandomOrderAsync(false);
@@ -282,10 +306,11 @@ public class MixDraftTests : BunitContext
         Assert.Equal(QuizMix.Empty, draft.Build());
 
         // …and hydration is forgotten, so the next setup's panel mount re-reads
-        // the stored mix and re-offers it afresh.
+        // the stored mix and re-offers it afresh — a second read, declared.
+        StageStored(NeverSeenMix().ToJson());
         await draft.EnsureHydratedAsync();
-        Assert.Equal(2, JSInterop.Invocations["localStorage.getItem"].Count);
         Assert.Single(draft.Rows);
+        Plan.Verify();
     }
 
     [Fact]
@@ -295,8 +320,8 @@ public class MixDraftTests : BunitContext
         // blank (and the blank persists — see the write-through pin) but the
         // setup keeps its hydration — no re-read re-offers the stored mix
         // behind the user's back after they explicitly blanked the builder.
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
-            .SetResult(NeverSeenMix().ToJson());
+        StageStored(NeverSeenMix().ToJson());
+        ExpectPersisted(QuizMix.Empty);
         var draft = NewDraft();
         await draft.EnsureHydratedAsync();
         Assert.Single(draft.Rows);
@@ -304,27 +329,29 @@ public class MixDraftTests : BunitContext
         await draft.ClearAsync();
 
         Assert.Empty(draft.Rows);
-        await draft.EnsureHydratedAsync();
-        Assert.Single(JSInterop.Invocations["localStorage.getItem"]); // no second read
+        await draft.EnsureHydratedAsync(); // no second read: one declared
         Assert.Empty(draft.Rows);
+        Plan.Verify();
     }
 
     [Fact]
     public async Task Discard_WhileHydrationInFlight_LandsNothing()
     {
         // The stale-async guard: the setup can end (pick gesture) while the
-        // hydration's localStorage read is still awaited. The late result must
-        // not land rows on the discarded draft — the next setup re-reads.
-        var planned = JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey);
+        // hydration's storage read is still pending. The late result must not
+        // land rows on the discarded draft — the next setup re-reads.
+        var read = Plan.ExpectHeldRead(BrowserStorageArea.Local, MixDraft.StorageKey);
         var draft = NewDraft();
         var inFlight = draft.EnsureHydratedAsync();
+        Assert.True(read.IsReached);
 
         draft.Discard();
-        planned.SetResult(NeverSeenMix().ToJson());
-        await inFlight;
+        read.Release(BrowserStorageReadAnswer.Stored(NeverSeenMix().ToJson()));
+        await inFlight.WaitAsync(DefaultWaitTimeout); // the hydration's continuation has run
 
         Assert.Empty(draft.Rows);
         Assert.Equal(QuizMix.Empty, draft.Build());
+        Plan.Verify();
     }
 
     // -----------------------------------------------------------------------
@@ -336,8 +363,7 @@ public class MixDraftTests : BunitContext
     {
         // The read MixPanel's init awaits, on the way to Home's first render:
         // refused, it hydrates nothing — the blank draft, as for a missing key.
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
-            .SetException(new JSException("SecurityError: The operation is insecure."));
+        Plan.ExpectRead(BrowserStorageArea.Local, MixDraft.StorageKey, BrowserStorageReadAnswer.Refused);
         var draft = NewDraft();
 
         await draft.EnsureHydratedAsync();
@@ -345,24 +371,26 @@ public class MixDraftTests : BunitContext
         Assert.Empty(draft.Rows);
         Assert.Equal(QuizMix.Empty, draft.Build());
         AssertRefusalSaid();
+        Plan.Verify();
     }
 
     [Fact]
     public async Task Hydration_ARefusedRead_StaysOncePerSetup()
     {
         // The cached task holds for the refused read too: a re-mount does not
-        // ask the browser again within the setup, and Discard still forgets it.
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
-            .SetException(new JSException("SecurityError: The operation is insecure."));
+        // ask the browser again within the setup, and Discard still forgets it
+        // — the refusal latched nothing, so the next setup asks again.
+        Plan.ExpectRead(BrowserStorageArea.Local, MixDraft.StorageKey, BrowserStorageReadAnswer.Refused);
         var draft = NewDraft();
 
         await draft.EnsureHydratedAsync();
         await draft.EnsureHydratedAsync();
-        Assert.Single(JSInterop.Invocations["localStorage.getItem"]);
+        Plan.Verify(); // one read
 
+        Plan.ExpectRead(BrowserStorageArea.Local, MixDraft.StorageKey, BrowserStorageReadAnswer.Refused);
         draft.Discard();
         await draft.EnsureHydratedAsync();
-        Assert.Equal(2, JSInterop.Invocations["localStorage.getItem"].Count);
+        Plan.Verify(); // and a second, after the setup ended
     }
 
     [Fact]
@@ -370,14 +398,30 @@ public class MixDraftTests : BunitContext
     {
         // Silent before halheinrich/backgammon#360; still the screen's truth,
         // and now said.
-        JSInterop.SetupVoid("localStorage.setItem", _ => true)
-            .SetException(new JSException("QuotaExceededError: The quota has been exceeded."));
+        ExpectPersisted(NeverSeenMix(), BrowserStorageWriteAnswer.Refused);
         var draft = NewDraft();
 
         await draft.AddRowAsync();
 
         Assert.Equal(NeverSeenMix(), draft.Build());
         AssertRefusalSaid();
+        Plan.Verify();
+    }
+
+    [Fact]
+    public async Task ARefusedWrite_DisablesNoLaterOne()
+    {
+        // No latch (halheinrich/backgammon#374): the next valid edit is
+        // written all the same, and lands.
+        ExpectPersisted(NeverSeenMix(), BrowserStorageWriteAnswer.Refused);
+        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null, randomOrder: false));
+        var draft = NewDraft();
+
+        await draft.AddRowAsync();
+        await draft.SetRandomOrderAsync(false);
+
+        AssertRefusalSaid();
+        Plan.Verify();
     }
 
     [Fact]
@@ -386,14 +430,14 @@ public class MixDraftTests : BunitContext
         // The fact reports and never gates: another store's refused write does
         // not establish that this read will fail, so it is made and kept.
         _storage.ReportRefused();
-        JSInterop.Setup<string?>("localStorage.getItem", MixDraft.StorageKey)
-            .SetResult(NeverSeenMix().ToJson());
+        StageStored(NeverSeenMix().ToJson());
         var draft = NewDraft();
 
         await draft.EnsureHydratedAsync();
 
         Assert.Equal(NeverSeenMix(), draft.Build());
         Assert.Empty(_log.Entries);
+        Plan.Verify();
     }
 
     // -----------------------------------------------------------------------

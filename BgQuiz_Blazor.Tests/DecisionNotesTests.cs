@@ -1,6 +1,7 @@
 using AngleSharp.Dom;
 using BgQuiz_Blazor.Client.Components;
 using BgQuiz_Blazor.Client.Quiz;
+using BgUiPrimitives_Razor;
 using Bunit;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
@@ -45,6 +46,7 @@ public class DecisionNotesTests : BunitContext
         var module = JSInterop.SetupModule(DecisionNotes.ModulePath);
         module.Mode = JSRuntimeMode.Loose;
         module.SetupModule("watch", _ => true).Mode = JSRuntimeMode.Loose;
+        Services.AddBrowserStorage();
         Services.AddScoped<NotesPlacementStore>();
         Services.AddScoped<BrowserStorageCondition>();
     }

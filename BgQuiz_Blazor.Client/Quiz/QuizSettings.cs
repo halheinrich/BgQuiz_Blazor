@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using BackgammonDiagram_Lib;
 using BgDataTypes_Lib;
+using BgUiPrimitives_Razor;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using XgFilter_Razor;
@@ -25,7 +26,7 @@ using XgFilter_Razor;
 ///
 /// <para>
 /// <b>No draft, no commit, no dirty flag — deliberately.</b> Unlike the
-/// start-gate state (XgFilter_Razor's <c>FilterSetup</c>, <see cref="MixDraft"/>),
+/// start-gate state (<see cref="FilterSetup"/>, <see cref="MixDraft"/>),
 /// nothing here is composed into a quiz at a Start
 /// gesture, so there is no half-edited state to guard against and no gate to
 /// derive: a toggle is a complete, immediately valid choice, the same reasoning
@@ -107,8 +108,13 @@ using XgFilter_Razor;
 /// logged as a warning with the exception attached and reported to
 /// <see cref="BrowserStorageCondition"/>, the one fact <c>Home</c>'s notice
 /// says; neither <see cref="EnsureHydratedAsync"/> nor any setter throws for
-/// storage. <see cref="JSException"/> only, as the precedent catches: a
-/// serialization fault is not the browser's refusal and still surfaces.
+/// storage. Every storage call goes through <see cref="BrowserStorage"/>,
+/// which answers the browser's refusal as a result and lets anything else —
+/// a serialization fault is not the browser's refusal — still surface; it keeps
+/// no latch, so a refused write never stops the next one, and a later write
+/// that lands repairs the stored settings. The navigation panel's applier
+/// calls (<see cref="SetKeepNavigationPanelFoldedAsync"/>) are not storage and
+/// keep their own guards.
 /// </para>
 ///
 /// <para>
@@ -120,7 +126,7 @@ using XgFilter_Razor;
 /// </para>
 /// </summary>
 internal sealed class QuizSettings(
-    IJSRuntime js, ILogger<QuizSettings> logger, BrowserStorageCondition storage)
+    BrowserStorage browser, IJSRuntime js, ILogger<QuizSettings> logger, BrowserStorageCondition storage)
 {
     /// <summary>
     /// The single localStorage key holding every setting as one JSON object.
@@ -499,20 +505,16 @@ internal sealed class QuizSettings(
 
     private async Task HydrateAsync()
     {
-        string? stored;
-        try
+        var read = await browser.ReadAsync(BrowserStorageArea.Local, StorageKey);
+        if (read.IsRefused)
         {
-            stored = await js.InvokeAsync<string?>("localStorage.getItem", StorageKey);
-        }
-        catch (JSException e)
-        {
-            logger.LogWarning(e,
+            logger.LogWarning(read.Refusal,
                 "The settings could not be read from browser storage ({Key}); every setting takes its default for this visit.",
                 StorageKey);
             storage.ReportRefused();
             return;
         }
-        Restore(stored);
+        Restore(read.Value);
     }
 
     /// <summary>Record the home-board side, applying and persisting immediately.</summary>
@@ -717,19 +719,15 @@ internal sealed class QuizSettings(
     /// </summary>
     private async Task<bool> PersistAsync()
     {
-        try
+        var written = await browser.WriteAsync(BrowserStorageArea.Local, StorageKey, ToJson());
+        if (written.IsRefused)
         {
-            await js.InvokeVoidAsync("localStorage.setItem", StorageKey, ToJson());
-            return true;
-        }
-        catch (JSException e)
-        {
-            logger.LogWarning(e,
+            logger.LogWarning(written.Refusal,
                 "The settings could not be saved to browser storage ({Key}); the change is kept for this visit only.",
                 StorageKey);
             storage.ReportRefused();
-            return false;
         }
+        return written.Succeeded;
     }
 
     /// <summary>
