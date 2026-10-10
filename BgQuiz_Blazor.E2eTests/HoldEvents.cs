@@ -1,4 +1,3 @@
-
 namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
