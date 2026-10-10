@@ -23,8 +23,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class DeadPickGestureTests : E2eTestBase
 {
-    public DeadPickGestureTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public DeadPickGestureTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     // Shadowing the prototype's operation is what the app's own probe sees;
     // `delete window.showDirectoryPicker` would not, since the operation lives
@@ -64,8 +64,8 @@ public sealed class DeadPickGestureTests : E2eTestBase
 /// </summary>
 public sealed class LivePickGestureTests : FsAccessFakeTestBase
 {
-    public LivePickGestureTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public LivePickGestureTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     [Fact]
     public async Task Home_WithADirectoryPicker_OmitsTheSilentGestureAccount()

@@ -20,8 +20,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </remarks>
 public sealed class RowFitTests : E2eTestBase
 {
-    public RowFitTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public RowFitTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     /// <summary>Wider text, everywhere on the page: the changed font metrics.</summary>
     private const string WiderText = "body { letter-spacing: 0.2em; }";

@@ -13,8 +13,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class NavigationTests : E2eTestBase
 {
-    public NavigationTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public NavigationTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     private async Task StartTwoCubeProblemsInNormalViewAsync()
     {

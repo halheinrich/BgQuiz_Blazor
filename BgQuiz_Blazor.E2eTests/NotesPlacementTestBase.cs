@@ -33,8 +33,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public abstract class NotesPlacementTestBase : E2eTestBase
 {
-    protected NotesPlacementTestBase(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright)
+    protected NotesPlacementTestBase(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output)
     {
     }
 

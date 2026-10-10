@@ -33,8 +33,8 @@ public sealed class BetaOnboardingTests : E2eTestBase
     /// <summary>The beta mailbox, restated here as the consumer-side pin.</summary>
     private const string FeedbackAddress = "bgquiz.beta@gmail.com";
 
-    public BetaOnboardingTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public BetaOnboardingTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     [Fact]
     public async Task RobotsTxt_IsServed_AndDisallowsEveryCrawler()

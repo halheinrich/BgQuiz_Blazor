@@ -30,8 +30,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class MixVisibilityTests : FsAccessFakeTestBase
 {
-    public MixVisibilityTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public MixVisibilityTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     /// <summary>
     /// <b>Arm one: the setting off hides a mix the folder could otherwise

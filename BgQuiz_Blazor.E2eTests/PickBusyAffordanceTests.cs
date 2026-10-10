@@ -22,8 +22,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class PickBusyAffordanceTests : FsAccessFakeTestBase
 {
-    public PickBusyAffordanceTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public PickBusyAffordanceTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     private static Regex BusyClass => new(@"\bapp-busy\b");
 

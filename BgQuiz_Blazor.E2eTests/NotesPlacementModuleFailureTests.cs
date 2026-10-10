@@ -13,8 +13,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class NotesPlacementModuleFailureTests : NotesPlacementTestBase
 {
-    public NotesPlacementModuleFailureTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright)
+    public NotesPlacementModuleFailureTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output)
     {
     }
 

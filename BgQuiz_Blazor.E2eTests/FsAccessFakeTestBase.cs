@@ -33,8 +33,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public abstract class FsAccessFakeTestBase : E2eTestBase
 {
-    protected FsAccessFakeTestBase(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    protected FsAccessFakeTestBase(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     /// <summary>The on-disk stats filename the app must use — the consumer-side pin.</summary>
     protected const string StatsFileName = "bgquiz-stats.json";

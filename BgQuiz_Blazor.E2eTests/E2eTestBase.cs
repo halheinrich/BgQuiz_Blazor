@@ -154,11 +154,20 @@ public abstract class E2eTestBase : IAsyncLifetime
     private readonly List<string> _stagedDirs = [];
     private IBrowserContext? _context;
 
-    protected E2eTestBase(PublishedAppFixture app, PlaywrightFixture playwright)
+    protected E2eTestBase(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
     {
         _app = app;
         _playwright = playwright;
+        Output = output;
     }
+
+    /// <summary>
+    /// xUnit's per-test output sink — the one every scenario writes its
+    /// diagnostics to, and where a failed boot leaves its evidence
+    /// (<see cref="BootHomeAsync"/>). xUnit hands it only to a test class's
+    /// constructor, so every scenario passes it here.
+    /// </summary>
+    protected ITestOutputHelper Output { get; }
 
     /// <summary>The page every scenario drives; fresh per test.</summary>
     protected IPage Page { get; private set; } = null!;
@@ -427,11 +436,70 @@ public abstract class E2eTestBase : IAsyncLifetime
     //  Flow helpers
     // -----------------------------------------------------------------------
 
-    /// <summary>Navigate to Home and wait for the WASM runtime to boot.</summary>
+    /// <summary>
+    /// Navigate to Home and wait for the WASM runtime to boot.
+    ///
+    /// <para>
+    /// <b>A failed boot leaves its evidence</b> (halheinrich/backgammon#383).
+    /// The page is recorded (<see cref="PageRecorder"/>: console, page errors,
+    /// failed requests) from before the navigation, so nothing the boot says is
+    /// missed; if either step fails — the navigation itself or the wait for
+    /// Home — what the page shows and said is written to <see cref="Output"/>
+    /// (<see cref="WriteBootFailureEvidenceAsync"/>) and the original failure
+    /// is rethrown unchanged. The recording stops when the boot ends, either
+    /// way, and a boot that succeeds writes nothing.
+    /// </para>
+    /// </summary>
     protected async Task BootHomeAsync()
     {
-        await Page.GotoAsync(BaseUrl + "/");
-        await Expect(PickFolderButton).ToBeVisibleAsync();
+        using var recorder = new PageRecorder(Page);
+        try
+        {
+            await Page.GotoAsync(BaseUrl + "/");
+            await Expect(PickFolderButton).ToBeVisibleAsync();
+        }
+        catch
+        {
+            await WriteBootFailureEvidenceAsync(recorder);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Write what a failed boot left (halheinrich/backgammon#383): the URL, the
+    /// <c>main</c> element's DOM, <c>window.__unhandled</c> where the page
+    /// defines one (a test's own capture of unhandled errors and rejections),
+    /// and the recorded console messages, page errors and failed requests.
+    /// Every page read is best-effort and bounded by
+    /// <see cref="EvidenceSheet.ReadBound"/>, and one that fails or does not
+    /// answer is named as not collected; nothing here throws, so the boot's
+    /// own failure is the one the test reports.
+    /// </summary>
+    private async Task WriteBootFailureEvidenceAsync(PageRecorder recorder)
+    {
+        var sheet = new EvidenceSheet();
+        await sheet.ReadAsync("URL", () => Task.FromResult(Page.Url));
+        await sheet.ReadAsync("main", async () =>
+            await Page.EvaluateAsync<string?>("() => document.querySelector('main')?.outerHTML ?? null")
+            ?? "(the page has no main element)");
+        await sheet.ReadAsync("window.__unhandled", async () =>
+            await Page.EvaluateAsync<string?>(
+                "() => window.__unhandled === undefined ? null : JSON.stringify(window.__unhandled, null, 2)")
+            ?? "(not defined by this page)");
+        sheet.AddList("Console messages", recorder.Console);
+        sheet.AddList("Page errors", recorder.PageErrors);
+        sheet.AddList("Failed requests", recorder.FailedRequests);
+
+        try
+        {
+            Output.WriteLine("[halheinrich/backgammon#383] Home did not boot. The evidence it left:");
+            foreach (var line in sheet.Lines) Output.WriteLine("  " + line.ReplaceLineEndings(Environment.NewLine + "  "));
+        }
+        catch (InvalidOperationException)
+        {
+            // xUnit refuses output outside a running test; the boot's own
+            // failure still propagates, which is what matters.
+        }
     }
 
     /// <summary>

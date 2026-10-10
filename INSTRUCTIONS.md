@@ -4390,6 +4390,24 @@ exact accessible name, and the fourth reading **Too good** on the match
 convention. Pills are found by exact name (`CubePill`): Playwright matches a
 name by substring, and "No double" is inside "No double / Pass".
 
+**A failed boot leaves its evidence** (`halheinrich/backgammon#383`).
+`E2eTestBase.BootHomeAsync` is the suite's one boot, so it owns the evidence
+for every test that boots Home. A `PageRecorder` (console messages, page
+errors, failed requests, each stamped from the recording's start) attaches
+before `GotoAsync` and detaches when the boot ends, either way; if the
+navigation or the wait for Home fails, the URL, `main`'s DOM,
+`window.__unhandled` where the page defines it, and the recorded lists go to
+the test output, and the original exception is rethrown unchanged (`throw;`).
+Page reads go through `EvidenceSheet`, best-effort and bounded at five
+seconds each, and one that fails or does not answer is written as not
+collected, so the evidence can neither replace nor hold up the failure it
+describes. A boot that succeeds writes nothing. The output sink is the base's
+`Output`: xUnit hands `ITestOutputHelper` only to a test class's constructor,
+so every scenario passes it to the base, and no class keeps its own. The
+remount report's diagnostics (`BrowserStorageRefusedTests`,
+`halheinrich/backgammon#372`) use the same recorder and reader. The capture
+does not explain the boot stall it was added for; it records the next one.
+
 **A navigation completes in three senses, and each has its own operation**
 (`halheinrich/backgammon#374`). Blazor's enhanced navigation pushes the new
 URL and then fetches the page, and the page it is leaving stays on screen

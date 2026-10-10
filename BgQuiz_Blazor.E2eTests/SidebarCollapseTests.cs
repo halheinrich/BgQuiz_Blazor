@@ -1,5 +1,4 @@
 using Microsoft.Playwright;
-using Xunit.Abstractions;
 using static Microsoft.Playwright.Assertions;
 
 namespace BgQuiz_Blazor.E2eTests;
@@ -15,12 +14,10 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class SidebarCollapseTests : E2eTestBase
 {
-    private readonly ITestOutputHelper _output;
 
     public SidebarCollapseTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
-        : base(app, playwright)
+        : base(app, playwright, output)
     {
-        _output = output;
     }
 
     /// <summary>
@@ -193,7 +190,7 @@ public sealed class SidebarCollapseTests : E2eTestBase
         }
         finally
         {
-            HoldEvents.Write(_output, hold?.Events() ?? []);
+            HoldEvents.Write(Output, hold?.Events() ?? []);
         }
     }
 

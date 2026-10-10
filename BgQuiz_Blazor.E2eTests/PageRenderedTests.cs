@@ -1,5 +1,4 @@
 using Microsoft.Playwright;
-using Xunit.Abstractions;
 using static Microsoft.Playwright.Assertions;
 
 namespace BgQuiz_Blazor.E2eTests;
@@ -12,12 +11,10 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class PageRenderedTests : E2eTestBase
 {
-    private readonly ITestOutputHelper _output;
 
     public PageRenderedTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
-        : base(app, playwright)
+        : base(app, playwright, output)
     {
-        _output = output;
     }
 
     /// <summary>The two gestures that navigate in-app: a link the browser follows, and the app's own <c>NavigationManager</c>.</summary>
@@ -70,7 +67,7 @@ public sealed class PageRenderedTests : E2eTestBase
         void Note(string line)
         {
             evidence.Add(line);
-            _output.WriteLine("[checkpoint] " + line);
+            Output.WriteLine("[checkpoint] " + line);
         }
 
         await BootHomeAsync();
@@ -127,7 +124,7 @@ public sealed class PageRenderedTests : E2eTestBase
         finally
         {
             released.TrySetResult();
-            if (evidence.Count == 0) _output.WriteLine("[checkpoint] the page never requested the destination");
+            if (evidence.Count == 0) Output.WriteLine("[checkpoint] the page never requested the destination");
         }
     }
 

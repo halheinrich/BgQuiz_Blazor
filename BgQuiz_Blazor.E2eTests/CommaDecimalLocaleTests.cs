@@ -52,8 +52,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class CommaDecimalLocaleTests : E2eTestBase
 {
-    public CommaDecimalLocaleTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public CommaDecimalLocaleTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     /// <summary>
     /// Pin the browser locale to Norwegian Bokmål — a comma-decimal culture — for

@@ -12,8 +12,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class MixWeightingTests : FsAccessFakeTestBase
 {
-    public MixWeightingTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public MixWeightingTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     [Fact]
     public async Task NoStatsHistory_OffersNoMix_AndTheQuizStillRuns()
@@ -202,8 +202,8 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
 /// </summary>
 public sealed class MixRefusalTests : FsAccessFakeTestBase
 {
-    public MixRefusalTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public MixRefusalTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     [Fact]
     public async Task StatsBecomeUnreadableAfterTheMixIsCommitted_Refuses_OverrideRunsUnweighted()

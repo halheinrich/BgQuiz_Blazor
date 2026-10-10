@@ -13,8 +13,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class PhoneWidthActionRowTests : E2eTestBase
 {
-    public PhoneWidthActionRowTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public PhoneWidthActionRowTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     private ILocator ContinueButton =>
         Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton });

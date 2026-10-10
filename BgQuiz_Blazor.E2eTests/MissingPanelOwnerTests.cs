@@ -20,8 +20,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </remarks>
 public sealed class MissingPanelOwnerTests : E2eTestBase
 {
-    public MissingPanelOwnerTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public MissingPanelOwnerTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     /// <summary>How the quiz page is entered.</summary>
     public enum Entry

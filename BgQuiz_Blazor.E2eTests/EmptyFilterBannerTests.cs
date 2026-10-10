@@ -18,8 +18,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class EmptyFilterBannerTests : E2eTestBase
 {
-    public EmptyFilterBannerTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public EmptyFilterBannerTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     [Fact]
     public async Task RaceFilterAgainstContactPosition_DarkensStart_UntilRelaxed()

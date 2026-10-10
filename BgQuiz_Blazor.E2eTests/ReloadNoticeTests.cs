@@ -13,8 +13,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class ReloadNoticeTests : E2eTestBase
 {
-    public ReloadNoticeTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public ReloadNoticeTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     [Fact]
     public async Task ReloadMidQuiz_ShowsOneShotResetNotice()

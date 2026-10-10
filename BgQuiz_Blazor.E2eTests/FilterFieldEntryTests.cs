@@ -33,8 +33,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class FilterFieldEntryTests : E2eTestBase
 {
-    public FilterFieldEntryTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public FilterFieldEntryTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     private ILocator ErrorMin => Page.Locator("#errorMin");
 

@@ -1,5 +1,4 @@
 using Microsoft.Playwright;
-using Xunit.Abstractions;
 using static Microsoft.Playwright.Assertions;
 
 namespace BgQuiz_Blazor.E2eTests;
@@ -47,19 +46,10 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class ProblemLocatorTests : E2eTestBase
 {
-    /// <summary>
-    /// xUnit's per-test output sink, for <see cref="ReportRowGeometryAsync"/>
-    /// alone. First use of it in this suite: every other scenario says what it
-    /// means in assertions, and this one still does — the output is for a
-    /// machine this session cannot run on.
-    /// </summary>
-    private readonly ITestOutputHelper _output;
-
     public ProblemLocatorTests(
         PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
-        : base(app, playwright)
+        : base(app, playwright, output)
     {
-        _output = output;
     }
 
     /// <summary>
@@ -432,8 +422,8 @@ public sealed class ProblemLocatorTests : E2eTestBase
 
     private void ReportRowGeometry(string state, string report)
     {
-        _output.WriteLine($"[locator row geometry] {state}");
-        _output.WriteLine(report);
+        Output.WriteLine($"[locator row geometry] {state}");
+        Output.WriteLine(report);
     }
 
     /// <summary>

@@ -21,8 +21,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class BoardFloorTests : E2eTestBase
 {
-    public BoardFloorTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public BoardFloorTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     private sealed record Geometry(double Floor, double Region, double Board, double ScrollHeight, double ClientHeight);
 

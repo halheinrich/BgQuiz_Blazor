@@ -51,8 +51,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class KeyboardShortcutTests : E2eTestBase
 {
-    public KeyboardShortcutTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public KeyboardShortcutTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     private ILocator ContinueButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton });
     private ILocator ShowStatsButton => Page.GetByRole(AriaRole.Button, new() { Name = "Show stats", Exact = true });

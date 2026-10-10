@@ -16,8 +16,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class MatchCountNavigationTests : E2eTestBase
 {
-    public MatchCountNavigationTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public MatchCountNavigationTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     private async Task GoToSettingsAndBackAsync()
     {

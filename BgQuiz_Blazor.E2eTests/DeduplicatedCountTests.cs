@@ -30,8 +30,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class DeduplicatedCountTests : E2eTestBase
 {
-    public DeduplicatedCountTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public DeduplicatedCountTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     [Fact]
     public async Task DuplicatedFilesCollapse_AndTheCountAccountsForWhatItLeftOut()

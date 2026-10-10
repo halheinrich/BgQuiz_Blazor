@@ -22,8 +22,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class ScorePanelContractTests : E2eTestBase
 {
-    public ScorePanelContractTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public ScorePanelContractTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     /// <summary>A 60-character file name — what "Set:" shows for a one-file pick.</summary>
     private const string LongFileName =

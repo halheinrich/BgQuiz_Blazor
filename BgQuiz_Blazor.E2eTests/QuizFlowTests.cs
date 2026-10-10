@@ -1,5 +1,4 @@
 using Microsoft.Playwright;
-using Xunit.Abstractions;
 using static Microsoft.Playwright.Assertions;
 
 namespace BgQuiz_Blazor.E2eTests;
@@ -12,12 +11,10 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class QuizFlowTests : E2eTestBase
 {
-    private readonly ITestOutputHelper _output;
 
     public QuizFlowTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
-        : base(app, playwright)
+        : base(app, playwright, output)
     {
-        _output = output;
     }
 
     [Fact]
@@ -230,8 +227,8 @@ public sealed class QuizFlowTests : E2eTestBase
         }
         finally
         {
-            _output.WriteLine($"problem 1's fourth answer: {first ?? "(problem 1 never landed)"}");
-            HoldEvents.Write(_output, hold?.Events() ?? []);
+            Output.WriteLine($"problem 1's fourth answer: {first ?? "(problem 1 never landed)"}");
+            HoldEvents.Write(Output, hold?.Events() ?? []);
         }
     }
 

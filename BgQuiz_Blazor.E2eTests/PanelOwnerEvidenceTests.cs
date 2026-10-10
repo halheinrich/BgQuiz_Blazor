@@ -19,8 +19,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </remarks>
 public sealed class PanelOwnerEvidenceTests : E2eTestBase
 {
-    public PanelOwnerEvidenceTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public PanelOwnerEvidenceTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     [Theory]
     [InlineData(PanelOwnerAbsence.RequestFailed, "request status 0, 0 bytes decoded", "console errors from navFold.js: Failed to load resource: net::ERR_FAILED", "page errors: none")]

@@ -20,8 +20,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class SettingsTests : E2eTestBase
 {
-    public SettingsTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public SettingsTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     /// <summary>Comfortably past the 641px breakpoint the collapse rail lives behind.</summary>
     private const int DesktopWidth = 1280;

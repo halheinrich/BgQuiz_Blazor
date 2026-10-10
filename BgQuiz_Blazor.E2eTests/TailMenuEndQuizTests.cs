@@ -12,8 +12,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class TailMenuEndQuizTests : FsAccessFakeTestBase
 {
-    public TailMenuEndQuizTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public TailMenuEndQuizTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     private ILocator More =>
         Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.MoreButton, Exact = true });

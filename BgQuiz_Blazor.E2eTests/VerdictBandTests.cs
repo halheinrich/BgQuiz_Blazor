@@ -16,8 +16,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class VerdictBandTests : E2eTestBase
 {
-    public VerdictBandTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public VerdictBandTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     private const string PracticeThreeAnswerVerdict =
         "Practice — Not best — Double / Take lost 0.2000. Best: No double, Double / Pass, No double / Pass.";

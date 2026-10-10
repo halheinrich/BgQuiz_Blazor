@@ -14,8 +14,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class HelpAndTitlesTests : E2eTestBase
 {
-    public HelpAndTitlesTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public HelpAndTitlesTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     [Fact]
     public async Task HelpRendersAndTitlesChangeAcrossNavigation()

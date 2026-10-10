@@ -39,8 +39,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class MaximizeBoardTests : E2eTestBase
 {
-    public MaximizeBoardTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public MaximizeBoardTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     /// <summary>The ongoing-stats strip — suppressed while answering under the mode.</summary>
     private ILocator ScorePanel => Page.Locator(".score-panel");

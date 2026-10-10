@@ -33,8 +33,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class RejectedFilesTests : E2eTestBase
 {
-    public RejectedFilesTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public RejectedFilesTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     /// <summary>The damaged file's staged name — what the record must show, extension and all.</summary>
     private const string DamagedFileName = "damaged-match-2026-04-12.xg";

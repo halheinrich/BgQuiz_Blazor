@@ -15,8 +15,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class NotesPlacementMoveControlTests : NotesPlacementTestBase
 {
-    public NotesPlacementMoveControlTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright)
+    public NotesPlacementMoveControlTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output)
     {
     }
 

@@ -37,8 +37,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </remarks>
 public sealed class OneBudgetTests : E2eTestBase
 {
-    public OneBudgetTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public OneBudgetTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     protected override string? ContextInitScript => AnimationFrames.Script + $$"""
 

@@ -35,8 +35,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </remarks>
 public sealed class DesktopActionRowTests : E2eTestBase
 {
-    public DesktopActionRowTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public DesktopActionRowTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     private static readonly int[] SubmitWidths = [716, 731, 746, 761, 800, 900];
 

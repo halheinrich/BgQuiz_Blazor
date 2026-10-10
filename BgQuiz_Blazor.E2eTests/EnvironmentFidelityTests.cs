@@ -78,8 +78,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class EnvironmentFidelityTests : E2eTestBase
 {
-    public EnvironmentFidelityTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public EnvironmentFidelityTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     /// <summary>
     /// Wide enough to land in Bootstrap's <c>xl</c> tier (≥1200px), so the

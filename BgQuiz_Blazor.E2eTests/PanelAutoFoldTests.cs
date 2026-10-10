@@ -33,8 +33,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </remarks>
 public sealed class PanelAutoFoldTests : E2eTestBase
 {
-    public PanelAutoFoldTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public PanelAutoFoldTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     /// <summary>
     /// A click on the page outside every control: the board's title strip, at

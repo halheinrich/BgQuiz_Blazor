@@ -39,8 +39,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class AnswerTypeBreakdownTests : E2eTestBase
 {
-    public AnswerTypeBreakdownTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public AnswerTypeBreakdownTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     [Fact]
     public async Task TheCountReportsThePoolsAnswerTypesIncludingTheEmptyOnes()

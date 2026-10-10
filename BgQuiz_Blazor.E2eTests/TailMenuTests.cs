@@ -27,8 +27,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </remarks>
 public sealed class TailMenuTests : E2eTestBase
 {
-    public TailMenuTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public TailMenuTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     /// <summary>Copy XGID writes the clipboard, and the scenario reads it back.</summary>
     protected override BrowserNewContextOptions ContextOptions =>

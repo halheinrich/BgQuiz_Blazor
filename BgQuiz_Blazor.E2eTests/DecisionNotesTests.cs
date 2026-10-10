@@ -1,5 +1,4 @@
 using Microsoft.Playwright;
-using Xunit.Abstractions;
 using static Microsoft.Playwright.Assertions;
 
 namespace BgQuiz_Blazor.E2eTests;
@@ -34,13 +33,10 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class DecisionNotesTests : E2eTestBase
 {
-    /// <summary>xUnit's per-test output sink, for the review row's measured geometry.</summary>
-    private readonly ITestOutputHelper _output;
 
     public DecisionNotesTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
-        : base(app, playwright)
+        : base(app, playwright, output)
     {
-        _output = output;
     }
 
     /// <summary>
@@ -262,8 +258,8 @@ public sealed class DecisionNotesTests : E2eTestBase
                 .join(String.fromCharCode(10));
             }
             """);
-        _output.WriteLine("[review row geometry] synthesized .xg, cube review, notes present, panel showing");
-        _output.WriteLine(report);
+        Output.WriteLine("[review row geometry] synthesized .xg, cube review, notes present, panel showing");
+        Output.WriteLine(report);
 
         await ExpectToPassAsync(async () =>
         {

@@ -26,8 +26,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class ForcedPlaySkipTests : E2eTestBase
 {
-    public ForcedPlaySkipTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public ForcedPlaySkipTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     [Fact]
     public async Task ForcedPlayIsPassedOver_AndTheQuizLandsOnTheRealDecision()

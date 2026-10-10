@@ -16,8 +16,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 {
-    public StatsPersistenceTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public StatsPersistenceTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     [Fact]
     public async Task FsAccessPick_Submit_WritesStatsJson_AndContinueWritesNothingMore()
@@ -401,8 +401,8 @@ public sealed class StatsPersistenceTests : FsAccessFakeTestBase
 /// </summary>
 public sealed class FallbackPickNoticeTests : E2eTestBase
 {
-    public FallbackPickNoticeTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public FallbackPickNoticeTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     [Fact]
     public async Task FallbackPick_DirectoryInput_NoStatsNoticeAndQuizRuns()

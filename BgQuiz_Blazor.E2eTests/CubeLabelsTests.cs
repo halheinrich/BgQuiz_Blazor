@@ -26,8 +26,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </remarks>
 public sealed class CubeLabelsTests : E2eTestBase
 {
-    public CubeLabelsTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public CubeLabelsTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     private ILocator CollapseRail =>
         Page.GetByRole(AriaRole.Checkbox, new() { Name = ExpectedText.HideNavigationPanelCheckbox });

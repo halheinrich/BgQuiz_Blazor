@@ -20,8 +20,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// </summary>
 public sealed class EndQuizEarlyTests : E2eTestBase
 {
-    public EndQuizEarlyTests(PublishedAppFixture app, PlaywrightFixture playwright)
-        : base(app, playwright) { }
+    public EndQuizEarlyTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
+        : base(app, playwright, output) { }
 
     private ILocator EndQuizButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.EndQuizButton });
 
