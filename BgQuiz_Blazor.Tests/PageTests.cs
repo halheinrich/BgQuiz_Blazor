@@ -690,14 +690,15 @@ public class PageTests : BunitContext
         WithPickedFolder(); // satisfy the folder gate so Start is clickable
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
+        var cut = RenderHomeSettled(); // the first parse holds the setup disabled until it lands
 
         // Type the player through the panel's own control (in the collapsed
         // Players row) and commit with its Apply — the real gesture, so the
         // config that reaches the pipeline is the one the panel built.
         await ExpandFacetRowAsync(cut, FilterFacet.Players);
-        cut.Find("input[placeholder='e.g. Hal, Magriel']").Input("Alice");
+        await cut.Find("input[placeholder='e.g. Hal, Magriel']").InputAsync(new ChangeEventArgs { Value = "Alice" });
         await ApplyFiltersAsync(cut);
+        WaitForHomeToSettle(cut);
 
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         await startBtn.ClickAsync(new());
@@ -756,7 +757,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_FilterInEffect_ShowsMatchCount()
+    public void Home_FilterInEffect_ShowsMatchCount()
     {
         // Task U: applying filters shows how many decisions matched, sourced
         // from the controller's SummarizeMatchesAsync over the source's items (the
@@ -767,15 +768,14 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         Assert.Contains("<strong>2</strong>", cut.Markup);
         Assert.Contains("decisions match your filters", cut.Markup);
     }
 
     [Fact]
-    public async Task Home_FilterInEffect_SingleMatch_UsesSingularWording()
+    public void Home_FilterInEffect_SingleMatch_UsesSingularWording()
     {
         // Pluralization pin: exactly one match reads "decision matches", not
         // "decisions match".
@@ -783,8 +783,7 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         Assert.Contains("<strong>1</strong>", cut.Markup);
         Assert.Contains("decision matches your filters", cut.Markup);
@@ -792,7 +791,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_FilterInEffect_NoDuplicatesCollapsed_SaysThereAreNoRepeats()
+    public void Home_FilterInEffect_NoDuplicatesCollapsed_SaysThereAreNoRepeats()
     {
         // Issue halheinrich/backgammon#104. The count has always been a count of distinct positions —
         // the source stack dedupes beneath everything — but the line said
@@ -807,8 +806,7 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         var region = Normalize(MatchSummaryRegion(cut).TextContent);
         Assert.Contains("2 decisions match your filters. There are no repeated positions.", region);
@@ -819,7 +817,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_FilterInEffect_DuplicatesCollapsed_StatesTheMagnitude()
+    public void Home_FilterInEffect_DuplicatesCollapsed_StatesTheMagnitude()
     {
         // The half that actually removes the mystery: "distinct" alone still
         // leaves the user's subtraction unexplained, so the collapse magnitude
@@ -833,8 +831,7 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         var region = Normalize(MatchSummaryRegion(cut).TextContent);
         Assert.Contains("Repeated positions are counted once. 21 duplicates are omitted.", region);
@@ -845,7 +842,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_FilterInEffect_OneDuplicateCollapsed_UsesSingularWording()
+    public void Home_FilterInEffect_OneDuplicateCollapsed_UsesSingularWording()
     {
         // Pluralization pin for the magnitude sentence, the mate of the count
         // line's own: one collapsed copy reads "1 duplicate is omitted."
@@ -856,8 +853,7 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         var region = Normalize(MatchSummaryRegion(cut).TextContent);
         Assert.Contains("Repeated positions are counted once. 1 duplicate is omitted.", region);
@@ -865,7 +861,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_FilterInEffect_NoMatches_SaysNothingAboutRepeats()
+    public void Home_FilterInEffect_NoMatches_SaysNothingAboutRepeats()
     {
         // Suppressed on an empty pool for the reason the breakdown is: with
         // nothing matched there is no pool to characterize, so a qualification
@@ -874,8 +870,7 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         var box = Normalize(NoMatchBox(cut).Content.TextContent);
         Assert.Contains("0 decisions match your filters", box);
@@ -884,7 +879,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_FilterInEffect_MixInEffect_CountCarriesThePoolCaveat()
+    public void Home_FilterInEffect_MixInEffect_CountCarriesThePoolCaveat()
     {
         // The count is filter-only (SummarizeMatchesAsync composes with QuizMix.Empty),
         // so with a mix in effect the number is the pool the quiz is *drawn from* —
@@ -900,8 +895,7 @@ public class PageTests : BunitContext
         WithActiveMix(NeverSeenMix()); // checked, non-passthrough
         ExpectHomeOverAFolder();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         var count = cut.FindAll("div[role=status]")
                        .First(d => d.TextContent.Contains("decisions match your filters"));
@@ -912,7 +906,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_FilterInEffect_NoMix_CountCarriesNoCaveat()
+    public void Home_FilterInEffect_NoMix_CountCarriesNoCaveat()
     {
         // Passthrough (the default): the quiz presents what the filters matched, so
         // there is nothing to qualify — the caveat must not appear.
@@ -922,15 +916,14 @@ public class PageTests : BunitContext
         WithPickedFolder(capability: FolderWriteCapability.Enabled);
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         Assert.Contains("decisions match your filters", cut.Markup);
         Assert.DoesNotContain("drawn from these matches", cut.Markup);
     }
 
     [Fact]
-    public async Task Home_FilterInEffect_BreaksThePoolDownByAnswerType()
+    public void Home_FilterInEffect_BreaksThePoolDownByAnswerType()
     {
         // Issue halheinrich/backgammon#35: the count line is joined by the answer-type breakdown, so a
         // user can see what their collection is made of before starting. The
@@ -946,8 +939,7 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         var region = MatchSummaryRegion(cut);
         Assert.Contains("By answer type", region.TextContent);
@@ -962,7 +954,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_FilterInEffect_CountAndBreakdownComeFromOneDistribution()
+    public void Home_FilterInEffect_CountAndBreakdownComeFromOneDistribution()
     {
         // The wiring guarantee behind replacing the int-returning count: the
         // number the user reads and the buckets under it are two renderings of
@@ -977,8 +969,7 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         var region = MatchSummaryRegion(cut);
         var renderedCount = int.Parse(region.QuerySelector("strong")!.TextContent);
@@ -993,7 +984,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_FilterInEffect_NoMatches_ShowsTheCountWithoutABreakdown()
+    public void Home_FilterInEffect_NoMatches_ShowsTheCountWithoutABreakdown()
     {
         // The one case the breakdown is suppressed: an empty pool has no
         // make-up to describe, and five zeros under "0 decisions match" would be
@@ -1003,8 +994,7 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         var box = NoMatchBox(cut).Content;
         Assert.Contains("0 decisions match your filters", Normalize(box.TextContent));
@@ -1012,7 +1002,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_KnownEmptyPool_GatesStart_WithItsOwnHint()
+    public void Home_KnownEmptyPool_GatesStart_WithItsOwnHint()
     {
         // The zero-pool Start gate (found dogfooding, ruled): an applied filter
         // the page has just reported matching NOTHING must not leave Start
@@ -1023,8 +1013,7 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         Assert.Contains("0 decisions match your filters", Normalize(NoMatchBox(cut).Content.TextContent));
         Assert.True(StartButton(cut).HasAttribute("disabled"));
@@ -1042,8 +1031,7 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         var box = NoMatchBox(cut).ShouldBe(
             NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: false, "id", "class");
@@ -1059,7 +1047,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ZeroMatchCount_WithTheMixInEffect_CarriesTheMixCaveatInTheBox()
+    public void Home_ZeroMatchCount_WithTheMixInEffect_CarriesTheMixCaveatInTheBox()
     {
         WithController();
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
@@ -1067,8 +1055,7 @@ public class PageTests : BunitContext
         WithActiveMix(NeverSeenMix());
         ExpectHomeOverAFolder();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         var text = Normalize(NoMatchBox(cut).Content.TextContent);
         Assert.StartsWith("0 decisions match your filters.", text);
@@ -1080,14 +1067,13 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_NonZeroMatchCount_IsThePlainLine_WithNoBox()
+    public void Home_NonZeroMatchCount_IsThePlainLine_WithNoBox()
     {
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         Assert.Empty(cut.FindAll("#noMatchNotice"));
         Assert.DoesNotContain(NoticeBox.AllIn(cut), n => n.Content.TextContent.Contains("match"));
@@ -1108,8 +1094,7 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
         Assert.Contains("No problems match the filters", cut.Markup);
 
         await EditFilterControlAsync(cut);
@@ -1133,8 +1118,7 @@ public class PageTests : BunitContext
         WithPickedFolder();
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
         Assert.Contains("decisions match your filters", cut.Markup);
         Assert.Contains("By answer type", cut.Markup);
 
@@ -1223,8 +1207,7 @@ public class PageTests : BunitContext
         WithParsedPick(WithPickedFolder(), report);
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         // The count line is unchanged — the quiz runs over the readable file.
         Assert.Contains("2 decisions match your filters", Normalize(MatchSummaryRegion(cut).TextContent));
@@ -1268,8 +1251,7 @@ public class PageTests : BunitContext
         WithParsedPick(WithPickedFolder(), PartialReport());
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
         Assert.Contains("match your filters", cut.Markup);
 
         await EditFilterControlAsync(cut);
@@ -1386,7 +1368,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_RejectedFilesBesideReadableFilesWithZeroMatches_ShowsTheNoMatchBoxAndTheRecord()
+    public void Home_RejectedFilesBesideReadableFilesWithZeroMatches_ShowsTheNoMatchBoxAndTheRecord()
     {
         // Both, and neither lost inside the other: the ordinary no-match
         // explanation for the zero, and the partial record for what the
@@ -1396,8 +1378,7 @@ public class PageTests : BunitContext
         WithParsedPick(WithPickedFolder(), PartialReport());
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         Assert.Equal("0 decisions match your filters.", Normalize(NoMatchBox(cut).Content.TextContent));
         Assert.Single(cut.FindAll("#rejectedFilesNotice"));
@@ -1415,8 +1396,7 @@ public class PageTests : BunitContext
         WithParsedPick(WithPickedFolder(), report);
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         var box = AllRejectedNotice(cut).ShouldBe(
             NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: false, "id", "class");
@@ -1474,8 +1454,7 @@ public class PageTests : BunitContext
         WithParsedPick(WithPickedFolder(), AllRejectedReport());
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
         Assert.Single(cut.FindAll("#allRejectedNotice"));
 
         await EditFilterControlAsync(cut);
@@ -1509,8 +1488,7 @@ public class PageTests : BunitContext
         Services.AddSingleton(controller);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         // The count threw before any parse: nothing is known, Start is live.
         Assert.Null(folder.Parsed);
@@ -1534,7 +1512,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_ParsedPickWithNothingRejected_RendersNeitherBox()
+    public void Home_ParsedPickWithNothingRejected_RendersNeitherBox()
     {
         // The count line in every other case is unchanged: a completed parse
         // that rejected nothing is the ordinary pick, and neither box renders.
@@ -1543,8 +1521,7 @@ public class PageTests : BunitContext
         folder.StoreParsed(folder.PickGeneration, TestFixtures.Parsed(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())));
         WithShuffleOption();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         Assert.Contains("1 decision matches your filters", Normalize(MatchSummaryRegion(cut).TextContent));
         Assert.Empty(cut.FindAll("#rejectedFilesNotice"));
@@ -3108,8 +3085,9 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
+        WaitForHomeToSettle(cut); // the pick's first parse holds the setup disabled until it lands
 
-        cut.Find("#saveFilterName").Input("MyFilter");
+        await cut.Find("#saveFilterName").InputAsync(new ChangeEventArgs { Value = "MyFilter" });
         await ClickSavedFilterButtonByTextAsync(cut, "Save");
 
         Assert.Single(_folderAccess.FiltersWrites);
@@ -3131,11 +3109,12 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
+        WaitForHomeToSettle(cut); // the pick's first parse holds the setup disabled until it lands
 
         // Position pattern is a collapsed row — open it to type.
         await ExpandFacetRowAsync(cut, FilterFacet.PositionPattern);
-        cut.Find("#positionPattern").Input("[6,2"); // unparseable
-        cut.Find("#saveFilterName").Input("Bad");
+        await cut.Find("#positionPattern").InputAsync(new ChangeEventArgs { Value = "[6,2" }); // unparseable
+        await cut.Find("#saveFilterName").InputAsync(new ChangeEventArgs { Value = "Bad" });
         await ClickSavedFilterButtonByTextAsync(cut, "Save");
 
         // The refusal copy names no field, by producer ruling (halheinrich/backgammon#39): the
@@ -3168,10 +3147,11 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
+        WaitForHomeToSettle(cut); // the pick's first parse holds the setup disabled until it lands
 
         await ExpandFacetRowAsync(cut, FilterFacet.PositionPattern);
-        cut.Find("#positionPattern").Input("[6,2"); // unparseable → save refused
-        cut.Find("#saveFilterName").Input("Bad");
+        await cut.Find("#positionPattern").InputAsync(new ChangeEventArgs { Value = "[6,2" }); // unparseable → save refused
+        await cut.Find("#saveFilterName").InputAsync(new ChangeEventArgs { Value = "Bad" });
         await ClickSavedFilterButtonByTextAsync(cut, "Save");
         Assert.Contains("The current filter has an invalid value", cut.Markup);
 
@@ -3218,11 +3198,12 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
+        WaitForHomeToSettle(cut); // the pick's first parse holds the setup disabled until it lands
 
         // The legacy document loaded: its filter is offered.
         Assert.NotNull(FindSavedFilterRowButton(cut, "Race", "Load"));
 
-        cut.Find("#saveFilterName").Input("MyFilter");
+        await cut.Find("#saveFilterName").InputAsync(new ChangeEventArgs { Value = "MyFilter" });
         // The save-as button by its id — a row Save also labels itself "Save",
         // so text alone is ambiguous once a filter is listed.
         await cut.Find("#saveFilterButton").ClickAsync(new());
@@ -3544,13 +3525,15 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
+        WaitForHomeToSettle(cut); // the pick's first parse holds the setup disabled until it lands
 
         // Commit a distinctive config through the panel's own Apply button, so
         // what comes back on the undo is identifiably the committed one. Players
         // is a collapsed row.
         await ExpandFacetRowAsync(cut, FilterFacet.Players);
-        cut.Find("input[placeholder='e.g. Hal, Magriel']").Input("Magriel");
+        await cut.Find("input[placeholder='e.g. Hal, Magriel']").InputAsync(new ChangeEventArgs { Value = "Magriel" });
         await ApplyFiltersAsync(cut);
+        WaitForHomeToSettle(cut);
         Assert.False(StartButton(cut).HasAttribute("disabled"));
         Assert.Contains("decisions match your filters", cut.Markup);
 
@@ -3564,14 +3547,12 @@ public class PageTests : BunitContext
         await cut.Find("input[placeholder='e.g. Hal, Magriel']")
                  .InputAsync(new ChangeEventArgs { Value = "Magriel" });
 
-        // The report is fire-and-forget on the panel's side and the recount runs
-        // through the busy affordance's yield, so wait for it rather than
-        // sampling the markup the dispatch happened to return on.
-        cut.WaitForAssertion(() =>
-        {
-            Assert.False(StartButton(cut).HasAttribute("disabled"));
-            Assert.Contains("decisions match your filters", cut.Markup);
-        });
+        // The count of the restored filter is the one the holder already has,
+        // reused; wait for the page to show it rather than sampling the markup
+        // the dispatch happened to return on.
+        WaitForHomeToSettle(cut);
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains("decisions match your filters", cut.Markup);
         Assert.Equal(["Magriel"], FilterInEffect()!.Players);
     }
 
@@ -3593,6 +3574,7 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
         await ApplyFiltersAsync(cut);
+        WaitForHomeToSettle(cut);
 
         Assert.Contains("decision matches your filters", cut.Markup);
         Assert.Equal(1, fake.EnumerateCallCount);
@@ -3671,6 +3653,7 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
+        WaitForHomeToSettle(cut); // the pick's first parse holds the setup disabled until it lands
 
         // Set a filter through the panel's own controls and commit it with its own
         // Apply button — the real gesture, not a synthesized callback. Players
@@ -3682,14 +3665,15 @@ public class PageTests : BunitContext
         // the panel's stored open-row set with nothing, where a browser would
         // restore the open row.
         await ExpandFacetRowAsync(cut, FilterFacet.Players);
-        cut.Find("input[placeholder='e.g. Hal, Magriel']").Input("Magriel");
+        await cut.Find("input[placeholder='e.g. Hal, Magriel']").InputAsync(new ChangeEventArgs { Value = "Magriel" });
         await ApplyFiltersAsync(cut);
+        WaitForHomeToSettle(cut);
 
         Assert.Equal("Magriel",
             cut.Find("input[placeholder='e.g. Hal, Magriel']").GetAttribute("value"));
         Assert.NotNull(FilterInEffect());
         Assert.False(StartButton(cut).HasAttribute("disabled"));
-        cut.WaitForAssertion(() => Assert.Contains("decisions match your filters", cut.Markup));
+        Assert.Contains("decisions match your filters", cut.Markup);
 
         // Re-pick a different folder.
         _folderAccess.NextPickOutcome = OneFileOutcome("Second", "second.xg");
@@ -3844,8 +3828,7 @@ public class PageTests : BunitContext
         WithShuffleOption();
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         Assert.False(startBtn.HasAttribute("disabled")); // a real click: the count was one
@@ -3920,7 +3903,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public void Home_ShuffleCheckbox_TogglesHolder()
+    public async Task Home_ShuffleCheckbox_TogglesHolder()
     {
         // UI wire: the checkbox's @onchange must reach the ShuffleOption holder —
         // no intermediate transient field to desync on navigate-back, matching
@@ -3929,14 +3912,14 @@ public class PageTests : BunitContext
         WithPickedFolder(); // progressive disclosure: the checkbox shows only post-pick
         var shuffle = WithShuffleOption();
 
-        var cut = Render<HomePage>();
+        var cut = RenderHomeSettled(); // the first parse holds the setup disabled until it lands
         var checkbox = cut.Find("#shuffleOrder");
         Assert.False(checkbox.HasAttribute("checked"));
 
-        checkbox.Change(true);
+        await checkbox.ChangeAsync(new ChangeEventArgs { Value = true });
         Assert.True(shuffle.Enabled);
 
-        checkbox.Change(false);
+        await checkbox.ChangeAsync(new ChangeEventArgs { Value = false });
         Assert.False(shuffle.Enabled);
     }
 
@@ -4212,11 +4195,10 @@ public class PageTests : BunitContext
         var controller = WithShufflableController(shuffle, items);
         WithPickedFolder();
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
         var checkbox = cut.Find("#shuffleOrder");
-        checkbox.Change(true);
+        await checkbox.ChangeAsync(new ChangeEventArgs { Value = true });
 
         var startBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Start Quiz");
         await startBtn.ClickAsync(new());
@@ -5591,8 +5573,7 @@ public class PageTests : BunitContext
         await Settings().EnsureHydratedAsync();
         await Settings().SetSortAnalysisByDepthFirstAsync(true);
 
-        var cut = Render<HomePage>();
-        await ApplyFiltersAsync(cut);
+        var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
         Assert.Equal([PlayRanking.DepthFirst], handed);    // the count
 
         await StartButton(cut).ClickAsync(new());
@@ -12173,7 +12154,9 @@ public class PageTests : BunitContext
         Assert.True(fieldsetDisabledMidScan);
         Assert.True(busyCursorMidScan);
 
-        // …and lowered again once the summary is on screen.
+        // …and lowered again once the summary is on screen: the pick's first
+        // parse keeps the page busy until its count lands.
+        WaitForHomeToSettle(cut);
         Assert.False(cut.Find("fieldset").HasAttribute("disabled"));
         Assert.Empty(cut.FindAll("div.app-busy"));
         Assert.Contains("1 problem file", cut.Markup);

@@ -4639,13 +4639,38 @@ public (see Pitfalls). The externally visible surface is the route map:
   `XgFilter_Razor.Components.Internal`).
   `PageTests`' helpers encode the sanctioned gestures: `ApplyFiltersAsync`
   clicks the panel's real *Apply Filter* button (committing whatever the
-  buffers hold — defaults on a fresh mount under loose JS interop),
-  `EditFilterControlAsync` / `UndoFilterEditAsync` drive the always-visible
-  error-range Min input for dirty/clean reports. Two consequences the old
-  synthetic helpers hid: Apply's own gate refuses an unchanged selection, so
-  a second apply within one panel mount needs a real edit first; and a commit
-  raises *both* events, exactly as production does. Locating the
-  `FilterSurface` component itself is fine — it is consumer surface.
+  draft holds), `EditFilterControlAsync` / `UndoFilterEditAsync` drive the
+  always-visible error-range Min input, moving the draft off the baseline
+  and back. Apply's own gate refuses an unchanged selection, so a second
+  apply needs a real edit first — and the empty selection is in effect
+  without any Apply (halheinrich/backgammon#266), so a test that only needs
+  a filter in effect renders and settles rather than clicking Apply.
+  Locating the `FilterSurface` component itself is fine — it is consumer
+  surface.
+- **A Home test waits for the boundary its next step needs — and only
+  that** (halheinrich/backgammon#374). Home starts its match count from the
+  filter owner's snapshot, on render and after every change to what is in
+  effect, not from any gesture a test awaits; and a pick's first count holds
+  the setup surface disabled until it lands. Two boundaries were missed, and
+  each flaked the suite under load: (1) **the count's publication for the
+  page's current key** — reading the count line, a box or a count-dependent
+  gate, or acting on the setup surface after a pick, waits in
+  `WaitForHomeToSettle` / `RenderHomeSettled`, which build the page's key
+  with Home's own `MatchCountInputs.For`, require the holder to hold it by
+  the type's own equality, wait for that reading to stop counting, and then
+  for the page to show it; `ApplyFiltersAsync` awaits only its click's own
+  render, never the count it starts. (2) **a gesture's own dispatch** —
+  bUnit's synchronous event helpers (`Change`, `Input`, `Click`) return
+  without waiting when another thread holds the renderer's dispatcher (the
+  count's continuations do), so the handler runs after the assertion; Home
+  tests use the awaited forms (`ChangeAsync`, `InputAsync`, `ClickAsync`).
+  Tests whose subject is pending work — a held restoration or count, Clear
+  or re-pick while counting, typing during a cached recount — keep explicit
+  control and act before completion. Retry observations, never the user's
+  action; no sleeps, no forced renders. The two probes that found every
+  case: delay the count's publication (`await Task.Delay` after its yield)
+  for (1), and hold the dispatcher in it (`Thread.Sleep`) for (2) — each
+  must fail nothing.
 - **Never inventory the navigation panel in prose.** `Help`'s collapse note
   describes the *control* and its behaviour — where the rail is, which way the
   chevron points, how long the choice lasts — and names nothing the panel
