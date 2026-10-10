@@ -327,36 +327,81 @@ public class PageTests : BunitContext
     }
 
     /// <summary>
-    /// Wait until the rendered Home has settled what a render starts on its
-    /// own: the boot's filter restoration, and — when that leaves a filter in
-    /// effect for the held pick — the match count of it, rendered. The count
-    /// starts from the owner's snapshot rather than from a gesture the test
-    /// awaits, so a test that acts on the page right after rendering it would
-    /// otherwise race the count's re-render (a notice read before it and
-    /// dismissed after it has lost its handlers). Over no pick, or with nothing
-    /// in effect, there is nothing to wait for. Not for a test whose count is
-    /// held on purpose: that count never settles.
+    /// Wait until the rendered Home has settled what its render or the last
+    /// gesture started on its own: the boot's filter restoration, and — when a
+    /// filter is in effect for the held pick — the match count of exactly what
+    /// is on screen, rendered. The count starts from the owner's snapshot
+    /// rather than from anything a test awaits, so a test whose next step
+    /// needs a settled Home (reading the count, acting on a control the first
+    /// parse holds disabled) waits here first (halheinrich/backgammon#374).
+    ///
+    /// <para>
+    /// <b>The page's key, built as the page builds it.</b> The current key is
+    /// <see cref="MatchCountInputs.For"/> over the owner's snapshot, the
+    /// pick's source and the ranking setting — Home's own factory and inputs
+    /// — and the holder must hold that key by <see cref="MatchCountInputs"/>'
+    /// own equality, never a field-by-field restatement that a later change to
+    /// the key would leave passing on the wrong count. Then the reading for it
+    /// must have stopped counting. So a settled count of an earlier config or
+    /// ranking over the same folder does not pass, and once the key is held,
+    /// <see cref="MatchCountReading.Unknown"/> means its count failed: settled.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Then the page shows it</b> (<see cref="AssertRendersTheSettledCount"/>),
+    /// not merely the absence of the counting line. Over no pick, or with
+    /// nothing in effect, nothing is counted for the page. Not for a test whose
+    /// count is held on purpose: that count never settles.
+    /// </para>
     /// </summary>
     private void WaitForHomeToSettle(IRenderedComponent<HomePage> cut)
     {
+        MatchCountReading? settled = null;
         cut.WaitForAssertion(() =>
         {
+            settled = null;
             var folder = Services.GetRequiredService<PickedProblemFolder>();
             if (!folder.HasFiles) return;
 
             var setup = Services.GetRequiredService<FilterSetup>().Current;
             Assert.NotEqual(FilterRestoration.Pending, setup.Restoration);
 
-            var source = FilterSourceToken.FromGeneration(folder.PickGeneration);
-            if (!setup.IsInEffectFor(source)) return;
+            var key = MatchCountInputs.For(
+                setup,
+                FilterSourceToken.FromGeneration(folder.PickGeneration),
+                Services.GetRequiredService<QuizSettings>().Ranking);
+            if (key is null) return; // nothing in effect for the pick: nothing is counted for the page
 
             var count = Services.GetRequiredService<MatchCount>();
-            Assert.Equal(source, count.Inputs?.Selection);
-            Assert.False(count.ReadingFor(count.Inputs).IsCounting);
+            Assert.Equal(key, count.Inputs);
+            var reading = count.ReadingFor(key);
+            Assert.False(reading.IsCounting);
+            settled = reading;
         });
 
-        // Then the page as rendered: what the settled state says, in the DOM.
-        cut.WaitForAssertion(() => Assert.DoesNotContain("Counting matching decisions", cut.Markup));
+        cut.WaitForAssertion(() => AssertRendersTheSettledCount(cut, settled));
+    }
+
+    /// <summary>
+    /// What Home renders for a settled count of what is on screen: no counting
+    /// line, and — when the count is known — the box or line that carries it:
+    /// the all-rejected box over a parse that read no file, the no-match box at
+    /// zero, the count line otherwise. A count that failed renders none of
+    /// them; nothing in effect renders no count at all.
+    /// </summary>
+    private void AssertRendersTheSettledCount(IRenderedComponent<HomePage> cut, MatchCountReading? settled)
+    {
+        Assert.DoesNotContain("Counting matching decisions", cut.Markup);
+        if (settled?.Summary is not { } summary) return;
+
+        if (Services.GetRequiredService<PickedProblemFolder>().Parsed is { Report.AllRejected: true })
+            Assert.Single(cut.FindAll("#allRejectedNotice"));
+        else if (summary.AnswerTypes.Total == 0)
+            Assert.Single(cut.FindAll("#noMatchNotice"));
+        else
+            Assert.Contains(
+                $"{summary.AnswerTypes.Total} decision",
+                Normalize(MatchSummaryRegion(cut).TextContent));
     }
 
     /// <summary>Render Home and wait for it to settle (<see cref="WaitForHomeToSettle"/>).</summary>
