@@ -5,6 +5,7 @@ using BgQuiz_Blazor.Client.Quiz;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Razor;
 using XgFilter_Razor.Components;
 
@@ -55,7 +56,7 @@ public class MatchCountTests : BunitContext
                 _built++;
                 return TestFixtures.Composed(ranking == PlayRanking.Equity ? _equity : _depthFirst);
             },
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
         _count = new MatchCount(controller, _log);
     }
 

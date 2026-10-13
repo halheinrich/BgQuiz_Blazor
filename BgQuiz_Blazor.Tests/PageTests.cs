@@ -221,7 +221,7 @@ public class PageTests : BunitContext
     {
         var fake = new FakeProblemSetSource(items);
         var controller = new QuizController(
-            (_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System);
+            (_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -241,7 +241,7 @@ public class PageTests : BunitContext
         var fake = new FakeProblemSetSource(items);
         var controller = new QuizController(
             (_, _, _) => TestFixtures.Composed(fake, duplicatesCollapsed),
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -570,7 +570,7 @@ public class PageTests : BunitContext
     {
         var fake = new FakeProblemSetSource(items);
         sink = new FakeProblemStatsSink();
-        var controller = new QuizController((_, _, _) => TestFixtures.Composed(fake), sink, TimeProvider.System);
+        var controller = new QuizController((_, _, _) => TestFixtures.Composed(fake), sink, TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -685,7 +685,7 @@ public class PageTests : BunitContext
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         var controller = new QuizController(
             (set, _, _) => { capturedPipeline = set; return TestFixtures.Composed(fake); },
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         WithPickedFolder(); // satisfy the folder gate so Start is clickable
         WithShuffleOption();
@@ -1192,7 +1192,7 @@ public class PageTests : BunitContext
                     ? throw new InvalidOperationException("count failed")
                     : TestFixtures.Composed(fake);
             },
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -1484,7 +1484,7 @@ public class PageTests : BunitContext
             (filters, ranking, mix) => failing.Value
                 ? throw new InvalidOperationException("count failed")
                 : real(filters, ranking, mix),
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
@@ -3567,7 +3567,7 @@ public class PageTests : BunitContext
         // per call.
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         Services.AddSingleton(
-            new QuizController((_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System));
+            new QuizController((_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance));
         WithShuffleOption();
         _folderAccess.NextPickOutcome = OneFileOutcome();
 
@@ -3742,7 +3742,7 @@ public class PageTests : BunitContext
             (_, _, _) => failing.Value
                 ? throw new InvalidOperationException("source failed")
                 : TestFixtures.Composed(new FakeProblemSetSource([])),
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -3760,7 +3760,7 @@ public class PageTests : BunitContext
     {
         Services.AddSingleton(new QuizController(
             (_, _, _) => throw new InvalidOperationException(StartFailure),
-            new FakeProblemStatsSink(), TimeProvider.System));
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance));
         WithPickedFolder();
         WithShuffleOption();
 
@@ -3814,6 +3814,73 @@ public class PageTests : BunitContext
         await StartButton(cut).ClickAsync(new());
 
         Assert.Contains(StartFailure, NoticeSaying(cut, "Could not start quiz").Content.TextContent);
+    }
+
+    // -----------------------------------------------------------------------
+    //  A faulted Start or Restart keeps the current quiz
+    //  (SPEC-quiz-history.md §8; halheinrich/backgammon#325 item 1)
+    //
+    //  The controller's own pins are QuizControllerStartAttemptTests'. Home
+    //  makes an attempt, and its "Back to quiz" must then return to the quiz
+    //  that was running.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// A controller whose source factory serves <paramref name="items"/>, except
+    /// on the calls <paramref name="faultsOnCall"/> names (1-based), where the
+    /// source it builds faults on its first draw — the latest point in an
+    /// attempt's prepare, after its stream is open.
+    /// </summary>
+    private QuizController WithControllerFaultingOnCalls(Func<int, bool> faultsOnCall, params BgDecisionData[] items)
+    {
+        var calls = 0;
+        var controller = new QuizController(
+            (_, _, _) => TestFixtures.Composed(faultsOnCall(++calls)
+                ? new RecordingProblemSetSource("Faulting", new StreamLog(), items, faultAtDraw: 1)
+                : new FakeProblemSetSource(items)),
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+        Services.AddSingleton(controller);
+        return controller;
+    }
+
+    [Fact]
+    public async Task Home_AFaultedStart_ThenBackToQuiz_ShowsTheSameProblem_WhichIsAnsweredAndAdvanced()
+    {
+        // The quiz under way is on its first problem when the user goes Home
+        // and Starts again, and that Start faults. Every source after the
+        // first faults, so Home's own count fails too and leaves Start live.
+        var first = TestFixtures.CubeDecision(id: new XgpDecisionId("a.xgp"));
+        var second = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), id: new XgpDecisionId("b.xgp"));
+        var c = WithControllerFaultingOnCalls(call => call > 1, first, second);
+        WithPickedFolder();
+        WithShuffleOption();
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await NormalViewAsync();
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        var home = RenderHomeSettled();
+        await StartButton(home).ClickAsync(new());
+
+        Assert.Contains(RecordingProblemSetSource.FaultMessage,
+            NoticeSaying(home, "Could not start quiz").Content.TextContent);
+        Assert.False(nav.Uri.EndsWith("/quiz", StringComparison.Ordinal));
+
+        await home.FindAll("button").First(b => b.TextContent.Trim() == "Back to quiz").ClickAsync(new());
+        Assert.EndsWith("/quiz", nav.Uri);
+
+        // The same problem, on screen.
+        var quiz = Render<QuizPage>();
+        Assert.Same(first, c.Current);
+        Assert.Equal("Problem 1 of 2", ProblemPositionText(quiz));
+
+        // Answered through the page, and advanced from the quiz's own source.
+        await AnswerCubeAsync(quiz, CubeAnswer.DoubleTake);
+        await quiz.FindAll("button").First(b => b.TextContent.Trim() == "Submit").ClickAsync(new());
+        Assert.Equal(1, c.Score.Total.Submitted);
+        await ButtonNamed(quiz, "Continue").ClickAsync(new());
+
+        quiz.WaitForAssertion(() => Assert.Equal("Problem 2 of 2", ProblemPositionText(quiz)));
+        Assert.Same(second, c.Current);
     }
 
     [Fact]
@@ -4126,7 +4193,7 @@ public class PageTests : BunitContext
         var fake = new FakeProblemSetSource(items);
         var controller = new QuizController(
             (_, _, _) => TestFixtures.Composed(shuffle.Enabled ? new ShuffledProblemSetSource(fake, seed: 42) : fake),
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -4429,7 +4496,7 @@ public class PageTests : BunitContext
         // total — the indicator degrades to the bare position.
         var fake = new FakeProblemSetSource(
             [TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())], countKnown: false);
-        var c = new QuizController((_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System);
+        var c = new QuizController((_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(c);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await NormalViewAsync();
@@ -5566,7 +5633,7 @@ public class PageTests : BunitContext
         var fake = new FakeProblemSetSource([TestFixtures.DepthSplitDecision()]);
         var controller = new QuizController(
             (_, ranking, _) => { handed.Add(ranking); return TestFixtures.Composed(fake); },
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         WithPickedFolder();
         WithShuffleOption();
@@ -12078,7 +12145,7 @@ public class PageTests : BunitContext
         var gated = new GatedProblemSetSource(items);
         source = gated;
         sink = new FakeProblemStatsSink();
-        var controller = new QuizController((_, _, _) => TestFixtures.Composed(gated), sink, TimeProvider.System);
+        var controller = new QuizController((_, _, _) => TestFixtures.Composed(gated), sink, TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -13333,7 +13400,7 @@ public class PageTests : BunitContext
                 counts.Add(ranking);
                 return TestFixtures.Composed(fake);
             },
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -13469,7 +13536,7 @@ public class PageTests : BunitContext
         var built = 0;
         var controller = new QuizController(
             (_, _, _) => TestFixtures.Composed(sources[built++]),
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }

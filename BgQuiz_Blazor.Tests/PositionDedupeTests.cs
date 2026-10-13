@@ -132,7 +132,7 @@ public class PositionDedupeTests
         var controller = new QuizController(
             FactoryOver(picked, new ShuffleOption()),
             new FakeProblemStatsSink(),
-            TimeProvider.System);
+            TimeProvider.System, NullLogger<QuizController>.Instance);
 
         Assert.Equal(QuizStartOutcome.Started, await controller.StartAsync(EarlyMoves, QuizMix.Empty, PlayRanking.Equity));
 
@@ -240,7 +240,7 @@ public class PositionDedupeTests
             "test can no longer observe a collapse to report.");
 
         var controller = new QuizController(
-            FactoryOver(picked, shuffle), new FakeProblemStatsSink(), TimeProvider.System);
+            FactoryOver(picked, shuffle), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         var summary = await controller.SummarizeMatchesAsync(EarlyMoves, PlayRanking.Equity);
 

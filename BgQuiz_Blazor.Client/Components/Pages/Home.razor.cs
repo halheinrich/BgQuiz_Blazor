@@ -1333,6 +1333,8 @@ public partial class Home : ComponentBase, IDisposable
         {
             // FilterConfig.Build() validation failure, source construction
             // failure, etc. Surface to the user rather than faulting the app.
+            // A Start that faults keeps the quiz that was running
+            // (SPEC-quiz-history.md §8), so "Back to quiz" still returns to it.
             _startError = ex.Message;
         }
     }

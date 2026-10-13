@@ -3,12 +3,13 @@ namespace BgQuiz_Blazor.Client.Quiz;
 using BgDataTypes_Lib;
 using BgGame_Lib;
 using BgMoveGen;
+using Microsoft.Extensions.Logging;
 using XgFilter_Lib.Filtering;
 
 /// <summary>
 /// The quiz's orchestrator, one per app. It owns what a run needs from outside
-/// itself — the active <see cref="IProblemSetSource"/> and its one live
-/// enumerator, the busy gate, the lifetime-stats sink — and holds the current
+/// itself — the run's <see cref="IProblemSetSource"/> and the one stream drawn
+/// from it, the busy gate, the lifetime-stats sink — and holds the current
 /// <see cref="QuizRun"/>, to which everything about the run itself is
 /// delegated: the problems presented, the problem on screen, what is of record
 /// for each, the totals and the ranking. Pages observe state via
@@ -107,6 +108,21 @@ using XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
+/// <b>Starting a run: prepare, then commit</b> (<c>SPEC-quiz-history.md</c> §8;
+/// halheinrich/backgammon#325 item 1). <see cref="StartAsync"/> and
+/// <see cref="RestartAsync"/> are one transition, an <i>attempt</i> to replace
+/// the current run, and <see cref="AttemptAsync"/> is its one path. Everything
+/// that can be refused or fail comes first and belongs to the attempt; then a
+/// single step that cannot fail makes the new run current along with all it
+/// holds beyond the <see cref="QuizRun"/> — its source and stream, its
+/// telemetry and name, the filters and mix its Restart replays — and only
+/// after that is the previous run's stream released. So an attempt that is
+/// refused or faults keeps the current run whole, active or finished, and
+/// the state "started, not ended, nothing on screen" never occurs between
+/// transitions.
+/// </para>
+///
+/// <para>
 /// Decision-type policy: the user's <see cref="FilterConfig.DecisionType"/>
 /// choice governs which decisions the quiz admits — checker plays, cube
 /// decisions, or both. The controller adds no decision-type filter of its
@@ -118,7 +134,7 @@ using XgFilter_Lib.Filtering;
 /// <para>
 /// Lifetime stats: the controller drives the injected
 /// <see cref="IProblemStatsSink"/> at exactly two points — the context bind
-/// in <see cref="ResetAndAdvanceAsync"/> (every Start/Restart) and the fold of
+/// in <see cref="AttemptAsync"/> (every Start/Restart) and the fold of
 /// each answer of record <b>at the submission that made it</b>
 /// (<see cref="SubmitPlayAsync"/> / <see cref="SubmitCubeAnswerAsync"/>,
 /// through one shared <see cref="FoldAsync"/>; SPEC-scoring.md §2's fold
@@ -138,10 +154,13 @@ using XgFilter_Lib.Filtering;
 /// <see cref="SubmitPlayAsync"/> / <see cref="SubmitCubeAnswerAsync"/> /
 /// <see cref="NextAsync"/> at the frontier / <see cref="EndQuizAsync"/> —
 /// share one busy gate: a second gesture arriving
-/// while a transition is in flight <b>no-ops</b> (it does not queue). The controller owns exactly one live
-/// enumerator, and an overlapping <c>MoveNextAsync</c> — or a dispose during
-/// one — throws on a thread-pool continuation where no page can catch it,
-/// terminating the WASM runtime; the per-method state guards
+/// while a transition is in flight <b>no-ops</b> (it does not queue). Only the
+/// gate's holder draws from or releases a stream: the current run's, or —
+/// while a Start or Restart prepares, when two are open — the attempt's
+/// own, the current run's lying idle beside it. An overlapping
+/// <c>MoveNextAsync</c> on one stream — or a release during one — throws on a
+/// thread-pool continuation where no page can catch it, terminating the WASM
+/// runtime; the per-method state guards
 /// (<see cref="Current"/> / <see cref="Review"/> / <see cref="IsFinished"/>)
 /// cannot close that window because they read <i>stale</i> state while the
 /// first call is suspended mid-await. Submit holds the gate for its write to
@@ -160,32 +179,40 @@ internal sealed class QuizController : IAsyncDisposable
     private readonly ProblemSetSourceFactory _sourceFactory;
     private readonly IProblemStatsSink _statsSink;
     private readonly TimeProvider _clock;
+    private readonly ILogger<QuizController> _logger;
 
     /// <summary>
     /// The current run, or null before the first Start. It is immutable, so
     /// every transition below replaces it with the run its own transition
-    /// returns, and a Start or Restart that is refused — or that fails before
-    /// its new run is in place — leaves the one here, its ranking and its
-    /// record included, exactly as it was. Everything this type reports about
-    /// the run is read off it on each call; nothing about the run is kept
-    /// beside it.
+    /// returns, and a Start or Restart that does not commit — refused or
+    /// faulted — leaves the one here, its ranking and its record included,
+    /// exactly as it was. Everything this type reports about the run is read
+    /// off it on each call; nothing about the run is kept beside it but
+    /// <see cref="_source"/>, which is what the run holds beyond itself.
     /// </summary>
     private QuizRun? _run;
 
-    private DecisionFilterSet? _filterPipeline;
-    private QuizMix _mix = QuizMix.Empty;
-    private IProblemSetSource? _source;
-    private MixedProblemSetSource? _mixedSource;
-    private IAsyncEnumerator<BgDecisionData>? _enumerator;
+    /// <summary>
+    /// What the current run holds beyond the <see cref="QuizRun"/>
+    /// (<c>SPEC-quiz-history.md</c> §8): its source and the one stream drawn
+    /// from it, the telemetry and name, the filters and mix its Restart
+    /// replays. Null exactly while <see cref="_run"/> is: the two are
+    /// assigned together, by <see cref="SwitchTo"/> alone, and change only
+    /// when the run is replaced.
+    /// </summary>
+    private RunSource? _source;
 
-    public QuizController(ProblemSetSourceFactory sourceFactory, IProblemStatsSink statsSink, TimeProvider clock)
+    public QuizController(
+        ProblemSetSourceFactory sourceFactory, IProblemStatsSink statsSink, TimeProvider clock,
+        ILogger<QuizController> logger)
     {
         _sourceFactory = sourceFactory ?? throw new ArgumentNullException(nameof(sourceFactory));
         _statsSink = statsSink ?? throw new ArgumentNullException(nameof(statsSink));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    /// <summary>Source name once started; null otherwise.</summary>
+    /// <summary>The current run's source name once started; null otherwise.</summary>
     public string? Name => _source?.Name;
 
     /// <summary>
@@ -260,8 +287,8 @@ internal sealed class QuizController : IAsyncDisposable
     /// (SPEC-scoring.md §2a; SPEC-quiz-history.md §7; see the class docs' "one
     /// quiz, one ranking"). Every ranking-dependent operation of the run reads
     /// it: the pool's filter, scoring, and the pages' diagrams and play entry.
-    /// A refused Start or Restart begins no run, so the run under way keeps
-    /// its own.
+    /// A Start or Restart that does not commit — refused or faulted — begins
+    /// no run, so the run under way keeps its own.
     /// </summary>
     /// <exception cref="InvalidOperationException">
     /// No quiz has been started, so there is no run and no ranking — read it
@@ -378,11 +405,11 @@ internal sealed class QuizController : IAsyncDisposable
     /// composition's own <see cref="MixComposition.HasRequestedLength"/> —
     /// the producer records that split precisely so no consumer re-derives it
     /// (a local duplicate lived here until halheinrich/backgammon#12's
-    /// recording landed). A refused Start/Restart replaces no active-run
-    /// state, this reference included, so a running quiz keeps its telemetry
-    /// — and its notice framing — behind a refusal.
+    /// recording landed). It is the current run's, held with its source, so
+    /// a Start or Restart that does not commit — refused or faulted — leaves
+    /// a running quiz its telemetry, and its notice framing.
     /// </summary>
-    public MixComposition? LastComposition => _mixedSource?.LastComposition;
+    public MixComposition? LastComposition => _source?.LastComposition;
 
     /// <summary>
     /// The N of "Problem N of M": the 1-based stream slot of
@@ -424,9 +451,10 @@ internal sealed class QuizController : IAsyncDisposable
     /// first fire, so that fire already carries the review: it is on screen,
     /// its controls busy, while the answer is written, and the second fire
     /// releases them. The synchronous moves — ⏮ ◀ ⏭, and ▶ behind the
-    /// frontier — fire once. A refused
-    /// weighted start fires the two busy flips and nothing else — quiz state
-    /// is untouched, so the re-renders are no-ops.
+    /// frontier — fire once. A Start or Restart that does not commit — a
+    /// refused weighted one, or one that faults — fires the two busy flips and
+    /// nothing else: the current run is kept, so the re-renders show it as
+    /// it was.
     /// </summary>
     public event Action? StateChanged;
 
@@ -437,6 +465,16 @@ internal sealed class QuizController : IAsyncDisposable
     /// owned entirely by this controller, begins a new <see cref="QuizRun"/> —
     /// nothing presented, nothing of record, so an empty score and no skips —
     /// and advances to the first problem that offers a play choice.
+    ///
+    /// <para>
+    /// <b>An attempt, which keeps the current run unless it commits</b>
+    /// (<c>SPEC-quiz-history.md</c> §8; the class docs' "prepare, then
+    /// commit"). A Start that faults — building the source, opening its
+    /// stream, or drawing to its first problem — throws, and the run that was
+    /// current before it is still current, active or finished, its Restart
+    /// still replaying its own filters and mix. What the attempt opened has
+    /// been released.
+    /// </para>
     ///
     /// <para>
     /// <b>The ranking is the new run's, for its whole life</b>
@@ -459,7 +497,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// against the lifetime-stats document, so it requires a bindable stats
     /// context; without one the start is refused
     /// (<see cref="QuizStartOutcome.MixRequiresStats"/>) rather than silently
-    /// run unweighted — see <see cref="ResetAndAdvanceAsync"/> for the
+    /// run unweighted — see <see cref="AttemptAsync"/> for the
     /// two-stage check and the state guarantees. The caller offers the
     /// explicit escape: <paramref name="ignoreMix"/> runs <i>this one quiz</i>
     /// as passthrough while <paramref name="mix"/> is still stored, so the mix
@@ -473,6 +511,10 @@ internal sealed class QuizController : IAsyncDisposable
     /// from <see cref="FilterConfig.Build"/>.
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="ranking"/> is not a defined ranking.</exception>
+    /// <exception cref="Exception">
+    /// Whatever building the source, opening its stream or drawing from it
+    /// threw: the attempt faulted, and the current run is kept.
+    /// </exception>
     public async Task<QuizStartOutcome> StartAsync(
         FilterConfig userConfig, QuizMix mix, PlayRanking ranking, bool ignoreMix = false)
     {
@@ -483,15 +525,14 @@ internal sealed class QuizController : IAsyncDisposable
         // Build a fresh, controller-owned pipeline from the immutable DTO. The
         // user's DecisionType choice governs decision-type admission; the
         // controller adds no filter of its own. Restart re-uses this pipeline
-        // without re-building. Built (and validated) before ResetAndAdvanceAsync
-        // commits anything, so a Build failure or a refused start leaves the
-        // previous quiz's config — and a later Restart — untouched.
+        // without re-building. Built (and validated) before the attempt
+        // begins, so a malformed config is a caller bug that begins nothing.
         var pipeline = userConfig.Build();
 
         if (!await TryBeginTransitionAsync()) return QuizStartOutcome.Busy;
         try
         {
-            return await ResetAndAdvanceAsync(pipeline, ranking, mix, ignoreMix);
+            return await AttemptAsync(pipeline, mix, ranking, ignoreMix);
         }
         finally
         {
@@ -529,10 +570,10 @@ internal sealed class QuizController : IAsyncDisposable
     ///
     /// <para>
     /// <b>Touches no live quiz state.</b> The source and its enumerator are
-    /// local — the shared <c>_enumerator</c> and the current run are never read
-    /// or written — so a count is safe to run against a controller with a quiz
-    /// already in progress. It deliberately does <b>not</b> take the transition gate: it
-    /// owns no shared enumerator to protect (the callers serialize Apply
+    /// local — the current run and its stream are never read or written — so
+    /// a count is safe to run against a controller with a quiz already in
+    /// progress. It deliberately does <b>not</b> take the transition gate: it
+    /// draws from no stream the gate protects (the callers serialize Apply
     /// against Start on their side).
     /// </para>
     ///
@@ -776,8 +817,10 @@ internal sealed class QuizController : IAsyncDisposable
         if (!await TryBeginTransitionAsync()) return;
         try
         {
+            // In place while the draw is pending, so a fault leaves the run
+            // here: the cursor on the frontier, answering.
             _run = moved;
-            await PresentNextAsync();
+            _run = await PresentNextAsync(moved, CurrentSource);
         }
         finally
         {
@@ -838,7 +881,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// End the run here, at the user's request, and finish with the score of
     /// what they answered — the quiz-side exit a run that has served its purpose
     /// needs (issue halheinrich/backgammon#57). A real transition, not a navigation: only the
-    /// controller can end the run and retire the enumerator,
+    /// controller can end the run and release its stream,
     /// and doing it anywhere else would leave a live quiz behind a Done page.
     /// No-op before start and after finish, and gated like every other async
     /// transition (an overlapping gesture no-ops rather than queueing).
@@ -883,10 +926,11 @@ internal sealed class QuizController : IAsyncDisposable
         try
         {
             _run = _run.End();
-            // The run is over, so the one live enumerator is released here
-            // rather than waiting for the next Start's reset — safe precisely
-            // because the gate guarantees no MoveNextAsync is in flight.
-            await DisposeEnumeratorAsync();
+            // The run is over, so its stream is released here rather than at
+            // the switch to the next run — safe precisely because the gate
+            // guarantees no MoveNextAsync is in flight. The source stays the
+            // run's: its name, its telemetry, and what its Restart replays.
+            await CurrentSource.ReleaseAsync();
         }
         finally
         {
@@ -914,7 +958,21 @@ internal sealed class QuizController : IAsyncDisposable
     /// configuration and are replayed; the ranking is the user's setting and is
     /// re-read, the way the caller re-reads the mix's visibility for
     /// <paramref name="ignoreMix"/>. The restarted quiz is a new
-    /// <see cref="QuizRun"/>; the run it replaces is simply let go.
+    /// <see cref="QuizRun"/>.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The filters and mix are replayed; the source is built afresh</b>
+    /// (<c>SPEC-quiz-history.md</c> §8, "What a Restart replays"): the factory
+    /// is called again, so the new source reads the folder picked when Restart
+    /// is pressed — a folder re-picked mid-quiz included — not the files this
+    /// run drew from. Done promises "same filters", and no more.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>An attempt, exactly as a Start is</b> (see <see cref="StartAsync"/>):
+    /// a Restart that faults throws and keeps the run it would have replaced,
+    /// whose summary stands and whose Restart can be pressed again.
     /// </para>
     ///
     /// <para>
@@ -930,6 +988,10 @@ internal sealed class QuizController : IAsyncDisposable
     /// </summary>
     /// <exception cref="InvalidOperationException">No quiz has been started.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="ranking"/> is not a defined ranking.</exception>
+    /// <exception cref="Exception">
+    /// Whatever building the source, opening its stream or drawing from it
+    /// threw: the attempt faulted, and the current run is kept.
+    /// </exception>
     public async Task<QuizStartOutcome> RestartAsync(PlayRanking ranking, bool ignoreMix = false)
     {
         // A malformed argument is refused before the gate, as StartAsync
@@ -945,10 +1007,10 @@ internal sealed class QuizController : IAsyncDisposable
         if (!await TryBeginTransitionAsync()) return QuizStartOutcome.Busy;
         try
         {
-            if (_filterPipeline is null)
+            if (_source is not { } current)
                 throw new InvalidOperationException(
                     "RestartAsync requires a prior successful StartAsync — no quiz has been started.");
-            return await ResetAndAdvanceAsync(_filterPipeline, ranking, _mix, ignoreMix);
+            return await AttemptAsync(current.Filters, current.Mix, ranking, ignoreMix);
         }
         finally
         {
@@ -958,7 +1020,7 @@ internal sealed class QuizController : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await DisposeEnumeratorAsync();
+        if (_source is not null) await _source.ReleaseAsync();
     }
 
     // -----------------------------------------------------------------------
@@ -1011,11 +1073,11 @@ internal sealed class QuizController : IAsyncDisposable
     /// <summary>
     /// Refuse a ranking that names none of <see cref="PlayRanking"/>'s members,
     /// at the controller's own door. Every producer operation the ranking
-    /// reaches refuses such a value too, but only once the run is under way —
-    /// after the stats bind and the committed config — so a start given one
-    /// would fail half-reset. Refusing it here, before anything begins, keeps
-    /// a malformed argument a caller bug that changes nothing, as a malformed
-    /// filter config is.
+    /// reaches refuses such a value too, but only once the attempt is under
+    /// way — after the stats bind — so a start given one would fault having
+    /// re-bound the stats context. Refusing it here, before anything begins,
+    /// keeps a malformed argument a caller bug that changes nothing, as a
+    /// malformed filter config is.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="ranking"/> is not a defined ranking.</exception>
     private static void RefuseUndefined(PlayRanking ranking)
@@ -1094,9 +1156,14 @@ internal sealed class QuizController : IAsyncDisposable
             cube: submission => _statsSink.RecordAsync(submission));
 
     /// <summary>
-    /// The one shared path under Start and Restart: refusal checks, the
-    /// lifetime-stats bind, pipeline (re)assembly, the new run, and the
-    /// advance to the first showable problem.
+    /// The one path under Start and Restart: an <i>attempt</i> to replace the
+    /// current run, which prepares and then commits
+    /// (<c>SPEC-quiz-history.md</c> §8 — read the rules there, not from this
+    /// summary). Prepare is the refusal checks, the lifetime-stats bind, and
+    /// <see cref="PrepareAsync"/>: building the source, opening its stream and
+    /// drawing to the first problem with a choice or the end. Commit is
+    /// <see cref="SwitchTo"/>, and the previous run's stream is released after
+    /// it.
     ///
     /// <para>
     /// <b>Two-stage refusal for a weighted start.</b> A mix with entries
@@ -1108,31 +1175,38 @@ internal sealed class QuizController : IAsyncDisposable
     /// save stats, or has no stats record yet, refuses before anything —
     /// including the stats bind — happens. Stage 2 runs after the bind:
     /// a context that bound without a document (unreadable stats file)
-    /// refuses before any quiz state is touched, so the prior quiz — its
-    /// enumerator and its run, which is its record, its score, its ranking,
-    /// <see cref="Current"/> and <see cref="IsFinished"/> — survives a refused
-    /// Start/Restart intact;
-    /// the only <see cref="StateChanged"/> firings are the enclosing gate's
-    /// two busy flips, which deliver unchanged quiz state. The stage-2
-    /// re-bind itself is the one residual side effect (see the Pitfalls in
-    /// INSTRUCTIONS.md).
+    /// refuses before anything is built. Either way the attempt ends with
+    /// nothing to release, and the current run is kept; the only
+    /// <see cref="StateChanged"/> firings are the enclosing gate's two busy
+    /// flips.
     /// </para>
     ///
     /// <para>
-    /// The stored config (<see cref="_filterPipeline"/> / <see cref="_mix"/>)
-    /// commits only past the refusal checks, so a refused Start never retargets
-    /// what a later Restart re-runs. <b>The new run replaces the old one in a
-    /// single assignment, once its source stands</b>: it is begun from
-    /// <paramref name="ranking"/> — the setting the caller read — the source is
-    /// built under the run's ranking, not the argument's, and only then does
-    /// the run become the current one. So there is no moment at which one run
-    /// is scored under another's ranking, and nothing of the old run is reset
-    /// field by field: the new run starts with nothing presented and nothing of
-    /// record, which is what an empty score and no skips are.
+    /// <b>The stats link is the one thing a kept run does not keep.</b> The
+    /// bind is part of prepare, because the stage-2 check and a weighted
+    /// composition read the context it binds, so any attempt that passes
+    /// stage 1 has re-bound it, whether or not it commits — and the kept
+    /// run's later answers fold into that context. A known limitation
+    /// (§8; halheinrich/backgammon#404), not this type's to change: see the
+    /// Pitfalls in INSTRUCTIONS.md.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>A fault in prepare keeps the current run.</b> Nothing the current
+    /// run holds is touched before the switch — not its stream, not the
+    /// filters and mix its Restart replays — and what the attempt opened is
+    /// released before the fault propagates. The new run is begun from
+    /// <paramref name="ranking"/>, the setting the caller read, and its source
+    /// is built under the run's ranking, not the argument's, so there is no
+    /// moment at which one run is scored under another's ranking.
     /// </para>
     /// </summary>
-    private async Task<QuizStartOutcome> ResetAndAdvanceAsync(
-        DecisionFilterSet pipeline, PlayRanking ranking, QuizMix mix, bool ignoreMix)
+    /// <param name="filters">The new run's filter set: a Start's freshly built one, or the set a Restart replays.</param>
+    /// <param name="mix">The new run's stored mix — what its own Restart will re-attempt.</param>
+    /// <param name="ranking">The new run's ranking.</param>
+    /// <param name="ignoreMix">Run this one quiz as passthrough, while <paramref name="mix"/> is still stored.</param>
+    private async Task<QuizStartOutcome> AttemptAsync(
+        DecisionFilterSet filters, QuizMix mix, PlayRanking ranking, bool ignoreMix)
     {
         // The composition this run actually uses: the override runs one quiz
         // as passthrough while the stored mix stays what the user configured.
@@ -1142,44 +1216,128 @@ internal sealed class QuizController : IAsyncDisposable
             return QuizStartOutcome.MixRequiresStats;
 
         // Bind the lifetime-stats context for the quiz now starting. This is
-        // the one shared path under Start and Restart, so it is exactly where
-        // the picked folder promotes to the active stats slot — a mid-quiz
-        // Clear or re-pick changes nothing until the next pass through here.
-        // Bound before the source is built because the mix decision below
-        // needs the freshly bound context.
+        // the one path under Start and Restart, so it is exactly where the
+        // picked folder promotes to the active stats slot — a mid-quiz Clear
+        // or re-pick changes nothing until the next pass through here. Bound
+        // before the source is built because the mix decision below needs the
+        // freshly bound context.
         await _statsSink.BeginQuizAsync();
 
         if (!effectiveMix.IsPassthrough && _statsSink.CurrentDocument is null)
             return QuizStartOutcome.MixRequiresStats;
 
-        _filterPipeline = pipeline;
-        _mix = mix;
+        var (first, source) = await PrepareAsync(filters, mix, effectiveMix, ranking);
 
-        await DisposeEnumeratorAsync();
-
-        // The new run, from the setting the caller read. From here on the
-        // ranking is read off the run, the source's included.
-        var run = QuizRun.Begin(ranking);
-
-        var inner = _sourceFactory(pipeline, run.Ranking, effectiveMix).Source;
-        // A blank mix wires no composition layer at all — the settled
-        // passthrough default. An active mix composes via the producer's
-        // decorator; holding the typed reference is what surfaces
-        // LastComposition without type-testing.
-        _mixedSource = effectiveMix.IsPassthrough
-            ? null
-            : new MixedProblemSetSource(inner, GetCurrentDocumentOrThrow, effectiveMix, _clock);
-        _source = _mixedSource ?? inner;
-        _enumerator = _source.EnumerateAsync().GetAsyncEnumerator();
-
-        // A source that declares its size states the run's total now. A
-        // composing one declares none — its size is known only once it has
-        // composed — and PresentNextAsync hands that over after the first draw.
-        _run = _source.Count is { } total ? run.WithProblemCount(total) : run;
-
-        await PresentNextAsync();
+        var previous = SwitchTo(first, source);
+        if (previous is not null) await ReleaseReplacedAsync(previous);
         return QuizStartOutcome.Started;
     }
+
+    /// <summary>
+    /// Prepare's part that builds: the new run, begun from
+    /// <paramref name="ranking"/>; its source, from the factory and — for a
+    /// weighted <paramref name="effectiveMix"/> — the producer's composing
+    /// decorator; its stream, opened; and the draw to its first problem with a
+    /// choice, or to the end of the stream. Returns the run as it will become
+    /// current, with the source it holds. Everything here belongs to the
+    /// attempt, and nothing of the current run is read or written.
+    ///
+    /// <para>
+    /// <b>A fault releases what was opened, and stays the fault.</b> If the
+    /// draw throws, the stream is released before the fault propagates; a
+    /// release that throws as well is logged and dropped, so the error that
+    /// ended the attempt is the one the caller sees (§8, "Releasing never
+    /// misreports"). A fault in the factory, or in opening the stream, has
+    /// opened nothing.
+    /// </para>
+    /// </summary>
+    private async Task<(QuizRun First, RunSource Source)> PrepareAsync(
+        DecisionFilterSet filters, QuizMix mix, QuizMix effectiveMix, PlayRanking ranking)
+    {
+        // From here on the ranking is read off the run, the source's included.
+        var run = QuizRun.Begin(ranking);
+        var source = RunSource.Open(
+            filters, mix, _sourceFactory(filters, run.Ranking, effectiveMix).Source,
+            effectiveMix, GetCurrentDocumentOrThrow, _clock);
+
+        try
+        {
+            // A source that declares its size states the run's total now. A
+            // composing one declares none — its size is known only once it has
+            // composed — and PresentNextAsync hands that over after the first
+            // draw.
+            var counted = source.Count is { } total ? run.WithProblemCount(total) : run;
+            return (await PresentNextAsync(counted, source), source);
+        }
+        catch (Exception fault)
+        {
+            await ReleaseAbandonedAsync(source, fault);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Commit: make <paramref name="first"/> the current run and
+    /// <paramref name="source"/> what it holds beyond itself, in one step that
+    /// cannot fail, and hand back the source of the run replaced — its stream
+    /// still to be released, which the caller does only now that the switch
+    /// has happened. The only writer of <see cref="_source"/>, so the run and
+    /// what it holds change together or not at all.
+    /// </summary>
+    private RunSource? SwitchTo(QuizRun first, RunSource source)
+    {
+        var previous = _source;
+        _run = first;
+        _source = source;
+        return previous;
+    }
+
+    /// <summary>
+    /// Release the stream of the run a committed attempt replaced. The switch
+    /// has happened, so a release that throws neither undoes it nor makes the
+    /// Start or Restart a failed one (§8, "Releasing never misreports"): it is
+    /// logged, and the new run stands.
+    /// </summary>
+    private async ValueTask ReleaseReplacedAsync(RunSource previous)
+    {
+        try
+        {
+            await previous.ReleaseAsync();
+        }
+        catch (Exception releaseFault)
+        {
+            _logger.LogWarning(releaseFault,
+                "Releasing the previous quiz's problem stream failed after the new quiz became current; the new quiz stands.");
+        }
+    }
+
+    /// <summary>
+    /// Release the stream of an attempt that faulted, without letting a fault
+    /// in the release replace <paramref name="fault"/>, the error that ended
+    /// the attempt (§8, "Releasing never misreports"): a release that throws is
+    /// logged, and the caller rethrows <paramref name="fault"/>.
+    /// </summary>
+    private async ValueTask ReleaseAbandonedAsync(RunSource source, Exception fault)
+    {
+        try
+        {
+            await source.ReleaseAsync();
+        }
+        catch (Exception releaseFault)
+        {
+            _logger.LogWarning(releaseFault,
+                "Releasing the problem stream of a Start or Restart that faulted also failed; the attempt's own error is the one reported: {Fault}",
+                fault.Message);
+        }
+    }
+
+    /// <summary>
+    /// The current run's source, for a transition that has just found a
+    /// current run. A current run always has one, since the two are committed
+    /// together (<see cref="SwitchTo"/>), so its absence is this type's bug.
+    /// </summary>
+    private RunSource CurrentSource => _source ?? throw new InvalidOperationException(
+        "A current run always has its source; the two are committed together.");
 
     /// <summary>
     /// The stats provider handed to <see cref="MixedProblemSetSource"/>,
@@ -1196,18 +1354,24 @@ internal sealed class QuizController : IAsyncDisposable
             "a weighted start should have been refused.");
 
     /// <summary>
-    /// Bring the run the problem it is owed — its first, or the one after a
-    /// frontier it has moved on from: draw from the source until a position
-    /// offers a play choice and present it, or end the run when the source has
-    /// none left. This is the whole of what the run is told about the source:
-    /// which problem is shown, how many slots were passed over silently on the
-    /// way to it, the side rolled for its board, and the stream's total once
-    /// the first draw has established one.
+    /// Bring <paramref name="run"/> the problem it is owed — its first, or the
+    /// one after a frontier it has moved on from — from
+    /// <paramref name="source"/>, the run's own: draw until a position offers
+    /// a play choice and present it, or end the run when the stream has none
+    /// left, and return the run that follows. This is the whole of what the
+    /// run is told about the source: which problem is shown, how many slots
+    /// were passed over silently on the way to it, the side rolled for its
+    /// board, and the stream's total once the first draw has established one.
+    ///
+    /// <para>
+    /// It writes no state, so the caller decides what the result becomes: a
+    /// Start or Restart's prepare holds it as the attempt's until the switch,
+    /// and ▶ puts it in place. A draw that throws returns nothing, and the
+    /// fault propagates to the caller as it was.
+    /// </para>
     /// </summary>
-    private async Task PresentNextAsync()
+    private static async Task<QuizRun> PresentNextAsync(QuizRun run, RunSource source)
     {
-        if (_enumerator is null || _run is null) return;
-
         // Stream slots drawn and passed over on the way to the next problem:
         // local to this one advance. The run turns it into the problem's slot
         // number, so no counter of the stream is kept here.
@@ -1215,24 +1379,19 @@ internal sealed class QuizController : IAsyncDisposable
 
         while (true)
         {
-            var drew = await _enumerator.MoveNextAsync();
+            var next = await source.DrawAsync();
 
             // A composing source assigns its telemetry before its first yield,
             // so the first draw — even one that finds the composition empty —
             // is what establishes a weighted run's total.
-            if (_run.ProblemCount is null && LastComposition is { } composition)
-                _run = _run.WithProblemCount(composition.DrawnCount);
+            if (run.ProblemCount is null && source.LastComposition is { } composition)
+                run = run.WithProblemCount(composition.DrawnCount);
 
-            if (!drew)
-            {
-                // The source has no further problem, so the run finishes — and
-                // finishing is what converts a frontier the user skipped, still
-                // unresolved, into a skip of record. The rule is the run's.
-                _run = _run.End();
-                break;
-            }
+            // The source has no further problem, so the run finishes — and
+            // finishing is what converts a frontier the user skipped, still
+            // unresolved, into a skip of record. The rule is the run's.
+            if (next is null) return run.End();
 
-            var next = _enumerator.Current;
             if (HasNoPlayChoice(next))
             {
                 // Auto-skip silently — the user never saw this position, so it
@@ -1244,20 +1403,10 @@ internal sealed class QuizController : IAsyncDisposable
             // One roll per problem the user actually sees, taken here and
             // handed over: the run keeps it, and rolls nothing itself. See
             // RandomHomeBoardOnRight.
-            _run = _run.Present(next, silentlySkipped, randomHomeBoardOnRight: Random.Shared.Next(2) == 0);
-            break;
+            return run.Present(next, silentlySkipped, randomHomeBoardOnRight: Random.Shared.Next(2) == 0);
         }
         // No StateChanged here: every caller runs inside the transition gate,
         // whose EndTransition fire delivers the post-advance state.
-    }
-
-    private async ValueTask DisposeEnumeratorAsync()
-    {
-        if (_enumerator is not null)
-        {
-            await _enumerator.DisposeAsync();
-            _enumerator = null;
-        }
     }
 
     /// <summary>
@@ -1318,6 +1467,95 @@ internal sealed class QuizController : IAsyncDisposable
         data is CheckerPlayDecision checkerPlay
         && MoveGenerator.GeneratePlays(
             new BoardState(checkerPlay.Board), checkerPlay.Dice.High, checkerPlay.Dice.Low).Count == 1;
+
+    /// <summary>
+    /// What a run holds beyond the <see cref="QuizRun"/>
+    /// (<c>SPEC-quiz-history.md</c> §8): the filters and mix its Restart
+    /// replays, the source built from them, that source's composition
+    /// telemetry and name, and the one stream drawn from it — the run's place
+    /// in the problem stream (§5). Built whole by an attempt's prepare,
+    /// belonging to the attempt until the switch, and from then on the run's,
+    /// unchanged until the run is replaced.
+    ///
+    /// <para>
+    /// <b>The stream is released once.</b> <see cref="ReleaseAsync"/> lets the
+    /// stream go before it awaits the release, so End quiz, the switch to a
+    /// new run and the controller's disposal can each ask for it without one
+    /// stream being released twice — and a release that throws is not tried
+    /// again. Nothing draws from a released stream: the run it belongs to has
+    /// ended, or has been replaced.
+    /// </para>
+    /// </summary>
+    private sealed class RunSource
+    {
+        private readonly IProblemSetSource _source;
+        private readonly MixedProblemSetSource? _mixedSource;
+        private IAsyncEnumerator<BgDecisionData>? _stream;
+
+        private RunSource(
+            DecisionFilterSet filters, QuizMix mix, IProblemSetSource source,
+            MixedProblemSetSource? mixedSource, IAsyncEnumerator<BgDecisionData> stream)
+        {
+            Filters = filters;
+            Mix = mix;
+            _source = source;
+            _mixedSource = mixedSource;
+            _stream = stream;
+        }
+
+        /// <summary>
+        /// Compose a run's source over <paramref name="built"/>, the factory's
+        /// stack, and open its stream. A blank <paramref name="effectiveMix"/>
+        /// wires no composition layer at all — the settled passthrough default.
+        /// An active one composes via the producer's decorator, against
+        /// <paramref name="stats"/>; holding the typed reference is what
+        /// surfaces <see cref="LastComposition"/> without type-testing.
+        /// Opening the stream is the last step, so a source that throws there
+        /// leaves nothing open.
+        /// </summary>
+        public static RunSource Open(
+            DecisionFilterSet filters, QuizMix mix, IProblemSetSource built,
+            QuizMix effectiveMix, Func<ProblemStatsDocument> stats, TimeProvider clock)
+        {
+            var mixedSource = effectiveMix.IsPassthrough
+                ? null
+                : new MixedProblemSetSource(built, stats, effectiveMix, clock);
+            var source = mixedSource ?? built;
+            return new RunSource(filters, mix, source, mixedSource, source.EnumerateAsync().GetAsyncEnumerator());
+        }
+
+        /// <summary>The filter set a Restart of this run replays.</summary>
+        public DecisionFilterSet Filters { get; }
+
+        /// <summary>The stored mix a Restart of this run re-attempts — the one handed in, whatever the run itself composed with.</summary>
+        public QuizMix Mix { get; }
+
+        /// <summary>The source's name (<see cref="QuizController.Name"/>).</summary>
+        public string Name => _source.Name;
+
+        /// <summary>The source's declared size, if it declares one.</summary>
+        public int? Count => _source.Count;
+
+        /// <summary>The composition's telemetry, or null when no composition layer is wired (<see cref="QuizController.LastComposition"/>).</summary>
+        public MixComposition? LastComposition => _mixedSource?.LastComposition;
+
+        /// <summary>The next item of the stream, or null at its end.</summary>
+        /// <exception cref="InvalidOperationException">The stream has been released.</exception>
+        public async ValueTask<BgDecisionData?> DrawAsync()
+        {
+            var stream = _stream ?? throw new InvalidOperationException(
+                "The run's problem stream has been released; nothing may draw from it.");
+            return await stream.MoveNextAsync() ? stream.Current : null;
+        }
+
+        /// <summary>Release the stream, if it is still held; a no-op once it has been.</summary>
+        public ValueTask ReleaseAsync()
+        {
+            var stream = _stream;
+            _stream = null;
+            return stream?.DisposeAsync() ?? ValueTask.CompletedTask;
+        }
+    }
 }
 
 /// <summary>

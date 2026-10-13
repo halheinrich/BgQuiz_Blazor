@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using BgDataTypes_Lib;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
+using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib.Filtering;
 
 namespace BgQuiz_Blazor.Tests;
@@ -9,8 +10,8 @@ namespace BgQuiz_Blazor.Tests;
 /// <summary>
 /// The transition-gate overlap suite: a second gesture arriving while a
 /// Start / Restart / Submit / ▶ / End-quiz transition is in
-/// flight must <b>no-op</b> — not queue, not throw, and above all not touch the
-/// one live enumerator (an overlapped <c>MoveNextAsync</c> faults on a
+/// flight must <b>no-op</b> — not queue, not throw, and above all not touch a
+/// stream being drawn from (an overlapped <c>MoveNextAsync</c> faults on a
 /// thread-pool continuation no page can catch, terminating the WASM runtime;
 /// that crash is the dogfooding finding this gate exists to close) or the
 /// lifetime record a Submit is writing.
@@ -47,7 +48,7 @@ public class QuizControllerOverlapTests
         sink = new FakeProblemStatsSink();
         var calls = 0;
         factoryCalls = () => calls;
-        return new QuizController((_, _, _) => { calls++; return TestFixtures.Composed(gated); }, sink, TimeProvider.System);
+        return new QuizController((_, _, _) => { calls++; return TestFixtures.Composed(gated); }, sink, TimeProvider.System, NullLogger<QuizController>.Instance);
     }
 
     // -----------------------------------------------------------------------
@@ -250,7 +251,7 @@ public class QuizControllerOverlapTests
     [Fact]
     public async Task EndQuizAsync_DuringPendingAdvance_NoOps()
     {
-        // End quiz retires the live enumerator, which is precisely what must
+        // End quiz releases the run's stream, which is precisely what must
         // never happen underneath an in-flight MoveNextAsync — a dispose during
         // one faults on a thread-pool continuation no page can catch. Its state
         // guards stale-pass mid-advance (HasStarted is true and IsFinished is
@@ -440,7 +441,7 @@ public class QuizControllerOverlapTests
             (_, _, _) => throwNext
                 ? throw new InvalidOperationException("boom")
                 : TestFixtures.Composed(fake),
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity));
@@ -459,7 +460,7 @@ public class QuizControllerOverlapTests
         var throwNext = true;
         var c = new QuizController(
             (_, _, _) => TestFixtures.Composed(throwNext ? new ThrowingProblemSetSource() : good),
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity));

@@ -75,9 +75,19 @@ using XgFilter_Lib.Filtering;
 /// through <see cref="PickedProblemFolder.StoreParsed"/>, which drops it if
 /// the pick has been superseded meanwhile (the pick gesture is async, so it
 /// can complete inside a Start's own await points). The source also keeps
-/// its own reference to whatever it parsed or adopted, so a Restart after a
-/// mid-quiz re-pick still replays <i>this quiz's</i> files without
-/// re-parsing and without polluting the new pick's cache.
+/// its own reference to whatever it parsed or adopted, so every enumeration
+/// of <i>this</i> source, and its <see cref="Report"/>, reads the files it
+/// was built over: a re-pick after construction changes neither, and a parse
+/// it completes never pollutes the new pick's cache.
+/// </para>
+///
+/// <para>
+/// <b>A Restart is not a re-enumeration of this source.</b> Every Start and
+/// every Restart builds a new source through the factory, over the folder
+/// picked at that moment (<c>SPEC-quiz-history.md</c> §8, "What a Restart
+/// replays"), so a Restart after a mid-quiz re-pick replays the quiz's
+/// filters and mix over the newly picked folder's files — Done promises
+/// "same filters", and no more.
 /// </para>
 ///
 /// <para>

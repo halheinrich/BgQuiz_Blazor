@@ -94,7 +94,7 @@ public class PickedFolderSourceFactoryTests
         if (files.IsEmpty) return; // corpus may be empty in CI
 
         var factory = FactoryOver(HolderOver(files), new ShuffleOption());
-        var controller = new QuizController(factory, new FakeProblemStatsSink(), TimeProvider.System);
+        var controller = new QuizController(factory, new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
@@ -215,7 +215,7 @@ public class PickedFolderSourceFactoryTests
     private static QuizController ControllerOver(PickedProblemFolder picked, ILoggerFactory? parses = null) =>
         new(PickedFolderSourceFactory.Create(
                 picked, new ShuffleOption(), parses ?? NullLoggerFactory.Instance, TimeProvider.System),
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
     [Fact]
     public async Task Count_OverAReadableAndADamagedFile_CountsTheReadable_AndNamesTheRejected()

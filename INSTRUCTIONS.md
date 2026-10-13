@@ -444,8 +444,9 @@ the type holds them.
   problem counted as skipped — the one fact ▶'s name, Skip or Next, follows.
 - **Immutable.** Every transition returns the run that follows and leaves the
   one it was called on as it was. The controller holds the current run and
-  replaces it whole, which is what makes "a refused Start leaves the running
-  quiz untouched" one missing assignment rather than a list of fields.
+  replaces it whole, which is what makes "a Start that does not commit leaves
+  the running quiz untouched" one assignment not made rather than a list of
+  fields (§ `QuizController`, "prepare, then commit").
 - **The transitions.** `Present` · `SubmitPlay` / `SubmitCubeAnswer` ·
   `Next` (▶, which reports whether a new problem is now owed) ·
   `GoToFirst` / `GoBack` / `GoToLast` (⏮ ◀ ⏭) · `End` · `WithProblemCount`.
@@ -493,7 +494,7 @@ step reports (§ `QuizController`).
 
 Scoped DI lifetime (see Pitfalls: resets on full reload, not on in-app
 navigation). The controller holds what a run needs from outside itself — the
-active `IProblemSetSource` and its one live enumerator, the busy gate, the
+run's `IProblemSetSource` and the one stream drawn from it, the busy gate, the
 stats sink — and the current `QuizRun` (§ `QuizRun`), to which everything
 about the run is delegated. Every run-describing property it exposes
 (`Current`, `Review`, `Score`, `SkippedCount`, `Ranking`, `IsFinished`,
@@ -511,7 +512,9 @@ synchronous move (⏮ ◀ ⏭, and ▶ behind the frontier) fires it once.
 `RestartAsync` / `SubmitPlayAsync` / `SubmitCubeAnswerAsync` / `NextAsync` (on
 the frontier, where it draws) / `EndQuizAsync` — share one busy gate:
 a second gesture arriving while a transition is in flight **no-ops** (it does
-not queue). The controller owns exactly one live enumerator, and an
+not queue). Only the gate's holder draws from or releases a stream — the
+current run's, or, while a Start or Restart prepares and two are open, the
+attempt's own — and an
 overlapped `MoveNextAsync` — or a dispose during one — throws on a thread-pool
 continuation no page can catch, terminating the WASM runtime. Per-method state
 guards can't close that window: mid-advance they read *stale* state, so
@@ -536,6 +539,31 @@ Submit and ▶ return silently, as the moves do. The never-started `RestartAsync
 checked *inside* the gate — an overlap is an outcome (Busy), not the caller bug
 the throw exists for. `QuizControllerOverlapTests` pins all of it via
 `GatedProblemSetSource` and the fake sink's `RecordGate`.
+
+**Starting a run: prepare, then commit** (`../SPEC-quiz-history.md` §8,
+halheinrich/backgammon#325 item 1 — the rules are read there). Start and
+Restart are one transition, an *attempt*, and `AttemptAsync` is its one path.
+Prepare is the refusal checks, the stats bind, and `PrepareAsync`: the
+factory call, `RunSource.Open` (the composing decorator for a weighted mix,
+then the stream opened), and the draw to the first problem with a choice or
+the end. What it builds belongs to the attempt. Commit is `SwitchTo`, one
+step that cannot fail: the new `QuizRun` and its `RunSource` — a private
+nested type holding everything a run holds beyond the `QuizRun`: the filters
+and mix its Restart replays, the source, its telemetry and name, and the
+stream — become current together, and only then is the previous run's stream
+released. So a fault anywhere in prepare keeps the current run whole, active
+or finished, its Restart still replaying its own filters and mix, and the
+state "started, not ended, nothing on screen" never occurs between
+transitions; a page that shows the current run during a long prepare (Home's
+"Back to quiz") shows it busy. A stream is released once
+(`RunSource.ReleaseAsync` lets it go before awaiting the release): by End
+quiz, by the switch, or — for a faulted attempt — before the fault
+propagates. **Releasing never misreports**: a release that throws after the
+switch is logged (the controller's `ILogger`), not reported as a failed Start
+or Restart; one that throws while a faulted attempt is being unwound is
+logged too, and the attempt's own error is the one rethrown.
+`QuizControllerStartAttemptTests` pins it over `RecordingProblemSetSource`,
+which records which stream each draw came from and each release.
 
 **Per-problem flow.** The problem under the cursor is *answering* or in
 *review*, surfaced via `Current` and the nullable `Review`; the navigation
@@ -718,7 +746,7 @@ false)` takes the caller's effective mix beside the filter config — user
 config in at Start, stored for Restart, no caller-set mutation — and returns a
 `QuizStartOutcome`. For a
 non-blank *effective* mix (the stored mix, unless the per-run `ignoreMix`
-override), `ResetAndAdvanceAsync` wires the producer's `MixedProblemSetSource`
+override), `RunSource.Open` (under `AttemptAsync`) wires the producer's `MixedProblemSetSource`
 around the factory source — so **the supply it composes from is already
 position-distinct** (§ Source construction, which owns what follows
 downstream) — holding the typed reference so `LastComposition`
@@ -753,9 +781,9 @@ precisely so no consumer re-derives it (the controller carried a local
 `ActiveMixHasLength` duplicate until halheinrich/backgammon#12's recording
 landed). Passthrough runs (blank mix, or the ignore-mix override) wire no
 composition at all, and the notice block is gated on the composition's
-existence, so the no-framing case falls out structurally. A refused start
-replaces no active-run state, `LastComposition` included, so a running quiz
-keeps its framing behind a refusal.
+existence, so the no-framing case falls out structurally. `LastComposition`
+is the current run's, held in its `RunSource`, so a Start or Restart that does
+not commit — refused or faulted — leaves a running quiz its framing.
 `ProblemNumber` / `ProblemCount` drive the "Problem N of M" indicator, and
 both are the run's (`../SPEC-quiz-history.md` §5). N is the 1-based **consumed
 stream slot** of `Current` (`PresentedProblem.StreamSlot`: auto-skipped
@@ -777,7 +805,7 @@ pins them there, for ▶ pressed as Skip and as Continue.
 
 **Lifetime-stats sink is ctor-injected.** The controller's second dependency
 is the `IProblemStatsSink` (production: `QuizStatsStore`), driven at exactly
-two points: `ResetAndAdvanceAsync` calls `BeginQuizAsync()` — the one shared
+two points: `AttemptAsync` calls `BeginQuizAsync()` — the one shared
 path under Start *and* Restart, so the stats context binds there and nowhere
 else — and **Submit** folds via `RecordAsync`, through the one `FoldAsync`,
 the answer of record that submission made (`../SPEC-scoring.md` §2's fold
@@ -1061,9 +1089,14 @@ milliseconds.
 - **Staleness.** Files + generation are captured at construction (factory
   invocation = Start time, the read-live-at-Start discipline); the holder's
   cache is consulted only while the generation still matches, and the source
-  keeps its own reference to whatever it parsed/adopted — so a Restart after a
-  mid-quiz re-pick still replays *this quiz's* files without re-parsing and
-  without polluting the new pick's cache.
+  keeps its own reference to whatever it parsed/adopted — so every enumeration
+  of *that* source, and its `Report`, reads the files it was built over, and a
+  parse it completes never pollutes a newer pick's cache. A Restart is not a
+  re-enumeration of it: every Start and every Restart builds a new source
+  through the factory, over the folder picked at that moment
+  (`../SPEC-quiz-history.md` §8, "What a Restart replays"), so a Restart after
+  a mid-quiz re-pick replays the quiz's filters and mix over the newly picked
+  folder's files. Done promises "same filters", and no more.
 - The stream sources stay **stream-pure** (the parse delegates to
   `WasmUploadedProblemSetSource` with an empty `DecisionFilterSet`); caching
   is entirely this app-side layer. Both passes pace their yields with
@@ -1136,7 +1169,7 @@ is processing a selection the user has made*.
 
 **Two-slot model — the mid-quiz-Clear ruling (enforced lib-side, relied on
 here).** The stats context **binds at Start/Restart, never at pick**: the
-controller's `ResetAndAdvanceAsync` drives `QuizStatsStore.BeginQuizAsync()`,
+controller's `AttemptAsync` drives `QuizStatsStore.BeginQuizAsync()`,
 which promotes picked → active (`PromoteToActiveAsync`) and loads the stats
 file through the active slot. Home's Clear resets **only the picked slot**
 (`ClearPickedAsync`), so a mid-quiz Clear or re-pick never affects the running
@@ -2629,7 +2662,9 @@ The asymmetry is pinned three times over: at the service seam
   **Failure and outcome banners.** Pick failures (unexpected `JSException`,
   caps exceeded — `_pickError`) and start-time exceptions
   (`FilterConfig.Build()` validation, source construction — `_startError`)
-  surface as banners instead of faulting the WASM app. A *successful* Start
+  surface as banners instead of faulting the WASM app. A Start that faults
+  keeps the quiz that was running (`../SPEC-quiz-history.md` §8), so "Back to
+  quiz" still returns to it, on the problem it showed. A *successful* Start
   that leaves the controller already `IsFinished` stays on `/` with a neutral
   no-match banner rather than navigating into a `0/0` `/quiz` → `/done`
   bounce — a post-Start check, not a pre-flight enumeration: `StartAsync`
@@ -5121,9 +5156,10 @@ public (see Pitfalls). The externally visible surface is the route map:
   with a surface-specific lead-in.
 - **A refused weighted start touches no quiz state — check the outcome before
   `IsFinished`.** `StartAsync`/`RestartAsync` returning `MixRequiresStats`
-  leaves the prior quiz (its enumerator and its run — record, score, ranking,
-  `Current`, `IsFinished`) and the
-  stored config exactly as they were; the only `StateChanged` firings are the
+  leaves the prior quiz (its run — record, score, ranking, `Current`,
+  `IsFinished` — and everything it holds beyond it: its stream, telemetry,
+  name, and the filters and mix its Restart replays) exactly as it was, as a
+  faulted attempt does (`../SPEC-quiz-history.md` §8); the only `StateChanged` firings are the
   gate's two busy flips. Callers must branch on the outcome *first*: Home's
   empty-result check reads `IsFinished`, which after a refusal is stale state
   from the previous quiz, so the other order shows a bogus no-match banner (or
@@ -5181,7 +5217,11 @@ public (see Pitfalls). The externally visible surface is the route map:
   any Start/Restart always caused; the file itself is never overwritten on the
   LoadFailed path. Rare×rare and accepted: a skip-the-reload guard would need
   JS handle-identity interop. Don't move the bind back after the source build
-  to "fix" it — the wrap decision needs the bound context.
+  to "fix" it — the wrap decision needs the bound context. A **faulted**
+  Start or Restart has run the bind too, since it is part of prepare: the
+  kept run's later answers fold into the context that attempt bound — the
+  one thing a kept run does not keep (`../SPEC-quiz-history.md` §8; booked as
+  halheinrich/backgammon#404).
 - **`QuizMix` entry order is semantic — preserve it everywhere.** Earlier
   entries win contested overlap (producer contract), so the mix panel's rows,
   the persisted JSON, the restore hydration, and the mix notices'

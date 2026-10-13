@@ -1,6 +1,7 @@
 using BgDataTypes_Lib;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
+using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib;
 using XgFilter_Lib.Enums;
 using XgFilter_Lib.Filtering;
@@ -12,7 +13,7 @@ public class QuizControllerTests
     private static QuizController Make(params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
-        return new QuizController((_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System);
+        return new QuizController((_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
     }
 
     /// <summary>
@@ -26,7 +27,7 @@ public class QuizControllerTests
     {
         var fake = new FakeProblemSetSource(items);
         sink = new FakeProblemStatsSink();
-        return new QuizController((_, _, _) => TestFixtures.Composed(fake), sink, TimeProvider.System);
+        return new QuizController((_, _, _) => TestFixtures.Composed(fake), sink, TimeProvider.System, NullLogger<QuizController>.Instance);
     }
 
     /// <summary>
@@ -41,7 +42,7 @@ public class QuizControllerTests
         var fake = new FakeProblemSetSource(items);
         DecisionFilterSet? holder = null;
         captured = () => holder;
-        return new QuizController((set, _, _) => { holder = set; return TestFixtures.Composed(fake); }, new FakeProblemStatsSink(), TimeProvider.System);
+        return new QuizController((set, _, _) => { holder = set; return TestFixtures.Composed(fake); }, new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
     }
 
     /// <summary>
@@ -58,7 +59,7 @@ public class QuizControllerTests
         handed = () => holder;
         return new QuizController(
             (_, ranking, _) => { holder = ranking; return TestFixtures.Composed(fake); },
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
     }
 
     private static Play BestPlay() => TestFixtures.OpeningBest();
@@ -127,14 +128,14 @@ public class QuizControllerTests
     public void Ctor_NullFactory_Throws()
     {
         Assert.Throws<ArgumentNullException>(
-            () => new QuizController(null!, new FakeProblemStatsSink(), TimeProvider.System));
+            () => new QuizController(null!, new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance));
     }
 
     [Fact]
     public void Ctor_NullStatsSink_Throws()
     {
         Assert.Throws<ArgumentNullException>(
-            () => new QuizController((_, _, _) => TestFixtures.Composed(new FakeProblemSetSource([])), null!, TimeProvider.System));
+            () => new QuizController((_, _, _) => TestFixtures.Composed(new FakeProblemSetSource([])), null!, TimeProvider.System, NullLogger<QuizController>.Instance));
     }
 
     [Fact]
@@ -822,7 +823,7 @@ public class QuizControllerTests
         // under the ranking it began with.
         var sink = new FakeProblemStatsSink { CanWeightMix = false };
         var fake = new FakeProblemSetSource([TestFixtures.DepthSplitDecision()]);
-        var c = new QuizController((_, _, _) => TestFixtures.Composed(fake), sink, TimeProvider.System);
+        var c = new QuizController((_, _, _) => TestFixtures.Composed(fake), sink, TimeProvider.System, NullLogger<QuizController>.Instance);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.DepthFirst);
 
         var outcome = await c.StartAsync(
@@ -1569,7 +1570,7 @@ public class QuizControllerTests
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 2),
         ]);
         var sink = new FakeProblemStatsSink();
-        var c = new QuizController((_, _, _) => TestFixtures.Composed(gated), sink, TimeProvider.System);
+        var c = new QuizController((_, _, _) => TestFixtures.Composed(gated), sink, TimeProvider.System, NullLogger<QuizController>.Instance);
         gated.ReleaseNext(2);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
@@ -2028,10 +2029,11 @@ public class QuizControllerTests
     [Fact]
     public async Task EndQuizAsync_ThenRestart_ReplaysTheWholeSource()
     {
-        // Ending releases the live enumerator early (the run is over and the
+        // Ending releases the run's stream early (the run is over and the
         // gate guarantees no MoveNextAsync is in flight). Restart must be
-        // unaffected: it builds a fresh enumeration from the stored config, so
-        // the ended-early run leaves no mark on the one that follows.
+        // unaffected: it builds a fresh source and stream from the run's
+        // filters and mix, so the ended-early run leaves no mark on the one
+        // that follows.
         var c = Make(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
@@ -2105,7 +2107,7 @@ public class QuizControllerTests
     {
         var d = TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay());
         var fake = new FakeProblemSetSource([d]);
-        var c = new QuizController((_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System);
+        var c = new QuizController((_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         Assert.Equal(1, fake.EnumerateCallCount);
@@ -2203,7 +2205,7 @@ public class QuizControllerTests
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         var c = new QuizController(
             (_, _, _) => TestFixtures.Composed(fake, sources: report),
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         var summary = await c.SummarizeMatchesAsync(new FilterConfig(), PlayRanking.Equity);
 
@@ -2221,7 +2223,7 @@ public class QuizControllerTests
         var fake = new FakeProblemSetSource([]);
         var c = new QuizController(
             (_, _, _) => new ComposedProblemSource(fake, () => 0, () => null),
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => c.SummarizeMatchesAsync(new FilterConfig(), PlayRanking.Equity));
@@ -2245,7 +2247,7 @@ public class QuizControllerTests
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         var c = new QuizController(
             (_, _, _) => TestFixtures.Composed(fake, duplicatesCollapsed: 7),
-            new FakeProblemStatsSink(), TimeProvider.System);
+            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         var summary = await c.SummarizeMatchesAsync(new FilterConfig(), PlayRanking.Equity);
 
@@ -2796,7 +2798,7 @@ public class QuizControllerTests
         var source = new FaultingProblemSetSource(
             faultAtDraw: 2, TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         var sink = new FakeProblemStatsSink();
-        var c = new QuizController((_, _, _) => TestFixtures.Composed(source), sink, TimeProvider.System);
+        var c = new QuizController((_, _, _) => TestFixtures.Composed(source), sink, TimeProvider.System, NullLogger<QuizController>.Instance);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.SubmitPlayAsync(BestPlay());
         var submitted = Assert.Single(sink.Plays);
@@ -2914,7 +2916,7 @@ public class QuizControllerTests
         var captured = new List<QuizMix>();
         mixes = captured;
         return new QuizController(
-            (_, _, mix) => { captured.Add(mix); return TestFixtures.Composed(fake); }, sink, TimeProvider.System);
+            (_, _, mix) => { captured.Add(mix); return TestFixtures.Composed(fake); }, sink, TimeProvider.System, NullLogger<QuizController>.Instance);
     }
 
     /// <summary>
@@ -2932,7 +2934,14 @@ public class QuizControllerTests
     public void Ctor_NullClock_Throws()
     {
         Assert.Throws<ArgumentNullException>(
-            () => new QuizController((_, _, _) => TestFixtures.Composed(new FakeProblemSetSource([])), new FakeProblemStatsSink(), null!));
+            () => new QuizController((_, _, _) => TestFixtures.Composed(new FakeProblemSetSource([])), new FakeProblemStatsSink(), null!, NullLogger<QuizController>.Instance));
+    }
+
+    [Fact]
+    public void Ctor_NullLogger_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => new QuizController((_, _, _) => TestFixtures.Composed(new FakeProblemSetSource([])), new FakeProblemStatsSink(), TimeProvider.System, null!));
     }
 
     [Fact]
@@ -3186,7 +3195,7 @@ public class QuizControllerTests
     {
         var fake = new FakeProblemSetSource(
             [TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())], countKnown: false);
-        var c = new QuizController((_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System);
+        var c = new QuizController((_, _, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
 
