@@ -203,7 +203,7 @@ public class QuizControllerStartAttemptTests
         c.ProblemNumber, c.ProblemCount, c.PresentedCount, c.Score, c.SkippedCount,
         c.CanGoBack, c.CanGoToLast, c.HasStarted ? c.Ranking : null, c.Name, c.LastComposition);
 
-    /// <summary>How many times the stream "A#1" — the first run's — has been released: once if End quiz ended it.</summary>
+    /// <summary>How many times the stream "A/1" — the first run's — has been released: once if End quiz ended it.</summary>
     private static int FirstRunsReleases(RunState state) => state == RunState.Finished ? 1 : 0;
 
     public static TheoryData<RunState, PrepareFault> EveryRunStateAndFault()
@@ -297,11 +297,11 @@ public class QuizControllerStartAttemptTests
     private static void AssertReleases(Harness h, RunState state, PrepareFault fault)
     {
         if (state != RunState.None)
-            Assert.Equal(FirstRunsReleases(state), h.Log.Stream("A#1").ReleaseCount);
+            Assert.Equal(FirstRunsReleases(state), h.Log.Stream("A/1").ReleaseCount);
 
         var opened = fault is PrepareFault.FirstDraw or PrepareFault.DrawPastAnAutoSkip;
         if (opened)
-            Assert.Equal(1, h.Log.Stream("B#1").ReleaseCount);
+            Assert.Equal(1, h.Log.Stream("B/1").ReleaseCount);
         else
             Assert.DoesNotContain(h.Log.Opened, s => s.Label.StartsWith('B'));
     }
@@ -339,7 +339,7 @@ public class QuizControllerStartAttemptTests
         // attempt never been made: the third, from the run's own stream.
         await c.NextAsync();
         Assert.Same(A3, c.Current);
-        Assert.Equal(("A#1", (BgDecisionData)A3), h.Log.Draws[^1]);
+        Assert.Equal(("A/1", (BgDecisionData)A3), h.Log.Draws[^1]);
         Assert.Equal(3, c.ProblemNumber);
         Assert.Equal(3, c.ProblemCount);
 
@@ -350,7 +350,7 @@ public class QuizControllerStartAttemptTests
         Assert.Equal(2, c.Score.Total.Submitted);
         Assert.Equal(1, c.SkippedCount);
         Assert.Equal(3, c.PresentedCount);
-        Assert.Equal(1, h.Log.Stream("A#1").ReleaseCount);
+        Assert.Equal(1, h.Log.Stream("A/1").ReleaseCount);
 
         // Restart replays the run's own filters and mix — the blank mix, which
         // is not refused, where the faulted Start's weighted one would have been.
@@ -410,7 +410,7 @@ public class QuizControllerStartAttemptTests
         // have happened when the previous stream is released.
         var atRelease = new List<(string Stream, string? Name, BgDecisionData? Current)>();
         h.Log.OnRelease = s => atRelease.Add((s.Label, c.Name, c.Current));
-        var releasesBefore = state == RunState.None ? 0 : h.Log.Stream("A#1").ReleaseCount;
+        var releasesBefore = state == RunState.None ? 0 : h.Log.Stream("A/1").ReleaseCount;
 
         Assert.Equal(QuizStartOutcome.Started, await h.MakeAsync(attempt));
 
@@ -426,19 +426,19 @@ public class QuizControllerStartAttemptTests
         Assert.Equal(PlayRanking.DepthFirst, c.Ranking);
         Assert.Equal("B", c.Name);
         Assert.Null(c.LastComposition);
-        Assert.All(h.Log.Draws.SkipWhile(d => d.Stream != "B#1"), d => Assert.Equal("B#1", d.Stream));
+        Assert.All(h.Log.Draws.SkipWhile(d => d.Stream != "B/1"), d => Assert.Equal("B/1", d.Stream));
 
         // The previous stream: released exactly once in all, and — where the
         // switch is what released it — only once the new run was current.
         if (state != RunState.None)
         {
-            Assert.Equal(1, h.Log.Stream("A#1").ReleaseCount);
+            Assert.Equal(1, h.Log.Stream("A/1").ReleaseCount);
             if (releasesBefore == 0)
-                Assert.Equal(("A#1", "B", (BgDecisionData?)B1), Assert.Single(atRelease));
+                Assert.Equal(("A/1", "B", (BgDecisionData?)B1), Assert.Single(atRelease));
             else
                 Assert.Empty(atRelease);
         }
-        Assert.Equal(0, h.Log.Stream("B#1").ReleaseCount);
+        Assert.Equal(0, h.Log.Stream("B/1").ReleaseCount);
 
         // The stored filters and mix are the new run's: a Restart now replays them.
         h.LineUp("B-again", [B1, B2]);
@@ -472,14 +472,14 @@ public class QuizControllerStartAttemptTests
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
         await c.NextAsync();
         Assert.True(c.IsFinished);
-        Assert.Equal(0, h.Log.Stream("A#1").ReleaseCount);
+        Assert.Equal(0, h.Log.Stream("A/1").ReleaseCount);
         var atRelease = new List<string?>();
         h.Log.OnRelease = _ => atRelease.Add(c.Name);
         h.LineUp("B", [B1]);
 
         Assert.Equal(QuizStartOutcome.Started, await c.RestartAsync(PlayRanking.Equity));
 
-        Assert.Equal(1, h.Log.Stream("A#1").ReleaseCount);
+        Assert.Equal(1, h.Log.Stream("A/1").ReleaseCount);
         Assert.Equal("B", Assert.Single(atRelease));
     }
 
@@ -499,7 +499,7 @@ public class QuizControllerStartAttemptTests
         Assert.Null(c.Current);
         Assert.Equal(0, c.PresentedCount);
         Assert.Equal("B", c.Name);
-        Assert.Equal(1, h.Log.Stream("A#1").ReleaseCount);
+        Assert.Equal(1, h.Log.Stream("A/1").ReleaseCount);
     }
 
     // -----------------------------------------------------------------------
@@ -523,7 +523,7 @@ public class QuizControllerStartAttemptTests
         Assert.False(c.IsBusy);
         Assert.Same(B1, c.Current);
         Assert.Equal("B", c.Name);
-        Assert.Equal(1, h.Log.Stream("A#1").ReleaseCount);
+        Assert.Equal(1, h.Log.Stream("A/1").ReleaseCount);
 
         // Said in the log, where a failure nobody can act on belongs.
         var logged = Assert.Single(h.Logger.Entries);
@@ -546,7 +546,7 @@ public class QuizControllerStartAttemptTests
         var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => h.MakeAsync(Attempt.Start));
 
         Assert.Equal(RecordingProblemSetSource.FaultMessage, thrown.Message);
-        Assert.Equal(1, h.Log.Stream("B#1").ReleaseCount);
+        Assert.Equal(1, h.Log.Stream("B/1").ReleaseCount);
         Assert.Equal(before, Observe(h.Controller));
 
         // The release's own failure is not lost: it is logged, naming the

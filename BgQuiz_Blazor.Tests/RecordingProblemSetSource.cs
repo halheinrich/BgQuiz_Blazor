@@ -41,7 +41,7 @@ internal sealed class StreamLog
 
 /// <summary>
 /// One enumeration of a <see cref="RecordingProblemSetSource"/>: its label —
-/// the source's name and the enumeration's 1-based number, <c>"A#1"</c> — how
+/// the source's name and the enumeration's 1-based number, <c>"A/1"</c> — how
 /// many items it yielded, and how many times it was released.
 /// </summary>
 internal sealed class RecordedStream(string label)
@@ -114,7 +114,7 @@ internal sealed class RecordingProblemSetSource : IProblemSetSource
         public IAsyncEnumerator<BgDecisionData> GetAsyncEnumerator(CancellationToken cancellationToken = default)
         {
             if (source._openFaults) throw new InvalidOperationException(FaultMessage);
-            var stream = new RecordedStream($"{source.Name}#{++source._enumerations}");
+            var stream = new RecordedStream($"{source.Name}/{++source._enumerations}");
             source._log.RecordOpened(stream);
             return new Enumerator(source, stream);
         }
