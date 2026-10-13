@@ -73,6 +73,18 @@ public partial class Done : ComponentBase
     private bool _mixRefused;
 
     /// <summary>
+    /// The message of the last Restart that faulted, or null — the sibling of
+    /// Home's start error, <c>"Could not restart quiz:"</c>
+    /// (<c>SPEC-quiz-history.md</c> §8; <c>SPEC-notices.md</c> §4's 2026-10-13
+    /// entry). A faulted Restart keeps the finished run, so the summary on
+    /// this page still stands beneath the notice, and Restart can be pressed
+    /// again. A per-visit failure notice, assertive and dismissible, and this
+    /// field is its whole state, as Home's is: dismissing it clears the field,
+    /// and the next fault assigns it again and shows fresh.
+    /// </summary>
+    private string? _restartError;
+
+    /// <summary>
     /// Whether the finished run was weighted while a restart of it would not
     /// be — the one state <see cref="RestartAsync"/>'s rule makes possible, and
     /// the one this page has to disclose before the click.
@@ -119,10 +131,26 @@ public partial class Done : ComponentBase
     private async Task RestartCoreAsync(bool ignoreMix)
     {
         _mixRefused = false;
+        _restartError = null;
 
         // The ranking is the user's setting as it stands now: a restart is a new
         // run, and a run takes its ranking where it begins (SPEC-scoring.md §2a).
-        var outcome = await Controller.RestartAsync(Settings.Ranking, ignoreMix);
+        QuizStartOutcome outcome;
+        try
+        {
+            outcome = await Controller.RestartAsync(Settings.Ranking, ignoreMix);
+        }
+        catch (Exception ex)
+        {
+            // The attempt faulted — building the source, opening its stream
+            // or drawing to its first problem — and kept the finished run
+            // (SPEC-quiz-history.md §8): the summary stands, nothing became
+            // live, and the marker stays cleared. Surface it rather than
+            // faulting the app. Only the controller's call is caught, so the
+            // notice never names a failure that was not the Restart's.
+            _restartError = ex.Message;
+            return;
+        }
 
         // Overlapped gesture: the transition gate ignored this call — change
         // nothing; the in-flight Restart owns any navigation and notices.

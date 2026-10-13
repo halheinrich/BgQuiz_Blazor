@@ -3820,9 +3820,10 @@ public class PageTests : BunitContext
     //  A faulted Start or Restart keeps the current quiz
     //  (SPEC-quiz-history.md §8; halheinrich/backgammon#325 item 1)
     //
-    //  The controller's own pins are QuizControllerStartAttemptTests'. Home
-    //  makes an attempt, and its "Back to quiz" must then return to the quiz
-    //  that was running.
+    //  The controller's own pins are QuizControllerStartAttemptTests'. These
+    //  are the two pages that make an attempt: Home, whose "Back to quiz" must
+    //  then return to the quiz that was running, and Done, which must report a
+    //  faulted Restart as Home reports a faulted Start.
     // -----------------------------------------------------------------------
 
     /// <summary>
@@ -3881,6 +3882,68 @@ public class PageTests : BunitContext
 
         quiz.WaitForAssertion(() => Assert.Equal("Problem 2 of 2", ProblemPositionText(quiz)));
         Assert.Same(second, c.Current);
+    }
+
+    /// <summary>
+    /// Done over a finished one-problem quiz, answered, whose next Restart
+    /// faults and whose Restart after that succeeds.
+    /// </summary>
+    private async Task<(QuizController Controller, IRenderedComponent<DonePage> Done)> RenderDoneWhoseNextRestartFaultsAsync()
+    {
+        var c = WithControllerFaultingOnCalls(call => call == 2, TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.SubmitPlayAsync(BestPlay());
+        await c.NextAsync();
+        Assert.True(c.IsFinished);
+
+        var done = Render<DonePage>();
+        await RestartButton(done).ClickAsync(new());
+        return (c, done);
+    }
+
+    private static AngleSharp.Dom.IElement RestartButton(IRenderedComponent<DonePage> cut) =>
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Restart with same filters");
+
+    [Fact]
+    public async Task Done_AFaultedRestart_IsReportedOnThePage_TheSummaryStands_AndRestartCanBePressedAgain()
+    {
+        var (c, done) = await RenderDoneWhoseNextRestartFaultsAsync();
+        var nav = Services.GetRequiredService<BunitNavigationManager>();
+
+        // Reported: Home's "Could not start quiz:" sibling, the message verbatim.
+        var notice = NoticeSaying(done, "Could not restart quiz:");
+        Assert.Equal(
+            $"Could not restart quiz: {RecordingProblemSetSource.FaultMessage}",
+            Normalize(notice.Content.TextContent));
+
+        // The summary stands, and the page stays.
+        Assert.True(c.IsFinished);
+        Assert.Equal(1, c.Score.Total.Submitted);
+        Assert.Contains("Total problems shown: 1.", Normalize(done.Find(".container").TextContent));
+        Assert.False(nav.Uri.EndsWith("/quiz", StringComparison.Ordinal));
+
+        // Restart can be pressed again, and this time it restarts.
+        Assert.False(RestartButton(done).HasAttribute("disabled"));
+        await RestartButton(done).ClickAsync(new());
+
+        Assert.EndsWith("/quiz", nav.Uri);
+        Assert.False(c.IsFinished);
+        Assert.False(ShowsNoticeSaying(done, "Could not restart quiz"));
+    }
+
+    [Theory]
+    [MemberData(nameof(BothGestures))]
+    public async Task Done_RestartError_IsADismissibleAssertiveError(NoticeDismissGesture gesture)
+    {
+        // SPEC-notices.md §4's 2026-10-13 entry: the sibling of Home's start
+        // error, in the same shape (Fork A).
+        var (_, done) = await RenderDoneWhoseNextRestartFaultsAsync();
+
+        NoticeSaying(done, "Could not restart quiz").ShouldBe(
+            NoticeKind.Error, NoticeAnnouncement.Assertive, dismissible: true);
+        NoticeSaying(done, "Could not restart quiz").Dismiss(gesture);
+
+        Assert.False(ShowsNoticeSaying(done, "Could not restart quiz"));
     }
 
     [Fact]

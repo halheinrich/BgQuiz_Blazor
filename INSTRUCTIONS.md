@@ -3810,7 +3810,13 @@ The asymmetry is pinned three times over: at the service seam
   Refusal is otherwise handled like Home's Start (§ Pages → Home):
   `MixRequiresStats` renders the refusal — a gate reason, not dismissible —
   with **"Restart without mix"**, and the
-  marker stays cleared (nothing became live). The page awaits
+  marker stays cleared (nothing became live). A Restart that **faults** is
+  reported like Home's start error: "Could not restart quiz:" and the message
+  (`_restartError`), an error, assertive and dismissible
+  (`../SPEC-notices.md` §4's 2026-10-13 entry). The attempt kept the finished
+  run (`../SPEC-quiz-history.md` §8), so the summary stands, the marker stays
+  cleared, and Restart can be pressed again. Only the controller's call is
+  caught, so the notice never names a failure that was not the Restart's. The page awaits
   `QuizSettings.EnsureHydratedAsync` in its init, since half of what Restart
   reads is a stored setting — Home has always hydrated it first, and awaiting
   the completed cached task turns that claim about page ordering into something
@@ -5029,7 +5035,8 @@ public (see Pitfalls). The externally visible surface is the route map:
   extension-bearing entry names precisely for this (a stated
   BgFolderAccess_Razor contract, pinned producer-side).
   Start-time exceptions (this, plus `FilterConfig.Build()` validation) surface
-  on `Controller.StartAsync` and `Home.razor` banners them.
+  on `Controller.StartAsync` and `Home.razor` banners them; a Restart's surface
+  on `Controller.RestartAsync`, and `Done.razor` banners them.
 - **Lifetime stats fold at a live Submit, and nowhere else; what folds is
   what the run says that submission made of record.** The trigger is
   `../SPEC-scoring.md` §2's (amended 2026-09-24, halheinrich/backgammon#8) —

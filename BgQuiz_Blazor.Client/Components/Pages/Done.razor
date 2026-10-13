@@ -138,6 +138,18 @@
         </Notice>
     }
 
+    @* Restart failure: the sibling of Home's "Could not start quiz", in its
+       shape — an error, assertive and dismissible, the message field the
+       box's whole state (SPEC-notices.md §4's 2026-10-13 entry, Fork A). A
+       faulted Restart keeps the finished run (SPEC-quiz-history.md §8), so
+       the summary above still stands and Restart below can be pressed again. *@
+    <Notice Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
+            Dismissible="true"
+            @bind-Dismissed:get="string.IsNullOrEmpty(_restartError)"
+            @bind-Dismissed:set="_ => _restartError = null">
+        <strong>Could not restart quiz:</strong> @_restartError
+    </Notice>
+
     @* Restart disables while the controller is busy (the gate would no-op it
        anyway — this is the honest mirror); Back to setup stays enabled: it
        only navigates. *@
