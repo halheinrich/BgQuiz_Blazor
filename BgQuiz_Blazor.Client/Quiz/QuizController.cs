@@ -1185,9 +1185,13 @@ internal sealed class QuizController : IAsyncDisposable
     /// <b>The stats link is the one thing a kept run does not keep.</b> The
     /// bind is part of prepare, because the stage-2 check and a weighted
     /// composition read the context it binds, so any attempt that passes
-    /// stage 1 has re-bound it, whether or not it commits — and the kept
-    /// run's later answers fold into that context. A known limitation
-    /// (§8; halheinrich/backgammon#404), not this type's to change: see the
+    /// stage 1 has re-bound it, whether or not it commits. The kept run's
+    /// later answers then go to the context that attempt bound: where it
+    /// records, they fold into the folder picked at that time, its record
+    /// read afresh; where it does not, they are recorded nowhere — and a
+    /// stage-2 refusal always leaves such a context, since it refuses exactly
+    /// when the bind found no stats document. A known limitation (§8;
+    /// halheinrich/backgammon#404), not this type's to change: see the
     /// Pitfalls in INSTRUCTIONS.md.
     /// </para>
     ///

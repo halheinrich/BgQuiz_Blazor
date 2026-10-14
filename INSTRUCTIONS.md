@@ -5225,10 +5225,14 @@ public (see Pitfalls). The externally visible surface is the route map:
   LoadFailed path. Rare×rare and accepted: a skip-the-reload guard would need
   JS handle-identity interop. Don't move the bind back after the source build
   to "fix" it — the wrap decision needs the bound context. A **faulted**
-  Start or Restart has run the bind too, since it is part of prepare: the
-  kept run's later answers fold into the context that attempt bound — the
-  one thing a kept run does not keep (`../SPEC-quiz-history.md` §8; booked as
-  halheinrich/backgammon#404).
+  Start or Restart has run the bind too, since it is part of prepare. After
+  either, the kept run's later answers go to the context that attempt bound —
+  the one thing a kept run does not keep (`../SPEC-quiz-history.md` §8; booked
+  as halheinrich/backgammon#404). Where that context records, they fold into
+  the folder picked at that time, its record read afresh; where it does not,
+  they are recorded nowhere. A stage-2 refusal always leaves such a context,
+  since it refuses exactly when the bind found no stats document, and the
+  store folds only in its Ready state.
 - **`QuizMix` entry order is semantic — preserve it everywhere.** Earlier
   entries win contested overlap (producer contract), so the mix panel's rows,
   the persisted JSON, the restore hydration, and the mix notices'
