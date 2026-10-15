@@ -346,6 +346,9 @@ internal sealed class FolderOperations(
     {
         folder.Clear();
         filterSetup.ReportSource(null);
+        // The draft's in-memory reset, not a deletion: the stored rows outlive
+        // the setup and re-hydrate into the next panel mount (MixDraft.Discard
+        // says why nothing — no consent, no capability fork — sits beside it).
         mixDraft.Discard();
         Changed?.Invoke();
         await folderAccess.ClearPickedAsync();

@@ -63,7 +63,8 @@ using Microsoft.Extensions.Logging;
 ///
 /// <para>
 /// <b>A pick (or Clear) discards the draft — not the storage.</b>
-/// <c>Home.EndCurrentSetupAsync</c> calls <see cref="Discard"/>, and since the
+/// Ending a setup (<see cref="FolderOperations"/>, at a pick's click and at
+/// Clear) calls <see cref="Discard"/>, and since the
 /// 2026-09-07 ruling it calls nothing beside it: ending a setup blanks the
 /// builder and forgets hydration, so the next panel mount re-hydrates the
 /// <i>stored</i> last-valid mix afresh — the rows outlive the setup (§4: they
@@ -266,9 +267,9 @@ internal sealed class MixDraft(BrowserStorage browser, ILogger<MixDraft> logger,
 
     /// <summary>
     /// End the draft's setup: blank the builder <i>and</i> forget hydration, so
-    /// the next panel mount re-offers the stored mix afresh. Called from
-    /// <c>Home.EndCurrentSetupAsync</c> — the start of every pick gesture, and
-    /// Clear. Deliberately <b>not</b> a
+    /// the next panel mount re-offers the stored mix afresh. Called where a
+    /// setup ends (<see cref="FolderOperations"/>) — the start of every pick
+    /// gesture, and Clear. Deliberately <b>not</b> a
     /// write-through mutator: it does not touch localStorage, so the stored
     /// last-valid mix survives the end of the setup for the next hydration to
     /// re-offer — this asymmetry (Clear persists blank, Discard persists

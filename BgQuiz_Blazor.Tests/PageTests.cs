@@ -1834,8 +1834,8 @@ public class PageTests : BunitContext
         Assert.False(MixIsInEffect());
         Assert.True(Services.GetRequiredService<QuizSettings>().WeightQuizzesByStats);
         Assert.Empty(Services.GetRequiredService<MixDraft>().Rows);
-        // The picked slot too. Derivation: EndCurrentSetupAsync clears it once
-        // per gesture that ends a setup, and this test makes two pick gestures
+        // The picked slot too. Derivation: ending a setup (FolderOperations)
+        // clears it once per gesture that ends one, and this test makes two pick gestures
         // (the held pick, then the cancelled one) — so 2, not 1.
         Assert.Equal(2, _folderAccess.ClearPickedCallCount);
 

@@ -257,6 +257,8 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   `QuizController`, the per-app orchestrator that holds the run in progress
   or the finished run's result, with its `ProblemSetSourceFactory` delegate
   and `QuizStartOutcome`; `QuizResult`, what a finished run keeps;
+  `StreamRelease`, the one rule every stream this app draws from is released
+  by;
   `ProblemReview`, the displayed review; `MatchSummary`, the pre-Start pool,
   what its dedupe collapsed, and which picked files its parse could not read.
 - **The source stack** — `Quiz/`: `WasmUploadedProblemSetSource` (the
@@ -268,7 +270,10 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   dedupe's collapse, and the parse layer's source report).
 - **Folder and lifetime stats** — `Quiz/`: `PickedProblemFolder` (the
   picked-folder holder and its parse-cache seam, with `SetupIdentity` and
-  `SampleIdentity`, the setup's and the sample's identities), `PickedFileLimits` (the
+  `SampleIdentity`, the setup's and the sample's identities),
+  `FolderOperations` (the app-scoped owner of every pick, fallback
+  collection, resample and Clear, with `FolderOutcome` and
+  `FallbackPickIntent`), `PickedFileLimits` (the
   pick caps, host policy), `PickedFolderDocumentStorage` (XgFilter_Razor's
   storage seam over the picked slot), `QuizStatsFile` (the stats document's
   names and serializer contract), `QuizStatsStore` (the stats sink and the
@@ -574,15 +579,24 @@ transitions; a page that shows the current run during a long prepare (Home's
 finished run (below), its source released at once and the live-quiz marker
 cleared. A stream is released once (`RunSource.ReleaseAsync` lets it go
 before awaiting the release): wherever the run finishes — End quiz, the
-source running out, a new sample — by the switch, or, for a faulted
-attempt, before the fault propagates. **Releasing never misreports**: a
-release that throws after the switch or as a run finishes is logged (the
-controller's `ILogger`), not reported as a failed Start, Restart or End
-quiz; one that throws while a faulted attempt is being unwound is logged
-too, and the attempt's own error is the one rethrown (except that the
-producer's composer, releasing its inner stream in its own `finally`,
-surfaces a release fault in place of a draw fault — pinned in
-`QuizControllerStartAttemptTests` as it stands).
+source running out, a new sample — by the switch, for a faulted attempt
+before the fault propagates, or as the controller is disposed.
+**Releasing never misreports, by one rule** (`StreamRelease`;
+`../SPEC-quiz-history.md` §8): the draw's outcome stands — a fault, the end
+of the stream, or a complete walk — and a release that throws is logged
+where it happens (the controller's `ILogger`), never reported as a failed
+Start, Restart or End quiz, and never in place of a faulted attempt's error,
+which the log line names. The producer's half is BgGame_Lib's (`4dd01ac`,
+"Releasing the inner stream"): its decorators no longer let an inner
+stream's release replace a draw's outcome, and throw that failure from their
+own release instead — so a stream that runs out reports its end, the run
+finishes, and only the release here can fail. Arc 4's contract test
+(`AFailedReleaseOfWhatAFaultedAttemptOpened_NeverReplacesTheAttemptsError`)
+stands as it was written. The same rule serves the match count's drain and
+the parse walk (§ Pre-Start match summary, § `CachedProblemSetSource`): a
+plain `await foreach` releases in its own `finally`, where a throwing
+release replaces the loop's outcome, so no site here uses one over a
+stream it must answer for.
 
 **A finished run holds its result and its replay, nothing heavy**
 (`../SPEC-quiz-history.md` §9; halheinrich/backgammon#407). However a run
@@ -894,7 +908,9 @@ take, since "erred by more than x" is read under it. It builds the same
 controller-owned pipeline `StartAsync` would and folds a source from the
 factory over a **throwaway** enumerator, so the shared enumerator and the
 current run are never touched and a summary is safe against a
-live quiz; it deliberately takes **no** transition gate (no shared enumerator
+live quiz — drained through `StreamRelease`, so a count that reached the
+end stands whatever its release does, and a draw's fault is the one thrown;
+it deliberately takes **no** transition gate (no shared enumerator
 to protect; the one thing a count and a Start could race over, the pick's
 first parse, Home serializes by holding the page busy for that count). The pass
 is a byproduct of the source's in-memory `Matches` filter and it **warms the
@@ -1103,6 +1119,14 @@ milliseconds.
   `StoreParsed(sample, parsed)`, which **drops** a store whose sample has
   been replaced, and it adopts the cache only while the sample it was built
   from is still the one held (see Pitfalls).
+- **The parse walk is released by the one rule** (`StreamRelease`;
+  halheinrich/backgammon#407): a walk that completed is published even when
+  releasing its stream fails, a walk that faulted reports its own fault, and
+  the release's failure is logged by the cache. The cancellation check stays
+  immediately before publication, so a completed walk under a cancelled
+  token publishes nothing. The walk is the internal `ParseWalk` the public
+  constructor binds to the in-browser parse; an internal constructor is the
+  test seam that stands a walk with a failing release in its place.
 - **The parse carries its own source report** (halheinrich/backgammon#368).
   What is stored is a `ParsedProblemSet`: the decisions and, inseparably, the
   producer's `SourceReport` of the walk that produced them — attempted and
@@ -1218,10 +1242,10 @@ halheinrich/backgammon#48; the seam is the library's contract now).**
 the browser's prompts and the enumeration/buffering — the only point at which
 a busy affordance can be raised *truthfully* (earlier lies over a modal; later
 never paints — the lib's Pitfalls carry the full rationale). It is **not**
-invoked for a cancelled pick. `Home` passes `EnterBusyAsync`; the fallback
-reaches the same meaning by a different route, its work beginning at the
-input's `change` event so the whole of `HandleFallbackPickedAsync` runs under
-the affordance. On both mechanisms the busy state means one thing — *the app
+invoked for a cancelled pick. `FolderOperations` passes its progress hook
+(the busy cursor raised and painted); the fallback reaches the same meaning
+by a different route, its work beginning at the input's `change` event so
+the whole collection runs under the affordance. On both mechanisms the busy state means one thing — *the app
 is processing a selection the user has made*.
 
 **Two-slot model — the mid-quiz-Clear ruling (enforced lib-side, relied on
@@ -1233,8 +1257,9 @@ file through the active slot. Home's Clear resets **only the picked slot**
 recording, and a pick or a resample that lands ends the quiz in progress
 (`../SPEC-quiz-history.md` §9) without retargeting it: the active slot is
 untouched until the next Start re-binds. A failed explicit pick releases the
-picked slot's folder too (`ReleaseFailedPickAsync` — the module binds the
-chosen folder before it draws, halheinrich/backgammon#403); a failed resample
+picked slot's folder too (`FolderOperations` — the module binds the chosen
+folder before it draws, halheinrich/backgammon#403), and a failure of that
+release is logged, never reported in place of the pick's; a failed resample
 releases nothing. The picked
 slot also serves the **saved-filters** document (through
 `PickedFolderDocumentStorage` over `ReadPickedFileAsync`/`WritePickedFileAsync`):
@@ -1382,9 +1407,9 @@ halheinrich/backgammon#87). Beside the *active context* above sits the
   previous pick finishing late wrote its facts under the stamp the next pick's
   probe had set; one value assigned once makes that unrepresentable, and a
   superseded probe, on its success and catch paths alike, publishes nothing.
-- **Two reading points, both `Home`'s**: each successful pick's landing
-  (`ApplyPickOutcomeAsync`, after `Set` so it probes the sample it is
-  about) and `OnInitializedAsync`. The second is what makes "no mix until its
+- **Two reading points**: each sample's landing (`FolderOperations`, after
+  the install so it probes the sample it is about) and Home's
+  `OnInitializedAsync`. The second is what makes "no mix until its
   first quiz creates stats" resolve on the way back from that quiz — returning
   to Home re-instantiates the page and re-probes — instead of waiting for a
   re-pick the user has no reason to make.
@@ -1602,12 +1627,13 @@ meets today. A full reload constructs a fresh owner — a fresh setup and a
 fresh restoration (§4's last row) — while every in-app navigation finds the
 same one.
 
-**It reports its source where the source latches.** Home's `FilterSource`
-(`Folder.SetupIdentity?.FilterSource`: the setup's token while the pick holds
-files, else `null`) is reported by `ReportFilterSource()` after every change to the
-folder — `ClearFolder()` (the setup end, at the pick click and in each
-failure path) and the successful `Folder.Set` — whether or not the panel is
-mounted, and once more on each mount. A different source ends the setup (the
+**It reports its source where the source latches.** The source is the held
+setup's token (`Folder.SetupIdentity?.FilterSource`: the setup's token while
+the pick holds files, else `null`), reported after every change to the
+folder by the operation that made it (`FolderOperations` — the setup's end,
+at the pick click, at Clear and on a failed pick, and every landing) whether
+or not the panel is mounted, and by Home once more on each mount
+(`ReportFilterSource`). A different source ends the setup (the
 baseline dropped, the draft kept, §1 "The dir is changed"); the same source
 again does nothing, which is how navigate-back keeps an applied filter armed
 without a re-Apply. `null` is reported only for "no folder", never for "not
@@ -1808,7 +1834,7 @@ on the return to Home (see the probe's two reading points below), not at some
 later re-pick.
 
 **A pick (and Clear) discards the draft — and nothing else.**
-`EndCurrentSetupAsync` calls `MixDraft.Discard()` with **no revoke beside it**
+Ending a setup (`FolderOperations`) calls `MixDraft.Discard()` with **no revoke beside it**
 since 2026-09-07: there is no consent to revoke. `Discard` blanks the draft
 **and forgets hydration** (with a generation guard so a read still in flight
 lands nothing) — **deliberately without touching localStorage**, the
@@ -2448,7 +2474,7 @@ The asymmetry is pinned three times over: at the service seam
   describes the pick and nothing more — with a
   **Resample** affordance beside it while `Folder.CanResample` (another draw
   of the held folder, `ResampleAsync`; below) and a **Clear** affordance
-  bound to `EndCurrentSetupAsync`. Clearing is safe mid-quiz and left
+  bound to `ClearSetupAsync` (the owner's `ClearAsync`). Clearing is safe mid-quiz and left
   unguarded on purpose — files are read only at Start time and the clear
   touches only the JS *picked* slot (pinned); so is every gesture that
   replaces no sample. A pick or a resample that lands ends the quiz (below).
@@ -2687,15 +2713,15 @@ The asymmetry is pinned three times over: at the service seam
   that refusal is near-unreachable from the UI — where the stats fact is false the
   panel is hidden and `EffectiveMix` reads the passthrough, so what can still reach
   it is a stats file that stopped being readable between the pick and the Start.
-  **A pick ends the current setup — at the click.** `EndCurrentSetupAsync`
-  is the single reset behind *both* gestures that end a setup (the pick
+  **A pick ends the current setup — at the click.** One reset, the owner's
+  (`FolderOperations`), is behind *both* gestures that end a setup (the pick
   gesture and the `Clear` affordance — they encode the same decision, so they
   share one spelling): folder holder + JS picked slot, the mix draft
   (`Discard` — the stored rows survive, and nothing sits beside it: there is no
   consent to revoke, and the mix setting is a choice that outlives every setup),
-  the filter setup (`ClearFolder()` reports the source's end to
-  `FilterSetup` — the one line of filter choreography here, § `FilterSetup`),
-  and every pick-scoped notice. The match count needs no line: it is keyed
+  the filter setup (the owner reports the source's end to `FilterSetup` — the
+  one line of filter choreography, § `FilterSetup`), and every pick-scoped
+  notice (Home's own half, `ClearPickNotices`, before it asks). The match count needs no line: it is keyed
   by the setup and the sample, so a new pick recounts. The saved-filters context needs none
   either — it dies with the composite the closing `HasFiles` gate unmounts.
   Nothing selected
@@ -2718,39 +2744,67 @@ The asymmetry is pinned three times over: at the service seam
   cancelled-re-pick loss.
   **Resample keeps the setup and replaces the sample**
   (`../SPEC-filtering.md` §4, "The sample, the limits and Resample";
-  halheinrich/backgammon#403). `ResampleAsync` draws the held folder again
-  (`IFolderAccess.ResampleAsync`) under `RunBusyAsync` — no prompt precedes
-  the work, so the whole operation is busy — and lands the draw through
+  halheinrich/backgammon#403). `FolderOperations.ResampleAsync` draws the held
+  folder again (`IFolderAccess.ResampleAsync`), busy throughout — no prompt
+  precedes the work — and lands the draw through
   `PickedProblemFolder.Resample`: the filter in effect, the mix (the panel is
   keyed by `SetupIdentity`, so it stays mounted) and the saved-filters
   document stand; the parse, the count, the pick-time notices and the stats
   probe are fresh. Offered only while `CanResample` (the producer's
   `FolderSample.HoldsEveryMatchingFile` read, not restated). A failure to
-  acquire (`IsFolderReadFailure`) keeps the held sample and the module's folder
-  and reports in the pick-error box; an empty draw replaces nothing and says
-  so (`_emptyResampleNotice`); the seam's caller error is not caught.
+  acquire (below) keeps the held sample and the module's folder and reports
+  in the pick-error box; an empty draw replaces nothing and says so
+  (`_emptyResampleNotice`); the seam's caller error is not caught.
   **A new sample ends the run — at the landing** (`../SPEC-quiz-history.md`
-  §9). `LandSampleAsync` is the one landing for a pick's sample and a
+  §9). `FolderOperations` has the one landing for a pick's sample and a
   resample's, in §9's order: acquired and non-empty first, then
   `QuizController.EndForNewSampleAsync` (the run finished as End quiz finishes
   it, its heavy references released, the live-quiz marker cleared), then the
-  install, then the source report, the stats probe and the count
-  (`ScheduleCountSync`, which the landing asks for itself because the filter
-  owner publishes nothing for a resample, and after the probe so no render of
-  this page's lands inside the probe's await). The setup ends at the click;
+  install — only over the sample the draw began against — then the source
+  report and the stats probe; the page asks for the count when the owner says
+  the operation ended (`OnOperationsChanged` → `ScheduleCountSync`), because
+  the filter owner publishes nothing for a resample, and after the probe so
+  no render of the page's lands inside the probe's await. The setup ends at the click;
   the run ends only when files arrive — a cancelled picker, an empty folder,
   Clear, a failed pick or resample and an empty resample end nothing. After
   it, the pick band's `#quizEndedByNewSampleNotice` (an event notice keyed on
   `QuizController.EndedByNewSample`, the finished run itself) says so and
   links to `done`; "Back to quiz" is gone with the live quiz.
+  **A folder operation has an app-scoped owner** (`FolderOperations`;
+  halheinrich/backgammon#403). A pick or a resample can outlive the page it
+  began on — the user navigates away and back mid-resample — so its
+  exclusion, its progress and its landing are the owner's, not a field of
+  one `Home`: while an operation is in flight, in the whole app, no pick,
+  Clear, Start or Resample begins from any `Home`, and neither of Done's
+  Restarts begins, each **refused at its handler** (the owner refuses its own
+  operations too) as well as disabled. "Back to quiz" and End quiz stay live:
+  they are the run's gestures, and a landing finds whatever run is left.
+  **Exclusion and progress are two facts.** `IsInFlight` is held for the
+  whole operation — on File System Access from the click, through the
+  browser's prompts (the module binds the chosen folder as soon as they end),
+  the acquisition and the landing; `ShowsProgress`, the busy cursor, starts at
+  the accepted-pick hook, or at the start of a resample or a collection. Both
+  end however the operation ends, so a dismissed picker never locks the app.
+  **The fallback holds nothing while its picker is open** — a dismissed
+  `webkitdirectory` picker may signal nothing — so the click mints a
+  `FallbackPickIntent` and releases the operation; the input's change
+  callback is collected only for the intent still current, taking ownership
+  before the collection binds the picked slot, and any operation begun since
+  supersedes it, so a late selection never replaces newer state. A selection
+  with no intent at all — the hidden input changed without the click that
+  opens its picker — is no pick. Each operation answers a `FolderOutcome` the
+  asking page reports on its per-visit notices; an operation that outlives
+  its page reports to nobody, while what it landed is on the holder for every
+  page to show.
   **Busy affordances.** The whole setup surface sits inside one
   `<fieldset disabled="@IsBusy">` — the native element disables every form
   control within, including the Apply buttons *inside* the imported
   `FilterSurface`/`MixPanel`, which expose no disabled parameter — and the page
   container carries `app-busy` (`cursor: progress`, `app.css`) on the *same*
   predicate, so cursor and disabled controls cannot disagree. `IsBusy` unions
-  `Controller.IsBusy` (the transition gate), `_busy` (this page's own
-  foreground work — the pick's scan), and `IsParsingThePick` — the pick's
+  `Controller.IsBusy` (the transition gate), `Operations.ShowsProgress` (a
+  folder operation's own work — the pick's scan, a collection, a resample —
+  the app's, so a remounted page shows it too), and `IsParsingThePick` — the pick's
   first count, which parses the corpus; disabling the surface then prevents a
   Start racing that parse. **A count over a parse the pick already holds is
   not busy** — Hal's ruling (halheinrich/backgammon#374, comment 6090571891):
@@ -2762,14 +2816,16 @@ The asymmetry is pinned three times over: at the service seam
   in and lose keystrokes (found in the browser suite; pinned by
   `Home_ACountOverAParseThePickHolds_LeavesTheControlsAlone` and the browser
   suite's field-entry checks), and it leaves Start live over an unknown
-  count, which is what a failed count already does. **Raising it is single-sourced**: `EnterBusyAsync()` sets `_busy`,
-  calls `StateHasChanged`, and **yields**, while `RunBusyAsync(work)` is the
-  whole-operation form (enter, run, lower in a `finally`). Every site uses one
-  of them — the fallback pick's collection and the FS-Access
-  pick, whose raise point sits *inside* `IFolderAccess.PickFolderAsync` (handed
-  `EnterBusyAsync` as the `onPickAccepted` hook — § Folder picking) while its
-  lowering belongs to the whole gesture's `finally`. Cancelled picks never
-  raise it. Why the yield is load-bearing, and why the pins sit where they do,
+  count, which is what a failed count already does. **Raising it is single-sourced**,
+  in the owner: its progress step sets `ShowsProgress`, raises `Changed` (the
+  page on screen re-renders) and **yields**, and the operation's end lowers
+  it in a `finally`. Every site goes through it — the fallback collection, a
+  resample, and the FS-Access pick, whose raise point sits *inside*
+  `IFolderAccess.PickFolderAsync` (handed as the `onPickAccepted` hook — §
+  Folder picking). Cancelled picks never raise it. A folder operation's
+  *exclusion* is not part of `IsBusy`: it disables only the pick, Clear,
+  Resample and Start controls, since during a pick's prompts there is no
+  work of the app's to show. Why the yield is load-bearing, and why the pins sit where they do,
   is in Pitfalls.
   **Filter wiring.** Home attaches to `FilterSetup` once
   (`OnFilterSetupPublished`, the attachment disposed in `Dispose`) and
@@ -2784,11 +2840,18 @@ The asymmetry is pinned three times over: at the service seam
   §5's "Visible means in effect" ruling on 2026-09-07, because Start already requires
   an applied filter and the rows stay editable at any time. What survives of it is
   *Clear mix stays ungated in every state*: a way out, never a way in.
-  **Failure and outcome banners.** Pick and resample failures — the folder
-  seam's two (`IsFolderReadFailure`: a `JSException`, or a drawn file past the
-  byte cap, `PickedFileTooLargeException`), `_pickError`; the seam's
-  caller-error `InvalidOperationException` is deliberately not caught, since it
-  is a bug and never a fact about the folder — and start-time exceptions
+  **Failure and outcome banners.** A pick's or a resample's failure to
+  acquire — **any** exception from the folder seam during acquisition
+  (`FolderOperations.IsAcquisitionFailure`): a `JSException`, a drawn file
+  past the byte cap (`PickedFileTooLargeException`), an `EndOfStreamException`
+  from an interop stream that ends mid-copy, a `JsonException` from a broken
+  wire reply — lands in `_pickError`; the seam's caller-error
+  `InvalidOperationException` is the one exception, deliberately not caught,
+  since it is a bug and never a fact about the folder. Acquisition and
+  landing are kept apart: a fault after the sample is installed is never a
+  failed pick, never clears the installed sample, and surfaces as the bug it
+  is; and if a failed pick's cleanup fails too, that is logged and the
+  acquisition's error is still the one reported. Start-time exceptions
   (`FilterConfig.Build()` validation, source construction — `_startError`)
   surface as banners instead of faulting the WASM app. A Start that faults
   keeps the quiz that was running (`../SPEC-quiz-history.md` §8), so "Back to
@@ -3954,8 +4017,11 @@ The asymmetry is pinned three times over: at the service seam
   reads is a stored setting — Home has always hydrated it first, and awaiting
   the completed cached task turns that claim about page ordering into something
   structural at no render cost. Both Restart buttons disable on
-  `Controller.IsBusy` + `app-busy` ("Back to setup" stays enabled — navigation
-  only).
+  `Controller.IsBusy` + `app-busy`, and while a folder operation is in flight
+  (`FolderOperations.IsInFlight`) — a pick or resample begun on Home can still
+  be running — when `RestartCoreAsync` also refuses at entry, so no run
+  starts over a sample about to be replaced ("Back to setup" stays enabled —
+  navigation only).
 - **`ScorePanel.razor`** — compact status strip used by both Quiz and Done.
   Renders the `Total` segment: Submitted / Correct (with %) / Skipped /
   average equity loss; optional Source name and Heading. Kept Total-only to
@@ -4361,9 +4427,16 @@ just the URL; no further live-mode plumbing exists.
 
 **Folder picks.** The WASM boot marker is Home's `#pickProblemFolder` button.
 `PickFixtureAsync` stages each committed fixture into a fresh temp directory
-and hands the *directory* to the hidden `#problemFolderFallback`
-`webkitdirectory` input via `SetInputFilesAsync` — a genuine directory upload
-through the app's real fallback collection path, no native dialog involved.
+and picks it through the app's real fallback gesture — "Choose folder…"
+clicked with `window.showDirectoryPicker` hidden for that one click (the
+page's per-gesture probe is `typeof window.showDirectoryPicker ===
+'function'`), and the *directory* handed to the file chooser the click
+opens (`RunAndWaitForFileChooserAsync`) — a genuine directory upload
+through the fallback collection path, no native dialog involved; whatever
+the page had for `showDirectoryPicker` is restored as it was. Handing files
+to the hidden input directly is no longer a pick: the app collects a
+fallback selection only for the pick intent its own click opened
+(halheinrich/backgammon#403).
 Staged dirs are cleaned per test; those scenarios therefore run as no-stats
 quizzes by construction, which is correct — they assert quiz flow, not stats.
 Multi-file folders come in two shapes over one private stager:
@@ -5324,7 +5397,7 @@ public (see Pitfalls). The externally visible surface is the route map:
   `DoTheWorkAsync` holds the thread, and the affordance silently does nothing
   while looking correct in code review *and* in a component test (bUnit
   renders eagerly enough that the assertion passes either way). Always go
-  through `Home.EnterBusyAsync` / `RunBusyAsync`, whose `await Task.Yield()`
+  through `FolderOperations`' progress step, whose `await Task.Yield()`
   is the load-bearing line — and make sure the work that follows is genuinely
   async or yields. Corollaries: (1) the raise point must be *inside* whatever
   call actually waits — why the FS-Access pick is split at the prompt/scan
