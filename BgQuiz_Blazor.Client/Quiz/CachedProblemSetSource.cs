@@ -106,11 +106,21 @@ using XgFilter_Lib.Filtering;
 /// </summary>
 internal sealed class CachedProblemSetSource : IProblemSetSource
 {
+    /// <summary>
+    /// The one unfiltered walk over a sample's files that this source parses
+    /// with, recording on <paramref name="report"/> which files it read and
+    /// which it could not: the in-browser parse in production
+    /// (<see cref="WasmUploadedProblemSetSource"/>, unfiltered).
+    /// </summary>
+    internal delegate IAsyncEnumerable<BgDecisionData> ParseWalk(
+        SourceReport report, CancellationToken cancellationToken);
+
     private readonly PickedProblemFolder _folder;
     private readonly DecisionFilterSet _filters;
     private readonly PlayRanking _ranking;
     private readonly TimeProvider _clock;
-    private readonly WasmUploadedProblemSetSource _inner;
+    private readonly ParseWalk _walk;
+    private readonly string _name;
     private readonly SampleIdentity _sample;
     private ParsedProblemSet? _parsed;
 
@@ -133,25 +143,70 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
         PlayRanking ranking,
         ILoggerFactory loggerFactory,
         TimeProvider clock)
+        : this(folder, filters, ranking, loggerFactory, clock, InBrowserParse(folder, ranking, loggerFactory, clock))
+    {
+    }
+
+    /// <summary>The production chain's middle step: the in-browser parse's walk and its naming rule.</summary>
+    private CachedProblemSetSource(
+        PickedProblemFolder folder,
+        DecisionFilterSet filters,
+        PlayRanking ranking,
+        ILoggerFactory loggerFactory,
+        TimeProvider clock,
+        WasmUploadedProblemSetSource parse)
+        : this(folder, filters, ranking, loggerFactory, clock, parse.EnumerateAsync, parse.Name)
+    {
+    }
+
+    /// <summary>
+    /// Construct a source over <paramref name="folder"/>'s current sample that
+    /// parses with <paramref name="walk"/> and is named
+    /// <paramref name="name"/> — the seam the public constructor binds to the
+    /// in-browser parse, and the one a test uses to stand a walk of its own in
+    /// that parse's place.
+    /// </summary>
+    /// <exception cref="ArgumentNullException">Any reference argument is null.</exception>
+    internal CachedProblemSetSource(
+        PickedProblemFolder folder,
+        DecisionFilterSet filters,
+        PlayRanking ranking,
+        ILoggerFactory loggerFactory,
+        TimeProvider clock,
+        ParseWalk walk,
+        string name)
     {
         ArgumentNullException.ThrowIfNull(folder);
         ArgumentNullException.ThrowIfNull(filters);
+        ArgumentNullException.ThrowIfNull(loggerFactory);
+        ArgumentNullException.ThrowIfNull(walk);
+        ArgumentNullException.ThrowIfNull(name);
 
         _folder = folder;
         _filters = filters;
         _ranking = ranking;
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
-        // The inner source both parses (unfiltered) and owns the naming rule;
-        // its ctor re-validates loggerFactory/clock, and its iterator refuses
-        // an undefined ranking — here, at construction, rather than at the
-        // first view built in the filter pass.
-        _inner = new WasmUploadedProblemSetSource(
-            folder.Files, new DecisionFilterSet(), ranking, loggerFactory, clock);
+        _walk = walk;
+        _name = name;
         _sample = folder.SampleIdentity;
     }
 
+    /// <summary>
+    /// The in-browser parse over <paramref name="folder"/>'s sample, unfiltered:
+    /// it both parses and owns the naming rule. Its ctor validates
+    /// <paramref name="loggerFactory"/> and <paramref name="clock"/>, and its
+    /// iterator refuses an undefined <paramref name="ranking"/> — here, at
+    /// construction, rather than at the first view built in the filter pass.
+    /// </summary>
+    private static WasmUploadedProblemSetSource InBrowserParse(
+        PickedProblemFolder folder, PlayRanking ranking, ILoggerFactory loggerFactory, TimeProvider clock)
+    {
+        ArgumentNullException.ThrowIfNull(folder);
+        return new WasmUploadedProblemSetSource(folder.Files, new DecisionFilterSet(), ranking, loggerFactory, clock);
+    }
+
     /// <inheritdoc />
-    public string Name => _inner.Name;
+    public string Name => _name;
 
     /// <inheritdoc />
     public int? Count => null;
@@ -234,7 +289,7 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
         cancellationToken.ThrowIfCancellationRequested();
         var report = new SourceReport();
         var parsing = ImmutableArray.CreateBuilder<BgDecisionData>();
-        await foreach (var decision in _inner.EnumerateAsync(report, cancellationToken))
+        await foreach (var decision in _walk(report, cancellationToken))
         {
             parsing.Add(decision);
         }
