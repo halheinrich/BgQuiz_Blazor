@@ -510,6 +510,94 @@ public class CachedProblemSetSourceTests
         Assert.Same(before.Report, source.Report);
     }
 
+    // -----------------------------------------------------------------------
+    //  The parse walk's release never misreports (SPEC-quiz-history.md §8;
+    //  halheinrich/backgammon#407)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// A source over <paramref name="folder"/> whose parse walk is the real
+    /// in-browser parse wrapped in a stream whose release fails after
+    /// releasing it — and, with <paramref name="faultAtDraw"/>, whose draw
+    /// faults there. The cache logs to <paramref name="cacheLogs"/>; the
+    /// parse to <paramref name="parseLogs"/>.
+    /// </summary>
+    private static (CachedProblemSetSource Source, List<ReleaseFailingStream<BgDecisionData>> Walks) WithAFailingRelease(
+        PickedProblemFolder folder, ILoggerFactory cacheLogs, ILoggerFactory? parseLogs = null, int? faultAtDraw = null)
+    {
+        var parse = new WasmUploadedProblemSetSource(
+            folder.Files, new DecisionFilterSet(), PlayRanking.Equity,
+            parseLogs ?? NullLoggerFactory.Instance, TimeProvider.System);
+        var walks = new List<ReleaseFailingStream<BgDecisionData>>();
+        var source = new CachedProblemSetSource(
+            folder, new DecisionFilterSet(), PlayRanking.Equity, cacheLogs, TimeProvider.System,
+            (report, cancellationToken) =>
+            {
+                var walk = new ReleaseFailingStream<BgDecisionData>(parse.EnumerateAsync(report, cancellationToken), faultAtDraw);
+                walks.Add(walk);
+                return walk;
+            },
+            parse.Name);
+        return (source, walks);
+    }
+
+    [Fact]
+    public async Task AParseWalkWhoseReleaseFails_KeepsItsParse_AndLogsTheRelease()
+    {
+        var logs = new RecordingLoggerFactory();
+        var folder = FolderOver([Readable()]);
+        var (source, walks) = WithAFailingRelease(folder, logs);
+
+        var decisions = await CollectAllAsync(source);
+
+        Assert.NotEmpty(decisions);
+        var parsed = Assert.IsType<ParsedProblemSet>(folder.Parsed); // the complete walk is published
+        Assert.True(parsed.Report.IsComplete);
+        Assert.Equal(1, Assert.Single(walks).ReleaseCount);
+        var logged = Assert.Single(logs.For<CachedProblemSetSource>());
+        Assert.Equal(LogLevel.Warning, logged.Level);
+        Assert.Equal(ReleaseFailingStream<BgDecisionData>.ReleaseFaultMessage, logged.Exception?.Message);
+    }
+
+    [Fact]
+    public async Task AParseWalkWhoseDrawFaults_ReportsTheFault_NotTheFailedRelease()
+    {
+        var logs = new RecordingLoggerFactory();
+        var folder = FolderOver([Readable()]);
+        var (source, walks) = WithAFailingRelease(folder, logs, faultAtDraw: 1);
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => CollectAllAsync(source));
+
+        Assert.Equal(ReleaseFailingStream<BgDecisionData>.DrawFaultMessage, thrown.Message);
+        Assert.Null(folder.Parsed); // an interrupted walk publishes nothing
+        Assert.Null(source.Report);
+        Assert.Equal(1, Assert.Single(walks).ReleaseCount);
+        var logged = Assert.Single(logs.For<CachedProblemSetSource>());
+        Assert.Equal(ReleaseFailingStream<BgDecisionData>.ReleaseFaultMessage, logged.Exception?.Message);
+        Assert.Contains(ReleaseFailingStream<BgDecisionData>.DrawFaultMessage, logged.Message);
+    }
+
+    [Fact]
+    public async Task ACancelledWalk_WhoseReleaseFails_IsCancelled_AndPublishesNothing()
+    {
+        // The walk completes — cancelled from inside it, at the damaged file's
+        // skip — and its release fails: the cancellation is still what the
+        // enumeration ends with, observed before publication, and the release
+        // is logged.
+        using var cts = new CancellationTokenSource();
+        var logs = new RecordingLoggerFactory();
+        var folder = FolderOver([Damaged("only.xg")]);
+        var (source, walks) = WithAFailingRelease(folder, logs, parseLogs: new CancelOnSkip(cts));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => EnumerateAsync(source, cts.Token));
+
+        Assert.Null(folder.Parsed);
+        Assert.Null(source.Report);
+        Assert.Equal(1, Assert.Single(walks).ReleaseCount);
+        var logged = Assert.Single(logs.For<CachedProblemSetSource>());
+        Assert.Equal(ReleaseFailingStream<BgDecisionData>.ReleaseFaultMessage, logged.Exception?.Message);
+    }
+
     /// <summary>
     /// A logger factory that cancels <paramref name="cts"/> the moment the
     /// parse logs a file's skip — the one event inside a walk over nothing but

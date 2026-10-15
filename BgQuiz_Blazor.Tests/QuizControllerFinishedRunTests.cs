@@ -399,8 +399,17 @@ public class QuizControllerFinishedRunTests
     //  Releasing never misreports (SPEC-quiz-history.md §8, §9)
     // -----------------------------------------------------------------------
 
+    /// <summary>
+    /// However the run finishes — the source running out included — a release
+    /// of its stream that fails undoes nothing: the run is finished, its
+    /// result kept, the live-quiz marker cleared, and the failure logged where
+    /// the release happened (<c>SPEC-quiz-history.md</c> §8, "Releasing never
+    /// misreports"). A stream that has run out reports its end, so the finish
+    /// comes; its release's failure arrives only at the release.
+    /// </summary>
     [Theory]
     [InlineData(Finish.EndQuiz)]
+    [InlineData(Finish.SourceRunsOut)]
     [InlineData(Finish.NewSample)]
     public async Task AFinishWhoseReleaseFails_StillFinishes_AndSaysSoInTheLog(Finish how)
     {
@@ -412,11 +421,13 @@ public class QuizControllerFinishedRunTests
                 "A", log, [Problem("a1.xgp"), Problem("a2.xgp")], releaseFaults: true)),
             new FakeProblemStatsSink(), marker, TimeProvider.System, logger);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
+        await c.NextAsync(); // both problems presented: the next ▶ finds the source run out
 
         await FinishAsync(c, how); // the release throws; the finish is not undone, and not reported as failed
 
         Assert.True(c.IsFinished);
         Assert.False(c.IsBusy);
+        Assert.Equal(2, c.PresentedCount); // the result is kept
         Assert.False(marker.IsLive); // and the marker is cleared all the same
         Assert.Equal(1, log.Stream("A/1").ReleaseCount);
         var logged = Assert.Single(logger.Entries);

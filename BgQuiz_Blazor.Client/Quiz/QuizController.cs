@@ -745,9 +745,14 @@ internal sealed class QuizController : IAsyncDisposable
         var pipeline = userConfig.Build();
         var composed = _sourceFactory(pipeline, ranking);
 
+        // Drained through the one release rule (StreamRelease): the count a
+        // complete drain reached stands whatever its release does, and a
+        // draw's fault is the one thrown.
         var distribution = AnswerTypeDistribution.Empty;
-        await foreach (var decision in composed.Source.EnumerateAsync())
-            distribution = distribution.Add(decision);
+        await StreamRelease.DrainAsync(
+            composed.Source.EnumerateAsync(),
+            decision => distribution = distribution.Add(decision),
+            _logger, "the match count's problem stream");
 
         // Read after the drain, like the collapse: the parse is resolved by
         // enumerating. A fully drained stack that still reports no walk is a
@@ -1167,9 +1172,15 @@ internal sealed class QuizController : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Release the current run's stream, if a run is in progress — through the
+    /// one release rule, so a release that fails is logged and the disposal
+    /// throws nothing (<c>SPEC-quiz-history.md</c> §8).
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
-        if (_source is not null) await _source.ReleaseAsync();
+        if (_source is not null)
+            await _source.ReleaseAsync(_logger, "the current quiz's problem stream, as the quiz is disposed");
     }
 
     // -----------------------------------------------------------------------
@@ -1417,12 +1428,12 @@ internal sealed class QuizController : IAsyncDisposable
 
         var previous = SwitchTo(first, source);
         if (previous is not null)
-            await ReleaseAfterSwitchAsync(previous, "the previous quiz's problem stream, after the new quiz became current");
+            await previous.ReleaseAsync(_logger, "the previous quiz's problem stream, after the new quiz became current");
         if (first.IsEnded)
         {
             // Nothing to present: the run committed has already ended, so it is
             // committed finished (SwitchTo), and its own stream goes now.
-            await ReleaseAfterSwitchAsync(source, "the problem stream of a quiz that ended at once");
+            await source.ReleaseAsync(_logger, "the problem stream of a quiz that ended at once");
             await ClearLiveMarkerAsync();
         }
         else
@@ -1476,7 +1487,7 @@ internal sealed class QuizController : IAsyncDisposable
         }
         catch (Exception fault)
         {
-            await ReleaseAbandonedAsync(source, fault);
+            await source.ReleaseAsync(_logger, "the problem stream of a Start or Restart that faulted", fault);
             throw;
         }
     }
@@ -1518,14 +1529,17 @@ internal sealed class QuizController : IAsyncDisposable
     /// what its source keeps into the finished run (<see cref="Finish"/>), then
     /// the stream is released and the live-quiz marker cleared. Neither of the
     /// last two can make the finish a failure: a release that throws is logged
-    /// (§8, "Releasing never misreports"), and the marker never throws.
+    /// (§8, "Releasing never misreports"; <see cref="StreamRelease"/>), and the
+    /// marker never throws. A run whose source has run out finishes here like
+    /// any other: the stream reported its end, and only its release, here, can
+    /// fail.
     /// Called inside the transition gate, so no draw is in flight on the
     /// stream it releases.
     /// </summary>
     private async Task FinishAsync(QuizRun ended, bool endedByNewSample)
     {
         var source = Finish(ended, endedByNewSample);
-        await ReleaseAfterSwitchAsync(source, "the problem stream of a quiz that finished");
+        await source.ReleaseAsync(_logger, "the problem stream of a quiz that finished");
         await ClearLiveMarkerAsync();
     }
 
@@ -1543,26 +1557,6 @@ internal sealed class QuizController : IAsyncDisposable
         _run = null;
         _source = null;
         return source;
-    }
-
-    /// <summary>
-    /// Release <paramref name="source"/>'s stream once the switch or the finish
-    /// that let it go has happened. A release that throws neither undoes that
-    /// nor makes the transition a failed one (§8, "Releasing never
-    /// misreports"): it is logged, naming <paramref name="what"/>, and the
-    /// transition's outcome stands.
-    /// </summary>
-    private async ValueTask ReleaseAfterSwitchAsync(RunSource source, string what)
-    {
-        try
-        {
-            await source.ReleaseAsync();
-        }
-        catch (Exception releaseFault)
-        {
-            _logger.LogWarning(releaseFault,
-                "Releasing {What} failed; the quiz's state stands as it was left.", what);
-        }
     }
 
     /// <summary>Mark a quiz live — the commit of a run with a problem on screen. Advisory: a failure is logged.</summary>
@@ -1588,26 +1582,6 @@ internal sealed class QuizController : IAsyncDisposable
         catch (Exception clearFault)
         {
             _logger.LogWarning(clearFault, "The live-quiz marker could not be cleared; a reload may report a quiz lost that had finished.");
-        }
-    }
-
-    /// <summary>
-    /// Release the stream of an attempt that faulted, without letting a fault
-    /// in the release replace <paramref name="fault"/>, the error that ended
-    /// the attempt (§8, "Releasing never misreports"): a release that throws is
-    /// logged, and the caller rethrows <paramref name="fault"/>.
-    /// </summary>
-    private async ValueTask ReleaseAbandonedAsync(RunSource source, Exception fault)
-    {
-        try
-        {
-            await source.ReleaseAsync();
-        }
-        catch (Exception releaseFault)
-        {
-            _logger.LogWarning(releaseFault,
-                "Releasing the problem stream of a Start or Restart that faulted also failed; the attempt's own error is the one reported: {Fault}",
-                fault.Message);
         }
     }
 
@@ -1759,11 +1733,14 @@ internal sealed class QuizController : IAsyncDisposable
     /// unchanged until the run is replaced.
     ///
     /// <para>
-    /// <b>The stream is released once.</b> <see cref="ReleaseAsync"/> lets the
-    /// stream go before it awaits the release, so End quiz, the switch to a
-    /// new run and the controller's disposal can each ask for it without one
+    /// <b>The stream is released once, by the one release rule.</b>
+    /// <see cref="ReleaseAsync"/> lets the stream go before it awaits the
+    /// release, so a finish, the switch to a new run, a faulted attempt's
+    /// unwinding and the controller's disposal can each ask for it without one
     /// stream being released twice — and a release that throws is not tried
-    /// again. Nothing draws from a released stream: the run it belongs to has
+    /// again. It releases through <see cref="StreamRelease"/>, so a failure is
+    /// logged where the release happens and never replaces what the draw came
+    /// to. Nothing draws from a released stream: the run it belongs to has
     /// ended, or has been replaced.
     /// </para>
     /// </summary>
@@ -1838,12 +1815,18 @@ internal sealed class QuizController : IAsyncDisposable
         /// </summary>
         public RunReplay ToReplay() => new(Filters, Mix, Name, LastComposition);
 
-        /// <summary>Release the stream, if it is still held; a no-op once it has been.</summary>
-        public ValueTask ReleaseAsync()
+        /// <summary>
+        /// Release the stream, if it is still held — a no-op once it has been —
+        /// by the one release rule (<see cref="StreamRelease.ReleaseAsync"/>):
+        /// a failure is logged on <paramref name="logger"/>, naming
+        /// <paramref name="what"/> and, for a draw that ended in
+        /// <paramref name="outcome"/>, that error, and is never thrown.
+        /// </summary>
+        public ValueTask ReleaseAsync(ILogger logger, string what, Exception? outcome = null)
         {
             var stream = _stream;
             _stream = null;
-            return stream?.DisposeAsync() ?? ValueTask.CompletedTask;
+            return stream is null ? ValueTask.CompletedTask : StreamRelease.ReleaseAsync(stream, logger, what, outcome);
         }
     }
 

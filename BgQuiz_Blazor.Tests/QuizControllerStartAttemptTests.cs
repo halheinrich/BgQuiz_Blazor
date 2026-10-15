@@ -526,24 +526,10 @@ public class QuizControllerStartAttemptTests
         Assert.Equal(RecordingProblemSetSource.ReleaseFaultMessage, logged.Exception?.Message);
     }
 
-    /// <summary>
-    /// A faulted attempt whose stream also fails its release keeps the current
-    /// run and releases the stream once — and its error is the one the
-    /// composed stack threw. Every run's source is the producer's composer
-    /// (<see cref="MixedProblemSetSource"/>), so a fault in drawing unwinds
-    /// through the composer's own enumeration, which releases the stream it
-    /// drew from on the way out, and C# reports that release's failure in
-    /// place of the draw's. The replacement happens inside the producer,
-    /// before the controller sees anything (reported for coordination with
-    /// the Arc 5 leg); the controller's own release of the attempt's stream,
-    /// already ended, has nothing left to release and adds no failure of its
-    /// own. The release of the controller's that can fail — the replaced
-    /// run's, after the switch — is pinned by the test above.
-    /// </summary>
     [Theory]
     [InlineData(PrepareFault.FirstDraw)]
     [InlineData(PrepareFault.DrawPastAnAutoSkip)]
-    public async Task AFaultedAttemptWhoseStreamFailsItsRelease_KeepsTheRun_AndReleasesTheStreamOnce(PrepareFault fault)
+    public async Task AFailedReleaseOfWhatAFaultedAttemptOpened_NeverReplacesTheAttemptsError(PrepareFault fault)
     {
         var h = new Harness();
         await h.BringRunToAsync(RunState.Active);
@@ -554,10 +540,16 @@ public class QuizControllerStartAttemptTests
 
         var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => h.MakeAsync(Attempt.Start));
 
-        Assert.Equal(RecordingProblemSetSource.ReleaseFaultMessage, thrown.Message); // the composer's unwinding, as above
+        Assert.Equal(RecordingProblemSetSource.FaultMessage, thrown.Message);
         Assert.Equal(1, h.Log.Stream("B/1").ReleaseCount);
         Assert.Equal(before, Observe(h.Controller));
-        Assert.Empty(h.Logger.Entries); // the controller's own release found nothing left to release
+
+        // The release's own failure is not lost: it is logged, naming the
+        // error that was reported in its place.
+        var logged = Assert.Single(h.Logger.Entries);
+        Assert.Equal(LogLevel.Warning, logged.Level);
+        Assert.Equal(RecordingProblemSetSource.ReleaseFaultMessage, logged.Exception?.Message);
+        Assert.Contains(RecordingProblemSetSource.FaultMessage, logged.Message);
     }
 
     // -----------------------------------------------------------------------

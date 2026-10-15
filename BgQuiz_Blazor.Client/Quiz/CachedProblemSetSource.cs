@@ -121,6 +121,7 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
     private readonly TimeProvider _clock;
     private readonly ParseWalk _walk;
     private readonly string _name;
+    private readonly ILogger<CachedProblemSetSource> _logger;
     private readonly SampleIdentity _sample;
     private ParsedProblemSet? _parsed;
 
@@ -188,6 +189,7 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _walk = walk;
         _name = name;
+        _logger = loggerFactory.CreateLogger<CachedProblemSetSource>();
         _sample = folder.SampleIdentity;
     }
 
@@ -262,6 +264,13 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
     /// </para>
     ///
     /// <para>
+    /// <b>The walk's release never replaces its outcome</b>
+    /// (<c>SPEC-quiz-history.md</c> §8; <see cref="StreamRelease"/>): a
+    /// complete walk is published even when releasing its stream fails, a
+    /// fault is reported as itself, and the release's failure is logged here.
+    /// </para>
+    ///
+    /// <para>
     /// <b>Cancellation is observed at this layer's own boundaries</b> — before
     /// the parse starts and again before its result is installed — not only
     /// inside the loops over yielded decisions. A walk whose every file was
@@ -289,10 +298,11 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
         cancellationToken.ThrowIfCancellationRequested();
         var report = new SourceReport();
         var parsing = ImmutableArray.CreateBuilder<BgDecisionData>();
-        await foreach (var decision in _walk(report, cancellationToken))
-        {
-            parsing.Add(decision);
-        }
+        // Through the one release rule (StreamRelease): a walk that completed
+        // keeps its parse whatever its release does, and a fault in the walk —
+        // a cancellation included — is the one thrown, never the release's.
+        await StreamRelease.DrainAsync(
+            _walk(report, cancellationToken), parsing.Add, _logger, "the parse walk's stream");
 
         // The publication boundary: a cancellation requested during a walk that
         // yielded nothing arrives here with a complete report and no earlier
