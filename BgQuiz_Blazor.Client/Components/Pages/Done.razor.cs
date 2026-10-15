@@ -133,12 +133,14 @@ public partial class Done : ComponentBase
         _mixRefused = false;
         _restartError = null;
 
-        // The ranking is the user's setting as it stands now: a restart is a new
-        // run, and a run takes its ranking where it begins (SPEC-scoring.md §2a).
+        // The ranking and the Order are the user's settings as they stand now:
+        // a restart is a new run, and a run takes both where it begins
+        // (SPEC-scoring.md §2a; SPEC-quiz-history.md §8, the Order chosen at
+        // Restart).
         QuizStartOutcome outcome;
         try
         {
-            outcome = await Controller.RestartAsync(Settings.Ranking, ignoreMix);
+            outcome = await Controller.RestartAsync(Settings.Ranking, Settings.Order, ignoreMix);
         }
         catch (Exception ex)
         {

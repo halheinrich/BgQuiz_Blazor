@@ -6,20 +6,23 @@ using System.Text;
 using System.Text.Json;
 using BackgammonDiagram_Lib;
 using BgDataTypes_Lib;
+using BgGame_Lib;
 using BgUiPrimitives_Razor;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using XgFilter_Razor;
 
 /// <summary>
-/// The per-app (Scoped, one-per-tab in WASM) <b>user settings</b> the
-/// <c>Settings</c> page edits: which side the home board renders on, whether
-/// that side is re-rolled per problem, whether the board is maximized while the
-/// user answers, which ranking decides the best checker play (and so the
-/// solution's candidate order) and which shallow evaluations are left out of
-/// the solution's list, whether quizzes are drawn by the weighted
-/// mix, and whether the navigation panel stays folded. Every setting is recorded and persisted the
-/// moment it is changed — there is no Apply gesture anywhere in this service.
+/// The per-app (Scoped, one-per-tab in WASM) <b>user settings</b>: the ones
+/// the <c>Settings</c> page edits — which side the home board renders on,
+/// whether that side is re-rolled per problem, whether the board is maximized
+/// while the user answers, which ranking decides the best checker play (and so
+/// the solution's candidate order) and which shallow evaluations are left out
+/// of the solution's list, whether quizzes are drawn by the weighted mix, and
+/// whether the navigation panel stays folded — and the one <c>Home</c> edits
+/// beside Start, the order problems are presented in
+/// (<see cref="Order"/>). Every setting is recorded and persisted the moment
+/// it is changed — there is no Apply gesture anywhere in this service.
 /// When each becomes <i>visible</i> is a separate question, and the fold answers
 /// it differently from every other setting here: see
 /// <see cref="SetKeepNavigationPanelFoldedAsync"/>.
@@ -29,22 +32,25 @@ using XgFilter_Razor;
 /// start-gate state (<see cref="FilterSetup"/>, <see cref="MixDraft"/>),
 /// nothing here is composed into a quiz at a Start
 /// gesture, so there is no half-edited state to guard against and no gate to
-/// derive: a toggle is a complete, immediately valid choice, the same reasoning
-/// <see cref="ShuffleOption"/> records. Introducing a draft/commit lifetime split
-/// is what produced finding (AK)'s wedge; this service must not grow one.
+/// derive: a toggle is a complete, immediately valid choice. Introducing a
+/// draft/commit lifetime split is what produced finding (AK)'s wedge; this
+/// service must not grow one.
 /// </para>
 ///
 /// <para>
-/// <b>No <c>Changed</c> event.</b> The <c>Settings</c> page is the only
-/// component that renders these properties, and the one reader elsewhere —
-/// <see cref="MixVisibility"/>, over
-/// <see cref="WeightQuizzesByStats"/> — cannot be on screen while they move:
-/// changing a setting means standing on the Settings page, so every surface
-/// derived from one re-renders on its own next mount. That is a fact about
-/// where the controls live, not a timing bet, and it is why the
-/// state-container pattern <see cref="MixDraft.Changed"/> exists for still
-/// buys nothing here. Add notify plumbing if (and only if) a setting ever
-/// becomes editable from a page that also renders something derived from it.
+/// <b>No <c>Changed</c> event.</b> Each setting is rendered by the one page
+/// that edits it — the <c>Settings</c> page, or <c>Home</c> for
+/// <see cref="Order"/> — and the one reader elsewhere — <see cref="MixVisibility"/>,
+/// over <see cref="WeightQuizzesByStats"/> — cannot be on screen while it
+/// moves: changing it means standing on the Settings page, so every surface
+/// derived from one re-renders on its own next mount. <c>Home</c> renders
+/// nothing derived from the Order (the count and the filter preview never sort;
+/// <c>SPEC-filtering.md</c> §7), only the control itself, which re-renders with
+/// the gesture that moved it. That is a fact about where the controls live,
+/// not a timing bet, and it is why the state-container pattern
+/// <see cref="MixDraft.Changed"/> exists for still buys nothing here. Add
+/// notify plumbing if (and only if) a setting ever becomes editable from a page
+/// that also renders something derived from it.
 /// </para>
 ///
 /// <para>
@@ -154,6 +160,7 @@ internal sealed class QuizSettings(
     private const string MaximumHiddenCandidateAnalysisLevelField =
         "maximumHiddenCandidateAnalysisLevel";
     private const string WeightQuizzesByStatsField = "weightQuizzesByStats";
+    private const string OrderField = "problemOrder";
 
     // The defaults, named once so the property initializers and the
     // missing-field fallbacks in Restore cannot disagree.
@@ -163,9 +170,10 @@ internal sealed class QuizSettings(
     private const bool DefaultMaximizeBoardWhileAnswering = true;
     private const bool DefaultSortAnalysisByDepthFirst = false;
     private const bool DefaultWeightQuizzesByStats = false;
+    private const ProblemOrder DefaultOrder = ProblemOrder.AsRead;
 
     // static readonly rather than const only because a nullable enum cannot be
-    // const; it is named for the same reason its five neighbours are.
+    // const; it is named for the same reason its neighbours are.
     private static readonly AnalysisLevel? DefaultMaximumHiddenCandidateAnalysisLevel = null;
 
     /// <summary>
@@ -386,6 +394,54 @@ internal sealed class QuizSettings(
         DefaultMaximumHiddenCandidateAnalysisLevel;
 
     /// <summary>
+    /// The order a run presents its problems in — <b>the one Order</b>
+    /// (<c>SPEC-filtering.md</c> §7, ruled 2026-10-14), the control <c>Home</c>
+    /// shows beside Start. It replaced the Shuffle order checkbox and the mix's
+    /// Random order toggle, and it is always available: a mix never disables
+    /// it, because the mix selects and the order presents (§5).
+    ///
+    /// <para>
+    /// <b>Read where a Start or Restart builds the run's source, and nowhere
+    /// else.</b> The pages hand it to <see cref="QuizController.StartAsync"/> and
+    /// <see cref="QuizController.RestartAsync"/>, exactly as they hand the
+    /// ranking, so a Restart uses the Order chosen at Restart
+    /// (<c>SPEC-quiz-history.md</c> §8). A run keeps its sequence: the Order
+    /// changed mid-quiz reaches the next run. The match count never sorts and
+    /// never reads it.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>A choice, never consent</b> (<c>SPEC-filtering.md</c> §4): it survives
+    /// navigation, folder changes and reloads as the ranking does, and no
+    /// gesture expires it. The producer defines the four orders, their labels
+    /// and their tokens (BgGame_Lib's <see cref="ProblemOrder"/>); this service
+    /// holds the user's choice and persists it through the producer's own
+    /// context (<see cref="BgGameJsonContext"/>), so the token written is the
+    /// declared member name and nothing here restates it.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Default <see cref="ProblemOrder.AsRead"/></b>, and the absent-field
+    /// rule of <see cref="MaximizeBoardWhileAnswering"/> applies unchanged:
+    /// every payload written before this setting existed restores to as read,
+    /// with no migration. The retired mix toggle is not migrated either: a
+    /// saved mix whose Random order was on runs as read until the user chooses
+    /// another Order (§5), because a stored "on" cannot be told from the
+    /// toggle's default.
+    /// </para>
+    /// </summary>
+    public ProblemOrder Order { get; private set; } = DefaultOrder;
+
+    /// <summary>
+    /// Every order a user may choose, in <see cref="ProblemOrder"/>'s
+    /// declaration order — the Order control's whole content, enumerated from
+    /// the enum so an order the producer adds is offered the day it lands. An
+    /// immutable array, because every reader shares the one instance
+    /// (halheinrich/backgammon#273's collection rider).
+    /// </summary>
+    public static ImmutableArray<ProblemOrder> Orders { get; } = [.. Enum.GetValues<ProblemOrder>()];
+
+    /// <summary>
     /// True when the user wants the navigation panel to stay folded. This service
     /// owns and persists the value; it cannot restore the fold itself — that is
     /// <c>navFold.js</c>'s job, for the reasons in <see cref="NavFoldApplyFunction"/>.
@@ -567,6 +623,25 @@ internal sealed class QuizSettings(
     public Task SetWeightQuizzesByStatsAsync(bool value)
     {
         WeightQuizzesByStats = value;
+        return PersistAsync();
+    }
+
+    /// <summary>
+    /// Record the Order, persisting immediately. It takes effect where a run's
+    /// source is built — the next Start or Restart — because a run keeps its
+    /// sequence (see <see cref="Order"/>).
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="value"/> is not one of <see cref="Orders"/> — unreachable
+    /// from <c>Home</c>, whose every option comes from that list, and refused
+    /// so that <see cref="Order"/> can never hold a value the producer would
+    /// refuse at the run's source.
+    /// </exception>
+    public Task SetOrderAsync(ProblemOrder value)
+    {
+        if (!Orders.Contains(value))
+            throw new ArgumentOutOfRangeException(nameof(value), value, "Not a defined problem order.");
+        Order = value;
         return PersistAsync();
     }
 
@@ -793,6 +868,10 @@ internal sealed class QuizSettings(
                 writer.WriteNull(MaximumHiddenCandidateAnalysisLevelField);
             }
             writer.WriteBoolean(WeightQuizzesByStatsField, WeightQuizzesByStats);
+            // The producer's token, written through the producer's context: the
+            // declared member name, never an ordinal and never the label.
+            writer.WritePropertyName(OrderField);
+            JsonSerializer.Serialize(writer, Order, BgGameJsonContext.Default.ProblemOrder);
             writer.WriteEndObject();
         }
         return Encoding.UTF8.GetString(buffer.WrittenSpan);
@@ -822,6 +901,7 @@ internal sealed class QuizSettings(
         bool sortAnalysisByDepthFirst;
         AnalysisLevel? maximumHiddenCandidateAnalysisLevel;
         bool weightQuizzesByStats;
+        ProblemOrder order;
         try
         {
             using var document = JsonDocument.Parse(json);
@@ -858,6 +938,10 @@ internal sealed class QuizSettings(
             // a reload left that bit in anyway. No migration, no version stamp.
             weightQuizzesByStats =
                 ReadBool(root, WeightQuizzesByStatsField, DefaultWeightQuizzesByStats);
+            // Absent from every payload written before the Order replaced the
+            // Shuffle order checkbox, which was never persisted, so an older
+            // entry restores to as read: no migration, no version stamp.
+            order = ReadOrder(root, OrderField, DefaultOrder);
         }
         catch (JsonException)
         {
@@ -871,6 +955,29 @@ internal sealed class QuizSettings(
         SortAnalysisByDepthFirst = sortAnalysisByDepthFirst;
         MaximumHiddenCandidateAnalysisLevel = maximumHiddenCandidateAnalysisLevel;
         WeightQuizzesByStats = weightQuizzesByStats;
+        Order = order;
+    }
+
+    /// <summary>
+    /// <see cref="ReadBool"/>'s counterpart for the Order: the producer's token,
+    /// read through the producer's context, which refuses anything but a
+    /// declared member name — an ordinal, a label — and every such value, like
+    /// an absent or wrongly-typed field, is the default. (Its match is
+    /// case-insensitive: the producer's converter closes the token's kind, not
+    /// its case.)
+    /// </summary>
+    private static ProblemOrder ReadOrder(JsonElement root, string name, ProblemOrder fallback)
+    {
+        if (!root.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String)
+            return fallback;
+        try
+        {
+            return value.Deserialize(BgGameJsonContext.Default.ProblemOrder);
+        }
+        catch (JsonException)
+        {
+            return fallback;
+        }
     }
 
     private static bool ReadBool(JsonElement root, string name, bool fallback) =>

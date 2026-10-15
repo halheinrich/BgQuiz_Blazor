@@ -43,8 +43,38 @@ internal sealed class FakeFolderAccess : IFolderAccess
         new(Cancelled: false, DirectoryName: "", FolderWriteCapability.BrowserUnsupported,
             TestFixtures.Sample([]));
 
-    /// <summary>When set, <see cref="PickFolderAsync"/> / <see cref="CollectFallbackAsync"/> throw it instead.</summary>
+    /// <summary>
+    /// When set, <see cref="PickFolderAsync"/> / <see cref="CollectFallbackAsync"/>
+    /// throw it instead — before the module binds a folder, as a failure in
+    /// the browser's prompts or in reaching the module does.
+    /// </summary>
     public Exception? PickException { get; set; }
+
+    /// <summary>
+    /// When set, <see cref="CollectFallbackAsync"/> throws it <i>after</i> the
+    /// module has bound the collected folder — the fallback's draw or
+    /// buffering failing, as an oversized file or a failed read does. The
+    /// File System Access mechanism's counterpart is a throw from
+    /// <see cref="OnScanning"/>.
+    /// </summary>
+    public Exception? CollectScanException { get; set; }
+
+    /// <summary>
+    /// The folder the module's <b>picked</b> slot holds, by name, or null when
+    /// it holds none — the module's own state, which BgFolderAccess_Razor
+    /// documents and the app cannot read: a non-cancelled File System Access
+    /// pick binds its folder once the prompts settle, before the draw; a
+    /// fallback collection binds before its draw; <see cref="ClearPickedAsync"/>
+    /// releases it; nothing else writes it — not a resample, not a failed draw.
+    /// </summary>
+    public string? PickedSlot { get; private set; }
+
+    /// <summary>
+    /// The folder the module's <b>active</b> slot holds, by name — bound only by
+    /// <see cref="PromoteToActiveAsync"/>, from the picked slot, and touched by
+    /// nothing a pick or a Clear does.
+    /// </summary>
+    public string? ActiveSlot { get; private set; }
 
     /// <summary>
     /// Invoked at the top of <see cref="PickFolderAsync"/> — i.e. at the instant
@@ -249,6 +279,7 @@ internal sealed class FakeFolderAccess : IFolderAccess
 
         if (!NextPickOutcome.Cancelled)
         {
+            PickedSlot = NextPickOutcome.DirectoryName; // bound before the draw, as the module binds it
             await onPickAccepted();
             OnScanning?.Invoke();
         }
@@ -262,8 +293,14 @@ internal sealed class FakeFolderAccess : IFolderAccess
         return Task.CompletedTask;
     }
 
-    public Task<FolderPickOutcome> CollectFallbackAsync(ElementReference fallbackInput) =>
-        PickException is { } ex ? Task.FromException<FolderPickOutcome>(ex) : Task.FromResult(NextCollectOutcome);
+    public Task<FolderPickOutcome> CollectFallbackAsync(ElementReference fallbackInput)
+    {
+        if (PickException is { } ex) return Task.FromException<FolderPickOutcome>(ex);
+        PickedSlot = NextCollectOutcome.DirectoryName; // a collection binds before its draw, an empty one included
+        return CollectScanException is { } scan
+            ? Task.FromException<FolderPickOutcome>(scan)
+            : Task.FromResult(NextCollectOutcome);
+    }
 
     /// <summary>What the next <see cref="ResampleAsync"/> returns (default: a draw holding nothing).</summary>
     public FolderSample NextResample { get; set; } = TestFixtures.Sample([]);
@@ -274,15 +311,24 @@ internal sealed class FakeFolderAccess : IFolderAccess
     /// <summary>How many times <see cref="ResampleAsync"/> was called.</summary>
     public int ResampleCallCount { get; private set; }
 
+    /// <summary>
+    /// The held folder drawn again, as the module draws it: the caller's error
+    /// (<see cref="InvalidOperationException"/>) with no folder held, else
+    /// <see cref="ResampleException"/> or <see cref="NextResample"/>. Either
+    /// way the picked slot is left as it was.
+    /// </summary>
     public Task<FolderSample> ResampleAsync()
     {
         ResampleCallCount++;
+        if (PickedSlot is null)
+            return Task.FromException<FolderSample>(new InvalidOperationException("No folder is held to resample."));
         return ResampleException is { } ex ? Task.FromException<FolderSample>(ex) : Task.FromResult(NextResample);
     }
 
     public ValueTask<bool> PromoteToActiveAsync()
     {
         PromoteCallCount++;
+        ActiveSlot = PickedSlot;
         return ValueTask.FromResult(PromoteResult);
     }
 
@@ -372,6 +418,7 @@ internal sealed class FakeFolderAccess : IFolderAccess
     public ValueTask ClearPickedAsync()
     {
         ClearPickedCallCount++;
+        PickedSlot = null;
         return ValueTask.CompletedTask;
     }
 }

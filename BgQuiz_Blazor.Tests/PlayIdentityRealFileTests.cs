@@ -121,9 +121,9 @@ public class PlayIdentityRealFileTests
         Assert.False(entered.IsSameEncoding(recorded)); // two encodings, so matching them is the claim
 
         var controller = new QuizController(
-            (_, _, _) => TestFixtures.Composed(new FakeProblemSetSource([decision])),
+            (_, _) => TestFixtures.Composed(new FakeProblemSetSource([decision])),
             new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
-        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         Assert.Same(decision, controller.Current);
 
         await controller.SubmitPlayAsync(entered);

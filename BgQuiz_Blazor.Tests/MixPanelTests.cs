@@ -139,16 +139,12 @@ public class MixPanelTests : BunitContext
         Assert.Empty(cut.FindAll("#mixApplies"));
         Assert.Empty(cut.FindAll("#mixActivateDisabledReason"));
 
-        // The only checkbox left is the mix's own Random-order setting, so an
-        // activation control could not hide among unnamed siblings either.
-        // That one is itself a form switch and always was — which is why the
-        // switch is pinned by the id it belongs to rather than by class alone.
-        Assert.Equal(
-            ["mixRandomOrder"],
-            cut.FindAll("input[type=checkbox]").Select(i => i.Id!).ToArray());
-        Assert.Equal(
-            ["mixRandomOrder"],
-            cut.FindAll(".form-switch input").Select(i => i.Id!).ToArray());
+        // No checkbox and no switch is left at all — the mix's Random-order
+        // switch retired with the toggle (SPEC-filtering.md §5: the mix selects,
+        // the Order presents) — so an activation control could not hide among
+        // unnamed siblings either.
+        Assert.Empty(cut.FindAll("input[type=checkbox]"));
+        Assert.Empty(cut.FindAll(".form-switch input"));
     }
 
     [Fact]
@@ -214,16 +210,17 @@ public class MixPanelTests : BunitContext
         Plan.Verify();
     }
 
+    /// <summary>
+    /// The panel has no order control: how the quiz is presented is Home's
+    /// Order, beside Start (SPEC-filtering.md §5, §7).
+    /// </summary>
     [Fact]
-    public void Hydrate_NothingPersisted_LeavesRandomOrderDefaultOn()
+    public void ThePanelHasNoOrderControl()
     {
-        // The blank hydration must not project TryFromJson's Empty fallback
-        // onto the draft: only a *successful* parse projects, so the blank
-        // builder keeps its own defaults — the checkbox a first-time user
-        // sees is on.
         var cut = RenderPanel();
 
-        Assert.True(cut.Find("#mixRandomOrder").HasAttribute("checked"));
+        Assert.Empty(cut.FindAll("#mixRandomOrder"));
+        Assert.DoesNotContain("Random order", cut.Markup);
     }
 
     [Fact]
@@ -250,7 +247,6 @@ public class MixPanelTests : BunitContext
         Assert.Equal("60", rows[0].QuerySelector(".mix-percent")!.GetAttribute("value"));
         Assert.Equal("40", rows[1].QuerySelector(".mix-percent")!.GetAttribute("value"));
         Assert.Equal("25", cut.Find("#mixQuizLength").GetAttribute("value"));
-        Assert.True(cut.Find("#mixRandomOrder").HasAttribute("checked")); // schema 2 carries no toggle
         Assert.Equal(mix, _draft.Build()); // shows exactly what was stored…
 
         // …and what is shown is what is in effect. Rule 3's explicit activation
@@ -347,8 +343,6 @@ public class MixPanelTests : BunitContext
 
         ExpectPersisted(NeverSeenMix(quizLength: 10));
         await cut.Find("#mixQuizLength").InputAsync(new() { Value = "10" });
-        ExpectPersisted(NeverSeenMix(quizLength: 10));
-        await cut.Find("#mixRandomOrder").ChangeAsync(new() { Value = false });
         Plan.Verify();
     }
 
@@ -705,7 +699,6 @@ public class MixPanelTests : BunitContext
         Assert.Contains("btn-outline-primary", addRow.ClassName);
 
         // The context that made the misread reasonable — asserted, not assumed.
-        Assert.True(cut.Find("#mixRandomOrder").HasAttribute("disabled"));
         Assert.True(cut.Find("#mixQuizLength").HasAttribute("disabled"));
     }
 }

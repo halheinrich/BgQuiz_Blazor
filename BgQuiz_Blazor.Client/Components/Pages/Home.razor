@@ -7,6 +7,7 @@
 @using XgFilter_Razor.Components
 @using XgFilter_Lib
 @using XgFilter_Lib.Filtering
+@using XgFilter_Lib.Enums
 
 @inject IFolderAccess FolderAccess
 @inject PickedProblemFolder Folder
@@ -14,7 +15,6 @@
 @inject MatchCount MatchCount
 @inject MixVisibility MixVisibility
 @inject MixDraft MixDraft
-@inject ShuffleOption ShuffleOption
 @inject QuizStatsStore StatsStore
 @inject PickedFolderDocumentStorage DocumentStorage
 @inject NavigationManager Nav
@@ -484,8 +484,8 @@
         </Notice>
     </div>
 
-    @* Progressive disclosure: the filters, saved filters, weighted mix, shuffle
-       toggle, and Start button (with all their hints and notices) appear only
+    @* Progressive disclosure: the filters, saved filters, weighted mix, the
+       Order, and Start button (with all their hints and notices) appear only
        once a folder with problem files is picked. Before a pick there is
        nothing to filter, weight, or start, so showing them is noise that buries
        the one required first step — picking a folder. Following the enclosing <fieldset>'s
@@ -780,22 +780,27 @@
         <MixPanel @key="Folder.PickGeneration" />
     }
 
-    @* Disabled — not rewritten — while a committed mix owns presentation
-       order: ShuffleOption keeps the user's value, so clearing the mix
-       restores their prior shuffle preference untouched. *@
-    <div class="mb-3 form-check">
-        <input class="form-check-input" type="checkbox" id="shuffleOrder"
-               checked="@ShuffleOption.Enabled" disabled="@MixOwnsOrder"
-               @onchange="HandleShuffleToggled" />
-        <label class="form-check-label" for="shuffleOrder">
-            Shuffle order
-            <small class="text-muted">
-                @(MixOwnsOrder
-                    ? "(order comes from the mix's Random order setting)"
-                    : "(present problems in random order instead of file order)")
-            </small>
-        </label>
-    </div>
+    @* The Order (SPEC-filtering.md §7): one control, its four values
+       the producer's, labelled from ProblemOrder's descriptions and offered
+       from QuizSettings.Orders. Always available — a mix never disables it:
+       the mix selects, the order presents (§5). It is a remembered
+       choice, recorded the moment it changes, and read where a Start or a
+       Restart builds the run's source, so nothing on this page derives from
+       it: the count never sorts. A radio group rather than a select, so each
+       value is a control of its own and no token is read back from the DOM. *@
+    <fieldset class="mb-3" id="problemOrder">
+        <legend class="form-label fs-6 mb-1">Order</legend>
+        @foreach (var order in QuizSettings.Orders)
+        {
+            var id = $"problemOrder{order}";
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="problemOrder" id="@id"
+                       checked="@(Settings.Order == order)"
+                       @onchange="() => Settings.SetOrderAsync(order)" />
+                <label class="form-check-label" for="@id">@order.ToLabel()</label>
+            </div>
+        }
+    </fieldset>
 
     @* The busy half is redundant under the enclosing fieldset, but explicit:
        the gate condition and the busy condition are both visible here. A

@@ -15,7 +15,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <para>
 /// <b>Progressive disclosure.</b> Only the folder-pick controls (and their
 /// pick-status notices) render before a folder with problem files is held;
-/// the filters, saved filters, weighted mix, shuffle toggle, and Start button
+/// the filters, saved filters, weighted mix, the Order, and the Start button
 /// are gated behind <see cref="PickedProblemFolder.HasFiles"/> in the markup.
 /// Pre-pick there is nothing to filter, weight, or start, so hiding them keeps
 /// the required first step — picking a folder — unmistakable, and makes the
@@ -164,10 +164,10 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// setups (§4).
 /// Nothing the user selected against the previous corpus can be assumed to mean
 /// the same thing against the next one, so Start is always re-gated by a pick,
-/// never inherited across one. Two things deliberately survive:
-/// <see cref="ShuffleOption"/>, a presentation-only preference in the same class
-/// as the mix panel's persisted rows, and the lifetime-stats slot, whose whole
-/// point is to <i>resume</i> when its folder is picked again.
+/// never inherited across one. Two things deliberately survive: the Order
+/// (<see cref="QuizSettings.Order"/>), a remembered choice like the ranking,
+/// and the lifetime-stats slot, whose whole point is to <i>resume</i> when its
+/// folder is picked again.
 /// </para>
 ///
 /// <para>
@@ -223,11 +223,14 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// A third, ungated toggle — "Shuffle order" — lives alongside the gate in the
-/// per-app <see cref="ShuffleOption"/> holder. It is presentation-only (order,
-/// not admission), so it plays no part in <c>CanStart</c>: the source factory
-/// reads it live at Start to decide whether to wrap the picked set in a
-/// <c>ShuffledProblemSetSource</c>.
+/// <b>The Order</b> sits beside Start, ungated and always available
+/// (<c>SPEC-filtering.md</c> §7): one control with the producer's four orders,
+/// a remembered choice in <see cref="QuizSettings.Order"/>. It is presentation
+/// only — order, not admission — so it plays no part in <c>CanStart</c>, and
+/// nothing on this page derives from it: the count never sorts. Start hands
+/// it to the controller with the ranking, which applies it where the run's
+/// source is built; a mix that applies never disables it, because the mix
+/// selects and the order presents (§5).
 /// </para>
 ///
 /// <para>
@@ -674,27 +677,14 @@ public partial class Home : ComponentBase, IDisposable
         StatsStore.ForecastStatsUnreadable || StatsStore.ForecastStatsUnwritable;
 
     /// <summary>
-    /// Whether a non-passthrough mix is in effect right now — checked <i>and</i>
-    /// the on-screen mix builds to something with entries — the single fact two
-    /// unrelated statements on this page derive from (the match count's caveat
-    /// and the shuffle checkbox's disabled state, via
-    /// <see cref="MixOwnsOrder"/>), so neither can be true while the other
-    /// reads the mix differently. Live per keystroke now, since the effect
-    /// follows the screen: unchecking, clearing the rows, or breaking the mix
-    /// (null build) each read as "no mix in effect" the moment they happen.
+    /// Whether a non-passthrough mix is in effect right now — the panel visible
+    /// <i>and</i> the on-screen mix building to something with entries — the
+    /// fact the match count's caveat derives from. Live per keystroke, since
+    /// the effect follows the screen: turning the setting off, clearing the
+    /// rows, or breaking the mix (null build) each read as "no mix in effect"
+    /// the moment they happen.
     /// </summary>
     private bool MixInEffect => EffectiveMix is { IsPassthrough: false };
-
-    /// <summary>
-    /// True while a non-passthrough mix is in effect: presentation order
-    /// belongs to the mix's own Random-order setting, so the standalone
-    /// Shuffle checkbox is disabled — but its held value is deliberately left
-    /// untouched, so turning the mix off restores the user's prior shuffle
-    /// preference. A named <i>consequence</i> of <see cref="MixInEffect"/>,
-    /// not a second copy of the predicate: the markup that disables the
-    /// checkbox should say why it is disabled.
-    /// </summary>
-    private bool MixOwnsOrder => MixInEffect;
 
     /// <summary>
     /// On boot, surface the reload-reset notice when the marker says a quiz was
@@ -1122,7 +1112,7 @@ public partial class Home : ComponentBase, IDisposable
     /// one. The saved-filters context lives in the hosted
     /// <c>FilterSurface</c>, which rebuilds it when the owner's generation
     /// moves. Two things deliberately survive, and the class summary says why:
-    /// <see cref="ShuffleOption"/> and the lifetime-stats slot.
+    /// the Order and the lifetime-stats slot.
     /// </para>
     ///
     /// <para>
@@ -1236,13 +1226,6 @@ public partial class Home : ComponentBase, IDisposable
         await MatchCount.EnsureAsync(inputs);
     }
 
-    private void HandleShuffleToggled(ChangeEventArgs e)
-    {
-        // A checkbox has no half-edited state, so the toggle is recorded live —
-        // no applied/edited distinction of the kind the filter setup keeps.
-        ShuffleOption.Set(e.Value is true);
-    }
-
     private Task StartQuizAsync() => StartCoreAsync(ignoreMix: false);
 
     /// <summary>
@@ -1266,7 +1249,11 @@ public partial class Home : ComponentBase, IDisposable
         _mixRefused = false;
         try
         {
-            var outcome = await Controller.StartAsync(cfg, mix, await UserRankingAsync(), ignoreMix);
+            // The ranking and the Order as the user's settings stand at the
+            // click: the run takes both where it begins (SPEC-filtering.md
+            // §7), and the hydration UserRankingAsync awaits serves both.
+            var ranking = await UserRankingAsync();
+            var outcome = await Controller.StartAsync(cfg, mix, ranking, Settings.Order, ignoreMix);
 
             // Overlapped gesture: the transition gate ignored this call, so
             // this handler must change nothing — the in-flight Start owns any

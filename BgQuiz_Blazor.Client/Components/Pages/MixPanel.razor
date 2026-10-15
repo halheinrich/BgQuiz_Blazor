@@ -4,9 +4,10 @@
 
 @* ── MixPanel.razor ──────────────────────────────────────────────────────────
    The stats-weighted mix builder: a VIEW over the app-scoped MixDraft — an
-   ordered list of (category, percent) rows plus the Random-order toggle and an
-   optional quiz length, all owned by the draft so edits survive in-app
-   navigation. There is no activation control here at all: the host mounts this
+   ordered list of (category, percent) rows and an optional quiz length, all
+   owned by the draft so edits survive in-app navigation. The mix selects and
+   nothing else: how the quiz is presented is Home's Order, beside Start
+   (SPEC-filtering.md §5, §7), so this panel has no order control. There is no activation control here at all: the host mounts this
    panel exactly while MixVisibility.IsVisible and composes Start from the same
    fact, so BEING ON SCREEN is what puts these rows in effect
    (SPEC-filtering.md §5, "Visible means in effect", 2026-09-07). No committed
@@ -97,9 +98,9 @@
         <div class="d-flex align-items-center gap-3 mb-3">
             @* Outline-*primary*, not the secondary grey the panel's other
                buttons wear. Adding a row is always valid — there is no state in
-               which this is disabled — but at zero rows it is surrounded by
-               controls that genuinely are (Random order and Quiz length, both
-               disabled while there is nothing to order or size), so in
+               which this is disabled — but at zero rows it sits beside a
+               control that genuinely is (Quiz length, disabled while there is
+               nothing to size), so in
                secondary grey it read as another switched-off control, which is
                the one reading that must never happen: it is the only way out of
                the zero-row state. Same class as Home's "Choose folder…" — the
@@ -114,16 +115,6 @@
                     Total: @Draft.PercentSum% @(Draft.PercentSum == 100 ? "" : "— must reach 100%")
                 </span>
             }
-        </div>
-
-        <div class="mb-2 form-check form-switch">
-            <input class="form-check-input" type="checkbox" id="mixRandomOrder"
-                   checked="@Draft.RandomOrder" disabled="@(Draft.Rows.IsEmpty)"
-                   @onchange="e => Draft.SetRandomOrderAsync(e.Value is true)" />
-            <label class="form-check-label" for="mixRandomOrder">
-                Random order
-                <small class="text-muted">(off = draw and present in file order)</small>
-            </label>
         </div>
 
         <div class="mb-3">

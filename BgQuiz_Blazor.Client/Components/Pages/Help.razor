@@ -1,7 +1,9 @@
 @page "/help"
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
 
+@using BgGame_Lib
 @using BgQuiz_Blazor.Client.Quiz
+@using XgFilter_Lib.Enums
 @using XgFilter_Razor
 @using XgFilter_Razor.Components
 
@@ -290,10 +292,14 @@
            rather than a second statement of the filter rules here (Hal's
            wording, halheinrich/backgammon#374, comment 6090571891: the rules
            are the producer's, and an earlier version of this paragraph that
-           restated them promised more than they guarantee); and that Shuffle
-           order is this app's control, not the panel's. Extending any of it
-           means extending FilterHelp in XgFilter_Razor, never restoring prose
-           here. *@
+           restated them promised more than they guarantee); and the Order,
+           which is this app's control, not the panel's, and not a filter: it
+           decides how the quiz presents what the filters (and any mix) chose
+           (SPEC-filtering.md §7). Its four labels are rendered from the
+           producer's ProblemOrder, the type that owns them, so this page cannot
+           name an order the control does not offer. Extending any of the filter
+           half means extending FilterHelp in XgFilter_Razor, never restoring
+           prose here. *@
         <p>
             On the home page, the filter panel narrows which decisions the quiz will
             ask you.
@@ -301,9 +307,17 @@
         <p>
             Home shows whether you need to apply the filters before starting; the
             filter help further down this page explains when Apply is needed.
-            Optionally tick
-            <em>Shuffle order</em> to see positions in a random order rather than in
-            file order.
+        </p>
+        <p>
+            Beside <em>Start Quiz</em>, the <em>Order</em> decides the order problems
+            come in. <em>@ProblemOrder.AsRead.ToLabel()</em> keeps the order of your
+            files; <em>@ProblemOrder.Shuffled.ToLabel()</em> draws a fresh random order
+            every time you start; <em>@ProblemOrder.ByErrorLargestFirst.ToLabel()</em>
+            puts first the decisions where the move played lost the most, by the
+            analysis; and <em>@ProblemOrder.ByMoveNumberAscending.ToLabel()</em> runs
+            from the earliest move of a game to the latest, position files last.
+            BgQuiz remembers your choice, and each Start or Restart uses the order
+            chosen at that moment.
         </p>
         @* The count line, previously undocumented anywhere. Three things about it are
            easy to read wrongly — it counts matching *decisions* rather than problems
@@ -443,11 +457,12 @@
                 divide up that many problems instead.
             </li>
             <li>
-                <strong>A mix that applies owns the order.</strong> Its own
-                <em>Random order</em> setting then decides how problems are
-                presented, and the page's Shuffle order checkbox is disabled — your
-                choice there is kept, and comes back when you turn the mix off in
-                Settings.
+                <strong>The mix chooses; the Order presents.</strong> Your rows decide
+                which problems make up the quiz, and the <em>Order</em> beside
+                <em>Start Quiz</em> decides the order they come in, mix or no mix.
+                With the mix in effect, <em>@ProblemOrder.ByErrorLargestFirst.ToLabel()</em>
+                goes by your own lifetime average loss on each problem you have
+                answered, and by the analysis where you haven't.
             </li>
             <li>
                 <strong>Turn it on in <em>Settings</em>.</strong> The weighted mix

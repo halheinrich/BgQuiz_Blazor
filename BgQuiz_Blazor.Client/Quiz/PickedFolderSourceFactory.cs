@@ -24,17 +24,26 @@ using Microsoft.Extensions.Logging;
 /// <para>
 /// <b>The stack, innermost first.</b>
 /// <list type="number">
-/// <item><see cref="CachedProblemSetSource"/> over the pick — the parse-once
-/// layer that parses the picked files unfiltered on the first Start and serves
-/// every later Start/Restart by filtering the cached decisions under the
-/// quiz's ranking (the cache slot rides <see cref="PickedProblemFolder"/>, so a
-/// re-pick or Clear invalidates it by construction). See its own section in
+/// <item><see cref="CachedProblemSetSource"/> over the held sample — the
+/// parse-once layer that parses the sample's files unfiltered on the first
+/// count or Start and serves every later one by filtering the cached
+/// decisions under the quiz's ranking (the cache slot rides
+/// <see cref="PickedProblemFolder"/>, so a re-pick, a resample or Clear
+/// invalidates it by construction). See its own section in
 /// INSTRUCTIONS.md.</item>
 /// <item><see cref="DistinctPositionProblemSetSource"/> — one item per distinct
 /// position, always. See the placement rule below.</item>
-/// <item><see cref="OrderedProblemSetSource"/> under <see cref="ProblemOrder.Shuffled"/>, conditionally — see the
-/// arbitration rule below.</item>
 /// </list>
+/// </para>
+///
+/// <para>
+/// <b>The stack is the pool, and it never orders or composes.</b> The run's
+/// order and its mix are applied above it, once, by the producer's
+/// <see cref="MixedProblemSetSource"/>, which the controller wires for every
+/// run (<c>SPEC-filtering.md</c> §5, §7: the mix selects, the order presents,
+/// and the library decides which application the order gets). So this
+/// factory takes neither: what it returns is the same pool for a Start and
+/// for the pre-Start match count, which never sorts (§7).
 /// </para>
 ///
 /// <para>
@@ -44,8 +53,8 @@ using Microsoft.Extensions.Logging;
 /// duplicate files of one match, or an identical early position reached in two
 /// different matches, carry distinct <c>DecisionId</c>s yet render the same
 /// problem — the decorator keys on the content identity instead. Wiring the
-/// dedupe beneath shuffle and mix means plain, shuffled and weighted runs all draw
-/// from an already position-distinct supply — one rule, stated once, with no
+/// dedupe beneath the order and the mix means every run, in any order and
+/// weighted or not, draws from an already position-distinct supply — one rule, stated once, with no
 /// per-mode variant to keep in step. It is also what makes the pre-Start match
 /// summary agree with what a capless quiz serves: that count comes from the
 /// same factory (<c>QuizController.SummarizeMatchesAsync</c>), so "N decisions
@@ -89,16 +98,6 @@ using Microsoft.Extensions.Logging;
 /// </para>
 ///
 /// <para>
-/// <b>Shuffle applies only to a passthrough (blank-mix) run.</b> An active mix
-/// owns presentation order through its own <c>RandomOrder</c> toggle, and a
-/// shuffled inner under the composing decorator would silently break
-/// <c>RandomOrder: false</c>'s fully-deterministic contract (draws and
-/// presentation in source order). That single rule is the whole reason the
-/// factory delegate takes the mix at all. The composition layer itself is the
-/// controller's to wire, never this factory's.
-/// </para>
-///
-/// <para>
 /// <b>The ranking is an argument, not a holder read.</b> The delegate takes the
 /// run's ranking beside its filters, because the run owns its one ranking and
 /// scores with it, and the controller hands that same ranking here: the pool
@@ -108,12 +107,10 @@ using Microsoft.Extensions.Logging;
 /// </para>
 ///
 /// <para>
-/// <b>Read live at invocation, not at registration.</b> Every holder is read
-/// inside the returned delegate — which the controller invokes at
-/// <c>StartAsync</c> — so a pick or a shuffle toggle made before Start takes
-/// effect on that Start. The unseeded <see cref="OrderedProblemSetSource"/>
-/// ctor is used deliberately: reproducibility is a test-only concern (see that
-/// type's seeded ctor), never user-facing.
+/// <b>Read live at invocation, not at registration.</b> The holder is read
+/// inside the returned delegate — which the controller invokes where a Start,
+/// a Restart or a count builds its stack — so the stack is built over the
+/// sample held at that moment, a pick or a resample made before it included.
 /// </para>
 /// </summary>
 internal static class PickedFolderSourceFactory
@@ -123,38 +120,32 @@ internal static class PickedFolderSourceFactory
     /// arguments are the app-scoped instances; the returned delegate closes
     /// over them and reads their state at each invocation.
     /// </summary>
-    /// <param name="picked">The picked-folder holder — supplies the files and carries the cross-Start parse cache.</param>
-    /// <param name="shuffle">The user's "Shuffle order" choice, read per invocation.</param>
+    /// <param name="picked">The picked-folder holder — supplies the held sample's files and carries its parse cache.</param>
     /// <param name="loggerFactory">Forwarded to the parsing source for its per-file failure logging.</param>
     /// <param name="clock">Monotonic pacing clock for the sources' cooperative yields.</param>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
     internal static ProblemSetSourceFactory Create(
         PickedProblemFolder picked,
-        ShuffleOption shuffle,
         ILoggerFactory loggerFactory,
         TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(picked);
-        ArgumentNullException.ThrowIfNull(shuffle);
         ArgumentNullException.ThrowIfNull(loggerFactory);
         ArgumentNullException.ThrowIfNull(clock);
 
-        return (filters, ranking, mix) =>
+        return (filters, ranking) =>
         {
             var cached = new CachedProblemSetSource(picked, filters, ranking, loggerFactory, clock);
             var deduped = new DistinctPositionProblemSetSource(cached);
-            IProblemSetSource composed = mix.IsPassthrough && shuffle.Enabled
-                ? new OrderedProblemSetSource(deduped, ProblemOrder.Shuffled, ranking)
-                : deduped;
             // Each reader closes over the layer that owns its telemetry, so no
-            // caller has to reach through the conditional shuffle wrapper to
-            // find it — see ComposedProblemSource for why a reader travels back
-            // rather than the decorator itself. The source report is the
-            // parse-once layer's: the report of the walk whose decisions this
-            // very stack draws from, which is why it is read off `cached` and
-            // never off the holder (halheinrich/backgammon#368).
+            // caller has to know which layer that is — see ComposedProblemSource
+            // for why a reader travels back rather than the decorator itself.
+            // The source report is the parse-once layer's: the report of the
+            // walk whose decisions this very stack draws from, which is why it
+            // is read off `cached` and never off the holder
+            // (halheinrich/backgammon#368).
             return new ComposedProblemSource(
-                composed, () => DuplicatesCollapsed(deduped), () => cached.Report);
+                deduped, () => DuplicatesCollapsed(deduped), () => cached.Report);
         };
     }
 

@@ -51,7 +51,7 @@ public class MatchCountTests : BunitContext
         // One stack per count, by the ranking it draws under, and every build
         // counted — so a reuse is visible as a count that was never built.
         var controller = new QuizController(
-            (_, ranking, _) =>
+            (_, ranking) =>
             {
                 _built++;
                 return TestFixtures.Composed(ranking == PlayRanking.Equity ? _equity : _depthFirst);

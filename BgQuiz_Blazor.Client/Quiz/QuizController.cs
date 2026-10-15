@@ -108,6 +108,19 @@ using XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
+/// <b>One run, one order</b> (<c>SPEC-filtering.md</c> §7). The order the run
+/// presents its problems in is the user's Order, handed in at
+/// <see cref="StartAsync"/> / <see cref="RestartAsync"/> as the ranking is and
+/// applied where prepare builds the run's source, so a Restart uses the Order
+/// chosen at Restart. Every run's source is the producer's
+/// <see cref="MixedProblemSetSource"/> over the factory's pool, with the
+/// order, the run's ranking, the effective mix and the stats provider: the
+/// mix selects, the order presents, and which application the order gets —
+/// plain, or by the mixed key — is the library's to decide, never this type's
+/// (§5). A run keeps its sequence: nothing re-sorts a run once it is current.
+/// </para>
+///
+/// <para>
 /// <b>Starting a run: prepare, then commit</b> (<c>SPEC-quiz-history.md</c> §8;
 /// halheinrich/backgammon#325 item 1). <see cref="StartAsync"/> and
 /// <see cref="RestartAsync"/> are one transition, an <i>attempt</i> to replace
@@ -274,9 +287,8 @@ internal sealed class QuizController : IAsyncDisposable
     ///
     /// <para>
     /// Presentation state, never persisted: "the same position looks different
-    /// next time" is the whole point. The roll is unseeded, per the
-    /// <c>Program.cs</c> shuffle rationale — reproducibility is a test-only
-    /// concern.
+    /// next time" is the whole point. The roll is unseeded — reproducibility is
+    /// a test-only concern.
     /// </para>
     /// </summary>
     public bool RandomHomeBoardOnRight => _run?.Cursor?.RandomHomeBoardOnRight ?? false;
@@ -396,9 +408,9 @@ internal sealed class QuizController : IAsyncDisposable
 
     /// <summary>
     /// The active mix composition's telemetry (requested vs. drawn, overall
-    /// and per entry, in declared entry order), or null when no composition
-    /// layer is wired — a blank/overridden mix — or before the composing
-    /// enumeration begins. Assigned by the producer before the first yield,
+    /// and per entry, in declared entry order), or null when the run's mix is
+    /// blank — the producer composes nothing then, and the override runs a
+    /// quiz blank — or before the composing enumeration begins. Assigned by the producer before the first yield,
     /// so it is readable the moment a weighted quiz shows its first problem;
     /// the pages' shortfall and composed-to-zero notices render from it, and
     /// the Quiz page keys its capless-vs-length-bound notice framing on the
@@ -460,7 +472,8 @@ internal sealed class QuizController : IAsyncDisposable
 
     /// <summary>
     /// Begin a fresh quiz against <paramref name="userConfig"/> and
-    /// <paramref name="mix"/>, under <paramref name="ranking"/>. Materializes
+    /// <paramref name="mix"/>, under <paramref name="ranking"/>, presented in
+    /// <paramref name="order"/>. Materializes
     /// the user's <see cref="FilterConfig"/> into a <see cref="DecisionFilterSet"/>
     /// owned entirely by this controller, begins a new <see cref="QuizRun"/> —
     /// nothing presented, nothing of record, so an empty score and no skips —
@@ -485,11 +498,18 @@ internal sealed class QuizController : IAsyncDisposable
     /// </para>
     ///
     /// <para>
+    /// <b>The order is read here, where the run's source is built</b>
+    /// (<c>SPEC-filtering.md</c> §7). It is the user's choice as the caller
+    /// read it at the click, required rather than defaulted for the ranking's
+    /// reason, and not stored: a Restart takes the order chosen at Restart.
+    /// </para>
+    ///
+    /// <para>
     /// <b>Mix ownership mirrors filter ownership.</b> The mix is user config
     /// handed in at Start — never caller-set mutable state — stored alongside
     /// the filter pipeline so <see cref="RestartAsync"/> re-attempts it. A
-    /// blank mix (<see cref="QuizMix.Empty"/>) is the inert default: no
-    /// composition layer is wired at all.
+    /// blank mix (<see cref="QuizMix.Empty"/>) composes nothing: the producer
+    /// applies the order alone and never asks for the stats document.
     /// </para>
     ///
     /// <para>
@@ -510,17 +530,20 @@ internal sealed class QuizController : IAsyncDisposable
     /// <paramref name="userConfig"/> contains a malformed value — propagated
     /// from <see cref="FilterConfig.Build"/>.
     /// </exception>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="ranking"/> is not a defined ranking.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="ranking"/> or <paramref name="order"/> is not a defined member.
+    /// </exception>
     /// <exception cref="Exception">
     /// Whatever building the source, opening its stream or drawing from it
     /// threw: the attempt faulted, and the current run is kept.
     /// </exception>
     public async Task<QuizStartOutcome> StartAsync(
-        FilterConfig userConfig, QuizMix mix, PlayRanking ranking, bool ignoreMix = false)
+        FilterConfig userConfig, QuizMix mix, PlayRanking ranking, ProblemOrder order, bool ignoreMix = false)
     {
         ArgumentNullException.ThrowIfNull(userConfig);
         ArgumentNullException.ThrowIfNull(mix);
         RefuseUndefined(ranking);
+        RefuseUndefined(order);
 
         // Build a fresh, controller-owned pipeline from the immutable DTO. The
         // user's DecisionType choice governs decision-type admission; the
@@ -532,7 +555,7 @@ internal sealed class QuizController : IAsyncDisposable
         if (!await TryBeginTransitionAsync()) return QuizStartOutcome.Busy;
         try
         {
-            return await AttemptAsync(pipeline, mix, ranking, ignoreMix);
+            return await AttemptAsync(pipeline, mix, ranking, order, ignoreMix);
         }
         finally
         {
@@ -593,10 +616,9 @@ internal sealed class QuizController : IAsyncDisposable
     /// that match", not "problems you'll be shown". Not a rounding error: about
     /// one checker decision in eleven is forced or a pass across the umbrella's
     /// own corpus, so the two numbers genuinely differ. An active mix composes from
-    /// this pool at Start, so this is the pre-mix pool. The passed
-    /// <see cref="QuizMix.Empty"/> keeps the factory from wiring a composition
-    /// layer for the throwaway pass; the controller's own composition wiring is
-    /// unaffected.
+    /// this pool at Start, so this is the pre-mix pool: the factory's stack is
+    /// the pool alone, and no order or mix is applied to it here — the count
+    /// never sorts (<c>SPEC-filtering.md</c> §7).
     /// </para>
     ///
     /// <para>
@@ -644,7 +666,7 @@ internal sealed class QuizController : IAsyncDisposable
         RefuseUndefined(ranking);
 
         var pipeline = userConfig.Build();
-        var composed = _sourceFactory(pipeline, ranking, QuizMix.Empty);
+        var composed = _sourceFactory(pipeline, ranking);
 
         var distribution = AnswerTypeDistribution.Empty;
         await foreach (var decision in composed.Source.EnumerateAsync())
@@ -940,7 +962,8 @@ internal sealed class QuizController : IAsyncDisposable
 
     /// <summary>
     /// Restart the quiz from the beginning of the source using the stored
-    /// filter pipeline and mix, under <paramref name="ranking"/>. Always
+    /// filter pipeline and mix, under <paramref name="ranking"/>, presented in
+    /// <paramref name="order"/>. Always
     /// re-attempts the stored mix unless
     /// <paramref name="ignoreMix"/> — the per-run override for a refused
     /// weighted restart, mirroring <see cref="StartAsync"/> — so the mix
@@ -950,15 +973,16 @@ internal sealed class QuizController : IAsyncDisposable
     /// deliberate Restart-recomposes semantics).
     ///
     /// <para>
-    /// <b>The ranking is the caller's, not the stored one.</b> A restart is a new
-    /// run, and a run takes the ranking the user's setting names when it begins
-    /// — so a setting changed since the last run applies here, as it would to a
-    /// Start (SPEC-scoring.md §2a: it applies to what is scored after it is
-    /// set). The filter pipeline and the mix are the quiz's stored
-    /// configuration and are replayed; the ranking is the user's setting and is
-    /// re-read, the way the caller re-reads the mix's visibility for
-    /// <paramref name="ignoreMix"/>. The restarted quiz is a new
-    /// <see cref="QuizRun"/>.
+    /// <b>The ranking and the order are the caller's, not stored ones.</b> A
+    /// restart is a new run, and a run takes the ranking the user's setting
+    /// names when it begins — so a setting changed since the last run applies
+    /// here, as it would to a Start (SPEC-scoring.md §2a: it applies to what is
+    /// scored after it is set) — and the Order chosen at Restart
+    /// (<c>SPEC-quiz-history.md</c> §8). The filter pipeline and the mix are
+    /// the quiz's stored configuration and are replayed; the ranking and the
+    /// order are the user's choices and are re-read, the way the caller re-reads
+    /// the mix's visibility for <paramref name="ignoreMix"/>. The restarted quiz
+    /// is a new <see cref="QuizRun"/>.
     /// </para>
     ///
     /// <para>
@@ -987,17 +1011,20 @@ internal sealed class QuizController : IAsyncDisposable
     /// </para>
     /// </summary>
     /// <exception cref="InvalidOperationException">No quiz has been started.</exception>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="ranking"/> is not a defined ranking.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="ranking"/> or <paramref name="order"/> is not a defined member.
+    /// </exception>
     /// <exception cref="Exception">
     /// Whatever building the source, opening its stream or drawing from it
     /// threw: the attempt faulted, and the current run is kept.
     /// </exception>
-    public async Task<QuizStartOutcome> RestartAsync(PlayRanking ranking, bool ignoreMix = false)
+    public async Task<QuizStartOutcome> RestartAsync(PlayRanking ranking, ProblemOrder order, bool ignoreMix = false)
     {
         // A malformed argument is refused before the gate, as StartAsync
         // refuses a malformed config: it is a caller bug, not an outcome, and
         // nothing may have begun when it surfaces.
         RefuseUndefined(ranking);
+        RefuseUndefined(order);
 
         // The gate is checked before the never-started throw: a Restart
         // overlapping an in-flight transition is a UI double-gesture (an
@@ -1010,7 +1037,7 @@ internal sealed class QuizController : IAsyncDisposable
             if (_source is not { } current)
                 throw new InvalidOperationException(
                     "RestartAsync requires a prior successful StartAsync — no quiz has been started.");
-            return await AttemptAsync(current.Filters, current.Mix, ranking, ignoreMix);
+            return await AttemptAsync(current.Filters, current.Mix, ranking, order, ignoreMix);
         }
         finally
         {
@@ -1084,6 +1111,19 @@ internal sealed class QuizController : IAsyncDisposable
     {
         if (!Enum.IsDefined(ranking))
             throw new ArgumentOutOfRangeException(nameof(ranking), ranking, "Not a defined play ranking.");
+    }
+
+    /// <summary>
+    /// Refuse an order that names none of <see cref="ProblemOrder"/>'s members,
+    /// at the controller's own door, for <see cref="RefuseUndefined(PlayRanking)"/>'s
+    /// reason: the producer refuses one too, but only once the attempt has
+    /// re-bound the stats context.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="order"/> is not a defined order.</exception>
+    private static void RefuseUndefined(ProblemOrder order)
+    {
+        if (!Enum.IsDefined(order))
+            throw new ArgumentOutOfRangeException(nameof(order), order, "Not a defined problem order.");
     }
 
     /// <summary>
@@ -1208,9 +1248,10 @@ internal sealed class QuizController : IAsyncDisposable
     /// <param name="filters">The new run's filter set: a Start's freshly built one, or the set a Restart replays.</param>
     /// <param name="mix">The new run's stored mix — what its own Restart will re-attempt.</param>
     /// <param name="ranking">The new run's ranking.</param>
+    /// <param name="order">The order the new run presents its problems in.</param>
     /// <param name="ignoreMix">Run this one quiz as passthrough, while <paramref name="mix"/> is still stored.</param>
     private async Task<QuizStartOutcome> AttemptAsync(
-        DecisionFilterSet filters, QuizMix mix, PlayRanking ranking, bool ignoreMix)
+        DecisionFilterSet filters, QuizMix mix, PlayRanking ranking, ProblemOrder order, bool ignoreMix)
     {
         // The composition this run actually uses: the override runs one quiz
         // as passthrough while the stored mix stays what the user configured.
@@ -1230,7 +1271,7 @@ internal sealed class QuizController : IAsyncDisposable
         if (!effectiveMix.IsPassthrough && _statsSink.CurrentDocument is null)
             return QuizStartOutcome.MixRequiresStats;
 
-        var (first, source) = await PrepareAsync(filters, mix, effectiveMix, ranking);
+        var (first, source) = await PrepareAsync(filters, mix, effectiveMix, ranking, order);
 
         var previous = SwitchTo(first, source);
         if (previous is not null) await ReleaseReplacedAsync(previous);
@@ -1239,10 +1280,12 @@ internal sealed class QuizController : IAsyncDisposable
 
     /// <summary>
     /// Prepare's part that builds: the new run, begun from
-    /// <paramref name="ranking"/>; its source, from the factory and — for a
-    /// weighted <paramref name="effectiveMix"/> — the producer's composing
-    /// decorator; its stream, opened; and the draw to its first problem with a
-    /// choice, or to the end of the stream. Returns the run as it will become
+    /// <paramref name="ranking"/>; its source — the producer's
+    /// <see cref="MixedProblemSetSource"/> over the factory's pool, with
+    /// <paramref name="order"/>, the run's ranking,
+    /// <paramref name="effectiveMix"/> and the stats provider, or none when
+    /// there is no stats document; its stream, opened; and the draw to its
+    /// first problem with a choice, or to the end of the stream. Returns the run as it will become
     /// current, with the source it holds. Everything here belongs to the
     /// attempt, and nothing of the current run is read or written.
     ///
@@ -1256,13 +1299,16 @@ internal sealed class QuizController : IAsyncDisposable
     /// </para>
     /// </summary>
     private async Task<(QuizRun First, RunSource Source)> PrepareAsync(
-        DecisionFilterSet filters, QuizMix mix, QuizMix effectiveMix, PlayRanking ranking)
+        DecisionFilterSet filters, QuizMix mix, QuizMix effectiveMix, PlayRanking ranking, ProblemOrder order)
     {
         // From here on the ranking is read off the run, the source's included.
         var run = QuizRun.Begin(ranking);
+        // The provider exactly when there is a document to provide: a blank mix
+        // never asks for one, and an active mix has been refused above without one.
+        var stats = _statsSink.CurrentDocument is null ? null : (Func<ProblemStatsDocument>)GetCurrentDocumentOrThrow;
         var source = RunSource.Open(
-            filters, mix, _sourceFactory(filters, run.Ranking, effectiveMix).Source,
-            effectiveMix, run.Ranking, GetCurrentDocumentOrThrow, _clock);
+            filters, mix, _sourceFactory(filters, run.Ranking).Source,
+            order, run.Ranking, effectiveMix, stats, _clock);
 
         try
         {
@@ -1344,17 +1390,17 @@ internal sealed class QuizController : IAsyncDisposable
         "A current run always has its source; the two are committed together.");
 
     /// <summary>
-    /// The stats provider handed to <see cref="MixedProblemSetSource"/>,
-    /// resolved fresh per enumeration so a Restart recomposes against the
-    /// lifetime record as it stands, this session's folds included. The
-    /// decorator is only ever wired past the refusal checks, so a null
-    /// document here is a wiring bug — the throw mirrors the producer's own
-    /// null-provider contract rather than masking the bug as an
+    /// The stats provider handed to <see cref="MixedProblemSetSource"/> when the
+    /// bind found a document, resolved fresh per composing enumeration so a
+    /// Restart recomposes against the lifetime record as it stands, this
+    /// session's folds included. An active mix composes only past the refusal
+    /// checks, so a null document here is a wiring bug — the throw mirrors the
+    /// producer's own null-provider contract rather than masking the bug as an
     /// all-never-seen quiz.
     /// </summary>
     private ProblemStatsDocument GetCurrentDocumentOrThrow() =>
         _statsSink.CurrentDocument ?? throw new InvalidOperationException(
-            "The mix composition layer is wired but the stats sink holds no document — " +
+            "A mix is composing but the stats sink holds no document — " +
             "a weighted start should have been refused.");
 
     /// <summary>
@@ -1475,9 +1521,10 @@ internal sealed class QuizController : IAsyncDisposable
     /// <summary>
     /// What a run holds beyond the <see cref="QuizRun"/>
     /// (<c>SPEC-quiz-history.md</c> §8): the filters and mix its Restart
-    /// replays, the source built from them, that source's composition
-    /// telemetry and name, and the one stream drawn from it — the run's place
-    /// in the problem stream (§5). Built whole by an attempt's prepare,
+    /// replays, the source built from them — the producer's
+    /// <see cref="MixedProblemSetSource"/>, for every run — that source's
+    /// composition telemetry and name, and the one stream drawn from it — the
+    /// run's place in the problem stream (§5). Built whole by an attempt's prepare,
     /// belonging to the attempt until the switch, and from then on the run's,
     /// unchanged until the run is replaced.
     ///
@@ -1492,42 +1539,39 @@ internal sealed class QuizController : IAsyncDisposable
     /// </summary>
     private sealed class RunSource
     {
-        private readonly IProblemSetSource _source;
-        private readonly MixedProblemSetSource? _mixedSource;
+        private readonly MixedProblemSetSource _source;
         private IAsyncEnumerator<BgDecisionData>? _stream;
 
         private RunSource(
-            DecisionFilterSet filters, QuizMix mix, IProblemSetSource source,
-            MixedProblemSetSource? mixedSource, IAsyncEnumerator<BgDecisionData> stream)
+            DecisionFilterSet filters, QuizMix mix, MixedProblemSetSource source,
+            IAsyncEnumerator<BgDecisionData> stream)
         {
             Filters = filters;
             Mix = mix;
             _source = source;
-            _mixedSource = mixedSource;
             _stream = stream;
         }
 
         /// <summary>
-        /// Compose a run's source over <paramref name="built"/>, the factory's
-        /// stack, and open its stream. A blank <paramref name="effectiveMix"/>
-        /// wires no composition layer at all — the settled passthrough default.
-        /// An active one composes via the producer's decorator, against
-        /// <paramref name="stats"/>; holding the typed reference is what
-        /// surfaces <see cref="LastComposition"/> without type-testing.
+        /// Build a run's source over <paramref name="pool"/>, the factory's
+        /// stack, and open its stream: the producer's
+        /// <see cref="MixedProblemSetSource"/>, wired the same way for every
+        /// run, so the arbitration between the order's plain application and
+        /// its mixed one stays the library's (<c>SPEC-filtering.md</c> §5, §7).
+        /// A blank <paramref name="effectiveMix"/> composes nothing and never
+        /// calls <paramref name="stats"/>; an active one composes against it.
         /// Opening the stream is the last step, so a source that throws there
         /// leaves nothing open.
         /// </summary>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="order"/> or <paramref name="ranking"/> is not a defined member.</exception>
+        /// <exception cref="ArgumentNullException"><paramref name="stats"/> is null while <paramref name="effectiveMix"/> is active.</exception>
         public static RunSource Open(
-            DecisionFilterSet filters, QuizMix mix, IProblemSetSource built,
-            QuizMix effectiveMix, PlayRanking ranking, Func<ProblemStatsDocument> stats, TimeProvider clock)
+            DecisionFilterSet filters, QuizMix mix, IProblemSetSource pool,
+            ProblemOrder order, PlayRanking ranking, QuizMix effectiveMix,
+            Func<ProblemStatsDocument>? stats, TimeProvider clock)
         {
-            // The mix's Random order toggle is retired; a mix that applies
-            // composes as read (SPEC-filtering.md section 5).
-            var mixedSource = effectiveMix.IsPassthrough
-                ? null
-                : new MixedProblemSetSource(built, ProblemOrder.AsRead, ranking, effectiveMix, stats, clock);
-            var source = mixedSource ?? built;
-            return new RunSource(filters, mix, source, mixedSource, source.EnumerateAsync().GetAsyncEnumerator());
+            var source = new MixedProblemSetSource(pool, order, ranking, effectiveMix, stats, clock);
+            return new RunSource(filters, mix, source, source.EnumerateAsync().GetAsyncEnumerator());
         }
 
         /// <summary>The filter set a Restart of this run replays.</summary>
@@ -1542,8 +1586,8 @@ internal sealed class QuizController : IAsyncDisposable
         /// <summary>The source's declared size, if it declares one.</summary>
         public int? Count => _source.Count;
 
-        /// <summary>The composition's telemetry, or null when no composition layer is wired (<see cref="QuizController.LastComposition"/>).</summary>
-        public MixComposition? LastComposition => _mixedSource?.LastComposition;
+        /// <summary>The composition's telemetry, or null when the run's mix is blank (<see cref="QuizController.LastComposition"/>).</summary>
+        public MixComposition? LastComposition => _source.LastComposition;
 
         /// <summary>The next item of the stream, or null at its end.</summary>
         /// <exception cref="InvalidOperationException">The stream has been released.</exception>
@@ -1565,9 +1609,9 @@ internal sealed class QuizController : IAsyncDisposable
 }
 
 /// <summary>
-/// Factory delegate for constructing the active problem source from a
-/// user-supplied filter set. The client's <c>Program.cs</c> binds this to the
-/// in-browser source for the current run (the picked-files source, or a
+/// Factory delegate for constructing the pool a run or a count draws from,
+/// under a user-supplied filter set. The client's <c>Program.cs</c> binds this
+/// to the in-browser pool over the held sample (the picked-files source, or a
 /// bundled sample); tests substitute a fake source via the same delegate shape.
 ///
 /// <para>
@@ -1587,17 +1631,15 @@ internal sealed class QuizController : IAsyncDisposable
 /// </para>
 ///
 /// <para>
-/// The <paramref name="mix"/> is the run's <i>effective</i> composition config,
-/// passed for one reason: shuffle arbitration. An active mix owns presentation
-/// order through its own random-order toggle, so the factory must not
-/// wrap a shuffle decorator under it — a shuffled inner would silently break
-/// the deterministic contract of <c>RandomOrder: false</c> (the composing
-/// decorator draws and presents in <i>source</i> order there). The factory
-/// never wires the composition layer itself; that stays with the controller.
+/// <b>The pool, and nothing above it.</b> The delegate takes no order and no
+/// mix: the controller applies both above the pool, once, through the
+/// producer's <see cref="MixedProblemSetSource"/>, and the pre-Start count
+/// reads the pool unordered (<c>SPEC-filtering.md</c> §7: the count never
+/// sorts). A stack that ordered or composed would be a second application.
 /// </para>
 /// </summary>
 internal delegate ComposedProblemSource ProblemSetSourceFactory(
-    DecisionFilterSet filters, PlayRanking ranking, QuizMix mix);
+    DecisionFilterSet filters, PlayRanking ranking);
 
 /// <summary>
 /// The result of <see cref="QuizController.StartAsync"/> /

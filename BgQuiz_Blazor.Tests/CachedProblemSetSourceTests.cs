@@ -147,12 +147,12 @@ public class CachedProblemSetSourceTests
         // → controller. Two full Starts, one parse.
         var parses = new ParseCounter();
         var folder = FolderOver(Unparseable("a.xg"));
-        ProblemSetSourceFactory factory = (filters, ranking, _) => TestFixtures.Composed(
+        ProblemSetSourceFactory factory = (filters, ranking) => TestFixtures.Composed(
             new CachedProblemSetSource(folder, filters, ranking, parses, TimeProvider.System));
         var controller = new QuizController(factory, new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
-        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
-        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.DepthFirst);
+        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
+        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.DepthFirst, ProblemOrder.AsRead);
 
         // The second Start runs under the other ranking and still reuses the
         // parse: the cache holds records, which depend on no ranking.

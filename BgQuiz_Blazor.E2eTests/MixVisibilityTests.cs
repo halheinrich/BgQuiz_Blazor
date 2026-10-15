@@ -61,7 +61,7 @@ public sealed class MixVisibilityTests : FsAccessFakeTestBase
 
         // The setup surface really did disclose, so the absence below is the
         // mix's specifically and not a pick that failed.
-        await Expect(Page.Locator("#shuffleOrder")).ToBeVisibleAsync();
+        await Expect(Page.Locator("#problemOrder")).ToBeVisibleAsync();
         await Expect(MixPanel).ToHaveCountAsync(0);
         await Expect(Page.Locator(".mix-row")).ToHaveCountAsync(0);
         // And no residue of the control the ruling deleted.
@@ -90,7 +90,7 @@ public sealed class MixVisibilityTests : FsAccessFakeTestBase
         await TurnOnTheWeightedMixSettingAsync();
         await PickFakeFolderAsync();
 
-        await Expect(Page.Locator("#shuffleOrder")).ToBeVisibleAsync();
+        await Expect(Page.Locator("#problemOrder")).ToBeVisibleAsync();
         await Expect(MixPanel).ToHaveCountAsync(0);
 
         // The setting really is on — the page just has nothing to weight by.

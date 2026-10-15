@@ -91,11 +91,6 @@ builder.Services.AddScoped<MatchCount>();
 // adapter *reference* changes, so the instance must be stable per app.
 builder.Services.AddScoped<PickedFolderDocumentStorage>();
 
-// Per-app holder for the "Shuffle order" toggle — a presentation-only choice,
-// deliberately separate from the filter setup and its FilterConfig. Scoped for
-// the same navigate-back-survival reason as the other start-gate holders.
-builder.Services.AddScoped<ShuffleOption>();
-
 // The stats-weighted mix, as two sibling per-app services with one lifetime:
 // the visible derivation (MixVisibility — the setting is on AND the picked
 // folder holds stats, SPEC-filtering.md §5's "Visible means in effect") and
@@ -156,19 +151,19 @@ builder.Services.AddScoped<NotesPlacementStore>();
 // completion. See QuizLiveMarker for why the store is sessionStorage.
 builder.Services.AddScoped<QuizLiveMarker>();
 
-// Source factory: the layer stack the running quiz draws through — parse-once
-// cache over the pick, position dedupe, then a conditional shuffle. Which
-// layers, in which order, and why lives with PickedFolderSourceFactory,
-// deliberately: the composition is the app's most wiring-sensitive code, so it
-// sits in a named type the tests can call rather than in a lambda they could
-// only re-type by hand. This registration's whole job is to resolve the
-// app-scoped ingredients and hand them over; every one of them is read live at
-// invocation (QuizController.StartAsync), not here — so a pick or a shuffle
-// toggle made before Start takes effect on that Start.
+// Source factory: the pool the running quiz draws through — parse-once cache
+// over the held sample, then position dedupe. The run's order and mix are
+// applied above it, by the controller, for every run. Which layers, in which
+// order, and why lives with PickedFolderSourceFactory, deliberately: the
+// composition is the app's most wiring-sensitive code, so it sits in a named
+// type the tests can call rather than in a lambda they could only re-type by
+// hand. This registration's whole job is to resolve the app-scoped
+// ingredients and hand them over; the holder is read live at invocation (a
+// Start, a Restart or a count), not here — so a pick or a resample made before
+// it takes effect on it.
 builder.Services.AddScoped<ProblemSetSourceFactory>(sp =>
     PickedFolderSourceFactory.Create(
         sp.GetRequiredService<PickedProblemFolder>(),
-        sp.GetRequiredService<ShuffleOption>(),
         sp.GetRequiredService<ILoggerFactory>(),
         sp.GetRequiredService<TimeProvider>()));
 

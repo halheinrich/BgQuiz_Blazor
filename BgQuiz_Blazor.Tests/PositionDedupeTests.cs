@@ -85,10 +85,8 @@ public class PositionDedupeTests
         return picked;
     }
 
-    private static ProblemSetSourceFactory FactoryOver(
-        PickedProblemFolder picked, ShuffleOption shuffle) =>
-        PickedFolderSourceFactory.Create(
-            picked, shuffle, NullLoggerFactory.Instance, TimeProvider.System);
+    private static ProblemSetSourceFactory FactoryOver(PickedProblemFolder picked) =>
+        PickedFolderSourceFactory.Create(picked, NullLoggerFactory.Instance, TimeProvider.System);
 
     /// <summary>
     /// What the composition's innermost layer yields — the undeduped, filtered
@@ -130,11 +128,11 @@ public class PositionDedupeTests
             "test can no longer observe the halheinrich/backgammon#84 duplication it exists to pin.");
 
         var controller = new QuizController(
-            FactoryOver(picked, new ShuffleOption()),
+            FactoryOver(picked),
             new FakeProblemStatsSink(),
             TimeProvider.System, NullLogger<QuizController>.Instance);
 
-        Assert.Equal(QuizStartOutcome.Started, await controller.StartAsync(EarlyMoves, QuizMix.Empty, PlayRanking.Equity));
+        Assert.Equal(QuizStartOutcome.Started, await controller.StartAsync(EarlyMoves, QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead));
 
         // Drain the whole quiz through the surface a user drives — no cap, so
         // "what the quiz serves" is the entire deduped pool. Skipping is the
@@ -152,32 +150,40 @@ public class PositionDedupeTests
     }
 
     // -----------------------------------------------------------------------
-    //  The passthrough path — the mechanism was mix-independent, so the fix is
+    //  Every order — the mechanism was mix- and order-independent, so the fix is
     // -----------------------------------------------------------------------
 
+    public static TheoryData<ProblemOrder> EveryOrder() => [.. Enum.GetValues<ProblemOrder>()];
+
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task BlankMixQuiz_OverTwoNamedCopies_DrawsNoPositionTwice(bool shuffled)
+    [MemberData(nameof(EveryOrder))]
+    public async Task BlankMixQuiz_InEveryOrder_OverTwoNamedCopies_ServesNoPositionTwice(ProblemOrder order)
     {
-        // A blank mix wires no composition layer at all, so what the factory
-        // returns *is* the quiz's stream — plain or shuffled. Dedupe sits
-        // beneath both, which is the point: one rule for every quiz mode.
+        // The order is applied above the pool, by the composer every run is
+        // wired with, so every order draws from the factory's already
+        // position-distinct supply: one rule for every quiz mode.
         var picked = HolderOverTwoCopies();
-        var shuffle = new ShuffleOption();
-        if (shuffled) shuffle.Set(true);
 
         var undeduped = await UndedupedAsync(picked, new FilterConfig());
         Assert.True(
             undeduped.Count > undeduped.Select(d => d.Xgid).Distinct(StringComparer.Ordinal).Count(),
             "Premise broken: the two copies no longer yield content-equal decisions.");
 
-        var factory = FactoryOver(picked, shuffle);
-        var drawn = await CollectAsync(factory(new FilterConfig().Build(), PlayRanking.Equity, QuizMix.Empty).Source);
+        var controller = new QuizController(
+            FactoryOver(picked), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+        Assert.Equal(QuizStartOutcome.Started,
+            await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, order));
 
-        Assert.NotEmpty(drawn);
-        var xgids = drawn.Select(d => d.Xgid).ToList();
-        Assert.Equal(xgids.Count, xgids.Distinct(StringComparer.Ordinal).Count());
+        var served = new List<string>();
+        while (!controller.IsFinished)
+        {
+            served.Add(controller.Current!.Xgid);
+            await controller.NextAsync();
+            Assert.True(served.Count <= undeduped.Count, "The quiz served more problems than the pool holds.");
+        }
+
+        Assert.NotEmpty(served);
+        Assert.Equal(served.Count, served.Distinct(StringComparer.Ordinal).Count());
     }
 
     // -----------------------------------------------------------------------
@@ -206,8 +212,8 @@ public class PositionDedupeTests
         // copy read and write the same record, so that seam is deleted rather
         // than satisfied here (SPEC-stats-identity.md §4) and nothing about the
         // lifetime record can move this outcome.
-        var factory = FactoryOver(picked, new ShuffleOption());
-        var drawn = await CollectAsync(factory(EarlyMoves.Build(), PlayRanking.Equity, QuizMix.Empty).Source);
+        var factory = FactoryOver(picked);
+        var drawn = await CollectAsync(factory(EarlyMoves.Build(), PlayRanking.Equity).Source);
         var survivor = Assert.Single(
             drawn, d => string.Equals(d.Xgid, contested.Key, StringComparison.Ordinal));
         Assert.Equal(FirstCopyName, survivor.Id.Filename);
@@ -217,21 +223,16 @@ public class PositionDedupeTests
     //  What the stack reports it collapsed
     // -----------------------------------------------------------------------
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task MatchSummary_OverTwoNamedCopies_ReportsWhatCollapsed(bool shuffled)
+    [Fact]
+    public async Task MatchSummary_OverTwoNamedCopies_ReportsWhatCollapsed()
     {
         // Issue halheinrich/backgammon#104. The pre-Start count is a count of
         // distinct positions, so the difference between it and the corpus is a
         // number the user is otherwise left to infer — and infers as a bug. The
-        // magnitude is read back through the real composition, including (the
-        // shuffled case) through the wrapper that sits ABOVE the dedupe layer:
-        // that wrapper is the whole reason the factory hands back a composed
-        // pair rather than a bare source a caller would have to type-test.
+        // magnitude is read back through the real composition, through the
+        // reader the factory hands back with its stack, never by a caller
+        // type-testing its way down to the dedupe layer.
         var picked = HolderOverTwoCopies();
-        var shuffle = new ShuffleOption();
-        if (shuffled) shuffle.Set(true);
 
         var undeduped = await UndedupedAsync(picked, EarlyMoves);
         Assert.True(
@@ -240,7 +241,7 @@ public class PositionDedupeTests
             "test can no longer observe a collapse to report.");
 
         var controller = new QuizController(
-            FactoryOver(picked, shuffle), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            FactoryOver(picked), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         var summary = await controller.SummarizeMatchesAsync(EarlyMoves, PlayRanking.Equity);
 

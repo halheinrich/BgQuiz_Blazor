@@ -9,8 +9,11 @@ using Microsoft.Extensions.Logging;
 /// <summary>
 /// The per-app (Scoped, one-per-tab in WASM) <b>mix draft</b>: the edit state
 /// of the stats-weighted mix builder — the ordered category rows (kind /
-/// parameter text / percent text), the Random-order toggle, and the optional
-/// quiz length. <c>MixPanel</c> is a view over this service: it renders
+/// parameter text / percent text) and the optional quiz length. The mix
+/// selects and nothing else: how the selection is presented is the run's
+/// Order (<see cref="QuizSettings.Order"/>; <c>SPEC-filtering.md</c> §5), and
+/// the Random-order toggle this draft used to carry is retired with the
+/// producer's schema-1 mix document. <c>MixPanel</c> is a view over this service: it renders
 /// <see cref="Rows"/> and routes every gesture through the mutators here, so
 /// mix edits are deliberately <i>not</i> lost by visiting another page
 /// (ratified product behavior; the draft and everything derived from it share
@@ -37,8 +40,11 @@ using Microsoft.Extensions.Logging;
 /// blank); a mutation that leaves the draft invalid skips the write, so
 /// storage always holds the last well-formed screen state. Ruled consequence:
 /// a reload mid-half-edit restores that last valid mix, not the torn edit.
-/// The wire format is unchanged — one lib-owned <see cref="QuizMix"/> JSON
-/// blob — so mixes stored by earlier builds load with no migration. Writes
+/// The wire format is one lib-owned <see cref="QuizMix"/> JSON blob, so a
+/// mix stored by an earlier build loads with no migration: a schema-1
+/// document's toggle is dropped on read by the producer, and the next write
+/// is schema 2 — a saved mix whose toggle was on runs as read until the user
+/// chooses another Order (§5). Writes
 /// are best-effort: a storage fault must never break editing (the same
 /// degrade posture as hydration's tolerant read).
 /// </para>
@@ -133,9 +139,6 @@ internal sealed class MixDraft(BrowserStorage browser, ILogger<MixDraft> logger,
     /// </para>
     /// </summary>
     public ImmutableArray<Row> Rows => _rows;
-
-    /// <summary>The Random-order toggle; on is the blank builder's default.</summary>
-    public bool RandomOrder { get; private set; } = true;
 
     /// <summary>The optional quiz-length buffer; blank means no cap.</summary>
     public string LengthText { get; private set; } = string.Empty;
@@ -284,7 +287,6 @@ internal sealed class MixDraft(BrowserStorage browser, ILogger<MixDraft> logger,
     private void ClearCore()
     {
         _rows = [];
-        RandomOrder = true;
         LengthText = string.Empty;
     }
 
@@ -352,12 +354,6 @@ internal sealed class MixDraft(BrowserStorage browser, ILogger<MixDraft> logger,
     public Task SetPercentTextAsync(int index, string text)
     {
         _rows[index].PercentText = text;
-        return MutatedAsync();
-    }
-
-    public Task SetRandomOrderAsync(bool value)
-    {
-        RandomOrder = value;
         return MutatedAsync();
     }
 
@@ -607,7 +603,6 @@ internal sealed class MixDraft(BrowserStorage browser, ILogger<MixDraft> logger,
             entry.Category.Kind,
             ParamTextFor(entry.Category),
             entry.Percent.ToString(CultureInfo.InvariantCulture)))];
-        RandomOrder = true;
         LengthText = mix.QuizLength?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
     }
 

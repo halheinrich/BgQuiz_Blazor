@@ -77,8 +77,8 @@ public class MixDraftTests : BunitContext
     }
 
     /// <summary>A one-row never-seen mix, deterministic content — what one Add builds (NeverSeen seeds at 100%).</summary>
-    private static QuizMix NeverSeenMix() =>
-        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null);
+    private static QuizMix NeverSeenMix(int? quizLength = null) =>
+        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength);
 
     // -----------------------------------------------------------------------
     //  Build — the effect derivation's substrate
@@ -113,12 +113,11 @@ public class MixDraftTests : BunitContext
     }
 
     [Fact]
-    public async Task Build_FlushesRowsInOrder_WithToggleAndLength()
+    public async Task Build_FlushesRowsInOrder_WithLength()
     {
         var draft = NewDraft();
         await draft.AddRowAsync(); // NeverSeen, 50 after the second Add
         await draft.AddRowAsync(); // GotWrong
-        await draft.SetRandomOrderAsync(false);
         await draft.SetLengthTextAsync("10");
 
         var built = draft.Build();
@@ -226,6 +225,28 @@ public class MixDraftTests : BunitContext
     //  Hydration lifecycle (once per setup)
     // -----------------------------------------------------------------------
 
+    /// <summary>
+    /// A mix stored before the toggle was retired — schema 1, its Random order
+    /// on, the stored default — still hydrates, with no migration
+    /// (SPEC-filtering.md §5): its rows and length come back and apply, the
+    /// toggle is dropped on read by the producer, and the next edit writes the
+    /// current schema. How it is then presented is the run's Order, as read
+    /// until the user chooses another.
+    /// </summary>
+    [Fact]
+    public async Task EnsureHydrated_ASchemaOneMixWithItsToggleOn_RestoresItsRows_AndTheNextWriteIsCurrent()
+    {
+        StageStored("""{"schemaVersion":1,"randomOrder":true,"quizLength":12,"entries":[{"category":{"kind":"NeverSeen"},"percent":100}]}""");
+        ExpectPersisted(NeverSeenMix(quizLength: 13));
+        var draft = NewDraft();
+
+        await draft.EnsureHydratedAsync();
+
+        Assert.Equal(NeverSeenMix(quizLength: 12), draft.Build());
+        await draft.SetLengthTextAsync("13"); // written back in the current schema
+        Plan.Verify();
+    }
+
     [Fact]
     public async Task EnsureHydrated_LoadsStoredMix_Once()
     {
@@ -243,7 +264,6 @@ public class MixDraftTests : BunitContext
         Assert.Equal(QuizCategoryKind.SeenFewerThan, draft.Rows[1].Kind);
         Assert.Equal("3", draft.Rows[1].ParamText);
         Assert.Equal("25", draft.LengthText);
-        Assert.True(draft.RandomOrder); // schema 2 carries no toggle: it reads at its default
         // Round-trip identity: what hydration shows is exactly what was stored.
         Assert.Equal(stored, draft.Build());
 
@@ -266,7 +286,6 @@ public class MixDraftTests : BunitContext
         await draft.EnsureHydratedAsync();
 
         Assert.Empty(draft.Rows);
-        Assert.True(draft.RandomOrder);
         Assert.Equal(QuizMix.Empty, draft.Build()); // blank hydration is inert
         Plan.Verify();
     }
@@ -290,18 +309,15 @@ public class MixDraftTests : BunitContext
     public async Task Discard_BlanksTheDraft_AndForgetsHydration()
     {
         StageStored(NeverSeenMix().ToJson());
-        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null));
         ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: 7));
         var draft = NewDraft();
         await draft.EnsureHydratedAsync();
-        await draft.SetRandomOrderAsync(false);
         await draft.SetLengthTextAsync("7");
 
         draft.Discard();
 
         // The setup's edits are gone and the blank-builder defaults are back…
         Assert.Empty(draft.Rows);
-        Assert.True(draft.RandomOrder);
         Assert.Equal(string.Empty, draft.LengthText);
         Assert.Equal(QuizMix.Empty, draft.Build());
 
@@ -414,11 +430,11 @@ public class MixDraftTests : BunitContext
         // No latch (halheinrich/backgammon#374): the next valid edit is
         // written all the same, and lands.
         ExpectPersisted(NeverSeenMix(), BrowserStorageWriteAnswer.Refused);
-        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null));
+        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: 7));
         var draft = NewDraft();
 
         await draft.AddRowAsync();
-        await draft.SetRandomOrderAsync(false);
+        await draft.SetLengthTextAsync("7");
 
         AssertRefusalSaid();
         Plan.Verify();
@@ -458,16 +474,15 @@ public class MixDraftTests : BunitContext
         await draft.SetKindAsync(0, QuizCategoryKind.WrongRateOver);
         await draft.SetParamTextAsync(0, "40");
         await draft.SetPercentTextAsync(0, "100");
-        await draft.SetRandomOrderAsync(false);
         await draft.SetLengthTextAsync("5");
         await draft.AddRowAsync();
         await draft.MoveRowAsync(1, -1);
         await draft.RemoveRowAsync(0);
         await draft.ClearAsync();
         draft.Discard();
-        Assert.Equal(11, raised);
+        Assert.Equal(10, raised);
 
         await draft.EnsureHydratedAsync(); // hydration settles → notify too
-        Assert.Equal(12, raised);
+        Assert.Equal(11, raised);
     }
 }

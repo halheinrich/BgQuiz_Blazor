@@ -48,7 +48,7 @@ public class QuizControllerOverlapTests
         sink = new FakeProblemStatsSink();
         var calls = 0;
         factoryCalls = () => calls;
-        return new QuizController((_, _, _) => { calls++; return TestFixtures.Composed(gated); }, sink, TimeProvider.System, NullLogger<QuizController>.Instance);
+        return new QuizController((_, _) => { calls++; return TestFixtures.Composed(gated); }, sink, TimeProvider.System, NullLogger<QuizController>.Instance);
     }
 
     // -----------------------------------------------------------------------
@@ -60,11 +60,11 @@ public class QuizControllerOverlapTests
     {
         var c = MakeGated(out var source, out _, out var factoryCalls, Decision());
 
-        var first = c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity); // suspends at the gated first advance
+        var first = c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead); // suspends at the gated first advance
         Assert.False(first.IsCompleted);
         Assert.True(c.IsBusy);
 
-        var second = await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var second = await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
 
         Assert.Equal(QuizStartOutcome.Busy, second);
 
@@ -81,11 +81,11 @@ public class QuizControllerOverlapTests
     {
         var c = MakeGated(out var source, out _, out var factoryCalls, Decision());
 
-        var first = c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        var first = c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
 
         // No throw either: an overlap is an outcome, not the never-started
         // caller bug — the gate is checked first.
-        Assert.Equal(QuizStartOutcome.Busy, await c.RestartAsync(PlayRanking.Equity));
+        Assert.Equal(QuizStartOutcome.Busy, await c.RestartAsync(PlayRanking.Equity, ProblemOrder.AsRead));
 
         source.ReleaseNext();
         Assert.Equal(QuizStartOutcome.Started, await first);
@@ -97,12 +97,12 @@ public class QuizControllerOverlapTests
     {
         var c = MakeGated(out var source, out _, out var factoryCalls, Decision(), Decision());
         source.ReleaseNext();
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
 
-        var first = c.RestartAsync(PlayRanking.Equity); // suspends at the re-enumeration's gated first advance
+        var first = c.RestartAsync(PlayRanking.Equity, ProblemOrder.AsRead); // suspends at the re-enumeration's gated first advance
         Assert.True(c.IsBusy);
 
-        Assert.Equal(QuizStartOutcome.Busy, await c.RestartAsync(PlayRanking.Equity));
+        Assert.Equal(QuizStartOutcome.Busy, await c.RestartAsync(PlayRanking.Equity, ProblemOrder.AsRead));
 
         source.ReleaseNext();
         Assert.Equal(QuizStartOutcome.Started, await first);
@@ -117,12 +117,12 @@ public class QuizControllerOverlapTests
         // Start disposes the enumerator the pending ▶ is awaiting.
         var c = MakeGated(out var source, out _, out var factoryCalls, Decision(), Decision());
         source.ReleaseNext();
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         await c.SubmitPlayAsync(BestPlay());
 
         var pending = c.NextAsync(); // suspends at the gated advance to the second problem
 
-        Assert.Equal(QuizStartOutcome.Busy, await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity));
+        Assert.Equal(QuizStartOutcome.Busy, await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead));
 
         source.ReleaseNext();
         await pending;
@@ -142,7 +142,7 @@ public class QuizControllerOverlapTests
         // holds; a second ▶ there would overlap the enumerator.
         var c = MakeGated(out var source, out _, out _, Decision(), Decision());
         source.ReleaseNext();
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         await c.SubmitPlayAsync(BestPlay());
 
         var pending = c.NextAsync(); // suspends at the gated advance
@@ -162,7 +162,7 @@ public class QuizControllerOverlapTests
     {
         var c = MakeGated(out var source, out _, out _, Decision(), Decision());
         source.ReleaseNext();
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         await c.SubmitPlayAsync(BestPlay());
 
         var pending = c.NextAsync(); // suspends at the gated advance
@@ -201,7 +201,7 @@ public class QuizControllerOverlapTests
         // moved on from, with a review going up under the advance.
         var c = MakeGated(out var source, out var sink, out _, Decision(), Decision());
         source.ReleaseNext();
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
 
         var pending = c.NextAsync();
         source.WaitForDrawRequest(2);    // moved on, and waiting on the source
@@ -230,7 +230,7 @@ public class QuizControllerOverlapTests
         // PageTests.Quiz_AdvancePending_DrawsTheProblemStillOnScreen_ThenLandsOnTheNext.
         var c = MakeGated(out var source, out _, out _, Decision(), Decision());
         source.ReleaseNext();
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         var skipped = c.Current;
 
         var pending = c.NextAsync();
@@ -258,7 +258,7 @@ public class QuizControllerOverlapTests
         // still false), so the busy gate is the guard that actually holds.
         var c = MakeGated(out var source, out _, out _, Decision(), Decision());
         source.ReleaseNext();
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         await c.SubmitPlayAsync(BestPlay());
 
         var pending = c.NextAsync(); // suspends at the gated advance
@@ -298,7 +298,7 @@ public class QuizControllerOverlapTests
     {
         var c = MakeGated(out var source, out var sink, out var factoryCalls, Decision(), Decision());
         source.ReleaseNext();
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         var problem = c.Current;
 
         var write = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -313,10 +313,10 @@ public class QuizControllerOverlapTests
         {
             case Gesture.Start:
                 Assert.Equal(QuizStartOutcome.Busy,
-                    await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity));
+                    await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead));
                 break;
             case Gesture.Restart:
-                Assert.Equal(QuizStartOutcome.Busy, await c.RestartAsync(PlayRanking.Equity));
+                Assert.Equal(QuizStartOutcome.Busy, await c.RestartAsync(PlayRanking.Equity, ProblemOrder.AsRead));
                 break;
             case Gesture.Next: await c.NextAsync(); break;
             case Gesture.EndQuiz: await c.EndQuizAsync(); break;
@@ -357,7 +357,7 @@ public class QuizControllerOverlapTests
         // is all that keeps it from taking the review down mid-write.
         var c = MakeGated(out var source, out var sink, out _, Decision(), Decision(), Decision());
         source.ReleaseNext(3);
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         await c.NextAsync();
         await c.NextAsync();                        // the first two deferred, the third the frontier
         c.GoBack();                                 // the second, deferred and live
@@ -398,7 +398,7 @@ public class QuizControllerOverlapTests
         // guard and by the gate alike — so it neither re-scores nor writes.
         var c = MakeGated(out var source, out var sink, out _, Decision(), Decision());
         source.ReleaseNext();
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         var write = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         sink.RecordGate = write.Task;
 
@@ -422,7 +422,7 @@ public class QuizControllerOverlapTests
     {
         var c = MakeGated(out var source, out _, out _, Decision(), Decision());
         source.ReleaseNext();
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         Assert.False(c.IsBusy);
 
         source.ReleaseNext();
@@ -438,18 +438,18 @@ public class QuizControllerOverlapTests
         var fake = new FakeProblemSetSource([Decision()]);
         var throwNext = true;
         var c = new QuizController(
-            (_, _, _) => throwNext
+            (_, _) => throwNext
                 ? throw new InvalidOperationException("boom")
                 : TestFixtures.Composed(fake),
             new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity));
+            () => c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead));
 
         Assert.False(c.IsBusy); // released via finally, not wedged
 
         throwNext = false;
-        Assert.Equal(QuizStartOutcome.Started, await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity));
+        Assert.Equal(QuizStartOutcome.Started, await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead));
         Assert.NotNull(c.Current);
     }
 
@@ -459,16 +459,16 @@ public class QuizControllerOverlapTests
         var good = new FakeProblemSetSource([Decision()]);
         var throwNext = true;
         var c = new QuizController(
-            (_, _, _) => TestFixtures.Composed(throwNext ? new ThrowingProblemSetSource() : good),
+            (_, _) => TestFixtures.Composed(throwNext ? new ThrowingProblemSetSource() : good),
             new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity));
+            () => c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead));
 
         Assert.False(c.IsBusy);
 
         throwNext = false;
-        Assert.Equal(QuizStartOutcome.Started, await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity));
+        Assert.Equal(QuizStartOutcome.Started, await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead));
     }
 
     // -----------------------------------------------------------------------
@@ -485,7 +485,7 @@ public class QuizControllerOverlapTests
         c.StateChanged += () => snapshots.Add(c.IsBusy);
 
         source.ReleaseNext();
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
 
         Assert.Equal(new[] { true, false }, snapshots);
     }

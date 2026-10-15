@@ -95,10 +95,9 @@ public class QuizControllerStartAttemptTests
         public Harness()
         {
             Controller = NewController(
-                (filters, _, mix) =>
+                (filters, _) =>
                 {
                     FiltersHanded.Add(filters);
-                    MixesHanded.Add(mix);
                     return TestFixtures.Composed(_lined.Dequeue()());
                 },
                 Sink,
@@ -113,8 +112,6 @@ public class QuizControllerStartAttemptTests
         public FakeProblemStatsSink Sink { get; } = new();
 
         public List<DecisionFilterSet> FiltersHanded { get; } = [];
-
-        public List<QuizMix> MixesHanded { get; } = [];
 
         public QuizController Controller { get; }
 
@@ -164,7 +161,7 @@ public class QuizControllerStartAttemptTests
             if (state == RunState.None) return;
 
             LineUp("A", [A1, A2, A3]);
-            await Controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+            await Controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
             await Controller.SubmitPlayAsync(BestPlay());
             await Controller.NextAsync();
             Assert.Same(A2, Controller.Current);
@@ -176,8 +173,8 @@ public class QuizControllerStartAttemptTests
         public Task<QuizStartOutcome> MakeAsync(Attempt attempt) => attempt switch
         {
             Attempt.Start => Controller.StartAsync(
-                new FilterConfig(), NeverSeenMix(), PlayRanking.DepthFirst, ignoreMix: true),
-            Attempt.Restart => Controller.RestartAsync(PlayRanking.DepthFirst),
+                new FilterConfig(), NeverSeenMix(), PlayRanking.DepthFirst, ProblemOrder.AsRead, ignoreMix: true),
+            Attempt.Restart => Controller.RestartAsync(PlayRanking.DepthFirst, ProblemOrder.AsRead),
             _ => throw new ArgumentOutOfRangeException(nameof(attempt), attempt, null),
         };
     }
@@ -259,15 +256,15 @@ public class QuizControllerStartAttemptTests
         if (state == RunState.None)
         {
             var neverStarted = await Assert.ThrowsAsync<InvalidOperationException>(
-                () => h.Controller.RestartAsync(PlayRanking.Equity));
+                () => h.Controller.RestartAsync(PlayRanking.Equity, ProblemOrder.AsRead));
             Assert.Contains("requires a prior successful StartAsync", neverStarted.Message);
             return;
         }
 
         h.LineUp("A-again", [A1, A2, A3]);
-        Assert.Equal(QuizStartOutcome.Started, await h.Controller.RestartAsync(PlayRanking.Equity));
+        Assert.Equal(QuizStartOutcome.Started, await h.Controller.RestartAsync(PlayRanking.Equity, ProblemOrder.AsRead));
         Assert.Same(h.FiltersHanded[0], h.FiltersHanded[^1]);
-        Assert.Same(QuizMix.Empty, h.MixesHanded[^1]);
+        Assert.Null(h.Controller.LastComposition); // the blank mix replayed: it composes nothing
         Assert.Same(A1, h.Controller.Current);
     }
 
@@ -355,9 +352,9 @@ public class QuizControllerStartAttemptTests
         // Restart replays the run's own filters and mix — the blank mix, which
         // is not refused, where the faulted Start's weighted one would have been.
         h.LineUp("A-again", [A1, A2, A3]);
-        Assert.Equal(QuizStartOutcome.Started, await c.RestartAsync(PlayRanking.Equity));
+        Assert.Equal(QuizStartOutcome.Started, await c.RestartAsync(PlayRanking.Equity, ProblemOrder.AsRead));
         Assert.Same(h.FiltersHanded[0], h.FiltersHanded[^1]);
-        Assert.Same(QuizMix.Empty, h.MixesHanded[^1]);
+        Assert.Null(c.LastComposition); // the blank mix replayed: it composes nothing
         Assert.Same(A1, c.Current);
     }
 
@@ -378,7 +375,7 @@ public class QuizControllerStartAttemptTests
         Assert.Equal(summary, (c.Score, c.SkippedCount, c.PresentedCount, c.Name));
 
         h.LineUp("A-again", [A1, A2, A3]);
-        Assert.Equal(QuizStartOutcome.Started, await c.RestartAsync(PlayRanking.Equity));
+        Assert.Equal(QuizStartOutcome.Started, await c.RestartAsync(PlayRanking.Equity, ProblemOrder.AsRead));
         Assert.Same(A1, c.Current);
         Assert.Same(h.FiltersHanded[0], h.FiltersHanded[^1]);
     }
@@ -443,9 +440,8 @@ public class QuizControllerStartAttemptTests
         // The stored filters and mix are the new run's: a Restart now replays them.
         h.LineUp("B-again", [B1, B2]);
         var newRunsFilters = h.FiltersHanded[^1];
-        var newRunsMix = attempt == Attempt.Start ? NeverSeenMix() : QuizMix.Empty;
         h.Sink.CanWeightMix = false;
-        var replay = await c.RestartAsync(PlayRanking.Equity);
+        var replay = await c.RestartAsync(PlayRanking.Equity, ProblemOrder.AsRead);
         Assert.Same(newRunsFilters, h.FiltersHanded[^1]);
         if (attempt == Attempt.Start)
         {
@@ -457,30 +453,29 @@ public class QuizControllerStartAttemptTests
         else
         {
             Assert.Equal(QuizStartOutcome.Started, replay);
-            Assert.Same(newRunsMix, h.MixesHanded[^1]);
+            Assert.Null(c.LastComposition); // the Restart's blank mix replayed: it composes nothing
         }
     }
 
     [Fact]
     public async Task ACommittedAttempt_OverARunTheSourceFinished_ReleasesItsStreamAtTheSwitch()
     {
-        // A run that finished because its source ran out still holds its
-        // stream open; the switch is what releases it, once.
+        // A source that runs out ends its stream: the producer's composer, which
+        // every run's source is, releases the stream it drew from as its own
+        // enumeration ends. The switch then has nothing left to release, and
+        // releases nothing twice.
         var h = new Harness();
         h.LineUp("A", [A1]);
         var c = h.Controller;
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         await c.NextAsync();
         Assert.True(c.IsFinished);
-        Assert.Equal(0, h.Log.Stream("A/1").ReleaseCount);
-        var atRelease = new List<string?>();
-        h.Log.OnRelease = _ => atRelease.Add(c.Name);
+        Assert.Equal(1, h.Log.Stream("A/1").ReleaseCount);
         h.LineUp("B", [B1]);
 
-        Assert.Equal(QuizStartOutcome.Started, await c.RestartAsync(PlayRanking.Equity));
+        Assert.Equal(QuizStartOutcome.Started, await c.RestartAsync(PlayRanking.Equity, ProblemOrder.AsRead));
 
         Assert.Equal(1, h.Log.Stream("A/1").ReleaseCount);
-        Assert.Equal("B", Assert.Single(atRelease));
     }
 
     [Fact]
@@ -514,7 +509,7 @@ public class QuizControllerStartAttemptTests
         var h = new Harness();
         h.LineUp("A", [A1, A2, A3], releaseFaults: true);
         var c = h.Controller;
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         h.LineUp("B", [B1, B2]);
 
         var outcome = await h.MakeAsync(attempt);
@@ -531,10 +526,24 @@ public class QuizControllerStartAttemptTests
         Assert.Equal(RecordingProblemSetSource.ReleaseFaultMessage, logged.Exception?.Message);
     }
 
+    /// <summary>
+    /// A faulted attempt whose stream also fails its release keeps the current
+    /// run and releases the stream once — and its error is the one the
+    /// composed stack threw. Every run's source is the producer's composer
+    /// (<see cref="MixedProblemSetSource"/>), so a fault in drawing unwinds
+    /// through the composer's own enumeration, which releases the stream it
+    /// drew from on the way out, and C# reports that release's failure in
+    /// place of the draw's. The replacement happens inside the producer,
+    /// before the controller sees anything (reported for coordination with
+    /// the Arc 5 leg); the controller's own release of the attempt's stream,
+    /// already ended, has nothing left to release and adds no failure of its
+    /// own. The release of the controller's that can fail — the replaced
+    /// run's, after the switch — is pinned by the test above.
+    /// </summary>
     [Theory]
     [InlineData(PrepareFault.FirstDraw)]
     [InlineData(PrepareFault.DrawPastAnAutoSkip)]
-    public async Task AFailedReleaseOfWhatAFaultedAttemptOpened_NeverReplacesTheAttemptsError(PrepareFault fault)
+    public async Task AFaultedAttemptWhoseStreamFailsItsRelease_KeepsTheRun_AndReleasesTheStreamOnce(PrepareFault fault)
     {
         var h = new Harness();
         await h.BringRunToAsync(RunState.Active);
@@ -545,16 +554,10 @@ public class QuizControllerStartAttemptTests
 
         var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => h.MakeAsync(Attempt.Start));
 
-        Assert.Equal(RecordingProblemSetSource.FaultMessage, thrown.Message);
+        Assert.Equal(RecordingProblemSetSource.ReleaseFaultMessage, thrown.Message); // the composer's unwinding, as above
         Assert.Equal(1, h.Log.Stream("B/1").ReleaseCount);
         Assert.Equal(before, Observe(h.Controller));
-
-        // The release's own failure is not lost: it is logged, naming the
-        // error that was reported in its place.
-        var logged = Assert.Single(h.Logger.Entries);
-        Assert.Equal(LogLevel.Warning, logged.Level);
-        Assert.Equal(RecordingProblemSetSource.ReleaseFaultMessage, logged.Exception?.Message);
-        Assert.Contains(RecordingProblemSetSource.FaultMessage, logged.Message);
+        Assert.Empty(h.Logger.Entries); // the controller's own release found nothing left to release
     }
 
     // -----------------------------------------------------------------------
@@ -569,12 +572,12 @@ public class QuizControllerStartAttemptTests
         // is no moment at which the current run is one with nothing on screen.
         var gated = new GatedProblemSetSource([B1]);
         var lined = new Queue<IProblemSetSource>();
-        var c = NewController((_, _, _) => TestFixtures.Composed(lined.Dequeue()), new FakeProblemStatsSink());
+        var c = NewController((_, _) => TestFixtures.Composed(lined.Dequeue()), new FakeProblemStatsSink());
         lined.Enqueue(new FakeProblemSetSource([A1, A2]));
-        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         lined.Enqueue(gated);
 
-        var start = c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.DepthFirst);
+        var start = c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.DepthFirst, ProblemOrder.AsRead);
         gated.WaitForDrawRequest(1);
 
         Assert.True(c.IsBusy);

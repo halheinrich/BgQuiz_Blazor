@@ -20,10 +20,11 @@ internal static class SettingsPayload
         bool maximizeBoardWhileAnswering = true,
         bool sortAnalysisByDepthFirst = false,
         string? maximumHiddenCandidateAnalysisLevel = null,
-        bool weightQuizzesByStats = false)
+        bool weightQuizzesByStats = false,
+        string problemOrder = "AsRead")
     {
         static string B(bool value) => value ? "true" : "false";
         var level = maximumHiddenCandidateAnalysisLevel is null ? "null" : $"\"{maximumHiddenCandidateAnalysisLevel}\"";
-        return $$"""{"homeBoardOnRight":{{B(homeBoardOnRight)}},"randomizeSidePerProblem":{{B(randomizeSidePerProblem)}},"keepNavigationPanelFolded":{{B(keepNavigationPanelFolded)}},"maximizeBoardWhileAnswering":{{B(maximizeBoardWhileAnswering)}},"sortAnalysisByDepthFirst":{{B(sortAnalysisByDepthFirst)}},"maximumHiddenCandidateAnalysisLevel":{{level}},"weightQuizzesByStats":{{B(weightQuizzesByStats)}}}""";
+        return $$"""{"homeBoardOnRight":{{B(homeBoardOnRight)}},"randomizeSidePerProblem":{{B(randomizeSidePerProblem)}},"keepNavigationPanelFolded":{{B(keepNavigationPanelFolded)}},"maximizeBoardWhileAnswering":{{B(maximizeBoardWhileAnswering)}},"sortAnalysisByDepthFirst":{{B(sortAnalysisByDepthFirst)}},"maximumHiddenCandidateAnalysisLevel":{{level}},"weightQuizzesByStats":{{B(weightQuizzesByStats)}},"problemOrder":"{{problemOrder}}"}""";
     }
 }

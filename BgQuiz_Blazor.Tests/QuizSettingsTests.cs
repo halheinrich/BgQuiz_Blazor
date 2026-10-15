@@ -1,5 +1,6 @@
 using BackgammonDiagram_Lib;
 using BgDataTypes_Lib;
+using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using BgUiPrimitives_Razor;
 using BgUiPrimitives_Razor.TestSupport;
@@ -92,6 +93,7 @@ public class QuizSettingsTests : BunitContext
         Assert.True(settings.MaximizeBoardWhileAnswering);
         Assert.False(settings.SortAnalysisByDepthFirst);
         Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
+        Assert.Equal(ProblemOrder.AsRead, settings.Order); // SPEC-filtering.md §7
     }
 
     [Fact]
@@ -417,8 +419,8 @@ public class QuizSettingsTests : BunitContext
         //
         // Field order is append-only (see ToJson): maximizeBoardWhileAnswering
         // joined at the END, after the fold field, the depth-treatment pair
-        // after it in turn, and weightQuizzesByStats after those — however the
-        // properties are grouped on the C# side. That is what makes this
+        // after it in turn, weightQuizzesByStats after those, and problemOrder
+        // last of all — however the properties are grouped on the C# side. That is what makes this
         // literal's diff read as "fields were added" rather than "the format
         // moved under the applier". The newest field sits AFTER the ceiling
         // even though every other boolean precedes it: append-only beats
@@ -435,7 +437,7 @@ public class QuizSettingsTests : BunitContext
         // exact value, so any other bytes are an undeclared call that fails at
         // the setter.
         ExpectPersisted(
-            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":null,"weightQuizzesByStats":false}""");
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":null,"weightQuizzesByStats":false,"problemOrder":"AsRead"}""");
         var settings = NewSettings();
 
         await settings.SetRandomizeSidePerProblemAsync(true);
@@ -455,7 +457,7 @@ public class QuizSettingsTests : BunitContext
         // insertion into the middle of the ladder is the precedent: it moved
         // every later ordinal and no token.
         ExpectPersisted(
-            """{"homeBoardOnRight":true,"randomizeSidePerProblem":false,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":"XgRollerPlusPlus","weightQuizzesByStats":false}""");
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":false,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":"XgRollerPlusPlus","weightQuizzesByStats":false,"problemOrder":"AsRead"}""");
         var settings = NewSettings();
 
         await settings.SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.XgRollerPlusPlus);
@@ -1066,5 +1068,98 @@ public class QuizSettingsTests : BunitContext
         Assert.False(settings.SortAnalysisByDepthFirst);   // default — "true" is a string
         Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel); // default — 4 is not a token
         Assert.True(settings.KeepNavigationPanelFolded);   // the readable one survives
+    }
+
+    // -----------------------------------------------------------------------
+    //  The Order (SPEC-filtering.md §7): a remembered choice, as the ranking is
+    // -----------------------------------------------------------------------
+
+    /// <summary>The four orders, offered in the producer's declaration order.</summary>
+    [Fact]
+    public void Orders_AreTheProducersFour_InItsOrder() =>
+        Assert.Equal(Enum.GetValues<ProblemOrder>(), QuizSettings.Orders);
+
+    /// <summary>
+    /// A chosen order is written as its member name — the producer's token,
+    /// through the producer's context — never its label or its ordinal, and
+    /// reads back on the next boot.
+    /// </summary>
+    [Fact]
+    public async Task SetOrder_PersistsTheMemberName_AndTheNextBootReadsItBack()
+    {
+        const string written =
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":false,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":null,"weightQuizzesByStats":false,"problemOrder":"ByErrorLargestFirst"}""";
+        ExpectPersisted(written);
+
+        await NewSettings().SetOrderAsync(ProblemOrder.ByErrorLargestFirst);
+        Plan.Verify();
+
+        StageStored(written);
+        var nextBoot = NewSettings();
+        await nextBoot.EnsureHydratedAsync();
+        Assert.Equal(ProblemOrder.ByErrorLargestFirst, nextBoot.Order);
+    }
+
+    /// <summary>
+    /// A settings document stored before the Order existed still reads: every
+    /// field it holds is restored, and the Order takes its default — no
+    /// migration and no version stamp (SPEC-filtering.md §7).
+    /// </summary>
+    [Fact]
+    public async Task Hydrate_ADocumentStoredBeforeTheOrder_ReadsWithTheOrderAtItsDefault()
+    {
+        StageStored(
+            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false,"sortAnalysisByDepthFirst":true,"maximumHiddenCandidateAnalysisLevel":"Ply4","weightQuizzesByStats":true}""");
+        var settings = NewSettings();
+
+        await settings.EnsureHydratedAsync();
+
+        Assert.Equal(ProblemOrder.AsRead, settings.Order);
+        Assert.False(settings.HomeBoardOnRight);
+        Assert.True(settings.RandomizeSidePerProblem);
+        Assert.True(settings.KeepNavigationPanelFolded);
+        Assert.False(settings.MaximizeBoardWhileAnswering);
+        Assert.True(settings.SortAnalysisByDepthFirst);
+        Assert.Equal(AnalysisLevel.Ply4, settings.MaximumHiddenCandidateAnalysisLevel);
+        Assert.True(settings.WeightQuizzesByStats);
+    }
+
+    /// <summary>
+    /// Anything stored under the Order that the producer's token reader
+    /// refuses — an ordinal, as a string or a number, a label, null, another
+    /// kind of value — reads as the default, as every unusable field here does,
+    /// without costing the user the fields beside it. (The reader is the
+    /// producer's, and it matches a name case-insensitively: BgDataTypes_Lib's
+    /// <c>StrictJsonStringEnumConverter</c> closes the token's kind, not its
+    /// case, so a case variant is not in this list.)
+    /// </summary>
+    [Theory]
+    [InlineData("\"1\"")]
+    [InlineData("\"Shuffled order\"")]
+    [InlineData("\"By error, largest first\"")]
+    [InlineData("2")]
+    [InlineData("null")]
+    [InlineData("true")]
+    public async Task Hydrate_AnUnusableOrder_ReadsAsTheDefault(string stored)
+    {
+        StageStored($$"""{"homeBoardOnRight":false,"problemOrder":{{stored}}}""");
+        var settings = NewSettings();
+
+        await settings.EnsureHydratedAsync();
+
+        Assert.Equal(ProblemOrder.AsRead, settings.Order);
+        Assert.False(settings.HomeBoardOnRight); // the readable field beside it survives
+    }
+
+    [Fact]
+    public async Task SetOrder_AnUndefinedOrder_IsRefused_AndNothingIsWritten()
+    {
+        var settings = NewSettings();
+        _ = Plan; // from here a write would be undeclared, and fail where it was made
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => settings.SetOrderAsync((ProblemOrder)99));
+
+        Assert.Equal(ProblemOrder.AsRead, settings.Order);
+        Plan.Verify();
     }
 }

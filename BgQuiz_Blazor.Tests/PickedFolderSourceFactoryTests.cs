@@ -52,10 +52,8 @@ public class PickedFolderSourceFactoryTests
         return picked;
     }
 
-    private static ProblemSetSourceFactory FactoryOver(
-        PickedProblemFolder picked, ShuffleOption shuffle) =>
-        PickedFolderSourceFactory.Create(
-            picked, shuffle, NullLoggerFactory.Instance, TimeProvider.System);
+    private static ProblemSetSourceFactory FactoryOver(PickedProblemFolder picked) =>
+        PickedFolderSourceFactory.Create(picked, NullLoggerFactory.Instance, TimeProvider.System);
 
     // -----------------------------------------------------------------------
     //  Argument validation
@@ -64,22 +62,17 @@ public class PickedFolderSourceFactoryTests
     [Fact]
     public void Create_NullPicked_Throws() =>
         Assert.Throws<ArgumentNullException>(() => PickedFolderSourceFactory.Create(
-            null!, new ShuffleOption(), NullLoggerFactory.Instance, TimeProvider.System));
-
-    [Fact]
-    public void Create_NullShuffle_Throws() =>
-        Assert.Throws<ArgumentNullException>(() => PickedFolderSourceFactory.Create(
-            new PickedProblemFolder(), null!, NullLoggerFactory.Instance, TimeProvider.System));
+            null!, NullLoggerFactory.Instance, TimeProvider.System));
 
     [Fact]
     public void Create_NullLoggerFactory_Throws() =>
         Assert.Throws<ArgumentNullException>(() => PickedFolderSourceFactory.Create(
-            new PickedProblemFolder(), new ShuffleOption(), null!, TimeProvider.System));
+            new PickedProblemFolder(), null!, TimeProvider.System));
 
     [Fact]
     public void Create_NullClock_Throws() =>
         Assert.Throws<ArgumentNullException>(() => PickedFolderSourceFactory.Create(
-            new PickedProblemFolder(), new ShuffleOption(), NullLoggerFactory.Instance, null!));
+            new PickedProblemFolder(), NullLoggerFactory.Instance, null!));
 
     // -----------------------------------------------------------------------
     //  Factory -> source -> controller wire
@@ -93,10 +86,10 @@ public class PickedFolderSourceFactoryTests
         var files = CorpusFiles();
         if (files.IsEmpty) return; // corpus may be empty in CI
 
-        var factory = FactoryOver(HolderOver(files), new ShuffleOption());
+        var factory = FactoryOver(HolderOver(files));
         var controller = new QuizController(factory, new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
-        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
 
         Assert.True(controller.HasStarted);
         // A real corpus yields at least one non-pass decision; if every decision
@@ -105,71 +98,23 @@ public class PickedFolderSourceFactoryTests
         Assert.True(controller.Current is not null || controller.IsFinished);
     }
 
+    /// <summary>
+    /// The factory's stack is the pool alone: the parse-once layer under the
+    /// position dedupe, and nothing above them. The run's order and its mix
+    /// are applied once, above the pool, by the producer's composer that the
+    /// controller wires for every run (SPEC-filtering.md §5, §7), and the
+    /// pre-Start count reads this same stack unordered — so a layer here that
+    /// ordered or composed would be a second application, and the count would
+    /// sort.
+    /// </summary>
     [Fact]
-    public async Task FactoryShape_ActiveMix_SuppressesShuffleWrap()
+    public void FactoryShape_IsThePoolAlone_NeitherOrderedNorComposed()
     {
-        // Pins the arbitration rule the composition carries: an active mix owns
-        // presentation order (its RandomOrder toggle), so the shuffle decorator
-        // must not wrap under it — a shuffled inner would silently break
-        // RandomOrder:false's source-order determinism. With shuffle ON but a
-        // non-blank mix, the factory hands back the unshuffled stack:
-        // enumeration order equals the shuffle-OFF order.
-        var files = CorpusFiles();
-        if (files.IsEmpty) return;
+        var factory = FactoryOver(HolderOver([TestFixtures.ReadableXg()]));
 
-        var picked = HolderOver(files);
-        var shuffle = new ShuffleOption();
-        var factory = FactoryOver(picked, shuffle);
-        var activeMix = new QuizMix([new QuizMixEntry(QuizCategory.EverythingElse, 100)]);
+        var composed = factory(new DecisionFilterSet(), PlayRanking.Equity);
 
-        // The baseline is the factory's own shuffle-OFF order rather than a bare
-        // parse, so the comparison isolates the shuffle decorator from every
-        // other layer in the stack. It has to be: the stack dedupes positions,
-        // and the corpus repeats early positions across matches, so a raw-parse
-        // baseline would differ here for a reason that has nothing to do with
-        // shuffle arbitration.
-        var plainOrder = await CollectAllAsync(factory(new DecisionFilterSet(), PlayRanking.Equity, QuizMix.Empty));
-        if (plainOrder.Count < 2) return; // suppression unobservable over <2 items
-
-        shuffle.Set(true);
-        var underMixOrder = await CollectAllAsync(factory(new DecisionFilterSet(), PlayRanking.Equity, activeMix));
-
-        Assert.Equal(plainOrder.Select(d => d.Id), underMixOrder.Select(d => d.Id));
-    }
-
-    [Fact]
-    public async Task ShuffleDecorator_Enabled_WrapsSourceAndChangesOrder()
-    {
-        // The one test here that does NOT go through PickedFolderSourceFactory,
-        // deliberately: observing a shuffle deterministically needs
-        // OrderedProblemSetSource's *seeded* ctor, and production uses the
-        // unseeded one on purpose (reproducibility is a test-only concern) — so
-        // pinning the wrap through the real composition could only be done with
-        // a random permutation, i.e. a test that flakes when the shuffle lands
-        // on the identity. The composition's own arbitration rule is pinned
-        // against the real thing by the sibling test above; what this one adds
-        // is that a wrapped source reorders at all.
-        var files = CorpusFiles();
-        if (files.IsEmpty) return;
-
-        var picked = HolderOver(files);
-        var shuffle = new ShuffleOption();
-        ProblemSetSourceFactory seededFactory = (filters, ranking, mix) =>
-        {
-            IProblemSetSource inner = new CachedProblemSetSource(
-                picked, filters, ranking, NullLoggerFactory.Instance, TimeProvider.System);
-            return TestFixtures.Composed(
-                mix.IsPassthrough && shuffle.Enabled ? new OrderedProblemSetSource(inner, ProblemOrder.Shuffled, ranking, seed: 42) : inner);
-        };
-
-        var unshuffledOrder = await CollectAllAsync(seededFactory(new DecisionFilterSet(), PlayRanking.Equity, QuizMix.Empty));
-        if (unshuffledOrder.Count < 2) return; // can't observe a shuffle over <2 items
-
-        shuffle.Set(true);
-        var shuffledOrder = await CollectAllAsync(seededFactory(new DecisionFilterSet(), PlayRanking.Equity, QuizMix.Empty));
-
-        Assert.Equal(unshuffledOrder.Count, shuffledOrder.Count);
-        Assert.NotEqual(unshuffledOrder, shuffledOrder); // order differs (seeded, so deterministic)
+        Assert.IsType<DistinctPositionProblemSetSource>(composed.Source);
     }
 
     // -----------------------------------------------------------------------
@@ -196,10 +141,10 @@ public class PickedFolderSourceFactoryTests
         var picked = HolderOver([new PickedFile("seeded.xg", [1])]);
         picked.StoreParsed(
             picked.PickGeneration, TestFixtures.Parsed(TestFixtures.DepthSplitDecision(recordedPlayIndex: 0)));
-        var factory = FactoryOver(picked, new ShuffleOption());
+        var factory = FactoryOver(picked);
         var erredMoreThanAHundredth = new FilterConfig { ErrorMin = 0.01 }.Build();
 
-        var pool = await CollectAllAsync(factory(erredMoreThanAHundredth, ranking, QuizMix.Empty));
+        var pool = await CollectAllAsync(factory(erredMoreThanAHundredth, ranking));
 
         Assert.Equal(expected, pool.Count);
     }
@@ -214,7 +159,7 @@ public class PickedFolderSourceFactoryTests
 
     private static QuizController ControllerOver(PickedProblemFolder picked, ILoggerFactory? parses = null) =>
         new(PickedFolderSourceFactory.Create(
-                picked, new ShuffleOption(), parses ?? NullLoggerFactory.Instance, TimeProvider.System),
+                picked, parses ?? NullLoggerFactory.Instance, TimeProvider.System),
             new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
     [Fact]
@@ -249,7 +194,7 @@ public class PickedFolderSourceFactoryTests
 
         var first = await controller.SummarizeMatchesAsync(new FilterConfig(), PlayRanking.Equity);
         var second = await controller.SummarizeMatchesAsync(new FilterConfig(), PlayRanking.DepthFirst);
-        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity);
+        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
 
         Assert.Equal(1, parses.CountFor("damaged.xg"));
         Assert.Same(first.Sources, second.Sources);
@@ -282,8 +227,8 @@ public class PickedFolderSourceFactoryTests
         // pairs A's decisions with B's report; B's own parse then leaves A's
         // stack reporting A.
         var picked = HolderOver([TestFixtures.ReadableXg("a.xg"), TestFixtures.DamagedXg("a-damaged.xg")]);
-        var factory = FactoryOver(picked, new ShuffleOption());
-        var staleStack = factory(new DecisionFilterSet(), PlayRanking.Equity, QuizMix.Empty);
+        var factory = FactoryOver(picked);
+        var staleStack = factory(new DecisionFilterSet(), PlayRanking.Equity);
 
         picked.Set("other", FolderWriteCapability.BrowserUnsupported, TestFixtures.Sample([TestFixtures.DamagedXg("b-damaged.xg")]));
 

@@ -15,10 +15,10 @@ using XgFilter_Lib;
 /// of every stack (<see cref="PickedFolderSourceFactory"/>), so the number on
 /// screen is already deduplicated. Saying so on screen needs the collapse
 /// magnitude, and the magnitude is telemetry of the enumeration the caller has
-/// just run. Returning a bare <see cref="IProblemSetSource"/> hides it: the
-/// dedupe layer may be wrapped (a passthrough run with shuffle enabled), so
-/// the caller cannot reach it without type-testing through the wrapper — which
-/// is exactly the fragility this type removes.
+/// just run. Returning a bare <see cref="IProblemSetSource"/> hides it: which
+/// layer of the stack holds it is the composition's to know, and a caller
+/// that had to find it would type-test its way down the stack — which is
+/// exactly the fragility this type removes.
 /// </para>
 ///
 /// <para>

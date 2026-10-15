@@ -32,7 +32,7 @@ public sealed class MixWeightingTests : FsAccessFakeTestBase
         // Positive precondition first: the setup surface really did disclose, so
         // the absences below are the mix's specifically and not a pick that
         // silently failed.
-        await Expect(Page.Locator("#shuffleOrder")).ToBeVisibleAsync();
+        await Expect(Page.Locator("#problemOrder")).ToBeVisibleAsync();
         await Expect(Page.GetByText("Weighted mix")).ToHaveCountAsync(0);
         await Expect(Page.Locator("#mixApplies")).ToHaveCountAsync(0);
         await Expect(Page.Locator("#mixClear")).ToHaveCountAsync(0);
