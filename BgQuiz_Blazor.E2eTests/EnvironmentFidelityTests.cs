@@ -213,6 +213,35 @@ public sealed class EnvironmentFidelityTests : E2eTestBase
     }
 
     /// <summary>
+    /// A pick and a resample through the folder module the artifact ships
+    /// (halheinrich/backgammon#403): the draw over a folder the limits
+    /// truncate, its buffered reads, and a fallback pick's redraw of the files
+    /// it retained — producer code no unit test runs, since it is the
+    /// browser's. The same claim as the routes above, made of the gestures
+    /// that pull that code in: everything asked for arrives, and nothing is
+    /// logged. The truncation notice, dismissed before the resample, showing
+    /// again is the page's own word that a new sample landed — its pick-time
+    /// notices are the sample's, and a new sample shows them fresh.
+    /// </summary>
+    [Fact]
+    public async Task APickAndAResample_ServeEverythingTheyAskFor_AndLogNothing()
+    {
+        var load = new ColdLoadLog(Page);
+
+        await BootHomeAsync();
+        await PickOverLimitFolderAsync();
+        await ExpectFilterInEffectAsync();
+        await TruncationNotice.ClickAsync(); // the whole box dismisses it
+        await Expect(TruncationNotice).ToHaveCountAsync(0);
+        await ResampleButton.ClickAsync();
+        await Expect(TruncationNotice).ToBeVisibleAsync();
+        await StartQuizAsync();
+        await Expect(HitOverlaySvg).ToBeVisibleAsync();
+
+        load.AssertClean("/quiz (through an over-limit pick → Resample → start)");
+    }
+
+    /// <summary>
     /// The three stylesheets the shell links, each read back at a value only that
     /// stylesheet produces. One scenario, on a cold <c>/</c>, because the three
     /// facts fail together as often as they fail apart — they are one claim: the

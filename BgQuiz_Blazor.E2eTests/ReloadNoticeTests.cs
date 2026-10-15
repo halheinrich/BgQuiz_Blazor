@@ -9,7 +9,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <c>sessionStorage</c> quiz-live marker — lets the next boot say so, once.
 /// These scenarios pin the notice for both ways a quiz becomes live: a fresh
 /// Start, and Done's Restart (the one-click-wide gap a follow-up commit closed;
-/// pinned here forever).
+/// pinned here forever) — and its silence after a quiz a new sample finished,
+/// whose marker went with it.
 /// </summary>
 public sealed class ReloadNoticeTests : E2eTestBase
 {
@@ -58,5 +59,32 @@ public sealed class ReloadNoticeTests : E2eTestBase
 
         await Page.ReloadAsync();
         await Expect(ReloadNotice).ToBeVisibleAsync();
+    }
+
+    /// <summary>
+    /// A resample made mid-quiz ends the quiz, and the live-quiz marker is
+    /// cleared where it finishes (<c>SPEC-quiz-history.md</c> §9), so a reload
+    /// after it has no live quiz to report lost. The re-pick round trip is
+    /// the ordering guard for the negative assertion, as in the first
+    /// scenario.
+    /// </summary>
+    [Fact]
+    public async Task ResampleMidQuiz_ThenReload_ReportsNoQuizLost()
+    {
+        await BootHomeAsync();
+        await PickOverLimitFolderAsync();
+        await ExpectFilterInEffectAsync();
+        await StartQuizAsync();
+        await Expect(CubePill(ExpectedText.NoDoublePill)).ToBeVisibleAsync();
+
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HomeNavLink }).ClickAsync();
+        await ExpectUrlAsync(AppRoute.Home);
+        await ResampleButton.ClickAsync();
+        await Expect(EndedByNewSampleLine).ToBeVisibleAsync();
+
+        await Page.ReloadAsync();
+        await Expect(PickFolderButton).ToBeVisibleAsync();
+        await PickFixtureAsync(CheckerFixture);
+        await Expect(ReloadNotice).ToHaveCountAsync(0);
     }
 }

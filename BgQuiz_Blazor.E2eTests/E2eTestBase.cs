@@ -269,6 +269,36 @@ public abstract class E2eTestBase : IAsyncLifetime
         Page.GetByText(ExpectedText.QuizResetByReload);
 
     /// <summary>
+    /// Home's Resample control, beside the held folder while another draw of
+    /// it could hold different files (<c>SPEC-filtering.md</c> §4, "The
+    /// sample, the limits and Resample").
+    /// </summary>
+    protected ILocator ResampleButton => Page.Locator("#resampleProblemFolder");
+
+    /// <summary>
+    /// Home's truncation notice: how many files of each kind the limits left
+    /// unread in the sample held. Shown afresh for every new sample.
+    /// </summary>
+    protected ILocator TruncationNotice => Page.Locator("#truncationNotice");
+
+    /// <summary>
+    /// Home's line saying a new sample finished the quiz in progress, with
+    /// its link to the summary (<c>SPEC-quiz-history.md</c> §9, "Home after it").
+    /// </summary>
+    protected ILocator EndedByNewSampleLine => Page.Locator("#quizEndedByNewSampleNotice");
+
+    /// <summary>
+    /// The position-file limit the pick enforces —
+    /// <c>PickedFileLimits.MaxXgpFileCount</c>, restated, because this suite
+    /// takes no reference to the app (see the project file). One more file
+    /// than this is the smallest folder the limits truncate. Position files
+    /// rather than match files, because the match-file limit is the one a
+    /// measurement sets (halheinrich/backgammon#403), and a scenario keyed to
+    /// it would move with every remeasure.
+    /// </summary>
+    protected const int PositionFileLimit = 2000;
+
+    /// <summary>
     /// The board diagram's transparent hit-region overlay — the absolutely
     /// positioned <c>&lt;svg&gt;</c> that carries the <c>viewBox</c> and one
     /// <c>&lt;rect&gt;</c> per clickable region. This is the wire surface the
@@ -644,7 +674,20 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// </para>
     /// </summary>
     /// <param name="fixtureFileNames">The committed fixtures to stage, in the order the app is to receive them.</param>
-    protected async Task PickFixturesInOrderAsync(params string[] fixtureFileNames)
+    protected Task PickFixturesInOrderAsync(params string[] fixtureFileNames) =>
+        PickFilesInOrderAsync(
+            "mixed", [.. fixtureFileNames.Select(name => (name, FixtureBytes(name)))]);
+
+    /// <summary>
+    /// <see cref="PickFixturesInOrderAsync"/> for files given by name and
+    /// content — committed fixtures' bytes and synthesized ones alike — in
+    /// <b>exactly the order given</b>: the same reordering of the fallback
+    /// input's <c>files</c>, then the same staging.
+    /// </summary>
+    /// <param name="folderName">The staged folder's name.</param>
+    /// <param name="files">Each file's staged name and content, in the order the app is to receive them.</param>
+    protected async Task PickFilesInOrderAsync(
+        string folderName, params (string StagedFileName, byte[] Bytes)[] files)
     {
         await FallbackFolderInput.EvaluateAsync("""
             (input, order) => {
@@ -662,8 +705,8 @@ public abstract class E2eTestBase : IAsyncLifetime
                 set(value) { own.set.call(this, value); },
               });
             }
-            """, fixtureFileNames);
-        await PickFixturesAsync(fixtureFileNames);
+            """, files.Select(file => file.StagedFileName).ToArray());
+        await StageAndPickAsync(folderName, files);
     }
 
     /// <summary>
@@ -717,6 +760,28 @@ public abstract class E2eTestBase : IAsyncLifetime
     }
 
     /// <summary>
+    /// Pick a folder holding one more copy of <see cref="CubeFixture"/> than
+    /// the position-file limit admits, each under its own name: the pick draws
+    /// <see cref="PositionFileLimit"/> of them and leaves one unread, so the
+    /// sample it holds is one another draw could change — the folder Resample
+    /// is offered for (<c>SPEC-filtering.md</c> §4). Every copy is the one
+    /// position, so the quiz over it is one problem (the app dedupes
+    /// positions): these scenarios are about the sample, not the problems in
+    /// it.
+    /// </summary>
+    protected Task PickOverLimitFolderAsync()
+    {
+        string stem = Path.GetFileNameWithoutExtension(CubeFixture);
+        string extension = Path.GetExtension(CubeFixture);
+        byte[] bytes = FixtureBytes(CubeFixture);
+        var staged = Enumerable.Range(0, PositionFileLimit + 1)
+            .Select(i => (DestName: $"{stem} {i:D4}{extension}", Bytes: bytes))
+            .ToList();
+
+        return StageAndPickAsync("over-limit", staged, heldFiles: PositionFileLimit);
+    }
+
+    /// <summary>
     /// Pick a folder holding <paramref name="copies"/> copies of one fixture —
     /// the original plus numbered duplicates, the shape a re-downloaded match
     /// takes in a real problem folder. Every copy is content-identical, so the
@@ -762,8 +827,14 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// instead of two.
     /// </para>
     /// </summary>
+    /// <param name="dirName">The staged folder's name.</param>
+    /// <param name="files">Each file's staged name and content.</param>
+    /// <param name="heldFiles">
+    /// How many of them the pick holds — every one unless the limits truncate
+    /// the folder — which is the count the summary states.
+    /// </param>
     private async Task StageAndPickAsync(
-        string dirName, IReadOnlyList<(string DestName, byte[] Bytes)> files)
+        string dirName, IReadOnlyList<(string DestName, byte[] Bytes)> files, int? heldFiles = null)
     {
         string stagedDir = Path.Combine(
             Path.GetTempPath(), "bgquiz-e2e", $"{dirName}-{Guid.NewGuid():N}", dirName);
@@ -774,7 +845,7 @@ public abstract class E2eTestBase : IAsyncLifetime
             File.WriteAllBytes(Path.Combine(stagedDir, destName), bytes);
 
         await FallbackFolderInput.SetInputFilesAsync(stagedDir);
-        await Expect(Page.GetByText(ExpectedText.ProblemFiles(files.Count)))
+        await Expect(Page.GetByText(ExpectedText.ProblemFiles(heldFiles ?? files.Count)))
             .ToBeVisibleAsync();
     }
 

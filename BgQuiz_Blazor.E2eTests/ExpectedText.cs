@@ -100,6 +100,22 @@ internal static class ExpectedText
     internal const string StartQuizButton = "Start Quiz";
 
     /// <summary>
+    /// Home's line after a new sample finished the quiz in progress — the
+    /// phrase it says that in (<c>Home.razor</c>; <c>SPEC-quiz-history.md</c>
+    /// §9, "Home after it").
+    /// </summary>
+    internal const string QuizFinishedByNewFiles = "finished the quiz you had in progress";
+
+    /// <summary>Done's Restart (<c>Done.razor</c>).</summary>
+    internal const string RestartWithSameFiltersButton = "Restart with same filters";
+
+    /// <summary>
+    /// The truncation notice's account of the one file a folder one over the
+    /// limit leaves unread (<c>Home.razor</c>).
+    /// </summary>
+    internal const string OneFileNotRead = "1 more was not read";
+
+    /// <summary>
     /// Home's <b>Clear</b> affordance beside the pick summary, which ends the
     /// current setup (<c>Home.razor</c>). Not the filter panel's "Clear
     /// filters", which is on screen at the same time — pin it with
