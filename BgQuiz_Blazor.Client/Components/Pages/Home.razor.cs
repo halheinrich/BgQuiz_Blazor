@@ -120,7 +120,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <see cref="QuizController"/>, whose source factory builds a
 /// <see cref="WasmUploadedProblemSetSource"/> over the picked files, and the
 /// app navigates to <c>/quiz</c>. A pick's failures — the two the folder seam
-/// raises about the folder chosen (<see cref="IsFolderReadFailure"/>) — and
+/// raises about the folder chosen (<see cref="IsAcquisitionFailure"/>) — and
 /// <see cref="FilterConfig.Build"/> / source-construction failures are caught
 /// and surfaced as banners rather than faulting the WebAssembly app. The two
 /// non-failure pick outcomes — a pick that ended holding no folder, and one that
@@ -279,7 +279,7 @@ public partial class Home : ComponentBase, IDisposable
     /// <summary>
     /// Sibling of <see cref="_startError"/> for pick failures — a browser
     /// failure, or a file past the <see cref="PickedFileLimits.MaxFileBytes"/>
-    /// cap (<see cref="IsFolderReadFailure"/>). A per-visit failure notice
+    /// cap (<see cref="IsAcquisitionFailure"/>). A per-visit failure notice
     /// (assertive), like the start error, and
     /// the notice's whole state: dismissing it clears this field, and the next
     /// failure assigns it again and shows fresh.
@@ -955,7 +955,7 @@ public partial class Home : ComponentBase, IDisposable
     ///
     /// <para>
     /// <b>Only the folder's failures are caught</b>
-    /// (<see cref="IsFolderReadFailure"/>), and a caught one releases the
+    /// (<see cref="IsAcquisitionFailure"/>), and a caught one releases the
     /// folder the module bound for this pick (<see cref="ReleaseFailedPickAsync"/>).
     /// </para>
     /// </summary>
@@ -963,14 +963,30 @@ public partial class Home : ComponentBase, IDisposable
     {
         try
         {
-            await EndCurrentSetupAsync();
-
-            // The authoritative mechanism fork, re-probed per gesture. No
-            // guidance state is toggled here: the prompt note is back on screen
-            // (the reset above cleared the folder that was hiding it) and hides
-            // itself again once this pick leaves a folder held.
-            if (await FolderAccess.SupportsDirectoryPickerAsync())
+            // Acquisition, and only acquisition, is inside the catch: every
+            // call here is the folder seam's (the reset's one fallible step is
+            // its picked-slot release), so a failure here is the folder's.
+            FolderPickOutcome outcome;
+            try
             {
+                await EndCurrentSetupAsync();
+
+                // The authoritative mechanism fork, re-probed per gesture. No
+                // guidance state is toggled here: the prompt note is back on screen
+                // (the reset above cleared the folder that was hiding it) and hides
+                // itself again once this pick leaves a folder held.
+                if (!await FolderAccess.SupportsDirectoryPickerAsync())
+                {
+                    // Nothing to be busy for yet: this only opens the hidden input's
+                    // picker and returns. The fallback's work — and its busy state —
+                    // begins when the browser reports a selection, in
+                    // HandleFallbackPickedAsync. (Raising it here would have no
+                    // reliable end: a dismissed fallback picker's cancel event is
+                    // best-effort, so the page could be left disabled forever.)
+                    await FolderAccess.TriggerFallbackPickerAsync(_fallbackInput);
+                    return;
+                }
+
                 // EnterBusyAsync is handed *in*, not called here: the pick's
                 // browser prompts must not run under a busy state (they are the
                 // user's turn, not the app's), and the scan that follows them
@@ -982,23 +998,17 @@ public partial class Home : ComponentBase, IDisposable
                 // runs it on its own mount, after this render.) Lowered in the
                 // finally, which covers the cancelled path (no hook fired —
                 // nothing was raised) too.
-                var outcome = await FolderAccess.PickFolderAsync(EnterBusyAsync);
-                await ApplyPickOutcomeAsync(outcome);
+                outcome = await FolderAccess.PickFolderAsync(EnterBusyAsync);
             }
-            else
+            catch (Exception ex) when (IsAcquisitionFailure(ex))
             {
-                // Nothing to be busy for yet: this only opens the hidden input's
-                // picker and returns. The fallback's work — and its busy state —
-                // begins when the browser reports a selection, in
-                // HandleFallbackPickedAsync. (Raising it here would have no
-                // reliable end: a dismissed fallback picker's cancel event is
-                // best-effort, so the page could be left disabled forever.)
-                await FolderAccess.TriggerFallbackPickerAsync(_fallbackInput);
+                await ReleaseFailedPickAsync(ex);
+                return;
             }
-        }
-        catch (Exception ex) when (IsFolderReadFailure(ex))
-        {
-            await ReleaseFailedPickAsync(ex);
+
+            // Landing is not acquisition: a fault from here on is never a
+            // failed pick and never clears the sample it may have installed.
+            await ApplyPickOutcomeAsync(outcome);
         }
         finally
         {
@@ -1015,8 +1025,9 @@ public partial class Home : ComponentBase, IDisposable
     /// <para>
     /// No reset of its own: this is the tail of a gesture
     /// <see cref="PickFolderAsync"/> already ended the setup for. Its failures
-    /// are that gesture's: the folder's are caught and release the collected
-    /// folder (<see cref="ReleaseFailedPickAsync"/>), and nothing else is.
+    /// are that gesture's: the collection's are caught and release the
+    /// collected folder (<see cref="ReleaseFailedPickAsync"/>), and the
+    /// landing is outside that catch.
     /// </para>
     ///
     /// <para>
@@ -1029,34 +1040,42 @@ public partial class Home : ComponentBase, IDisposable
     /// </summary>
     private Task HandleFallbackPickedAsync(ChangeEventArgs _) => RunBusyAsync(async () =>
     {
+        FolderPickOutcome outcome;
         try
         {
-            await ApplyPickOutcomeAsync(await FolderAccess.CollectFallbackAsync(_fallbackInput));
+            outcome = await FolderAccess.CollectFallbackAsync(_fallbackInput);
         }
-        catch (Exception ex) when (IsFolderReadFailure(ex))
+        catch (Exception ex) when (IsAcquisitionFailure(ex))
         {
             await ReleaseFailedPickAsync(ex);
+            return;
         }
+
+        await ApplyPickOutcomeAsync(outcome);
     });
 
     /// <summary>
-    /// Whether <paramref name="failure"/> is one the folder seam raises about
-    /// the folder the user chose, and so one this page reports as a failed
-    /// pick: a drawn file past the byte cap
-    /// (<see cref="PickedFileTooLargeException"/>), or the browser failing the
-    /// walk, a read or anything else (<see cref="JSException"/>) —
-    /// BgFolderAccess_Razor's error contract (<see cref="IFolderAccess"/>).
-    /// The seam's third exception, <see cref="InvalidOperationException"/>,
-    /// is deliberately not one: it means the folder was released under the
-    /// draw — a caller error, a fact about this app and never about the
-    /// folder — so it is not dressed up as a pick the user could retry, and
-    /// surfaces as the bug it is. Neither is anything else.
+    /// Whether <paramref name="failure"/>, raised by the folder seam while a
+    /// sample was being acquired, is reported as a failed acquisition — a
+    /// failed pick or resample. Every exception is, except one: the seam's
+    /// caller error, <see cref="InvalidOperationException"/>, which means the
+    /// folder was released under the draw or none was held — a fact about this
+    /// app and never about the folder — so it is not dressed up as a pick the
+    /// user could retry, and surfaces as the bug it is. The seam documents two
+    /// failures of the folder (<see cref="PickedFileTooLargeException"/>, and
+    /// <see cref="JSException"/> for the browser), but what reaches here from
+    /// across the interop boundary is wider — an
+    /// <see cref="EndOfStreamException"/> from a stream that ends mid-copy, a
+    /// <see cref="System.Text.Json.JsonException"/> from a reply that is not
+    /// the wire shape — and each of them is the folder failing to arrive.
+    /// Only acquisition is ever judged by this: landing is outside every
+    /// catch that asks it.
     /// </summary>
-    private static bool IsFolderReadFailure(Exception failure) =>
-        failure is PickedFileTooLargeException or JSException;
+    private static bool IsAcquisitionFailure(Exception failure) =>
+        failure is not InvalidOperationException;
 
     /// <summary>
-    /// A pick that failed (<see cref="IsFolderReadFailure"/>): report it, and
+    /// A pick that failed (<see cref="IsAcquisitionFailure"/>): report it, and
     /// hold no folder on <i>either</i> side of the folder seam
     /// (halheinrich/backgammon#403). The module binds the chosen folder before
     /// it draws and buffers — a File System Access pick once the prompts
@@ -1071,6 +1090,12 @@ public partial class Home : ComponentBase, IDisposable
     /// A pick's alone. A resample that fails keeps the sample held and the
     /// module's folder with it, so nothing here is shared with that path.
     /// </para>
+    ///
+    /// <para>
+    /// <b>The cleanup never replaces the acquisition's error.</b> Whatever the
+    /// release throws is logged, and the error reported is the one the
+    /// acquisition failed with.
+    /// </para>
     /// </summary>
     private async Task ReleaseFailedPickAsync(Exception failure)
     {
@@ -1080,14 +1105,16 @@ public partial class Home : ComponentBase, IDisposable
         {
             await FolderAccess.ClearPickedAsync();
         }
-        catch (JSException e)
+        catch (Exception cleanupFault)
         {
-            // The pick's failure is already on screen. A release the browser
-            // refuses too leaves the module holding a folder nothing on this
-            // page acts on — no resample and no saved filters without a folder
-            // held here — until the next pick or Clear replaces it; worth a
-            // log line, not a second error box.
-            Logger.LogWarning(e, "Releasing the folder of a failed pick failed.");
+            // The pick's failure is already on screen. A release that fails too
+            // leaves the module holding a folder nothing on this page acts on —
+            // no resample and no saved filters without a folder held here —
+            // until the next pick or Clear replaces it; worth a log line, never
+            // a second error box, and never the error reported.
+            Logger.LogWarning(cleanupFault,
+                "Releasing the folder of a failed pick failed too; the pick's own error is the one reported: {Failure}",
+                failure.Message);
         }
     }
 
@@ -1176,7 +1203,7 @@ public partial class Home : ComponentBase, IDisposable
     /// <para>
     /// <b>Nothing is lost unless something arrives.</b> A failure to acquire
     /// keeps the held sample, its setup and the module's folder alike, and
-    /// reports as a failed pick does (<see cref="IsFolderReadFailure"/>) — so,
+    /// reports as a failed pick does (<see cref="IsAcquisitionFailure"/>) — so,
     /// unlike a pick's failure, it releases nothing
     /// (<see cref="ReleaseFailedPickAsync"/> is a pick's alone). An empty draw
     /// replaces nothing and says so. Neither ends a run in progress: only a
@@ -1195,7 +1222,7 @@ public partial class Home : ComponentBase, IDisposable
         {
             sample = await FolderAccess.ResampleAsync();
         }
-        catch (Exception ex) when (IsFolderReadFailure(ex))
+        catch (Exception ex) when (IsAcquisitionFailure(ex))
         {
             _pickError = ex.Message;
             return;

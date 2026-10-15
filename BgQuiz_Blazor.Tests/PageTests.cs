@@ -14628,4 +14628,200 @@ public class PageTests : BunitContext
         Assert.Same(resampled, built[^1]);
         Assert.Empty(Render<HomePage>().FindAll("#quizEndedByNewSampleNotice"));
     }
+
+    // -----------------------------------------------------------------------
+    //  Acquisition is bounded, and reports every folder failure
+    //  (halheinrich/backgammon#403, the Arc 5 correction)
+    // -----------------------------------------------------------------------
+
+    /// <summary>The gestures that acquire a sample.</summary>
+    public enum Acquisition
+    {
+        PickFileSystemAccess,
+        PickFallback,
+        Resample,
+    }
+
+    /// <summary>A folder failure the narrow catch used to miss, by name.</summary>
+    private static Exception AcquisitionFailure(string kind) => kind switch
+    {
+        "end of stream" => new EndOfStreamException("The interop stream ended mid-copy."),
+        "broken reply" => new JsonException("The module's reply was not the wire shape."),
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+    };
+
+    public static TheoryData<Acquisition, string> AcquisitionFailures() => new()
+    {
+        { Acquisition.PickFileSystemAccess, "end of stream" },
+        { Acquisition.PickFileSystemAccess, "broken reply" },
+        { Acquisition.PickFallback, "end of stream" },
+        { Acquisition.PickFallback, "broken reply" },
+        { Acquisition.Resample, "end of stream" },
+        { Acquisition.Resample, "broken reply" },
+    };
+
+    /// <summary>
+    /// Any exception the folder seam raises while a sample is being acquired
+    /// is a failed acquisition, reported as a failed pick — not only the two
+    /// the seam documents. An <see cref="EndOfStreamException"/> from the
+    /// interop stream mid-copy and a <see cref="JsonException"/> from a broken
+    /// wire reply are the examples; the seam's caller error is the one
+    /// exception (<c>Home_TheFolderSeamsCallerError_IsNotReportedAsAFailedPick</c>).
+    /// A pick that fails holds nothing; a resample that fails keeps its sample.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AcquisitionFailures))]
+    public async Task Home_AnAcquisitionFailingWithAnyFolderError_IsReportedAsAFailedPick(Acquisition how, string kind)
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var failure = AcquisitionFailure(kind);
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        IRenderedComponent<HomePage> cut;
+
+        switch (how)
+        {
+            case Acquisition.PickFileSystemAccess:
+                cut = Render<HomePage>();
+                _folderAccess.NextPickOutcome = OneFileOutcome();
+                _folderAccess.OnScanning = () => throw failure;
+                await cut.Find("#pickProblemFolder").ClickAsync(new());
+                break;
+            case Acquisition.PickFallback:
+                cut = Render<HomePage>();
+                _folderAccess.SupportsDirectoryPicker = false;
+                _folderAccess.NextCollectOutcome = OneFileOutcome("Collected");
+                _folderAccess.CollectScanException = failure;
+                await cut.Find("#pickProblemFolder").ClickAsync(new());
+                await cut.Find("#problemFolderFallback").ChangeAsync(new ChangeEventArgs());
+                break;
+            case Acquisition.Resample:
+                cut = await RenderHomeAndPickAsync(OverLimitOutcome());
+                _folderAccess.ResampleException = failure;
+                await ResampleButton(cut)!.ClickAsync(new());
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(how), how, null);
+        }
+
+        var error = NoticeSaying(cut, "Could not read the folder").ShouldBe(
+            NoticeKind.Error, NoticeAnnouncement.Assertive, dismissible: true, "class");
+        Assert.Contains(failure.Message, Normalize(error.Content.TextContent));
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+        if (how == Acquisition.Resample)
+        {
+            Assert.True(folder.HasFiles); // the sample held stands
+        }
+        else
+        {
+            Assert.False(folder.HasFiles); // a failed pick holds nothing, on either side
+            Assert.Null(_folderAccess.PickedSlot);
+        }
+    }
+
+    public static TheoryData<Acquisition, string> FaultsAfterLanding() => new()
+    {
+        { Acquisition.PickFileSystemAccess, "too large" },
+        { Acquisition.PickFileSystemAccess, "end of stream" },
+        { Acquisition.Resample, "too large" },
+        { Acquisition.Resample, "end of stream" },
+    };
+
+    /// <summary>
+    /// Landing is not acquisition: once the sample is installed, a fault —
+    /// here the landing's stats probe failing in a way it does not degrade
+    /// from — is never reported as a failed pick and never clears the sample
+    /// installed. It surfaces as the bug it is, and the folder operation is
+    /// over all the same: nothing is left locked.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(FaultsAfterLanding))]
+    public async Task Home_AFaultAfterTheSampleLanded_IsNotAFailedAcquisition_AndKeepsTheSample(Acquisition how, string kind)
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var fault = kind == "too large" ? PickFailure("too large") : AcquisitionFailure("end of stream");
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        IRenderedComponent<HomePage> cut;
+        string landed;
+
+        if (how == Acquisition.PickFileSystemAccess)
+        {
+            cut = Render<HomePage>();
+            _folderAccess.NextPickOutcome = OneFileOutcome("Landed", capability: FolderWriteCapability.Enabled);
+            _folderAccess.PickedStatsReadException = fault; // the landing's probe, after the install
+            await cut.Find("#pickProblemFolder").ClickAsync(new());
+            landed = "match.xg";
+        }
+        else
+        {
+            cut = await RenderHomeAndPickAsync(OverLimitOutcome(capability: FolderWriteCapability.Enabled));
+            _folderAccess.PickedStatsReadException = fault;
+            _folderAccess.NextResample = Redrawn("landed.xg");
+            await ResampleButton(cut)!.ClickAsync(new());
+            landed = "landed.xg";
+        }
+
+        Assert.Same(fault, await Renderer.UnhandledException.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.False(ShowsNoticeSaying(cut, "Could not read the folder"));
+        Assert.Equal(landed, Assert.Single(folder.Files).FileName); // the installed sample stands
+        // Nothing left locked: the pick control, which only an operation in
+        // flight disables, is live again. (No bUnit wait here: a wait rethrows
+        // the renderer's unhandled exception, which is this test's premise.)
+        Assert.False(cut.Find("#pickProblemFolder").HasAttribute("disabled"));
+    }
+
+    public static TheoryData<bool, string> CleanupFailures() => new()
+    {
+        { true, "browser" },
+        { true, "end of stream" },
+        { false, "browser" },
+        { false, "end of stream" },
+    };
+
+    /// <summary>
+    /// A failed pick lets go of the folder the module bound for it, and that
+    /// cleanup can fail too: the acquisition's error is still the one
+    /// reported, and the cleanup's is said in the log, never in its place.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(CleanupFailures))]
+    public async Task Home_AFailedPickWhoseCleanupAlsoFails_StillReportsTheAcquisitionsError(
+        bool fileSystemAccess, string cleanupKind)
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var acquisition = new JSException("The browser failed the read.");
+        Exception cleanup = cleanupKind == "browser"
+            ? new JSException("The browser failed the release.")
+            : new EndOfStreamException("The release's reply ended early.");
+        var cut = Render<HomePage>();
+
+        if (fileSystemAccess)
+        {
+            _folderAccess.NextPickOutcome = OneFileOutcome();
+            _folderAccess.OnScanning = () =>
+            {
+                _folderAccess.ClearPickedException = cleanup; // the release after the failure, not the click's
+                throw acquisition;
+            };
+            await cut.Find("#pickProblemFolder").ClickAsync(new());
+        }
+        else
+        {
+            _folderAccess.SupportsDirectoryPicker = false;
+            _folderAccess.NextCollectOutcome = OneFileOutcome("Collected");
+            _folderAccess.OnDrawing = () =>
+            {
+                _folderAccess.ClearPickedException = cleanup;
+                return Task.CompletedTask;
+            };
+            _folderAccess.CollectScanException = acquisition;
+            await cut.Find("#pickProblemFolder").ClickAsync(new());
+            await cut.Find("#problemFolderFallback").ChangeAsync(new ChangeEventArgs());
+        }
+
+        var error = NoticeSaying(cut, "Could not read the folder");
+        Assert.Contains(acquisition.Message, Normalize(error.Content.TextContent));
+        Assert.DoesNotContain(cleanup.Message, Normalize(cut.Markup));
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+        Assert.False(Services.GetRequiredService<PickedProblemFolder>().HasFiles);
+    }
 }

@@ -96,6 +96,27 @@ internal sealed class FakeFolderAccess : IFolderAccess
     /// </summary>
     public Action? OnScanning { get; set; }
 
+    /// <summary>
+    /// Awaited inside <see cref="PickFolderAsync"/> while the browser's
+    /// prompts are up — after <see cref="OnPickCalled"/>, before anything is
+    /// bound — so a test can hold a pick in its prompts and act meanwhile.
+    /// </summary>
+    public Func<Task>? OnPrompts { get; set; }
+
+    /// <summary>
+    /// Awaited while a pick or a fallback collection draws and buffers, after
+    /// the module has bound the folder — after <see cref="OnScanning"/> on the
+    /// File System Access mechanism — so a test can hold an acquisition in
+    /// flight and act meanwhile (<see cref="OnResampling"/> is the resample's).
+    /// </summary>
+    public Func<Task>? OnDrawing { get; set; }
+
+    /// <summary>How many times <see cref="PickFolderAsync"/> was called — each one a picker the browser raised.</summary>
+    public int PickCallCount { get; private set; }
+
+    /// <summary>How many times <see cref="CollectFallbackAsync"/> was called.</summary>
+    public int CollectCallCount { get; private set; }
+
     /// <summary>What <see cref="PromoteToActiveAsync"/> returns (default: an FS-Access handle is active).</summary>
     public bool PromoteResult { get; set; } = true;
 
@@ -274,7 +295,9 @@ internal sealed class FakeFolderAccess : IFolderAccess
     public async Task<FolderPickOutcome> PickFolderAsync(Func<Task> onPickAccepted)
     {
         ArgumentNullException.ThrowIfNull(onPickAccepted);
+        PickCallCount++;
         OnPickCalled?.Invoke();
+        if (OnPrompts is { } prompts) await prompts();
         if (PickException is { } ex) throw ex;
 
         if (!NextPickOutcome.Cancelled)
@@ -282,6 +305,7 @@ internal sealed class FakeFolderAccess : IFolderAccess
             PickedSlot = NextPickOutcome.DirectoryName; // bound before the draw, as the module binds it
             await onPickAccepted();
             OnScanning?.Invoke();
+            if (OnDrawing is { } drawing) await drawing();
         }
 
         return NextPickOutcome;
@@ -293,13 +317,14 @@ internal sealed class FakeFolderAccess : IFolderAccess
         return Task.CompletedTask;
     }
 
-    public Task<FolderPickOutcome> CollectFallbackAsync(ElementReference fallbackInput)
+    public async Task<FolderPickOutcome> CollectFallbackAsync(ElementReference fallbackInput)
     {
-        if (PickException is { } ex) return Task.FromException<FolderPickOutcome>(ex);
+        CollectCallCount++;
+        if (PickException is { } ex) throw ex;
         PickedSlot = NextCollectOutcome.DirectoryName; // a collection binds before its draw, an empty one included
-        return CollectScanException is { } scan
-            ? Task.FromException<FolderPickOutcome>(scan)
-            : Task.FromResult(NextCollectOutcome);
+        if (OnDrawing is { } drawing) await drawing();
+        if (CollectScanException is { } scan) throw scan;
+        return NextCollectOutcome;
     }
 
     /// <summary>What the next <see cref="ResampleAsync"/> returns (default: a draw holding nothing).</summary>
@@ -423,10 +448,22 @@ internal sealed class FakeFolderAccess : IFolderAccess
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// When set, the next <see cref="ClearPickedAsync"/> throws it — once, and
+    /// after the slot is released, as a browser failing the call's reply does —
+    /// then clears itself, so a later release succeeds.
+    /// </summary>
+    public Exception? ClearPickedException { get; set; }
+
     public ValueTask ClearPickedAsync()
     {
         ClearPickedCallCount++;
         PickedSlot = null;
+        if (ClearPickedException is { } ex)
+        {
+            ClearPickedException = null;
+            return ValueTask.FromException(ex);
+        }
         return ValueTask.CompletedTask;
     }
 }
