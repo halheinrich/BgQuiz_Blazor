@@ -3,6 +3,8 @@ using BgFolderAccess_Razor;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.Logging;
+using Microsoft.JSInterop;
 using XgFilter_Lib.Filtering;
 using XgFilter_Razor;
 
@@ -117,7 +119,8 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// panel is visible, the passthrough otherwise — are handed to the
 /// <see cref="QuizController"/>, whose source factory builds a
 /// <see cref="WasmUploadedProblemSetSource"/> over the picked files, and the
-/// app navigates to <c>/quiz</c>. Pick failures and
+/// app navigates to <c>/quiz</c>. A pick's failures — the two the folder seam
+/// raises about the folder chosen (<see cref="IsFolderReadFailure"/>) — and
 /// <see cref="FilterConfig.Build"/> / source-construction failures are caught
 /// and surfaced as banners rather than faulting the WebAssembly app. The two
 /// non-failure pick outcomes — a pick that ended holding no folder, and one that
@@ -134,10 +137,10 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// made them, since nothing after the parse walks the files again. The owner
 /// of each dismissible occurrence holds its dismissal (§2): the holder-backed
 /// pick-band notices —
-/// truncations, stats capability and the retirement forecast, which survive
-/// navigation with the pick they describe — bind to the app-scoped
+/// truncations, stats capability and the forecasts, which survive
+/// navigation with the sample they describe — bind to the app-scoped
 /// <see cref="QuizNoticeDismissal"/> keyed on
-/// <see cref="PickedProblemFolder.PickOccurrence"/>, and the browser-storage
+/// <see cref="PickedProblemFolder.SampleIdentity"/>, and the browser-storage
 /// notice, bound to the same holder keyed on
 /// <see cref="BrowserStorageCondition.Occurrence"/> (issue
 /// <c>halheinrich/backgammon#360</c>: one fact, fed by the hosted filter
@@ -250,9 +253,10 @@ public partial class Home : ComponentBase, IDisposable
     private string? _startError;
 
     /// <summary>
-    /// Sibling of <see cref="_startError"/> for pick failures — an unexpected
-    /// browser error, or a file past the <see cref="PickedFileLimits.MaxFileBytes"/>
-    /// cap. A per-visit failure notice (assertive), like the start error, and
+    /// Sibling of <see cref="_startError"/> for pick failures — a browser
+    /// failure, or a file past the <see cref="PickedFileLimits.MaxFileBytes"/>
+    /// cap (<see cref="IsFolderReadFailure"/>). A per-visit failure notice
+    /// (assertive), like the start error, and
     /// the notice's whole state: dismissing it clears this field, and the next
     /// failure assigns it again and shows fresh.
     /// A folder past the <i>count</i> caps is not a failure: it truncates and
@@ -516,19 +520,21 @@ public partial class Home : ComponentBase, IDisposable
 
     /// <summary>
     /// This page's identity for the corpus a filter can be applied against —
-    /// the pick, named by its generation counter — or <see langword="null"/>
-    /// while no folder with problem files is held. <b>Minted here and nowhere
-    /// else</b>: what this page reports to <see cref="FilterSetup"/>
+    /// the setup held, as its pick's identity spells it
+    /// (<see cref="SetupIdentity.FilterSource"/>) — or <see langword="null"/>
+    /// while no folder with problem files is held. The setup's, not the
+    /// sample's: a resample keeps the filter in effect, and every explicit
+    /// pick, even of the same folder, ends it (<c>SPEC-filtering.md</c> §4).
+    /// What this page reports to <see cref="FilterSetup"/>
     /// (<see cref="ReportFilterSource"/>), what every gate asks the owner's
-    /// snapshot about (<see cref="FilterInEffect"/>) and what the match count
-    /// is keyed by (<see cref="CurrentCountInputs"/>) all read this one
-    /// property, so the report and the reads cannot encode the pick
+    /// snapshot about (<see cref="FilterInEffect"/>) and the selection the
+    /// match count is keyed by (<see cref="CurrentCountInputs"/>) all read this
+    /// one property, so the report and the reads cannot encode the setup
     /// differently. <see langword="null"/> means "no source exists", which is
     /// the only thing the owner may be told it means — never "not yet known":
     /// the holder's state is read synchronously and is always known.
     /// </summary>
-    private FilterSourceToken? FilterSource =>
-        Folder.HasFiles ? FilterSourceToken.FromGeneration(Folder.PickGeneration) : null;
+    private FilterSourceToken? FilterSource => Folder.SetupIdentity?.FilterSource;
 
     /// <summary>
     /// The filter in effect for the pick on screen right now, or
@@ -543,7 +549,7 @@ public partial class Home : ComponentBase, IDisposable
     /// this page adds no empty-filter exception of its own and no "Apply
     /// required" rule. Source-relative by construction, so a config applied
     /// against an earlier pick expires without anyone clearing anything: the
-    /// generation bumps, the owner is told, and the key stops matching. A new
+    /// setup's identity changes, the owner is told, and the key stops matching. A new
     /// instance on every read, so nothing this page does with it reaches the
     /// owner.
     /// </para>
@@ -552,14 +558,14 @@ public partial class Home : ComponentBase, IDisposable
         FilterSource is { } source ? FilterSetup.Current.ConfigInEffectFor(source) : null;
 
     /// <summary>
-    /// What the count holder knows of what is on screen — the pick, the filter
-    /// in effect and the ranking: being counted, counted, or nothing
+    /// What the count holder knows of what is on screen — the setup, the
+    /// sample, the filter in effect and the ranking: being counted, counted, or nothing
     /// (<see cref="MatchCountReading"/>; nothing too when no filter is in
     /// effect). The one read of the count this page makes: the counting line
     /// and the first-parse busy decision take its activity
     /// (<see cref="IsParsingThePick"/>), everything else its result
     /// (<see cref="CurrentMatchSummary"/>). A request for other inputs — left
-    /// running by a Clear, a re-pick or an edit out of effect — is invisible
+    /// running by a Clear, a re-pick, a resample or an edit out of effect — is invisible
     /// here, so it can neither show a result nor make the page busy
     /// (halheinrich/backgammon#374).
     /// </summary>
@@ -607,12 +613,17 @@ public partial class Home : ComponentBase, IDisposable
     /// <summary>
     /// The match count's inputs for what is on screen under
     /// <paramref name="ranking"/>, or <see langword="null"/> when no filter is
-    /// in effect for the pick — the key <see cref="MatchCount"/> holds its
+    /// in effect for the setup — the key <see cref="MatchCount"/> holds its
     /// result under. Read off the owner's current snapshot, which the inputs
-    /// keep, so the key is a stable reading and never a copy of the selection.
+    /// keep, so the key is a stable reading and never a copy of the selection;
+    /// and keyed by the sample held (<see cref="PickedProblemFolder.SampleIdentity"/>)
+    /// as well as the setup, so a resample recounts while the filter in effect
+    /// stands.
     /// </summary>
     private MatchCountInputs? CurrentCountInputs(PlayRanking ranking) =>
-        FilterSource is { } source ? MatchCountInputs.For(FilterSetup.Current, source, ranking) : null;
+        FilterSource is { } source
+            ? MatchCountInputs.For(FilterSetup.Current, source, Folder.SampleIdentity, ranking)
+            : null;
 
     /// <summary>
     /// Five gates, each with its own sibling hint in the markup: a filter in
@@ -907,6 +918,12 @@ public partial class Home : ComponentBase, IDisposable
     /// slot interop, and a browser failure there belongs in the pick-error
     /// banner like every other, never faulting the WebAssembly app.
     /// </para>
+    ///
+    /// <para>
+    /// <b>Only the folder's failures are caught</b>
+    /// (<see cref="IsFolderReadFailure"/>), and a caught one releases the
+    /// folder the module bound for this pick (<see cref="ReleaseFailedPickAsync"/>).
+    /// </para>
     /// </summary>
     private async Task PickFolderAsync()
     {
@@ -945,10 +962,9 @@ public partial class Home : ComponentBase, IDisposable
                 await FolderAccess.TriggerFallbackPickerAsync(_fallbackInput);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsFolderReadFailure(ex))
         {
-            ClearFolder();
-            _pickError = ex.Message;
+            await ReleaseFailedPickAsync(ex);
         }
         finally
         {
@@ -964,7 +980,9 @@ public partial class Home : ComponentBase, IDisposable
     ///
     /// <para>
     /// No reset of its own: this is the tail of a gesture
-    /// <see cref="PickFolderAsync"/> already ended the setup for.
+    /// <see cref="PickFolderAsync"/> already ended the setup for. Its failures
+    /// are that gesture's: the folder's are caught and release the collected
+    /// folder (<see cref="ReleaseFailedPickAsync"/>), and nothing else is.
     /// </para>
     ///
     /// <para>
@@ -981,12 +999,63 @@ public partial class Home : ComponentBase, IDisposable
         {
             await ApplyPickOutcomeAsync(await FolderAccess.CollectFallbackAsync(_fallbackInput));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsFolderReadFailure(ex))
         {
-            ClearFolder();
-            _pickError = ex.Message;
+            await ReleaseFailedPickAsync(ex);
         }
     });
+
+    /// <summary>
+    /// Whether <paramref name="failure"/> is one the folder seam raises about
+    /// the folder the user chose, and so one this page reports as a failed
+    /// pick: a drawn file past the byte cap
+    /// (<see cref="PickedFileTooLargeException"/>), or the browser failing the
+    /// walk, a read or anything else (<see cref="JSException"/>) —
+    /// BgFolderAccess_Razor's error contract (<see cref="IFolderAccess"/>).
+    /// The seam's third exception, <see cref="InvalidOperationException"/>,
+    /// is deliberately not one: it means the folder was released under the
+    /// draw — a caller error, a fact about this app and never about the
+    /// folder — so it is not dressed up as a pick the user could retry, and
+    /// surfaces as the bug it is. Neither is anything else.
+    /// </summary>
+    private static bool IsFolderReadFailure(Exception failure) =>
+        failure is PickedFileTooLargeException or JSException;
+
+    /// <summary>
+    /// A pick that failed (<see cref="IsFolderReadFailure"/>): report it, and
+    /// hold no folder on <i>either</i> side of the folder seam
+    /// (halheinrich/backgammon#403). The module binds the chosen folder before
+    /// it draws and buffers — a File System Access pick once the prompts
+    /// settle, a fallback collection as it collects (<see cref="IFolderAccess"/>'s
+    /// held-folder transitions) — so a pick that fails in the draw or the
+    /// buffering leaves the module holding the folder the pick was for, which
+    /// this page, holding nothing, would never offer to act on or release.
+    /// The release is the picked slot's only: the active slot, a running
+    /// quiz's stats context, is untouched.
+    ///
+    /// <para>
+    /// A pick's alone. A resample that fails keeps the sample held and the
+    /// module's folder with it, so nothing here is shared with that path.
+    /// </para>
+    /// </summary>
+    private async Task ReleaseFailedPickAsync(Exception failure)
+    {
+        ClearFolder();
+        _pickError = failure.Message;
+        try
+        {
+            await FolderAccess.ClearPickedAsync();
+        }
+        catch (JSException e)
+        {
+            // The pick's failure is already on screen. A release the browser
+            // refuses too leaves the module holding a folder nothing on this
+            // page acts on — no resample and no saved filters without a folder
+            // held here — until the next pick or Clear replaces it; worth a
+            // log line, not a second error box.
+            Logger.LogWarning(e, "Releasing the folder of a failed pick failed.");
+        }
+    }
 
     /// <summary>
     /// The hidden <c>webkitdirectory</c> input's dismissal: the fallback
@@ -1013,11 +1082,11 @@ public partial class Home : ComponentBase, IDisposable
     /// mix predicate's pick-time probe
     /// (<see cref="QuizStatsStore.RefreshPickedStatsAsync"/>, issue halheinrich/backgammon#87). It
     /// runs <i>after</i> <see cref="PickedProblemFolder.Set"/> so it probes the
-    /// generation it is about, and before this method returns so no render can
+    /// sample it is about, and before this method returns so no render can
     /// fall between the two: the panel's mount decision is made once, against a
     /// resolved probe, rather than made twice with the section popping in. (The
-    /// probe's generation stamp makes the ordering safe rather than merely
-    /// tidy — a probe stamped with a superseded pick expires instead of
+    /// probe's sample stamp makes the ordering safe rather than merely
+    /// tidy — a probe stamped with a replaced sample expires instead of
     /// answering for the wrong folder.) The two no-folder outcomes need no
     /// probe: they return with the holder clear, and a cleared holder fails the
     /// predicate's capability half outright.
@@ -1049,8 +1118,8 @@ public partial class Home : ComponentBase, IDisposable
         }
 
         // The truncation report rides onto the holder with the files it describes,
-        // so the notice that renders it lives exactly as long as the partial pick
-        // it is about — including across navigate-back, which a page field would
+        // so the notice that renders it lives exactly as long as the sample it
+        // is about — including across navigate-back, which a page field would
         // not survive.
         //
         // Reporting the new source ends the outgoing filter setup in the owner
@@ -1108,8 +1177,8 @@ public partial class Home : ComponentBase, IDisposable
     /// baseline and keeps the draft, so the selection on screen survives into
     /// the next pick and must be in effect there by the owner's rules, never
     /// by this page's. The match count needs no line either: it is keyed by
-    /// the pick, so no count of the outgoing pick can be read for the next
-    /// one. The saved-filters context lives in the hosted
+    /// the setup and the sample, so no count of the outgoing pick can be read
+    /// for the next one. The saved-filters context lives in the hosted
     /// <c>FilterSurface</c>, which rebuilds it when the owner's generation
     /// moves. Two things deliberately survive, and the class summary says why:
     /// the Order and the lifetime-stats slot.

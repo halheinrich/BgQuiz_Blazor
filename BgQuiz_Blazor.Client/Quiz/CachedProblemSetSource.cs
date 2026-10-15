@@ -19,8 +19,8 @@ using XgFilter_Lib.Filtering;
 /// <para>
 /// <b>Cache home &amp; lifecycle.</b> The cache slot lives on
 /// <see cref="PickedProblemFolder"/> (<see cref="PickedProblemFolder.Parsed"/>),
-/// so cache lifecycle <i>is</i> pick lifecycle: a re-pick or Clear nulls it
-/// by construction, with no invalidation wiring to forget. This source is
+/// so cache lifecycle <i>is</i> sample lifecycle: a re-pick, a resample or
+/// Clear nulls it by construction, with no invalidation wiring to forget. This source is
 /// the slot's only writer. The cached parse is <b>unfiltered</b> so any
 /// filter config reuses it; the per-Start filters re-apply here, per
 /// enumeration, via <see cref="DecisionFilterSet.Matches"/>.
@@ -68,26 +68,29 @@ using XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
-/// <b>Staleness.</b> Files and <see cref="PickedProblemFolder.PickGeneration"/>
-/// are captured at construction (factory invocation = Start time, the
-/// established read-live-at-Start discipline). The holder's cache is
-/// consulted only while the generation still matches; a parse stores back
-/// through <see cref="PickedProblemFolder.StoreParsed"/>, which drops it if
-/// the pick has been superseded meanwhile (the pick gesture is async, so it
-/// can complete inside a Start's own await points). The source also keeps
-/// its own reference to whatever it parsed or adopted, so every enumeration
-/// of <i>this</i> source, and its <see cref="Report"/>, reads the files it
-/// was built over: a re-pick after construction changes neither, and a parse
-/// it completes never pollutes the new pick's cache.
+/// <b>Staleness.</b> The sample's files and its identity
+/// (<see cref="PickedProblemFolder.SampleIdentity"/>) are captured at
+/// construction (factory invocation = Start or count time, the established
+/// read-live-at-Start discipline). The holder's cache is consulted only while
+/// that sample is still the one held; a parse stores back through
+/// <see cref="PickedProblemFolder.StoreParsed"/>, which drops it if the sample
+/// has been replaced meanwhile (a pick or a resample is async, so it can land
+/// inside a count's own await points). The source also keeps its own
+/// reference to whatever it parsed or adopted, so every enumeration of
+/// <i>this</i> source, and its <see cref="Report"/>, reads the files it was
+/// built over: a new sample after construction changes neither, and a parse
+/// it completes never pollutes the new sample's cache. It is also what a run
+/// lets go when it finishes (<see cref="QuizController"/>), so nothing a
+/// finished run kept reaches these files or this parse.
 /// </para>
 ///
 /// <para>
 /// <b>A Restart is not a re-enumeration of this source.</b> Every Start and
-/// every Restart builds a new source through the factory, over the folder
-/// picked at that moment (<c>SPEC-quiz-history.md</c> §8, "What a Restart
-/// replays"), so a Restart after a mid-quiz re-pick replays the quiz's
-/// filters and mix over the newly picked folder's files — Done promises
-/// "same filters", and no more.
+/// every Restart builds a new source through the factory, over the sample
+/// held at that moment (<c>SPEC-quiz-history.md</c> §8, "What a Restart
+/// replays"), so a Restart after a new sample ended the quiz replays its
+/// filters and mix over the new sample's files — Done promises "same
+/// filters", and no more.
 /// </para>
 ///
 /// <para>
@@ -108,13 +111,13 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
     private readonly PlayRanking _ranking;
     private readonly TimeProvider _clock;
     private readonly WasmUploadedProblemSetSource _inner;
-    private readonly int _generation;
+    private readonly SampleIdentity _sample;
     private ParsedProblemSet? _parsed;
 
     /// <summary>
-    /// Construct a source over <paramref name="folder"/>'s current pick,
+    /// Construct a source over <paramref name="folder"/>'s current sample,
     /// applying <paramref name="filters"/> under <paramref name="ranking"/> on
-    /// each enumeration. The picked files and generation are captured now; the
+    /// each enumeration. The sample's files and identity are captured now; the
     /// parse itself is deferred to the first enumeration.
     /// </summary>
     /// <param name="folder">The picked-folder holder — supplies the files and carries the cross-Start parse cache.</param>
@@ -144,7 +147,7 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
         // first view built in the filter pass.
         _inner = new WasmUploadedProblemSetSource(
             folder.Files, new DecisionFilterSet(), ranking, loggerFactory, clock);
-        _generation = folder.PickGeneration;
+        _sample = folder.SampleIdentity;
     }
 
     /// <inheritdoc />
@@ -158,8 +161,8 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
     /// from — the files attempted, the files rejected and why — or null until
     /// its first enumeration has resolved one (halheinrich/backgammon#368).
     /// It is <i>this source's</i> parse: adopted from the holder's cache when
-    /// the pick was still current, or its own, so a source built against a
-    /// since-superseded pick reports the walk over its own files and never
+    /// the sample was still current, or its own, so a source built against a
+    /// since-replaced sample reports the walk over its own files and never
     /// whatever the holder holds now. A cache hit reuses the completed report
     /// stored with the parse; nothing here walks the files again, so nothing
     /// can clear, append to or replace it.
@@ -188,9 +191,9 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
 
     /// <summary>
     /// This source's parse result, resolved in cheapest-first order: its own
-    /// prior resolution, then the holder's cache (only while the pick it was
-    /// built from is still current), then a full unfiltered parse — stored
-    /// back to the holder, which drops it if the pick has been superseded.
+    /// prior resolution, then the holder's cache (only while the sample it was
+    /// built from is still the one held), then a full unfiltered parse — stored
+    /// back to the holder, which drops it if the sample has been replaced.
     ///
     /// <para>
     /// <b>The report is the parse's own by-product.</b> Each parsing attempt
@@ -222,7 +225,7 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
     {
         if (_parsed is { } own) return own;
 
-        if (_folder.PickGeneration == _generation && _folder.Parsed is { } cached)
+        if (ReferenceEquals(_folder.SampleIdentity, _sample) && _folder.Parsed is { } cached)
         {
             _parsed = cached;
             return cached;
@@ -242,7 +245,7 @@ internal sealed class CachedProblemSetSource : IProblemSetSource
         cancellationToken.ThrowIfCancellationRequested();
         var parsed = new ParsedProblemSet(parsing.ToImmutable(), report);
         _parsed = parsed;
-        _folder.StoreParsed(_generation, parsed);
+        _folder.StoreParsed(_sample, parsed);
         return parsed;
     }
 }

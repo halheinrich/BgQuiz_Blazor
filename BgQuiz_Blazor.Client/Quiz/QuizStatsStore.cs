@@ -185,33 +185,35 @@ internal sealed class QuizStatsStore : IProblemStatsSink
 
     /// <summary>
     /// What one pick-time probe (<see cref="RefreshPickedStatsAsync"/>) found,
-    /// <b>and the pick it found it about</b> — one immutable value, published
-    /// whole and only while that pick is still the one held, so a fact can
-    /// never be read under another pick's stamp (issue
+    /// <b>and the sample it found it about</b> — one immutable value, published
+    /// whole and only while that sample is still the one held, so a fact can
+    /// never be read under another sample's stamp (issue
     /// <c>halheinrich/backgammon#263</c>). Written only by
     /// <see cref="RefreshPickedStatsAsync"/>, read only through the members
     /// that gate on <see cref="ProbeDescribesTheCurrentPick"/>.
     ///
     /// <para>
     /// <b>One value, not a stamp beside four fields.</b> The probe has two
-    /// awaits, and a re-pick can land during either. While the stamp and the
-    /// facts were separate fields the stamp was set before the awaits and the
-    /// facts after them, so a probe of the previous pick that finished late
-    /// wrote its facts under a stamp the next pick's probe had set — and they
-    /// read as facts about the new folder. A single reference assigned once,
-    /// with the facts and their generation inside it, makes that state
-    /// unrepresentable rather than guarded against.
+    /// awaits, and a re-pick or a resample can land during either. While the
+    /// stamp and the facts were separate fields the stamp was set before the
+    /// awaits and the facts after them, so a probe of the previous pick that
+    /// finished late wrote its facts under a stamp the next pick's probe had
+    /// set — and they read as facts about the new folder. A single reference
+    /// assigned once, with the facts and their sample inside it, makes that
+    /// state unrepresentable rather than guarded against.
     /// </para>
     /// </summary>
-    /// <param name="Generation">
-    /// The <see cref="PickedProblemFolder.PickGeneration"/> the probe was taken
-    /// against, so every fact <b>expires by construction</b> rather than by
-    /// anyone remembering to reset it: every <see cref="PickedProblemFolder.Set"/>
-    /// and <see cref="PickedProblemFolder.Clear"/> bumps the generation, and a
-    /// probe of an older one simply stops matching. The same expires-by-key
-    /// idiom the filter gate uses, where the generation is the source token
-    /// <c>Home</c> reports to the filter setup and reads its in-effect filter
-    /// for (<c>FilterSetupSnapshot.ConfigInEffectFor</c>).
+    /// <param name="Sample">
+    /// The sample the probe was taken against
+    /// (<see cref="PickedProblemFolder.SampleIdentity"/>), or null for the
+    /// never-probed store, so every fact <b>expires by construction</b> rather
+    /// than by anyone remembering to reset it: every
+    /// <see cref="PickedProblemFolder.Set"/>,
+    /// <see cref="PickedProblemFolder.Resample"/> and
+    /// <see cref="PickedProblemFolder.Clear"/> installs a new sample identity,
+    /// and a probe of an older one simply stops matching — which is what makes
+    /// a resample's probe fresh (<c>SPEC-filtering.md</c> §4). The same
+    /// expires-by-key idiom the parse cache and the match count use.
     /// </param>
     /// <param name="HasStats">
     /// Whether the picked folder's stats document exists and holds at least
@@ -248,24 +250,23 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// <c>halheinrich/backgammon#261</c>).
     /// </param>
     private sealed record PickedStatsProbe(
-        int Generation, bool HasStats, int? RetiredSchemaVersion, bool Unreadable, bool Unwritable)
+        SampleIdentity? Sample, bool HasStats, int? RetiredSchemaVersion, bool Unreadable, bool Unwritable)
     {
         /// <summary>
-        /// Nothing known yet about the pick of <paramref name="generation"/>:
-        /// no stats, no forecast. What a probe publishes as it starts, so an
-        /// earlier probe of the same pick is not read while this one is out.
+        /// Nothing known yet about <paramref name="sample"/>: no stats, no
+        /// forecast. What a probe publishes as it starts, so an earlier probe
+        /// of the same sample is not read while this one is out.
         /// </summary>
-        public static PickedStatsProbe NothingKnown(int generation) => new(generation, false, null, false, false);
+        public static PickedStatsProbe NothingKnown(SampleIdentity? sample) => new(sample, false, null, false, false);
     }
 
     /// <summary>
-    /// The last probe published. Starts on generation <c>-1</c>, not <c>0</c>:
-    /// a never-probed store must not match the generation a freshly-constructed
+    /// The last probe published. Starts against no sample at all: a
+    /// never-probed store must not match the sample a freshly-constructed
     /// holder sits on, or the pre-probe state would read as a probe that found
-    /// nothing — true by accident today, and wrong the moment the initial value
-    /// changes.
+    /// nothing.
     /// </summary>
-    private PickedStatsProbe _probe = PickedStatsProbe.NothingKnown(-1);
+    private PickedStatsProbe _probe = PickedStatsProbe.NothingKnown(null);
 
     public QuizStatsStore(IFolderAccess folderAccess, TimeProvider clock, PickedProblemFolder folder)
     {
@@ -353,11 +354,11 @@ internal sealed class QuizStatsStore : IProblemStatsSink
 
     /// <summary>
     /// Whether the last probe still describes the folder currently held — the
-    /// expires-by-construction rule of <see cref="PickedStatsProbe.Generation"/>, in
+    /// expires-by-construction rule of <see cref="PickedStatsProbe.Sample"/>, in
     /// one spelling, so every fact the probe surfaces expires on the same
     /// terms rather than on its own copy of the comparison.
     /// </summary>
-    private bool ProbeDescribesTheCurrentPick => _probe.Generation == _folder.PickGeneration;
+    private bool ProbeDescribesTheCurrentPick => ReferenceEquals(_probe.Sample, _folder.SampleIdentity);
 
     /// <inheritdoc/>
     public bool PickedFolderHasStats => _probe.HasStats && ProbeDescribesTheCurrentPick;
@@ -371,8 +372,8 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// <see cref="RefreshPickedStatsAsync"/> returns early under a false
     /// <see cref="FolderCanHoldStats"/> leaving <see cref="PickedStatsProbe.HasStats"/>
     /// false, and <see cref="PickedProblemFolder.Capability"/> moves only in
-    /// <c>Set</c>/<c>Clear</c>, both of which bump the generation the probe is
-    /// stamped with — so a true fact implies a capable folder and this
+    /// <c>Set</c>/<c>Clear</c>, both of which install the new sample identity
+    /// the probe is stamped with — so a true fact implies a capable folder and this
     /// conjunction can never be narrower than its right-hand side. That is an
     /// invariant of the probe, not of the model: a future fact learned some
     /// other way (a cached read, a server-side stats source) would separate
@@ -523,24 +524,26 @@ internal sealed class QuizStatsStore : IProblemStatsSink
     /// </para>
     ///
     /// <para>
-    /// <b>A probe answers for the pick it began on, or not at all</b> (issue
-    /// <c>halheinrich/backgammon#263</c>). The pick's generation is captured
+    /// <b>A probe answers for the sample it began on, or not at all</b> (issue
+    /// <c>halheinrich/backgammon#263</c>). The sample's identity is captured
     /// once, here, and every fact is worked out into locals across both
     /// awaits — the read and the writability probe — then published as one
-    /// <see cref="PickedStatsProbe"/> carrying that generation, and only if it
-    /// is still the generation held. A re-pick landing during either await
-    /// therefore leaves this probe nothing to publish: it can neither modify
-    /// nor replace the facts the next pick's probe publishes, whichever of the
-    /// two finishes first, on its success path and its catch paths alike.
+    /// <see cref="PickedStatsProbe"/> carrying that identity, and only if it
+    /// is still the sample held. A re-pick or a resample landing during either
+    /// await therefore leaves this probe nothing to publish: it can neither
+    /// modify nor replace the facts the next sample's probe publishes,
+    /// whichever of the two finishes first, on its success path and its catch
+    /// paths alike. A resample's probe is fresh for the same reason: the
+    /// facts of the sample it replaced stop describing the one held.
     /// </para>
     /// </summary>
     public async Task RefreshPickedStatsAsync()
     {
-        var generation = _folder.PickGeneration;
+        var sample = _folder.SampleIdentity;
 
         // Nothing is known about this pick until this probe answers, so an
         // earlier probe of it is not read meanwhile.
-        _probe = PickedStatsProbe.NothingKnown(generation);
+        _probe = PickedStatsProbe.NothingKnown(sample);
 
         if (!FolderCanHoldStats) return;
 
@@ -623,9 +626,9 @@ internal sealed class QuizStatsStore : IProblemStatsSink
         // Superseded: a re-pick landed during an await above, so these facts
         // describe a folder no longer held, and the current pick's are another
         // probe's to publish.
-        if (generation != _folder.PickGeneration) return;
+        if (!ReferenceEquals(sample, _folder.SampleIdentity)) return;
 
-        _probe = new PickedStatsProbe(generation, hasStats, retiredSchemaVersion, unreadable, unwritable);
+        _probe = new PickedStatsProbe(sample, hasStats, retiredSchemaVersion, unreadable, unwritable);
     }
 
     /// <inheritdoc/>

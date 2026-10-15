@@ -140,17 +140,167 @@ public class PickedProblemFolderTests
     }
 
     // -----------------------------------------------------------------------
-    //  Parse-once cache seam: cache lifecycle = pick lifecycle
+    //  Two identities: the setup a pick begins, the sample a draw holds
+    //  (SPEC-filtering.md §4, "The sample, the limits and Resample")
+    // -----------------------------------------------------------------------
+
+    private static PickedProblemFolder Holding(string folderName = "Corpus")
+    {
+        var folder = new PickedProblemFolder();
+        folder.Set(folderName, FolderWriteCapability.Enabled, TestFixtures.Sample([File()], (".xg", 5)));
+        return folder;
+    }
+
+    [Fact]
+    public void ANewHolder_HoldsNoSetup_AndASampleOfNothing()
+    {
+        var folder = new PickedProblemFolder();
+
+        Assert.Null(folder.SetupIdentity);
+        Assert.NotNull(folder.SampleIdentity);
+        Assert.False(folder.CanResample);
+    }
+
+    [Fact]
+    public void Set_BeginsANewSetup_AndANewSample_EvenOfTheSameFolder()
+    {
+        // Every explicit pick ends the setup, so the filter's applied-ness and
+        // the mix cannot carry across one — the same folder picked again
+        // included, which is why the identity is never the folder's name.
+        var folder = Holding();
+        var setup = folder.SetupIdentity;
+        var sample = folder.SampleIdentity;
+
+        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
+
+        Assert.NotNull(folder.SetupIdentity);
+        Assert.NotSame(setup, folder.SetupIdentity);
+        Assert.NotEqual(setup!.FilterSource, folder.SetupIdentity.FilterSource);
+        Assert.NotSame(sample, folder.SampleIdentity);
+    }
+
+    [Fact]
+    public void Resample_KeepsTheSetup_AndReplacesTheSample()
+    {
+        var folder = Holding();
+        folder.StoreParsed(folder.SampleIdentity, TestFixtures.Parsed());
+        var setup = folder.SetupIdentity;
+        var sample = folder.SampleIdentity;
+        var drawn = TestFixtures.Sample([File("other.xg")], (".xg", 5));
+
+        folder.Resample(drawn);
+
+        // The setup's: the folder, its capability and its identity — so the
+        // filter source Home reports is the same token, and the filter in
+        // effect stands.
+        Assert.Same(setup, folder.SetupIdentity);
+        Assert.Equal(setup!.FilterSource, folder.SetupIdentity!.FilterSource);
+        Assert.Equal("Corpus", folder.FolderName);
+        Assert.Equal(FolderWriteCapability.Enabled, folder.Capability);
+        // The sample's: its files and report, its identity, and the parse of
+        // the files it replaced.
+        Assert.Same(drawn, folder.Sample);
+        Assert.NotSame(sample, folder.SampleIdentity);
+        Assert.Null(folder.Parsed);
+    }
+
+    [Fact]
+    public void Resample_WithNoFolderHeld_IsRefused_AndChangesNothing()
+    {
+        var folder = new PickedProblemFolder();
+        var sample = folder.SampleIdentity;
+
+        Assert.Throws<InvalidOperationException>(
+            () => folder.Resample(TestFixtures.Sample([File()])));
+
+        Assert.False(folder.HasFiles);
+        Assert.Null(folder.SetupIdentity);
+        Assert.Same(sample, folder.SampleIdentity);
+    }
+
+    [Fact]
+    public void Resample_OfNoFiles_IsRefused_AndKeepsTheSampleHeld()
+    {
+        // An empty resample replaces nothing (SPEC-filtering.md §4): Home
+        // keeps the held sample, and so does the holder if handed one.
+        var folder = Holding();
+        var parsed = TestFixtures.Parsed();
+        folder.StoreParsed(folder.SampleIdentity, parsed);
+        var held = folder.Sample;
+        var sample = folder.SampleIdentity;
+
+        var refused = Assert.Throws<ArgumentException>(
+            () => folder.Resample(TestFixtures.Sample([])));
+
+        Assert.Equal("sample", refused.ParamName);
+        Assert.Same(held, folder.Sample);
+        Assert.Same(sample, folder.SampleIdentity);
+        Assert.Same(parsed, folder.Parsed);
+    }
+
+    [Fact]
+    public void Set_OfNoFiles_IsRefused_AndKeepsWhatIsHeld()
+    {
+        // An empty draw holds no folder; Clear is how nothing is held.
+        var folder = Holding();
+        var setup = folder.SetupIdentity;
+        var sample = folder.SampleIdentity;
+
+        var refused = Assert.Throws<ArgumentException>(
+            () => folder.Set("Empty", FolderWriteCapability.Enabled, TestFixtures.Sample([])));
+
+        Assert.Equal("sample", refused.ParamName);
+        Assert.Equal("Corpus", folder.FolderName);
+        Assert.Same(setup, folder.SetupIdentity);
+        Assert.Same(sample, folder.SampleIdentity);
+    }
+
+    [Fact]
+    public void Clear_EndsTheSetup_AndReplacesTheSample()
+    {
+        var folder = Holding();
+        var sample = folder.SampleIdentity;
+
+        folder.Clear();
+
+        Assert.Null(folder.SetupIdentity);
+        Assert.NotSame(sample, folder.SampleIdentity);
+        Assert.Empty(folder.Sample.Kinds);
+        Assert.False(folder.CanResample);
+    }
+
+    [Fact]
+    public void CanResample_HoldsExactlyWhileAKindWasOverItsLimit()
+    {
+        // Offered unless the sample holds every matching file — the producer's
+        // derivation from the per-kind report, read and not restated.
+        var folder = new PickedProblemFolder();
+        folder.Set("Whole", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
+        Assert.True(folder.Sample.HoldsEveryMatchingFile);
+        Assert.False(folder.CanResample);
+
+        folder.Set("Over", FolderWriteCapability.Enabled, TestFixtures.Sample([File()], (".xgp", 1)));
+        Assert.False(folder.Sample.HoldsEveryMatchingFile);
+        Assert.True(folder.CanResample);
+
+        // A resample that happens to hold every file it found (the folder
+        // shrank since) offers no further one.
+        folder.Resample(TestFixtures.Sample([File()]));
+        Assert.False(folder.CanResample);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Parse-once cache seam: cache lifecycle = sample lifecycle
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void StoreParsed_CurrentGeneration_CachesTheParseResult()
+    public void StoreParsed_CurrentSample_CachesTheParseResult()
     {
         var folder = new PickedProblemFolder();
         folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
         var parsed = TestFixtures.Parsed(TestFixtures.CubeDecision());
 
-        folder.StoreParsed(folder.PickGeneration, parsed);
+        folder.StoreParsed(folder.SampleIdentity, parsed);
 
         // The very object stored, decisions and report together — so the cache
         // is the parse, not a copy of it, and the rejection record can only
@@ -159,48 +309,48 @@ public class PickedProblemFolderTests
         Assert.Same(parsed, folder.Parsed);
     }
 
-    [Fact]
-    public void StoreParsed_SupersededGeneration_IsDropped()
-    {
-        // A parse begun against one pick must never land as the cache of a
-        // later pick — the pick gesture is async, so a re-pick can complete
-        // inside a Start's own await points.
-        var folder = new PickedProblemFolder();
-        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
-        var staleGeneration = folder.PickGeneration;
+    /// <summary>The three ways a held sample is replaced.</summary>
+    public static TheoryData<string> Replacements() => ["pick", "resample", "clear"];
 
-        folder.Set("Other", FolderWriteCapability.Enabled, TestFixtures.Sample([File("b.xgp")])); // supersedes
-        folder.StoreParsed(staleGeneration, TestFixtures.Parsed());
+    private static void Replace(PickedProblemFolder folder, string how)
+    {
+        switch (how)
+        {
+            case "pick": folder.Set("Other", FolderWriteCapability.Enabled, TestFixtures.Sample([File("b.xgp")])); break;
+            case "resample": folder.Resample(TestFixtures.Sample([File("b.xg")])); break;
+            case "clear": folder.Clear(); break;
+            default: throw new ArgumentOutOfRangeException(nameof(how), how, null);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(Replacements))]
+    public void StoreParsed_OfAReplacedSample_IsDropped(string how)
+    {
+        // A parse begun against one sample must never land as the cache of a
+        // later one — a pick and a resample are async, so either can complete
+        // inside a count's or a Start's own await points.
+        var folder = Holding();
+        var stale = folder.SampleIdentity;
+
+        Replace(folder, how);
+        folder.StoreParsed(stale, TestFixtures.Parsed());
 
         Assert.Null(folder.Parsed);
     }
 
-    [Fact]
-    public void Set_InvalidatesParseCacheAndBumpsGeneration()
+    [Theory]
+    [MemberData(nameof(Replacements))]
+    public void ReplacingTheSample_DropsTheParse_AndChangesItsIdentity(string how)
     {
-        var folder = new PickedProblemFolder();
-        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
-        folder.StoreParsed(folder.PickGeneration, TestFixtures.Parsed());
-        var generation = folder.PickGeneration;
+        var folder = Holding();
+        folder.StoreParsed(folder.SampleIdentity, TestFixtures.Parsed());
+        var sample = folder.SampleIdentity;
 
-        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([File()])); // re-pick, even of the same folder
+        Replace(folder, how);
 
         Assert.Null(folder.Parsed);
-        Assert.NotEqual(generation, folder.PickGeneration);
-    }
-
-    [Fact]
-    public void Clear_InvalidatesParseCacheAndBumpsGeneration()
-    {
-        var folder = new PickedProblemFolder();
-        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
-        folder.StoreParsed(folder.PickGeneration, TestFixtures.Parsed());
-        var generation = folder.PickGeneration;
-
-        folder.Clear();
-
-        Assert.Null(folder.Parsed);
-        Assert.NotEqual(generation, folder.PickGeneration);
+        Assert.NotSame(sample, folder.SampleIdentity);
     }
 
     [Fact]
@@ -208,7 +358,16 @@ public class PickedProblemFolderTests
     {
         var folder = new PickedProblemFolder();
         var refused = Assert.Throws<ArgumentNullException>(
-            () => folder.StoreParsed(folder.PickGeneration, null!));
+            () => folder.StoreParsed(folder.SampleIdentity, null!));
         Assert.Equal("parsed", refused.ParamName);
+    }
+
+    [Fact]
+    public void StoreParsed_NullSample_Throws()
+    {
+        var folder = new PickedProblemFolder();
+        var refused = Assert.Throws<ArgumentNullException>(
+            () => folder.StoreParsed(null!, TestFixtures.Parsed()));
+        Assert.Equal("sample", refused.ParamName);
     }
 }

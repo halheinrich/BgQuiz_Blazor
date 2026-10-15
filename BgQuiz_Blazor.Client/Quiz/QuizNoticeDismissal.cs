@@ -39,8 +39,9 @@ internal enum QuizNotice
     /// <c>Home</c>'s truncated-pick report (issue halheinrich/backgammon#59): the folder held more
     /// files of some kind than that kind's cap admits, so a randomly drawn N
     /// were taken and the rest left unread. One slot for the whole alert,
-    /// however many kinds it lists — it is one report about one pick.
-    /// Occurrence: <see cref="PickedProblemFolder.PickOccurrence"/>.
+    /// however many kinds it lists — it is one report about one sample.
+    /// Occurrence: <see cref="PickedProblemFolder.SampleIdentity"/>, so a
+    /// re-pick and a resample each report fresh.
     /// </summary>
     PickTruncations,
 
@@ -51,7 +52,7 @@ internal enum QuizNotice
     /// the three are mutually exclusive renderings of one verdict
     /// (<see cref="PickedProblemFolder.Capability"/>, fixed per pick), so at
     /// most one can ever show for a given occurrence. Occurrence:
-    /// <see cref="PickedProblemFolder.PickOccurrence"/> — its own slot beside
+    /// <see cref="PickedProblemFolder.SampleIdentity"/> — its own slot beside
     /// <see cref="PickTruncations"/>, because the two notices render side by
     /// side and dismiss independently.
     /// </summary>
@@ -63,7 +64,7 @@ internal enum QuizNotice
     /// in a retired format, so the next quiz will set it aside — said before
     /// the pick is acted on, where <see cref="StatsRetired"/> is the same
     /// event's report afterwards. Occurrence:
-    /// <see cref="PickedProblemFolder.PickOccurrence"/>, like its two pick-band
+    /// <see cref="PickedProblemFolder.SampleIdentity"/>, like its two pick-band
     /// neighbours; its own slot beside them because it renders alongside the
     /// capability notice and dismisses independently.
     /// </summary>
@@ -73,7 +74,7 @@ internal enum QuizNotice
     /// <c>Home</c>'s unreadable-stats forecast (issue
     /// <c>halheinrich/backgammon#260</c>): the picked folder's stats file exists
     /// and cannot be read, so the next quiz will record nothing. Occurrence:
-    /// <see cref="PickedProblemFolder.PickOccurrence"/>; its own slot because it
+    /// <see cref="PickedProblemFolder.SampleIdentity"/>; its own slot because it
     /// can show beside the retirement forecast's neighbours and the unwritable
     /// forecast, and dismisses independently of each.
     /// </summary>
@@ -83,7 +84,7 @@ internal enum QuizNotice
     /// <c>Home</c>'s unwritable-stats forecast (issue
     /// <c>halheinrich/backgammon#261</c>): the picked folder's stats file cannot
     /// be written, so the next quiz will record nothing. Occurrence:
-    /// <see cref="PickedProblemFolder.PickOccurrence"/>; its own slot for the
+    /// <see cref="PickedProblemFolder.SampleIdentity"/>; its own slot for the
     /// same reason as <see cref="PickStatsUnreadableForecast"/> — the two can
     /// show at once, and each says its own thing.
     /// </summary>
@@ -155,7 +156,7 @@ internal enum QuizNotice
 /// dismissed. Every occurrence token this holder is handed therefore means
 /// <b>identity, never content</b> — see <see cref="QuizStatsStore.StatusOccurrence"/>,
 /// which exists to give the stats notices the same kind of token the composition
-/// already had, and <see cref="PickedProblemFolder.PickOccurrence"/>, which does
+/// already had, and <see cref="PickedProblemFolder.SampleIdentity"/>, which does
 /// the same for <c>Home</c>'s pick-outcome notices.
 /// </para>
 ///

@@ -340,7 +340,7 @@ public class PageTests : BunitContext
         var folder = Services.GetRequiredService<PickedProblemFolder>();
         return folder.HasFiles
             ? Services.GetRequiredService<FilterSetup>().Current.ConfigInEffectFor(
-                FilterSourceToken.FromGeneration(folder.PickGeneration))
+                folder.SetupIdentity!.FilterSource)
             : null;
     }
 
@@ -386,7 +386,8 @@ public class PageTests : BunitContext
 
             var key = MatchCountInputs.For(
                 setup,
-                FilterSourceToken.FromGeneration(folder.PickGeneration),
+                folder.SetupIdentity!.FilterSource,
+                folder.SampleIdentity,
                 Services.GetRequiredService<QuizSettings>().Ranking);
             if (key is null) return; // nothing in effect for the pick: nothing is counted for the page
 
@@ -1142,7 +1143,7 @@ public class PageTests : BunitContext
         PickedProblemFolder folder, SourceReport report, params BgDecisionData[] decisions)
     {
         var parsed = new ParsedProblemSet([.. decisions], report);
-        folder.StoreParsed(folder.PickGeneration, parsed);
+        folder.StoreParsed(folder.SampleIdentity, parsed);
         return parsed;
     }
 
@@ -1486,7 +1487,7 @@ public class PageTests : BunitContext
         // that rejected nothing is the ordinary pick, and neither box renders.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         var folder = WithPickedFolder();
-        folder.StoreParsed(folder.PickGeneration, TestFixtures.Parsed(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())));
+        folder.StoreParsed(folder.SampleIdentity, TestFixtures.Parsed(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())));
 
         var cut = RenderHomeSettled(); // the empty selection is in effect without Apply
 
@@ -1900,7 +1901,7 @@ public class PageTests : BunitContext
         // idiom — an assertive error — and a cleared holder. A folder past the
         // *count* caps is not this: it truncates and reports (issue halheinrich/backgammon#59).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        _folderAccess.PickException = new InvalidOperationException("boom from the browser");
+        _folderAccess.PickException = new JSException("boom from the browser");
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -2049,8 +2050,8 @@ public class PageTests : BunitContext
     //  extended to Home's band: every outcome/status notice dismisses, by the
     //  close button or by the whole box. The holder-backed pair (truncations,
     //  stats capability) record it in QuizNoticeDismissal keyed on
-    //  PickedProblemFolder.PickOccurrence — per occurrence (a re-pick
-    //  resurrects), surviving navigation, one slot each. The per-visit pair
+    //  PickedProblemFolder.SampleIdentity — per occurrence (a re-pick or a
+    //  resample resurrects), surviving navigation, one slot each. The per-visit pair
     //  (cancelled, empty) and the two errors are held by their own fields
     //  (SPEC-notices.md Fork A made the errors dismissible too).
     // -----------------------------------------------------------------------
@@ -2515,7 +2516,7 @@ public class PageTests : BunitContext
         // the next attempt. Still a failure report — assertive, the error kind
         // — and now dismissible by both gestures.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        _folderAccess.PickException = new InvalidOperationException("boom");
+        _folderAccess.PickException = new JSException("boom");
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -2535,7 +2536,7 @@ public class PageTests : BunitContext
         // same text is a new occurrence and shows. (A bit keyed on the text
         // would have kept it hidden.)
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
-        _folderAccess.PickException = new InvalidOperationException("boom");
+        _folderAccess.PickException = new JSException("boom");
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -3336,7 +3337,7 @@ public class PageTests : BunitContext
         var setup = Services.GetRequiredService<FilterSetup>();
 
         var cut = Render<HomePage>();
-        Assert.Equal(FilterSourceToken.FromGeneration(folder.PickGeneration), setup.Current.Source);
+        Assert.Equal(folder.SetupIdentity!.FilterSource, setup.Current.Source);
         var heldGeneration = setup.Current.Generation;
 
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear").ClickAsync(new());
@@ -3596,19 +3597,19 @@ public class PageTests : BunitContext
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
-        var first = Services.GetRequiredService<PickedProblemFolder>().PickGeneration;
+        var first = Services.GetRequiredService<PickedProblemFolder>().SetupIdentity!.FilterSource;
         cut.WaitForAssertion(() => Assert.Contains("decision matches your filters", cut.Markup));
-        Assert.Equal(FilterSourceToken.FromGeneration(first), count.Inputs!.Selection);
+        Assert.Equal(first, count.Inputs!.Selection);
 
         _folderAccess.NextPickOutcome = OneFileOutcome("Second", "second.xg");
         await cut.Find("#pickProblemFolder").ClickAsync(new());
-        var second = Services.GetRequiredService<PickedProblemFolder>().PickGeneration;
+        var second = Services.GetRequiredService<PickedProblemFolder>().SetupIdentity!.FilterSource;
 
         Assert.NotNull(FilterInEffect());
         cut.WaitForAssertion(() =>
         {
             Assert.Contains("decision matches your filters", cut.Markup);
-            Assert.Equal(FilterSourceToken.FromGeneration(second), count.Inputs!.Selection);
+            Assert.Equal(second, count.Inputs!.Selection);
         });
         Assert.False(StartButton(cut).HasAttribute("disabled"));
     }
@@ -10763,8 +10764,8 @@ public class PageTests : BunitContext
 
     /// <summary>
     /// Arrange an Enabled pick made <i>through the UI</i> with the mix setting
-    /// on and a stats record present — the only route that bumps
-    /// <see cref="PickedProblemFolder.PickGeneration"/> the way a real pick
+    /// on and a stats record present — the only route that installs a new
+    /// <see cref="PickedProblemFolder.SampleIdentity"/> the way a real pick
     /// does, which is what the stats probe is stamped against. A pre-armed
     /// <see cref="WithPickedFolder"/> fixture cannot exercise anything that
     /// expires with a pick, because nothing ever expires.
@@ -12193,20 +12194,21 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_PickFailsMidScan_LowersBusyAndShowsTheError()
     {
-        // A scan that throws after the prompts succeeded — an over-cap folder is
-        // the real instance — must not strand the page disabled with a progress
-        // cursor and no way back. The busy state is lowered in a finally, so the
-        // error banner lands on a usable page.
+        // A scan that throws after the prompts succeeded — a drawn file over
+        // the byte cap is the real instance — must not strand the page
+        // disabled with a progress cursor and no way back. The busy state is
+        // lowered in a finally, so the error banner lands on a usable page.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         _folderAccess.NextPickOutcome = OneFileOutcome();
-        _folderAccess.OnScanning = () => throw new InvalidOperationException("too many files");
+        var tooLarge = PickFailure("too large");
+        _folderAccess.OnScanning = () => throw tooLarge;
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         Assert.False(cut.Find("fieldset").HasAttribute("disabled"));
         Assert.Empty(cut.FindAll("div.app-busy"));
-        Assert.Contains("too many files", cut.Markup);
+        Assert.Contains(tooLarge.Message, NoticeSaying(cut, "Could not read the folder").Content.TextContent);
     }
 
     [Fact]
@@ -13618,7 +13620,7 @@ public class PageTests : BunitContext
 
         Assert.Equal(2, counts.Count);
         Assert.Equal(
-            FilterSourceToken.FromGeneration(Services.GetRequiredService<PickedProblemFolder>().PickGeneration),
+            Services.GetRequiredService<PickedProblemFolder>().SetupIdentity!.FilterSource,
             Services.GetRequiredService<MatchCount>().Inputs!.Selection);
     }
 
@@ -13967,5 +13969,100 @@ public class PageTests : BunitContext
         Assert.False(Settings().MaximizeBoardWhileAnswering);
         Assert.Single(Render<HomePage>().FindAll("#storageUnavailableNotice"));
         storage.Verify();
+    }
+
+    // -----------------------------------------------------------------------
+    //  A pick's failure (SPEC-filtering.md §4, "The sample, the limits and
+    //  Resample"; halheinrich/backgammon#403)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The failures a pick reports as a failed pick: the producer's two
+    /// (BgFolderAccess_Razor's error contract) — a drawn file over the byte cap,
+    /// and the browser failing a walk or a read.
+    /// </summary>
+    public static TheoryData<bool, string> PickFailures() => new()
+    {
+        { true, "too large" },
+        { true, "browser" },
+        { false, "too large" },
+        { false, "browser" },
+    };
+
+    private static Exception PickFailure(string kind) => kind switch
+    {
+        "too large" => new PickedFileTooLargeException(
+            "huge.xg", PickedFileLimits.MaxFileBytes + 1,
+            new FolderPickLimits(PickedFileLimits.MaxFileCounts, PickedFileLimits.MaxFileBytes)),
+        "browser" => new JSException("The browser failed the read."),
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+    };
+
+    /// <summary>
+    /// An explicit pick that fails after the folder module has bound the new
+    /// folder releases that binding (halheinrich/backgammon#403): the module
+    /// binds before it draws and buffers, so a pick whose draw or buffering
+    /// fails leaves the module holding the folder the pick was for. Home's
+    /// failure path used to clear only this app's holder — the app and the
+    /// module then disagreed about what was held. A failed pick leaves no
+    /// folder held on either side, on both mechanisms, and the active slot —
+    /// the running quiz's stats — untouched.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(PickFailures))]
+    public async Task Home_APickFailingAfterTheModuleBoundTheFolder_LeavesNoFolderHeldOnEitherSide(
+        bool fileSystemAccess, string failure)
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        _folderAccess.NextPickOutcome = OneFileOutcome("First", capability: FolderWriteCapability.Enabled);
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        await _folderAccess.PromoteToActiveAsync(); // a quiz's stats context, bound at its Start
+        Assert.Equal("First", _folderAccess.ActiveSlot);
+
+        if (fileSystemAccess)
+        {
+            _folderAccess.NextPickOutcome = OneFileOutcome("Second");
+            _folderAccess.OnScanning = () => throw PickFailure(failure);
+            await cut.Find("#pickProblemFolder").ClickAsync(new());
+        }
+        else
+        {
+            _folderAccess.SupportsDirectoryPicker = false;
+            _folderAccess.NextCollectOutcome = TestFixtures.Picked(
+                "Second", FolderWriteCapability.BrowserUnsupported, [new PickedFile("b.xgp", [1])]);
+            _folderAccess.CollectScanException = PickFailure(failure);
+            await cut.Find("#pickProblemFolder").ClickAsync(new());
+            await cut.Find("#problemFolderFallback").ChangeAsync(new ChangeEventArgs());
+        }
+
+        Assert.Null(_folderAccess.PickedSlot);                 // the module holds no folder
+        Assert.False(Services.GetRequiredService<PickedProblemFolder>().HasFiles); // nor does the app
+        Assert.Equal("First", _folderAccess.ActiveSlot);       // the running quiz's stats are untouched
+        Assert.Contains("Could not read the folder", Normalize(cut.Markup));
+    }
+
+    /// <summary>
+    /// The folder seam's <see cref="InvalidOperationException"/> means a caller
+    /// error — no folder held — and is not a fact about the folder the user
+    /// chose (BgFolderAccess_Razor's error contract). It is not reported as a
+    /// pick error: it is a bug, and it surfaces as one — an exception the
+    /// renderer is handed, which is where an event handler's failure goes (the
+    /// click itself returns: Blazor dispatches the handler's failure to the
+    /// renderer, not back to the dispatcher of the event).
+    /// </summary>
+    [Fact]
+    public async Task Home_TheFolderSeamsCallerError_IsNotReportedAsAFailedPick()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        _folderAccess.NextPickOutcome = OneFileOutcome();
+        var callerError = new InvalidOperationException("No folder is held.");
+        _folderAccess.OnScanning = () => throw callerError;
+        var cut = Render<HomePage>();
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Same(callerError, await Renderer.UnhandledException.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.DoesNotContain("Could not read the folder", Normalize(cut.Markup));
     }
 }

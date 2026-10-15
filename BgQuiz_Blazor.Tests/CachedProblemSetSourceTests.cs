@@ -304,7 +304,8 @@ public class CachedProblemSetSourceTests
     {
         // The empty selection: nothing attempted, so the producer's conclusion
         // is deliberately false — "no file could be read" is not what happened.
-        var folder = FolderOver([]);
+        // A holder holding nothing, since an empty draw holds no folder.
+        var folder = new PickedProblemFolder();
 
         await CollectAllAsync(MakeSource(folder));
 
@@ -358,6 +359,35 @@ public class CachedProblemSetSourceTests
         Assert.True(current.Report.AllRejected);
         Assert.Same(staleReport, staleSource.Report); // A's source still reports A's walk
         Assert.NotSame(current.Report, staleSource.Report);
+    }
+
+    [Theory]
+    [InlineData("pick")]
+    [InlineData("resample")]
+    public async Task AStaleSource_NeverAdoptsTheNextSamplesParse(string how)
+    {
+        // The stale shape the other way round: the next sample is parsed
+        // first, so the holder's cache holds B's parse when A's source, built
+        // before the replacement, first enumerates. It walks its own files —
+        // A's decisions, A's damaged file — and adopts nothing of B's: the
+        // cache is consulted only while the sample a source was built from is
+        // the one held, and a resample replaces the sample as a pick does.
+        var folder = FolderOver([Readable("a.xg"), Damaged("a-damaged.xg")]);
+        var staleSource = MakeSource(folder);
+        var replacement = TestFixtures.Sample([Damaged("b-damaged.xg")]);
+        if (how == "pick")
+            folder.Set("Other", FolderWriteCapability.BrowserUnsupported, replacement);
+        else
+            folder.Resample(replacement);
+        await CollectAllAsync(MakeSource(folder));
+        var current = Assert.IsType<ParsedProblemSet>(folder.Parsed);
+
+        var decisions = await CollectAllAsync(staleSource);
+
+        Assert.NotEmpty(decisions);
+        var staleReport = Assert.IsType<SourceReport>(staleSource.Report);
+        Assert.Equal("a-damaged.xg", Assert.Single(staleReport.Rejected).SourceName);
+        Assert.Same(current, folder.Parsed); // B's cache untouched by A's walk
     }
 
     [Fact]

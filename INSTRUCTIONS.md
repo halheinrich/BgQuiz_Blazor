@@ -145,9 +145,9 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   (`IsInEffectFor` / `ConfigInEffectFor`). Registered with
   **`AddFilterSurface<TRefusalSink>`**, whose sink is this app's
   `FilterStorageRefusalSink` (§ Browser storage). Also
-  `FilterSourceToken` (minted once, in `Home.FilterSource`,
-  `FromGeneration(PickGeneration)` while a folder with files is held, `null`
-  otherwise), `IDocumentStorage` + `DocumentStorageException` (the storage seam this app
+  `FilterSourceToken` (spelled once, `SetupIdentity.FilterSource`, and read
+  once, in `Home.FilterSource` — the held setup's token while a folder with
+  files is held, `null` otherwise), `IDocumentStorage` + `DocumentStorageException` (the storage seam this app
   adapts over the folder library), and `SavedFiltersDocument`
   (`FileName` = `xg-filters.json` / `LegacyFileName` = `bgquiz-filters.json` —
   the saved-filters document identity and two-name migration rule, rendered
@@ -1043,10 +1043,12 @@ milliseconds.
 
 - **Cache home & lifecycle.** The cache slot is
   `PickedProblemFolder.Parsed` — on the holder, so cache lifecycle
-  *is* pick lifecycle: `Set`/`Clear` null it and bump `PickGeneration`, with
-  no separate invalidation wiring to forget. `CachedProblemSetSource` is the
-  slot's only writer, via `StoreParsed(generation, parsed)`, which
-  **drops** a store whose pick has been superseded (see Pitfalls).
+  *is* sample lifecycle: `Set`/`Resample`/`Clear` null it and install a new
+  `SampleIdentity`, with no separate invalidation wiring to forget.
+  `CachedProblemSetSource` is the slot's only writer, via
+  `StoreParsed(sample, parsed)`, which **drops** a store whose sample has
+  been replaced, and it adopts the cache only while the sample it was built
+  from is still the one held (see Pitfalls).
 - **The parse carries its own source report** (halheinrich/backgammon#368).
   What is stored is a `ParsedProblemSet`: the decisions and, inseparably, the
   producer's `SourceReport` of the walk that produced them — attempted and
@@ -1069,7 +1071,7 @@ milliseconds.
   claims a report for one walk and refuses it a second), and a cache hit
   reuses the completed report stored with the parse. The source's `Report`
   reads the report of the parse *it* draws from — its own walk for a source
-  built against a since-superseded pick, never whatever the holder holds now.
+  built against a since-replaced sample, never whatever the holder holds now.
 - **Unfiltered cache, per-Start filters.** The cached parse applies **no
   filters** so any filter config reuses it; each enumeration re-filters via
   `DecisionFilterSet.Matches(record.ViewFor(ranking))` — each record through
@@ -1249,12 +1251,13 @@ halheinrich/backgammon#87). Beside the *active context* above sits the
 - **`CanWeightMix`** (on `IProblemStatsSink`, replacing the old
   `CanBindStats`) — *the* predicate for "can a weighted mix mean anything
   here": `Capability == Enabled` **and** the probe found a stats document with
-  `Count > 0` **and** the probe's generation stamp still matches
-  `PickedProblemFolder.PickGeneration`. That stamp is why the answer **expires
+  `Count > 0` **and** the probe's sample stamp is still
+  `PickedProblemFolder.SampleIdentity`. That stamp is why the answer **expires
   by construction** rather than by anyone remembering to reset it — every
-  `Set`/`Clear` bumps the generation, and a probe about the previous folder
-  simply stops matching. It starts at `-1`, not `0`, so "never probed" cannot
-  read as "probed and found nothing".
+  `Set`/`Resample`/`Clear` installs a new sample identity, and a probe about
+  the previous sample simply stops matching, which is also what makes a
+  resample's probe fresh. It starts against no sample at all, so "never
+  probed" cannot read as "probed and found nothing".
 - **The fold** (SPEC-stats-identity.md §3, amended 2026-09-02;
   `halheinrich/backgammon#187`) is the other exception, caught the same way:
   a `FoldableStatsSchemaException` — the producer's sibling signal for the
@@ -1304,7 +1307,7 @@ halheinrich/backgammon#87). Beside the *active context* above sits the
   nothing, absent files are never probed, and a `JSException` out of the
   probe is swallowed like a read failure — the probe is advisory, the bind
   decides. All three (`ForecastStatsSetAsideName` too) are gated by the one
-  generation stamp, and none moves the mix answer: unreadable is still "no
+  sample stamp, and none moves the mix answer: unreadable is still "no
   stats to weight by". It **promotes nothing** and never
   assigns the active document or `Status`, so a probe during a running quiz
   cannot disturb what that quiz records. Under a
@@ -1313,14 +1316,14 @@ halheinrich/backgammon#87). Beside the *active context* above sits the
   pick it began on, or not at all** (halheinrich/backgammon#263): it captures
   the pick's generation once, works every fact out across its two awaits (the
   read and the writability probe), and publishes them as one immutable
-  `PickedStatsProbe` that carries the generation — only while that generation
-  is still the one held. The stamp and the facts used to be five fields, the
+  `PickedStatsProbe` that carries the sample's identity — only while that
+  sample is still the one held. The stamp and the facts used to be five fields, the
   stamp set before the awaits and the facts after them, so a probe of the
   previous pick finishing late wrote its facts under the stamp the next pick's
   probe had set; one value assigned once makes that unrepresentable, and a
   superseded probe, on its success and catch paths alike, publishes nothing.
 - **Two reading points, both `Home`'s**: each successful pick's landing
-  (`ApplyPickOutcomeAsync`, after `Set` so it probes the generation it is
+  (`ApplyPickOutcomeAsync`, after `Set` so it probes the sample it is
   about) and `OnInitializedAsync`. The second is what makes "no mix until its
   first quiz creates stats" resolve on the way back from that quiz — returning
   to Home re-instantiates the page and re-probes — instead of waiting for a
@@ -1406,17 +1409,27 @@ being *held*, unlike the cancelled / empty-folder flags, which describe a
 gesture that left nothing to describe and so stay per-visit page fields. `Set`
 takes the truncation report rather than defaulting it, so a caller holding the
 fact cannot drop it. The holder also carries the **parse-once cache seam** —
-`Parsed` / `PickGeneration` / `StoreParsed` — so that invalidation
-is intrinsic to `Set`/`Clear`; `Parsed` is a `ParsedProblemSet`, the
+`Parsed` / `SampleIdentity` / `StoreParsed` — so that invalidation
+is intrinsic to `Set`/`Resample`/`Clear`; `Parsed` is a `ParsedProblemSet`, the
 decisions *and* the `SourceReport` of the walk that produced them, so the
 rejected-file record (halheinrich/backgammon#368) is a fact about the folder
-being held exactly as `Truncations` is, retired by `Set`/`Clear` and by
-nothing else; see the `CachedProblemSetSource` section for the contract — and
-**`PickOccurrence`**, the opaque per-pick identity token
-(replaced exactly where `PickGeneration` bumps) that keys Home's dismissible
-pick-outcome notices in `QuizNoticeDismissal`; opaque rather than the boxed
-generation for the holder's one-rule-one-kind-of-token discipline (issue
-halheinrich/backgammon#107, mirroring `QuizStatsStore.StatusOccurrence`).
+being held exactly as `Truncations` is, retired by `Set`/`Resample`/`Clear`
+and by nothing else; see the `CachedProblemSetSource` section for the
+contract — and **two identities** (SPEC-filtering.md §4, "The sample, the
+limits and Resample"; halheinrich/backgammon#403). **`SetupIdentity`** is the
+setup's: begun by every `Set`, even of the same folder, kept by `Resample`,
+dropped by `Clear`; Home reports it to the filter owner as its source
+(`SetupIdentity.FilterSource`) and keys `MixPanel` by it, so the filter in
+effect and the mix follow it. **`SampleIdentity`** is the sample's: replaced
+by every `Set`, `Resample` and `Clear`; it keys the parse cache, the match
+count (`MatchCountInputs`), the pick-time stats probe and Home's dismissible
+pick-outcome notices in `QuizNoticeDismissal`. Each is an opaque type of its
+own, compared by reference, so nothing keyed by one can be keyed by the other.
+They replaced one counter (`PickGeneration`, with `PickOccurrence` minted
+where it bumped), which a resample could not keep and replace at once.
+`Set` and `Resample` refuse a sample with no file — an empty draw holds no
+folder, and an empty resample replaces nothing — and `Resample` refuses
+while nothing is held.
 
 - **`DisplayName`** (`string?`) — how the folder's name displays: `FolderName`
   in single quotes (`'MyMatches'`), `null` when nothing is picked. The **one
@@ -1516,8 +1529,8 @@ fresh restoration (§4's last row) — while every in-app navigation finds the
 same one.
 
 **It reports its source where the source latches.** Home's `FilterSource`
-(`FromGeneration(Folder.PickGeneration)` while the pick holds files, else
-`null`) is reported by `ReportFilterSource()` after every change to the
+(`Folder.SetupIdentity?.FilterSource`: the setup's token while the pick holds
+files, else `null`) is reported by `ReportFilterSource()` after every change to the
 folder — `ClearFolder()` (the setup end, at the pick click and in each
 failure path) and the successful `Folder.Set` — whether or not the panel is
 mounted, and once more on each mount. A different source ends the setup (the
@@ -1734,8 +1747,9 @@ than two: the incoming pick's own stats fact reads false there, so the panel
 does not mount, nothing re-hydrates, and `EffectiveMix` reads the passthrough
 — with **no capability fork in the gate**. Such a pick therefore still cannot
 coexist with a mix in effect, which is what retired the old won't-apply
-advisory. The panel is **`@key`-ed on `PickedProblemFolder.PickGeneration`**
+advisory. The panel is **`@key`-ed on `PickedProblemFolder.SetupIdentity`**
 so every pick re-mounts it and the fresh mount re-hydrates the discarded
+draft, while a resample, which keeps the setup, keeps the panel and its
 draft (see Pitfalls: load-bearing).
 
 **`MixDraft`** (Quiz/) is the app-scoped edit state behind the panel — and,
@@ -1892,8 +1906,8 @@ never where the box happens to sit:
   three branches share one slot: mutually exclusive renderings of one
   per-pick verdict), the unreadable and unwritable forecasts (a slot each:
   both can show at once) and the stats-retirement forecast — keyed on
-  `PickedProblemFolder.PickOccurrence`, so a re-pick shows fresh and
-  navigate-back stays dismissed; and **Done's three stats notices, bound to
+  `PickedProblemFolder.SampleIdentity`, so a re-pick or a resample shows
+  fresh and navigate-back stays dismissed; and **Done's three stats notices, bound to
   the Quiz page's slots and occurrences** (`SPEC-notices.md` Fork B, which
   overturned Done's old "read once, not dismissible" exception): they are the
   same notices, so one occurrence has one dismissal — closed mid-quiz, it
@@ -1944,8 +1958,9 @@ exist at all:
   orthogonal to the condition `Status` reports; folding it in would make every
   `== Ready` site grow an "or retired" clause. `Done` mirrors it on the same
   slot and occurrence, as it mirrors the degrade notices.
-- **PickTruncations / PickStatsCapability / PickStatsRetirementForecast** →
-  `PickedProblemFolder.PickOccurrence`, the same opaque token for all three of
+- **PickTruncations / PickStatsCapability / PickStatsUnreadableForecast /
+  PickStatsUnwritableForecast / PickStatsRetirementForecast** →
+  `PickedProblemFolder.SampleIdentity`, the same opaque token for all five of
   Home's pick-band slots (they render side by side and dismiss independently).
 - **StorageUnavailable** → `BrowserStorageCondition.Occurrence`, the same kind
   of nullable token as `StatsRetiredOccurrence` — the token is the flag —
@@ -1974,7 +1989,7 @@ consequence-bearing information before the action. Both tenses render the
 name through `QuizStatsFile.RetiredNameFor` over the version the *file*
 declared, so they cannot name two different files; the forecast reads
 `QuizStatsStore.ForecastStatsSetAsideName`, whose **nullable name is the
-flag**, expiring with the pick generation like `CanWeightMix`. Only the
+flag**, expiring with the probe's sample like `CanWeightMix`. Only the
 producer's retired-schema signal forecasts: a corrupt, foreign or
 newer-schema file is the `LoadFailed` family's story, told after the bind,
 and promising a set-aside for one would promise an act that never comes.
@@ -2415,7 +2430,7 @@ The asymmetry is pinned three times over: at the service seam
   composite. The `MixPanel`
   carries a *second* gate, `MixVisibility.IsVisible` (§ that section; the
   setting **and** the folder's stats fact), and a `@key` on
-  `Folder.PickGeneration` (see Pitfalls: load-bearing); it raises no events and
+  `Folder.SetupIdentity` (see Pitfalls: load-bearing); it raises no events and
   takes no parameters — gestures flow through the injected `MixDraft`, whose
   `Changed` event Home subscribes to (unsubscribed in `Dispose`) so the derived
   gates re-render. Visibility's other half needs no subscription: the setting
@@ -5113,8 +5128,9 @@ public (see Pitfalls). The externally visible surface is the route map:
   stops being true: a brand-new folder's first quiz would create the stats
   record but the mix would stay hidden until the user re-picked the folder,
   which nothing on screen would tell them to do. The probe is also stamped
-  with `PickGeneration` — don't "simplify" that away, it is what makes a
-  verdict about the previous folder expire instead of answering for this one.
+  with the sample's identity (`SampleIdentity`) — don't "simplify" that away,
+  it is what makes a verdict about the previous sample expire instead of
+  answering for this one.
 - **A locked stats file is not caught at pick time.** The producer's
   writability probe finds a file the browser will not open for writing —
   marked read-only, or not allowed — but a file another program holds open
@@ -5124,7 +5140,9 @@ public (see Pitfalls). The externally visible surface is the route map:
   Quiz and Done stay beside the pick-time forecasts, and why the unwritable
   forecast's copy never names "locked": it would name a cause that never
   produces it. Don't retire the later notices as redundant.
-- **`MixPanel`'s `@key` on `PickGeneration` is load-bearing — don't drop it.**
+- **`MixPanel`'s `@key` on `SetupIdentity` is load-bearing — don't drop it,
+  and don't key it by the sample.** Keyed by the sample, a resample would
+  re-mount it and re-hydrate over a draft the setup keeps.
   A mix-visible → mix-visible re-pick leaves both `MixVisibility.IsVisible` and
   `HasFiles`
   true, so without the key the panel never re-mounts and nothing triggers the
@@ -5297,14 +5315,17 @@ public (see Pitfalls). The externally visible surface is the route map:
   `SavedFiltersApplicable` split) would be a second encoding of a producer
   rule — the facet-prose drift hazard in gate form.
 - **The parse cache must stay unfiltered, holder-homed, and
-  generation-guarded.** `PickedProblemFolder.Parsed` is the parse of
-  the *whole* pick with no filters — caching a filtered parse would silently
+  sample-guarded.** `PickedProblemFolder.Parsed` is the parse of
+  the *whole* sample with no filters — caching a filtered parse would silently
   serve one filter config's subset to every later Start. Its invalidation is
-  `Set`/`Clear` nulling it (cache lifecycle = pick lifecycle); don't move the
-  slot off the holder and re-create the forgotten-invalidation-wiring hazard,
-  and don't drop `StoreParsed`'s generation check — the pick gesture is async,
-  so a re-pick can complete inside a Start's await points and an unguarded
-  store would install the *old* pick's parse as the *new* pick's cache.
+  `Set`/`Resample`/`Clear` nulling it (cache lifecycle = sample lifecycle);
+  don't move the slot off the holder and re-create the
+  forgotten-invalidation-wiring hazard, and don't drop either sample check —
+  `StoreParsed`'s, or the source's before it adopts the cache. A pick and a
+  resample are async, so a new sample can land inside a count's or a Start's
+  await points: an unguarded store would install the *old* sample's parse as
+  the *new* one's cache, and an unguarded adoption would hand a source built
+  over the old files the new sample's decisions.
   **And its report rides with it, one walk each** (halheinrich/backgammon#368):
   never hand the stored `SourceReport` to another enumeration (the producer
   refuses a report's second walk, so a Restart would throw), never keep a

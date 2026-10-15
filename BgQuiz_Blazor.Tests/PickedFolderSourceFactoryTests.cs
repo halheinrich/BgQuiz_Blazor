@@ -140,7 +140,7 @@ public class PickedFolderSourceFactoryTests
         // Equity row.
         var picked = HolderOver([new PickedFile("seeded.xg", [1])]);
         picked.StoreParsed(
-            picked.PickGeneration, TestFixtures.Parsed(TestFixtures.DepthSplitDecision(recordedPlayIndex: 0)));
+            picked.SampleIdentity, TestFixtures.Parsed(TestFixtures.DepthSplitDecision(recordedPlayIndex: 0)));
         var factory = FactoryOver(picked);
         var erredMoreThanAHundredth = new FilterConfig { ErrorMin = 0.01 }.Build();
 

@@ -13,8 +13,9 @@ namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
 /// Tests for <see cref="MatchCount"/> — Home's match count, keyed by the
-/// selection, the filter in effect and the ranking (halheinrich/backgammon#374,
-/// Arc 2 item 3). <c>PageTests</c> pins what a page shows across navigation;
+/// selection, the sample, the filter in effect and the ranking
+/// (halheinrich/backgammon#374, Arc 2 item 3; the sample since
+/// halheinrich/backgammon#403). <c>PageTests</c> pins what a page shows across navigation;
 /// this suite pins the holder's own rules where a page cannot see them: a
 /// superseded count's completion changes nothing, so there is nothing on
 /// screen to wait for, and the only proof its continuation ran is awaiting the
@@ -34,6 +35,9 @@ namespace BgQuiz_Blazor.Tests;
 public class MatchCountTests : BunitContext
 {
     private static readonly FilterSourceToken Selection = FilterSourceToken.FromGeneration(1);
+
+    /// <summary>The sample every request counts unless a test names another.</summary>
+    private readonly SampleIdentity _sample = new PickedProblemFolder().SampleIdentity;
 
     private readonly HeldCountSource _equity = new(2);
     private readonly HeldCountSource _depthFirst = new(1);
@@ -60,8 +64,12 @@ public class MatchCountTests : BunitContext
         _count = new MatchCount(controller, _log);
     }
 
-    /// <summary>The inputs for <paramref name="ranking"/>, read off the owner once the boot's restoration has settled.</summary>
-    private MatchCountInputs InputsFor(PlayRanking ranking)
+    /// <summary>
+    /// The inputs for <paramref name="ranking"/> over <paramref name="sample"/>
+    /// (the test's own by default), read off the owner once the boot's
+    /// restoration has settled.
+    /// </summary>
+    private MatchCountInputs InputsFor(PlayRanking ranking, SampleIdentity? sample = null)
     {
         var setup = Services.GetRequiredService<FilterSetup>();
         if (setup.Current.Restoration == FilterRestoration.Pending)
@@ -71,7 +79,7 @@ public class MatchCountTests : BunitContext
             surface.WaitForAssertion(() => Assert.NotEqual(FilterRestoration.Pending, setup.Current.Restoration));
         }
 
-        return MatchCountInputs.For(setup.Current, Selection, ranking)
+        return MatchCountInputs.For(setup.Current, Selection, sample ?? _sample, ranking)
             ?? throw new InvalidOperationException("The ready empty selection should be in effect.");
     }
 
@@ -181,6 +189,31 @@ public class MatchCountTests : BunitContext
         Assert.True(afterSettling.IsCompleted);
         Assert.Same(settled, _count.ReadingFor(InputsFor(PlayRanking.Equity)));
         Assert.Equal(1, _built);
+    }
+
+    [Fact]
+    public void InputsDifferingOnlyInTheSample_AreDifferentInputs()
+    {
+        // A resample keeps the setup — the selection and the filter in effect
+        // — and replaces the files counted, so the count is keyed by the
+        // sample's identity too (SPEC-filtering.md §4): equal only for the
+        // same sample, by reference, whatever else agrees.
+        var held = InputsFor(PlayRanking.Equity);
+        var resampled = InputsFor(PlayRanking.Equity, new PickedProblemFolder().SampleIdentity);
+
+        Assert.Equal(held.Selection, resampled.Selection);
+        Assert.NotEqual(held, resampled);
+        Assert.Equal(held, InputsFor(PlayRanking.Equity));
+        Assert.Equal(held.GetHashCode(), InputsFor(PlayRanking.Equity).GetHashCode());
+    }
+
+    [Fact]
+    public void Inputs_WithNoSample_AreRefused()
+    {
+        InputsFor(PlayRanking.Equity); // settle the restoration
+        var refused = Assert.Throws<ArgumentNullException>(() => MatchCountInputs.For(
+            Services.GetRequiredService<FilterSetup>().Current, Selection, null!, PlayRanking.Equity));
+        Assert.Equal("sample", refused.ParamName);
     }
 
     [Fact]

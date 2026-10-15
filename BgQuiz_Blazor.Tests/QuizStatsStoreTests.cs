@@ -1079,19 +1079,25 @@ public class QuizStatsStoreTests
         Assert.False(store.CanWeightMix);
     }
 
-    [Fact]
-    public async Task CanWeightMix_ExpiresWhenTheFolderChanges_WithNoResetCall()
+    [Theory]
+    [InlineData("pick")]
+    [InlineData("resample")]
+    public async Task CanWeightMix_ExpiresWhenTheSampleChanges_WithNoResetCall(string how)
     {
         // The derived-stamp guarantee: nothing clears the probe, and nothing
-        // has to. A new pick bumps the holder's generation and the probe stops
-        // matching, so a verdict about the *previous* folder can never be read
-        // as one about this one.
+        // has to. A new pick or a resample installs a new sample identity and
+        // the probe stops matching, so a verdict about the *previous* sample
+        // can never be read as one about this one — a resample's probe is
+        // fresh (SPEC-filtering.md §4), though the folder is the same.
         var folder = EnabledFolder();
         var store = MakeStore(new FakeFolderAccess { PickedStatsJson = StatsDocumentJson() }, folder);
         await store.RefreshPickedStatsAsync();
         Assert.True(store.CanWeightMix);
 
-        folder.Set("Other", FolderWriteCapability.Enabled, TestFixtures.Sample([new PickedFile("b.xg", [1])]));
+        if (how == "pick")
+            folder.Set("Other", FolderWriteCapability.Enabled, TestFixtures.Sample([new PickedFile("b.xg", [1])]));
+        else
+            folder.Resample(TestFixtures.Sample([new PickedFile("b.xg", [1])]));
 
         Assert.False(store.CanWeightMix);
     }
@@ -1602,6 +1608,34 @@ public class QuizStatsStoreTests
 
         Assert.Equal((pickBHasStats, (string?)null, pickBUnreadable, false), pickB);
         Assert.Equal(pickB, ProbeFacts(store));
+    }
+
+    [Fact]
+    public async Task Probe_ARead_LandingAfterAResamplesProbe_LeavesTheResamplesFactsUnchanged()
+    {
+        // The same race with a resample in the re-pick's place: the folder is
+        // the one held, but the probe answers for the sample it began on, so
+        // the first sample's late read — here, a file that will not parse —
+        // cannot overwrite the resample's facts.
+        var folder = EnabledFolder();
+        var holdFirst = new TaskCompletionSource();
+        var fake = new FakeFolderAccess { PickedStatsJson = "not json at all" };
+        fake.PickedStatsReadHolds.Enqueue(holdFirst.Task);
+        var store = MakeStore(fake, folder);
+
+        var firstProbe = store.RefreshPickedStatsAsync();
+        Assert.False(firstProbe.IsCompleted, "Premise: the first sample's probe must be parked on its read.");
+
+        folder.Resample(TestFixtures.Sample([new PickedFile("b.xgp", [4, 5, 6])]));
+        fake.PickedStatsJson = StatsDocumentJson();
+        await store.RefreshPickedStatsAsync();
+        var resampled = ProbeFacts(store);
+
+        holdFirst.SetResult();
+        await firstProbe;
+
+        Assert.Equal((true, (string?)null, false, false), resampled);
+        Assert.Equal(resampled, ProbeFacts(store));
     }
 
     [Fact]

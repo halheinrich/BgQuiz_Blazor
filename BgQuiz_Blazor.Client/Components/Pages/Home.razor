@@ -8,6 +8,7 @@
 @using XgFilter_Lib
 @using XgFilter_Lib.Filtering
 @using XgFilter_Lib.Enums
+@using Microsoft.Extensions.Logging
 
 @inject IFolderAccess FolderAccess
 @inject PickedProblemFolder Folder
@@ -23,6 +24,7 @@
 @inject QuizSettings Settings
 @inject QuizNoticeDismissal Notices
 @inject BrowserStorageCondition StorageCondition
+@inject ILogger<Home> Logger
 
 <PageTitle>BgQuiz</PageTitle>
 
@@ -256,12 +258,12 @@
            derives from that partial pool — so polite like its neighbours, not
            the error.
 
-           One line per truncated kind, and only for kinds actually truncated:
+           One line per truncated kind, and only for kinds with omitted files:
            the caps are per format and independent, so a folder can be far past
-           one and nowhere near the other. Both figures come from the pick
-           itself — the cap via PickTruncation.MaxFileCount, which reads the
-           very constant the pick enforced, so the sentence cannot claim a
-           limit the app does not apply.
+           one and nowhere near the other. Both figures come from the sample's
+           own report — the cap via SampledKind.MaxFileCount, which the folder
+           module takes from the very table it enforced, so the sentence cannot
+           claim a limit the app does not apply.
 
            "chosen at random" is in the copy because the draw is OBSERVABLE
            (issue halheinrich/backgammon#106): re-picking one over-cap folder reads a different
@@ -269,19 +271,19 @@
            the same folder. Unexplained, that reads as a bug; named, it reads
            as the reason to re-pick — the excess is reachable, not lost. The
            line still claims only how many were used and how many were not,
-           never which: PickTruncation carries counts, no identities.
+           never which: SampledKind carries counts, no identities.
 
            Dismissible (issue halheinrich/backgammon#107), and the owner of the
            occurrence holds the dismissal (SPEC-notices.md §2): the app-scoped
            QuizNoticeDismissal, so navigating away and back cannot resurrect
-           it, keyed on the pick's occurrence token so the next pick's report
-           shows fresh with no reset wiring. *@
+           it, keyed on the sample's identity so the next sample's report —
+           a re-pick's or a resample's — shows fresh with no reset wiring. *@
         @if (!Folder.Sample.HoldsEveryMatchingFile)
         {
             <Notice id="truncationNotice" class="mt-2" Kind="NoticeKind.Warning"
                     Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickTruncations, Folder.PickOccurrence)"
-                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickTruncations, Folder.PickOccurrence)">
+                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickTruncations, Folder.SampleIdentity)"
+                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickTruncations, Folder.SampleIdentity)">
                 @foreach (var kind in Folder.Sample.Kinds.Where(kind => kind.OmittedCount > 0))
                 {
                     <div>
@@ -300,8 +302,8 @@
            truncation notice above — one holder slot for all three branches,
            because they are mutually exclusive renderings of one per-pick
            verdict, so a dismissal can only ever cover the one the user actually
-           read. Keyed on the pick's occurrence token: a re-pick reports its own
-           verdict fresh.
+           read. Keyed on the sample's identity: a re-pick or a resample
+           reports its verdict fresh.
 
            The Enabled branch's "will be saved" is a promise, so it is made only
            while neither stats forecast below says otherwise (issues
@@ -318,8 +320,8 @@
                 case FolderWriteCapability.Enabled:
                     <Notice id="statsCapabilityNotice" class="mt-2" Kind="NoticeKind.Information"
                             Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                            @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsCapability, Folder.PickOccurrence)"
-                            @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.PickOccurrence)">
+                            @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsCapability, Folder.SampleIdentity)"
+                            @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.SampleIdentity)">
                         Your lifetime quiz stats will be saved to
                         <strong>@QuizStatsFile.FileName</strong> in this folder.
                     </Notice>
@@ -327,8 +329,8 @@
                 case FolderWriteCapability.BrowserUnsupported:
                     <Notice id="statsCapabilityNotice" class="mt-2" Kind="NoticeKind.Warning"
                             Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                            @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsCapability, Folder.PickOccurrence)"
-                            @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.PickOccurrence)">
+                            @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsCapability, Folder.SampleIdentity)"
+                            @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.SampleIdentity)">
                         Your browser can't save quiz stats — the quiz runs without them.
                     </Notice>
                     break;
@@ -342,8 +344,8 @@
                        constant each, so warning and follow-through can't drift. *@
                     <Notice id="statsCapabilityNotice" class="mt-2" Kind="NoticeKind.Warning"
                             Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                            @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsCapability, Folder.PickOccurrence)"
-                            @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.PickOccurrence)">
+                            @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsCapability, Folder.SampleIdentity)"
+                            @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.SampleIdentity)">
                         @(FolderPickDisplay.WriteAccessNotGranted) — the quiz runs, but
                         @(FolderPickDisplay.WriteAccessConsequence).
                     </Notice>
@@ -354,8 +356,8 @@
            halheinrich/backgammon#261): what the pick-time probe already knows,
            said at the pick rather than after Start — the stats file exists and
            can't be read, or can't be written. Each is its own condition notice
-           on its own holder slot, keyed on the pick's occurrence token like
-           every notice in this band, and both may show at once. Polite warnings:
+           on its own holder slot, keyed on the sample's identity like every
+           notice in this band, and both may show at once. Polite warnings:
            outcomes the user should understand before acting, not failures.
 
            The copy is FolderPickDisplay's, which Help quotes. The Quiz and Done
@@ -366,8 +368,8 @@
         {
             <Notice id="statsUnreadableForecastNotice" class="mt-2" Kind="NoticeKind.Warning"
                     Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsUnreadableForecast, Folder.PickOccurrence)"
-                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsUnreadableForecast, Folder.PickOccurrence)">
+                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsUnreadableForecast, Folder.SampleIdentity)"
+                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsUnreadableForecast, Folder.SampleIdentity)">
                 @FolderPickDisplay.StatsUnreadableForecast
             </Notice>
         }
@@ -375,8 +377,8 @@
         {
             <Notice id="statsUnwritableForecastNotice" class="mt-2" Kind="NoticeKind.Warning"
                     Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsUnwritableForecast, Folder.PickOccurrence)"
-                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsUnwritableForecast, Folder.PickOccurrence)">
+                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsUnwritableForecast, Folder.SampleIdentity)"
+                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsUnwritableForecast, Folder.SampleIdentity)">
                 @FolderPickDisplay.StatsUnwritableForecast
             </Notice>
         }
@@ -396,14 +398,14 @@
            Reads below the capability notice, which it qualifies: that line says
            where stats will be saved, this one says what happens to what is
            already there. Polite — an outcome, not a failure — and dismissible,
-           held on its own slot keyed on the pick's occurrence token, exactly
-           like the two notices above it. *@
+           held on its own slot keyed on the sample's identity, exactly like
+           the two notices above it. *@
         @if (StatsStore.ForecastStatsSetAsideName is { } forecastSetAsideName)
         {
             <Notice id="statsRetirementForecastNotice" class="mt-2" Kind="NoticeKind.Information"
                     Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsRetirementForecast, Folder.PickOccurrence)"
-                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsRetirementForecast, Folder.PickOccurrence)">
+                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsRetirementForecast, Folder.SampleIdentity)"
+                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsRetirementForecast, Folder.SampleIdentity)">
                 Your stats file was written by an earlier version of BgQuiz and can't be
                 carried forward. When you start a quiz it will be set aside as
                 <strong>@forecastSetAsideName</strong> — nothing is deleted — and a new
@@ -764,7 +766,8 @@
        Under a false derivation the mix plays no part in Start, by construction:
        with no panel mounted nothing re-hydrates, and EffectiveMix reads the
        passthrough, so no mix gate, warning, or refusal can fire. Keyed on the
-       pick generation so every pick re-mounts it: the fresh mount triggers the
+       setup's identity so every pick re-mounts it and a resample does not (the
+       mix is the setup's, SPEC-filtering.md §4): the fresh mount triggers the
        discarded draft's re-hydration, which re-offers the stored last-valid mix
        — and, into a folder that has stats while the setting is on, re-offers it
        IN EFFECT. That is the ruling and not an oversight: the rows are a
@@ -777,7 +780,7 @@
        nothing here should depend on the gate's timing. *@
     @if (MixVisibility.IsVisible)
     {
-        <MixPanel @key="Folder.PickGeneration" />
+        <MixPanel @key="Folder.SetupIdentity" />
     }
 
     @* The Order (SPEC-filtering.md §7): one control, its four values
