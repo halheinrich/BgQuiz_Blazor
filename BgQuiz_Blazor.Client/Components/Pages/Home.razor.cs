@@ -40,10 +40,9 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// That predicate reads a probe of the picked folder's stats document, and this
-/// page owns both of its reading points
-/// (<see cref="QuizStatsStore.RefreshPickedStatsAsync"/>): every successful
-/// pick's landing (<see cref="ApplyPickOutcomeAsync"/>), and this page's own
+/// That predicate reads a probe of the picked folder's stats document, read at
+/// two points (<see cref="QuizStatsStore.RefreshPickedStatsAsync"/>): every
+/// sample's landing (<see cref="FolderOperations"/>), and this page's own
 /// initialization — which is what lets the answer change after the quiz that
 /// created the record, since returning here re-instantiates the page. The
 /// saved-filters persist gate is deliberately <b>not</b> routed through it and
@@ -119,10 +118,11 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// panel is visible, the passthrough otherwise — are handed to the
 /// <see cref="QuizController"/>, whose source factory builds a
 /// <see cref="WasmUploadedProblemSetSource"/> over the picked files, and the
-/// app navigates to <c>/quiz</c>. A pick's failures — the two the folder seam
-/// raises about the folder chosen (<see cref="IsAcquisitionFailure"/>) — and
-/// <see cref="FilterConfig.Build"/> / source-construction failures are caught
-/// and surfaced as banners rather than faulting the WebAssembly app. The two
+/// app navigates to <c>/quiz</c>. A pick's or a resample's failure to acquire —
+/// any exception from the folder seam but its caller error
+/// (<see cref="FolderOperations"/>) — and <see cref="FilterConfig.Build"/> /
+/// source-construction failures are surfaced as banners rather than faulting
+/// the WebAssembly app. The two
 /// non-failure pick outcomes — a pick that ended holding no folder, and one that
 /// held a folder with no problem files — each get their own polite notice rather
 /// than silence, so no gesture ever returns the user to an unchanged page with
@@ -158,11 +158,12 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// <b>A pick ends the current setup — at the click.</b> Choosing a folder
-/// returns the whole setup surface to its pre-setup state
-/// (<see cref="EndCurrentSetupAsync"/>, shared with the <c>Clear</c> affordance,
-/// which encodes the same decision): folder and picked slot, the mix draft, the
-/// filter setup (by reporting the source's end to <see cref="FilterSetup"/>),
-/// and every pick-scoped notice. The mix
+/// returns the whole setup surface to its pre-setup state (the reset
+/// <see cref="FolderOperations"/> begins a pick with, and <c>Clear</c> is,
+/// since the two encode the same decision): folder and picked slot, the mix
+/// draft, the filter setup (by reporting the source's end to
+/// <see cref="FilterSetup"/>), and every pick-scoped notice
+/// (<see cref="ClearPickNotices"/>, this page's half). The mix
 /// setting is deliberately untouched — it is a choice, and choices outlive
 /// setups (§4).
 /// Nothing the user selected against the previous corpus can be assumed to mean
@@ -197,7 +198,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 ///
 /// <para>
 /// <b>A new sample ends the run in progress — at the landing</b>
-/// (<c>SPEC-quiz-history.md</c> §9; <see cref="LandSampleAsync"/>), a pick's
+/// (<c>SPEC-quiz-history.md</c> §9; <see cref="FolderOperations"/>), a pick's
 /// and a resample's alike: once a non-empty sample is acquired, the run is
 /// finished as End quiz finishes it and its heavy references released, then
 /// the sample is installed, and only then can a count or a Start parse it.
@@ -205,6 +206,19 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// empty folder, Clear, a failed pick or resample, an empty resample. The
 /// setup ends at the click; the run ends only when files arrive. Afterwards
 /// the page says the quiz was finished and links to its summary on Done.
+/// </para>
+///
+/// <para>
+/// <b>A folder operation is the app's, not this page's</b>
+/// (<see cref="FolderOperations"/>; halheinrich/backgammon#403). A pick or a
+/// resample can outlive the page it began on, so its exclusion, its busy
+/// cursor and its landing live in that app-scoped owner, and this page only
+/// asks: it refuses a pick, a Clear, a resample or a Start at the handler
+/// while an operation is in flight — whichever page began it — and disables
+/// those controls too; it shows the operation's progress in its busy state;
+/// and it reports what an operation it asked for came to on its per-visit
+/// notices (<see cref="Report"/>). A remounted page therefore shows a pick or a
+/// resample still running, and the sample it lands, as its own.
 /// </para>
 ///
 /// <para>
@@ -277,9 +291,10 @@ public partial class Home : ComponentBase, IDisposable
     private string? _startError;
 
     /// <summary>
-    /// Sibling of <see cref="_startError"/> for pick failures — a browser
-    /// failure, or a file past the <see cref="PickedFileLimits.MaxFileBytes"/>
-    /// cap (<see cref="IsAcquisitionFailure"/>). A per-visit failure notice
+    /// Sibling of <see cref="_startError"/> for a pick's or a resample's failure
+    /// to acquire — a browser failure, a file past the
+    /// <see cref="PickedFileLimits.MaxFileBytes"/> cap, a stream that ends
+    /// mid-copy, a broken reply (<see cref="FolderOperations"/>). A per-visit failure notice
     /// (assertive), like the start error, and
     /// the notice's whole state: dismissing it clears this field, and the next
     /// failure assigns it again and shows fresh.
@@ -467,19 +482,12 @@ public partial class Home : ComponentBase, IDisposable
     private IDisposable? _filterAttachment;
 
     /// <summary>
-    /// True while this page is running a foreground operation the user must
-    /// wait out: the scan-and-buffer half of a folder pick (issue
-    /// halheinrich/backgammon#48), and the whole of a resample. One flag, not one per site — the affordance
-    /// is a property of the <i>page</i> ("BgQuiz is working, don't touch
-    /// anything"), not of the operation. Raised only through
-    /// <see cref="EnterBusyAsync"/> / <see cref="RunBusyAsync"/>, which own the
-    /// paint-before-the-work discipline. The match count's running state is the
-    /// count holder's own, read for the inputs on screen
-    /// (<see cref="CurrentCount"/>), because the count outlives this page;
-    /// <see cref="IsBusy"/> reads it only while the count is the pick's first
-    /// parse (<see cref="IsParsingThePick"/>).
+    /// The fallback picker this page's click opened, awaiting the selection the
+    /// hidden input will report (<see cref="HandleFallbackPickedAsync"/>), or
+    /// null. The owner collects only for the intent still current, so one kept
+    /// here past a newer operation is merely stale: it collects nothing.
     /// </summary>
-    private bool _busy;
+    private FallbackPickIntent? _fallbackIntent;
 
     /// <summary>
     /// The <c>Storage</c> the hosted <c>FilterSurface</c> gets: the picked-slot
@@ -771,6 +779,11 @@ public partial class Home : ComponentBase, IDisposable
         // Dispose.
         MatchCount.Changed += StateHasChanged;
 
+        // A folder operation is the app's, and can begin, show progress, land
+        // or end while this page is mounted whichever page began it: re-render,
+        // and ask for the count a landing re-keyed. Unsubscribed in Dispose.
+        Operations.Changed += OnOperationsChanged;
+
         // Tell the filter setup's owner which source this page holds, as the
         // host contract asks at page initialization. An unchanged source — a
         // navigate-back over the same pick — costs nothing and keeps the
@@ -832,6 +845,7 @@ public partial class Home : ComponentBase, IDisposable
         MixDraft.Changed -= StateHasChanged;
         StorageCondition.Began -= StateHasChanged;
         MatchCount.Changed -= StateHasChanged;
+        Operations.Changed -= OnOperationsChanged;
         _filterAttachment?.Dispose();
     }
 
@@ -841,9 +855,14 @@ public partial class Home : ComponentBase, IDisposable
     /// <c>&lt;fieldset disabled&gt;</c> — from a single expression, so the cursor
     /// and the disabled controls can never disagree about whether the page is
     /// working. A union of the independent sources: the controller's transition
-    /// gate (Start / Restart), this page's own foreground work
-    /// (<see cref="_busy"/>), and a match count that is parsing the pick
-    /// (<see cref="IsParsingThePick"/>).
+    /// gate (Start / Restart), a folder operation's own work — the app's, not
+    /// this page's, so a remounted page shows it too
+    /// (<see cref="FolderOperations.ShowsProgress"/>) — and a match count that
+    /// is parsing the pick (<see cref="IsParsingThePick"/>). A folder
+    /// operation's exclusion is a separate fact
+    /// (<see cref="FolderOperations.IsInFlight"/>): it holds through a pick's
+    /// prompts, where no progress shows, and it disables only the controls
+    /// that would begin an operation or a run.
     ///
     /// <para>
     /// <b>Not every count.</b> The count is no longer a gesture's: it runs on
@@ -866,7 +885,7 @@ public partial class Home : ComponentBase, IDisposable
     /// the inputs on screen (<see cref="IsParsingThePick"/>).
     /// </para>
     /// </summary>
-    private bool IsBusy => Controller.IsBusy || _busy || IsParsingThePick;
+    private bool IsBusy => Controller.IsBusy || Operations.ShowsProgress || IsParsingThePick;
 
     /// <summary>
     /// Whether the count of what is on screen is the pick's first parse: it is
@@ -880,493 +899,161 @@ public partial class Home : ComponentBase, IDisposable
     private bool IsParsingThePick => CurrentCount.IsCounting && Folder.Parsed is null;
 
     /// <summary>
-    /// Raise the busy affordance <i>and let it paint</i>, then return.
+    /// The one "pick a folder" gesture. <see cref="Operations"/> runs it — the
+    /// app-scoped owner of every folder operation, since a pick can outlive
+    /// this page — and this page refuses it at once while an operation is in
+    /// flight (the owner refuses too), clears its own per-visit notices, and
+    /// reports what the gesture came to (<see cref="Report"/>).
     ///
     /// <para>
-    /// The yield is the whole point, and the trap this method exists to make
-    /// unrepeatable: WebAssembly runs Blazor on one thread, so a busy state set
-    /// immediately before synchronous — or merely uninterrupted — work never
-    /// reaches the screen. <see cref="ComponentBase.StateHasChanged"/> only
-    /// <i>queues</i> the render; the queue drains when the thread is handed
-    /// back, which <c>await Task.Yield()</c> does. The work that follows must
-    /// therefore be genuinely async (every current caller's is: JS interop or a
-    /// yielding parse), or it will hold the thread and the paint will land after
-    /// the busy state is already over.
-    /// </para>
-    ///
-    /// <para>
-    /// Callers that own a whole operation should prefer
-    /// <see cref="RunBusyAsync"/>, which pairs this with the lowering. This
-    /// bare form exists for the folder pick, whose raise point sits <i>inside</i>
-    /// <see cref="IFolderAccess.PickFolderAsync"/> (at the browser-prompt seam)
-    /// while its lowering belongs to the whole gesture.
-    /// </para>
-    /// </summary>
-    private async Task EnterBusyAsync()
-    {
-        _busy = true;
-        StateHasChanged();
-        await Task.Yield();
-    }
-
-    /// <summary>
-    /// Run <paramref name="work"/> under the busy affordance: raise it, let it
-    /// paint (<see cref="EnterBusyAsync"/>), run, and lower it however the work
-    /// ends. The whole-operation form of the page's one busy idiom.
-    /// </summary>
-    private async Task RunBusyAsync(Func<Task> work)
-    {
-        await EnterBusyAsync();
-        try
-        {
-            await work();
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    /// <summary>
-    /// The one "pick a folder" gesture. Probes the mechanism at pick time:
-    /// with File System Access, the whole pick (picker, permission,
-    /// enumeration, buffering) completes inside <see cref="IFolderAccess"/>;
-    /// without it, this click only opens the hidden <c>webkitdirectory</c>
-    /// input's picker and the pick arrives later via that input's own change
-    /// event (<see cref="HandleFallbackPickedAsync"/>) or, on a dismissal, its
-    /// cancel event (<see cref="HandleFallbackCancelled"/>).
-    ///
-    /// <para>
-    /// <b>The setup ends at the click.</b> <see cref="EndCurrentSetupAsync"/>
-    /// runs <i>before</i> the mechanism fork, so the screen is back at its
-    /// initial no-folder state — guidance up, nothing else disclosed — by the
-    /// time the OS picker and the browser's permission prompts appear. They
-    /// used to play out over the previous folder's fully-populated screen, which
-    /// read as though that setup were still standing behind them. It is the
-    /// whole reset (see that method), not a cosmetic one: choosing a folder ends
-    /// the current setup whatever the picker then returns.
-    /// </para>
-    ///
-    /// <para>
-    /// The reset is inside the <c>try</c>: its one fallible step is the picked-
-    /// slot interop, and a browser failure there belongs in the pick-error
-    /// banner like every other, never faulting the WebAssembly app.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Only the folder's failures are caught</b>
-    /// (<see cref="IsAcquisitionFailure"/>), and a caught one releases the
-    /// folder the module bound for this pick (<see cref="ReleaseFailedPickAsync"/>).
+    /// <b>The setup ends at the click.</b> The owner's first step returns the
+    /// whole setup surface to its initial no-folder state — guidance up,
+    /// nothing else disclosed — and tells this page so before the OS picker and
+    /// the browser's permission prompts appear, so they never play out over the
+    /// previous folder's populated screen. It is the whole reset, not a
+    /// cosmetic one: choosing a folder ends the current setup whatever the
+    /// picker then returns. With File System Access the whole pick — picker,
+    /// permission, enumeration, buffering and the landing — completes inside
+    /// that one operation; without it, the click opens the hidden
+    /// <c>webkitdirectory</c> input's picker, and the pick arrives later through
+    /// that input's change event (<see cref="HandleFallbackPickedAsync"/>) or,
+    /// on a dismissal, its cancel event (<see cref="HandleFallbackCancelled"/>).
     /// </para>
     /// </summary>
     private async Task PickFolderAsync()
     {
-        try
-        {
-            // Acquisition, and only acquisition, is inside the catch: every
-            // call here is the folder seam's (the reset's one fallible step is
-            // its picked-slot release), so a failure here is the folder's.
-            FolderPickOutcome outcome;
-            try
-            {
-                await EndCurrentSetupAsync();
-
-                // The authoritative mechanism fork, re-probed per gesture. No
-                // guidance state is toggled here: the prompt note is back on screen
-                // (the reset above cleared the folder that was hiding it) and hides
-                // itself again once this pick leaves a folder held.
-                if (!await FolderAccess.SupportsDirectoryPickerAsync())
-                {
-                    // Nothing to be busy for yet: this only opens the hidden input's
-                    // picker and returns. The fallback's work — and its busy state —
-                    // begins when the browser reports a selection, in
-                    // HandleFallbackPickedAsync. (Raising it here would have no
-                    // reliable end: a dismissed fallback picker's cancel event is
-                    // best-effort, so the page could be left disabled forever.)
-                    await FolderAccess.TriggerFallbackPickerAsync(_fallbackInput);
-                    return;
-                }
-
-                // EnterBusyAsync is handed *in*, not called here: the pick's
-                // browser prompts must not run under a busy state (they are the
-                // user's turn, not the app's), and the scan that follows them
-                // never yields to the renderer on its own. So the affordance is
-                // raised at the seam between the two, from inside the pick — and
-                // stays up past the enumeration and the buffering, until the
-                // summary this method's caller renders is on screen. (The
-                // saved-filters read moved out of this stretch: the composite
-                // runs it on its own mount, after this render.) Lowered in the
-                // finally, which covers the cancelled path (no hook fired —
-                // nothing was raised) too.
-                outcome = await FolderAccess.PickFolderAsync(EnterBusyAsync);
-            }
-            catch (Exception ex) when (IsAcquisitionFailure(ex))
-            {
-                await ReleaseFailedPickAsync(ex);
-                return;
-            }
-
-            // Landing is not acquisition: a fault from here on is never a
-            // failed pick and never clears the sample it may have installed.
-            await ApplyPickOutcomeAsync(outcome);
-        }
-        finally
-        {
-            _busy = false;
-        }
+        if (Operations.IsInFlight) return;
+        ClearPickNotices();
+        Report(await Operations.PickAsync(_fallbackInput), resample: false);
     }
 
     /// <summary>
-    /// The fallback pick landing: the hidden input's FileList is collected and
-    /// filtered by the JS module (top-level <c>.xg</c> / <c>.xgp</c> only).
-    /// Capability is always <see cref="FolderWriteCapability.BrowserUnsupported"/>
-    /// on this mechanism — no writable handle exists.
+    /// The fallback pick landing: the hidden input's FileList, collected and
+    /// filtered by the JS module (top-level <c>.xg</c> / <c>.xgp</c> only) for
+    /// the pick intent this page's click opened the picker under. Capability is
+    /// always <see cref="FolderWriteCapability.BrowserUnsupported"/> on this
+    /// mechanism — no writable handle exists.
     ///
     /// <para>
     /// No reset of its own: this is the tail of a gesture
-    /// <see cref="PickFolderAsync"/> already ended the setup for. Its failures
-    /// are that gesture's: the collection's are caught and release the
-    /// collected folder (<see cref="ReleaseFailedPickAsync"/>), and the
-    /// landing is outside that catch.
-    /// </para>
-    ///
-    /// <para>
-    /// This <i>is</i> the fallback's busy seam — the whole method runs after the
-    /// user has chosen, so unlike the File System Access path there is no
-    /// prompt-versus-work boundary to find inside the call. Both mechanisms end
-    /// up meaning the same thing by the busy state: the app is processing a
-    /// selection the user has made.
+    /// <see cref="PickFolderAsync"/> already ended the setup for. The owner
+    /// collects only for the intent still current, taking the operation before
+    /// the collection binds the picked slot, so a selection reported after a
+    /// newer operation began changes nothing. The collection is the app's own
+    /// work from the start — the user has already chosen — so the busy state
+    /// covers all of it.
     /// </para>
     /// </summary>
-    private Task HandleFallbackPickedAsync(ChangeEventArgs _) => RunBusyAsync(async () =>
+    private async Task HandleFallbackPickedAsync(ChangeEventArgs _)
     {
-        FolderPickOutcome outcome;
-        try
-        {
-            outcome = await FolderAccess.CollectFallbackAsync(_fallbackInput);
-        }
-        catch (Exception ex) when (IsAcquisitionFailure(ex))
-        {
-            await ReleaseFailedPickAsync(ex);
-            return;
-        }
-
-        await ApplyPickOutcomeAsync(outcome);
-    });
-
-    /// <summary>
-    /// Whether <paramref name="failure"/>, raised by the folder seam while a
-    /// sample was being acquired, is reported as a failed acquisition — a
-    /// failed pick or resample. Every exception is, except one: the seam's
-    /// caller error, <see cref="InvalidOperationException"/>, which means the
-    /// folder was released under the draw or none was held — a fact about this
-    /// app and never about the folder — so it is not dressed up as a pick the
-    /// user could retry, and surfaces as the bug it is. The seam documents two
-    /// failures of the folder (<see cref="PickedFileTooLargeException"/>, and
-    /// <see cref="JSException"/> for the browser), but what reaches here from
-    /// across the interop boundary is wider — an
-    /// <see cref="EndOfStreamException"/> from a stream that ends mid-copy, a
-    /// <see cref="System.Text.Json.JsonException"/> from a reply that is not
-    /// the wire shape — and each of them is the folder failing to arrive.
-    /// Only acquisition is ever judged by this: landing is outside every
-    /// catch that asks it.
-    /// </summary>
-    private static bool IsAcquisitionFailure(Exception failure) =>
-        failure is not InvalidOperationException;
-
-    /// <summary>
-    /// A pick that failed (<see cref="IsAcquisitionFailure"/>): report it, and
-    /// hold no folder on <i>either</i> side of the folder seam
-    /// (halheinrich/backgammon#403). The module binds the chosen folder before
-    /// it draws and buffers — a File System Access pick once the prompts
-    /// settle, a fallback collection as it collects (<see cref="IFolderAccess"/>'s
-    /// held-folder transitions) — so a pick that fails in the draw or the
-    /// buffering leaves the module holding the folder the pick was for, which
-    /// this page, holding nothing, would never offer to act on or release.
-    /// The release is the picked slot's only: the active slot, a running
-    /// quiz's stats context, is untouched.
-    ///
-    /// <para>
-    /// A pick's alone. A resample that fails keeps the sample held and the
-    /// module's folder with it, so nothing here is shared with that path.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>The cleanup never replaces the acquisition's error.</b> Whatever the
-    /// release throws is logged, and the error reported is the one the
-    /// acquisition failed with.
-    /// </para>
-    /// </summary>
-    private async Task ReleaseFailedPickAsync(Exception failure)
-    {
-        ClearFolder();
-        _pickError = failure.Message;
-        try
-        {
-            await FolderAccess.ClearPickedAsync();
-        }
-        catch (Exception cleanupFault)
-        {
-            // The pick's failure is already on screen. A release that fails too
-            // leaves the module holding a folder nothing on this page acts on —
-            // no resample and no saved filters without a folder held here —
-            // until the next pick or Clear replaces it; worth a log line, never
-            // a second error box, and never the error reported.
-            Logger.LogWarning(cleanupFault,
-                "Releasing the folder of a failed pick failed too; the pick's own error is the one reported: {Failure}",
-                failure.Message);
-        }
+        if (_fallbackIntent is not { } intent) return;
+        Report(await Operations.CollectFallbackAsync(intent, _fallbackInput), resample: false);
     }
 
     /// <summary>
     /// The hidden <c>webkitdirectory</c> input's dismissal: the fallback
     /// mechanism's cancelled pick, landing on the same
     /// <see cref="_cancelledPickNotice"/> the File System Access mechanism uses
-    /// (its wording is cause-agnostic, so it is true here too). Without this the
-    /// gesture would end on a screen the click had just reset, with no account
-    /// of why — the very silence the notice exists to end.
+    /// (its wording is cause-agnostic, so it is true here too) — when it is the
+    /// dismissal of the picker still awaited; a superseded one says nothing.
+    /// Without this the gesture would end on a screen the click had just reset,
+    /// with no account of why — the very silence the notice exists to end.
     /// </summary>
     private void HandleFallbackCancelled()
     {
-        _cancelledPickNotice = true;
-    }
-
-    /// <summary>
-    /// The shared landing for both mechanisms' outcomes. A cancelled pick and an
-    /// empty folder each leave the holder clear and surface their own polite
-    /// outcome notice, and replace no sample, so a run in progress goes on;
-    /// otherwise the pick's sample lands (<see cref="LandSampleAsync"/>) — the
-    /// run ended, then the holder takes the pick, and the rendered summary +
-    /// stats status notice derive from it (no transient field to keep in sync
-    /// — that desynced on navigate-back, when Home re-instantiated). The two
-    /// no-folder outcomes need no stats probe: they return with the holder
-    /// clear, and a cleared holder fails the predicate's capability half
-    /// outright.
-    /// </summary>
-    private async Task ApplyPickOutcomeAsync(FolderPickOutcome outcome)
-    {
-        if (outcome.Cancelled)
-        {
-            // Not silent any more: cancellation also covers a declined
-            // view-files permission, which leaves the user needing an
-            // explanation — see _cancelledPickNotice. Safe to set on the way out
-            // because EndCurrentSetupAsync ran at pick *start*, not here; the
-            // screen it left is the initial no-folder one, which this notice now
-            // accounts for.
+        if (_fallbackIntent is { } intent && Operations.DismissFallback(intent))
             _cancelledPickNotice = true;
-            return;
-        }
-
-        if (outcome.Sample.Files.IsEmpty)
-        {
-            // Already clear — EndCurrentSetupAsync ran at the click and nothing
-            // since could have set it. Re-stated so this shared landing carries
-            // its own postcondition ("an empty pick holds no folder") rather
-            // than inheriting it from whoever called it.
-            ClearFolder();
-            _emptyFolderNotice = true;
-            return;
-        }
-
-        // The truncation report rides onto the holder with the files it describes,
-        // so the notice that renders it lives exactly as long as the sample it
-        // is about — including across navigate-back, which a page field would
-        // not survive.
-        //
-        // Set begins a new setup, so the source the landing reports ends the
-        // outgoing filter setup in the owner (the click's ClearFolder already
-        // did, with null) and begins this pick's. The render this triggers
-        // also mounts the FilterSurface behind the HasFiles gate, and the
-        // composite loads this folder's saved-filters document itself — a
-        // setup-time, degrade-tolerant read through the picked-slot storage
-        // adapter (null under a fallback pick, so no context). Nothing to
-        // await for that: saved-filters trouble can never block a pick.
-        await LandSampleAsync(
-            () => Folder.Set(outcome.DirectoryName, outcome.Capability, outcome.Sample));
     }
 
     /// <summary>
     /// Resample (<c>SPEC-filtering.md</c> §4, "The sample, the limits and
-    /// Resample"): draw the held folder again at the limits, without the
-    /// picker, and land the new sample (<see cref="LandSampleAsync"/>) — the
-    /// setup kept, the sample replaced (<see cref="PickedProblemFolder.Resample"/>).
-    /// Offered only while <see cref="PickedProblemFolder.CanResample"/>.
-    ///
-    /// <para>
-    /// <b>Busy for the whole operation</b> (<see cref="RunBusyAsync"/>): a
-    /// resample raises no prompt, so all of it is the app's own work, and the
-    /// affordance paints before the draw begins. The first parse of the new
-    /// sample keeps the page busy after it, as a pick's does
-    /// (<see cref="IsParsingThePick"/>).
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Nothing is lost unless something arrives.</b> A failure to acquire
-    /// keeps the held sample, its setup and the module's folder alike, and
-    /// reports as a failed pick does (<see cref="IsAcquisitionFailure"/>) — so,
-    /// unlike a pick's failure, it releases nothing
-    /// (<see cref="ReleaseFailedPickAsync"/> is a pick's alone). An empty draw
-    /// replaces nothing and says so. Neither ends a run in progress: only a
-    /// landing does. The folder seam's caller error is not caught: Resample is
-    /// offered only while a folder is held, so it would be a bug.
-    /// </para>
+    /// Resample"): <see cref="Operations"/> draws the held folder again, without
+    /// the picker, and lands the new sample — the setup kept, the sample
+    /// replaced. Offered only while <see cref="PickedProblemFolder.CanResample"/>,
+    /// and refused at once while an operation is in flight. A failure to
+    /// acquire keeps everything and reports as a failed pick does; an empty
+    /// draw replaces nothing and says so (<see cref="_emptyResampleNotice"/>).
     /// </summary>
-    private Task ResampleAsync() => RunBusyAsync(async () =>
+    private async Task ResampleAsync()
     {
+        if (Operations.IsInFlight) return;
         // The last gesture's outcome notices go: this one gets its own account.
         _pickError = null;
         _emptyResampleNotice = false;
-
-        FolderSample sample;
-        try
-        {
-            sample = await FolderAccess.ResampleAsync();
-        }
-        catch (Exception ex) when (IsAcquisitionFailure(ex))
-        {
-            _pickError = ex.Message;
-            return;
-        }
-
-        if (sample.Files.IsEmpty)
-        {
-            _emptyResampleNotice = true;
-            return;
-        }
-
-        await LandSampleAsync(() => Folder.Resample(sample));
-    });
+        Report(await Operations.ResampleAsync(), resample: true);
+    }
 
     /// <summary>
-    /// Land a new sample, acquired and known non-empty — a pick's or a
-    /// resample's — in the order <c>SPEC-quiz-history.md</c> §9 rules: the run
-    /// in progress is finished as End quiz finishes it, its heavy references
-    /// released and the live-quiz marker cleared
-    /// (<see cref="QuizController.EndForNewSampleAsync"/>); then
-    /// <paramref name="install"/> puts the sample on the holder, which lets the
-    /// old one go with its parse; and only then may anything parse it.
-    ///
-    /// <para>
-    /// After the install, three things, in this order. The source is reported
-    /// to the filter setup's owner — a pick's new setup ends the old one there,
-    /// a resample's kept setup changes nothing. The mix predicate's stats probe
-    /// runs (<see cref="QuizStatsStore.RefreshPickedStatsAsync"/>, issue
-    /// halheinrich/backgammon#87): after the install so it probes the sample it
-    /// is about, and before this method returns so the panel's mount decision
-    /// is made against a resolved probe rather than made twice with the
-    /// section popping in — a resample's probe starts from nothing known, so a
-    /// render inside its await would unmount the very panel the resample keeps.
-    /// (The probe's sample stamp makes the ordering safe rather than merely
-    /// tidy — a probe stamped with a replaced sample expires instead of
-    /// answering for the wrong one.) Degrade-tolerant end to end, so it can
-    /// neither fail the landing nor surface a notice of its own. Then the
-    /// match count is asked for (<see cref="ScheduleCountSync"/>) — after the
-    /// probe, so this page puts no render inside that await — because the
-    /// count is keyed by the sample as well as the setup, and the owner,
-    /// knowing nothing of samples, publishes nothing for a resample.
-    /// </para>
-    ///
-    /// <para>
-    /// No rollback after this point. A parse of the new sample that fails —
-    /// the count's or a Start's — leaves it held and the previous run finished
-    /// with its summary intact; nothing promises that run is still playable.
-    /// </para>
+    /// The <c>Clear</c> affordance: end the current setup
+    /// (<see cref="FolderOperations.ClearAsync"/>, the same reset a pick's click
+    /// begins with), refused at once while an operation is in flight. The
+    /// mix's stored rows, the Order and the lifetime-stats slot survive; a run
+    /// in progress is not ended, since Clear replaces no sample.
     /// </summary>
-    private async Task LandSampleAsync(Action install)
+    private async Task ClearSetupAsync()
     {
-        await Controller.EndForNewSampleAsync();
-        install();
-        ReportFilterSource();
-        await StatsStore.RefreshPickedStatsAsync();
+        if (Operations.IsInFlight) return;
+        ClearPickNotices();
+        await Operations.ClearAsync();
+    }
+
+    /// <summary>
+    /// Report what a folder operation this page asked for came to, on this
+    /// page's per-visit notices: a failed acquisition on the pick-error box; a
+    /// dismissed picker on the cancelled notice; a draw with no problem files
+    /// on the empty-folder or the empty-resample notice; an opened fallback
+    /// picker by keeping its intent for the selection to come. A landing needs
+    /// no notice — what landed is on the holder, and every page renders it —
+    /// and a refusal changed nothing to report.
+    /// </summary>
+    private void Report(FolderOutcome outcome, bool resample)
+    {
+        switch (outcome.Kind)
+        {
+            case FolderOutcomeKind.Failed:
+                _pickError = outcome.Failure?.Message;
+                break;
+            case FolderOutcomeKind.Cancelled:
+                _cancelledPickNotice = true;
+                break;
+            case FolderOutcomeKind.NoFiles when resample:
+                _emptyResampleNotice = true;
+                break;
+            case FolderOutcomeKind.NoFiles:
+                _emptyFolderNotice = true;
+                break;
+            case FolderOutcomeKind.AwaitingSelection:
+                _fallbackIntent = outcome.Intent;
+                break;
+            case FolderOutcomeKind.Landed:
+            case FolderOutcomeKind.Refused:
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(outcome), outcome.Kind, null);
+        }
+    }
+
+    /// <summary>
+    /// <see cref="FolderOperations.Changed"/>: an operation began or ended, the
+    /// busy cursor rose, a sample landed or a setup ended — whichever page
+    /// asked for it. Re-render now, so the busy cursor paints before the work
+    /// that follows, and ask for the count of what is held, which a landing
+    /// has re-keyed (<see cref="ScheduleCountSync"/>).
+    /// </summary>
+    private void OnOperationsChanged()
+    {
+        StateHasChanged();
         ScheduleCountSync();
     }
 
     /// <summary>
-    /// Empty the folder holder and tell the filter setup's owner no source is
-    /// held — one step, so no path that drops the folder can leave the owner
-    /// believing in the pick it held.
-    /// </summary>
-    private void ClearFolder()
-    {
-        Folder.Clear();
-        ReportFilterSource();
-    }
-
-    /// <summary>
     /// Report the source this page holds now (<see cref="FilterSource"/>) to
-    /// <see cref="FilterSetup"/> — at page initialization, and after every
-    /// change to the folder holder, whether or not the filter surface is
-    /// mounted. A different source ends the filter setup (a new generation,
-    /// the applied baseline dropped, the draft kept); the same one does
-    /// nothing. This is the whole of the filter half of ending a setup.
+    /// <see cref="FilterSetup"/> at page initialization, as the host contract
+    /// asks: the same source again changes nothing, a different one ends the
+    /// filter setup. Every change to the holder after that is reported by the
+    /// operation that made it (<see cref="FolderOperations"/>).
     /// </summary>
     private void ReportFilterSource() => FilterSetup.ReportSource(FilterSource);
-
-    /// <summary>
-    /// End the current setup: return the whole surface to its pre-setup,
-    /// no-folder state. The single reset behind <i>both</i> gestures that end a
-    /// setup — the <c>Clear</c> affordance, and the <i>start</i> of a pick
-    /// gesture (<see cref="PickFolderAsync"/>) — because they encode the same
-    /// decision, and two spellings of one decision drift.
-    ///
-    /// <para>
-    /// <b>Everything pick-scoped goes.</b> The folder holder and the JS module's
-    /// picked slot, the mix draft (<see cref="MixDraft.Discard"/> —
-    /// see the inline comment; the <i>stored</i> mix deliberately survives),
-    /// the filter setup, and every pick-scoped notice
-    /// (<see cref="ClearPickNotices"/>). The filter setup ends by
-    /// <see cref="ClearFolder"/>'s report: the owner drops the applied
-    /// baseline and keeps the draft, so the selection on screen survives into
-    /// the next pick and must be in effect there by the owner's rules, never
-    /// by this page's. The match count needs no line either: it is keyed by
-    /// the setup and the sample, so no count of the outgoing pick can be read
-    /// for the next one. The saved-filters context lives in the hosted
-    /// <c>FilterSurface</c>, which rebuilds it when the owner's generation
-    /// moves. Two things deliberately survive, and the class summary says why:
-    /// the Order and the lifetime-stats slot.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Safe mid-quiz.</b> The picked files are read only at Start time (the
-    /// source factory reads <see cref="PickedProblemFolder.Files"/> in
-    /// <see cref="QuizController.StartAsync"/>, and the run keeps what it
-    /// read) and the JS side clears the <i>picked</i> slot only — a running
-    /// quiz's stats context lives in the <i>active</i> slot, bound at Start, so
-    /// recording continues untouched until the next Start re-binds. Ending a
-    /// setup replaces no sample, so it ends no run: a pick ends the quiz in
-    /// progress only once its sample lands (<see cref="LandSampleAsync"/>).
-    /// </para>
-    ///
-    /// <para>
-    /// The render is deliberate, not incidental: a pick's next step is the OS
-    /// picker and the browser's permission prompts, which must not appear over
-    /// the outgoing setup's populated screen. <c>StateHasChanged</c>
-    /// queues the returned-to-initial paint and the awaited picked-slot interop
-    /// yields the thread for it to land — the same paint-before-the-churn idiom
-    /// <see cref="EnterBusyAsync"/> uses.
-    /// </para>
-    /// </summary>
-    private async Task EndCurrentSetupAsync()
-    {
-        ClearFolder();
-        // The mix's rows outlive the setup (§4), so this is the draft's
-        // in-memory reset and not a deletion: Discard blanks the builder and
-        // forgets hydration — deliberately without touching localStorage — so
-        // a mix-capable pick's re-mounted panel re-hydrates the stored
-        // last-valid mix. Nothing sits beside it any more. The consent revoke
-        // that did is gone with the bit: visibility is derived per render from
-        // a standing setting and the incoming pick's own stats fact
-        // (SPEC-filtering.md §5, "Visible means in effect"), so a mix in effect
-        // for the outgoing folder cannot survive into a folder without stats —
-        // the derivation simply reads false there, with no state to reset and
-        // no capability fork in the gate. Into a folder that HAS stats it does
-        // carry, and applies, which is the ruling.
-        MixDraft.Discard();
-        ClearPickNotices();
-
-        StateHasChanged();
-        await FolderAccess.ClearPickedAsync();
-    }
 
     private void ClearPickNotices()
     {
@@ -1395,8 +1082,8 @@ public partial class Home : ComponentBase, IDisposable
     /// waiting for the count, which can run long and settles into its holder
     /// on its own. The count is keyed by the setup's filter and by the sample,
     /// so both of the things that move them schedule it: a filter snapshot
-    /// (<see cref="OnFilterSetupPublished"/>) and a sample's landing
-    /// (<see cref="LandSampleAsync"/>).
+    /// (<see cref="OnFilterSetupPublished"/>) and a folder operation's change,
+    /// a sample's landing among them (<see cref="OnOperationsChanged"/>).
     /// </summary>
     private void ScheduleCountSync() => _ = InvokeAsync(RenderAndSyncCountAsync);
 
@@ -1461,6 +1148,11 @@ public partial class Home : ComponentBase, IDisposable
 
     private async Task StartCoreAsync(bool ignoreMix)
     {
+        // No run begins while a folder operation is in flight, whichever page
+        // began it: it would start over a sample about to be replaced, or over
+        // none. Refused here, where the gesture is entered, whatever the
+        // button shows.
+        if (Operations.IsInFlight) return;
         if (FilterInEffect is not { } cfg) return;
         // The effective mix is the on-screen draft's build while the mix
         // panel is visible, the passthrough otherwise (see EffectiveMix). Null
@@ -1572,9 +1264,9 @@ public partial class Home : ComponentBase, IDisposable
     /// Navigation only: the quiz state it returns to is app-scoped and is not
     /// at risk from the visit — the picked files are read at Start, so the
     /// setup surface's gestures that replace no sample leave a running quiz
-    /// alone (<c>EndCurrentSetupAsync</c> touches only the JS <i>picked</i>
-    /// slot, pinned). The one that does end it is a new sample landing
-    /// (<see cref="LandSampleAsync"/>, <c>SPEC-quiz-history.md</c> §9), after
+    /// alone (ending a setup touches only the JS <i>picked</i> slot, pinned).
+    /// The one that does end it is a new sample landing
+    /// (<see cref="FolderOperations"/>, <c>SPEC-quiz-history.md</c> §9), after
     /// which this is not rendered: there is no live quiz to return to. There
     /// is deliberately no guard, no confirmation and no warning around the
     /// round trip; what was missing was only the way back.

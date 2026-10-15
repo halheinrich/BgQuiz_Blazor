@@ -812,11 +812,26 @@ public abstract class E2eTestBase : IAsyncLifetime
 
     /// <summary>
     /// Copy the given files into a fresh staged temp directory (named after the
-    /// scenario, so runs stay distinguishable in failure output) and hand that
-    /// directory to the hidden <c>webkitdirectory</c> input — a genuine
-    /// directory upload, driving the app's real fallback collection path
-    /// (top-level filter, buffering, holder). Waits for the holder-derived folder
-    /// summary, which also proves the pick round-trip completed.
+    /// scenario, so runs stay distinguishable in failure output) and pick it
+    /// through the app's real fallback gesture — a genuine directory upload,
+    /// driving the fallback collection path (top-level filter, buffering,
+    /// holder). Waits for the holder-derived folder summary, which also proves
+    /// the pick round-trip completed.
+    ///
+    /// <para>
+    /// <b>Through the gesture, never around it.</b> The app collects a fallback
+    /// selection only for the pick its own "Choose folder…" click opened the
+    /// picker under (halheinrich/backgammon#403: a selection with no pick
+    /// intent, or one a newer operation superseded, changes nothing), so
+    /// handing files to the hidden input directly is no longer a pick at all.
+    /// The click is made with the File System Access picker hidden for that one
+    /// gesture — the page's per-gesture probe is
+    /// <c>typeof window.showDirectoryPicker === 'function'</c> — so it takes the
+    /// fallback, as a browser without that picker does, and the folder goes to
+    /// the file chooser the click opens. Whatever the page had before — the
+    /// browser's own picker, a scenario's fake, or a scenario's removal — is
+    /// restored as it was, so nothing else about the page changes.
+    /// </para>
     ///
     /// <para>
     /// A staged file is a <b>name and its content</b>, not a path to copy. That
@@ -844,7 +859,32 @@ public abstract class E2eTestBase : IAsyncLifetime
         foreach (var (destName, bytes) in files)
             File.WriteAllBytes(Path.Combine(stagedDir, destName), bytes);
 
-        await FallbackFolderInput.SetInputFilesAsync(stagedDir);
+        await Page.EvaluateAsync("""
+            () => {
+              window.__e2eDirectoryPicker = {
+                own: Object.prototype.hasOwnProperty.call(window, 'showDirectoryPicker'),
+                descriptor: Object.getOwnPropertyDescriptor(window, 'showDirectoryPicker'),
+              };
+              window.showDirectoryPicker = undefined;
+            }
+            """);
+        try
+        {
+            var chooser = await Page.RunAndWaitForFileChooserAsync(() => PickFolderButton.ClickAsync());
+            await chooser.SetFilesAsync(stagedDir);
+        }
+        finally
+        {
+            await Page.EvaluateAsync("""
+                () => {
+                  const saved = window.__e2eDirectoryPicker;
+                  delete window.__e2eDirectoryPicker;
+                  if (saved.own) Object.defineProperty(window, 'showDirectoryPicker', saved.descriptor);
+                  else delete window.showDirectoryPicker;
+                }
+                """);
+        }
+
         await Expect(Page.GetByText(ExpectedText.ProblemFiles(heldFiles ?? files.Count)))
             .ToBeVisibleAsync();
     }

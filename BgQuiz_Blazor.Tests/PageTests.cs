@@ -186,6 +186,7 @@ public class PageTests : BunitContext
         // the draft's build, never from a stored copy.
         Services.AddScoped<MixVisibility>();
         Services.AddScoped<MixDraft>();
+        Services.AddScoped<FolderOperations>();
 
         // Home, Quiz and Settings all inject QuizSettings. Scoped, as in
         // Program.cs, so one hydration serves every render in a test and the
@@ -2875,15 +2876,18 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Home_FallbackInputChange_CollectsFilesIntoHolder()
     {
-        // The fallback landing: the hidden input's change event collects the
-        // FileList through IFolderAccess; capability is forced to the no-stats
-        // fallback by the interop layer (the fake mirrors that contract).
+        // The fallback landing: the hidden input's change event, after the
+        // click that opened its picker, collects the FileList through
+        // IFolderAccess; capability is forced to the no-stats fallback by the
+        // interop layer (the fake mirrors that contract).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        _folderAccess.SupportsDirectoryPicker = false;
         _folderAccess.NextCollectOutcome = TestFixtures.Picked(
             "FallbackDir", FolderWriteCapability.BrowserUnsupported,
             [new PickedFile("fb.xgp", [9, 9])]);
 
         var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
         await cut.Find("#problemFolderFallback").ChangeAsync(new ChangeEventArgs());
 
         var folder = Services.GetRequiredService<PickedProblemFolder>();
@@ -2891,6 +2895,25 @@ public class PageTests : BunitContext
         Assert.Equal("fb.xgp", Assert.Single(folder.Files).FileName);
         Assert.Equal(FolderWriteCapability.BrowserUnsupported, folder.Capability);
         Assert.Contains("can't save quiz stats", cut.Markup);
+    }
+
+    /// <summary>
+    /// A selection the hidden input reports with no picker opened by this
+    /// app's own "Choose folder…" — no pick intent to belong to — is no pick:
+    /// it collects nothing and holds nothing (halheinrich/backgammon#403). In
+    /// a browser the input is hidden, so only that click can open its picker.
+    /// </summary>
+    [Fact]
+    public async Task Home_AFallbackSelectionNoPickOpened_CollectsNothing()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        _folderAccess.NextCollectOutcome = OneFileOutcome("Unasked");
+
+        var cut = Render<HomePage>();
+        await cut.Find("#problemFolderFallback").ChangeAsync(new ChangeEventArgs());
+
+        Assert.Equal(0, _folderAccess.CollectCallCount);
+        Assert.False(Services.GetRequiredService<PickedProblemFolder>().HasFiles);
     }
 
     // -----------------------------------------------------------------------
@@ -14823,5 +14846,402 @@ public class PageTests : BunitContext
         Assert.DoesNotContain(cleanup.Message, Normalize(cut.Markup));
         Assert.False(Renderer.UnhandledException.IsCompleted);
         Assert.False(Services.GetRequiredService<PickedProblemFolder>().HasFiles);
+    }
+
+    // -----------------------------------------------------------------------
+    //  A folder operation has an owner that outlives Home
+    //  (halheinrich/backgammon#403, the Arc 5 correction)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// A gesture made while a folder operation is in flight, which must be
+    /// refused at once: bounded, so a gesture that instead begins — and waits
+    /// on the same held operation — fails the test rather than hanging it.
+    /// </summary>
+    private static Task RefusedAtOnce(Task gesture) => gesture.WaitAsync(TimeSpan.FromSeconds(5));
+
+    /// <summary>
+    /// A resample suspended in its acquisition outlives the page it began on:
+    /// a remounted Home refuses a competing pick, Clear and Start — at the
+    /// handler, whatever the control shows — and the resample then lands into
+    /// the setup it began under.
+    /// </summary>
+    [Fact]
+    public async Task Home_ASuspendedResample_OutlivesItsPage_AndARemountRefusesAPickAClearAndAStart()
+    {
+        var controller = WithTwoProblemController();
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome());
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        var setup = folder.SetupIdentity;
+        var drawing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _folderAccess.OnResampling = () => drawing.Task;
+        _folderAccess.NextResample = Redrawn("resampled.xg");
+        var resampling = ResampleButton(cut)!.ClickAsync(new());
+        cut.WaitForAssertion(() => Assert.Equal(1, _folderAccess.ResampleCallCount));
+
+        await DisposeComponentsAsync(); // navigate away
+        var again = Render<HomePage>(); // and back
+        var picks = _folderAccess.PickCallCount;
+        var releases = _folderAccess.ClearPickedCallCount;
+        _folderAccess.NextPickOutcome = OneFileOutcome("Competing");
+
+        await RefusedAtOnce(again.Find("#pickProblemFolder").ClickAsync(new()));
+        Assert.Equal(picks, _folderAccess.PickCallCount); // no picker raised
+
+        await RefusedAtOnce(again.FindAll("button").First(b => b.TextContent.Trim() == "Clear").ClickAsync(new()));
+        Assert.Equal(releases, _folderAccess.ClearPickedCallCount); // nothing released
+        Assert.Same(setup, folder.SetupIdentity);
+
+        await RefusedAtOnce(StartButton(again).ClickAsync(new()));
+        Assert.False(controller.HasStarted); // no run began
+
+        drawing.SetResult();
+        await resampling;
+
+        Assert.Same(setup, folder.SetupIdentity);
+        Assert.Equal("resampled.xg", Assert.Single(folder.Files).FileName);
+    }
+
+    /// <summary>
+    /// While a resample is in flight, the quiz can still be returned to and
+    /// ended — those are the run's own gestures — but Done's Restart begins
+    /// nothing until the resample has landed, so no run starts over a sample
+    /// about to be replaced. Once it lands, Restart runs.
+    /// </summary>
+    [Fact]
+    public async Task Done_RestartBeginsNothing_WhileAResampleIsInFlight_AndRunsOnceItLands()
+    {
+        var controller = WithTwoProblemController();
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome());
+        await StartButton(cut).ClickAsync(new());
+        var drawing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _folderAccess.OnResampling = () => drawing.Task;
+        _folderAccess.NextResample = Redrawn();
+        var resampling = ResampleButton(cut)!.ClickAsync(new());
+        cut.WaitForAssertion(() => Assert.Equal(1, _folderAccess.ResampleCallCount));
+
+        var backToQuiz = cut.FindAll("button").Single(b => b.TextContent.Trim() == "Back to quiz");
+        Assert.False(backToQuiz.HasAttribute("disabled")); // navigation stays live
+        await controller.EndQuizAsync(); // the quiz page's End quiz
+        Assert.True(controller.IsFinished);
+
+        var done = Render<DonePage>();
+        await RefusedAtOnce(done.FindAll("button").First(b => b.TextContent.Trim() == "Restart with same filters").ClickAsync(new()));
+        Assert.True(controller.IsFinished); // nothing began
+
+        drawing.SetResult();
+        await resampling;
+        Assert.Null(controller.EndedByNewSample); // End quiz finished it; the landing found no run
+
+        await done.FindAll("button").First(b => b.TextContent.Trim() == "Restart with same filters").ClickAsync(new());
+        Assert.False(controller.IsFinished);
+    }
+
+    /// <summary>
+    /// Done's other Restart, "Restart without mix", begins nothing while a
+    /// folder operation is in flight either — here a pick held in the
+    /// browser's prompts on Home — and runs once it is over.
+    /// </summary>
+    [Fact]
+    public async Task Done_RestartWithoutMix_BeginsNothing_WhileAPickIsInFlight()
+    {
+        WithWeighableController(out var sink, TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        await MakeTheMixVisibleAsync();
+        ExpectMarkerCleared(); // the finish
+        ExpectMarkedLive(times: 2); // the Start, then the override's Restart
+        ExpectHomeOverAFolder();
+        ExpectNoStoredMix();
+        var c = await FinishAWeightedQuizAsync(sink);
+        sink.CurrentDocument = null;
+        var done = Render<DonePage>();
+        await done.FindAll("button").First(b => b.TextContent.Contains("Restart with same filters")).ClickAsync(new());
+        Assert.Single(done.FindAll("#restartWithoutMix")); // the refusal's override is on offer
+
+        var home = Render<HomePage>();
+        var prompts = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _folderAccess.OnPrompts = () => prompts.Task;
+        _folderAccess.NextPickOutcome = FolderPickOutcome.CancelledOutcome;
+        var picking = home.Find("#pickProblemFolder").ClickAsync(new());
+        home.WaitForAssertion(() => Assert.Equal(1, _folderAccess.PickCallCount));
+
+        await RefusedAtOnce(done.Find("#restartWithoutMix").ClickAsync(new()));
+        Assert.True(c.IsFinished); // nothing began
+
+        prompts.SetResult();
+        await picking;
+        await done.Find("#restartWithoutMix").ClickAsync(new());
+        Assert.False(c.IsFinished);
+        Plan.Verify();
+    }
+
+    /// <summary>
+    /// On File System Access the operation is owned through its prompts: the
+    /// module binds the chosen folder as soon as they end, before the page's
+    /// progress hook runs, so a competing pick or Restart during them is
+    /// refused — while the progress cursor still waits for the accepted
+    /// pick, since the prompts are the user's turn.
+    /// </summary>
+    [Fact]
+    public async Task Home_APickInItsPrompts_RefusesACompetingPickAndRestart_WithNoProgressCursorYet()
+    {
+        var controller = WithTwoProblemController();
+        WithPickedFolder();
+        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
+        await controller.EndQuizAsync();
+        var done = Render<DonePage>();
+        var cut = Render<HomePage>();
+        var prompts = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _folderAccess.OnPrompts = () => prompts.Task;
+        _folderAccess.NextPickOutcome = OneFileOutcome("Chosen");
+        var picking = cut.Find("#pickProblemFolder").ClickAsync(new());
+        cut.WaitForAssertion(() => Assert.Equal(1, _folderAccess.PickCallCount));
+
+        Assert.Empty(cut.FindAll("div.app-busy")); // no progress cursor during the prompts
+        await RefusedAtOnce(cut.Find("#pickProblemFolder").ClickAsync(new()));
+        await RefusedAtOnce(done.FindAll("button").First(b => b.TextContent.Trim() == "Restart with same filters").ClickAsync(new()));
+
+        Assert.Equal(1, _folderAccess.PickCallCount);
+        Assert.True(controller.IsFinished);
+
+        prompts.SetResult();
+        await picking;
+        Assert.Equal("Chosen", Services.GetRequiredService<PickedProblemFolder>().FolderName);
+    }
+
+    /// <summary>How a picker is dismissed, on each mechanism.</summary>
+    public enum Dismissal
+    {
+        FileSystemAccessCancelled,
+        FallbackSilent,
+        FallbackCancelEvent,
+    }
+
+    /// <summary>
+    /// A dismissed or cancelled picker, on either mechanism, never leaves the
+    /// app locked: the next pick runs, and so does Done's Restart. The
+    /// fallback holds nothing while its picker is open — a dismissal there
+    /// may signal nothing at all.
+    /// </summary>
+    [Theory]
+    [InlineData(Dismissal.FileSystemAccessCancelled)]
+    [InlineData(Dismissal.FallbackSilent)]
+    [InlineData(Dismissal.FallbackCancelEvent)]
+    public async Task Home_ADismissedPicker_LeavesNothingLocked(Dismissal how)
+    {
+        var controller = WithTwoProblemController();
+        WithPickedFolder();
+        await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
+        await controller.EndQuizAsync();
+        var cut = Render<HomePage>();
+
+        if (how == Dismissal.FileSystemAccessCancelled)
+        {
+            _folderAccess.NextPickOutcome = FolderPickOutcome.CancelledOutcome;
+            await cut.Find("#pickProblemFolder").ClickAsync(new());
+        }
+        else
+        {
+            _folderAccess.SupportsDirectoryPicker = false;
+            await cut.Find("#pickProblemFolder").ClickAsync(new());
+            if (how == Dismissal.FallbackCancelEvent)
+                await cut.Find("#problemFolderFallback").TriggerEventAsync("oncancel", new EventArgs());
+        }
+
+        var done = Render<DonePage>();
+        await done.FindAll("button").First(b => b.TextContent.Trim() == "Restart with same filters").ClickAsync(new());
+        Assert.False(controller.IsFinished); // Restart ran
+
+        _folderAccess.SupportsDirectoryPicker = true;
+        _folderAccess.NextPickOutcome = OneFileOutcome("Next");
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        Assert.Equal("Next", Services.GetRequiredService<PickedProblemFolder>().FolderName); // and so does a pick
+    }
+
+    /// <summary>
+    /// On the fallback, a change callback that arrives after its pick intent
+    /// was superseded — here by a File System Access pick that landed in the
+    /// meantime — never replaces the newer state, and collects nothing: the
+    /// intent is checked before the collection binds the picked slot.
+    /// </summary>
+    [Fact]
+    public async Task Home_ASupersededFallbackSelection_NeverReplacesNewerState()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var cut = Render<HomePage>();
+        _folderAccess.SupportsDirectoryPicker = false;
+        _folderAccess.NextCollectOutcome = OneFileOutcome("Stale");
+        await cut.Find("#pickProblemFolder").ClickAsync(new()); // the fallback picker opens
+
+        _folderAccess.SupportsDirectoryPicker = true;
+        _folderAccess.NextPickOutcome = OneFileOutcome("Newer");
+        await cut.Find("#pickProblemFolder").ClickAsync(new()); // a newer pick lands
+
+        await cut.Find("#problemFolderFallback").ChangeAsync(new ChangeEventArgs()); // the old picker's late answer
+
+        Assert.Equal("Newer", Services.GetRequiredService<PickedProblemFolder>().FolderName);
+        Assert.Equal(0, _folderAccess.CollectCallCount);
+        Assert.Equal("Newer", _folderAccess.PickedSlot);
+    }
+
+    /// <summary>
+    /// A pick in flight across a remount: the page that comes back shows the
+    /// app at work and refuses a competing pick, and the pick lands for it —
+    /// the summary and the count on the new page.
+    /// </summary>
+    [Fact]
+    public async Task Home_APickInFlightAcrossARemount_IsShownByTheNewPage_AndLandsForIt()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var cut = Render<HomePage>();
+        var drawing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _folderAccess.OnDrawing = () => drawing.Task;
+        _folderAccess.NextPickOutcome = OneFileOutcome("Remounted");
+        var picking = cut.Find("#pickProblemFolder").ClickAsync(new());
+        cut.WaitForAssertion(() => Assert.Equal(1, _folderAccess.PickCallCount));
+
+        await DisposeComponentsAsync();
+        var again = Render<HomePage>();
+        again.WaitForAssertion(() => Assert.Single(again.FindAll("div.app-busy")));
+        await RefusedAtOnce(again.Find("#pickProblemFolder").ClickAsync(new()));
+        Assert.Equal(1, _folderAccess.PickCallCount);
+
+        drawing.SetResult();
+        await picking;
+
+        again.WaitForAssertion(() =>
+        {
+            Assert.Contains("'Remounted' — 1 problem file", Normalize(again.Markup));
+            Assert.Contains("decision matches your filters", Normalize(again.Markup));
+            Assert.Empty(again.FindAll("div.app-busy"));
+        });
+    }
+
+    /// <summary>
+    /// The owner's exclusion and its progress are two facts with two
+    /// lifetimes: on File System Access the operation is in flight from the
+    /// click — through the browser's prompts, where no progress shows — and
+    /// the busy cursor rises only at the accepted pick; both end when the
+    /// operation does.
+    /// </summary>
+    [Fact]
+    public async Task FolderOperations_HoldsAPickFromItsPrompts_ButShowsProgressOnlyOnceAccepted()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var operations = Services.GetRequiredService<FolderOperations>();
+        var prompts = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var drawing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _folderAccess.OnPrompts = () => prompts.Task;
+        _folderAccess.OnDrawing = () => drawing.Task;
+        _folderAccess.NextPickOutcome = OneFileOutcome("Held");
+
+        var picking = operations.PickAsync(default);
+        Assert.True(operations.IsInFlight);
+        Assert.False(operations.ShowsProgress); // the prompts are the user's turn
+
+        prompts.SetResult();
+        await WaitUntilAsync(() => operations.ShowsProgress); // accepted: the app's own work
+        Assert.True(operations.IsInFlight);
+
+        drawing.SetResult();
+        Assert.Equal(FolderOutcomeKind.Landed, (await picking).Kind);
+        Assert.False(operations.IsInFlight);
+        Assert.False(operations.ShowsProgress);
+    }
+
+    /// <summary>
+    /// A sample lands only into the setup its operation began under: should
+    /// the held sample change while a draw is in flight — which the exclusion
+    /// keeps every page from doing, so here it is done to the holder directly —
+    /// the landing installs nothing and surfaces as the bug it would be, and
+    /// the operation still ends.
+    /// </summary>
+    [Fact]
+    public async Task FolderOperations_ALandingIntoASetupItDidNotBeginUnder_InstallsNothing()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var operations = Services.GetRequiredService<FolderOperations>();
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        _folderAccess.NextPickOutcome = OverLimitOutcome();
+        Assert.Equal(FolderOutcomeKind.Landed, (await operations.PickAsync(default)).Kind);
+        var drawing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _folderAccess.OnResampling = () => drawing.Task;
+        _folderAccess.NextResample = Redrawn("late.xg");
+
+        var resampling = operations.ResampleAsync();
+        await WaitUntilAsync(() => _folderAccess.ResampleCallCount == 1); // the draw is in flight
+        folder.Set("Intruder", FolderWriteCapability.BrowserUnsupported,
+            TestFixtures.Sample([new PickedFile("intruder.xg", [7])]));
+        drawing.SetResult();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => resampling);
+        Assert.Equal("intruder.xg", Assert.Single(folder.Files).FileName);
+        Assert.False(operations.IsInFlight);
+    }
+
+    /// <summary>
+    /// A fallback pick intent is superseded by any operation begun after it —
+    /// here a Clear — so its selection, reported late, collects nothing, and
+    /// its dismissal is no longer the page's to report.
+    /// </summary>
+    [Fact]
+    public async Task FolderOperations_AFallbackIntentSupersededByAClear_CollectsNothing()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var operations = Services.GetRequiredService<FolderOperations>();
+        _folderAccess.SupportsDirectoryPicker = false;
+        _folderAccess.NextCollectOutcome = OneFileOutcome("Late");
+        var opened = await operations.PickAsync(default);
+        Assert.Equal(FolderOutcomeKind.AwaitingSelection, opened.Kind);
+        var intent = opened.Intent!;
+
+        Assert.True(await operations.ClearAsync());
+
+        Assert.Equal(FolderOutcomeKind.Refused, (await operations.CollectFallbackAsync(intent, default)).Kind);
+        Assert.False(operations.DismissFallback(intent));
+        Assert.Equal(0, _folderAccess.CollectCallCount);
+        Assert.False(Services.GetRequiredService<PickedProblemFolder>().HasFiles);
+    }
+
+    /// <summary>
+    /// The owner refuses an operation while one is in flight — on its own, not
+    /// only through a page that asked first: a pick, a resample and a Clear
+    /// asked of it directly while a resample is held all begin nothing.
+    /// </summary>
+    [Fact]
+    public async Task FolderOperations_RefusesAnyOperationWhileOneIsInFlight()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var operations = Services.GetRequiredService<FolderOperations>();
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        _folderAccess.NextPickOutcome = OverLimitOutcome();
+        await operations.PickAsync(default);
+        var setup = folder.SetupIdentity;
+        var drawing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _folderAccess.OnResampling = () => drawing.Task;
+        _folderAccess.NextResample = Redrawn();
+        var resampling = operations.ResampleAsync();
+        await WaitUntilAsync(() => _folderAccess.ResampleCallCount == 1);
+        var picks = _folderAccess.PickCallCount;
+
+        Assert.Equal(FolderOutcomeKind.Refused, (await operations.PickAsync(default)).Kind);
+        Assert.Equal(FolderOutcomeKind.Refused, (await operations.ResampleAsync()).Kind);
+        Assert.False(await operations.ClearAsync());
+        Assert.Equal(picks, _folderAccess.PickCallCount);
+        Assert.Equal(1, _folderAccess.ResampleCallCount);
+        Assert.Same(setup, folder.SetupIdentity);
+
+        drawing.SetResult();
+        Assert.Equal(FolderOutcomeKind.Landed, (await resampling).Kind);
+    }
+
+    /// <summary>Poll <paramref name="condition"/> until it holds, failing after a bound — for an owner's state that moves on a continuation.</summary>
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (!condition())
+        {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException("The condition did not hold in time.");
+            await Task.Yield();
+        }
     }
 }

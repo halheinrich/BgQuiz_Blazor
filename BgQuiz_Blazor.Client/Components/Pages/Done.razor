@@ -10,6 +10,7 @@
 @inject MixVisibility MixVisibility
 @inject NavigationManager Nav
 @inject QuizNoticeDismissal Notices
+@inject FolderOperations Operations
 
 <PageTitle>BgQuiz — Done</PageTitle>
 
@@ -126,7 +127,7 @@
                 so the weighted mix can't be applied.
             </p>
             <button class="btn btn-outline-primary btn-sm" id="restartWithoutMix"
-                    disabled="@Controller.IsBusy"
+                    disabled="@(Controller.IsBusy || Operations.IsInFlight)"
                     @onclick="RestartWithoutMixAsync">
                 Restart without mix
             </button>
@@ -153,7 +154,7 @@
        anyway — this is the honest mirror); Back to setup stays enabled: it
        only navigates. *@
     <div class="d-flex flex-wrap gap-2">
-        <button class="btn btn-primary" disabled="@Controller.IsBusy"
+        <button class="btn btn-primary" disabled="@(Controller.IsBusy || Operations.IsInFlight)"
                 @onclick="RestartAsync">
             Restart with same filters
         </button>

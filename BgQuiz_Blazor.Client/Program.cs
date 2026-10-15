@@ -109,6 +109,12 @@ builder.Services.AddScoped<PickedFolderDocumentStorage>();
 builder.Services.AddScoped<MixVisibility>();
 builder.Services.AddScoped<MixDraft>();
 
+// The app-scoped owner of the folder operations — a pick, a fallback
+// collection, a resample, a Clear — from the first step through the landing,
+// since one can outlive the page that began it (halheinrich/backgammon#403).
+// Every page asks it before beginning an operation or a run.
+builder.Services.AddScoped<FolderOperations>();
+
 // Per-app dismissal state for every notice on the Quiz page: the composition
 // notice (which the first submitted answer also retires — it says how the
 // running quiz was composed, read before answering and stale chrome after) and

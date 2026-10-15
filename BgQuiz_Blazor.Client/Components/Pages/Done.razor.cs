@@ -21,8 +21,18 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// on or after Done reports no live quiz lost and a reload during a restarted
 /// quiz reports one, with nothing here to forget.
 /// </para>
+///
+/// <para>
+/// <b>Neither Restart begins while a folder operation is in flight</b>
+/// (<see cref="FolderOperations"/>; halheinrich/backgammon#403): a pick or a
+/// resample begun on Home can still be running — the user may have come here
+/// in the middle of one — and a run started meanwhile would start over a
+/// sample about to be replaced, or over none. Both are refused where they are
+/// entered (<see cref="RestartCoreAsync"/>) and disabled while one is, and
+/// this page re-renders as an operation begins and ends.
+/// </para>
 /// </summary>
-public partial class Done : ComponentBase
+public partial class Done : ComponentBase, IDisposable
 {
     /// <summary>
     /// Number of distinct problems the user was shown — the run's own fact, its
@@ -43,6 +53,11 @@ public partial class Done : ComponentBase
             Nav.NavigateTo("/", replace: true);
             return;
         }
+
+        // Restart's two buttons are disabled while a folder operation is in
+        // flight, and one can begin or end while this page is up: re-render
+        // when it does. Unsubscribed in Dispose.
+        Operations.Changed += StateHasChanged;
 
         // Restart reads the mix's visibility, half of which is a stored
         // setting, and the ranking, which is one, so this page must not render
@@ -120,8 +135,16 @@ public partial class Done : ComponentBase
     /// </summary>
     private Task RestartWithoutMixAsync() => RestartCoreAsync(ignoreMix: true);
 
+    /// <summary>Detach from the folder operations' owner — this page dies before it does.</summary>
+    public void Dispose() => Operations.Changed -= StateHasChanged;
+
     private async Task RestartCoreAsync(bool ignoreMix)
     {
+        // No run begins while a folder operation is in flight, whichever page
+        // began it. Refused here, where the gesture is entered, whatever the
+        // buttons show.
+        if (Operations.IsInFlight) return;
+
         _mixRefused = false;
         _restartError = null;
 

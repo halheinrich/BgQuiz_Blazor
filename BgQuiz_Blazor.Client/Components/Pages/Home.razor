@@ -24,6 +24,7 @@
 @inject QuizSettings Settings
 @inject QuizNoticeDismissal Notices
 @inject BrowserStorageCondition StorageCondition
+@inject FolderOperations Operations
 @inject ILogger<Home> Logger
 
 <PageTitle>BgQuiz</PageTitle>
@@ -102,8 +103,12 @@
                 (a local folder of .xg / .xgp files — parsed in your browser, never uploaded)
             </small>
         </label>
+        @* Disabled while a folder operation is in flight — the app's, whichever
+           page began it (FolderOperations) — including a pick's prompts, where
+           the busy fieldset is not yet raised. The handler refuses too. *@
         <div>
             <button type="button" id="pickProblemFolder" class="btn btn-outline-primary"
+                    disabled="@Operations.IsInFlight"
                     @onclick="PickFolderAsync">
                 Choose folder…
             </button>
@@ -255,6 +260,7 @@
                 {
                     <button type="button" id="resampleProblemFolder"
                             class="btn btn-link btn-sm p-0 align-baseline"
+                            disabled="@Operations.IsInFlight"
                             @onclick="ResampleAsync">
                         Resample
                     </button>
@@ -262,7 +268,8 @@
                 @* Clear and "Choose folder…" end the current setup identically —
                    one handler, so the two can't drift. *@
                 <button type="button" class="btn btn-link btn-sm p-0 align-baseline"
-                        @onclick="EndCurrentSetupAsync">
+                        disabled="@Operations.IsInFlight"
+                        @onclick="ClearSetupAsync">
                     Clear
                 </button>
             </div>
@@ -862,9 +869,11 @@
        count over a parse the pick already holds does not hold Start back:
        it parses nothing, so a Start beside it reads the same held parse, and
        a Start made before it knows a zero has the no-match outcome as its
-       backstop. The pick's first parse does hold it, through the fieldset. *@
+       backstop. The pick's first parse does hold it, through the fieldset. A
+       folder operation in flight holds it too, whichever page began it — and
+       the handler refuses a Start then, whatever the button shows. *@
     <button class="btn btn-primary"
-            disabled="@(!CanStart || Controller.IsBusy)"
+            disabled="@(!CanStart || Controller.IsBusy || Operations.IsInFlight)"
             @onclick="StartQuizAsync">
         Start Quiz
     </button>
@@ -933,6 +942,7 @@
                 so the weighted mix can't be applied.
             </p>
             <button class="btn btn-outline-primary btn-sm" id="startWithoutMix"
+                    disabled="@Operations.IsInFlight"
                     @onclick="StartWithoutMixAsync">
                 Start without mix
             </button>
