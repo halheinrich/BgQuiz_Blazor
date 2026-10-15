@@ -21,10 +21,9 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
 
 ## Depends on
 
-- **BgGame_Lib** — substrate. `IProblemSetSource`, `ShuffledProblemSetSource`
-  (the shuffle decorator the source factory wraps the picked set in; the app
-  uses the **unseeded** ctor — the seeded one is test-only),
-  `DistinctPositionProblemSetSource` (the content-identity dedupe decorator at
+- **BgGame_Lib** — substrate. `IProblemSetSource`, `ProblemOrder` (the four
+  orders, `[Description]`-labelled, which Home offers and the run applies;
+  SPEC-filtering.md §7), `DistinctPositionProblemSetSource` (the content-identity dedupe decorator at
   the bottom of the composition — one item per distinct `ProblemKey`, first
   occurrence surviving), `PlaySubmission` with `PlaySubmissionKind` — **the
   one place a submitted play is scored** (`PlaySubmission.Score(play,
@@ -45,8 +44,10 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   composition surface — `QuizCategory`/`QuizCategoryKind`,
   `QuizMix`/`QuizMixEntry` (the versioned strict-JSON mix config;
   `ToJson`/`FromJson`/`TryFromJson` is the localStorage trio),
-  `MixedProblemSetSource` (the composing decorator the controller wires for a
-  non-blank mix) + `MixComposition` telemetry — `AnswerTypeDistribution` (the
+  `MixedProblemSetSource` (the composer the controller wires for **every**
+  run: it applies the Order — through the mix for a mix in effect, plainly
+  over the pool for a blank one — so a run is ordered in exactly one place) +
+  `MixComposition` telemetry — `AnswerTypeDistribution` (the
   answer-type fold behind Home's pre-Start summary: checker plays plus one
   bucket per cube answer, `NoDouble` / `DoubleTake` / `DoublePass` /
   `NoDoublePass`, keyed by the truth), and the lifetime-stats
@@ -59,9 +60,9 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   The controller talks to the source through `IProblemSetSource`; the run
   (`QuizRun`) scores each submission through the producer's operations and
   derives the session score via `QuizScore.Plus`; the stats store folds
-  finalized submissions via the document's `Plus`. Producer behavior — the
-  per-enumeration reshuffle, the fold contracts — lives in BgGame_Lib's own
-  INSTRUCTIONS.md.
+  finalized submissions via the document's `Plus`. Producer behavior — each
+  order's key, the per-enumeration reshuffle of *Shuffled*, the fold
+  contracts — lives in BgGame_Lib's own INSTRUCTIONS.md.
 - **BgDataTypes_Lib** — data types. `BgDecisionData` and its two sealed
   kinds, `CheckerPlayDecision` and `CubeDecision` (the page routes by the
   record's kind, and each answer instrument takes its own), `Play` (no
@@ -166,10 +167,14 @@ https://github.com/halheinrich/BgQuiz_Blazor — branch `main`.
   `IFolderAccess` / `JsFolderAccess` (both pick mechanisms, name-parameterized
   picked/active slot file I/O, the two-slot isolation model, and the
   picked-slot writability probe `ProbePickedFileWritabilityAsync` /
-  `PickedFileWritability`), `FolderWriteCapability`, `FolderPickOutcome` / `PickedFile` /
-  `PickTruncation` (immutable records: a pick's files and truncations are
+  `PickedFileWritability`), `FolderWriteCapability`, `FolderPickOutcome` /
+  `FolderSample` / `SampledKind` / `PickedFile` (immutable records: a pick's
+  sample — its files and its per-kind report of how many matching files the
+  draw found and admitted, `HoldsEveryMatchingFile` derived from it — is
   immutable arrays, and a file's bytes are `ImmutableArray<byte>`, read
-  through `PickedFile.OpenRead()` without a copy), and `FolderPickLimits` —
+  through `PickedFile.OpenRead()` without a copy), `ResampleAsync` (another
+  draw of the held folder, no prompt), `PickedFileTooLargeException` (the
+  byte cap's failure, a fact about the folder), and `FolderPickLimits` —
   the host-supplied caps configuration `Program.cs` builds from
   `PickedFileLimits`' table, which it keeps in the order it is handed (the
   numbers stay host policy; the lib ships none). Its `folderAccess.js` ships as
@@ -249,8 +254,9 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   framework trim warnings a publish would otherwise fail on).
 - **The quiz** — `Quiz/`: `QuizRun`, the run as pure state, with its record
   types `PresentedProblem`, `ProblemDisposition` and `AnswerOfRecord`;
-  `QuizController`, the per-app orchestrator that holds the current run, with
-  its `ProblemSetSourceFactory` delegate and `QuizStartOutcome`;
+  `QuizController`, the per-app orchestrator that holds the run in progress
+  or the finished run's result, with its `ProblemSetSourceFactory` delegate
+  and `QuizStartOutcome`; `QuizResult`, what a finished run keeps;
   `ProblemReview`, the displayed review; `MatchSummary`, the pre-Start pool,
   what its dedupe collapsed, and which picked files its parse could not read.
 - **The source stack** — `Quiz/`: `WasmUploadedProblemSetSource` (the
@@ -261,7 +267,8 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   `ComposedProblemSource` (its product: the stack plus two readers — the
   dedupe's collapse, and the parse layer's source report).
 - **Folder and lifetime stats** — `Quiz/`: `PickedProblemFolder` (the
-  picked-folder holder and its parse-cache seam), `PickedFileLimits` (the
+  picked-folder holder and its parse-cache seam, with `SetupIdentity` and
+  `SampleIdentity`, the setup's and the sample's identities), `PickedFileLimits` (the
   pick caps, host policy), `PickedFolderDocumentStorage` (XgFilter_Razor's
   storage seam over the picked slot), `QuizStatsFile` (the stats document's
   names and serializer contract), `QuizStatsStore` (the stats sink and the
@@ -269,11 +276,12 @@ plain-C# type here is `internal` (§ Public API). Seven areas:
   keyed for its notice).
 - **Per-tab state** — `Quiz/`: `QuizSettings` (the user settings),
   `MixDraft` and `MixVisibility` (the weighted mix's edit state and its
-  visible fact), `ShuffleOption`, `QuizNoticeDismissal` (occurrence-keyed
+  visible fact), `QuizNoticeDismissal` (occurrence-keyed
   dismissal of the notices whose occurrence outlives a page),
   `BrowserStorageCondition` (the one fact that the browser has refused a
   storage call this visit), `QuizLiveMarker` (the
-  sessionStorage was-a-quiz-live marker), `NotesPlacementStore` (where the
+  sessionStorage was-a-quiz-live marker, written through `IQuizLiveMarker`
+  by the controller alone), `NotesPlacementStore` (where the
   decision's notes open, with its value `NotesPlacement` and the arithmetic
   that shows and moves it, `NotesStage`, `NotesPosition` and `NotesStep`).
 - **Wording** — `Quiz/`: `FolderPickDisplay`, `MixDisplay` and
@@ -359,10 +367,11 @@ referencing no app project. Three areas:
 /        Home.razor    → "Choose folder…" pick; then (disclosed once files are
                           picked) FilterSurface (saved filters + filter panel,
                           producer-composited) + "N match" count +
-                          MixPanel (Enabled picks only) + "Shuffle order"
-                          checkbox + Start Quiz button
+                          MixPanel (Enabled picks only) + the Order
+                          (four radios) + Start Quiz button; Resample beside
+                          the folder while the limits truncated it
                           on Start: Controller.StartAsync(filters, mix,
-                          the setting's ranking) — binds
+                          the setting's ranking, the Order) — binds
                           the lifetime-stats context and, for a non-blank mix,
                           composes from lifetime stats (or REFUSES — the
                           actionable notice with "Start without mix") — then
@@ -499,7 +508,8 @@ stats sink — and the current `QuizRun` (§ `QuizRun`), to which everything
 about the run is delegated. Every run-describing property it exposes
 (`Current`, `Review`, `Score`, `SkippedCount`, `Ranking`, `IsFinished`,
 `ProblemNumber` / `ProblemCount`, `RandomHomeBoardOnRight`) is read off the
-current run on each call; it keeps no copy of any, and there is no list of
+run in progress on each call, or — once a run has finished — off what the
+finished run keeps (below); it keeps no copy of any, and there is no list of
 past answers on it — the record is the run's presented sequence. What it
 adds is what a pure model cannot do: draw the next problem, decide which
 drawn positions are shown, take each board's roll, fold answers into the
@@ -510,9 +520,13 @@ synchronous move (⏮ ◀ ⏭, and ▶ behind the frontier) fires it once.
 
 **The transition gate.** The async transitions — `StartAsync` /
 `RestartAsync` / `SubmitPlayAsync` / `SubmitCubeAnswerAsync` / `NextAsync` (on
-the frontier, where it draws) / `EndQuizAsync` — share one busy gate:
-a second gesture arriving while a transition is in flight **no-ops** (it does
-not queue). Only the gate's holder draws from or releases a stream — the
+the frontier, where it draws) / `EndQuizAsync` / `EndForNewSampleAsync` —
+share one busy gate: a second gesture arriving while a transition is in
+flight **no-ops** (it does not queue). `EndForNewSampleAsync` alone waits for
+the gate instead (`BeginTransitionWhenFreeAsync`, released through a
+`TaskCompletionSource` each `EndTransition` completes): a new sample that has
+landed must end the run whatever the user was doing, so it finishes after an
+in-flight Submit's fold rather than skipping the end. Only the gate's holder draws from or releases a stream — the
 current run's, or, while a Start or Restart prepares and two are open, the
 attempt's own — and an
 overlapped `MoveNextAsync` — or a dispose during one — throws on a thread-pool
@@ -544,7 +558,8 @@ the throw exists for. `QuizControllerOverlapTests` pins all of it via
 halheinrich/backgammon#325 item 1 — the rules are read there). Start and
 Restart are one transition, an *attempt*, and `AttemptAsync` is its one path.
 Prepare is the refusal checks, the stats bind, and `PrepareAsync`: the
-factory call, `RunSource.Open` (the composing decorator for a weighted mix,
+factory call, `RunSource.Open` (the producer's composer over the pool, with
+the run's Order, ranking and effective mix and the stats provider or none,
 then the stream opened), and the draw to the first problem with a choice or
 the end. What it builds belongs to the attempt. Commit is `SwitchTo`, one
 step that cannot fail: the new `QuizRun` and its `RunSource` — a private
@@ -555,13 +570,44 @@ released. So a fault anywhere in prepare keeps the current run whole, active
 or finished, its Restart still replaying its own filters and mix, and the
 state "started, not ended, nothing on screen" never occurs between
 transitions; a page that shows the current run during a long prepare (Home's
-"Back to quiz") shows it busy. A stream is released once
-(`RunSource.ReleaseAsync` lets it go before awaiting the release): by End
-quiz, by the switch, or — for a faulted attempt — before the fault
-propagates. **Releasing never misreports**: a release that throws after the
-switch is logged (the controller's `ILogger`), not reported as a failed Start
-or Restart; one that throws while a faulted attempt is being unwound is
-logged too, and the attempt's own error is the one rethrown.
+"Back to quiz") shows it busy. An attempt whose draw ended at once commits a
+finished run (below), its source released at once and the live-quiz marker
+cleared. A stream is released once (`RunSource.ReleaseAsync` lets it go
+before awaiting the release): wherever the run finishes — End quiz, the
+source running out, a new sample — by the switch, or, for a faulted
+attempt, before the fault propagates. **Releasing never misreports**: a
+release that throws after the switch or as a run finishes is logged (the
+controller's `ILogger`), not reported as a failed Start, Restart or End
+quiz; one that throws while a faulted attempt is being unwound is logged
+too, and the attempt's own error is the one rethrown (except that the
+producer's composer, releasing its inner stream in its own `finally`,
+surfaces a release fault in place of a draw fault — pinned in
+`QuizControllerStartAttemptTests` as it stands).
+
+**A finished run holds its result and its replay, nothing heavy**
+(`../SPEC-quiz-history.md` §9; halheinrich/backgammon#407). However a run
+finishes — End quiz, the source running out, a new sample — the controller
+condenses it (`Finish`) into a private `FinishedRun`: its `QuizResult`
+(ranking, score, skip count, presented count, problem count — the run's
+`ToResult`) and its `RunReplay` (filters, mix, name, composition telemetry:
+what Done shows and what Restart replays), and lets go of the `QuizRun`, its
+presented decisions, the `RunSource`, its stream, and with them the parsed
+decisions and buffered files the source held. One representation, no live
+history kept behind it; `QuizControllerFinishedRunTests` pins the release
+by weak reference under all three ways of finishing, on a single-threaded
+pump so no thread-pool frame keeps the last state alive.
+`EndForNewSampleAsync` is the third way: Home calls it as a new sample lands,
+before the install (§ Home), and it ends a run in progress as End quiz does
+and records that it was a new sample that ended it (`EndedByNewSample`, the
+finished run itself as an opaque occurrence, which Home's line is keyed by);
+with no run in progress it does nothing.
+
+**The live-quiz marker is the controller's** (`IQuizLiveMarker`; §
+`QuizLiveMarker`). It marks the tab live where an attempt commits a run in
+progress, and clears it wherever a run finishes, so a reload after End quiz,
+after the source ran out, or after a new sample ended the quiz reports no
+quiz lost. Both writes log and swallow their failures: the marker is
+advisory.
 `QuizControllerStartAttemptTests` pins it over `RecordingProblemSetSource`,
 which records which stream each draw came from and each release.
 
@@ -614,9 +660,9 @@ transition does to the record is the run's rule (§ `QuizRun`):
 - **`EndQuizAsync`** [`QuizRun.End`] — the user's own exit from the run (issue
   halheinrich/backgammon#57), and the one path that leaves the per-problem flow
   rather than moving through it: it finishes where it stands, with problems still
-  unread. `IsFinished` flips, `Current` and `Review` clear, and the live
-  enumerator is released early (safe because the gate guarantees no
-  `MoveNextAsync` is in flight). No-op before start and after finish. **Two
+  unread. `IsFinished` flips, `Current` and `Review` clear, and the run is
+  condensed to what a finished run keeps, its stream released early (safe
+  because the gate guarantees no `MoveNextAsync` is in flight). No-op before start and after finish. **Two
   settled semantics, no new scoring path,** parting on the *record*
   rather than on `Review`: with **nothing** of record the problem showing is
   **abandoned** — any in-progress input is discarded, it records no answer, and
@@ -663,9 +709,9 @@ practice status cannot be assigned apart and drift. The run builds it, in its
 submit transitions, and holds it until the problem is left.
 
 **Source construction is factory-injected.** The controller takes a
-`ProblemSetSourceFactory` delegate (`(DecisionFilterSet, PlayRanking,
-QuizMix) → ComposedProblemSource` — the stack plus its two readers, the
-collapse magnitude and the parse's source report). `PickedFolderSourceFactory.Create` builds the production one and is
+`ProblemSetSourceFactory` delegate (`(DecisionFilterSet, PlayRanking) →
+ComposedProblemSource` — the pool plus its two readers, the collapse
+magnitude and the parse's source report). `PickedFolderSourceFactory.Create` builds the production one and is
 the **single statement of the layer stack**; `Program.cs` registers it scoped
 by resolving the app-scoped ingredients and handing them over. The stack,
 innermost first:
@@ -674,10 +720,12 @@ innermost first:
    section), which filters each cached record through its view for the
    ranking the delegate is handed.
 2. `DistinctPositionProblemSetSource` — content-identity dedupe, always on.
-3. `ShuffledProblemSetSource` — only when `mix.IsPassthrough &&
-   shuffle.Enabled`. The mix parameter exists for exactly that one rule —
-   **shuffle arbitration** (see Pitfalls). The factory never wires the
-   composition layer itself (that is the controller's — below).
+
+That is the pool, and all of it: the stack orders nothing and composes
+nothing. The Order and the mix are the run's, applied once, above it, by the
+producer's composer the controller wires (`RunSource.Open`; below), so the
+count and the filter preview, which draw the pool alone, never sort
+(SPEC-filtering.md §7).
 
 **The ranking is an argument, never a holder the factory reads** (SPEC-scoring
 §2a: "The problem filter's 'erred by more than x' uses the player's error
@@ -698,11 +746,7 @@ app's most wiring-sensitive code and the only place the layer *order* is
 stated, so it has to be reachable from a test. As a lambda it was not, and
 tests claiming to pin "the path `Program.cs` wires" could only re-type it by
 hand — which drifted, silently. `PickedFolderSourceFactoryTests` calls `Create`
-itself. The
-one exception is deliberate and documented in place: pinning that a *shuffled*
-source reorders needs `ShuffledProblemSetSource`'s seeded ctor, which
-production deliberately does not use, so that test keeps a hand-built stack
-rather than a permutation that flakes on the identity.
+itself, and pins that its product is the pool alone (`FactoryShape_IsThePoolAlone`).
 
 **No pool-composition guard any more.** A money record that stated no Jacoby
 rule used to fail the folder load at this layer (`JacobyStampedProblemSetSource`,
@@ -715,14 +759,15 @@ So the guard, its message (`FolderPickDisplay.MalformedForQuizzing`) and their
 tests went, as a guard the invariant has made unreachable does. Home's
 start-error banner stays: it is the catch-all for any Start that throws.
 
-**Position dedupe sits beneath shuffle and mix** (issue
+**Position dedupe sits beneath the Order and the mix** (issue
 `halheinrich/backgammon#84`). A quiz could serve the same position twice:
 `DecisionId` is file-relative, so two copies of one match in a folder — or an
 identical early position reached in two different matches — carry distinct ids
 yet render the same problem. Both were ruled in scope for the collapse. Wiring
 the decorator at the bottom means **one rule for every quiz mode**: plain,
 shuffled and weighted runs all draw from an already position-distinct supply,
-with no per-mode variant to keep in step. Two things follow without their own
+with no per-mode variant to keep in step — and every Order sorts an already
+position-distinct pool. Two things follow without their own
 wiring — the pre-Start match summary counts the same deduped pool the quiz
 draws (same factory; see below), and the mix's pool sizes and composition
 notice tally deduped supply.
@@ -741,16 +786,19 @@ notice tally deduped supply.
   positions collapse is unknowable before enumeration.
 
 **Mix ownership mirrors filter ownership, and a weighted start can be
-refused.** `StartAsync(FilterConfig, QuizMix, PlayRanking, bool ignoreMix =
-false)` takes the caller's effective mix beside the filter config — user
-config in at Start, stored for Restart, no caller-set mutation — and returns a
-`QuizStartOutcome`. For a
-non-blank *effective* mix (the stored mix, unless the per-run `ignoreMix`
-override), `RunSource.Open` (under `AttemptAsync`) wires the producer's `MixedProblemSetSource`
-around the factory source — so **the supply it composes from is already
-position-distinct** (§ Source construction, which owns what follows
-downstream) — holding the typed reference so `LastComposition`
-telemetry surfaces without type-testing; the stats provider resolves
+refused.** `StartAsync(FilterConfig, QuizMix, PlayRanking, ProblemOrder,
+bool ignoreMix = false)` takes the caller's effective mix and the Order
+beside the filter config — user config in at Start, stored for Restart, no
+caller-set mutation; an undefined Order is refused before anything binds —
+and returns a `QuizStartOutcome`. For every run, `RunSource.Open` (under
+`AttemptAsync`) wires the producer's `MixedProblemSetSource` around the
+factory's pool with the Order, the run's ranking and the *effective* mix (the
+stored mix, unless the per-run `ignoreMix` override) — so **the supply it
+composes from is already position-distinct** (§ Source construction, which
+owns what follows downstream) — holding the typed reference so
+`LastComposition` telemetry surfaces without type-testing. A blank effective
+mix composes nothing: the composer applies the Order plainly and its
+telemetry is null. For a mix in effect, the stats provider resolves
 `IProblemStatsSink.CurrentDocument` fresh per enumeration, so **Restart
 recomposes against the lifetime record as it stands, this session's folds
 included** (deliberate, producer-documented). Composing without stats is
@@ -763,10 +811,11 @@ bind yielded no document. Since halheinrich/backgammon#87 the refusal is a **bac
 outcome**: the host offers no way to build a mix where `CanWeightMix` is false,
 so what is left reachable is a bind that fails *after* the pick looked
 capable — a stats file that changed or turned unparseable in between. Either refusal returns `MixRequiresStats` having touched **no quiz
-state** (see Pitfalls). `RestartAsync(PlayRanking ranking, bool ignoreMix =
-false)` — a new run, so it takes the setting's ranking as it stands, as a
-Start does, while it replays the stored filters — re-attempts the
-stored mix, and **the caller decides whether to**: since
+state** (see Pitfalls). `RestartAsync(PlayRanking ranking, ProblemOrder
+order, bool ignoreMix = false)` — a new run, so it takes the setting's
+ranking and Order as they stand, as a Start does, while it replays the
+stored filters, from the run in progress or the finished run's replay —
+re-attempts the stored mix, and **the caller decides whether to**: since
 `halheinrich/backgammon#5` `Done` passes `ignoreMix: !MixVisibility.IsVisible`,
 so a restart weights exactly when the panel does — one rule, no special case
 for the mix having come from a previous run. The controller is unchanged; what
@@ -779,18 +828,22 @@ whether the run's *effective* mix bound its percentages to a requested
 read off `LastComposition`: the producer records the capped/capless split
 precisely so no consumer re-derives it (the controller carried a local
 `ActiveMixHasLength` duplicate until halheinrich/backgammon#12's recording
-landed). Passthrough runs (blank mix, or the ignore-mix override) wire no
-composition at all, and the notice block is gated on the composition's
-existence, so the no-framing case falls out structurally. `LastComposition`
-is the current run's, held in its `RunSource`, so a Start or Restart that does
-not commit — refused or faulted — leaves a running quiz its framing.
+landed). Passthrough runs (blank mix, or the ignore-mix override) compose
+nothing — the composer's telemetry is null — and the notice block is gated
+on the composition's existence, so the no-framing case falls out
+structurally. `LastComposition` is the current run's, held in its
+`RunSource` and, once the run finishes, in its replay, so a Start or Restart
+that does not commit — refused or faulted — leaves a running quiz its
+framing.
 `ProblemNumber` / `ProblemCount` drive the "Problem N of M" indicator, and
 both are the run's (`../SPEC-quiz-history.md` §5). N is the 1-based **consumed
 stream slot** of `Current` (`PresentedProblem.StreamSlot`: auto-skipped
 no-choice positions included; following the cursor; zero while no problem is
 on screen). M is the run's `ProblemCount`, which the controller hands over and
-the run never looks up: the source's declared `Count` when the run begins
-(passthrough; null when streaming — the page then shows "Problem N" alone),
+the run never looks up, and a finished run keeps (`QuizResult.ProblemCount`):
+the source's declared `Count` when the run begins (passthrough — the Order
+passes it through; null when streaming, as a picked folder's is — the page
+then shows "Problem N" alone),
 or the composition's `DrawnCount` once a weighted run's first draw has
 produced it. Slot-counting is the settled convention: both numbers count the
 stream, so N never exceeds M and lands exactly on M on the stream's last
@@ -827,9 +880,10 @@ Home reads from `FilterSetup`'s snapshot as the filter in effect), not a runtime
 pipeline, which it owns end-to-end — no shared mutable state ever exists
 between page and controller. The `ProblemSetSourceFactory` delegate still
 takes the runtime `DecisionFilterSet` (the source's contract is the runtime
-pipeline; the controller is the authority on assembling it), the run's
-ranking, and the run's effective `QuizMix` for shuffle arbitration. It returns a
-`ComposedProblemSource` — the stack to enumerate paired with a reader for the
+pipeline; the controller is the authority on assembling it) and the run's
+ranking — nothing of the mix or the Order, which the controller applies above
+the pool. It returns a
+`ComposedProblemSource` — the pool to enumerate paired with a reader for the
 dedupe layer's collapse magnitude (§ It counts deduped positions) and one for
 the parse layer's `SourceReport` (§ It reports what the parse could not read).
 
@@ -861,7 +915,7 @@ telemetry to one number and the summary reads it after the drain, since it is
 telemetry of that enumeration. `Total + DuplicatesCollapsed` is the whole
 filtered stream — the accounting identity `PositionDedupeTests` pins against a
 real parse. The factory returns the pair rather than the decorator so the
-shuffle wrapper above it needs no type-test, and so a substitute stack with no
+composer above it needs no type-test, and so a substitute stack with no
 dedupe layer reports `0` honestly instead of fabricating one.
 
 **It reports what the parse could not read** (halheinrich/backgammon#368).
@@ -1395,32 +1449,33 @@ exposes a readable handle (`Enabled` / `PermissionDenied` — `null` under
 ### `PickedProblemFolder` — the picked-folder holder
 
 The Scoped holder (see Pitfalls: resets on full reload) for the picked folder:
-`Files` (buffered `PickedFile`s — BgFolderAccess_Razor's record), `FolderName`,
-and the two pick-time verdicts
-about them — `FolderWriteCapability` and `Truncations`. `Home.razor` writes it
-(`Set` / `Clear`); the `ProblemSetSourceFactory` reads it to build a
+the `Sample` (BgFolderAccess_Razor's `FolderSample`: `Files`, the buffered
+`PickedFile`s, and `Kinds`, the per-kind report of how many matching files
+the draw found and admitted), `FolderName`, and the pick-time
+`FolderWriteCapability`. `Home.razor` writes it
+(`Set` / `Resample` / `Clear`); the `ProblemSetSourceFactory` reads it to build a
 `CachedProblemSetSource`; `QuizStatsStore` reads `Capability` at its
 Start-time bind. Files are buffered bytes (read out of the browser once at
 pick time) so the source can re-enumerate on Restart. **Every collection it
-holds is an immutable array** — `Files` and `Truncations` are the pick
-outcome's own, and `Parsed.Decisions` the parse's — and `Set` and
+holds is an immutable array** — the sample is the pick outcome's own record,
+and `Parsed.Decisions` the parse's — and `Set` and
 `ParsedProblemSet` refuse a default array, as the outcome records do
 (halheinrich/backgammon#273's collection rider: the holder used to keep
 whatever list it was handed, the parse cache being the parse's own live
 `List`). Carrying the
 capability here (not in a component field) keeps Home's stats status notice
 alive across navigate-back — the same holder-vs-field rationale as the start
-gate, and the reason `Truncations` sits beside it: both describe the folder
-being *held*, unlike the cancelled / empty-folder flags, which describe a
-gesture that left nothing to describe and so stay per-visit page fields. `Set`
-takes the truncation report rather than defaulting it, so a caller holding the
-fact cannot drop it. The holder also carries the **parse-once cache seam** —
+gate, and the reason the sample's report sits beside it: both describe the
+folder being *held*, unlike the cancelled / empty-folder flags, which describe
+a gesture that left nothing to describe and so stay per-visit page fields.
+`Set` takes the sample whole, report included, so a caller holding the fact
+cannot drop it. The holder also carries the **parse-once cache seam** —
 `Parsed` / `SampleIdentity` / `StoreParsed` — so that invalidation
 is intrinsic to `Set`/`Resample`/`Clear`; `Parsed` is a `ParsedProblemSet`, the
 decisions *and* the `SourceReport` of the walk that produced them, so the
 rejected-file record (halheinrich/backgammon#368) is a fact about the folder
-being held exactly as `Truncations` is, retired by `Set`/`Resample`/`Clear`
-and by nothing else; see the `CachedProblemSetSource` section for the
+being held exactly as the sample's report is, retired by
+`Set`/`Resample`/`Clear` and by nothing else; see the `CachedProblemSetSource` section for the
 contract — and **two identities** (SPEC-filtering.md §4, "The sample, the
 limits and Resample"; halheinrich/backgammon#403). **`SetupIdentity`** is the
 setup's: begun by every `Set`, even of the same folder, kept by `Resample`,
@@ -1485,17 +1540,18 @@ cap independently, so one folder can admit its full quota of both.
 **The two caps end differently, and that is the design.** An oversized *file*
 throws (lib-side, before any bytes move) and lands on Home's pick-error
 banner. A folder past a *count* cap **truncates and reports**: the pick takes
-a **uniformly random** N of that kind — never a prefix, so repeated picks of
+a **uniformly random** N of that kind — never a prefix, so repeated draws of
 one folder reach the whole corpus rather than the same slice forever
-(`BgFolderAccess_Razor`'s `PickTruncation` holds the rationale; Home's notice
+(`BgFolderAccess_Razor`'s `FolderSample` holds the rationale; Home's notice
 says "chosen at random" because the shifting match count is otherwise
-unexplained, issue halheinrich/backgammon#106) — and the left-behind count
-rides back as `FolderPickOutcome.Truncations` →
-`PickedProblemFolder.Truncations` → Home's polite per-kind notice. Failing the
+unexplained, issue halheinrich/backgammon#106) — and the per-kind report
+rides back as `FolderSample.Kinds` → `PickedProblemFolder.Sample` → Home's
+polite notice, one line per kind with files omitted (`SampledKind.OmittedCount`),
+and Resample is the way to another draw (SPEC-filtering.md §4). Failing the
 whole pick threw away the 2000 files that were perfectly readable; the caps are
 a cost ceiling, not an admissions test. Everything downstream — match count,
 mix, stats — derives from the partial pool with no special-casing at all. Each
-`PickTruncation.MaxFileCount` is derived lib-side from the enforced
+`SampledKind.MaxFileCount` is derived lib-side from the enforced
 `FolderPickLimits` instance (never round-tripped across interop), so the figure
 Home's notice states is by construction the figure the pick applied.
 
@@ -1616,13 +1672,16 @@ mix edits survive in-app navigation — ratified product behavior): an
 ordered list of (category, percent) rows — category picker over the seven
 `QuizCategoryKind`s, a parameter input where the kind takes one (defaults
 seeded on selection: 3 times / 30 days / 0.05 equity / 25%), percent 1–100
-summing to exactly 100 — plus the Random-order toggle (default on) and an
-optional quiz length (disabled with a hint at zero rows;
+summing to exactly 100 — plus an optional quiz length (disabled with a hint at zero rows;
 length-without-entries is invalid by producer rule, and "cap without
 weighting" is one Everything-else row at 100 plus a length). Row order is
 **semantic** (earlier rows win contested overlap — producer contract), so
 rows carry explicit ↑/↓ reorder buttons and both persistence and restore
-preserve order exactly. The wrong-rate row *displays* percent and *stores* the
+preserve order exactly. The order a mix's problems are *presented* in is not
+the panel's: it is the Order on Home (SPEC-filtering.md §5, "The mix selects;
+the order presents"), and the Random-order toggle went with that ruling — a
+stored schema-1 mix whose toggle was on reads as read, with no migration. The
+wrong-rate row *displays* percent and *stores* the
 producer's fraction — thresholds are fractions; rendering is a display
 concern. Validation reports the first problem inline (`ValidationError` — the
 in-place account of what Home's "fix it or turn the mix off" hint means by
@@ -1649,7 +1708,7 @@ never rebalances.
 
 **Add category is styled `btn-outline-primary`, not the panel's secondary grey
 — don't "unify" it**: the button is never disabled (adding a row is always
-valid), but at zero rows its neighbours (Random order and Quiz length) *are*,
+valid), but at zero rows its neighbour (Quiz length) *is*,
 and in secondary grey it read as another
 switched-off control — the one misreading that must never happen, since it is
 the only way out of the zero-row state. The class matches
@@ -1763,7 +1822,7 @@ while the panel is visible, the mix that runs: rows (kind / parameter text / per
 text, read-only outside — every write goes through an async mutator so
 `Changed` fires and the write-through runs; `Rows` is an immutable array each
 add, removal, reorder and reload replaces, so no reader can write the list
-through a cast — halheinrich/backgammon#273's collection rider), the Random-order toggle, the
+through a cast — halheinrich/backgammon#273's collection rider), the
 length buffer, the picker's canonical kind order, validation
 (`ValidationError`), `Build()` (**zero rows ⇒ `Empty`, never null**;
 unbuildable ⇒ null), and the hydration lifecycle (`EnsureHydratedAsync` /
@@ -2018,21 +2077,22 @@ with an id is found by it; one without, by what it says (`PageTests`'
 dismissible box computes `cursor: pointer` on a real page load, a value only
 the component's scoped stylesheet produces (`EnvironmentFidelityTests`).
 
-### `ShuffleOption` — the "Shuffle order" toggle holder
+### The Order — `QuizSettings.Order`
 
-The Scoped holder (see Pitfalls: resets on full reload) for the **"Shuffle
-order"** checkbox on `Home` — a sibling of `PickedProblemFolder`. Surface: `bool Enabled` (private setter) + `Set(bool)`.
-`Home.razor` writes it on the checkbox's `@onchange`; the
-`ProblemSetSourceFactory` reads `Enabled` at **invocation** time
-(`StartAsync`) — the same read-live-at-Start discipline as
-`PickedProblemFolder`. **Presentation-only, and off the start gate**:
-shuffling changes only the *order* decisions are presented in, never which are
-*admitted*, so it is not folded into `FilterConfig` and plays no part in
-`CanStart`; a checkbox has no half-edited intermediate state, so every toggle
-is a complete, immediately valid choice with nothing to "apply". **Disabled —
-never rewritten — under an active mix** (the suppression itself lives in the
-factory; see Pitfalls): `Enabled` keeps the user's value untouched, so
-clearing the mix restores the prior preference (pinned).
+The **Order** on `Home` (SPEC-filtering.md §7; halheinrich/backgammon#402)
+is one control with the producer's four `ProblemOrder` values — *As read*,
+*Shuffled*, *By error, largest first*, *By move number, ascending* —
+labelled from their `[Description]`s (`EnumLabel.ToLabel()`), offered from
+`QuizSettings.Orders`. It replaced the Shuffle order checkbox (and its
+`ShuffleOption` holder) and the mix's Random-order toggle. A remembered
+choice, like the ranking: `QuizSettings.Order`, default *As read*, written by
+`SetOrderAsync` (an undefined value is refused) and persisted in the
+settings document as `problemOrder` (appended last; an older document reads
+with the default). **Presentation-only, and off the start gate**: it orders,
+never admits, so it plays no part in `CanStart`, and a mix never disables
+it. It is read where a Start or Restart builds the run's source (Home's
+Start, Done's Restart, each handing it to the controller beside the ranking)
+and nowhere else: the count and the filter preview never sort.
 
 ### `QuizLiveMarker` — the reload-reset honesty marker
 
@@ -2043,22 +2103,24 @@ spread across two pages and a storage constraint worth stating once. This is the
 slice of reload-resume, not resume itself**: a full reload reboots the WASM
 runtime and silently discards all quiz state; the marker is the one thing that
 survives, so a fresh boot that finds it can *explain* the loss. Surface:
-`MarkLiveAsync()` / `WasLiveAsync()` / `ClearAsync()`. Lifecycle:
+`MarkLiveAsync()` / `WasLiveAsync()` / `ClearAsync()`; the writes are
+`IQuizLiveMarker`'s, which the controller takes. Lifecycle:
 
-- **Set wherever a quiz becomes live**: `Home` on a successful Start —
-  *after* the empty-result guard, so the no-match path never marks — **and**
-  `Done` on *Restart*, which makes a quiz live again from the same pipeline
-  (without the Restart writer, a reload during a restarted quiz falls back to
-  the old silent reset — a one-click-wide hole in the guarantee).
+- **The controller writes it where a run's state changes**
+  (`../SPEC-quiz-history.md` §9): it marks the tab live where an attempt —
+  Start or Restart — commits a run in progress, and clears it wherever a run
+  finishes: End quiz, the source running out, a new sample, and an attempt
+  whose draw ended at once (the no-match path, which so marks nothing live).
+  One writer, at the transitions themselves, so no page can mark a quiz that
+  is not live or leave a finished one marked — the gap that had a reload after
+  a mid-quiz pick report a quiz lost. Both writes log and swallow failures.
 - **`Home` reads** it on boot: `WasLiveAsync() && !Controller.HasStarted` ⇒
   show the polite reset notice, then `ClearAsync()` so it shows once. The
   `HasStarted` guard is the discriminator — a set marker with a *live*
   controller is in-app navigation back mid-quiz, **not** a reload, so no
   notice fires and the marker stays for a genuine later reload.
-- **`Done` clears** it on honest completion — no reset to announce (a reload
-  that killed a live quiz never reaches Done, which requires the surviving
-  in-memory controller). *Restart* re-sets it immediately after, so the
-  clear-then-re-set order across a Done→Restart round trip is deliberate.
+- **`Done` writes nothing**: the run it shows has already finished, which
+  cleared the marker, and its Restart's commit is the controller's mark.
 
 `PageTests` pins the whole lifecycle. **Storage is `sessionStorage`,
 deliberately — not `localStorage`** (see Pitfalls).
@@ -2186,8 +2248,8 @@ deliberately does not (§ The maximize-board setting).
 
 **No draft, no commit, no dirty flag, no `Changed` event.** Nothing here is
 composed into a quiz at a Start gesture, so there is no half-edited state to
-guard and no gate to derive — the reasoning `ShuffleOption` already records,
-and the lifetime split that produced finding (AK)'s wedge is precisely what
+guard and no gate to derive — the Order is one of these settings, read where
+a Start builds the run's source — and the lifetime split that produced finding (AK)'s wedge is precisely what
 this service must never grow. The page is the only component *rendering* these
 properties, and the one reader elsewhere — `MixVisibility`, over
 `WeightQuizzesByStats` — cannot be on screen while they move, since changing a
@@ -2424,7 +2486,7 @@ The asymmetry is pinned three times over: at the service seam
   `FilterSurface` (one producer composite: saved filters rendered above the
   filter panel so load-then-refine reads top-down, plus every saved-filters
   notice), the match-count line, the `MixPanel`,
-  the shuffle checkbox, and Start — renders only once `Folder.HasFiles`, which
+  the Order, and Start — renders only once `Folder.HasFiles`, which
   also makes the filter half of the gate true by construction. The
   composite's state is not its own — it reads and edits the app-scoped
   `FilterSetup` (§ that section), so its mount and unmount behind this gate
@@ -2442,8 +2504,9 @@ The asymmetry is pinned three times over: at the service seam
   takes no parameters — gestures flow through the injected `MixDraft`, whose
   `Changed` event Home subscribes to (unsubscribed in `Dispose`) so the derived
   gates re-render. Visibility's other half needs no subscription: the setting
-  moves only on the Settings page, which Home cannot be mounted beside. The shuffle checkbox binds to
-  `ShuffleOption` (§ that section). Start is gated on **five** conditions,
+  moves only on the Settings page, which Home cannot be mounted beside. The
+  Order's radios bind to `QuizSettings.Order` (§ The Order); a mix in effect
+  never disables them. Start is gated on **five** conditions,
   each with its own sibling hint, read from per-app scoped services (plus the
   advisory summary) so the gate survives navigation:
   `CanStart => FilterInEffect is not null && Folder.HasFiles
@@ -2578,9 +2641,8 @@ The asymmetry is pinned three times over: at the service seam
     of them, so it **can** be much smaller. Hedged, not "will be" — a capless
     *Everything else* mix can legitimately draw the whole pool. A **pre-Start
     composition preview is deliberately not built**. `MixInEffect` is the
-    single predicate behind both this caveat and (via `MixOwnsOrder`, a named
-    consequence so the shuffle markup says *why*) the shuffle checkbox's
-    disabled state.
+    predicate behind this caveat; it disables nothing — the Order stays
+    available under a mix (SPEC-filtering.md §5).
   - **The breakdown is compact and always open, and every bucket renders,
     zeros included.** Not a disclosure — click-to-open would hide the finding
     behind a gesture nobody knows to make — and the absent categories *are*
@@ -3722,7 +3784,8 @@ The asymmetry is pinned three times over: at the service seam
   its own**, keeping only app-level framing `FilterHelp` cannot know — that
   Home shows whether Apply is needed (with a pointer to `FilterHelp` for
   when), what the match count means where it is available, that the mix draws
-  from that pool, and that `Shuffle order` is this app's control. **No second
+  from that pool, and what the Order does — its four values rendered from the
+  producer's labels — and that a mix never disables it. **No second
   statement of the filter rules**, the empty selection's readiness and a
   loaded set's included: the saved-filters section says only that Home shows
   whether Apply is needed after a load. Those sentences are Hal's
@@ -3850,8 +3913,10 @@ The asymmetry is pinned three times over: at the service seam
   its label describes that navigation rather than promising a reset it
   doesn't perform — Restart and Back-to-setup differ only in *where they
   land*, not in what they clear.
-  Done participates in the `QuizLiveMarker` lifecycle both ways (clears on
-  reaching it, re-sets on Restart — § QuizLiveMarker) and mirrors Quiz's
+  Done writes nothing to the `QuizLiveMarker`: the controller cleared it when
+  the run finished and marks it again when Restart commits a live run (§
+  QuizLiveMarker). It hands Restart the setting's ranking and Order as they
+  stand (§ The Order). It mirrors Quiz's
   active-context stats notices (`LoadFailed` polite / `WriteFailed`
   assertive) and its stats-retirement report —
   a failure on the *final* Continue lands the user here without ever seeing
@@ -4472,7 +4537,7 @@ assertions only. Every flow helper ends by awaiting the
 user-visible consequence of the transition it triggered. Every committed
 fixture is a single-decision `.xgp` file (the `.xgp` emission policy yields at
 most one decision per file), so a one-fixture quiz is exactly one problem long
-with shuffle left off, and an N-fixture folder is N problems. Their *answer
+in the default Order (*As read*), and an N-fixture folder is N problems. Their *answer
 types* are a contract too: the breakdown suite stages `CheckerFixture` beside
 `CubeFixture`, whose truth is No double, so that folder is a pool
 of exactly two answer types with three empty — which is what makes its zeros
@@ -5298,13 +5363,14 @@ public (see Pitfalls). The externally visible surface is the route map:
   composition summary and per-entry lines must all keep declared order.
   Reordering is a real edit (dirties the gate); `MixPanelTests` pins order
   surviving Apply.
-- **An active mix suppresses the shuffle wrap — in the factory, not the UI.**
-  The mix's `RandomOrder: false` promises source-order determinism, which a
-  `ShuffledProblemSetSource` under the composing decorator would silently
-  break. The `Program.cs` factory wraps shuffle only when `mix.IsPassthrough`;
-  Home's disabled checkbox is the honest *mirror* of that rule, not its
-  enforcement — and disabled must never mean rewritten (`ShuffleOption` keeps
-  the user's value; pinned).
+- **One Order, applied once, by the producer's composer — don't reintroduce
+  an order layer in the factory.** The factory's product is the pool alone;
+  `RunSource.Open` hands the run's Order to `MixedProblemSetSource`, which
+  applies it through the mix for a mix in effect and plainly for a blank one.
+  A shuffle or sort decorator in the stack would order the pool a second time
+  under the composer (or, under a mix, reorder what the mix composed), and it
+  would make the count sort — which §7 forbids. A mix never disables the Order
+  (`../SPEC-filtering.md` §5, "The mix selects; the order presents").
 - **The mix stats provider must never see a null document.** The controller
   wires `MixedProblemSetSource` only past the two-stage refusal, and the
   provider throws `InvalidOperationException` if `CurrentDocument` is null
@@ -5380,15 +5446,15 @@ public (see Pitfalls). The externally visible surface is the route map:
   hints (the contract lives on `IDecisionFilter`/`IMatchFilter` in
   XgFilter_Lib); a filter whose votes cut rows its `Matches` would admit
   breaks that contract and this cache.
-- **Position dedupe must stay *above* the filter and *below* shuffle and
-  mix.** Both halves of that sandwich are load-bearing. Moving it below the
+- **Position dedupe must stay *above* the filter and *below* the Order and
+  the mix.** Both halves of that sandwich are load-bearing. Moving it below the
   filter — the tempting edit, since folding it into the cached parse would
   dedupe once instead of per enumeration — lets it elect a survivor the filter
   then rejects while dropping the content-equal copy that would have passed:
   filters are not purely positional (players, dates, error bands), so
   content-equal copies are *not* interchangeable to them, and a matching
-  position vanishes with nothing reporting it. Moving it above shuffle or mix
-  gives each quiz mode its own dedupe story, which is how
+  position vanishes with nothing reporting it. Moving it above the Order or
+  the mix gives each quiz mode its own dedupe story, which is how
   halheinrich/backgammon#84 arose in the first place (id-level dedupe existed
   inside the mix; the bug was mix-independent). Also: don't reintroduce a
   survivor *preference*. The old one existed solely to keep id-keyed lifetime
