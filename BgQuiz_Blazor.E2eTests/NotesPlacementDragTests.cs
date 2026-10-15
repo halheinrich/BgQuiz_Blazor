@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
 
@@ -69,27 +70,41 @@ public sealed class NotesPlacementDragTests : NotesPlacementTestBase
     {
         await StartAtTheCubeReviewAsync();
         await OpenNotesAsync();
+        await WriteOverlayEvidenceAsync("before opening Move");
         await OpenMoveControlAsync();
         var start = await OverlayBoxAsync();
+        await WriteOverlayEvidenceAsync(
+            "when the Move control is open and the baseline is captured",
+            ("baseline captured (Playwright's box) [x, y, width, height]", Invariant(start)));
 
         // On the text: the drag selects text, as it always has, and the
         // overlay stays put — the text is not a handle. Pressed in the middle
         // of the first rendered line: a point on the boundary between two
         // line boxes is no line, and a press there selects nothing anywhere.
-        var line = await Page.EvaluateAsync<double[]>("""
-            () => {
-              const range = document.createRange();
-              range.selectNodeContents(document.querySelector('.decision-notes-text'));
-              const first = [...range.getClientRects()].find(r => r.width > 0);
-              return [first.left, first.top + first.height / 2];
-            }
-            """);
-        await PressAndMoveAsync(line[0] + 2, line[1], 150, 0);
-        await Page.Mouse.UpAsync();
-        Assert.True(
-            await Page.EvaluateAsync<int>("() => window.getSelection().toString().length") > 0,
-            "a drag across the text selects it");
-        await AssertStillAtAsync(start, "after a drag that began on the text");
+        double[]? line = null;
+        try
+        {
+            line = await Page.EvaluateAsync<double[]>("""
+                () => {
+                  const range = document.createRange();
+                  range.selectNodeContents(document.querySelector('.decision-notes-text'));
+                  const first = [...range.getClientRects()].find(r => r.width > 0);
+                  return [first.left, first.top + first.height / 2];
+                }
+                """);
+            await PressAndMoveAsync(line[0] + 2, line[1], 150, 0);
+            await Page.Mouse.UpAsync();
+            Assert.True(
+                await Page.EvaluateAsync<int>("() => window.getSelection().toString().length") > 0,
+                "a drag across the text selects it");
+            await AssertStillAtAsync(start, "after a drag that began on the text");
+        }
+        finally
+        {
+            await WriteOverlayEvidenceAsync(
+                "after the text drag",
+                ("the press [x, y]", line is null ? "(not reached)" : Invariant([line[0] + 2, line[1]])));
+        }
 
         // On each of the title bar's own buttons: they stay buttons, and a press
         // that wanders off and is released elsewhere is no drag (and no click).
@@ -240,6 +255,138 @@ public sealed class NotesPlacementDragTests : NotesPlacementTestBase
             Math.Abs(box.X - start.X) <= Tolerance && Math.Abs(box.Y - start.Y) <= Tolerance,
             $"{when}, the overlay should still stand at ({start.X:0.#}, {start.Y:0.#}); it stands at ({box.X:0.#}, {box.Y:0.#}).");
     }
+
+    /// <summary>
+    /// Write what the browser holds about the overlay at one moment to the
+    /// test's output, under <paramref name="when"/> — evidence for an
+    /// intermittent failure of the text drag's position check whose cause is
+    /// not yet known (halheinrich/backgammon#402), written whether the
+    /// scenario passes or fails.
+    ///
+    /// <para>
+    /// <b>One read, at one instant.</b> Everything the page is asked comes from
+    /// a single script, so the lines describe one moment rather than several
+    /// round trips apart: the overlay's box, its rendered placement
+    /// (<c>data-placed</c>, the style's <c>--notes-left</c> and
+    /// <c>--notes-top</c>, the computed corner), its title bar's height and
+    /// whether the Move control's steps are shown; the backdrop's box; the
+    /// page's scroll position, the viewport's size and the device pixel
+    /// ratio; the selection's length; and the trace below. Items the test
+    /// already holds — <paramref name="inHand"/> — are written with it.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The trace.</b> The first read starts a passive record on the
+    /// overlay, before it reads: timestamped changes to its style,
+    /// <c>data-placed</c> and the Move control's <c>aria-expanded</c>, the
+    /// elements added to it and removed from it, its size as the browser
+    /// reports it, and every pointer press, release and click on the page.
+    /// Observers and passive listeners only — the app's own handlers see the
+    /// same events at the same moments — so every later read can say what
+    /// changed, and when, against its own timestamp.
+    /// </para>
+    ///
+    /// <para>
+    /// Best-effort, through <see cref="EvidenceSheet"/>: a read that fails or
+    /// does not answer is written as not collected, and nothing here throws,
+    /// so the evidence never decides or masks the scenario's outcome.
+    /// </para>
+    /// </summary>
+    private async Task WriteOverlayEvidenceAsync(string when, params (string What, string Value)[] inHand)
+    {
+        var sheet = new EvidenceSheet();
+        foreach (var (what, value) in inHand) sheet.Add(what, value);
+        await sheet.ReadAsync("browser", () => Page.EvaluateAsync<string>("""
+            () => {
+              const at = () => Math.round(performance.now() * 10) / 10;
+              const d = document.querySelector('dialog.decision-notes');
+              const classOf = n => n?.getAttribute?.('class') ?? n?.tagName ?? null;
+
+              if (d && !window.__notesTrace) {
+                const trace = window.__notesTrace = [];
+                new MutationObserver(records => {
+                  for (const m of records) {
+                    if (m.type === 'attributes') {
+                      trace.push([at(), 'attribute', m.target === d ? 'dialog' : classOf(m.target),
+                        m.attributeName, m.target.getAttribute(m.attributeName)]);
+                    } else {
+                      const named = nodes => [...nodes].filter(n => n.nodeType === 1).map(classOf);
+                      const added = named(m.addedNodes), removed = named(m.removedNodes);
+                      if (added.length || removed.length)
+                        trace.push([at(), 'children', classOf(m.target), { added, removed }]);
+                    }
+                  }
+                }).observe(d, {
+                  attributes: true, attributeFilter: ['style', 'data-placed', 'aria-expanded'],
+                  childList: true, subtree: true,
+                });
+                new ResizeObserver(entries => {
+                  for (const e of entries)
+                    trace.push([at(), 'size', 'dialog', e.borderBoxSize[0].inlineSize, e.borderBoxSize[0].blockSize]);
+                }).observe(d);
+                for (const type of ['pointerdown', 'pointerup', 'click'])
+                  window.addEventListener(type, e => trace.push([at(), type, classOf(e.target), e.clientX, e.clientY]),
+                    { capture: true, passive: true });
+              }
+
+              const lines = [];
+              const add = (k, v) => lines.push(k + ': ' + JSON.stringify(v));
+              add('t (performance.now)', at());
+              if (d) {
+                const r = d.getBoundingClientRect(), cs = getComputedStyle(d);
+                const bar = d.querySelector('.decision-notes-header');
+                const move = d.querySelector('.decision-notes-tools button[aria-expanded]');
+                add('overlay box [x, y, width, height]', [r.x, r.y, r.width, r.height]);
+                add('data-placed', d.hasAttribute('data-placed'));
+                add('style', d.getAttribute('style'));
+                add('--notes-left, --notes-top', [cs.getPropertyValue('--notes-left').trim(), cs.getPropertyValue('--notes-top').trim()]);
+                add('computed left, top', [cs.left, cs.top]);
+                add('title bar height', bar ? bar.getBoundingClientRect().height : null);
+                add('Move aria-expanded', move ? move.getAttribute('aria-expanded') : null);
+                add('step buttons shown', d.querySelector('.decision-notes-steps') !== null);
+              } else {
+                add('overlay', 'not in the DOM');
+              }
+              const b = document.querySelector('.decision-notes-backdrop')?.getBoundingClientRect();
+              const se = document.scrollingElement, vv = window.visualViewport;
+              add('backdrop box [x, y, width, height]', b ? [b.x, b.y, b.width, b.height] : null);
+              add('window.scrollX, scrollY', [window.scrollX, window.scrollY]);
+              add('scrolling element, scrollLeft, scrollTop', se ? [se.tagName, se.scrollLeft, se.scrollTop] : null);
+              add('innerWidth, innerHeight', [window.innerWidth, window.innerHeight]);
+              add('clientWidth, clientHeight', [document.documentElement.clientWidth, document.documentElement.clientHeight]);
+              add('visualViewport [width, height, offsetTop, pageTop, scale]',
+                vv ? [vv.width, vv.height, vv.offsetTop, vv.pageTop, vv.scale] : null);
+              add('devicePixelRatio', window.devicePixelRatio);
+              add('selection length', window.getSelection()?.toString().length ?? null);
+              const trace = window.__notesTrace;
+              if (trace) {
+                lines.push('trace (' + trace.length + ' entries):');
+                for (const e of trace) lines.push('  ' + JSON.stringify(e));
+              } else {
+                add('trace', 'not started');
+              }
+              return lines.join('\n');
+            }
+            """));
+
+        try
+        {
+            Output.WriteLine($"[halheinrich/backgammon#402] {when}:");
+            foreach (var line in sheet.Lines) Output.WriteLine("  " + line.ReplaceLineEndings(Environment.NewLine + "  "));
+        }
+        catch (InvalidOperationException)
+        {
+            // xUnit refuses output outside a running test; the scenario's own
+            // outcome is what matters.
+        }
+    }
+
+    /// <summary>A box's corner and size, in invariant culture.</summary>
+    private static string Invariant(LocatorBoundingBoxResult box) => Invariant([box.X, box.Y, box.Width, box.Height]);
+
+    /// <summary>A list of lengths, in invariant culture.</summary>
+    private static string Invariant(IEnumerable<double> values) =>
+        "[" + string.Join(", ", values.Select(v => v.ToString("0.###", CultureInfo.InvariantCulture))) + "]";
 
     /// <summary>
     /// Release the mouse over a spot where a click reaches no control, so the

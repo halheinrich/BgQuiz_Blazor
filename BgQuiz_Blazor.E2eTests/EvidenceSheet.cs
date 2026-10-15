@@ -3,8 +3,10 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <summary>
 /// Diagnostic evidence gathered after something went wrong, one labelled line
 /// per item — the boot's failure evidence (<see cref="E2eTestBase.BootHomeAsync"/>,
-/// halheinrich/backgammon#383) and the remount report's state at its count
-/// check (halheinrich/backgammon#372).
+/// halheinrich/backgammon#383), the remount report's state at its count
+/// check (halheinrich/backgammon#372), and the notes overlay's state around
+/// the text drag whose position check fails intermittently
+/// (halheinrich/backgammon#402), gathered whether it fails or not.
 ///
 /// <para>
 /// <b>Best-effort and time-bounded, so it never decides a test's outcome.</b>
