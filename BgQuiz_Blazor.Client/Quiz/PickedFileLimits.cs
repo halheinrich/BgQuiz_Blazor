@@ -50,19 +50,30 @@ internal static class PickedFileLimits
     /// one-rule transition passes with margin, 500 if 500 does. It does.
     ///
     /// <para>
-    /// <b>The measurement</b> (2026-10-14, v1.12.2 Arc 5 leg 3). The trimmed
-    /// AOT publish, driven in Playwright's Chromium 149.0.7827.55 through the
-    /// transition — a quiz on a folder of 1,000 match files (a seed-42 sample
-    /// of a real corpus, 134.9 MB) drawn to 500, two resamples (the first
-    /// ending the quiz), Start, End quiz, Restart — with the WebAssembly heap
-    /// extent read at every step. Two runs: peak 1,269.9 MB and 1,265.6 MB
-    /// (1,075.8 MB and 1,169.0 MB after the first parse), against a pass mark
-    /// of 1,536 MB of the runtime's 2,048 MB; no runtime error; each
-    /// resample's count was of its own sample (202,142, then 205,238, then
-    /// 204,187 decisions in the first run) and Restart kept the second's. A
-    /// 24-thread i9-12900K under Windows 11, with unrelated analyses holding
-    /// 30–80% of the CPU throughout, which moves timings, not the heap. No
-    /// lower N was measured: the rule stops at the first that passes.
+    /// <b>The measurement</b> (2026-10-15, v1.12.2 Arc 5, on the leg's final
+    /// artifact). The trimmed AOT publish, driven in Playwright's Chromium
+    /// 149.0.7827.55 through the transition — a quiz on a folder of 1,000
+    /// match files (a seed-42 sample of a real corpus, 134.9 MB) picked
+    /// through the directory-input fallback and drawn to 500, two resamples
+    /// (the first ending the quiz), Start, End quiz, Restart — with the
+    /// WebAssembly heap extent read at every step: 1,074.9 MB after the first
+    /// parse, 1,171.7 MB at Start, then 1,364.4 MB from the first resample to
+    /// the end, against a pass mark of 1,536 MB of the runtime's 2,048 MB; no
+    /// runtime error; each resample's count was of its own sample (213,189,
+    /// then 206,383, then 204,755 decisions) and Restart kept the second's. A
+    /// 24-thread i9-12900K under Windows 11, idle (0–8% CPU load before the
+    /// run, no other work running). No lower N was measured: the rule stops at
+    /// the first that passes.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The peak moves in whole steps.</b> The heap extent grows about
+    /// 97 MB at a time. Two earlier runs of the same transition (2026-10-14,
+    /// on that leg's artifact, under unrelated load) peaked a step lower, at
+    /// 1,269.9 MB and 1,265.6 MB, with first samples of 202,142 and 208,630
+    /// decisions against this run's 213,189. The step is not attributed:
+    /// artifact and sample both differed. The margin left is 171.6 MB, under
+    /// two steps.
     /// </para>
     /// </summary>
     internal const int MaxXgFileCount = 500;

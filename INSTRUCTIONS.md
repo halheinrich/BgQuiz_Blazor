@@ -1550,10 +1550,9 @@ limits apply to every draw, a pick's and a resample's alike.
 halheinrich/backgammon#403): the largest N whose one-rule transition — a
 quiz on a folder of more than N match files, two resamples, Start, End quiz,
 Restart — passes with margin (no runtime error, the counts right, peak
-WebAssembly heap at most 1,536 MB of the runtime's 2,048 MB). 500 passed
-(2026-10-14: peaks of 1,269.9 MB and 1,265.6 MB), so 500 it is; the figures
-and conditions are `MaxXgFileCount`'s doc comment, the one place they are
-stated. A remeasure uses an uncommitted driver against a scratch publish —
+WebAssembly heap at most 1,536 MB of the runtime's 2,048 MB). 500 passed,
+so 500 it is; the figures and conditions are `MaxXgFileCount`'s doc
+comment, the one place they are stated. A remeasure uses an uncommitted driver against a scratch publish —
 the shipped app carries no limit seam and no instrumentation. The
 position-file limit is unmeasured and stays 2,000.
 
