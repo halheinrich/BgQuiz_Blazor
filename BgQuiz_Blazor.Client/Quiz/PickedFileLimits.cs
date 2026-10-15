@@ -42,10 +42,28 @@ internal static class PickedFileLimits
     internal const long MaxFileBytes = 50L * 1024 * 1024;
 
     /// <summary>
-    /// Upper bound on <c>.xg</c> match files taken from a single folder pick.
-    /// Unchanged at 500 by the per-format ruling (issue halheinrich/backgammon#59): one match file
-    /// averages ~120 decisions, so it is the expensive format and keeps the
-    /// original cap.
+    /// Upper bound on <c>.xg</c> match files taken in one draw of a folder — a
+    /// pick's or a resample's. One match file averages ~120 decisions, so it is
+    /// the expensive format (issue halheinrich/backgammon#59), and its limit is
+    /// set by measurement (<c>SPEC-filtering.md</c> §4, "The sample, the limits
+    /// and Resample"; issue halheinrich/backgammon#403): the largest N whose
+    /// one-rule transition passes with margin, 500 if 500 does. It does.
+    ///
+    /// <para>
+    /// <b>The measurement</b> (2026-10-14, v1.12.2 Arc 5 leg 3). The trimmed
+    /// AOT publish, driven in Playwright's Chromium 149.0.7827.55 through the
+    /// transition — a quiz on a folder of 1,000 match files (a seed-42 sample
+    /// of a real corpus, 134.9 MB) drawn to 500, two resamples (the first
+    /// ending the quiz), Start, End quiz, Restart — with the WebAssembly heap
+    /// extent read at every step. Two runs: peak 1,269.9 MB and 1,265.6 MB
+    /// (1,075.8 MB and 1,169.0 MB after the first parse), against a pass mark
+    /// of 1,536 MB of the runtime's 2,048 MB; no runtime error; each
+    /// resample's count was of its own sample (202,142, then 205,238, then
+    /// 204,187 decisions in the first run) and Restart kept the second's. A
+    /// 24-thread i9-12900K under Windows 11, with unrelated analyses holding
+    /// 30–80% of the CPU throughout, which moves timings, not the heap. No
+    /// lower N was measured: the rule stops at the first that passes.
+    /// </para>
     /// </summary>
     internal const int MaxXgFileCount = 500;
 

@@ -1518,7 +1518,19 @@ file counts `MaxXgFileCount` (500) / `MaxXgpFileCount` (2000), tabled as
 `MaxFileCounts` — plus `MaxFileMegabytes`, **derived** from `MaxFileBytes`.
 Host **policy**, not machinery: `Program.cs` builds BgFolderAccess_Razor's one
 registered `FolderPickLimits` from this table, and the lib enforces it (the
-lib ships no numbers — each host's values encode its own cost model).
+lib ships no numbers — each host's values encode its own cost model). The
+limits apply to every draw, a pick's and a resample's alike.
+
+**The match-file limit is measured, not chosen** (`../SPEC-filtering.md` §4;
+halheinrich/backgammon#403): the largest N whose one-rule transition — a
+quiz on a folder of more than N match files, two resamples, Start, End quiz,
+Restart — passes with margin (no runtime error, the counts right, peak
+WebAssembly heap at most 1,536 MB of the runtime's 2,048 MB). 500 passed
+(2026-10-14: peaks of 1,269.9 MB and 1,265.6 MB), so 500 it is; the figures
+and conditions are `MaxXgFileCount`'s doc comment, the one place they are
+stated. A remeasure uses an uncommitted driver against a scratch publish —
+the shipped app carries no limit seam and no instrumentation. The
+position-file limit is unmeasured and stays 2,000.
 
 **The table's order is stated: `.xg`, then `.xgp`.** `FolderPickLimits` keeps
 its table in the order it is handed ("the ctor's order, by position"), hands
