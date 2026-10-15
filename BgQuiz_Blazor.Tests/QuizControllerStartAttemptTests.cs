@@ -182,7 +182,7 @@ public class QuizControllerStartAttemptTests
     /// <summary>The controller under test, as every test here constructs it.</summary>
     private static QuizController NewController(
         ProblemSetSourceFactory factory, IProblemStatsSink sink, ILogger<QuizController>? logger = null) =>
-        new(factory, sink, TimeProvider.System, logger ?? NullLogger<QuizController>.Instance);
+        new(factory, sink, new FakeQuizLiveMarker(), TimeProvider.System, logger ?? NullLogger<QuizController>.Instance);
 
     /// <summary>
     /// Everything a page can read about the current run — §8's "kept" list,

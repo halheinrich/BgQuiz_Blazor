@@ -59,6 +59,14 @@ public class PageTests : BunitContext
     /// </summary>
     private readonly FakeFolderAccess _folderAccess = new();
 
+    /// <summary>
+    /// The app's one browser-storage fact, registered as this instance so the
+    /// live-quiz marker each test's controller writes through reports a
+    /// refusal to the same fact Home's storage notice reads — as one scope
+    /// does in the app.
+    /// </summary>
+    private readonly BrowserStorageCondition _storageCondition = new();
+
     /// <summary>The planned <c>quizKeys.js</c> module — see the constructor.</summary>
     private readonly BunitJSModuleInterop _quizKeys;
 
@@ -198,7 +206,7 @@ public class PageTests : BunitContext
 
         // The one browser-storage fact every store above reports a refusal to,
         // and Home's storage notice reads (halheinrich/backgammon#360).
-        Services.AddScoped<BrowserStorageCondition>();
+        Services.AddSingleton(_storageCondition);
     }
 
 
@@ -217,11 +225,21 @@ public class PageTests : BunitContext
         params (string Extension, int Omitted)[] overLimit) =>
         TestFixtures.Picked(folderName, capability, [new PickedFile(fileName, [1, 2, 3])], overLimit);
 
+    /// <summary>
+    /// The live-quiz marker a test's controller writes through: the real
+    /// <see cref="QuizLiveMarker"/>, over this test's runtime and the app's one
+    /// storage fact, so a test that plans the marker's storage sees the
+    /// controller's writes exactly as the app makes them — the controller is
+    /// the marker's one writer (<see cref="IQuizLiveMarker"/>).
+    /// </summary>
+    private QuizLiveMarker NewLiveMarker() =>
+        new(new BrowserStorage(JSInterop.JSRuntime), NullLogger<QuizLiveMarker>.Instance, _storageCondition);
+
     private QuizController WithController(params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
         var controller = new QuizController(
-            (_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            (_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -241,7 +259,7 @@ public class PageTests : BunitContext
         var fake = new FakeProblemSetSource(items);
         var controller = new QuizController(
             (_, _) => TestFixtures.Composed(fake, duplicatesCollapsed),
-            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -459,11 +477,11 @@ public class PageTests : BunitContext
         Plan.ExpectFilterRestore(FilterRestoration.NothingStored);
     }
 
-    /// <summary>The quiz-live marker cleared — by Home once its reset notice is shown, or by Done.</summary>
+    /// <summary>The quiz-live marker cleared — by the controller wherever a run finishes, or by Home once its reset notice is shown.</summary>
     private void ExpectMarkerCleared() =>
         Plan.ExpectRemove(BrowserStorageArea.Session, QuizLiveMarker.StorageKey, BrowserStorageWriteAnswer.Succeeded);
 
-    /// <summary>The quiz-live marker set by a Start or a Restart that begins a live quiz.</summary>
+    /// <summary>The quiz-live marker set by the controller, as a Start or a Restart commits a live quiz.</summary>
     private void ExpectMarkedLive(int times = 1) =>
         Plan.ExpectWrite(BrowserStorageArea.Session, QuizLiveMarker.StorageKey, "1", BrowserStorageWriteAnswer.Succeeded, times);
 
@@ -555,7 +573,7 @@ public class PageTests : BunitContext
     {
         var fake = new FakeProblemSetSource(items);
         sink = new FakeProblemStatsSink();
-        var controller = new QuizController((_, _) => TestFixtures.Composed(fake), sink, TimeProvider.System, NullLogger<QuizController>.Instance);
+        var controller = new QuizController((_, _) => TestFixtures.Composed(fake), sink, NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -667,7 +685,7 @@ public class PageTests : BunitContext
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         var controller = new QuizController(
             (set, _) => { capturedPipeline = set; return TestFixtures.Composed(fake); },
-            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         WithPickedFolder(); // satisfy the folder gate so Start is clickable
 
@@ -1154,7 +1172,7 @@ public class PageTests : BunitContext
                     ? throw new InvalidOperationException("count failed")
                     : TestFixtures.Composed(fake);
             },
-            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -1434,7 +1452,7 @@ public class PageTests : BunitContext
             (filters, ranking) => failing.Value
                 ? throw new InvalidOperationException("count failed")
                 : real(filters, ranking),
-            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         var nav = Services.GetRequiredService<BunitNavigationManager>();
 
@@ -3442,7 +3460,7 @@ public class PageTests : BunitContext
         // per call.
         var fake = new FakeProblemSetSource([TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())]);
         Services.AddSingleton(
-            new QuizController((_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance));
+            new QuizController((_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance));
         _folderAccess.NextPickOutcome = OneFileOutcome();
 
         var cut = Render<HomePage>();
@@ -3613,7 +3631,7 @@ public class PageTests : BunitContext
             (_, _) => failing.Value
                 ? throw new InvalidOperationException("source failed")
                 : TestFixtures.Composed(new FakeProblemSetSource([])),
-            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -3631,7 +3649,7 @@ public class PageTests : BunitContext
     {
         Services.AddSingleton(new QuizController(
             (_, _) => throw new InvalidOperationException(StartFailure),
-            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance));
+            new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance));
         WithPickedFolder();
 
         // The empty selection is in effect, so the count runs — and fails —
@@ -3709,7 +3727,7 @@ public class PageTests : BunitContext
             (_, _) => TestFixtures.Composed(faultsOnCall(++calls)
                 ? new RecordingProblemSetSource("Faulting", new StreamLog(), items, faultAtDraw: 1)
                 : new FakeProblemSetSource(items)),
-            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -4027,6 +4045,7 @@ public class PageTests : BunitContext
         // reload, so no notice fires; the marker is also left in place for a real
         // later reload (no clear is declared, so one would fail where it was made).
         var controller = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        ExpectMarkedLive(); // the Start, which the controller marks
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead); // HasStarted true
         // (empty PickedProblemFolder comes from the fixture default)
         ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent);
@@ -4059,15 +4078,19 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_StartClick_EmptyResult_DoesNotMarkQuizLive()
+    public async Task Home_StartClick_EmptyResult_MarksNoQuizLive()
     {
         // A2 over-trigger guard: the empty-result path stays on Home with no live
         // quiz, so it must not set the marker — otherwise the next boot would
-        // falsely announce a reset for a quiz that never ran.
+        // falsely announce a reset for a quiz that never ran. The controller
+        // commits a run that has already ended, and says so: it clears the
+        // marker, which also covers a quiz that was live before this Start
+        // (SPEC-quiz-history.md §9: cleared wherever a run finishes).
         WithController(); // empty source → finishes on Start
         WithPickedFolder();
         ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent);
-        ExpectHomeOverAFolder(); // and no marker write: one would be undeclared
+        ExpectHomeOverAFolder(); // and no marker set: one would be undeclared
+        ExpectMarkerCleared();
 
         var cut = RenderHomeSettled();
 
@@ -4405,7 +4428,7 @@ public class PageTests : BunitContext
         // total — the indicator degrades to the bare position.
         var fake = new FakeProblemSetSource(
             [TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay())], countKnown: false);
-        var c = new QuizController((_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+        var c = new QuizController((_, _) => TestFixtures.Composed(fake), new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(c);
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         await NormalViewAsync();
@@ -5542,7 +5565,7 @@ public class PageTests : BunitContext
         var fake = new FakeProblemSetSource([TestFixtures.DepthSplitDecision()]);
         var controller = new QuizController(
             (_, ranking) => { handed.Add(ranking); return TestFixtures.Composed(fake); },
-            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         WithPickedFolder();
         await Settings().EnsureHydratedAsync();
@@ -7923,19 +7946,22 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Done_ReachingDone_ClearsLiveQuizMarker()
+    public async Task Done_TheRunsFinishClearedTheMarker_AndReachingDoneWritesNone()
     {
-        // A2 lifecycle: reaching Done is honest completion, so it clears the
-        // live-quiz marker — a subsequent boot must not misread a finished quiz
-        // as one a reload interrupted.
+        // A2 lifecycle: a finished quiz must not be misread by a later boot as
+        // one a reload interrupted. The marker is cleared where the run
+        // finishes — here, by the source running out — by the controller, its
+        // one writer (SPEC-quiz-history.md §9); Done, reached afterwards, writes
+        // nothing, so no route to a finished run depends on visiting it.
         var c = WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        ExpectMarkedLive();    // the Start
+        ExpectMarkerCleared(); // the finish
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         await c.SubmitPlayAsync(BestPlay());
         await c.NextAsync(); // exhausts → IsFinished
         ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent); // Done hydrates the settings its Restart reads
-        ExpectMarkerCleared();
 
-        Render<DonePage>();
+        Render<DonePage>(); // a marker write here would be undeclared
 
         Plan.Verify();
     }
@@ -7989,16 +8015,17 @@ public class PageTests : BunitContext
     [Fact]
     public async Task Done_RestartClick_ReMarksQuizLive()
     {
-        // A2 lifecycle, restart path: reaching Done cleared the live-quiz marker;
+        // A2 lifecycle, restart path: the finish cleared the live-quiz marker;
         // Restart makes a quiz live again, so it must re-set it — otherwise a
         // reload during the restarted quiz falls back to the old silent reset with
-        // no notice (the one-click-wide hole this closes). The sibling half —
-        // reaching Done clears the marker, whatever route arrived there — is pinned
-        // by Done_ReachingDone_ClearsLiveQuizMarker and holds equally for the
-        // restart-then-finish loop, since any Done render clears on init.
+        // no notice (the one-click-wide hole this closes). The controller sets it
+        // as the restarted run becomes current; the sibling half — the finish
+        // clears it — is Done_TheRunsFinishClearedTheMarker_AndReachingDoneWritesNone's.
         var c = WithController(
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        ExpectMarkedLive(times: 2); // the Start, then the Restart
+        ExpectMarkerCleared();      // the finish
         await c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         await c.SubmitPlayAsync(BestPlay());
         await c.NextAsync();
@@ -8006,8 +8033,6 @@ public class PageTests : BunitContext
         await c.NextAsync();
         Assert.True(c.IsFinished);
         ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent); // Done hydrates the settings its Restart reads
-        ExpectMarkerCleared(); // reaching Done
-        ExpectMarkedLive();    // re-marked live on Restart
 
         var cut = Render<DonePage>();
         var restart = cut.FindAll("button").First(b => b.TextContent.Trim().StartsWith("Restart"));
@@ -11331,7 +11356,8 @@ public class PageTests : BunitContext
             TimeProvider.System);
         WithPickedFolder(capability: FolderWriteCapability.Enabled, withStatsHistory: true);
         WithActiveMix(NeverSeenMix());
-        ExpectHomeOverAFolder(); // the Start composes to zero and stays here: nothing is marked live
+        ExpectHomeOverAFolder(); // the Start composes to zero and stays here: nothing is marked live…
+        ExpectMarkerCleared();   // …and the run committed, already ended, clears it
 
         var cut = Render<HomePage>();
         await StartButton(cut).ClickAsync(new());
@@ -11961,8 +11987,8 @@ public class PageTests : BunitContext
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await MakeTheMixVisibleAsync();
         ExpectSettingsWritten(SettingsPayload.Of()); // the mix setting turned off: every setting at its default
-        ExpectMarkerCleared(); // Done reached
-        ExpectMarkedLive(); // the Restart
+        ExpectMarkerCleared(); // the finish
+        ExpectMarkedLive(times: 2); // the Start, then the Restart
         var c = await FinishAWeightedQuizAsync(sink);
 
         // The user turns the mix off from Settings while the quiz is finishing.
@@ -12011,8 +12037,8 @@ public class PageTests : BunitContext
         WithWeighableController(out var sink,
             TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         await MakeTheMixVisibleAsync();
-        ExpectMarkerCleared(); // Done reached
-        ExpectMarkedLive(); // the override's Restart; the refused one marks nothing
+        ExpectMarkerCleared(); // the finish
+        ExpectMarkedLive(times: 2); // the Start, then the override's Restart; the refused one marks nothing
         var c = await FinishAWeightedQuizAsync(sink);
 
         // The mix is still on screen, so Restart weights — but the bind now
@@ -12061,7 +12087,7 @@ public class PageTests : BunitContext
         var gated = new GatedProblemSetSource(items);
         source = gated;
         sink = new FakeProblemStatsSink();
-        var controller = new QuizController((_, _) => TestFixtures.Composed(gated), sink, TimeProvider.System, NullLogger<QuizController>.Instance);
+        var controller = new QuizController((_, _) => TestFixtures.Composed(gated), sink, NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -13312,7 +13338,7 @@ public class PageTests : BunitContext
                 counts.Add(ranking);
                 return TestFixtures.Composed(fake);
             },
-            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }
@@ -13444,7 +13470,7 @@ public class PageTests : BunitContext
         var built = 0;
         var controller = new QuizController(
             (_, _) => TestFixtures.Composed(sources[built++]),
-            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
     }

@@ -149,7 +149,7 @@ public class CachedProblemSetSourceTests
         var folder = FolderOver(Unparseable("a.xg"));
         ProblemSetSourceFactory factory = (filters, ranking) => TestFixtures.Composed(
             new CachedProblemSetSource(folder, filters, ranking, parses, TimeProvider.System));
-        var controller = new QuizController(factory, new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+        var controller = new QuizController(factory, new FakeProblemStatsSink(), new FakeQuizLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.DepthFirst, ProblemOrder.AsRead);

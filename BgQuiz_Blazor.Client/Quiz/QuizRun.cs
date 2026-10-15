@@ -585,6 +585,21 @@ internal sealed class QuizRun
         return new QuizRun(Ranking, ProblemCount, presented, NoCursor, review: null, isEnded: true);
     }
 
+    /// <summary>
+    /// What this run, finished, keeps of itself: its <see cref="QuizResult"/>
+    /// — the ranking, the score, the skip count, how many problems it
+    /// presented and the stream's total — and nothing else (SPEC-quiz-history.md §9, "A finished run
+    /// holds its result and its replay, nothing heavy"). The totals are read
+    /// once, by this run's own rules, now that no transition can move them;
+    /// whoever holds the result can let this run, and every decision it
+    /// presented, go.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The run has not ended: an active run's totals are still moving.</exception>
+    public QuizResult ToResult() =>
+        IsEnded
+            ? new QuizResult(Ranking, Score, SkippedCount, _presented.Length, ProblemCount)
+            : throw new InvalidOperationException("Only a run that has ended has a result.");
+
     // -----------------------------------------------------------------------
     //  Internal
     // -----------------------------------------------------------------------

@@ -15,13 +15,11 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// <para>Direct nav to <c>/done</c> with no quiz in progress bounces to <c>/</c>.</para>
 ///
 /// <para>
-/// This page participates in the <see cref="QuizLiveMarker"/> lifecycle on both
-/// sides. Reaching it <b>clears</b> the marker — an honest completion has no
-/// reload-reset to announce on a later boot (a reload that killed a live quiz
-/// never reaches here; Done requires the surviving in-memory controller).
-/// <i>Restart</i> then <b>re-sets</b> it, because it makes a quiz live again, so
-/// a reload during the restarted quiz is acknowledged exactly like one during a
-/// fresh Start. <i>Back to setup</i> sets nothing — it only navigates.
+/// This page writes no <see cref="QuizLiveMarker"/>: the controller is its one
+/// writer, clearing it wherever a run finishes and setting it when a Start or
+/// Restart commits a live run (<c>SPEC-quiz-history.md</c> §9), so a reload
+/// on or after Done reports no live quiz lost and a reload during a restarted
+/// quiz reports one, with nothing here to forget.
 /// </para>
 /// </summary>
 public partial class Done : ComponentBase
@@ -35,9 +33,8 @@ public partial class Done : ComponentBase
     private int ProblemsShown => Controller.PresentedCount;
 
     /// <summary>
-    /// On load: bounce to <c>/</c> if no quiz has started, otherwise clear the
-    /// <see cref="QuizLiveMarker"/>. Reaching Done is honest completion, so there
-    /// is no reload-reset for a later boot to announce (Restart re-sets it).
+    /// On load: bounce to <c>/</c> if no quiz has started, and hydrate the
+    /// settings its Restart reads.
     /// </summary>
     protected override async Task OnInitializedAsync()
     {
@@ -55,11 +52,6 @@ public partial class Done : ComponentBase
         // no render pass and turns a claim about page ordering into something
         // structural.
         await Settings.EnsureHydratedAsync();
-
-        // Honest completion — no reload-reset to announce later. Clear the marker
-        // (set on Start) so a subsequent boot doesn't misread a finished quiz as
-        // one a reload interrupted.
-        await Marker.ClearAsync();
     }
 
     /// <summary>
@@ -167,12 +159,8 @@ public partial class Done : ComponentBase
             return;
         }
 
-        // Restart makes a quiz live again from the same pipeline, so re-set the
-        // marker that arriving at Done cleared — a reload during the restarted
-        // quiz gets the same reset notice as one during a fresh Start. Without
-        // this, the honesty guarantee has a hole one click wide.
-        await Marker.MarkLiveAsync();
-
+        // The controller marked the restarted quiz live as it became current, so
+        // a reload during it gets the same reset notice as one during a Start.
         Nav.NavigateTo("/quiz");
     }
 

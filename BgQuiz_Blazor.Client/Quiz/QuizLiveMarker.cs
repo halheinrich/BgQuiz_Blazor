@@ -5,12 +5,32 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 
 /// <summary>
+/// The live-quiz marker as the run's owner writes it: set when a run becomes
+/// live, cleared wherever a run finishes (<c>SPEC-quiz-history.md</c> §9, "The
+/// live-quiz marker"). <see cref="QuizController"/> is its one writer, because
+/// it is the one owner of whether a run is live — the commit that makes a run
+/// current, and every way a run finishes, are its transitions — so the marker
+/// cannot fall out of step with the run by a page missing a site.
+/// <see cref="QuizLiveMarker"/> is the implementation; reading the marker back
+/// after a reload is <c>Home</c>'s (<see cref="QuizLiveMarker.WasLiveAsync"/>)
+/// and stays off this interface.
+/// </summary>
+internal interface IQuizLiveMarker
+{
+    /// <summary>Record that a quiz is live in this tab. Never throws for storage.</summary>
+    ValueTask MarkLiveAsync();
+
+    /// <summary>Record that no quiz is live in this tab. Never throws for storage.</summary>
+    ValueTask ClearAsync();
+}
+
+/// <summary>
 /// Per-app marker recording that a quiz is currently <i>live</i> in this browser
 /// tab, backed by the browser's <c>sessionStorage</c> through
 /// <see cref="BrowserStorage"/>, BgUiPrimitives_Razor's one guarded access to
 /// the browser's storage areas (halheinrich/backgammon#374). Encapsulated
-/// because it has a lifecycle (set / read / clear) spread across two pages, and
-/// the storage choice carries a subtle constraint (below) worth stating once.
+/// because it has a lifecycle (set / read / clear) and the storage choice
+/// carries a subtle constraint (below) worth stating once.
 ///
 /// <para>
 /// <b>Why it exists.</b> A full browser reload re-boots the WASM runtime and
@@ -25,14 +45,17 @@ using Microsoft.JSInterop;
 ///
 /// <para>
 /// Lifetime: <b>Scoped</b> — the same per-app (one-per-tab in WASM) lifetime as
-/// the start-gate holders. It is <b>set</b> wherever a quiz becomes live —
-/// <c>Home</c> on a successful Start and <c>Done</c> on Restart — and
-/// <b>cleared</b> by <c>Done</c> on honest completion and by <c>Home</c>'s
-/// boot-read once it has shown the notice. <c>Home</c> reads it on boot. The read
-/// is gated on
-/// <see cref="QuizController.HasStarted"/> being <c>false</c> — a set marker with
-/// a <i>live</i> controller is in-app navigation back to <c>Home</c> mid-quiz
-/// (the runtime, and the quiz, survived), not a reload, so no notice fires.
+/// the start-gate holders. It is <b>set</b> and <b>cleared</b> by
+/// <see cref="QuizController"/> alone, through <see cref="IQuizLiveMarker"/>:
+/// set when a Start or Restart commits a run that has a problem on screen, and
+/// cleared wherever a run finishes — End quiz, the source running out, a new
+/// sample (<c>SPEC-quiz-history.md</c> §9) — and when an attempt commits a run
+/// that ended at once, so a reload after any of them reports no live quiz lost.
+/// <c>Home</c> reads it on boot, and clears it once it has shown the notice. The
+/// read is gated on <see cref="QuizController.HasStarted"/> being <c>false</c> —
+/// a set marker with a <i>live</i> controller is in-app navigation back to
+/// <c>Home</c> mid-quiz (the runtime, and the quiz, survived), not a reload, so
+/// no notice fires.
 /// </para>
 ///
 /// <para>
@@ -60,7 +83,7 @@ using Microsoft.JSInterop;
 /// latch, so every later call is made.
 /// </para>
 /// </summary>
-internal sealed class QuizLiveMarker
+internal sealed class QuizLiveMarker : IQuizLiveMarker
 {
     /// <summary>
     /// The <c>sessionStorage</c> key. Namespaced so it can't collide with the
@@ -121,9 +144,9 @@ internal sealed class QuizLiveMarker
     }
 
     /// <summary>
-    /// Clear the marker — on honest quiz completion (Done) or once the reset
-    /// notice has been shown, so it fires only once per reload. A removal the
-    /// browser refuses is logged and reported.
+    /// Clear the marker — wherever a run finishes (the controller), or once the
+    /// reset notice has been shown (Home), so it fires only once per reload. A
+    /// removal the browser refuses is logged and reported.
     /// </summary>
     public async ValueTask ClearAsync()
     {

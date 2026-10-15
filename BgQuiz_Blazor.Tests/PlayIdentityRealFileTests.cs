@@ -122,7 +122,7 @@ public class PlayIdentityRealFileTests
 
         var controller = new QuizController(
             (_, _) => TestFixtures.Composed(new FakeProblemSetSource([decision])),
-            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            new FakeProblemStatsSink(), new FakeQuizLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead);
         Assert.Same(decision, controller.Current);
 

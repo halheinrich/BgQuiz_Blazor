@@ -136,6 +136,31 @@ using XgFilter_Lib.Filtering;
 /// </para>
 ///
 /// <para>
+/// <b>A finished run holds its result and its replay, nothing heavy</b>
+/// (<c>SPEC-quiz-history.md</c> §9; halheinrich/backgammon#407). However a run
+/// finishes — End quiz, the source running out, or a new sample
+/// (<see cref="EndForNewSampleAsync"/>) — the active <see cref="QuizRun"/> and
+/// its source are condensed, in one step that cannot fail, into what a
+/// finished run keeps: its <see cref="QuizResult"/> (ranking, score, skip
+/// count, presented count, and the stream's total, which §5 makes the run's
+/// to keep) and its replay (name, composition telemetry, and
+/// the filters and mix a Restart replays). The stream is then released, and
+/// with the run and the source let go so are the source's parsed decisions,
+/// its buffered files and the decisions of the problems presented: nothing
+/// keeps a live history behind the summary. Releasing never misreports (§8).
+/// </para>
+///
+/// <para>
+/// <b>The live-quiz marker is this type's to write</b>
+/// (<see cref="IQuizLiveMarker"/>), because whether a run is live is this
+/// type's fact: a commit that makes a run with a problem on screen current
+/// marks it, and every way a run finishes — and a commit of a run that ended
+/// at once — clears it, so a reload after any of them reports no live quiz
+/// lost (§9). The marker is advisory: a failure writing it is logged and
+/// changes no transition's outcome.
+/// </para>
+///
+/// <para>
 /// Decision-type policy: the user's <see cref="FilterConfig.DecisionType"/>
 /// choice governs which decisions the quiz admits — checker plays, cube
 /// decisions, or both. The controller adds no decision-type filter of its
@@ -186,47 +211,80 @@ using XgFilter_Lib.Filtering;
 /// <see cref="IsBusy"/> for observability and the <see cref="StateChanged"/>
 /// contract.
 /// </para>
+///
+/// <para>
+/// <b>One transition waits for the gate instead of no-opping:</b>
+/// <see cref="EndForNewSampleAsync"/>. It is not a gesture but the consequence
+/// of a sample that has already landed, which must end the run in progress
+/// (<c>SPEC-quiz-history.md</c> §9); dropping it because a Submit's write or a
+/// draw happened to be in flight — reachable, since a page can navigate while
+/// a resample buffers — would leave a run in progress over a replaced sample.
+/// So it waits for the transition in flight to end, then takes the gate as
+/// every other transition does.
+/// </para>
 /// </summary>
 internal sealed class QuizController : IAsyncDisposable
 {
     private readonly ProblemSetSourceFactory _sourceFactory;
     private readonly IProblemStatsSink _statsSink;
+    private readonly IQuizLiveMarker _liveMarker;
     private readonly TimeProvider _clock;
     private readonly ILogger<QuizController> _logger;
 
     /// <summary>
-    /// The current run, or null before the first Start. It is immutable, so
-    /// every transition below replaces it with the run its own transition
-    /// returns, and a Start or Restart that does not commit — refused or
-    /// faulted — leaves the one here, its ranking and its record included,
-    /// exactly as it was. Everything this type reports about the run is read
-    /// off it on each call; nothing about the run is kept beside it but
-    /// <see cref="_source"/>, which is what the run holds beyond itself.
+    /// Completed when the transition holding the gate releases it, so a
+    /// transition that must not be dropped (<see cref="EndForNewSampleAsync"/>)
+    /// can wait for it; null while the gate is free. Created with the gate's
+    /// every take (<see cref="TryEnterGate"/>) and completed at its every
+    /// release (<see cref="EndTransition"/>).
+    /// </summary>
+    private TaskCompletionSource? _gateReleased;
+
+    /// <summary>
+    /// The current run while it is active, or null — before the first Start,
+    /// and once the current run has finished (<see cref="_finished"/> then
+    /// holds what it keeps). It is immutable, so every transition below
+    /// replaces it with the run its own transition returns, and a Start or
+    /// Restart that does not commit — refused or faulted — leaves the one
+    /// here, its ranking and its record included, exactly as it was.
+    /// Everything this type reports about an active run is read off it on each
+    /// call; nothing about the run is kept beside it but <see cref="_source"/>,
+    /// which is what the run holds beyond itself.
     /// </summary>
     private QuizRun? _run;
 
     /// <summary>
-    /// What the current run holds beyond the <see cref="QuizRun"/>
+    /// What the active run holds beyond the <see cref="QuizRun"/>
     /// (<c>SPEC-quiz-history.md</c> §8): its source and the one stream drawn
     /// from it, the telemetry and name, the filters and mix its Restart
     /// replays. Null exactly while <see cref="_run"/> is: the two are
-    /// assigned together, by <see cref="SwitchTo"/> alone, and change only
-    /// when the run is replaced.
+    /// assigned together, by <see cref="SwitchTo"/> and <see cref="Finish"/>
+    /// alone.
     /// </summary>
     private RunSource? _source;
 
+    /// <summary>
+    /// The current run once it has finished — its result and its replay, and
+    /// nothing heavy (§9) — or null while there is no run or the run is
+    /// active. Never set while <see cref="_run"/> is: a run is current as one
+    /// or the other, written by <see cref="SwitchTo"/> and <see cref="Finish"/>
+    /// alone.
+    /// </summary>
+    private FinishedRun? _finished;
+
     public QuizController(
-        ProblemSetSourceFactory sourceFactory, IProblemStatsSink statsSink, TimeProvider clock,
-        ILogger<QuizController> logger)
+        ProblemSetSourceFactory sourceFactory, IProblemStatsSink statsSink, IQuizLiveMarker liveMarker,
+        TimeProvider clock, ILogger<QuizController> logger)
     {
         _sourceFactory = sourceFactory ?? throw new ArgumentNullException(nameof(sourceFactory));
         _statsSink = statsSink ?? throw new ArgumentNullException(nameof(statsSink));
+        _liveMarker = liveMarker ?? throw new ArgumentNullException(nameof(liveMarker));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    /// <summary>The current run's source name once started; null otherwise.</summary>
-    public string? Name => _source?.Name;
+    /// <summary>The current run's source name once started — the finished run's kept with its replay; null otherwise.</summary>
+    public string? Name => _source?.Name ?? _finished?.Replay.Name;
 
     /// <summary>
     /// The decision currently being shown to the user — the problem under the
@@ -307,22 +365,35 @@ internal sealed class QuizController : IAsyncDisposable
     /// only while <see cref="HasStarted"/>. No page can: each shows a problem
     /// only once a quiz has started.
     /// </exception>
-    public PlayRanking Ranking => _run?.Ranking ?? throw new InvalidOperationException(
+    public PlayRanking Ranking => _run?.Ranking ?? _finished?.Result.Ranking ?? throw new InvalidOperationException(
         "No quiz has been started, so there is no quiz ranking.");
 
     /// <summary>
     /// The session score, derived by the run from its answers of record
-    /// (<see cref="QuizRun.Score"/>) on each read; empty before start. A new
-    /// run — <see cref="StartAsync"/> / <see cref="RestartAsync"/> — starts
-    /// from nothing.
+    /// (<see cref="QuizRun.Score"/>) on each read while it is active, and kept
+    /// in its <see cref="QuizResult"/> once it has finished; empty before
+    /// start. A new run — <see cref="StartAsync"/> / <see cref="RestartAsync"/>
+    /// — starts from nothing.
     /// </summary>
-    public QuizScore Score => _run?.Score ?? QuizScore.Empty;
+    public QuizScore Score => _run?.Score ?? _finished?.Result.Score ?? QuizScore.Empty;
 
     /// <summary>
-    /// True once the run has ended (<see cref="QuizRun.IsEnded"/>): the source
-    /// was fully consumed, or the user ended the quiz.
+    /// True once the current run has finished: the source was fully consumed,
+    /// the user ended the quiz, or a new sample ended it
+    /// (<see cref="EndForNewSampleAsync"/>).
     /// </summary>
-    public bool IsFinished => _run is { IsEnded: true };
+    public bool IsFinished => _finished is not null;
+
+    /// <summary>
+    /// The occurrence of a current run that a new sample finished
+    /// (<see cref="EndForNewSampleAsync"/>; <c>SPEC-quiz-history.md</c> §9,
+    /// "Home after it"), or null — while there is no run, while it is active,
+    /// and when it finished any other way. A token compared by reference, so
+    /// <c>Home</c>'s line saying so is keyed on it in
+    /// <see cref="QuizNoticeDismissal"/>: it lasts as long as that finished
+    /// run is current, and a later run's line shows fresh.
+    /// </summary>
+    public object? EndedByNewSample => _finished is { EndedByNewSample: true } finished ? finished : null;
 
     /// <summary>
     /// Count of user-driven non-scoring outcomes, derived by the run on each
@@ -351,19 +422,21 @@ internal sealed class QuizController : IAsyncDisposable
     /// and into <see cref="Score"/>, so the count can fall within a run.
     /// </para>
     /// </summary>
-    public int SkippedCount => _run?.SkippedCount ?? 0;
+    public int SkippedCount => _run?.SkippedCount ?? _finished?.Result.SkippedCount ?? 0;
 
     /// <summary>True when a quiz is in progress (active or finished): there is a run.</summary>
-    public bool HasStarted => _run is not null;
+    public bool HasStarted => _run is not null || _finished is not null;
 
     /// <summary>
     /// How many problems the run has shown — its presented sequence
     /// (<see cref="QuizRun.Presented"/>; SPEC-quiz-history.md §1). A finished
     /// run has accounted for every one of them, answered or skipped of record
     /// (§4), so this is Done's "problems shown"; nothing rebuilds it from the
-    /// score and the skip count. Zero before start.
+    /// score and the skip count — and a finished run keeps it in its
+    /// <see cref="QuizResult"/>, the presented problems let go. Zero before
+    /// start.
     /// </summary>
-    public int PresentedCount => _run?.Presented.Length ?? 0;
+    public int PresentedCount => _run?.Presented.Length ?? _finished?.Result.PresentedCount ?? 0;
 
     /// <summary>
     /// True when there is an earlier problem to go back to
@@ -410,8 +483,9 @@ internal sealed class QuizController : IAsyncDisposable
     /// The active mix composition's telemetry (requested vs. drawn, overall
     /// and per entry, in declared entry order), or null when the run's mix is
     /// blank — the producer composes nothing then, and the override runs a
-    /// quiz blank — or before the composing enumeration begins. Assigned by the producer before the first yield,
-    /// so it is readable the moment a weighted quiz shows its first problem;
+    /// quiz blank — or before the composing enumeration begins. Assigned by the
+    /// producer before the first yield, so it is readable the moment a weighted
+    /// quiz shows its first problem;
     /// the pages' shortfall and composed-to-zero notices render from it, and
     /// the Quiz page keys its capless-vs-length-bound notice framing on the
     /// composition's own <see cref="MixComposition.HasRequestedLength"/> —
@@ -419,9 +493,10 @@ internal sealed class QuizController : IAsyncDisposable
     /// (a local duplicate lived here until halheinrich/backgammon#12's
     /// recording landed). It is the current run's, held with its source, so
     /// a Start or Restart that does not commit — refused or faulted — leaves
-    /// a running quiz its telemetry, and its notice framing.
+    /// a running quiz its telemetry, and its notice framing; a finished run
+    /// keeps it with its replay.
     /// </summary>
-    public MixComposition? LastComposition => _source?.LastComposition;
+    public MixComposition? LastComposition => _source?.LastComposition ?? _finished?.Replay.Composition;
 
     /// <summary>
     /// The N of "Problem N of M": the 1-based stream slot of
@@ -437,9 +512,11 @@ internal sealed class QuizController : IAsyncDisposable
     /// <summary>
     /// The M of "Problem N of M": the total number of slots in the run's
     /// problem stream, once established and held by the run
-    /// (<see cref="QuizRun.ProblemCount"/>). Null before start, and for as
-    /// long as no total is known — a passthrough source that streams without a
-    /// count never supplies one, and the page then shows N alone.
+    /// (<see cref="QuizRun.ProblemCount"/>), and kept by the run once it has
+    /// finished (<see cref="QuizResult.ProblemCount"/>). Null before start,
+    /// and for as long as no total is known — a passthrough source that
+    /// streams without a count never supplies one, and the page then shows N
+    /// alone.
     ///
     /// <para>
     /// <b>This type supplies it; the run never asks the source</b>
@@ -452,7 +529,7 @@ internal sealed class QuizController : IAsyncDisposable
     /// <see cref="ProblemNumber"/>.
     /// </para>
     /// </summary>
-    public int? ProblemCount => _run?.ProblemCount;
+    public int? ProblemCount => _run is { } run ? run.ProblemCount : _finished?.Result.ProblemCount;
 
     /// <summary>
     /// Raised after every state transition so observing pages can re-render.
@@ -842,7 +919,9 @@ internal sealed class QuizController : IAsyncDisposable
             // In place while the draw is pending, so a fault leaves the run
             // here: the cursor on the frontier, answering.
             _run = moved;
-            _run = await PresentNextAsync(moved, CurrentSource);
+            var next = await PresentNextAsync(moved, CurrentSource);
+            if (next.IsEnded) await FinishAsync(next, endedByNewSample: false);
+            else _run = next;
         }
         finally
         {
@@ -940,19 +1019,62 @@ internal sealed class QuizController : IAsyncDisposable
     /// cursor (§4): ended from behind the frontier, every problem still
     /// unresolved is converted, wherever it sits.
     /// </para>
+    ///
+    /// <para>
+    /// <b>The finished run keeps its result and its replay, nothing heavy</b>
+    /// (§9): see <see cref="FinishAsync"/>, the one way any run finishes. A
+    /// release that throws is logged and does not make End quiz a failure.
+    /// </para>
     /// </summary>
     public async Task EndQuizAsync()
     {
-        if (_run is not { IsEnded: false }) return;
+        if (_run is null) return;
         if (!await TryBeginTransitionAsync()) return;
         try
         {
-            _run = _run.End();
-            // The run is over, so its stream is released here rather than at
-            // the switch to the next run — safe precisely because the gate
-            // guarantees no MoveNextAsync is in flight. The source stays the
-            // run's: its name, its telemetry, and what its Restart replays.
-            await CurrentSource.ReleaseAsync();
+            // Read again inside the gate: the run is the gate holder's now.
+            if (_run is { } run) await FinishAsync(run.End(), endedByNewSample: false);
+        }
+        finally
+        {
+            EndTransition();
+        }
+    }
+
+    /// <summary>
+    /// A new sample has landed: end the run in progress, as End quiz ends it,
+    /// and release its heavy references (<c>SPEC-quiz-history.md</c> §9). The
+    /// caller — the page that acquired the sample — calls this before it
+    /// installs the sample, so §9's order holds: a non-empty sample acquired,
+    /// then the run finished and released, then the sample installed, and
+    /// only then a count or a Start parsing it. A cancelled picker, an empty
+    /// folder, Clear and a failure to acquire end nothing, so they never call
+    /// it.
+    ///
+    /// <para>
+    /// <b>How it ends</b> is End quiz's (<see cref="EndQuizAsync"/>): every
+    /// problem still unresolved becomes a skip of record, the answers already
+    /// folded stay in the lifetime record, and the finished run keeps its
+    /// result and its replay — its summary stands on Done, whose Restart
+    /// replays over the new sample — and is marked as ended by a new sample
+    /// (<see cref="EndedByNewSample"/>), which is what <c>Home</c> says. A run
+    /// already finished, or none, is left as it is.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>It waits for the gate rather than no-opping</b> (the class docs'
+    /// transition gate): it is not a gesture, and a sample that has landed must
+    /// end the run whatever was in flight — then the run that transition left
+    /// current is the one it ends. It never throws for a release: that is
+    /// logged (§8, "Releasing never misreports").
+    /// </para>
+    /// </summary>
+    public async Task EndForNewSampleAsync()
+    {
+        await BeginTransitionWhenFreeAsync();
+        try
+        {
+            if (_run is { } run) await FinishAsync(run.End(), endedByNewSample: true);
         }
         finally
         {
@@ -1034,10 +1156,10 @@ internal sealed class QuizController : IAsyncDisposable
         if (!await TryBeginTransitionAsync()) return QuizStartOutcome.Busy;
         try
         {
-            if (_source is not { } current)
-                throw new InvalidOperationException(
+            var replay = _source?.ToReplay() ?? _finished?.Replay
+                ?? throw new InvalidOperationException(
                     "RestartAsync requires a prior successful StartAsync — no quiz has been started.");
-            return await AttemptAsync(current.Filters, current.Mix, ranking, order, ignoreMix);
+            return await AttemptAsync(replay.Filters, replay.Mix, ranking, order, ignoreMix);
         }
         finally
         {
@@ -1065,6 +1187,7 @@ internal sealed class QuizController : IAsyncDisposable
     {
         if (IsBusy) return false;
         IsBusy = true;
+        _gateReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         return true;
     }
 
@@ -1085,6 +1208,22 @@ internal sealed class QuizController : IAsyncDisposable
     }
 
     /// <summary>
+    /// <see cref="TryBeginTransitionAsync"/> for the one transition that must
+    /// not be dropped: wait for every transition in flight to release the
+    /// gate, then take it, fire, and yield as a beginning transition does. A
+    /// loop, because the release's continuation runs asynchronously and
+    /// another transition may take the gate first.
+    /// </summary>
+    private async ValueTask BeginTransitionWhenFreeAsync()
+    {
+        while (!TryEnterGate())
+            await (_gateReleased ?? throw new InvalidOperationException(
+                "The gate is held, so the release it will signal exists.")).Task;
+        StateChanged?.Invoke();
+        await Task.Yield();
+    }
+
+    /// <summary>
     /// Release the transition gate (always via <c>finally</c>, so a faulted
     /// transition never wedges it) and fire <see cref="StateChanged"/> with
     /// the transition's end state in place — the single completion signal for
@@ -1094,7 +1233,10 @@ internal sealed class QuizController : IAsyncDisposable
     private void EndTransition()
     {
         IsBusy = false;
+        var released = _gateReleased;
+        _gateReleased = null;
         StateChanged?.Invoke();
+        released?.SetResult();
     }
 
     /// <summary>
@@ -1274,7 +1416,19 @@ internal sealed class QuizController : IAsyncDisposable
         var (first, source) = await PrepareAsync(filters, mix, effectiveMix, ranking, order);
 
         var previous = SwitchTo(first, source);
-        if (previous is not null) await ReleaseReplacedAsync(previous);
+        if (previous is not null)
+            await ReleaseAfterSwitchAsync(previous, "the previous quiz's problem stream, after the new quiz became current");
+        if (first.IsEnded)
+        {
+            // Nothing to present: the run committed has already ended, so it is
+            // committed finished (SwitchTo), and its own stream goes now.
+            await ReleaseAfterSwitchAsync(source, "the problem stream of a quiz that ended at once");
+            await ClearLiveMarkerAsync();
+        }
+        else
+        {
+            await MarkLiveAsync();
+        }
         return QuizStartOutcome.Started;
     }
 
@@ -1285,9 +1439,10 @@ internal sealed class QuizController : IAsyncDisposable
     /// <paramref name="order"/>, the run's ranking,
     /// <paramref name="effectiveMix"/> and the stats provider, or none when
     /// there is no stats document; its stream, opened; and the draw to its
-    /// first problem with a choice, or to the end of the stream. Returns the run as it will become
-    /// current, with the source it holds. Everything here belongs to the
-    /// attempt, and nothing of the current run is read or written.
+    /// first problem with a choice, or to the end of the stream. Returns the
+    /// run as it will become current, with the source it holds. Everything
+    /// here belongs to the attempt, and nothing of the current run is read or
+    /// written.
     ///
     /// <para>
     /// <b>A fault releases what was opened, and stays the fault.</b> If the
@@ -1327,37 +1482,112 @@ internal sealed class QuizController : IAsyncDisposable
     }
 
     /// <summary>
-    /// Commit: make <paramref name="first"/> the current run and
-    /// <paramref name="source"/> what it holds beyond itself, in one step that
-    /// cannot fail, and hand back the source of the run replaced — its stream
-    /// still to be released, which the caller does only now that the switch
-    /// has happened. The only writer of <see cref="_source"/>, so the run and
-    /// what it holds change together or not at all.
+    /// Commit: make <paramref name="first"/> the current run, in one step that
+    /// cannot fail — active, with <paramref name="source"/> what it holds
+    /// beyond itself, or, when it has already ended with nothing presented,
+    /// finished, holding its result and its replay alone — and hand back the
+    /// source of the run replaced, if it was active: its stream still to be
+    /// released, which the caller does only now that the switch has happened.
+    /// A finished run replaced has nothing left to release. With
+    /// <see cref="Finish"/>, the only writer of <see cref="_run"/>,
+    /// <see cref="_source"/> and <see cref="_finished"/>' identity, so a run is
+    /// current as exactly one of active or finished.
     /// </summary>
     private RunSource? SwitchTo(QuizRun first, RunSource source)
     {
         var previous = _source;
-        _run = first;
-        _source = source;
+        if (first.IsEnded)
+        {
+            _finished = new FinishedRun(first.ToResult(), source.ToReplay(), endedByNewSample: false);
+            _run = null;
+            _source = null;
+        }
+        else
+        {
+            _finished = null;
+            _run = first;
+            _source = source;
+        }
         return previous;
     }
 
     /// <summary>
-    /// Release the stream of the run a committed attempt replaced. The switch
-    /// has happened, so a release that throws neither undoes it nor makes the
-    /// Start or Restart a failed one (§8, "Releasing never misreports"): it is
-    /// logged, and the new run stands.
+    /// The one way an active run finishes — End quiz, the source running out,
+    /// a new sample (<c>SPEC-quiz-history.md</c> §9): <paramref name="ended"/>,
+    /// the run as its own <see cref="QuizRun.End"/> left it, is condensed with
+    /// what its source keeps into the finished run (<see cref="Finish"/>), then
+    /// the stream is released and the live-quiz marker cleared. Neither of the
+    /// last two can make the finish a failure: a release that throws is logged
+    /// (§8, "Releasing never misreports"), and the marker never throws.
+    /// Called inside the transition gate, so no draw is in flight on the
+    /// stream it releases.
     /// </summary>
-    private async ValueTask ReleaseReplacedAsync(RunSource previous)
+    private async Task FinishAsync(QuizRun ended, bool endedByNewSample)
+    {
+        var source = Finish(ended, endedByNewSample);
+        await ReleaseAfterSwitchAsync(source, "the problem stream of a quiz that finished");
+        await ClearLiveMarkerAsync();
+    }
+
+    /// <summary>
+    /// The finish itself, one step that cannot fail: the current run becomes
+    /// its <see cref="QuizResult"/> and its replay, and the active run and its
+    /// source are let go — the presented decisions with the run, the parsed
+    /// decisions and buffered files with the source — once the caller has
+    /// released the stream this hands back.
+    /// </summary>
+    private RunSource Finish(QuizRun ended, bool endedByNewSample)
+    {
+        var source = CurrentSource;
+        _finished = new FinishedRun(ended.ToResult(), source.ToReplay(), endedByNewSample);
+        _run = null;
+        _source = null;
+        return source;
+    }
+
+    /// <summary>
+    /// Release <paramref name="source"/>'s stream once the switch or the finish
+    /// that let it go has happened. A release that throws neither undoes that
+    /// nor makes the transition a failed one (§8, "Releasing never
+    /// misreports"): it is logged, naming <paramref name="what"/>, and the
+    /// transition's outcome stands.
+    /// </summary>
+    private async ValueTask ReleaseAfterSwitchAsync(RunSource source, string what)
     {
         try
         {
-            await previous.ReleaseAsync();
+            await source.ReleaseAsync();
         }
         catch (Exception releaseFault)
         {
             _logger.LogWarning(releaseFault,
-                "Releasing the previous quiz's problem stream failed after the new quiz became current; the new quiz stands.");
+                "Releasing {What} failed; the quiz's state stands as it was left.", what);
+        }
+    }
+
+    /// <summary>Mark a quiz live — the commit of a run with a problem on screen. Advisory: a failure is logged.</summary>
+    private async ValueTask MarkLiveAsync()
+    {
+        try
+        {
+            await _liveMarker.MarkLiveAsync();
+        }
+        catch (Exception markFault)
+        {
+            _logger.LogWarning(markFault, "The live-quiz marker could not be set; a reload during this quiz will not be explained.");
+        }
+    }
+
+    /// <summary>Clear the live-quiz marker — wherever a run finishes. Advisory: a failure is logged.</summary>
+    private async ValueTask ClearLiveMarkerAsync()
+    {
+        try
+        {
+            await _liveMarker.ClearAsync();
+        }
+        catch (Exception clearFault)
+        {
+            _logger.LogWarning(clearFault, "The live-quiz marker could not be cleared; a reload may report a quiz lost that had finished.");
         }
     }
 
@@ -1549,6 +1779,9 @@ internal sealed class QuizController : IAsyncDisposable
             Filters = filters;
             Mix = mix;
             _source = source;
+            // Read once, while the source is whole: a finished run keeps the
+            // name and lets the source go (ToReplay).
+            Name = source.Name;
             _stream = stream;
         }
 
@@ -1580,8 +1813,8 @@ internal sealed class QuizController : IAsyncDisposable
         /// <summary>The stored mix a Restart of this run re-attempts — the one handed in, whatever the run itself composed with.</summary>
         public QuizMix Mix { get; }
 
-        /// <summary>The source's name (<see cref="QuizController.Name"/>).</summary>
-        public string Name => _source.Name;
+        /// <summary>The source's name (<see cref="QuizController.Name"/>), read when the source was built.</summary>
+        public string Name { get; }
 
         /// <summary>The source's declared size, if it declares one.</summary>
         public int? Count => _source.Count;
@@ -1598,6 +1831,13 @@ internal sealed class QuizController : IAsyncDisposable
             return await stream.MoveNextAsync() ? stream.Current : null;
         }
 
+        /// <summary>
+        /// What a finished run keeps of this: the filters and mix its Restart
+        /// replays, the name and the composition telemetry — none of which
+        /// holds the source, its stream or a decision.
+        /// </summary>
+        public RunReplay ToReplay() => new(Filters, Mix, Name, LastComposition);
+
         /// <summary>Release the stream, if it is still held; a no-op once it has been.</summary>
         public ValueTask ReleaseAsync()
         {
@@ -1605,6 +1845,35 @@ internal sealed class QuizController : IAsyncDisposable
             _stream = null;
             return stream?.DisposeAsync() ?? ValueTask.CompletedTask;
         }
+    }
+
+    /// <summary>
+    /// What a run's Restart replays and its summary names, kept past its
+    /// finish (<c>SPEC-quiz-history.md</c> §9): the filter set and the stored
+    /// mix, the source's name and the composition's telemetry — counts and
+    /// categories, no decision.
+    /// </summary>
+    private sealed record RunReplay(DecisionFilterSet Filters, QuizMix Mix, string Name, MixComposition? Composition);
+
+    /// <summary>
+    /// A finished run, whole: its result and its replay, and whether a new
+    /// sample is what finished it. A class, compared by reference, because it
+    /// is also the occurrence <see cref="EndedByNewSample"/> hands out.
+    /// </summary>
+    private sealed class FinishedRun
+    {
+        public FinishedRun(QuizResult result, RunReplay replay, bool endedByNewSample)
+        {
+            Result = result;
+            Replay = replay;
+            EndedByNewSample = endedByNewSample;
+        }
+
+        public QuizResult Result { get; }
+
+        public RunReplay Replay { get; }
+
+        public bool EndedByNewSample { get; }
     }
 }
 

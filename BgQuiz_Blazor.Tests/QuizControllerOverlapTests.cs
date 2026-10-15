@@ -48,7 +48,7 @@ public class QuizControllerOverlapTests
         sink = new FakeProblemStatsSink();
         var calls = 0;
         factoryCalls = () => calls;
-        return new QuizController((_, _) => { calls++; return TestFixtures.Composed(gated); }, sink, TimeProvider.System, NullLogger<QuizController>.Instance);
+        return new QuizController((_, _) => { calls++; return TestFixtures.Composed(gated); }, sink, new FakeQuizLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
     }
 
     // -----------------------------------------------------------------------
@@ -441,7 +441,7 @@ public class QuizControllerOverlapTests
             (_, _) => throwNext
                 ? throw new InvalidOperationException("boom")
                 : TestFixtures.Composed(fake),
-            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            new FakeProblemStatsSink(), new FakeQuizLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead));
@@ -460,7 +460,7 @@ public class QuizControllerOverlapTests
         var throwNext = true;
         var c = new QuizController(
             (_, _) => TestFixtures.Composed(throwNext ? new ThrowingProblemSetSource() : good),
-            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            new FakeProblemStatsSink(), new FakeQuizLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => c.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead));

@@ -147,9 +147,13 @@ builder.Services.AddScoped<NotesPlacementStore>();
 // Per-app marker (sessionStorage-backed) recording that a quiz is live in this
 // tab, so a full reload — which reboots the runtime and discards quiz state —
 // can be acknowledged on the next boot instead of dumping the user on a blank
-// Home. Scoped like the holders; Home sets/reads it, Done clears it on
-// completion. See QuizLiveMarker for why the store is sessionStorage.
+// Home. Scoped like the holders. The controller is its one writer, through
+// IQuizLiveMarker — it marks a run live as it becomes current and clears the
+// mark wherever a run finishes — and Home reads it on boot; aliased, as the
+// stats store is, so both see one instance. See QuizLiveMarker for why the
+// store is sessionStorage.
 builder.Services.AddScoped<QuizLiveMarker>();
+builder.Services.AddScoped<IQuizLiveMarker>(sp => sp.GetRequiredService<QuizLiveMarker>());
 
 // Source factory: the pool the running quiz draws through — parse-once cache
 // over the held sample, then position dedupe. The run's order and mix are

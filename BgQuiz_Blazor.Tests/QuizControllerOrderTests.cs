@@ -27,7 +27,7 @@ public class QuizControllerOrderTests
         var source = new FakeProblemSetSource(items);
         sink = new FakeProblemStatsSink();
         return new QuizController(
-            (_, _) => TestFixtures.Composed(source), sink, TimeProvider.System, NullLogger<QuizController>.Instance);
+            (_, _) => TestFixtures.Composed(source), sink, new FakeQuizLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
     }
 
     /// <summary>

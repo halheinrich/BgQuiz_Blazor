@@ -129,7 +129,7 @@ public class PositionDedupeTests
 
         var controller = new QuizController(
             FactoryOver(picked),
-            new FakeProblemStatsSink(),
+            new FakeProblemStatsSink(), new FakeQuizLiveMarker(),
             TimeProvider.System, NullLogger<QuizController>.Instance);
 
         Assert.Equal(QuizStartOutcome.Started, await controller.StartAsync(EarlyMoves, QuizMix.Empty, PlayRanking.Equity, ProblemOrder.AsRead));
@@ -170,7 +170,7 @@ public class PositionDedupeTests
             "Premise broken: the two copies no longer yield content-equal decisions.");
 
         var controller = new QuizController(
-            FactoryOver(picked), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            FactoryOver(picked), new FakeProblemStatsSink(), new FakeQuizLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Assert.Equal(QuizStartOutcome.Started,
             await controller.StartAsync(new FilterConfig(), QuizMix.Empty, PlayRanking.Equity, order));
 
@@ -241,7 +241,7 @@ public class PositionDedupeTests
             "test can no longer observe a collapse to report.");
 
         var controller = new QuizController(
-            FactoryOver(picked), new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            FactoryOver(picked), new FakeProblemStatsSink(), new FakeQuizLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
 
         var summary = await controller.SummarizeMatchesAsync(EarlyMoves, PlayRanking.Equity);
 

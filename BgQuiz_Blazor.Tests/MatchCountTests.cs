@@ -56,7 +56,7 @@ public class MatchCountTests : BunitContext
                 _built++;
                 return TestFixtures.Composed(ranking == PlayRanking.Equity ? _equity : _depthFirst);
             },
-            new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
+            new FakeProblemStatsSink(), new FakeQuizLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
         _count = new MatchCount(controller, _log);
     }
 

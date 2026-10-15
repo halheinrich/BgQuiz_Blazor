@@ -1307,13 +1307,10 @@ public partial class Home : ComponentBase, IDisposable
                 return;
             }
 
-            // A live quiz is starting: record it so a mid-quiz full reload (which
-            // reboots the WASM runtime and silently discards this quiz) is
-            // acknowledged on the next boot rather than dropping the user on a
-            // fresh Home. Set only past the empty-result guard — the no-match
-            // path above stays on Home with no live quiz to lose.
-            await Marker.MarkLiveAsync();
-
+            // A live quiz is starting. The controller marked it live as the run
+            // became current (QuizLiveMarker), so a mid-quiz full reload is
+            // acknowledged on the next boot; the no-match path above committed a
+            // run that had already ended, which it marked as nothing to lose.
             Nav.NavigateTo("/quiz");
         }
         catch (Exception ex)

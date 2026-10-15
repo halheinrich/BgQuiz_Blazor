@@ -1339,6 +1339,35 @@ public class QuizRunTests
         Assert.Equal(reviewed.Score, ended.Score);
     }
 
+    /// <summary>
+    /// What a finished run keeps (SPEC-quiz-history.md §9): the totals its own
+    /// rules derive at the end — the score, the skips of record, how many it
+    /// presented — with its ranking and its stream's total, and no problem.
+    /// </summary>
+    [Fact]
+    public void ToResult_OfAnEndedRun_IsItsTotals_ReadByItsOwnRules()
+    {
+        var run = Show(Begin(PlayRanking.DepthFirst).WithProblemCount(5), PlayProblem(1)).SubmitPlay(Alt(), out _);
+        run = MoveOnTo(MoveOnTo(run, PlayProblem(2)), PlayProblem(3));
+        var ended = run.End();
+
+        var result = ended.ToResult();
+
+        Assert.Equal(PlayRanking.DepthFirst, result.Ranking);
+        Assert.Equal(ended.Score, result.Score);
+        Assert.Equal(ended.SkippedCount, result.SkippedCount);
+        Assert.Equal(3, result.PresentedCount);
+        Assert.Equal(5, result.ProblemCount);
+    }
+
+    [Fact]
+    public void ToResult_OfARunStillActive_Throws()
+    {
+        // An active run's totals still move, so it has no result to keep.
+        Assert.Throws<InvalidOperationException>(() => ThreePresented().ToResult());
+        Assert.Throws<InvalidOperationException>(() => Begin().ToResult());
+    }
+
     [Fact]
     public void End_BeforeAnythingWasPresented_EndsAnEmptyRun()
     {
