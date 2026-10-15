@@ -185,6 +185,29 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
+/// <b>Resample keeps the setup and replaces the sample</b>
+/// (<c>SPEC-filtering.md</c> §4, "The sample, the limits and Resample";
+/// <see cref="ResampleAsync"/>): another draw of the held folder, offered
+/// beside it while another draw could hold different files. The filter in
+/// effect, the mix and the saved-filters document stand, because they follow
+/// the setup's identity (<see cref="PickedProblemFolder.SetupIdentity"/>);
+/// the parse, the count, the pick-time notices and the stats probe are fresh,
+/// because they follow the sample's.
+/// </para>
+///
+/// <para>
+/// <b>A new sample ends the run in progress — at the landing</b>
+/// (<c>SPEC-quiz-history.md</c> §9; <see cref="LandSampleAsync"/>), a pick's
+/// and a resample's alike: once a non-empty sample is acquired, the run is
+/// finished as End quiz finishes it and its heavy references released, then
+/// the sample is installed, and only then can a count or a Start parse it.
+/// Nothing that replaces no sample ends anything: a cancelled picker, an
+/// empty folder, Clear, a failed pick or resample, an empty resample. The
+/// setup ends at the click; the run ends only when files arrive. Afterwards
+/// the page says the quiz was finished and links to its summary on Done.
+/// </para>
+///
+/// <para>
 /// <b>The filter half of that reset is one report.</b> The selection's state
 /// lives in the app-scoped <see cref="FilterSetup"/>, not in the
 /// <c>FilterSurface</c> this page hosts, so it does not care that the surface
@@ -241,7 +264,8 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// navigates — sits a conditional <b>"Back to quiz"</b> button, on the
 /// <c>HasStarted &amp;&amp; !IsFinished</c> predicate (issue halheinrich/backgammon#58). Home is the
 /// third page a user can reach mid-quiz and the last one that had no way back.
-/// The visit itself was always safe — see <see cref="BackToQuiz"/> — so the
+/// The visit itself is safe — see <see cref="BackToQuiz"/>; only a new sample
+/// landing ends the quiz, and then there is nothing to go back to — so the
 /// affordance is the whole change. It is deliberately <i>not</i> the
 /// <see cref="ReturnControl"/> <see cref="Help"/>, <see cref="Settings"/> and
 /// <see cref="Stats"/> render (issue halheinrich/backgammon#241): that control
@@ -270,6 +294,16 @@ public partial class Home : ComponentBase, IDisposable
     /// clear and the Start gate stays disabled. Per-visit, so a component field.
     /// </summary>
     private bool _emptyFolderNotice;
+
+    /// <summary>
+    /// Set when a resample drew no problem files — the folder's files were
+    /// moved or deleted since the pick. An outcome (polite notice), not a
+    /// failure: an empty resample replaces nothing and ends no run
+    /// (<c>SPEC-filtering.md</c> §4), so the held sample stays in use and the
+    /// notice says so. Per-visit, and the notice's whole state, like
+    /// <see cref="_emptyFolderNotice"/>.
+    /// </summary>
+    private bool _emptyResampleNotice;
 
     /// <summary>
     /// Set when a pick returned <see cref="FolderPickOutcome.Cancelled"/> — it
@@ -435,7 +469,7 @@ public partial class Home : ComponentBase, IDisposable
     /// <summary>
     /// True while this page is running a foreground operation the user must
     /// wait out: the scan-and-buffer half of a folder pick (issue
-    /// halheinrich/backgammon#48). One flag, not one per site — the affordance
+    /// halheinrich/backgammon#48), and the whole of a resample. One flag, not one per site — the affordance
     /// is a property of the <i>page</i> ("BgQuiz is working, don't touch
     /// anything"), not of the operation. Raised only through
     /// <see cref="EnterBusyAsync"/> / <see cref="RunBusyAsync"/>, which own the
@@ -1073,24 +1107,14 @@ public partial class Home : ComponentBase, IDisposable
     /// <summary>
     /// The shared landing for both mechanisms' outcomes. A cancelled pick and an
     /// empty folder each leave the holder clear and surface their own polite
-    /// outcome notice; otherwise the holder takes the pick, and the rendered
-    /// summary + stats status notice derive from it (no transient field to keep
-    /// in sync — that desynced on navigate-back, when Home re-instantiated).
-    ///
-    /// <para>
-    /// Async again — one await, and only on the path that keeps a folder: the
-    /// mix predicate's pick-time probe
-    /// (<see cref="QuizStatsStore.RefreshPickedStatsAsync"/>, issue halheinrich/backgammon#87). It
-    /// runs <i>after</i> <see cref="PickedProblemFolder.Set"/> so it probes the
-    /// sample it is about, and before this method returns so no render can
-    /// fall between the two: the panel's mount decision is made once, against a
-    /// resolved probe, rather than made twice with the section popping in. (The
-    /// probe's sample stamp makes the ordering safe rather than merely
-    /// tidy — a probe stamped with a replaced sample expires instead of
-    /// answering for the wrong folder.) The two no-folder outcomes need no
-    /// probe: they return with the holder clear, and a cleared holder fails the
-    /// predicate's capability half outright.
-    /// </para>
+    /// outcome notice, and replace no sample, so a run in progress goes on;
+    /// otherwise the pick's sample lands (<see cref="LandSampleAsync"/>) — the
+    /// run ended, then the holder takes the pick, and the rendered summary +
+    /// stats status notice derive from it (no transient field to keep in sync
+    /// — that desynced on navigate-back, when Home re-instantiated). The two
+    /// no-folder outcomes need no stats probe: they return with the holder
+    /// clear, and a cleared holder fails the predicate's capability half
+    /// outright.
     /// </summary>
     private async Task ApplyPickOutcomeAsync(FolderPickOutcome outcome)
     {
@@ -1122,21 +1146,112 @@ public partial class Home : ComponentBase, IDisposable
         // is about — including across navigate-back, which a page field would
         // not survive.
         //
-        // Reporting the new source ends the outgoing filter setup in the owner
-        // (the click's ClearFolder already did, with null) and begins this
-        // pick's. The render this triggers also mounts the FilterSurface behind
-        // the HasFiles gate, and the composite loads this folder's saved-filters
-        // document itself — a setup-time, degrade-tolerant read through the
-        // picked-slot storage adapter (null under a fallback pick, so no
-        // context). Nothing to await for that: saved-filters trouble can never
-        // block a pick.
-        Folder.Set(outcome.DirectoryName, outcome.Capability, outcome.Sample);
-        ReportFilterSource();
+        // Set begins a new setup, so the source the landing reports ends the
+        // outgoing filter setup in the owner (the click's ClearFolder already
+        // did, with null) and begins this pick's. The render this triggers
+        // also mounts the FilterSurface behind the HasFiles gate, and the
+        // composite loads this folder's saved-filters document itself — a
+        // setup-time, degrade-tolerant read through the picked-slot storage
+        // adapter (null under a fallback pick, so no context). Nothing to
+        // await for that: saved-filters trouble can never block a pick.
+        await LandSampleAsync(
+            () => Folder.Set(outcome.DirectoryName, outcome.Capability, outcome.Sample));
+    }
 
-        // Now that the holder describes this pick, ask whether a mix can mean
-        // anything for it. Degrade-tolerant end to end (see the store), so this
-        // await can neither fail the pick nor surface a notice of its own.
+    /// <summary>
+    /// Resample (<c>SPEC-filtering.md</c> §4, "The sample, the limits and
+    /// Resample"): draw the held folder again at the limits, without the
+    /// picker, and land the new sample (<see cref="LandSampleAsync"/>) — the
+    /// setup kept, the sample replaced (<see cref="PickedProblemFolder.Resample"/>).
+    /// Offered only while <see cref="PickedProblemFolder.CanResample"/>.
+    ///
+    /// <para>
+    /// <b>Busy for the whole operation</b> (<see cref="RunBusyAsync"/>): a
+    /// resample raises no prompt, so all of it is the app's own work, and the
+    /// affordance paints before the draw begins. The first parse of the new
+    /// sample keeps the page busy after it, as a pick's does
+    /// (<see cref="IsParsingThePick"/>).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Nothing is lost unless something arrives.</b> A failure to acquire
+    /// keeps the held sample, its setup and the module's folder alike, and
+    /// reports as a failed pick does (<see cref="IsFolderReadFailure"/>) — so,
+    /// unlike a pick's failure, it releases nothing
+    /// (<see cref="ReleaseFailedPickAsync"/> is a pick's alone). An empty draw
+    /// replaces nothing and says so. Neither ends a run in progress: only a
+    /// landing does. The folder seam's caller error is not caught: Resample is
+    /// offered only while a folder is held, so it would be a bug.
+    /// </para>
+    /// </summary>
+    private Task ResampleAsync() => RunBusyAsync(async () =>
+    {
+        // The last gesture's outcome notices go: this one gets its own account.
+        _pickError = null;
+        _emptyResampleNotice = false;
+
+        FolderSample sample;
+        try
+        {
+            sample = await FolderAccess.ResampleAsync();
+        }
+        catch (Exception ex) when (IsFolderReadFailure(ex))
+        {
+            _pickError = ex.Message;
+            return;
+        }
+
+        if (sample.Files.IsEmpty)
+        {
+            _emptyResampleNotice = true;
+            return;
+        }
+
+        await LandSampleAsync(() => Folder.Resample(sample));
+    });
+
+    /// <summary>
+    /// Land a new sample, acquired and known non-empty — a pick's or a
+    /// resample's — in the order <c>SPEC-quiz-history.md</c> §9 rules: the run
+    /// in progress is finished as End quiz finishes it, its heavy references
+    /// released and the live-quiz marker cleared
+    /// (<see cref="QuizController.EndForNewSampleAsync"/>); then
+    /// <paramref name="install"/> puts the sample on the holder, which lets the
+    /// old one go with its parse; and only then may anything parse it.
+    ///
+    /// <para>
+    /// After the install, three things, in this order. The source is reported
+    /// to the filter setup's owner — a pick's new setup ends the old one there,
+    /// a resample's kept setup changes nothing. The mix predicate's stats probe
+    /// runs (<see cref="QuizStatsStore.RefreshPickedStatsAsync"/>, issue
+    /// halheinrich/backgammon#87): after the install so it probes the sample it
+    /// is about, and before this method returns so the panel's mount decision
+    /// is made against a resolved probe rather than made twice with the
+    /// section popping in — a resample's probe starts from nothing known, so a
+    /// render inside its await would unmount the very panel the resample keeps.
+    /// (The probe's sample stamp makes the ordering safe rather than merely
+    /// tidy — a probe stamped with a replaced sample expires instead of
+    /// answering for the wrong one.) Degrade-tolerant end to end, so it can
+    /// neither fail the landing nor surface a notice of its own. Then the
+    /// match count is asked for (<see cref="ScheduleCountSync"/>) — after the
+    /// probe, so this page puts no render inside that await — because the
+    /// count is keyed by the sample as well as the setup, and the owner,
+    /// knowing nothing of samples, publishes nothing for a resample.
+    /// </para>
+    ///
+    /// <para>
+    /// No rollback after this point. A parse of the new sample that fails —
+    /// the count's or a Start's — leaves it held and the previous run finished
+    /// with its summary intact; nothing promises that run is still playable.
+    /// </para>
+    /// </summary>
+    private async Task LandSampleAsync(Action install)
+    {
+        await Controller.EndForNewSampleAsync();
+        install();
+        ReportFilterSource();
         await StatsStore.RefreshPickedStatsAsync();
+        ScheduleCountSync();
     }
 
     /// <summary>
@@ -1187,10 +1302,12 @@ public partial class Home : ComponentBase, IDisposable
     /// <para>
     /// <b>Safe mid-quiz.</b> The picked files are read only at Start time (the
     /// source factory reads <see cref="PickedProblemFolder.Files"/> in
-    /// <see cref="QuizController.StartAsync"/>) and the JS side clears the
-    /// <i>picked</i> slot only — a running quiz's stats context lives in the
-    /// <i>active</i> slot, bound at Start, so recording continues untouched until
-    /// the next Start re-binds.
+    /// <see cref="QuizController.StartAsync"/>, and the run keeps what it
+    /// read) and the JS side clears the <i>picked</i> slot only — a running
+    /// quiz's stats context lives in the <i>active</i> slot, bound at Start, so
+    /// recording continues untouched until the next Start re-binds. Ending a
+    /// setup replaces no sample, so it ends no run: a pick ends the quiz in
+    /// progress only once its sample lands (<see cref="LandSampleAsync"/>).
     /// </para>
     ///
     /// <para>
@@ -1228,6 +1345,7 @@ public partial class Home : ComponentBase, IDisposable
     {
         _pickError = null;
         _emptyFolderNotice = false;
+        _emptyResampleNotice = false;
         _cancelledPickNotice = false;
         _startError = null;
         _noMatchNotice = null;
@@ -1238,14 +1356,24 @@ public partial class Home : ComponentBase, IDisposable
     /// The filter setup's observer (<see cref="FilterSetup.Attach"/>): told of
     /// the current snapshot as this page attaches, then of every real change —
     /// an edit, a commit, a restoration settling, a source reported. It only
-    /// schedules: an observer must not call the owner and records nothing
-    /// here, because this page reads the owner's <see cref="FilterSetup.Current"/>
-    /// whenever it needs the setup. The scheduled work re-renders the page and
-    /// re-asks for the match count (<see cref="SyncMatchCountAsync"/>).
+    /// schedules (<see cref="ScheduleCountSync"/>): an observer must not call
+    /// the owner and records nothing here, because this page reads the owner's
+    /// <see cref="FilterSetup.Current"/> whenever it needs the setup.
     /// </summary>
-    private void OnFilterSetupPublished() => _ = InvokeAsync(FilterSetupChangedAsync);
+    private void OnFilterSetupPublished() => ScheduleCountSync();
 
-    private async Task FilterSetupChangedAsync()
+    /// <summary>
+    /// Schedule a re-render and a fresh ask for the match count
+    /// (<see cref="SyncMatchCountAsync"/>) on the renderer's context, without
+    /// waiting for the count, which can run long and settles into its holder
+    /// on its own. The count is keyed by the setup's filter and by the sample,
+    /// so both of the things that move them schedule it: a filter snapshot
+    /// (<see cref="OnFilterSetupPublished"/>) and a sample's landing
+    /// (<see cref="LandSampleAsync"/>).
+    /// </summary>
+    private void ScheduleCountSync() => _ = InvokeAsync(RenderAndSyncCountAsync);
+
+    private async Task RenderAndSyncCountAsync()
     {
         try
         {
@@ -1263,7 +1391,7 @@ public partial class Home : ComponentBase, IDisposable
 
     /// <summary>
     /// Ask <see cref="MatchCount"/> for the count of what is on screen: the
-    /// pick, the filter in effect for it and the user's ranking. Equal inputs
+    /// setup, the sample held, the filter in effect for it and the user's ranking. Equal inputs
     /// reuse the held count — settled, or still running — which is what lets a
     /// navigate-back show its count and keep its known-zero gate at once;
     /// different inputs recount, superseding any count of older ones. Nothing
@@ -1414,12 +1542,15 @@ public partial class Home : ComponentBase, IDisposable
     /// half of what <see cref="ReturnControl"/> does on the other pages.
     ///
     /// <para>
-    /// Navigation only: the quiz state it returns to is app-scoped and was never
-    /// at risk from the visit — the picked files are read at Start, so nothing on
-    /// this page's setup surface reaches a running quiz (<c>EndCurrentSetupAsync</c>
-    /// touches only the JS <i>picked</i> slot, pinned). There is deliberately no
-    /// guard, no confirmation and no warning around the round trip; what was
-    /// missing was only the way back.
+    /// Navigation only: the quiz state it returns to is app-scoped and is not
+    /// at risk from the visit — the picked files are read at Start, so the
+    /// setup surface's gestures that replace no sample leave a running quiz
+    /// alone (<c>EndCurrentSetupAsync</c> touches only the JS <i>picked</i>
+    /// slot, pinned). The one that does end it is a new sample landing
+    /// (<see cref="LandSampleAsync"/>, <c>SPEC-quiz-history.md</c> §9), after
+    /// which this is not rendered: there is no live quiz to return to. There
+    /// is deliberately no guard, no confirmation and no warning around the
+    /// round trip; what was missing was only the way back.
     /// </para>
     /// </summary>
     private void BackToQuiz()

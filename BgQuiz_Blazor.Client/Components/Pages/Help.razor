@@ -250,14 +250,22 @@
 
         <h3 class="h4 mt-4" id="@HelpSections.PickYourFolder.AnchorId">@HelpSections.PickYourFolder.Heading</h3>
         @* The over-cap sentence carries the random draw because this is where the
-           actionable half belongs: Home's truncation notice reports one pick and
-           deliberately stops there, so "pick it again and you get different files"
-           has nowhere else to live. Not a restatement of that notice — it says what
-           happens NEXT time, which a status line about THIS pick cannot.
+           actionable half belongs: Home's truncation notice reports one sample and
+           deliberately stops there, so "Resample and you get different files" has
+           nowhere else to live. Not a restatement of that notice — it says what
+           happens NEXT time, which a status line about THIS sample cannot. What
+           Resample keeps and what a new pick starts over are SPEC-filtering.md
+           §4's ("The sample, the limits and Resample"), said in the page's words.
 
            Deliberately no promise of eventual full coverage: the draw is uniform
-           per pick, not a queue, so "you will see all of it" would be a guarantee
-           the pick does not make. The claim stops at "not shut out permanently". *@
+           per sample, not a queue, so "you will see all of it" would be a
+           guarantee the draw does not make. The claim stops at "not shut out
+           permanently".
+
+           The second paragraph is SPEC-quiz-history.md §9: new files end a quiz
+           in progress, as End quiz ends it, and the gestures that read no files
+           end nothing. It names the home page's line and the summary's Restart,
+           because those are the two things the reader meets next. *@
         <p>
             On the home page, choose the local folder holding your <code>.xg</code> match
             files and <code>.xgp</code> position files. Only files directly in that folder
@@ -270,9 +278,19 @@
             work. If a folder holds more of either than that, BgQuiz quizzes you on the
             ones it read and tells you on the home page how many it left — nothing fails,
             and the quiz simply does not include them. Which ones it reads are drawn at
-            random each time, so picking that folder again reads a different selection:
-            nothing in an oversized folder is shut out permanently, it just won't all
-            arrive in one pick.
+            random, and <em>Resample</em>, beside the folder's name, draws again: a
+            different selection from the same folder, with your filters and your mix
+            kept as they are. Choosing the folder again also draws afresh, but starts
+            your setup over. Nothing in an oversized folder is shut out permanently — it
+            just won't all arrive at once.
+        </p>
+        <p>
+            Reading new files ends a quiz in progress. If you choose a folder or
+            <em>Resample</em> partway through a quiz, that quiz ends as <em>End quiz</em>
+            would end it, and the home page says so, with a link to its summary — where
+            <em>Restart with same filters</em> runs it again over the new files.
+            Cancelling the folder chooser, a folder with no problem files, <em>Clear</em>,
+            or a read that fails ends nothing.
         </p>
 
         <h3 class="h4 mt-4" id="@HelpSections.ChooseFilters.AnchorId">@HelpSections.ChooseFilters.Heading</h3>

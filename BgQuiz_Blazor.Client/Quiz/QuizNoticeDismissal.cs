@@ -91,6 +91,16 @@ internal enum QuizNotice
     PickStatsUnwritableForecast,
 
     /// <summary>
+    /// <c>Home</c>'s line saying a new sample finished the quiz in progress,
+    /// with its link to the summary on Done (<c>SPEC-quiz-history.md</c> §9,
+    /// "Home after it") — an event notice. Occurrence:
+    /// <see cref="QuizController.EndedByNewSample"/>, the finished run itself,
+    /// so the line lasts while that run is current, survives navigation, and a
+    /// later run's line shows fresh.
+    /// </summary>
+    QuizEndedByNewSample,
+
+    /// <summary>
     /// <c>Home</c>'s browser-storage notice (issue
     /// <c>halheinrich/backgammon#360</c>): the browser has refused a storage
     /// call this visit, so the filters, the mix and the settings work but may
@@ -157,7 +167,9 @@ internal enum QuizNotice
 /// <b>identity, never content</b> — see <see cref="QuizStatsStore.StatusOccurrence"/>,
 /// which exists to give the stats notices the same kind of token the composition
 /// already had, and <see cref="PickedProblemFolder.SampleIdentity"/>, which does
-/// the same for <c>Home</c>'s pick-outcome notices.
+/// the same for <c>Home</c>'s pick-outcome notices, and
+/// <see cref="QuizController.EndedByNewSample"/>, for <c>Home</c>'s line that a
+/// new sample finished the quiz.
 /// </para>
 ///
 /// <para>

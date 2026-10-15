@@ -312,17 +312,25 @@ internal sealed class FakeFolderAccess : IFolderAccess
     public int ResampleCallCount { get; private set; }
 
     /// <summary>
-    /// The held folder drawn again, as the module draws it: the caller's error
-    /// (<see cref="InvalidOperationException"/>) with no folder held, else
-    /// <see cref="ResampleException"/> or <see cref="NextResample"/>. Either
-    /// way the picked slot is left as it was.
+    /// Awaited while a resample draws, before it answers — a test's view of
+    /// the moment the replacement is being acquired (what has happened to a
+    /// run by then), and a way to hold it there (the page's busy state).
     /// </summary>
-    public Task<FolderSample> ResampleAsync()
+    public Func<Task>? OnResampling { get; set; }
+
+    /// <summary>
+    /// The held folder drawn again, as the module draws it: the caller's error
+    /// (<see cref="InvalidOperationException"/>) with no folder held, else —
+    /// after <see cref="OnResampling"/> — <see cref="ResampleException"/> or
+    /// <see cref="NextResample"/>. Either way the picked slot is left as it was.
+    /// </summary>
+    public async Task<FolderSample> ResampleAsync()
     {
         ResampleCallCount++;
-        if (PickedSlot is null)
-            return Task.FromException<FolderSample>(new InvalidOperationException("No folder is held to resample."));
-        return ResampleException is { } ex ? Task.FromException<FolderSample>(ex) : Task.FromResult(NextResample);
+        if (PickedSlot is null) throw new InvalidOperationException("No folder is held to resample.");
+        if (OnResampling is { } drawing) await drawing();
+        if (ResampleException is { } ex) throw ex;
+        return NextResample;
     }
 
     public ValueTask<bool> PromoteToActiveAsync()

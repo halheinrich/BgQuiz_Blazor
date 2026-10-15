@@ -1095,10 +1095,11 @@ milliseconds.
   of *that* source, and its `Report`, reads the files it was built over, and a
   parse it completes never pollutes a newer pick's cache. A Restart is not a
   re-enumeration of it: every Start and every Restart builds a new source
-  through the factory, over the folder picked at that moment
+  through the factory, over the sample held at that moment
   (`../SPEC-quiz-history.md` §8, "What a Restart replays"), so a Restart after
-  a mid-quiz re-pick replays the quiz's filters and mix over the newly picked
-  folder's files. Done promises "same filters", and no more.
+  a new sample ended the quiz (a pick or a resample, §9) replays its filters
+  and mix over the new sample's files. Done promises "same filters", and no
+  more.
 - The stream sources stay **stream-pure** (the parse delegates to
   `WasmUploadedProblemSetSource` with an empty `DecisionFilterSet`); caching
   is entirely this app-side layer. Both passes pace their yields with
@@ -1174,8 +1175,13 @@ here).** The stats context **binds at Start/Restart, never at pick**: the
 controller's `AttemptAsync` drives `QuizStatsStore.BeginQuizAsync()`,
 which promotes picked → active (`PromoteToActiveAsync`) and loads the stats
 file through the active slot. Home's Clear resets **only the picked slot**
-(`ClearPickedAsync`), so a mid-quiz Clear or re-pick never affects the running
-quiz's recording — that changes only when the next Start re-binds. The picked
+(`ClearPickedAsync`), so a mid-quiz Clear never affects the running quiz's
+recording, and a pick or a resample that lands ends the quiz in progress
+(`../SPEC-quiz-history.md` §9) without retargeting it: the active slot is
+untouched until the next Start re-binds. A failed explicit pick releases the
+picked slot's folder too (`ReleaseFailedPickAsync` — the module binds the
+chosen folder before it draws, halheinrich/backgammon#403); a failed resample
+releases nothing. The picked
 slot also serves the **saved-filters** document (through
 `PickedFolderDocumentStorage` over `ReadPickedFileAsync`/`WritePickedFileAsync`):
 a setup-time concern on the folder being configured, deliberately on the
@@ -2366,10 +2372,12 @@ The asymmetry is pinned three times over: at the service seam
   the `"Problem folder:"` caption's one owner, which `Done` and `Stats` render
   too (halheinrich/backgammon#199) — the caption stays out of `Summary`, which
   describes the pick and nothing more — with a
-  **Clear** affordance beside
-  it bound to `EndCurrentSetupAsync`. Clearing is safe mid-quiz and left
+  **Resample** affordance beside it while `Folder.CanResample` (another draw
+  of the held folder, `ResampleAsync`; below) and a **Clear** affordance
+  bound to `EndCurrentSetupAsync`. Clearing is safe mid-quiz and left
   unguarded on purpose — files are read only at Start time and the clear
-  touches only the JS *picked* slot (pinned).
+  touches only the JS *picked* slot (pinned); so is every gesture that
+  replaces no sample. A pick or a resample that lands ends the quiz (below).
   **Pre-pick advisories, none of them gated by any probe of the *pick
   outcome*.** The **supported-browser statement**
   (`FolderPickDisplay.SupportedBrowsers`, beside the pick button) is gated only
@@ -2614,7 +2622,7 @@ The asymmetry is pinned three times over: at the service seam
   the filter setup (`ClearFolder()` reports the source's end to
   `FilterSetup` — the one line of filter choreography here, § `FilterSetup`),
   and every pick-scoped notice. The match count needs no line: it is keyed
-  by the pick, so a new pick recounts. The saved-filters context needs none
+  by the setup and the sample, so a new pick recounts. The saved-filters context needs none
   either — it dies with the composite the closing `HasFiles` gate unmounts.
   Nothing selected
   against the previous corpus can be assumed
@@ -2629,10 +2637,38 @@ The asymmetry is pinned three times over: at the service seam
   the baseline, so a non-empty selection is shown but never claimed as
   applied, and the empty selection is ready for the new pick at once (§
   `FilterSetup`). Two things are
-  deliberately *not* reset: `ShuffleOption` (presentation-only preference) and
-  the lifetime-stats slot, whose whole point is to *resume* when its folder is
-  picked again. `PageTests` pins the reset, the at-the-click timing (sampled
-  from inside the fake's picker), and the cancelled-re-pick loss.
+  deliberately *not* reset: the Order (`QuizSettings.Order`, a remembered
+  choice like the ranking) and the lifetime-stats slot, whose whole point is
+  to *resume* when its folder is picked again. `PageTests` pins the reset,
+  the at-the-click timing (sampled from inside the fake's picker), and the
+  cancelled-re-pick loss.
+  **Resample keeps the setup and replaces the sample**
+  (`../SPEC-filtering.md` §4, "The sample, the limits and Resample";
+  halheinrich/backgammon#403). `ResampleAsync` draws the held folder again
+  (`IFolderAccess.ResampleAsync`) under `RunBusyAsync` — no prompt precedes
+  the work, so the whole operation is busy — and lands the draw through
+  `PickedProblemFolder.Resample`: the filter in effect, the mix (the panel is
+  keyed by `SetupIdentity`, so it stays mounted) and the saved-filters
+  document stand; the parse, the count, the pick-time notices and the stats
+  probe are fresh. Offered only while `CanResample` (the producer's
+  `FolderSample.HoldsEveryMatchingFile` read, not restated). A failure to
+  acquire (`IsFolderReadFailure`) keeps the held sample and the module's folder
+  and reports in the pick-error box; an empty draw replaces nothing and says
+  so (`_emptyResampleNotice`); the seam's caller error is not caught.
+  **A new sample ends the run — at the landing** (`../SPEC-quiz-history.md`
+  §9). `LandSampleAsync` is the one landing for a pick's sample and a
+  resample's, in §9's order: acquired and non-empty first, then
+  `QuizController.EndForNewSampleAsync` (the run finished as End quiz finishes
+  it, its heavy references released, the live-quiz marker cleared), then the
+  install, then the source report, the stats probe and the count
+  (`ScheduleCountSync`, which the landing asks for itself because the filter
+  owner publishes nothing for a resample, and after the probe so no render of
+  this page's lands inside the probe's await). The setup ends at the click;
+  the run ends only when files arrive — a cancelled picker, an empty folder,
+  Clear, a failed pick or resample and an empty resample end nothing. After
+  it, the pick band's `#quizEndedByNewSampleNotice` (an event notice keyed on
+  `QuizController.EndedByNewSample`, the finished run itself) says so and
+  links to `done`; "Back to quiz" is gone with the live quiz.
   **Busy affordances.** The whole setup surface sits inside one
   `<fieldset disabled="@IsBusy">` — the native element disables every form
   control within, including the Apply buttons *inside* the imported
@@ -2674,8 +2710,11 @@ The asymmetry is pinned three times over: at the service seam
   §5's "Visible means in effect" ruling on 2026-09-07, because Start already requires
   an applied filter and the rows stay editable at any time. What survives of it is
   *Clear mix stays ungated in every state*: a way out, never a way in.
-  **Failure and outcome banners.** Pick failures (unexpected `JSException`,
-  caps exceeded — `_pickError`) and start-time exceptions
+  **Failure and outcome banners.** Pick and resample failures — the folder
+  seam's two (`IsFolderReadFailure`: a `JSException`, or a drawn file past the
+  byte cap, `PickedFileTooLargeException`), `_pickError`; the seam's
+  caller-error `InvalidOperationException` is deliberately not caught, since it
+  is a bug and never a fact about the folder — and start-time exceptions
   (`FilterConfig.Build()` validation, source construction — `_startError`)
   surface as banners instead of faulting the WASM app. A Start that faults
   keeps the quiz that was running (`../SPEC-quiz-history.md` §8), so "Back to
@@ -2716,7 +2755,9 @@ The asymmetry is pinned three times over: at the service seam
   outside the progressive-disclosure gate, so a mid-quiz Clear cannot take the
   way back with it. Nothing else is added: a mid-quiz Home visit is already safe
   by design — files are read at Start only, and Clear touches only the picked
-  slot — so there is no guard and no warning. `PageTests` pins the predicate's
+  slot — so there is no guard and no warning. The one setup gesture that ends
+  the quiz is a new sample landing (above), and then there is nothing to go
+  back to: the button goes, and the pick band's line says why. `PageTests` pins the predicate's
   two halves and the fieldset-independence; `MidQuizNavigationTests` drives the
   round trip in a browser.
 - **`Quiz.razor`** — mirrors the controller's per-problem flow, branching on
@@ -5289,18 +5330,19 @@ public (see Pitfalls). The externally visible surface is the route map:
   producer's `SavedFiltersStoreTests`, and the e2e corrupt-file scenario pin
   the zero-writes half; keep them.
 - **The stats context binds at Start/Restart (two-slot promote) — mid-quiz
-  Clear/re-pick must never affect the running quiz's recording** (the model is
-  in Architecture § Folder picking). Wiring Clear or a new pick to touch the
-  active slot, or moving the bind to pick time, re-opens the bug the shape
-  exists to prevent: a user tidying up Home mid-quiz silently killing (or
-  retargeting!) the quiz's recording.
+  Clear must never affect the running quiz's recording, and a new sample ends
+  the run without retargeting it** (the model is in Architecture § Folder
+  picking). Wiring Clear or a new pick to touch the active slot, or moving the
+  bind to pick time, re-opens the bug the shape exists to prevent: a user
+  tidying up Home mid-quiz silently killing (or retargeting!) the quiz's
+  recording.
 - **Saved filters read/write the *picked* slot, not the active one.** The
   same isolation invariant as stats, from the other side:
   `PickedFolderDocumentStorage` adapts the composite's storage seam onto
   `ReadPickedFileAsync`/`WritePickedFileAsync`, never the active-slot pair,
-  so a mid-quiz re-pick reloads the
-  saved-filters context off the *new* picked folder while the running quiz
-  keeps recording through its *active* handle. Don't "unify" the two file ops
+  so a re-pick reloads the
+  saved-filters context off the *new* picked folder without touching the
+  *active* handle a quiz bound at its Start. Don't "unify" the two file ops
   onto one slot — the filters ops must not require a promote (they
   run before any quiz binds), and the two slots can legitimately be different
   folders when a quiz is live over an earlier pick.

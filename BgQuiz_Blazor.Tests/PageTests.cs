@@ -13972,8 +13972,9 @@ public class PageTests : BunitContext
     }
 
     // -----------------------------------------------------------------------
-    //  A pick's failure (SPEC-filtering.md §4, "The sample, the limits and
-    //  Resample"; halheinrich/backgammon#403)
+    //  A pick's failure and a new sample (SPEC-filtering.md §4, "The sample,
+    //  the limits and Resample"; SPEC-quiz-history.md §9;
+    //  halheinrich/backgammon#403)
     // -----------------------------------------------------------------------
 
     /// <summary>
@@ -14064,5 +14065,567 @@ public class PageTests : BunitContext
 
         Assert.Same(callerError, await Renderer.UnhandledException.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.DoesNotContain("Could not read the folder", Normalize(cut.Markup));
+    }
+
+    /// <summary>
+    /// A new sample ends the run in progress (SPEC-quiz-history.md §9), and the
+    /// live-quiz marker is cleared where the run finishes — so a reload after
+    /// the pick has no live quiz to report lost.
+    /// </summary>
+    [Fact]
+    public async Task Home_APickThatLandsMidQuiz_EndsTheQuiz_AndClearsTheLiveMarker()
+    {
+        var controller = WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 3));
+        WithPickedFolder();
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent);
+        ExpectHomeOverAFolder(panelMounts: 2); // the pick unmounts the filter panel and mounts it again
+        ExpectMarkedLive();
+        ExpectMarkerCleared();
+        var cut = RenderHomeSettled();
+        await StartButton(cut).ClickAsync(new());
+        Assert.True(controller.HasStarted);
+        Assert.False(controller.IsFinished);
+
+        _folderAccess.NextPickOutcome = OneFileOutcome("Other");
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.True(controller.IsFinished);
+        Plan.Verify();
+    }
+
+    // -----------------------------------------------------------------------
+    //  Resample, and a new sample ending the run (SPEC-filtering.md §4, "The
+    //  sample, the limits and Resample"; SPEC-quiz-history.md §9;
+    //  halheinrich/backgammon#403, halheinrich/backgammon#407)
+    // -----------------------------------------------------------------------
+
+    /// <summary>Home's Resample control, or <see langword="null"/> while it is not offered.</summary>
+    private static IElement? ResampleButton(IRenderedComponent<HomePage> cut) =>
+        cut.FindAll("#resampleProblemFolder").SingleOrDefault();
+
+    /// <summary>The line saying a new sample finished the quiz, addressed by its id.</summary>
+    private static NoticeBox EndedByNewSampleLine(IRenderedComponent<HomePage> cut) =>
+        NoticeBox.ById(cut, "quizEndedByNewSampleNotice");
+
+    /// <summary>
+    /// A pick of one file from a folder that held <paramref name="omitted"/>
+    /// more <c>.xg</c> files than the limit admits — a sample another draw
+    /// could change, so Resample is offered. No stats capability unless a test
+    /// asks: the stats notices are not what these tests read.
+    /// </summary>
+    private static FolderPickOutcome OverLimitOutcome(
+        string folderName = "Corpus", int omitted = 3,
+        FolderWriteCapability capability = FolderWriteCapability.BrowserUnsupported) =>
+        OneFileOutcome(folderName, capability: capability, overLimit: [(PickedFileLimits.XgExtension, omitted)]);
+
+    /// <summary>Another draw of the over-limit folder: one different file, the kind still over its limit.</summary>
+    private static FolderSample Redrawn(string fileName = "other.xg") =>
+        TestFixtures.Sample([new PickedFile(fileName, [4, 5, 6])], (PickedFileLimits.XgExtension, 3));
+
+    /// <summary>
+    /// Render Home and pick <paramref name="outcome"/> through it, as a user
+    /// does — so the folder module holds the folder a resample draws from —
+    /// and let the page settle the pick's restoration and count.
+    /// </summary>
+    private async Task<IRenderedComponent<HomePage>> RenderHomeAndPickAsync(FolderPickOutcome outcome)
+    {
+        _folderAccess.NextPickOutcome = outcome;
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        WaitForHomeToSettle(cut);
+        return cut;
+    }
+
+    /// <summary>Two showable problems, so a Start leaves a quiz in progress rather than finishing at once.</summary>
+    private QuizController WithTwoProblemController() =>
+        WithController(
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 3));
+
+    /// <summary>
+    /// Whether Resample is offered for a sample, by what the pick's per-kind
+    /// report says the limits left out.
+    /// </summary>
+    public static TheoryData<string?, bool> ResampleOffers() => new()
+    {
+        { null, false },                          // every kind held whole: the only sample the limits could draw
+        { PickedFileLimits.XgExtension, true },   // match files over their limit
+        { PickedFileLimits.XgpExtension, true },  // position files over theirs
+    };
+
+    /// <summary>
+    /// Resample is offered beside the held folder while another draw could
+    /// hold different files, and not otherwise (SPEC-filtering.md §4): not
+    /// before a folder is held, and not for a sample that holds every
+    /// matching file of every kind.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(ResampleOffers))]
+    public async Task Home_ResampleIsOffered_UnlessTheSampleHoldsEveryMatchingFile(string? overLimit, bool offered)
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var cut = Render<HomePage>();
+        Assert.Null(ResampleButton(cut)); // nothing held, nothing to draw again
+
+        _folderAccess.NextPickOutcome = overLimit is null
+            ? OneFileOutcome(capability: FolderWriteCapability.BrowserUnsupported)
+            : OneFileOutcome(capability: FolderWriteCapability.BrowserUnsupported, overLimit: [(overLimit, 1)]);
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        Assert.Equal(offered, ResampleButton(cut) is not null);
+    }
+
+    /// <summary>
+    /// A resample keeps the setup and replaces the sample (SPEC-filtering.md
+    /// §4): the filter owner is told nothing new, so the filter in effect
+    /// stands; the new draw is held under a new identity, and the count is of
+    /// it.
+    /// </summary>
+    [Fact]
+    public async Task Home_Resample_KeepsTheSetup_AndReplacesTheSample()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome());
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        var setup = Services.GetRequiredService<FilterSetup>();
+        var source = setup.Current.Source;
+        var generation = setup.Current.Generation;
+        var inEffect = FilterInEffect();
+        var setupIdentity = folder.SetupIdentity;
+        var sample = folder.SampleIdentity;
+        var drawn = Redrawn();
+        _folderAccess.NextResample = drawn;
+
+        await ResampleButton(cut)!.ClickAsync(new());
+        WaitForHomeToSettle(cut); // the count of the new sample: the settle reads its key
+
+        Assert.Equal(1, _folderAccess.ResampleCallCount);
+        Assert.Equal(source, setup.Current.Source);
+        Assert.Equal(generation, setup.Current.Generation);
+        Assert.NotNull(inEffect);
+        Assert.Equal(inEffect, FilterInEffect());
+        Assert.Same(setupIdentity, folder.SetupIdentity);
+        Assert.Same(drawn, folder.Sample);
+        Assert.NotSame(sample, folder.SampleIdentity);
+        Assert.Same(folder.SampleIdentity, Services.GetRequiredService<MatchCount>().Inputs!.Sample);
+        Assert.Equal("Corpus", _folderAccess.PickedSlot); // the module's folder, drawn again, not replaced
+    }
+
+    /// <summary>
+    /// The mix is the setup's, so a resample keeps the panel mounted over the
+    /// draft it holds — the panel is keyed by the setup's identity, not the
+    /// sample's — and nothing of the filter surface mounts or reads again:
+    /// the storage plan holds one panel mount, one restoration and one mix
+    /// hydration for the whole test.
+    /// </summary>
+    [Fact]
+    public async Task Home_Resample_KeepsTheMixPanel_AndTheFilterSurface()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithActiveMix(NeverSeenMix());
+        ExpectHomeOverAFolder();
+        _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome(capability: FolderWriteCapability.Enabled));
+        var panel = cut.FindComponent<MixPanelComponent>().Instance;
+        var rows = Services.GetRequiredService<MixDraft>().Rows;
+        _folderAccess.NextResample = Redrawn();
+
+        await ResampleButton(cut)!.ClickAsync(new());
+        WaitForHomeToSettle(cut);
+
+        Assert.Same(panel, cut.FindComponent<MixPanelComponent>().Instance);
+        Assert.Equal(rows, Services.GetRequiredService<MixDraft>().Rows);
+        Assert.True(MixIsInEffect());
+        Plan.Verify();
+    }
+
+    /// <summary>
+    /// The pick-time notices and the stats probe are the sample's, so a
+    /// resample shows them fresh (SPEC-filtering.md §4): a truncation notice
+    /// dismissed for the old sample shows again for the new one, and the
+    /// probe reads the folder's stats again — here finding a record the
+    /// folder gained since the pick.
+    /// </summary>
+    [Fact]
+    public async Task Home_Resample_ShowsThePickTimeNoticesAfresh_AndProbesTheStatsAgain()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome(capability: FolderWriteCapability.Enabled));
+        TruncationNotice(cut).Dismiss(NoticeDismissGesture.CloseButton);
+        Assert.Empty(cut.FindAll("#truncationNotice"));
+        var stats = Services.GetRequiredService<QuizStatsStore>();
+        Assert.False(stats.PickedFolderHasStats);
+        _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
+        _folderAccess.NextResample = Redrawn();
+
+        await ResampleButton(cut)!.ClickAsync(new());
+
+        TruncationNotice(cut).ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
+        Assert.True(stats.PickedFolderHasStats);
+    }
+
+    /// <summary>
+    /// The page is busy for the whole of a resample: the affordance is up —
+    /// rendered, not merely set — while the folder is drawn again, and down
+    /// once the new sample has landed and its count settled.
+    /// </summary>
+    [Fact]
+    public async Task Home_Resample_IsBusyForTheWholeOperation()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome());
+        bool? fieldsetDisabledMidDraw = null, busyCursorMidDraw = null;
+        _folderAccess.OnResampling = () =>
+        {
+            fieldsetDisabledMidDraw = cut.Find("fieldset").HasAttribute("disabled");
+            busyCursorMidDraw = cut.FindAll("div.app-busy").Count > 0;
+            return Task.CompletedTask;
+        };
+        _folderAccess.NextResample = Redrawn();
+
+        await ResampleButton(cut)!.ClickAsync(new());
+
+        Assert.True(fieldsetDisabledMidDraw);
+        Assert.True(busyCursorMidDraw);
+        WaitForHomeToSettle(cut);
+        Assert.False(cut.Find("fieldset").HasAttribute("disabled"));
+        Assert.Empty(cut.FindAll("div.app-busy"));
+    }
+
+    /// <summary>
+    /// A resample that fails to acquire keeps the held sample and the setup
+    /// and reports as a failed pick does (SPEC-filtering.md §4) — and, unlike
+    /// a failed pick, releases nothing: the module still holds the folder, so
+    /// a later resample can succeed.
+    /// </summary>
+    [Theory]
+    [InlineData("too large")]
+    [InlineData("browser")]
+    public async Task Home_AResampleThatFailsToAcquire_KeepsTheSampleAndItsFolder_AndReportsAsAFailedPick(
+        string failure)
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome());
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        var held = folder.Sample;
+        var sample = folder.SampleIdentity;
+        var setupIdentity = folder.SetupIdentity;
+        var releases = _folderAccess.ClearPickedCallCount;
+        var thrown = PickFailure(failure);
+        _folderAccess.ResampleException = thrown;
+
+        await ResampleButton(cut)!.ClickAsync(new());
+
+        var error = NoticeSaying(cut, "Could not read the folder").ShouldBe(
+            NoticeKind.Error, NoticeAnnouncement.Assertive, dismissible: true, "class");
+        Assert.Contains(Normalize(thrown.Message), Normalize(error.Content.TextContent));
+        Assert.Same(held, folder.Sample);
+        Assert.Same(sample, folder.SampleIdentity);
+        Assert.Same(setupIdentity, folder.SetupIdentity);
+        Assert.Equal("Corpus", _folderAccess.PickedSlot);
+        Assert.Equal(releases, _folderAccess.ClearPickedCallCount);
+
+        _folderAccess.ResampleException = null;
+        _folderAccess.NextResample = Redrawn();
+        await ResampleButton(cut)!.ClickAsync(new());
+        Assert.False(ShowsNoticeSaying(cut, "Could not read the folder"));
+        Assert.Equal("other.xg", Assert.Single(folder.Files).FileName);
+    }
+
+    /// <summary>
+    /// A resample that draws no files — they were moved or deleted since the
+    /// pick — replaces nothing (SPEC-filtering.md §4), and says so: the files
+    /// already read stay in use.
+    /// </summary>
+    [Fact]
+    public async Task Home_AnEmptyResample_ReplacesNothing_AndSaysSo()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome());
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        var held = folder.Sample;
+        var sample = folder.SampleIdentity;
+        _folderAccess.NextResample = TestFixtures.Sample([]);
+
+        await ResampleButton(cut)!.ClickAsync(new());
+
+        NoticeBox.ById(cut, "emptyResampleNotice").ShouldBe(
+            NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
+        Assert.Same(held, folder.Sample);
+        Assert.Same(sample, folder.SampleIdentity);
+        Assert.False(ShowsNoticeSaying(cut, "Could not read the folder"));
+    }
+
+    /// <summary>
+    /// The folder seam's caller error from a resample — no folder held on the
+    /// module's side — is not reported as a failed pick, as a pick's is not:
+    /// Resample is offered only while a folder is held, so it is a bug. Staged
+    /// with a holder the module never bound, which no real page reaches.
+    /// </summary>
+    [Fact]
+    public async Task Home_TheResamplesCallerError_IsNotReportedAsAFailedPick()
+    {
+        WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
+        WithPickedFolder(overLimit: [SomeTruncation()]);
+        var cut = RenderHomeSettled();
+
+        await ResampleButton(cut)!.ClickAsync(new());
+
+        Assert.IsType<InvalidOperationException>(
+            await Renderer.UnhandledException.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.False(ShowsNoticeSaying(cut, "Could not read the folder"));
+    }
+
+    /// <summary>
+    /// A resample that lands mid-quiz ends the run in progress as a pick does
+    /// (SPEC-quiz-history.md §9), and the live-quiz marker is cleared where it
+    /// finishes, so a reload after it has no live quiz to report lost. Home
+    /// then says the quiz was finished and links to its summary on Done, and
+    /// the way back to a live quiz is gone.
+    /// </summary>
+    [Fact]
+    public async Task Home_AResampleThatLandsMidQuiz_EndsTheQuiz_SaysSo_AndClearsTheLiveMarker()
+    {
+        var controller = WithTwoProblemController();
+        ExpectSettingsRead(Plan, BrowserStorageReadAnswer.Absent);
+        ExpectHomeOverAFolder(); // the resample keeps the filter panel mounted
+        ExpectMarkedLive();
+        ExpectMarkerCleared();
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome());
+        await StartButton(cut).ClickAsync(new());
+        Assert.False(controller.IsFinished);
+        Assert.Contains(cut.FindAll("button"), b => b.TextContent.Trim() == "Back to quiz");
+        _folderAccess.NextResample = Redrawn();
+
+        await ResampleButton(cut)!.ClickAsync(new());
+
+        Assert.True(controller.IsFinished);
+        Assert.NotNull(controller.EndedByNewSample);
+        var line = EndedByNewSampleLine(cut).ShouldBe(
+            NoticeKind.Information, NoticeAnnouncement.Polite, dismissible: true, "id", "class");
+        Assert.Contains("finished the quiz you had in progress", Normalize(line.Content.TextContent));
+        Assert.Equal("done", line.Content.QuerySelector("a")?.GetAttribute("href"));
+        Assert.DoesNotContain(cut.FindAll("button"), b => b.TextContent.Trim() == "Back to quiz");
+        Plan.Verify();
+    }
+
+    /// <summary>
+    /// SPEC-quiz-history.md §9's order, for a pick and a resample alike: the
+    /// sample is acquired while the run is still in progress, the run is
+    /// finished before the sample is installed, and the count that follows is
+    /// of the installed sample — whose identity the install mints, so nothing
+    /// can have counted it sooner. Observed from inside: the acquisition hook,
+    /// and the controller's own announcement that the run finished.
+    /// </summary>
+    [Theory]
+    [InlineData("pick")]
+    [InlineData("resample")]
+    public async Task Home_ANewSample_IsAcquiredFirst_ThenTheRunEnds_ThenTheSampleIsInstalled(string how)
+    {
+        var controller = WithTwoProblemController();
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome());
+        await StartButton(cut).ClickAsync(new());
+        var folder = Services.GetRequiredService<PickedProblemFolder>();
+        var count = Services.GetRequiredService<MatchCount>();
+        var steps = new List<string>();
+        void Acquiring() => steps.Add(controller.IsFinished ? "acquired after the run ended" : "acquired");
+        controller.StateChanged += () =>
+        {
+            if (!controller.IsFinished || steps.Any(s => s.StartsWith("ended", StringComparison.Ordinal))) return;
+            steps.Add(folder.Files.Any(f => f.FileName == "new.xg") ? "ended after the sample was installed" : "ended");
+        };
+
+        if (how == "pick")
+        {
+            _folderAccess.NextPickOutcome = OneFileOutcome("Other", "new.xg", FolderWriteCapability.BrowserUnsupported);
+            _folderAccess.OnScanning = Acquiring;
+            await cut.Find("#pickProblemFolder").ClickAsync(new());
+        }
+        else
+        {
+            _folderAccess.NextResample = Redrawn("new.xg");
+            _folderAccess.OnResampling = () => { Acquiring(); return Task.CompletedTask; };
+            await ResampleButton(cut)!.ClickAsync(new());
+        }
+        WaitForHomeToSettle(cut);
+
+        Assert.Equal(["acquired", "ended"], steps);
+        Assert.Equal("new.xg", Assert.Single(folder.Files).FileName);
+        Assert.Same(folder.SampleIdentity, count.Inputs!.Sample);
+    }
+
+    /// <summary>What replaces no sample, and so ends no run (SPEC-quiz-history.md §9).</summary>
+    public static TheoryData<string> GesturesThatReplaceNoSample() =>
+    [
+        "cancelled pick", "empty folder", "failed pick", "Clear", "failed resample", "empty resample",
+    ];
+
+    /// <summary>
+    /// A cancelled picker, an empty folder, Clear, and a failure to acquire —
+    /// a pick's or a resample's — leave the run as it was, and so does an
+    /// empty resample: only a sample that lands ends a run
+    /// (SPEC-quiz-history.md §9).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(GesturesThatReplaceNoSample))]
+    public async Task Home_AGestureThatReplacesNoSample_EndsNoRun(string gesture)
+    {
+        var controller = WithTwoProblemController();
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome());
+        await StartButton(cut).ClickAsync(new());
+
+        switch (gesture)
+        {
+            case "cancelled pick":
+                _folderAccess.NextPickOutcome = FolderPickOutcome.CancelledOutcome;
+                await cut.Find("#pickProblemFolder").ClickAsync(new());
+                break;
+            case "empty folder":
+                _folderAccess.NextPickOutcome = TestFixtures.Picked("Empty", FolderWriteCapability.BrowserUnsupported, []);
+                await cut.Find("#pickProblemFolder").ClickAsync(new());
+                break;
+            case "failed pick":
+                _folderAccess.NextPickOutcome = OneFileOutcome("Other");
+                _folderAccess.OnScanning = () => throw PickFailure("browser");
+                await cut.Find("#pickProblemFolder").ClickAsync(new());
+                break;
+            case "Clear":
+                await cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear").ClickAsync(new());
+                break;
+            case "failed resample":
+                _folderAccess.ResampleException = PickFailure("browser");
+                await ResampleButton(cut)!.ClickAsync(new());
+                break;
+            case "empty resample":
+                _folderAccess.NextResample = TestFixtures.Sample([]);
+                await ResampleButton(cut)!.ClickAsync(new());
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(gesture), gesture, null);
+        }
+
+        Assert.True(controller.HasStarted);
+        Assert.False(controller.IsFinished);
+        Assert.Null(controller.EndedByNewSample);
+        Assert.Empty(cut.FindAll("#quizEndedByNewSampleNotice"));
+    }
+
+    /// <summary>
+    /// The line is about a run a new sample finished, and no other: a quiz
+    /// ended by End quiz has its summary on Done and nothing on Home to say.
+    /// </summary>
+    [Fact]
+    public async Task Home_AQuizEndedByEndQuiz_HasNoNewSampleLine()
+    {
+        var controller = WithTwoProblemController();
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome());
+        await StartButton(cut).ClickAsync(new());
+        await controller.EndQuizAsync();
+
+        Assert.True(controller.IsFinished);
+        Assert.Null(controller.EndedByNewSample);
+        Assert.Empty(RenderHomeSettled().FindAll("#quizEndedByNewSampleNotice"));
+    }
+
+    /// <summary>
+    /// Once the new sample has landed there is no rollback (SPEC-filtering.md
+    /// §4): a parse of it that fails — the count's, then a Start's — leaves
+    /// the new sample held and the previous run finished, its summary intact
+    /// and the line still saying so.
+    /// </summary>
+    [Fact]
+    public async Task Home_AParseFailureAfterTheSampleLanded_LeavesThePreviousRunFinished()
+    {
+        var failing = new StrongBox<bool>(false);
+        var fake = new FakeProblemSetSource([
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 3)]);
+        var controller = new QuizController(
+            (_, _) => failing.Value
+                ? throw new InvalidOperationException("The new sample would not parse.")
+                : TestFixtures.Composed(fake),
+            new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
+        Services.AddSingleton(controller);
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome());
+        await StartButton(cut).ClickAsync(new());
+        failing.Value = true;
+        _folderAccess.NextResample = Redrawn();
+
+        await ResampleButton(cut)!.ClickAsync(new());
+        WaitForHomeToSettle(cut); // the count of the new sample fails, and settles unknown
+        var finished = controller.EndedByNewSample;
+        await StartButton(cut).ClickAsync(new());
+
+        Assert.Contains("The new sample would not parse.", Normalize(cut.Markup)); // the Start's failure, reported
+        Assert.Equal("other.xg", Assert.Single(Services.GetRequiredService<PickedProblemFolder>().Files).FileName);
+        Assert.True(controller.IsFinished);
+        Assert.NotNull(finished);
+        Assert.Same(finished, controller.EndedByNewSample);
+        Assert.Equal(1, controller.PresentedCount);
+        Assert.Single(cut.FindAll("#quizEndedByNewSampleNotice"));
+    }
+
+    /// <summary>
+    /// The line belongs to the finished run, not the page (SPEC-quiz-history.md
+    /// §9, "Home after it"; SPEC-notices.md §2): it survives navigating away
+    /// and back, and a dismissal survives it too.
+    /// </summary>
+    [Fact]
+    public async Task Home_TheLineThatANewSampleFinishedTheQuiz_OutlivesNavigation_AndSoDoesItsDismissal()
+    {
+        WithTwoProblemController();
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome());
+        await StartButton(cut).ClickAsync(new());
+        _folderAccess.NextResample = Redrawn();
+        await ResampleButton(cut)!.ClickAsync(new());
+
+        var again = RenderHomeSettled();
+        EndedByNewSampleLine(again).Dismiss(NoticeDismissGesture.CloseButton);
+
+        Assert.Empty(again.FindAll("#quizEndedByNewSampleNotice"));
+        Assert.Empty(Render<HomePage>().FindAll("#quizEndedByNewSampleNotice"));
+    }
+
+    /// <summary>
+    /// The summary the line links to is the finished run's, and Done's
+    /// Restart replays its filters and mix over the new sample
+    /// (SPEC-quiz-history.md §8, §9) — after which no run is finished, and
+    /// Home has nothing to say about one.
+    /// </summary>
+    [Fact]
+    public async Task Done_AfterANewSampleFinishedTheQuiz_ShowsItsSummary_AndRestartsOverTheNewSample()
+    {
+        var built = new List<SampleIdentity>();
+        var fake = new FakeProblemSetSource([
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()),
+            TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay(), away: 3)]);
+        var controller = new QuizController(
+            (_, _) =>
+            {
+                built.Add(Services.GetRequiredService<PickedProblemFolder>().SampleIdentity);
+                return TestFixtures.Composed(fake);
+            },
+            new FakeProblemStatsSink(), NewLiveMarker(), TimeProvider.System, NullLogger<QuizController>.Instance);
+        Services.AddSingleton(controller);
+        var cut = await RenderHomeAndPickAsync(OverLimitOutcome());
+        await StartButton(cut).ClickAsync(new());
+        _folderAccess.NextResample = Redrawn();
+        await ResampleButton(cut)!.ClickAsync(new());
+        WaitForHomeToSettle(cut);
+        var resampled = Services.GetRequiredService<PickedProblemFolder>().SampleIdentity;
+
+        var done = Render<DonePage>();
+        Assert.Contains("Total problems shown: 1", Normalize(done.Find("div.container").TextContent));
+        var builds = built.Count;
+        await done.FindAll("button").First(b => b.TextContent.Trim() == "Restart with same filters").ClickAsync(new());
+
+        Assert.False(controller.IsFinished);
+        Assert.Null(controller.EndedByNewSample);
+        Assert.Equal(builds + 1, built.Count);
+        Assert.Same(resampled, built[^1]);
+        Assert.Empty(Render<HomePage>().FindAll("#quizEndedByNewSampleNotice"));
     }
 }
