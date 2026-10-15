@@ -128,7 +128,11 @@ public abstract class NotesPlacementTestBase : E2eTestBase
         await Expect(NotesDialog).ToHaveAttributeAsync("data-placed", string.Empty);
     }
 
-    /// <summary>Open the Move control's step buttons.</summary>
+    /// <summary>
+    /// Open the Move control's step buttons. It returns once they show, before
+    /// the overlay is re-placed for the height they add, so a caller that reads
+    /// geometry next waits for the placement it expects.
+    /// </summary>
     protected async Task OpenMoveControlAsync()
     {
         await MoveButton.ClickAsync();
