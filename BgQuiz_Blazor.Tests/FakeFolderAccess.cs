@@ -40,8 +40,8 @@ internal sealed class FakeFolderAccess : IFolderAccess
 
     /// <summary>Outcome the next <see cref="CollectFallbackAsync"/> returns (default: empty non-cancelled).</summary>
     public FolderPickOutcome NextCollectOutcome { get; set; } =
-        new(Cancelled: false, DirectoryName: "", Files: [], FolderWriteCapability.BrowserUnsupported,
-            Truncations: []);
+        new(Cancelled: false, DirectoryName: "", FolderWriteCapability.BrowserUnsupported,
+            TestFixtures.Sample([]));
 
     /// <summary>When set, <see cref="PickFolderAsync"/> / <see cref="CollectFallbackAsync"/> throw it instead.</summary>
     public Exception? PickException { get; set; }
@@ -264,6 +264,21 @@ internal sealed class FakeFolderAccess : IFolderAccess
 
     public Task<FolderPickOutcome> CollectFallbackAsync(ElementReference fallbackInput) =>
         PickException is { } ex ? Task.FromException<FolderPickOutcome>(ex) : Task.FromResult(NextCollectOutcome);
+
+    /// <summary>What the next <see cref="ResampleAsync"/> returns (default: a draw holding nothing).</summary>
+    public FolderSample NextResample { get; set; } = TestFixtures.Sample([]);
+
+    /// <summary>When set, <see cref="ResampleAsync"/> throws it instead.</summary>
+    public Exception? ResampleException { get; set; }
+
+    /// <summary>How many times <see cref="ResampleAsync"/> was called.</summary>
+    public int ResampleCallCount { get; private set; }
+
+    public Task<FolderSample> ResampleAsync()
+    {
+        ResampleCallCount++;
+        return ResampleException is { } ex ? Task.FromException<FolderSample>(ex) : Task.FromResult(NextResample);
+    }
 
     public ValueTask<bool> PromoteToActiveAsync()
     {

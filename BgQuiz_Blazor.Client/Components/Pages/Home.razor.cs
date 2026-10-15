@@ -253,7 +253,7 @@ public partial class Home : ComponentBase, IDisposable
     /// the notice's whole state: dismissing it clears this field, and the next
     /// failure assigns it again and shows fresh.
     /// A folder past the <i>count</i> caps is not a failure: it truncates and
-    /// reports (<see cref="PickedProblemFolder.Truncations"/>).
+    /// reports (<see cref="PickedProblemFolder.Sample"/>'s per-kind report).
     /// </summary>
     private string? _pickError;
 
@@ -1047,7 +1047,7 @@ public partial class Home : ComponentBase, IDisposable
             return;
         }
 
-        if (outcome.Files.IsEmpty)
+        if (outcome.Sample.Files.IsEmpty)
         {
             // Already clear — EndCurrentSetupAsync ran at the click and nothing
             // since could have set it. Re-stated so this shared landing carries
@@ -1071,7 +1071,7 @@ public partial class Home : ComponentBase, IDisposable
         // picked-slot storage adapter (null under a fallback pick, so no
         // context). Nothing to await for that: saved-filters trouble can never
         // block a pick.
-        Folder.Set(outcome.DirectoryName, outcome.Files, outcome.Capability, outcome.Truncations);
+        Folder.Set(outcome.DirectoryName, outcome.Capability, outcome.Sample);
         ReportFilterSource();
 
         // Now that the holder describes this pick, ask whether a mix can mean

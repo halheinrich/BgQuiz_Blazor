@@ -450,7 +450,7 @@ internal sealed class MixDraft(BrowserStorage browser, ILogger<MixDraft> logger,
 
             return entries.Count == 0
                 ? QuizMix.Empty
-                : new QuizMix(entries, length, RandomOrder);
+                : new QuizMix(entries, length);
         }
         catch (ArgumentException)
         {
@@ -607,7 +607,7 @@ internal sealed class MixDraft(BrowserStorage browser, ILogger<MixDraft> logger,
             entry.Category.Kind,
             ParamTextFor(entry.Category),
             entry.Percent.ToString(CultureInfo.InvariantCulture)))];
-        RandomOrder = mix.RandomOrder;
+        RandomOrder = true;
         LengthText = mix.QuizLength?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
     }
 

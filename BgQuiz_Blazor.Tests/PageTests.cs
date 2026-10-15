@@ -214,8 +214,8 @@ public class PageTests : BunitContext
     private static FolderPickOutcome OneFileOutcome(
         string folderName = "Corpus", string fileName = "match.xg",
         FolderWriteCapability capability = FolderWriteCapability.Enabled,
-        params PickTruncation[] truncations) =>
-        new(Cancelled: false, folderName, [new PickedFile(fileName, [1, 2, 3])], capability, [.. truncations]);
+        params (string Extension, int Omitted)[] overLimit) =>
+        TestFixtures.Picked(folderName, capability, [new PickedFile(fileName, [1, 2, 3])], overLimit);
 
     private QuizController WithController(params BgDecisionData[] items)
     {
@@ -254,7 +254,7 @@ public class PageTests : BunitContext
     /// file. The default capability is the no-stats fallback so ordinary flow
     /// tests don't also render the stats-enabled notice.
     /// </summary>
-    /// <param name="truncations">
+    /// <param name="overLimit">
     /// What the pick's count caps left unread — none by default. The injection
     /// point for the truncation-notice tests, which is also the state a
     /// navigated-back page re-derives from.
@@ -273,10 +273,10 @@ public class PageTests : BunitContext
         string folderName = "Corpus", string fileName = "sample.xg",
         FolderWriteCapability capability = FolderWriteCapability.BrowserUnsupported,
         bool withStatsHistory = false,
-        params PickTruncation[] truncations)
+        params (string Extension, int Omitted)[] overLimit)
     {
         var folder = new PickedProblemFolder();
-        folder.Set(folderName, [new PickedFile(fileName, [1, 2, 3])], capability, [.. truncations]);
+        folder.Set(folderName, capability, TestFixtures.Sample([new PickedFile(fileName, [1, 2, 3])], overLimit));
         if (withStatsHistory) _folderAccess.PickedStatsJson = StatsDocumentJson(BestPlay());
         Services.AddSingleton(folder);
         return folder;
@@ -496,7 +496,7 @@ public class PageTests : BunitContext
 
     /// <summary>What one Add on a blank panel builds and writes: NeverSeen at 100%, the blank builder's random order.</summary>
     private static QuizMix AddedRowMix() =>
-        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null, randomOrder: true);
+        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null);
 
     /// <summary>
     /// Turn the weighted-mix setting on for the rendered page, through the
@@ -553,12 +553,12 @@ public class PageTests : BunitContext
 
     /// <summary>A minimal weighted mix: 100% never-seen, deterministic order.</summary>
     private static QuizMix NeverSeenMix(int? quizLength = null) =>
-        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength, randomOrder: false);
+        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength);
 
     /// <summary>A 50/50 never-seen / got-wrong mix, deterministic order.</summary>
     private static QuizMix SplitMix(int? quizLength = null) =>
         new([new QuizMixEntry(QuizCategory.NeverSeen, 50), new QuizMixEntry(QuizCategory.GotWrong, 50)],
-            quizLength, randomOrder: false);
+            quizLength);
 
     /// <summary>
     /// Like <see cref="WithController"/> but over a scriptable stats sink, so
@@ -1475,7 +1475,7 @@ public class PageTests : BunitContext
         // problems could be presented" fallback (which would tell the user to
         // adjust filters that cannot repair an unreadable file) is not set.
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [TestFixtures.DamagedXg()], FolderWriteCapability.BrowserUnsupported, []);
+        folder.Set("Corpus", FolderWriteCapability.BrowserUnsupported, TestFixtures.Sample([TestFixtures.DamagedXg()]));
         Services.AddSingleton(folder);
         var shuffle = WithShuffleOption();
         var real = PickedFolderSourceFactory.Create(folder, shuffle, NullLoggerFactory.Instance, TimeProvider.System);
@@ -1895,10 +1895,9 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
         _folderAccess.SupportsDirectoryPicker = false;
-        _folderAccess.NextCollectOutcome = new FolderPickOutcome(
-            Cancelled: false, "FallbackDir",
-            [new PickedFile("fb.xgp", [9, 9])], FolderWriteCapability.BrowserUnsupported,
-            Truncations: []);
+        _folderAccess.NextCollectOutcome = TestFixtures.Picked(
+            "FallbackDir", FolderWriteCapability.BrowserUnsupported,
+            [new PickedFile("fb.xgp", [9, 9])]);
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -1922,8 +1921,7 @@ public class PageTests : BunitContext
         // keeps the whole setup surface (incl. Start) hidden — the gate is moot.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
-        _folderAccess.NextPickOutcome = new FolderPickOutcome(
-            Cancelled: false, "Empty", [], FolderWriteCapability.Enabled, Truncations: []);
+        _folderAccess.NextPickOutcome = TestFixtures.Picked("Empty", FolderWriteCapability.Enabled, []);
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -1987,7 +1985,7 @@ public class PageTests : BunitContext
         // PickTruncation reports counts and carries no identities to name.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
-        WithPickedFolder(truncations: [new PickTruncation(PickedFileLimits.XgpExtension, 340, PickedFileLimits.MaxXgpFileCount)]);
+        WithPickedFolder(overLimit: [(PickedFileLimits.XgpExtension, 340)]);
 
         var cut = Render<HomePage>();
 
@@ -2007,7 +2005,7 @@ public class PageTests : BunitContext
         // file past the cap is an ordinary case, not a rounding error.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
-        WithPickedFolder(truncations: [new PickTruncation(PickedFileLimits.XgExtension, 1, PickedFileLimits.MaxXgFileCount)]);
+        WithPickedFolder(overLimit: [(PickedFileLimits.XgExtension, 1)]);
 
         var cut = Render<HomePage>();
 
@@ -2023,10 +2021,10 @@ public class PageTests : BunitContext
         // then both lines show, in the caps table's order.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
-        WithPickedFolder(truncations:
+        WithPickedFolder(overLimit:
         [
-            new PickTruncation(PickedFileLimits.XgExtension, 12, PickedFileLimits.MaxXgFileCount),
-            new PickTruncation(PickedFileLimits.XgpExtension, 340, PickedFileLimits.MaxXgpFileCount),
+            (PickedFileLimits.XgExtension, 12),
+            (PickedFileLimits.XgpExtension, 340),
         ]);
 
         var cut = Render<HomePage>();
@@ -2065,13 +2063,13 @@ public class PageTests : BunitContext
         WithShuffleOption();
         _folderAccess.NextPickOutcome = OneFileOutcome(
             capability: FolderWriteCapability.Enabled,
-            truncations: [new PickTruncation(PickedFileLimits.XgpExtension, 5, PickedFileLimits.MaxXgpFileCount)]);
+            overLimit: [(PickedFileLimits.XgpExtension, 5)]);
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         var folder = Services.GetRequiredService<PickedProblemFolder>();
-        var only = Assert.Single(folder.Truncations);
+        var only = Assert.Single(folder.Sample.Kinds, kind => kind.OmittedCount > 0);
         Assert.Equal(PickedFileLimits.XgpExtension, only.Extension);
         Assert.Equal(5, only.OmittedCount);
         Assert.Contains("5 more were not read", Normalize(cut.Markup));
@@ -2085,7 +2083,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
         _folderAccess.NextPickOutcome = OneFileOutcome(
-            truncations: [new PickTruncation(PickedFileLimits.XgpExtension, 5, PickedFileLimits.MaxXgpFileCount)]);
+            overLimit: [(PickedFileLimits.XgpExtension, 5)]);
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -2094,7 +2092,7 @@ public class PageTests : BunitContext
         await cut.FindAll("button").First(b => b.TextContent.Trim() == "Clear").ClickAsync(new());
 
         Assert.DoesNotContain("files chosen at random", Normalize(cut.Markup));
-        Assert.Empty(Services.GetRequiredService<PickedProblemFolder>().Truncations);
+        Assert.Empty(Services.GetRequiredService<PickedProblemFolder>().Sample.Kinds);
     }
 
     // -----------------------------------------------------------------------
@@ -2112,8 +2110,8 @@ public class PageTests : BunitContext
     /// One .xgp-truncation entry for staging dismissal fixtures — the content
     /// is irrelevant to these tests, which address the notice structurally.
     /// </summary>
-    private static PickTruncation SomeTruncation() =>
-        new(PickedFileLimits.XgpExtension, 5, PickedFileLimits.MaxXgpFileCount);
+    private static (string Extension, int Omitted) SomeTruncation() =>
+        (PickedFileLimits.XgpExtension, 5);
 
     [Theory]
     [MemberData(nameof(BothGestures))]
@@ -2125,7 +2123,7 @@ public class PageTests : BunitContext
         // notice beside it must not go with it.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
-        WithPickedFolder(truncations: [SomeTruncation()]);
+        WithPickedFolder(overLimit: [SomeTruncation()]);
 
         var cut = RenderHomeSettled();
         TruncationNotice(cut).ShouldBe(
@@ -2148,7 +2146,7 @@ public class PageTests : BunitContext
         // clicked" — the stats-location line).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
-        WithPickedFolder(capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, overLimit: [SomeTruncation()]);
 
         var cut = RenderHomeSettled();
         NoticeBox.ById(cut, "statsCapabilityNotice").ShouldBe(
@@ -2167,7 +2165,7 @@ public class PageTests : BunitContext
         // made must not come back with them.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
-        WithPickedFolder(capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, overLimit: [SomeTruncation()]);
 
         var cut = RenderHomeSettled();
         TruncationNotice(cut).Dismiss(NoticeDismissGesture.WholeBox);
@@ -2186,7 +2184,7 @@ public class PageTests : BunitContext
         // anywhere, which is the occurrence-token pattern's whole point.
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
-        WithPickedFolder(capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, overLimit: [SomeTruncation()]);
 
         var cut = RenderHomeSettled();
         TruncationNotice(cut).Dismiss(NoticeDismissGesture.WholeBox);
@@ -2194,7 +2192,7 @@ public class PageTests : BunitContext
         Assert.DoesNotContain("files chosen at random", Normalize(cut.Markup));
 
         _folderAccess.NextPickOutcome = OneFileOutcome(
-            capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
+            capability: FolderWriteCapability.Enabled, overLimit: [SomeTruncation()]);
         await cut.Find("#pickProblemFolder").ClickAsync(new());
 
         Assert.Contains("files chosen at random", Normalize(cut.Markup));
@@ -2328,7 +2326,7 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
         _folderAccess.PickedStatsJson = RetiredStatsFixture.V1Json;
-        WithPickedFolder(capability: FolderWriteCapability.Enabled, truncations: [SomeTruncation()]);
+        WithPickedFolder(capability: FolderWriteCapability.Enabled, overLimit: [SomeTruncation()]);
 
         var cut = RenderHomeSettled();
         NoticeBox.ById(cut, "statsRetirementForecastNotice").Dismiss(gesture);
@@ -2561,8 +2559,7 @@ public class PageTests : BunitContext
     {
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
-        _folderAccess.NextPickOutcome = new FolderPickOutcome(
-            Cancelled: false, "Empty", [], FolderWriteCapability.Enabled, Truncations: []);
+        _folderAccess.NextPickOutcome = TestFixtures.Picked("Empty", FolderWriteCapability.Enabled, []);
 
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
@@ -2836,10 +2833,9 @@ public class PageTests : BunitContext
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
         _folderAccess.SupportsDirectoryPicker = false;
-        _folderAccess.NextCollectOutcome = new FolderPickOutcome(
-            Cancelled: false, "FallbackDir",
-            [new PickedFile("fb.xgp", [9, 9])], FolderWriteCapability.BrowserUnsupported,
-            Truncations: []);
+        _folderAccess.NextCollectOutcome = TestFixtures.Picked(
+            "FallbackDir", FolderWriteCapability.BrowserUnsupported,
+            [new PickedFile("fb.xgp", [9, 9])]);
 
         var cut = Render<HomePage>();
         cut.WaitForAssertion(() => Assert.Contains(SilentGestureAccount, cut.Markup));
@@ -2964,10 +2960,9 @@ public class PageTests : BunitContext
         // fallback by the interop layer (the fake mirrors that contract).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
-        _folderAccess.NextCollectOutcome = new FolderPickOutcome(
-            Cancelled: false, "FallbackDir",
-            [new PickedFile("fb.xgp", [9, 9])], FolderWriteCapability.BrowserUnsupported,
-            Truncations: []);
+        _folderAccess.NextCollectOutcome = TestFixtures.Picked(
+            "FallbackDir", FolderWriteCapability.BrowserUnsupported,
+            [new PickedFile("fb.xgp", [9, 9])]);
 
         var cut = Render<HomePage>();
         await cut.Find("#problemFolderFallback").ChangeAsync(new ChangeEventArgs());
@@ -3250,10 +3245,9 @@ public class PageTests : BunitContext
         // the store never even reads (the JSON below is set but ignored).
         WithController(TestFixtures.TwoChoiceDecision(BestPlay(), AltPlay()));
         WithShuffleOption();
-        _folderAccess.NextCollectOutcome = new FolderPickOutcome(
-            Cancelled: false, "FallbackDir",
-            [new PickedFile("fb.xgp", [9, 9])], FolderWriteCapability.BrowserUnsupported,
-            Truncations: []);
+        _folderAccess.NextCollectOutcome = TestFixtures.Picked(
+            "FallbackDir", FolderWriteCapability.BrowserUnsupported,
+            [new PickedFile("fb.xgp", [9, 9])]);
         _folderAccess.FiltersJson = SavedFiltersJson();
 
         var cut = Render<HomePage>();
@@ -4249,13 +4243,13 @@ public class PageTests : BunitContext
     /// Builds a <see cref="QuizController"/> whose source factory mirrors the
     /// real wiring in the client's <c>Program.cs</c>: it reads <paramref
     /// name="shuffle"/> at invocation time and, when enabled, wraps the fake
-    /// source in a seeded (deterministic) <c>ShuffledProblemSetSource</c>.
+    /// source in a seeded (deterministic) shuffle, <c>OrderedProblemSetSource</c> under <c>ProblemOrder.Shuffled</c>.
     /// </summary>
     private QuizController WithShufflableController(ShuffleOption shuffle, params BgDecisionData[] items)
     {
         var fake = new FakeProblemSetSource(items);
         var controller = new QuizController(
-            (_, _, _) => TestFixtures.Composed(shuffle.Enabled ? new ShuffledProblemSetSource(fake, seed: 42) : fake),
+            (_, _, _) => TestFixtures.Composed(shuffle.Enabled ? new OrderedProblemSetSource(fake, ProblemOrder.Shuffled, PlayRanking.Equity, seed: 42) : fake),
             new FakeProblemStatsSink(), TimeProvider.System, NullLogger<QuizController>.Instance);
         Services.AddSingleton(controller);
         return controller;
@@ -4679,7 +4673,7 @@ public class PageTests : BunitContext
     {
         var access = new FakeFolderAccess();
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xgp", [1])], FolderWriteCapability.Enabled, []);
+        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([new PickedFile("a.xgp", [1])]));
         var store = new QuizStatsStore(access, TimeProvider.System, folder);
 
         switch (status)
@@ -4738,7 +4732,7 @@ public class PageTests : BunitContext
             },
         };
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xgp", [1])], FolderWriteCapability.Enabled, []);
+        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([new PickedFile("a.xgp", [1])]));
         var store = new QuizStatsStore(access, TimeProvider.System, folder);
 
         await store.BeginQuizAsync();
@@ -5068,7 +5062,7 @@ public class PageTests : BunitContext
         var access = new FakeFolderAccess { StatsJson = RetiredStatsFixture.V4Json };
         access.SetRetiredStatsJson(3, RetiredStatsFixture.V3Json);
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xgp", [1])], FolderWriteCapability.Enabled, []);
+        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([new PickedFile("a.xgp", [1])]));
         var store = new QuizStatsStore(access, TimeProvider.System, folder);
 
         await store.BeginQuizAsync();

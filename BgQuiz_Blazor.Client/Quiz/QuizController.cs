@@ -1262,7 +1262,7 @@ internal sealed class QuizController : IAsyncDisposable
         var run = QuizRun.Begin(ranking);
         var source = RunSource.Open(
             filters, mix, _sourceFactory(filters, run.Ranking, effectiveMix).Source,
-            effectiveMix, GetCurrentDocumentOrThrow, _clock);
+            effectiveMix, run.Ranking, GetCurrentDocumentOrThrow, _clock);
 
         try
         {
@@ -1519,11 +1519,13 @@ internal sealed class QuizController : IAsyncDisposable
         /// </summary>
         public static RunSource Open(
             DecisionFilterSet filters, QuizMix mix, IProblemSetSource built,
-            QuizMix effectiveMix, Func<ProblemStatsDocument> stats, TimeProvider clock)
+            QuizMix effectiveMix, PlayRanking ranking, Func<ProblemStatsDocument> stats, TimeProvider clock)
         {
+            // The mix's Random order toggle is retired; a mix that applies
+            // composes as read (SPEC-filtering.md section 5).
             var mixedSource = effectiveMix.IsPassthrough
                 ? null
-                : new MixedProblemSetSource(built, stats, effectiveMix, clock);
+                : new MixedProblemSetSource(built, ProblemOrder.AsRead, ranking, effectiveMix, stats, clock);
             var source = mixedSource ?? built;
             return new RunSource(filters, mix, source, mixedSource, source.EnumerateAsync().GetAsyncEnumerator());
         }
@@ -1587,7 +1589,7 @@ internal sealed class QuizController : IAsyncDisposable
 /// <para>
 /// The <paramref name="mix"/> is the run's <i>effective</i> composition config,
 /// passed for one reason: shuffle arbitration. An active mix owns presentation
-/// order through <see cref="QuizMix.RandomOrder"/>, so the factory must not
+/// order through its own random-order toggle, so the factory must not
 /// wrap a shuffle decorator under it — a shuffled inner would silently break
 /// the deterministic contract of <c>RandomOrder: false</c> (the composing
 /// decorator draws and presents in <i>source</i> order there). The factory

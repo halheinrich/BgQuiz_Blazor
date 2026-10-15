@@ -103,8 +103,8 @@ public class MixPanelTests : BunitContext
         Plan.ExpectWrite(BrowserStorageArea.Local, MixDraft.StorageKey, mix.ToJson(), BrowserStorageWriteAnswer.Succeeded);
 
     /// <summary>One NeverSeen row at 100% — what the first Add builds.</summary>
-    private static QuizMix NeverSeenMix(int? quizLength = null, bool randomOrder = true) =>
-        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength, randomOrder);
+    private static QuizMix NeverSeenMix(int? quizLength = null) =>
+        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength);
 
     // -----------------------------------------------------------------------
     //  No activation control — the absence is the ruling
@@ -234,7 +234,7 @@ public class MixPanelTests : BunitContext
                 new QuizMixEntry(QuizCategory.GotWrong, 60),
                 new QuizMixEntry(QuizCategory.SeenFewerThan(3), 40),
             ],
-            quizLength: 25, randomOrder: false);
+            quizLength: 25);
         StageStored(mix.ToJson());
 
         var cut = RenderPanel();
@@ -250,7 +250,7 @@ public class MixPanelTests : BunitContext
         Assert.Equal("60", rows[0].QuerySelector(".mix-percent")!.GetAttribute("value"));
         Assert.Equal("40", rows[1].QuerySelector(".mix-percent")!.GetAttribute("value"));
         Assert.Equal("25", cut.Find("#mixQuizLength").GetAttribute("value"));
-        Assert.False(cut.Find("#mixRandomOrder").HasAttribute("checked"));
+        Assert.True(cut.Find("#mixRandomOrder").HasAttribute("checked")); // schema 2 carries no toggle
         Assert.Equal(mix, _draft.Build()); // shows exactly what was stored…
 
         // …and what is shown is what is in effect. Rule 3's explicit activation
@@ -307,7 +307,7 @@ public class MixPanelTests : BunitContext
         // declared by value, so the payload the next mount reads is exactly
         // the one written.
         var persisted = new QuizMix(
-            [new QuizMixEntry(QuizCategory.WrongRateOver(0.25), 100)], quizLength: null, randomOrder: true);
+            [new QuizMixEntry(QuizCategory.WrongRateOver(0.25), 100)], quizLength: null);
         StageStored(null);
         ExpectPersisted(NeverSeenMix());
         ExpectPersisted(persisted);
@@ -347,7 +347,7 @@ public class MixPanelTests : BunitContext
 
         ExpectPersisted(NeverSeenMix(quizLength: 10));
         await cut.Find("#mixQuizLength").InputAsync(new() { Value = "10" });
-        ExpectPersisted(NeverSeenMix(quizLength: 10, randomOrder: false));
+        ExpectPersisted(NeverSeenMix(quizLength: 10));
         await cut.Find("#mixRandomOrder").ChangeAsync(new() { Value = false });
         Plan.Verify();
     }
@@ -398,8 +398,8 @@ public class MixPanelTests : BunitContext
         // display concern. The persisted half is the declared write.
         StageStored(null);
         ExpectPersisted(NeverSeenMix());
-        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.WrongRateOver(0.25), 100)], null, randomOrder: true));
-        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.WrongRateOver(0.40), 100)], null, randomOrder: true));
+        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.WrongRateOver(0.25), 100)], null));
+        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.WrongRateOver(0.40), 100)], null));
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow");
         await cut.FindAll(".mix-row")[0].QuerySelector("select")!.ChangeAsync(new() { Value = "WrongRateOver" });
@@ -488,11 +488,11 @@ public class MixPanelTests : BunitContext
         StageStored(null);
         ExpectPersisted(NeverSeenMix());
         ExpectPersisted(new QuizMix(
-            [new QuizMixEntry(QuizCategory.NeverSeen, 50), new QuizMixEntry(QuizCategory.GotWrong, 50)], null, true));
+            [new QuizMixEntry(QuizCategory.NeverSeen, 50), new QuizMixEntry(QuizCategory.GotWrong, 50)]));
         var beforeTheMove = ExpectPersisted(new QuizMix(
-            [new QuizMixEntry(QuizCategory.NeverSeen, 60), new QuizMixEntry(QuizCategory.GotWrong, 40)], null, true));
+            [new QuizMixEntry(QuizCategory.NeverSeen, 60), new QuizMixEntry(QuizCategory.GotWrong, 40)]));
         var theMove = ExpectPersisted(new QuizMix(
-            [new QuizMixEntry(QuizCategory.GotWrong, 40), new QuizMixEntry(QuizCategory.NeverSeen, 60)], null, true));
+            [new QuizMixEntry(QuizCategory.GotWrong, 40), new QuizMixEntry(QuizCategory.NeverSeen, 60)]));
         Plan.RequireOrder(beforeTheMove, theMove);
         var cut = RenderPanel();
         await ClickAsync(cut, "#mixAddRow"); // NeverSeen

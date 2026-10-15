@@ -78,7 +78,7 @@ public class MixDraftTests : BunitContext
 
     /// <summary>A one-row never-seen mix, deterministic content — what one Add builds (NeverSeen seeds at 100%).</summary>
     private static QuizMix NeverSeenMix() =>
-        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null, randomOrder: true);
+        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null);
 
     // -----------------------------------------------------------------------
     //  Build — the effect derivation's substrate
@@ -127,7 +127,7 @@ public class MixDraftTests : BunitContext
         Assert.Equal(
             new QuizMix(
                 [new QuizMixEntry(QuizCategory.NeverSeen, 50), new QuizMixEntry(QuizCategory.GotWrong, 50)],
-                quizLength: 10, randomOrder: false),
+                quizLength: 10),
             built);
     }
 
@@ -231,7 +231,7 @@ public class MixDraftTests : BunitContext
     {
         var stored = new QuizMix(
             [new QuizMixEntry(QuizCategory.GotWrong, 60), new QuizMixEntry(QuizCategory.SeenFewerThan(3), 40)],
-            quizLength: 25, randomOrder: false);
+            quizLength: 25);
         StageStored(stored.ToJson());
         var draft = NewDraft();
 
@@ -243,7 +243,7 @@ public class MixDraftTests : BunitContext
         Assert.Equal(QuizCategoryKind.SeenFewerThan, draft.Rows[1].Kind);
         Assert.Equal("3", draft.Rows[1].ParamText);
         Assert.Equal("25", draft.LengthText);
-        Assert.False(draft.RandomOrder);
+        Assert.True(draft.RandomOrder); // schema 2 carries no toggle: it reads at its default
         // Round-trip identity: what hydration shows is exactly what was stored.
         Assert.Equal(stored, draft.Build());
 
@@ -290,8 +290,8 @@ public class MixDraftTests : BunitContext
     public async Task Discard_BlanksTheDraft_AndForgetsHydration()
     {
         StageStored(NeverSeenMix().ToJson());
-        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null, randomOrder: false));
-        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: 7, randomOrder: false));
+        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null));
+        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: 7));
         var draft = NewDraft();
         await draft.EnsureHydratedAsync();
         await draft.SetRandomOrderAsync(false);
@@ -414,7 +414,7 @@ public class MixDraftTests : BunitContext
         // No latch (halheinrich/backgammon#374): the next valid edit is
         // written all the same, and lands.
         ExpectPersisted(NeverSeenMix(), BrowserStorageWriteAnswer.Refused);
-        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null, randomOrder: false));
+        ExpectPersisted(new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null));
         var draft = NewDraft();
 
         await draft.AddRowAsync();

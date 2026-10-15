@@ -27,7 +27,7 @@ public class QuizStatsStoreTests
     private static PickedProblemFolder EnabledFolder()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xgp", [1, 2, 3])], FolderWriteCapability.Enabled, []);
+        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([new PickedFile("a.xgp", [1, 2, 3])]));
         return folder;
     }
 
@@ -80,7 +80,7 @@ public class QuizStatsStoreTests
         // touch the JS slots — the bind short-circuits to Disabled.
         var fake = new FakeFolderAccess();
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xg", [1])], FolderWriteCapability.BrowserUnsupported, []);
+        folder.Set("Corpus", FolderWriteCapability.BrowserUnsupported, TestFixtures.Sample([new PickedFile("a.xg", [1])]));
         var store = MakeStore(fake, folder);
 
         await store.BeginQuizAsync();
@@ -94,7 +94,7 @@ public class QuizStatsStoreTests
     {
         var fake = new FakeFolderAccess();
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xg", [1])], FolderWriteCapability.PermissionDenied, []);
+        folder.Set("Corpus", FolderWriteCapability.PermissionDenied, TestFixtures.Sample([new PickedFile("a.xg", [1])]));
         var store = MakeStore(fake, folder);
 
         await store.BeginQuizAsync();
@@ -1071,7 +1071,7 @@ public class QuizStatsStoreTests
         // document through, and the answer is settled before any interop.
         var fake = new FakeFolderAccess { PickedStatsJson = StatsDocumentJson() };
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xg", [1])], capability, []);
+        folder.Set("Corpus", capability, TestFixtures.Sample([new PickedFile("a.xg", [1])]));
         var store = MakeStore(fake, folder);
 
         await store.RefreshPickedStatsAsync();
@@ -1091,7 +1091,7 @@ public class QuizStatsStoreTests
         await store.RefreshPickedStatsAsync();
         Assert.True(store.CanWeightMix);
 
-        folder.Set("Other", [new PickedFile("b.xg", [1])], FolderWriteCapability.Enabled, []);
+        folder.Set("Other", FolderWriteCapability.Enabled, TestFixtures.Sample([new PickedFile("b.xg", [1])]));
 
         Assert.False(store.CanWeightMix);
     }
@@ -1259,7 +1259,7 @@ public class QuizStatsStoreTests
         // skips the read entirely on these rungs, so there is nothing to
         // recognise in the first place.
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xg", [1])], capability, []);
+        folder.Set("Corpus", capability, TestFixtures.Sample([new PickedFile("a.xg", [1])]));
         var store = MakeStore(
             new FakeFolderAccess { PickedStatsJson = RetiredStatsFixture.V1Json }, folder);
 
@@ -1279,7 +1279,7 @@ public class QuizStatsStoreTests
         await store.RefreshPickedStatsAsync();
         Assert.NotNull(store.ForecastStatsSetAsideName);
 
-        folder.Set("Other", [new PickedFile("b.xg", [1])], FolderWriteCapability.Enabled, []);
+        folder.Set("Other", FolderWriteCapability.Enabled, TestFixtures.Sample([new PickedFile("b.xg", [1])]));
 
         Assert.Null(store.ForecastStatsSetAsideName);
     }
@@ -1457,7 +1457,7 @@ public class QuizStatsStoreTests
     public async Task Forecasts_WithoutWriteCapability_NothingIsReadOrProbed(FolderWriteCapability capability)
     {
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [new PickedFile("a.xg", [1])], capability, []);
+        folder.Set("Corpus", capability, TestFixtures.Sample([new PickedFile("a.xg", [1])]));
         var fake = new FakeFolderAccess
         {
             PickedStatsJson = "not json at all",
@@ -1510,7 +1510,7 @@ public class QuizStatsStoreTests
         Assert.True(store.ForecastStatsUnreadable);
         Assert.True(store.ForecastStatsUnwritable);
 
-        folder.Set("Other", [new PickedFile("b.xg", [1])], FolderWriteCapability.Enabled, []);
+        folder.Set("Other", FolderWriteCapability.Enabled, TestFixtures.Sample([new PickedFile("b.xg", [1])]));
 
         Assert.False(store.ForecastStatsUnreadable);
         Assert.False(store.ForecastStatsUnwritable);
@@ -1551,7 +1551,7 @@ public class QuizStatsStoreTests
     /// pick does: a new generation, the same capability.
     /// </summary>
     private static void RePick(PickedProblemFolder folder) =>
-        folder.Set("Next", [new PickedFile("b.xgp", [4, 5, 6])], FolderWriteCapability.Enabled, []);
+        folder.Set("Next", FolderWriteCapability.Enabled, TestFixtures.Sample([new PickedFile("b.xgp", [4, 5, 6])]));
 
     /// <summary>
     /// Pick A's late read outcomes, each beside a pick B whose facts differ from

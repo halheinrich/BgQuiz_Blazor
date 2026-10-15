@@ -243,6 +243,11 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
               yield fixtureEntry;
             },
             getFileHandle: async (name, opts) => {
+              // The module resolves each drawn file by name against the held
+              // folder when it buffers it (BgFolderAccess_Razor a6b4c34: no
+              // drawn-file map), so the folder serves its one problem file by
+              // name as a real directory does.
+              if (name === fixtureName) return fixtureEntry;
               if (name === '{{StatsFileName}}') {
                 if (cfg.statsJson === null && !(opts && opts.create)) throw notFound();
                 return statsHandle;

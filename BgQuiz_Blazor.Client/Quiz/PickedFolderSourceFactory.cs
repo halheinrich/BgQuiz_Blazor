@@ -32,7 +32,7 @@ using Microsoft.Extensions.Logging;
 /// INSTRUCTIONS.md.</item>
 /// <item><see cref="DistinctPositionProblemSetSource"/> — one item per distinct
 /// position, always. See the placement rule below.</item>
-/// <item><see cref="ShuffledProblemSetSource"/>, conditionally — see the
+/// <item><see cref="OrderedProblemSetSource"/> under <see cref="ProblemOrder.Shuffled"/>, conditionally — see the
 /// arbitration rule below.</item>
 /// </list>
 /// </para>
@@ -111,7 +111,7 @@ using Microsoft.Extensions.Logging;
 /// <b>Read live at invocation, not at registration.</b> Every holder is read
 /// inside the returned delegate — which the controller invokes at
 /// <c>StartAsync</c> — so a pick or a shuffle toggle made before Start takes
-/// effect on that Start. The unseeded <see cref="ShuffledProblemSetSource"/>
+/// effect on that Start. The unseeded <see cref="OrderedProblemSetSource"/>
 /// ctor is used deliberately: reproducibility is a test-only concern (see that
 /// type's seeded ctor), never user-facing.
 /// </para>
@@ -144,7 +144,7 @@ internal static class PickedFolderSourceFactory
             var cached = new CachedProblemSetSource(picked, filters, ranking, loggerFactory, clock);
             var deduped = new DistinctPositionProblemSetSource(cached);
             IProblemSetSource composed = mix.IsPassthrough && shuffle.Enabled
-                ? new ShuffledProblemSetSource(deduped)
+                ? new OrderedProblemSetSource(deduped, ProblemOrder.Shuffled, ranking)
                 : deduped;
             // Each reader closes over the layer that owns its telemetry, so no
             // caller has to reach through the conditional shuffle wrapper to

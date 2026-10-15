@@ -48,7 +48,7 @@ public class CachedProblemSetSourceTests
     private static PickedProblemFolder FolderOver(ImmutableArray<PickedFile> files)
     {
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", files, FolderWriteCapability.BrowserUnsupported, []);
+        folder.Set("Corpus", FolderWriteCapability.BrowserUnsupported, TestFixtures.Sample(files));
         return folder;
     }
 
@@ -169,7 +169,7 @@ public class CachedProblemSetSourceTests
 
         // Re-pick (same folder or not — every Set supersedes): the cache is
         // gone and the next Start's source parses the new files.
-        folder.Set("Corpus", Unparseable("b.xgp"), FolderWriteCapability.BrowserUnsupported, []);
+        folder.Set("Corpus", FolderWriteCapability.BrowserUnsupported, TestFixtures.Sample(Unparseable("b.xgp")));
         Assert.Null(folder.Parsed);
 
         await CollectAllAsync(MakeSource(folder, loggerFactory: parses));
@@ -191,7 +191,7 @@ public class CachedProblemSetSourceTests
         var folder = FolderOver(Unparseable("a.xg"));
         var staleSource = MakeSource(folder, loggerFactory: parses);
 
-        folder.Set("Other", Unparseable("b.xgp"), FolderWriteCapability.BrowserUnsupported, []);
+        folder.Set("Other", FolderWriteCapability.BrowserUnsupported, TestFixtures.Sample(Unparseable("b.xgp")));
 
         await CollectAllAsync(staleSource);
         await CollectAllAsync(staleSource);
@@ -345,7 +345,7 @@ public class CachedProblemSetSourceTests
         var folder = FolderOver([Readable("a.xg"), Damaged("a-damaged.xg")]);
         var staleSource = MakeSource(folder);
 
-        folder.Set("Other", [Damaged("b-damaged.xg")], FolderWriteCapability.BrowserUnsupported, []);
+        folder.Set("Other", FolderWriteCapability.BrowserUnsupported, TestFixtures.Sample([Damaged("b-damaged.xg")]));
 
         await CollectAllAsync(staleSource);
         var staleReport = Assert.IsType<SourceReport>(staleSource.Report);

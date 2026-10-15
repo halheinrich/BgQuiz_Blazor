@@ -2899,7 +2899,7 @@ public class QuizControllerTests
 
     /// <summary>A minimal weighted mix: 100% never-seen, deterministic order.</summary>
     private static QuizMix NeverSeenMix(int? quizLength = null) =>
-        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength, randomOrder: false);
+        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength);
 
     /// <summary>
     /// Constructs a controller over a scriptable sink and a mix-capturing

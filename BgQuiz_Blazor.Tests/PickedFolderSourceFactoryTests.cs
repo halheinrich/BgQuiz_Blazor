@@ -48,7 +48,7 @@ public class PickedFolderSourceFactoryTests
     private static PickedProblemFolder HolderOver(ImmutableArray<PickedFile> files)
     {
         var picked = new PickedProblemFolder();
-        picked.Set("corpus", files, FolderWriteCapability.BrowserUnsupported, []);
+        picked.Set("corpus", FolderWriteCapability.BrowserUnsupported, TestFixtures.Sample(files));
         return picked;
     }
 
@@ -142,7 +142,7 @@ public class PickedFolderSourceFactoryTests
     {
         // The one test here that does NOT go through PickedFolderSourceFactory,
         // deliberately: observing a shuffle deterministically needs
-        // ShuffledProblemSetSource's *seeded* ctor, and production uses the
+        // OrderedProblemSetSource's *seeded* ctor, and production uses the
         // unseeded one on purpose (reproducibility is a test-only concern) — so
         // pinning the wrap through the real composition could only be done with
         // a random permutation, i.e. a test that flakes when the shuffle lands
@@ -159,7 +159,7 @@ public class PickedFolderSourceFactoryTests
             IProblemSetSource inner = new CachedProblemSetSource(
                 picked, filters, ranking, NullLoggerFactory.Instance, TimeProvider.System);
             return TestFixtures.Composed(
-                mix.IsPassthrough && shuffle.Enabled ? new ShuffledProblemSetSource(inner, seed: 42) : inner);
+                mix.IsPassthrough && shuffle.Enabled ? new OrderedProblemSetSource(inner, ProblemOrder.Shuffled, ranking, seed: 42) : inner);
         };
 
         var unshuffledOrder = await CollectAllAsync(seededFactory(new DecisionFilterSet(), PlayRanking.Equity, QuizMix.Empty));
@@ -264,7 +264,7 @@ public class PickedFolderSourceFactoryTests
         var controller = ControllerOver(picked);
         var before = await controller.SummarizeMatchesAsync(new FilterConfig(), PlayRanking.Equity);
 
-        picked.Set("other", [TestFixtures.DamagedXg("other-damaged.xg")], FolderWriteCapability.BrowserUnsupported, []);
+        picked.Set("other", FolderWriteCapability.BrowserUnsupported, TestFixtures.Sample([TestFixtures.DamagedXg("other-damaged.xg")]));
         var after = await controller.SummarizeMatchesAsync(new FilterConfig(), PlayRanking.Equity);
 
         Assert.Equal("other-damaged.xg", Assert.Single(after.Sources.Rejected).SourceName);
@@ -285,7 +285,7 @@ public class PickedFolderSourceFactoryTests
         var factory = FactoryOver(picked, new ShuffleOption());
         var staleStack = factory(new DecisionFilterSet(), PlayRanking.Equity, QuizMix.Empty);
 
-        picked.Set("other", [TestFixtures.DamagedXg("b-damaged.xg")], FolderWriteCapability.BrowserUnsupported, []);
+        picked.Set("other", FolderWriteCapability.BrowserUnsupported, TestFixtures.Sample([TestFixtures.DamagedXg("b-damaged.xg")]));
 
         var decisions = await CollectAllAsync(staleStack);
         Assert.NotEmpty(decisions);

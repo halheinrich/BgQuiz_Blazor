@@ -25,7 +25,7 @@ public class PickedProblemFolderTests
     public void Summary_SingleFile_NamesFolderAndCountsSingular()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("MyMatches", [File()], FolderWriteCapability.Enabled, []);
+        folder.Set("MyMatches", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
 
         Assert.Equal("'MyMatches' — 1 problem file", folder.Summary);
     }
@@ -34,7 +34,7 @@ public class PickedProblemFolderTests
     public void Summary_MultipleFiles_NamesFolderAndCountsPlural()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("MyMatches", [File("a.xg"), File("b.xgp")], FolderWriteCapability.Enabled, []);
+        folder.Set("MyMatches", FolderWriteCapability.Enabled, TestFixtures.Sample([File("a.xg"), File("b.xgp")]));
 
         Assert.Equal("'MyMatches' — 2 problem files", folder.Summary);
     }
@@ -43,7 +43,7 @@ public class PickedProblemFolderTests
     public void Summary_AfterClear_IsNullAgain()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("MyMatches", [File()], FolderWriteCapability.Enabled, []);
+        folder.Set("MyMatches", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
         folder.Clear();
 
         Assert.Null(folder.Summary);
@@ -57,7 +57,7 @@ public class PickedProblemFolderTests
     public void DisplayName_QuotesTheFolderName()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("MyMatches", [File()], FolderWriteCapability.Enabled, []);
+        folder.Set("MyMatches", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
 
         Assert.Equal("'MyMatches'", folder.DisplayName);
     }
@@ -66,7 +66,7 @@ public class PickedProblemFolderTests
     public void DisplayName_AfterClear_IsNullAgain()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("MyMatches", [File()], FolderWriteCapability.Enabled, []);
+        folder.Set("MyMatches", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
         folder.Clear();
 
         Assert.Null(folder.DisplayName);
@@ -84,7 +84,7 @@ public class PickedProblemFolderTests
         // no second copy to drift is the acceptance survey's claim (the quote
         // pattern is spelled once in the tree), not this test's.
         var folder = new PickedProblemFolder();
-        folder.Set("MyMatches", [File("a.xg"), File("b.xgp")], FolderWriteCapability.Enabled, []);
+        folder.Set("MyMatches", FolderWriteCapability.Enabled, TestFixtures.Sample([File("a.xg"), File("b.xgp")]));
 
         Assert.Equal($"{folder.DisplayName} — 2 problem files", folder.Summary);
     }
@@ -95,7 +95,7 @@ public class PickedProblemFolderTests
         // The capability is the pick-time verdict Home's status notice re-derives
         // after navigate-back — the holder must retain it verbatim.
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [File()], FolderWriteCapability.PermissionDenied, []);
+        folder.Set("Corpus", FolderWriteCapability.PermissionDenied, TestFixtures.Sample([File()]));
 
         Assert.Equal(FolderWriteCapability.PermissionDenied, folder.Capability);
         Assert.Equal("Corpus", folder.FolderName);
@@ -106,7 +106,7 @@ public class PickedProblemFolderTests
     public void Clear_ResetsEverything()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []);
+        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
 
         folder.Clear();
 
@@ -121,25 +121,21 @@ public class PickedProblemFolderTests
     {
         var folder = new PickedProblemFolder();
         Assert.Throws<ArgumentNullException>(
-            () => folder.Set(null!, [File()], FolderWriteCapability.Enabled, []));
+            () => folder.Set(null!, FolderWriteCapability.Enabled, TestFixtures.Sample([File()])));
     }
 
     [Fact]
-    public void Set_DefaultArrays_AreRefused()
+    public void Set_NullSample_Throws()
     {
-        // A default ImmutableArray holds nothing at all — "none" is an empty
-        // one — so the holder refuses it as the pick outcome's own records do,
-        // naming the parameter, rather than storing an array every reader would
-        // throw on.
+        // The sample is taken whole — the files and the report that says what
+        // they are of the folder — so a caller cannot hand over one without the
+        // other. (A default array inside it is the producer's record's to refuse.)
         var folder = new PickedProblemFolder();
 
-        var files = Assert.Throws<ArgumentException>(
-            () => folder.Set("Corpus", default, FolderWriteCapability.Enabled, []));
-        var truncations = Assert.Throws<ArgumentException>(
-            () => folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, default));
+        var thrown = Assert.Throws<ArgumentNullException>(
+            () => folder.Set("Corpus", FolderWriteCapability.Enabled, null!));
 
-        Assert.Equal("files", files.ParamName);
-        Assert.Equal("truncations", truncations.ParamName);
+        Assert.Equal("sample", thrown.ParamName);
         Assert.False(folder.HasFiles); // nothing was stored
     }
 
@@ -151,7 +147,7 @@ public class PickedProblemFolderTests
     public void StoreParsed_CurrentGeneration_CachesTheParseResult()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []);
+        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
         var parsed = TestFixtures.Parsed(TestFixtures.CubeDecision());
 
         folder.StoreParsed(folder.PickGeneration, parsed);
@@ -170,10 +166,10 @@ public class PickedProblemFolderTests
         // later pick — the pick gesture is async, so a re-pick can complete
         // inside a Start's own await points.
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []);
+        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
         var staleGeneration = folder.PickGeneration;
 
-        folder.Set("Other", [File("b.xgp")], FolderWriteCapability.Enabled, []); // supersedes
+        folder.Set("Other", FolderWriteCapability.Enabled, TestFixtures.Sample([File("b.xgp")])); // supersedes
         folder.StoreParsed(staleGeneration, TestFixtures.Parsed());
 
         Assert.Null(folder.Parsed);
@@ -183,11 +179,11 @@ public class PickedProblemFolderTests
     public void Set_InvalidatesParseCacheAndBumpsGeneration()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []);
+        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
         folder.StoreParsed(folder.PickGeneration, TestFixtures.Parsed());
         var generation = folder.PickGeneration;
 
-        folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []); // re-pick, even of the same folder
+        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([File()])); // re-pick, even of the same folder
 
         Assert.Null(folder.Parsed);
         Assert.NotEqual(generation, folder.PickGeneration);
@@ -197,7 +193,7 @@ public class PickedProblemFolderTests
     public void Clear_InvalidatesParseCacheAndBumpsGeneration()
     {
         var folder = new PickedProblemFolder();
-        folder.Set("Corpus", [File()], FolderWriteCapability.Enabled, []);
+        folder.Set("Corpus", FolderWriteCapability.Enabled, TestFixtures.Sample([File()]));
         folder.StoreParsed(folder.PickGeneration, TestFixtures.Parsed());
         var generation = folder.PickGeneration;
 

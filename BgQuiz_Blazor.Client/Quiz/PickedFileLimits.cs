@@ -82,8 +82,8 @@ internal static class PickedFileLimits
     /// <c>Program.cs</c>), through which the lib hands the whole table to its
     /// JS module on every enumeration — the module derives <i>both</i> jobs
     /// from it (which names count as problem files, and how many of each to
-    /// take) and keeps no copy. A reported truncation's
-    /// <see cref="PickTruncation.MaxFileCount"/> is derived lib-side from that
+    /// take) and keeps no copy. Each reported kind's
+    /// <see cref="SampledKind.MaxFileCount"/> is derived lib-side from that
     /// same enforced instance, so the figure a notice states is by construction
     /// the figure the pick applied.
     /// </para>

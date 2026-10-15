@@ -276,17 +276,17 @@
            QuizNoticeDismissal, so navigating away and back cannot resurrect
            it, keyed on the pick's occurrence token so the next pick's report
            shows fresh with no reset wiring. *@
-        @if (!Folder.Truncations.IsEmpty)
+        @if (!Folder.Sample.HoldsEveryMatchingFile)
         {
             <Notice id="truncationNotice" class="mt-2" Kind="NoticeKind.Warning"
                     Announcement="NoticeAnnouncement.Polite" Dismissible="true"
                     @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickTruncations, Folder.PickOccurrence)"
                     @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickTruncations, Folder.PickOccurrence)">
-                @foreach (var truncation in Folder.Truncations)
+                @foreach (var kind in Folder.Sample.Kinds.Where(kind => kind.OmittedCount > 0))
                 {
                     <div>
-                        Using @truncation.MaxFileCount @truncation.Extension files chosen at random;
-                        @truncation.OmittedCount more @(truncation.OmittedCount == 1 ? "was" : "were") not read.
+                        Using @kind.MaxFileCount @kind.Extension files chosen at random;
+                        @kind.OmittedCount more @(kind.OmittedCount == 1 ? "was" : "were") not read.
                     </div>
                 }
             </Notice>

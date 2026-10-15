@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using BgDataTypes_Lib;
 using BgDataTypes_Lib.TestSupport;
 using BgFolderAccess_Razor;
@@ -503,4 +504,42 @@ internal static class TestFixtures
     /// </summary>
     public static ParsedProblemSet Parsed(params BgDecisionData[] decisions) =>
         new([.. decisions], WalkedReport());
+
+    /// <summary>
+    /// A draw of a folder as BgFolderAccess_Razor's module reports one: the
+    /// <paramref name="files"/> it admitted, and one <see cref="SampledKind"/>
+    /// for every kind of this app's caps table (<see cref="PickedFileLimits.MaxFileCounts"/>),
+    /// in the table's order. Each kind is whole — found and admitted are the
+    /// files of that kind held — unless <paramref name="overLimit"/> names it,
+    /// and then its cap was admitted and that many more were found and left
+    /// unread. The report is the module's to make, so a test states only what
+    /// the folder held, and the shape is this one helper's.
+    /// </summary>
+    /// <param name="files">The admitted files.</param>
+    /// <param name="overLimit">The kinds over their limit, each with how many of its files the draw left unread.</param>
+    public static FolderSample Sample(
+        IEnumerable<PickedFile> files, params (string Extension, int Omitted)[] overLimit)
+    {
+        var admitted = files.ToImmutableArray();
+        var kinds = PickedFileLimits.MaxFileCounts.Select(cap =>
+            overLimit.Where(o => o.Extension == cap.Key).Select(o => o.Omitted).FirstOrDefault() is var omitted
+            && omitted > 0
+                ? new SampledKind(cap.Key, cap.Value + omitted, cap.Value, cap.Value)
+                : WholeKind(cap.Key, admitted.Count(f => f.FileName.EndsWith(cap.Key, StringComparison.Ordinal)), cap.Value));
+        return new FolderSample(admitted, [.. kinds]);
+    }
+
+    /// <summary>A kind the draw held whole: every matching file it found, admitted.</summary>
+    private static SampledKind WholeKind(string extension, int held, int cap) =>
+        new(extension, held, held, cap);
+
+    /// <summary>
+    /// A completed, non-cancelled pick of <paramref name="files"/> from
+    /// <paramref name="folderName"/> — <see cref="Sample"/>'s report, with the
+    /// capability the pick settled on.
+    /// </summary>
+    public static FolderPickOutcome Picked(
+        string folderName, FolderWriteCapability capability, IEnumerable<PickedFile> files,
+        params (string Extension, int Omitted)[] overLimit) =>
+        new(Cancelled: false, folderName, capability, Sample(files, overLimit));
 }

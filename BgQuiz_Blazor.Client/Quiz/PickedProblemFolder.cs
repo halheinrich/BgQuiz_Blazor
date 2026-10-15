@@ -7,8 +7,9 @@ using XgFilter_Lib;
 /// <summary>
 /// Per-app holder for the user's picked problem-set folder: its top-level
 /// <c>.xg</c> / <c>.xgp</c> files (buffered) plus the two pick-time verdicts
-/// about them — the <see cref="FolderWriteCapability"/> and any
-/// <see cref="Truncations"/> the count caps imposed. The
+/// about them — the <see cref="FolderWriteCapability"/> and the per-kind
+/// report of the <see cref="Sample"/>, which says what the count caps left
+/// unread. The
 /// <see cref="PickedFile"/>s are BgFolderAccess_Razor's: extension-bearing
 /// names (the producer's <c>DecisionId</c> stamping discriminates the format
 /// from them — see <c>XgFileStream.FileName</c>) over fully-buffered,
@@ -45,9 +46,9 @@ using XgFilter_Lib;
 ///
 /// <para>
 /// <b>Every collection it holds is immutable</b> (halheinrich/backgammon#273's
-/// collection rider): the files and truncations are the pick outcome's own
-/// immutable arrays, and the parse cache's decisions are an immutable array
-/// too (<see cref="ParsedProblemSet.Decisions"/>). A holder that kept whatever
+/// collection rider): the sample is the pick outcome's own immutable record,
+/// and the parse cache's decisions are an immutable array too
+/// (<see cref="ParsedProblemSet.Decisions"/>). A holder that kept whatever
 /// list it was handed would hand a caller's live list back out behind a
 /// read-only interface, and the parse cache used to be exactly that — the
 /// parsing source's own <see cref="List{T}"/>.
@@ -55,8 +56,8 @@ using XgFilter_Lib;
 /// </summary>
 internal sealed class PickedProblemFolder
 {
-    /// <summary>The picked folder's top-level problem files; empty until a folder is picked.</summary>
-    public ImmutableArray<PickedFile> Files { get; private set; } = [];
+    /// <summary>The picked folder's top-level problem files — <see cref="Sample"/>'s; empty until a folder is picked.</summary>
+    public ImmutableArray<PickedFile> Files => Sample.Files;
 
     /// <summary>The picked folder's leaf name; null until a folder is picked.</summary>
     public string? FolderName { get; private set; }
@@ -70,15 +71,21 @@ internal sealed class PickedProblemFolder
     public FolderWriteCapability Capability { get; private set; } = FolderWriteCapability.BrowserUnsupported;
 
     /// <summary>
-    /// The problem-file kinds this pick's count caps cut short, empty when the
-    /// folder fit (issue halheinrich/backgammon#59). Held here for the same reason as
-    /// <see cref="Capability"/>: it is a fact about the folder being <i>held</i>,
-    /// not about the gesture that fetched it, so Home's notice must survive
-    /// navigate-back — which a component field would not. The no-folder outcomes
-    /// (cancelled, empty) keep their per-visit flags on the page precisely because
-    /// they describe a gesture that left nothing behind to describe.
+    /// The pick's draw of the folder (BgFolderAccess_Razor's
+    /// <see cref="FolderSample"/>): the admitted files, buffered, and the
+    /// per-kind report of how many matching files of each kind the draw found
+    /// and admitted (issue halheinrich/backgammon#59). Held here for the same
+    /// reason as <see cref="Capability"/>: the report is a fact about the
+    /// folder being <i>held</i>, not about the gesture that fetched it, so
+    /// Home's notice must survive navigate-back — which a component field
+    /// would not. The no-folder outcomes (cancelled, empty) keep their
+    /// per-visit flags on the page precisely because they describe a gesture
+    /// that left nothing behind to describe.
     /// </summary>
-    public ImmutableArray<PickTruncation> Truncations { get; private set; } = [];
+    public FolderSample Sample { get; private set; } = NoSample;
+
+    /// <summary>The sample held while no folder is: no files, and no kinds reported.</summary>
+    private static readonly FolderSample NoSample = new(Files: [], Kinds: []);
 
     /// <summary>True once a folder with at least one problem file has been picked.</summary>
     public bool HasFiles => !Files.IsEmpty;
@@ -181,36 +188,26 @@ internal sealed class PickedProblemFolder
     };
 
     /// <summary>
-    /// Replace the pick with <paramref name="files"/> from
+    /// Replace the pick with <paramref name="sample"/>, drawn from
     /// <paramref name="folderName"/>. Invalidates the parse cache
     /// (<see cref="Parsed"/>) and bumps <see cref="PickGeneration"/>.
     /// </summary>
     /// <param name="folderName">The picked folder's leaf name.</param>
-    /// <param name="files">The folder's top-level problem files, buffered.</param>
     /// <param name="capability">Whether lifetime stats can be saved into this folder.</param>
-    /// <param name="truncations">
-    /// What the pick's count caps left unread, empty when the folder fit — see
-    /// <see cref="Truncations"/>. Taken here rather than defaulted so a caller
-    /// that has the fact cannot drop it on the floor.
+    /// <param name="sample">
+    /// The pick's draw: the folder's top-level problem files, buffered, and
+    /// the per-kind report of what the count caps left unread — see
+    /// <see cref="Sample"/>. Taken whole, so a caller that has the report
+    /// cannot drop it on the floor.
     /// </param>
-    /// <exception cref="ArgumentNullException"><paramref name="folderName"/> is null.</exception>
-    /// <exception cref="ArgumentException">
-    /// <paramref name="files"/> or <paramref name="truncations"/> is a default
-    /// array; "none" is an empty one.
-    /// </exception>
-    public void Set(
-        string folderName,
-        ImmutableArray<PickedFile> files,
-        FolderWriteCapability capability,
-        ImmutableArray<PickTruncation> truncations)
+    /// <exception cref="ArgumentNullException"><paramref name="folderName"/> or <paramref name="sample"/> is null.</exception>
+    public void Set(string folderName, FolderWriteCapability capability, FolderSample sample)
     {
         ArgumentNullException.ThrowIfNull(folderName);
-        RefuseDefault(files, nameof(files));
-        RefuseDefault(truncations, nameof(truncations));
+        ArgumentNullException.ThrowIfNull(sample);
         FolderName = folderName;
-        Files = files;
+        Sample = sample;
         Capability = capability;
-        Truncations = truncations;
         Parsed = null;
         PickGeneration++;
         PickOccurrence = new object();
@@ -223,23 +220,11 @@ internal sealed class PickedProblemFolder
     /// </summary>
     public void Clear()
     {
-        Files = [];
+        Sample = NoSample;
         FolderName = null;
         Capability = FolderWriteCapability.BrowserUnsupported;
-        Truncations = [];
         Parsed = null;
         PickGeneration++;
         PickOccurrence = new object();
-    }
-
-    /// <summary>
-    /// Refuse a default <see cref="ImmutableArray{T}"/>, which holds nothing at
-    /// all — not even "none", which is an empty array — the way the pick
-    /// outcome's own records refuse one.
-    /// </summary>
-    private static void RefuseDefault<T>(ImmutableArray<T> array, string paramName)
-    {
-        if (array.IsDefault)
-            throw new ArgumentException("A default array holds nothing; none is an empty one.", paramName);
     }
 }

@@ -80,7 +80,7 @@ public class QuizControllerStartAttemptTests
     /// stats-less sink. That refusal is how a stored mix is observed here.
     /// </summary>
     private static QuizMix NeverSeenMix() =>
-        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null, randomOrder: false);
+        new([new QuizMixEntry(QuizCategory.NeverSeen, 100)], quizLength: null);
 
     /// <summary>
     /// A controller whose source factory hands out the sources a test lined up,

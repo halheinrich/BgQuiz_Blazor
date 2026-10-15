@@ -81,7 +81,7 @@ public class PositionDedupeTests
     private static PickedProblemFolder HolderOverTwoCopies()
     {
         var picked = new PickedProblemFolder();
-        picked.Set("duplicates", TwoNamedCopies(), FolderWriteCapability.BrowserUnsupported, []);
+        picked.Set("duplicates", FolderWriteCapability.BrowserUnsupported, TestFixtures.Sample(TwoNamedCopies()));
         return picked;
     }
 
