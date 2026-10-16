@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
 
@@ -96,9 +96,6 @@ public sealed class OneBudgetTests : E2eTestBase
 
     private ILocator Row => Page.Locator(".action-row");
 
-    private ILocator More =>
-        Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.MoreButton, Exact = true });
-
     private ILocator CollapseRail =>
         Page.GetByRole(AriaRole.Checkbox, new() { Name = ExpectedText.HideNavigationPanelCheckbox });
 
@@ -123,8 +120,12 @@ public sealed class OneBudgetTests : E2eTestBase
         /// <summary>The quiz's start: the page's first load in the run.</summary>
         FirstLoad,
 
-        /// <summary>Back from Show stats, which re-creates the page.</summary>
-        ReturnFromStats,
+        /// <summary>
+        /// Back from Home, which re-creates the page: out by the browser's Back
+        /// (at the floor the panel is folded, so the navigation is not on
+        /// screen), in again by Home's Back to quiz.
+        /// </summary>
+        ReturnFromHome,
     }
 
     private async Task PickAsync(FirstProblem problem)
@@ -161,11 +162,11 @@ public sealed class OneBudgetTests : E2eTestBase
 
     [Theory]
     [InlineData(FirstProblem.XgChecker, Entry.FirstLoad)]
-    [InlineData(FirstProblem.XgChecker, Entry.ReturnFromStats)]
+    [InlineData(FirstProblem.XgChecker, Entry.ReturnFromHome)]
     [InlineData(FirstProblem.XgCube, Entry.FirstLoad)]
-    [InlineData(FirstProblem.XgCube, Entry.ReturnFromStats)]
+    [InlineData(FirstProblem.XgCube, Entry.ReturnFromHome)]
     [InlineData(FirstProblem.Xgp, Entry.FirstLoad)]
-    [InlineData(FirstProblem.Xgp, Entry.ReturnFromStats)]
+    [InlineData(FirstProblem.Xgp, Entry.ReturnFromHome)]
     public async Task AtTheFloor_WithThePanelShowing_NothingIsCovered_WhileTheFirstFitIsHeld_OrAfter(
         FirstProblem problem, Entry entry)
     {
@@ -201,10 +202,8 @@ public sealed class OneBudgetTests : E2eTestBase
             await StartQuizAsync();
             await ExpectTheFirstProblemAsync(problem);
             await SettleAsync();
-            await More.ClickAsync();
-            await Page.Keyboard.PressAsync("Escape");
-            await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink, Exact = true }).ClickAsync();
-            await ExpectUrlAsync(AppRoute.Settings);
+            await Page.GoBackAsync();
+            await ExpectUrlAsync(AppRoute.Home);
             var back = Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton });
             await Expect(back).ToBeVisibleAsync();
             await Expect(CollapseRail).Not.ToBeCheckedAsync();
@@ -636,7 +635,7 @@ public sealed class OneBudgetTests : E2eTestBase
         Assert.Equal(4, await Page.GetByRole(AriaRole.Radio).CountAsync());
         Assert.Equal(0, await Page.Locator(".action-row .bg-cube-actions-ruler").CountAsync());
         // The live row's controls: four pills, Submit, the four, and the tail's
-        // copy button, Show stats and End quiz.
-        Assert.Equal(4 + 1 + 4 + 3, await ActionRowGeometry.RowControlCountAsync(Page));
+        // copy button and End quiz.
+        Assert.Equal(4 + 1 + 4 + 2, await ActionRowGeometry.RowControlCountAsync(Page));
     }
 }

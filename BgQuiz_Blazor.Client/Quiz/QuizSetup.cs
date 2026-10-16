@@ -35,7 +35,13 @@ internal sealed class QuizSetup
     public LoadedProblems Loaded { get; }
     public FilterSourceToken FilterSource { get; }
 
+    /// <summary>Whether the user dismissed the notice about the sample's truncation; a dismissal outlives the page.</summary>
+    public bool TruncationNoticeDismissed { get; set; }
+
     public string DisplayName => $"'{FolderName}'";
+
+    /// <summary>The set's name, as the score panel shows it: the one file's name for a one-file pick, else the folder's.</summary>
+    public string Name => Sample.Files.Length == 1 ? Sample.Files[0].FileName : FolderName;
 
     public string Summary => Sample.Files.Length == 1
         ? $"{DisplayName} — 1 problem file"

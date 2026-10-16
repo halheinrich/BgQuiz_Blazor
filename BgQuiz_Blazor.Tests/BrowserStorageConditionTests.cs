@@ -41,6 +41,17 @@ public class BrowserStorageConditionTests
     }
 
     [Fact]
+    public void ADismissal_HoldsForTheOccurrence_AcrossLaterRefusals()
+    {
+        var condition = new BrowserStorageCondition();
+        condition.ReportRefused();
+        Assert.False(condition.IsDismissed);
+        condition.Dismiss();
+        condition.ReportRefused();
+        Assert.True(condition.IsDismissed);
+    }
+
+    [Fact]
     public void ANewApp_HasItsOwnOccurrence()
     {
         var first = new BrowserStorageCondition();

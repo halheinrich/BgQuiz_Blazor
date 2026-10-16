@@ -23,4 +23,7 @@ internal sealed class FinishedQuiz
 
     /// <summary>Whether a new folder or sample ended it, rather than the user or the last problem.</summary>
     public bool EndedByNewSample { get; }
+
+    /// <summary>Whether the user dismissed Home's notice that a new sample ended it; a dismissal outlives the page.</summary>
+    public bool EndedNoticeDismissed { get; set; }
 }

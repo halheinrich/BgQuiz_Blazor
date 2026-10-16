@@ -85,7 +85,7 @@ public sealed class ScorePanelContractTests : E2eTestBase
         Assert.Equal(review.LineHeight, review.Height, 0.5);
         Assert.True(answering.AllInside, "a figure of the answering line lies outside the panel");
         Assert.True(review.AllInside, "a figure of the review line lies outside the panel");
-        Assert.Equal(6, review.Parts); // the name, Problem N, and the four figures
+        Assert.Equal(7, review.Parts); // the name, Problem N of M, and the four figures
     }
 
     [Fact]
@@ -112,6 +112,6 @@ public sealed class ScorePanelContractTests : E2eTestBase
         Assert.True(review.Height > review.LineHeight + 0.5,
             $"expected a wrapped panel at 641px, measured {review.Height}px at a {review.LineHeight}px line");
         Assert.True(review.AllInside, "a figure of the wrapped line lies outside the panel");
-        Assert.Equal(6, review.Parts);
+        Assert.Equal(7, review.Parts);
     }
 }

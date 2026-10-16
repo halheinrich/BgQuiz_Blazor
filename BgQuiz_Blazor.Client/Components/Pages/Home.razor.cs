@@ -24,15 +24,14 @@ public partial class Home : ComponentBase, IDisposable
     private bool _fsAccessAvailable;
     private IDisposable? _filterAttachment;
 
-    // Per-visit notices: the page's whole state.
+    // Per-visit notices: the page's whole state. A dismissal of a notice about something
+    // that outlives the page (the storage refusal, a setup's truncation, a run ended by a new
+    // sample) is kept on that thing, so it holds across navigation.
     private string? _pickError;
     private bool _emptyFolderNotice;
     private bool _cancelledPickNotice;
     private string? _startError;
     private string? _noMatchNotice;
-    private object? _storageNoticeDismissedFor;
-    private QuizSetup? _truncationNoticeDismissedFor;
-    private FinishedQuiz? _endedNoticeDismissedFor;
 
     private QuizSetup? Setup => App.Setup;
 

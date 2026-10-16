@@ -353,7 +353,7 @@ internal sealed class QuizApp : IDisposable
 
             // The prepared run replaces whatever was in hand only now, on success.
             var run = QuizRun.Begin(ranking, sequence.Problems).PresentNext(RandomSide());
-            _live = new LiveQuiz(run, config, setup.DisplayName);
+            _live = new LiveQuiz(run, config, setup.Name);
             Finished = null;
             return StartOutcome.Started;
         }

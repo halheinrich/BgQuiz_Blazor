@@ -13,12 +13,12 @@
 <div class="container py-3 @(IsBusy ? "app-busy" : null)">
     <h1>BgQuiz</h1>
 
-    @if (StorageCondition.Occurrence is { } storageOccurrence && !ReferenceEquals(_storageNoticeDismissedFor, storageOccurrence))
+    @if (StorageCondition.Occurrence is not null && !StorageCondition.IsDismissed)
     {
         <Notice id="storageUnavailableNotice" Kind="NoticeKind.Warning"
                 Announcement="NoticeAnnouncement.Polite" Dismissible="true"
                 @bind-Dismissed:get="false"
-                @bind-Dismissed:set="_ => _storageNoticeDismissedFor = storageOccurrence">
+                @bind-Dismissed:set="_ => StorageCondition.Dismiss()">
             BgQuiz had trouble using your browser's storage. You can keep using
             it, but some choices may not be remembered next time.
         </Notice>
@@ -100,12 +100,12 @@
                 </button>
             </div>
 
-            @if (!setup.Sample.HoldsEveryMatchingFile && !ReferenceEquals(_truncationNoticeDismissedFor, setup))
+            @if (!setup.Sample.HoldsEveryMatchingFile && !setup.TruncationNoticeDismissed)
             {
                 <Notice id="truncationNotice" class="mt-2" Kind="NoticeKind.Warning"
                         Announcement="NoticeAnnouncement.Polite" Dismissible="true"
                         @bind-Dismissed:get="false"
-                        @bind-Dismissed:set="_ => _truncationNoticeDismissedFor = setup">
+                        @bind-Dismissed:set="_ => setup.TruncationNoticeDismissed = true">
                     @foreach (var kind in setup.Sample.Kinds.Where(kind => kind.OmittedCount > 0))
                     {
                         <div>
@@ -125,12 +125,12 @@
             }
         }
 
-        @if (App.Finished is { EndedByNewSample: true } endedRun && !ReferenceEquals(_endedNoticeDismissedFor, endedRun))
+        @if (App.Finished is { EndedByNewSample: true, EndedNoticeDismissed: false } endedRun)
         {
             <Notice id="quizEndedByNewSampleNotice" class="mt-2" Kind="NoticeKind.Information"
                     Announcement="NoticeAnnouncement.Polite" Dismissible="true"
                     @bind-Dismissed:get="false"
-                    @bind-Dismissed:set="_ => _endedNoticeDismissedFor = endedRun">
+                    @bind-Dismissed:set="_ => endedRun.EndedNoticeDismissed = true">
                 Reading new files finished the quiz you had in progress —
                 <a href="done">see its summary</a>.
             </Notice>

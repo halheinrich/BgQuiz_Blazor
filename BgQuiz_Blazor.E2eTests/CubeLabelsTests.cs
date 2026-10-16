@@ -17,12 +17,16 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <remarks>
 /// Both scenarios use the committed cube fixture, where gammons are not
 /// possible and the fourth answer reads No double / Pass, the longest set.
-/// The context's default 1280 px viewport with the navigation panel showing
-/// leaves a 922 px row, narrower than the full set needs beside the tail
-/// (about 956 px under Windows Helvetica/Arial, measured live by the page);
-/// with the panel folded the row is 1172 px, wide enough. The page measures
-/// both under the fonts actually rendering, so these hold on any stack with a
-/// margin of over 30 px each way.
+/// A 1220 px viewport with the navigation panel showing leaves an 862 px row,
+/// narrower than the full set needs beside the tail (914 px under Windows
+/// Helvetica/Arial, measured live by the page and printed by
+/// <see cref="StartOnTheCubeFixtureAsync"/>, 2026-10-16); with the panel
+/// folded the row gains the panel's 250 px (MainLayout.razor.css) and is
+/// 1112 px, wide enough. The page measures both under the fonts actually
+/// rendering, so these hold on any stack with a margin of over 50 px each
+/// way. Not the suite's default 1280 px: since the tail lost Show stats
+/// (halheinrich/backgammon#421) the full set fits there, 914 px in a 922 px
+/// row.
 /// </remarks>
 public sealed class CubeLabelsTests : E2eTestBase
 {
@@ -41,8 +45,12 @@ public sealed class CubeLabelsTests : E2eTestBase
 
     private static readonly string[] ShortCaptions = ["ND", "D/T", "D/P", "NP"];
 
+    /// <summary>A viewport where the row is too narrow for the full set beside the tail with the panel showing, and wide enough with it folded (the remarks above).</summary>
+    private const int ViewportWidth = 1220;
+
     private async Task StartOnTheCubeFixtureAsync()
     {
+        await Page.SetViewportSizeAsync(ViewportWidth, 800);
         await BootHomeAsync();
         await PickFixtureAsync(CubeFixture);
         await ExpectFilterInEffectAsync();
@@ -52,6 +60,9 @@ public sealed class CubeLabelsTests : E2eTestBase
         // decides, so a short form seen then is no reading of the switch
         // (halheinrich/backgammon#333).
         await ExpectRowFittedAsync();
+        var fit = await ActionRowGeometry.FitAsync(Page);
+        Output.WriteLine(
+            $"row {fit.Row}px with the panel showing ({fit.PanelWidthIfShown}px); the full-label row needs {fit.FullCubeRow}px");
     }
 
     private async Task ExpectShortFormAsync()

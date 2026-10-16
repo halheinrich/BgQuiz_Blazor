@@ -209,8 +209,23 @@ public class QuizAppTests : BunitContext
         Assert.Equal(3, app.ProblemCount);
         Assert.Equal(1, app.ProblemNumber);
         Assert.NotNull(app.Current);
-        Assert.Equal("'Corpus'", app.Name);
+        Assert.Equal("readable.xg", app.Name);   // a one-file pick is named by its file
         Assert.Null(app.Finished);
+    }
+
+    [Fact]
+    public async Task Start_OverSeveralFiles_NamesTheRunByTheFolder()
+    {
+        SettleTheFilterOwner();
+        _problems.Add(Problem(1));
+        _folders.NextPickOutcome = TestFixtures.Picked(
+            "Corpus", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg("a.xg"), TestFixtures.ReadableXg("b.xg")]);
+        var app = App;
+        Assert.Equal(FolderOutcomeKind.Landed, (await app.PickFolderAsync(default)).Kind);
+
+        await StartedAsync(app);
+
+        Assert.Equal("Corpus", app.Name);
     }
 
     [Fact]
