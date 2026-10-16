@@ -4,39 +4,57 @@ using BgFolderAccess_Razor;
 using XgFilter_Razor;
 
 /// <summary>
-/// The folder in hand and what it parsed to: the setup a quiz is composed from. One
-/// filter source token per setup, so the shared filter owner's "in effect" answers are
-/// about this folder and no earlier one.
+/// The folder in hand and what it parsed to: the setup a quiz is composed from, with the
+/// folder's context (the stats destination a Start activates with its run), what its stats
+/// file held at the pick, and one filter source token, so the shared filter owner's "in
+/// effect" answers are about this folder and no earlier one.
 /// </summary>
 internal sealed class QuizSetup
 {
     public QuizSetup(
-        string folderName,
-        FolderWriteCapability capability,
+        IFolderContext folder,
         FolderSample sample,
         LoadedProblems loaded,
+        StatsProbe stats,
         FilterSourceToken filterSource)
     {
-        ArgumentNullException.ThrowIfNull(folderName);
+        ArgumentNullException.ThrowIfNull(folder);
         ArgumentNullException.ThrowIfNull(sample);
         ArgumentNullException.ThrowIfNull(loaded);
+        ArgumentNullException.ThrowIfNull(stats);
         if (sample.Files.IsEmpty)
             throw new ArgumentException("A setup holds a folder with at least one problem file.", nameof(sample));
-        FolderName = folderName;
-        Capability = capability;
+        Folder = folder;
         Sample = sample;
         Loaded = loaded;
+        Stats = stats;
         FilterSource = filterSource;
+        // Saved filters are read and written in the folder where the browser holds a handle for it.
+        Documents = folder.Capability == FolderWriteCapability.BrowserUnsupported ? null : new FolderDocumentStorage(folder);
     }
 
-    public string FolderName { get; }
-    public FolderWriteCapability Capability { get; }
+    /// <summary>The folder, held for as long as this setup or a run started from it exists.</summary>
+    public IFolderContext Folder { get; }
+
+    public string FolderName => Folder.Name;
+    public FolderWriteCapability Capability => Folder.Capability;
     public FolderSample Sample { get; }
     public LoadedProblems Loaded { get; }
+
+    /// <summary>What the folder's stats file held at the pick: the mix's visibility fact and Home's forecasts.</summary>
+    public StatsProbe Stats { get; }
+
     public FilterSourceToken FilterSource { get; }
 
-    /// <summary>Whether the user dismissed the notice about the sample's truncation; a dismissal outlives the page.</summary>
+    /// <summary>The folder as the filter surface keeps its saved filters in it; null when the browser holds no handle.</summary>
+    public IDocumentStorage? Documents { get; }
+
+    // Dismissals of the notices about this setup; each outlives the page (SPEC-notices.md §2).
     public bool TruncationNoticeDismissed { get; set; }
+    public bool StatsCapabilityNoticeDismissed { get; set; }
+    public bool StatsUnreadableNoticeDismissed { get; set; }
+    public bool StatsUnwritableNoticeDismissed { get; set; }
+    public bool StatsRetirementNoticeDismissed { get; set; }
 
     public string DisplayName => $"'{FolderName}'";
 

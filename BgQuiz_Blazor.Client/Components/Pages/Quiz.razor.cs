@@ -143,12 +143,26 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     internal const string NextName = "Next";
     internal const string SkipName = "Skip";
     internal const string GoToLastName = "Go to last";
+    internal const string ShowStatsName = "Show stats";
     internal const string EndQuizName = "End quiz";
 
+    /// <summary>Show stats and End quiz as the tail's "⋯" list offers them, each built from its button's name, handler and gate.</summary>
     private IReadOnlyList<TailMenuAction> TailMenuActions =>
     [
+        new(ShowStatsName, EventCallback.Factory.Create(this, ShowStats), Disabled: false),
         new(EndQuizName, EventCallback.Factory.Create(this, EndQuizAsync), Disabled: !CanEndQuiz),
     ];
+
+    /// <summary>
+    /// Whether a length-bound composition fell short of what was asked: overall, or any
+    /// entry's pool ran dry and its share was redistributed. Capless, an outdrawn entry is
+    /// apportionment of the union rather than a user's ask, so the page shows the
+    /// composition line instead.
+    /// </summary>
+    private static bool HasShortfall(MixComposition comp) =>
+        comp.DrawnCount < comp.TargetCount || comp.Entries.Any(e => e.Drawn < e.Requested);
+
+    private void ShowStats() => Nav.NavigateTo("/stats");
 
     private string NextButtonName => App.NextAddsToSkipCount ? SkipName : NextName;
 

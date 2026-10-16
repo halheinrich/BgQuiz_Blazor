@@ -7,6 +7,46 @@
 <div class="container py-3 @(App.IsBusy ? "app-busy" : null)">
     <h1>Quiz complete</h1>
 
+    @* The finished run's stats notices, as the quiz page shows them: a failure on the final
+       Continue lands the user here without ever seeing the in-quiz notice. They are the
+       run's own, so a dismissal on the quiz page holds here and the next run's show fresh. *@
+    @if (App.Stats is { } stats)
+    {
+        @if (stats.SetAsideFileName is { } setAside && !stats.RetirementNoticeDismissed)
+        {
+            <Notice Kind="NoticeKind.Information" Announcement="NoticeAnnouncement.Polite"
+                    Dismissible="true"
+                    @bind-Dismissed:get="false"
+                    @bind-Dismissed:set="_ => stats.RetirementNoticeDismissed = true">
+                Your stats file was written by an earlier version of BgQuiz and can't be
+                carried forward. It has been set aside as
+                <strong>@setAside</strong> and a new
+                <strong>@QuizStatsFile.FileName</strong> started, so your lifetime stats
+                began again with this quiz.
+            </Notice>
+        }
+
+        @if (stats.Status == QuizStatsStatus.LoadFailed && !stats.StatusNoticeDismissed)
+        {
+            <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Polite"
+                    Dismissible="true"
+                    @bind-Dismissed:get="false"
+                    @bind-Dismissed:set="_ => stats.StatusNoticeDismissed = true">
+                The existing <strong>@QuizStatsFile.FileName</strong> couldn't be read, so this
+                quiz didn't record stats. The file has not been changed.
+            </Notice>
+        }
+        else if (stats.Status == QuizStatsStatus.WriteFailed && !stats.StatusNoticeDismissed)
+        {
+            <Notice Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
+                    Dismissible="true"
+                    @bind-Dismissed:get="false"
+                    @bind-Dismissed:set="_ => stats.StatusNoticeDismissed = true">
+                Your stats file could not be saved — this quiz's stats were not recorded.
+            </Notice>
+        }
+    }
+
     <ScorePanel Score="App.Score"
                 Skipped="App.SkippedCount"
                 Source="@App.Name"
@@ -21,6 +61,36 @@
     <p class="text-muted">
         Total problems shown: <strong>@App.PresentedCount</strong>.
     </p>
+
+    @* Restart weights iff the mix is in effect at this moment (SPEC-filtering.md §5), so a
+       weighted run can find the mix gone underneath it; said before the click. *@
+    @if (RestartWillDropTheMix)
+    {
+        <p class="text-muted" role="status">
+            This quiz was drawn from your weighted mix, but the mix isn't in
+            effect now — it's switched off in <strong>Settings</strong>, or the
+            folder in hand has no stats to weight by — so
+            <strong>Restart</strong> runs unweighted.
+        </p>
+    }
+
+    @if (_mixRefused)
+    {
+        <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Assertive">
+            <p class="mb-2">
+                Lifetime stats aren't available for a restart (@MixDisplay.RefusalReason),
+                so the weighted mix can't be applied.
+            </p>
+            <button class="btn btn-outline-primary btn-sm" id="restartWithoutMix"
+                    disabled="@App.IsBusy" @onclick="RestartWithoutMixAsync">
+                Restart without mix
+            </button>
+            <span class="small text-muted ms-2">
+                runs one quiz unweighted — or go Back to setup to change the
+                mix; your saved mix is kept either way.
+            </span>
+        </Notice>
+    }
 
     <Notice Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
             Dismissible="true"
@@ -49,7 +119,12 @@
         }
     </div>
 
-    <p class="text-muted small mt-3">
-        Nothing here needs saving — you can close the tab whenever you like.
-    </p>
+    @* Said because it is the exit with no button; withheld under a stats failure, where
+       "nothing needs saving" would soften the notice above. *@
+    @if (App.Stats?.Status is not (QuizStatsStatus.LoadFailed or QuizStatsStatus.WriteFailed))
+    {
+        <p class="text-muted small mt-3">
+            Nothing here needs saving — you can close the tab whenever you like.
+        </p>
+    }
 </div>

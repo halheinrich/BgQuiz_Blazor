@@ -14,10 +14,100 @@
 
 <PageTitle>BgQuiz — In progress</PageTitle>
 
-@* app-busy: progress cursor while a transition runs — a draw for ▶, or a
-   Submit's write to the lifetime record (app.css); the controller's gate yield
-   lets it paint before an advance's churn. *@
+@* app-busy: progress cursor while the app works — a Submit's write to the
+   lifetime record (app.css). *@
 <div class="container-fluid py-3 board-page @(App.IsBusy ? "app-busy" : null)">
+    @* The run's stats notices: a retirement is an outcome (polite), an unreadable file an
+       outcome the file survives (polite), a failed write a failure mid-quiz (assertive).
+       None blocks the quiz. Each dismissal is the run's, so a Show stats round trip does
+       not revive it and the next run's shows fresh (SPEC-notices.md §2). *@
+    @if (App.Stats is { } stats)
+    {
+        @if (stats.SetAsideFileName is { } setAside && !stats.RetirementNoticeDismissed)
+        {
+            <Notice Kind="NoticeKind.Information" Announcement="NoticeAnnouncement.Polite"
+                    Dismissible="true"
+                    @bind-Dismissed:get="false"
+                    @bind-Dismissed:set="_ => stats.RetirementNoticeDismissed = true">
+                Your stats file was written by an earlier version of BgQuiz and can't be
+                carried forward. It has been set aside as
+                <strong>@setAside</strong> and a new
+                <strong>@QuizStatsFile.FileName</strong> started, so your lifetime stats
+                begin again with this quiz.
+            </Notice>
+        }
+        @if (stats.Status == QuizStatsStatus.LoadFailed && !stats.StatusNoticeDismissed)
+        {
+            <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Polite"
+                    Dismissible="true"
+                    @bind-Dismissed:get="false"
+                    @bind-Dismissed:set="_ => stats.StatusNoticeDismissed = true">
+                The existing <strong>@QuizStatsFile.FileName</strong> couldn't be read, so this
+                quiz won't record stats. The file has not been changed.
+            </Notice>
+        }
+        else if (stats.Status == QuizStatsStatus.WriteFailed && !stats.StatusNoticeDismissed)
+        {
+            <Notice Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
+                    Dismissible="true"
+                    @bind-Dismissed:get="false"
+                    @bind-Dismissed:set="_ => stats.StatusNoticeDismissed = true">
+                Your stats file could not be saved — the quiz continues, but this
+                quiz's stats won't be recorded.
+            </Notice>
+        }
+    }
+    @* What the mix drew, composition first: a capless mix gets the composition line alone
+       (without a requested length an entry outdrawn by apportionment is not short); a
+       length-bound mix that fell short says so. Retired by the first answer of record or a
+       click, since it describes how this quiz was built and is stale chrome afterwards. *@
+    @if (App.Composition is { } comp && !App.CompositionNoticeDismissed)
+    {
+        @if (!comp.HasRequestedLength)
+        {
+            <Notice Kind="NoticeKind.Information" Announcement="NoticeAnnouncement.Polite"
+                    Dismissible="true"
+                    @bind-Dismissed:get="false"
+                    @bind-Dismissed:set="_ => App.DismissCompositionNotice()">
+                @MixDisplay.CompositionSummary(comp)
+            </Notice>
+        }
+        else if (HasShortfall(comp))
+        {
+            <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Assertive"
+                    Dismissible="true"
+                    @bind-Dismissed:get="false"
+                    @bind-Dismissed:set="_ => App.DismissCompositionNotice()">
+                <div>@MixDisplay.CompositionSummary(comp)</div>
+                @if (comp.DrawnCount < comp.TargetCount)
+                {
+                    <div>
+                        Your mix asked for @comp.TargetCount problems but only
+                        @comp.DrawnCount could be drawn — these categories ran short:
+                    </div>
+                    <ul class="mb-0">
+                        @foreach (var entry in comp.Entries.Where(e => e.Drawn < e.Requested))
+                        {
+                            <li>@MixDisplay.CategoryLabel(entry.Category): drew @entry.Drawn of @entry.Requested requested</li>
+                        }
+                    </ul>
+                }
+                else
+                {
+                    <div>
+                        Some categories couldn't fill their share; the difference
+                        went to the others:
+                    </div>
+                    <ul class="mb-0">
+                        @foreach (var entry in comp.Entries.Where(e => e.Drawn < e.Requested))
+                        {
+                            <li>@MixDisplay.CategoryLabel(entry.Category): filled @entry.Drawn of its @entry.Percent% share (@entry.Requested requested)</li>
+                        }
+                    </ul>
+                }
+            </Notice>
+        }
+    }
     @if (!App.HasStarted)
     {
         <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Assertive">
@@ -503,21 +593,25 @@
     /// bar-chart-line and box-arrow-right, inline.
     ///
     /// <para>
-    /// End quiz
-    /// (halheinrich/backgammon#57) IS a transition — it retires the enumerator
-    /// and finishes the run — so it disables on IsBusy (CanEndQuiz). Where the
-    /// tail folds behind its "⋯", TailMenuActions offers the same two, built
-    /// from the same names, handlers and gate. It keeps the far end of
-    /// the row, as far from the buttons a user clicks over and over (Submit,
-    /// Continue) as the row allows: that distance is the whole mitigation,
-    /// since the control is one-click and acts immediately, ruled so
-    /// deliberately, with no confirmation step to catch a misclick. It is
-    /// styled like its neighbours rather than as a danger action, because
-    /// ending a run early is a normal way to finish one — Done receives it as
-    /// the completed quiz it is.
+    /// Show stats only navigates, so it never disables. End quiz
+    /// (halheinrich/backgammon#57) ends the run, so it disables while the app
+    /// is busy (CanEndQuiz). Where the tail folds behind its "⋯",
+    /// TailMenuActions offers the same two, built from the same names,
+    /// handlers and gate. End quiz keeps the far end of the row, as far from
+    /// the buttons a user clicks over and over (Submit, Continue) as the row
+    /// allows: that distance is the whole mitigation, since the control is
+    /// one-click and acts immediately, with no confirmation step. It is styled
+    /// like its neighbours rather than as a danger action, because ending a
+    /// run early is a normal way to finish one.
     /// </para>
     /// </summary>
     private RenderFragment TailButtons => @<text>
+        <button class="btn btn-outline-secondary action-row-icon"
+                aria-label="@ShowStatsName" title="@ShowStatsName" @onclick="ShowStats">
+            <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
+                <path d="M11 2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12h.5a.5.5 0 0 1 0 1H.5a.5.5 0 0 1 0-1H1v-3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3h1V7a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7h1zm1 12h2V2h-2zm-3 0V7H7v7zm-5 0v-3H2v3z" fill="currentColor" />
+            </svg>
+        </button>
         <button class="btn btn-outline-secondary action-row-icon" disabled="@(!CanEndQuiz)"
                 aria-label="@EndQuizName" title="@EndQuizName" @onclick="EndQuizAsync">
             <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">

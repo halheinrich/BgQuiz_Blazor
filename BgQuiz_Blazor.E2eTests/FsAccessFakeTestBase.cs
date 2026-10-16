@@ -315,6 +315,29 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     }
 
     /// <summary>
+    /// Give the folder a stats history the mix can be offered on, the one honest way: turn
+    /// the setting on, run a throwaway quiz, feed the app's own write back as the folder's
+    /// file, and re-pick. Ends on a fresh pick with the mix panel showing.
+    /// </summary>
+    protected async Task SeedStatsHistoryAsync()
+    {
+        await TurnOnTheWeightedMixSettingAsync();
+        await PickFakeFolderAsync();
+        await ExpectFilterInEffectAsync();
+        await StartQuizAsync();
+        await AnswerCubeNoDoubleAsync();
+        await ContinueToDoneAsync();
+
+        await StageFirstWriteAsTheFoldersStatsFileAsync();
+
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToSetupButton }).ClickAsync();
+        await ExpectUrlAsync(AppRoute.Home);
+
+        await PickFolderButton.ClickAsync();
+        await Expect(MixPanel).ToBeVisibleAsync();
+    }
+
+    /// <summary>
     /// Hold the fake directory's enumeration open, so the stretch between the
     /// browser's prompts and the pick summary can be observed. Call before the
     /// pick gesture; release with <see cref="ReleaseScanAsync"/>.

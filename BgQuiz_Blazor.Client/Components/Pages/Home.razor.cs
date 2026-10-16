@@ -7,15 +7,16 @@ using XgFilter_Razor;
 namespace BgQuiz_Blazor.Client.Components.Pages;
 
 /// <summary>
-/// Setup: pick a folder, filter it, see what matches, start. Everything shown here is the
-/// coordinator's; this page holds only its own notices and the fallback input.
+/// Setup: pick a folder, filter it, see what matches, compose the mix where it is in effect,
+/// start. Everything shown here is the coordinator's or the draft's; this page holds only its
+/// own notices and the fallback input.
 /// </summary>
 public partial class Home : ComponentBase, IDisposable
 {
     [Inject] private QuizApp App { get; set; } = default!;
     [Inject] private FilterSetup FilterSetup { get; set; } = default!;
     [Inject] private QuizSettings Settings { get; set; } = default!;
-    [Inject] private PickedFolderDocumentStorage DocumentStorage { get; set; } = default!;
+    [Inject] private MixDraft Draft { get; set; } = default!;
     [Inject] private IFolderAccess FolderAccess { get; set; } = default!;
     [Inject] private BrowserStorageCondition StorageCondition { get; set; } = default!;
     [Inject] private NavigationManager Nav { get; set; } = default!;
@@ -25,22 +26,23 @@ public partial class Home : ComponentBase, IDisposable
     private IDisposable? _filterAttachment;
 
     // Per-visit notices: the page's whole state. A dismissal of a notice about something
-    // that outlives the page (the storage refusal, a setup's truncation, a run ended by a new
+    // that outlives the page (the storage refusal, a setup's notices, a run ended by a new
     // sample) is kept on that thing, so it holds across navigation.
     private string? _pickError;
     private bool _emptyFolderNotice;
     private bool _cancelledPickNotice;
     private string? _startError;
     private string? _noMatchNotice;
+    private bool _mixRefused;
 
     private QuizSetup? Setup => App.Setup;
 
     /// <summary>
-    /// The page locks while the app works (loading, preparing), not while the browser's
-    /// prompts are up: the picking phase is the user's turn, and a disabled fieldset would
-    /// disable the hidden input the fallback picker opens through.
+    /// The page locks while the app works (loading, preparing, recording), not while the
+    /// browser's prompts are up: the picking phase is the user's turn, and a disabled
+    /// fieldset would disable the hidden input the fallback picker opens through.
     /// </summary>
-    private bool IsBusy => App.Phase is QuizPhase.Loading or QuizPhase.Preparing;
+    private bool IsBusy => App.Phase is QuizPhase.Loading or QuizPhase.Preparing or QuizPhase.Recording;
     private FilterConfig? FilterInEffect => App.FilterInEffect;
     private Selection? CurrentSelection => App.CurrentSelection;
 
@@ -51,13 +53,11 @@ public partial class Home : ComponentBase, IDisposable
         Setup is { } setup
         && FilterInEffect is not null
         && !setup.Loaded.Report.AllRejected
-        && CurrentSelection is not { AnswerTypes.Total: 0 };
+        && CurrentSelection is not { AnswerTypes.Total: 0 }
+        && App.MixForStart is not null;
 
-    /// <summary>Saved filters live in the picked folder when the browser can read it.</summary>
-    private IDocumentStorage? Storage =>
-        Setup?.Capability is FolderWriteCapability.Enabled or FolderWriteCapability.PermissionDenied
-            ? DocumentStorage
-            : null;
+    /// <summary>Whether the mix in effect has rows, so the count is the pool it draws from rather than the quiz.</summary>
+    private bool MixDrawsFromTheMatches => App.MixInEffect && Draft.Build() is { IsPassthrough: false };
 
     private string? SavedFiltersDisabledReason =>
         Setup?.Capability == FolderWriteCapability.PermissionDenied
@@ -68,6 +68,7 @@ public partial class Home : ComponentBase, IDisposable
     protected override async Task OnInitializedAsync()
     {
         App.Changed += OnAppChanged;
+        Draft.Changed += OnAppChanged;
         StorageCondition.Began += OnAppChanged;
         _filterAttachment = FilterSetup.Attach(_ => OnAppChanged());
         await Settings.EnsureHydratedAsync();
@@ -79,6 +80,7 @@ public partial class Home : ComponentBase, IDisposable
     public void Dispose()
     {
         App.Changed -= OnAppChanged;
+        Draft.Changed -= OnAppChanged;
         StorageCondition.Began -= OnAppChanged;
         _filterAttachment?.Dispose();
     }
@@ -131,26 +133,42 @@ public partial class Home : ComponentBase, IDisposable
         _cancelledPickNotice = false;
         _startError = null;
         _noMatchNotice = null;
+        _mixRefused = false;
     }
 
-    private async Task StartQuizAsync()
+    private Task StartQuizAsync() => StartCoreAsync(withoutMix: false);
+
+    /// <summary>The refusal notice's escape: this one quiz unweighted, the mix rows untouched.</summary>
+    private Task StartWithoutMixAsync() => StartCoreAsync(withoutMix: true);
+
+    private async Task StartCoreAsync(bool withoutMix)
     {
         _startError = null;
         _noMatchNotice = null;
+        _mixRefused = false;
+        var weighted = !withoutMix && MixDrawsFromTheMatches;
         try
         {
-            switch (await App.StartAsync())
+            switch (await App.StartAsync(withoutMix))
             {
                 case StartOutcome.Started:
                     Nav.NavigateTo("/quiz");
                     break;
                 case StartOutcome.NoProblems:
-                    _noMatchNotice = "No quiz problems could be presented — adjust the filters or pick different files.";
+                    _noMatchNotice = weighted
+                        ? "Your mix drew no problems — no decision in these files matched "
+                          + "the selected categories against your lifetime stats. Adjust "
+                          + "the mix, the filters, or the files."
+                        : "No quiz problems could be presented — adjust the filters or pick different files.";
+                    break;
+                case StartOutcome.MixRequiresStats:
+                    _mixRefused = true;
                     break;
                 case StartOutcome.Busy:
                 case StartOutcome.NoSetup:
                 case StartOutcome.NoFilterInEffect:
                 case StartOutcome.NothingToRestart:
+                case StartOutcome.MixInvalid:
                     break;
             }
         }

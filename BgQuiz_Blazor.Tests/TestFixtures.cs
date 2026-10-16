@@ -502,12 +502,15 @@ internal static class TestFixtures
         new(extension, held, held, cap);
 
     /// <summary>
-    /// A completed, non-cancelled pick of <paramref name="files"/> from
-    /// <paramref name="folderName"/> — <see cref="Sample"/>'s report, with the
-    /// capability the pick settled on.
+    /// A completed, non-cancelled pick of <paramref name="files"/> from a folder named
+    /// <paramref name="folderName"/> with the capability the pick settled on, landed as a
+    /// <see cref="FakeFolderContext"/> (<see cref="FolderOf"/>) — with <see cref="Sample"/>'s report.
     /// </summary>
     public static FolderPickOutcome Picked(
         string folderName, FolderWriteCapability capability, IEnumerable<PickedFile> files,
         params (string Extension, int Omitted)[] overLimit) =>
-        new(Cancelled: false, folderName, capability, Sample(files, overLimit));
+        new(new FakeFolderContext(folderName, capability), Sample(files, overLimit));
+
+    /// <summary>The folder a <see cref="Picked"/> outcome landed, to stage its files and read what the app did with it.</summary>
+    public static FakeFolderContext FolderOf(FolderPickOutcome outcome) => (FakeFolderContext)outcome.Folder!;
 }

@@ -1,7 +1,7 @@
 // BgQuiz_Blazor.Client (WASM): the quiz runs in the browser. One coordinator,
-// QuizApp, owns the app's state; the stores below hold the user's settings and
-// the one storage-refusal flag; the two Razor libraries supply the folder seam
-// and the filter surface.
+// QuizApp, owns the app's state; the stores below hold the user's settings, the
+// mix draft and the one storage-refusal flag; the two Razor libraries supply the
+// folder seam and the filter surface.
 
 using BgFolderAccess_Razor;
 using BgQuiz_Blazor.Client.Quiz;
@@ -24,13 +24,13 @@ builder.Services.AddScoped<IFolderAccess, JsFolderAccess>();
 builder.Services.AddBrowserStorage();
 builder.Services.AddScoped<BrowserStorageCondition>();
 builder.Services.AddScoped<QuizSettings>();
+builder.Services.AddScoped<MixDraft>();
 builder.Services.AddScoped<NotesPlacementStore>();
 
 // The shared filter surface, with this app's refusal sink; saved filters live in
-// the picked folder through PickedFolderDocumentStorage.
+// the picked folder, through the setup's document storage over its folder context.
 builder.Services.AddScoped<FilterStorageRefusalSink>();
 builder.Services.AddFilterSurface<FilterStorageRefusalSink>();
-builder.Services.AddScoped<PickedFolderDocumentStorage>();
 
 builder.Services.AddScoped<ProblemLoad>(sp =>
     (files, progress, cancellationToken) => ProblemLoader.LoadAsync(

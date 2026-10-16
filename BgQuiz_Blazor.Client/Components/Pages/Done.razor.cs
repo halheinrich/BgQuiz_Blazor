@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Components;
 
 namespace BgQuiz_Blazor.Client.Components.Pages;
 
-/// <summary>The finished run's summary, with Restart and the way back to setup.</summary>
+/// <summary>The finished run's summary and stats notices, with Restart and the way back to setup.</summary>
 public partial class Done : ComponentBase, IDisposable
 {
     [Inject] private QuizApp App { get; set; } = default!;
@@ -11,6 +11,10 @@ public partial class Done : ComponentBase, IDisposable
 
     private string? _restartError;
     private string? _restartNotice;
+    private bool _mixRefused;
+
+    /// <summary>Whether the finished run was weighted while a restart of it would not be: the one state to disclose before the click.</summary>
+    private bool RestartWillDropTheMix => App.Finished is { Mix.IsPassthrough: false } && !App.MixInEffect;
 
     /// <inheritdoc />
     protected override void OnInitialized()
@@ -29,13 +33,19 @@ public partial class Done : ComponentBase, IDisposable
 
     private void OnAppChanged() => _ = InvokeAsync(StateHasChanged);
 
-    private async Task RestartAsync()
+    private Task RestartAsync() => RestartCoreAsync(withoutMix: false);
+
+    /// <summary>The refusal notice's escape: one quiz unweighted, the stored mix untouched.</summary>
+    private Task RestartWithoutMixAsync() => RestartCoreAsync(withoutMix: true);
+
+    private async Task RestartCoreAsync(bool withoutMix)
     {
         _restartError = null;
         _restartNotice = null;
+        _mixRefused = false;
         try
         {
-            switch (await App.RestartAsync())
+            switch (await App.RestartAsync(withoutMix))
             {
                 case StartOutcome.Started:
                     Nav.NavigateTo("/quiz");
@@ -46,9 +56,13 @@ public partial class Done : ComponentBase, IDisposable
                 case StartOutcome.NoSetup:
                     _restartNotice = "No folder is in hand; pick one on the setup page to restart.";
                     break;
+                case StartOutcome.MixRequiresStats:
+                    _mixRefused = true;
+                    break;
                 case StartOutcome.Busy:
                 case StartOutcome.NoFilterInEffect:
                 case StartOutcome.NothingToRestart:
+                case StartOutcome.MixInvalid:
                     break;
             }
         }

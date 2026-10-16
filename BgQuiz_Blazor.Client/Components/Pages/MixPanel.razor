@@ -1,0 +1,120 @@
+@using BgGame_Lib
+@using BgQuiz_Blazor.Client.Quiz
+@inject MixDraft Draft
+
+@* The stats-weighted mix builder: a view over the app-scoped MixDraft, its rows and
+   optional length. Being on screen is what puts the rows in effect (SPEC-filtering.md §5,
+   "Visible means in effect"): no activation control, no committed copy, and every edit that
+   validates writes the built mix through. The mix selects; the run's Order presents, so
+   there is no order control here. Row order is semantic — earlier rows win contested
+   overlap — hence the ↑/↓ buttons. *@
+
+<div class="card mb-4" style="max-width:800px">
+    <div class="card-header">
+        <strong>Weighted mix</strong>
+        <small class="text-muted">(optional — compose the quiz from your lifetime stats)</small>
+    </div>
+    <div class="card-body">
+
+        @if (Draft.Rows.IsEmpty)
+        {
+            <p class="text-muted small">
+                No mix: the quiz takes every matching problem, as usual. Add a
+                category to weight the quiz by your lifetime stats — e.g. mostly
+                problems you got wrong or haven't seen lately. Needs a folder
+                pick that can save stats.
+            </p>
+        }
+        else
+        {
+            <p class="text-muted small">
+                Rows draw in order: when categories overlap, a problem counts
+                toward the <em>earlier</em> row.
+            </p>
+        }
+
+        @for (var i = 0; i < Draft.Rows.Length; i++)
+        {
+            var row = Draft.Rows[i];
+            var index = i; // capture per iteration for the lambdas below
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2 mix-row">
+                @* Sized from its own options (app.css, .option-sized-field); the row reserves the
+                   room the ruler's overflow needs (.mix-row > .mix-kind). *@
+                <div class="option-sized-field mix-kind">
+                    <select class="form-select form-select-sm option-sized-select" aria-label="Category"
+                            @onchange="e => HandleKindChangedAsync(index, e)">
+                        @foreach (var kind in MixDraft.CategoryKinds)
+                        {
+                            <option value="@kind" selected="@(row.Kind == kind)">@MixDisplay.KindLabel(kind)</option>
+                        }
+                    </select>
+                </div>
+                @if (KindTakesParameter(row.Kind))
+                {
+                    <input class="form-control form-control-sm mix-param" style="max-width:90px"
+                           aria-label="@ParameterLabel(row.Kind)"
+                           value="@row.ParamText"
+                           @oninput="e => Draft.SetParamTextAsync(index, e.Value?.ToString() ?? string.Empty)" />
+                    <span class="text-muted small">@ParameterUnit(row.Kind)</span>
+                }
+                <input class="form-control form-control-sm mix-percent" style="max-width:80px"
+                       type="number" min="1" max="100" aria-label="Percent"
+                       value="@row.PercentText"
+                       @oninput="e => Draft.SetPercentTextAsync(index, e.Value?.ToString() ?? string.Empty)" />
+                <span class="text-muted small">%</span>
+                <div class="btn-group btn-group-sm ms-auto" role="group">
+                    <button type="button" class="btn btn-outline-secondary" title="Move up"
+                            disabled="@(index == 0)" @onclick="() => Draft.MoveRowAsync(index, -1)">↑</button>
+                    <button type="button" class="btn btn-outline-secondary" title="Move down"
+                            disabled="@(index == Draft.Rows.Length - 1)" @onclick="() => Draft.MoveRowAsync(index, +1)">↓</button>
+                    <button type="button" class="btn btn-outline-secondary" title="Remove"
+                            @onclick="() => Draft.RemoveRowAsync(index)">✕</button>
+                </div>
+            </div>
+        }
+
+        <div class="d-flex align-items-center gap-3 mb-3">
+            @* Outline-primary, not the panel's secondary grey: at zero rows it sits beside a
+               genuinely disabled control and must not read as another one — it is the only
+               way out of the zero-row state. *@
+            <button type="button" id="mixAddRow" class="btn btn-outline-primary btn-sm"
+                    @onclick="Draft.AddRowAsync">
+                Add category
+            </button>
+            @if (!Draft.Rows.IsEmpty)
+            {
+                <span class="small @(Draft.PercentSum == 100 ? "text-muted" : "text-danger")">
+                    Total: @Draft.PercentSum% @(Draft.PercentSum == 100 ? "" : "— must reach 100%")
+                </span>
+            }
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label" for="mixQuizLength">
+                Quiz length
+                <small class="text-muted">
+                    (blank = every problem the categories reach@(Draft.Rows.IsEmpty ? "; needs at least one category" : ""))
+                </small>
+            </label>
+            <input class="form-control" style="max-width:140px" id="mixQuizLength"
+                   type="number" min="1" placeholder="No cap"
+                   disabled="@(Draft.Rows.IsEmpty)"
+                   value="@Draft.LengthText"
+                   @oninput="e => Draft.SetLengthTextAsync(e.Value?.ToString() ?? string.Empty)" />
+        </div>
+
+        @if (Draft.ValidationError is { } error)
+        {
+            <div class="text-danger small mb-2" role="status">@error</div>
+        }
+
+        @* Clear mix deliberately removes the rows, storage following the screen. It is a way
+           out, never an off-switch: the setting is the one control over the mix. *@
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary btn-sm" id="mixClear" @onclick="Draft.ClearAsync">
+                Clear mix
+            </button>
+        </div>
+
+    </div>
+</div>

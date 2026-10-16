@@ -116,12 +116,76 @@
                 </Notice>
             }
 
-            @if (setup.Capability == FolderWriteCapability.PermissionDenied)
+            @* Which stats rung this folder landed on. The "will be saved" promise is made only
+               while neither forecast below says otherwise; the no-grant line never says the
+               user declined, since the browser can refuse to ask. *@
+            @if (!setup.StatsCapabilityNoticeDismissed)
             {
-                <div class="text-muted small mt-1" role="status">
-                    @(FolderPickDisplay.WriteAccessNotGranted) — the quiz runs, but
-                    @(FolderPickDisplay.WriteAccessConsequence).
-                </div>
+                @switch (setup.Capability)
+                {
+                    case FolderWriteCapability.Enabled when setup.Stats.Unreadable || setup.Stats.Unwritable:
+                        break;
+                    case FolderWriteCapability.Enabled:
+                        <Notice id="statsCapabilityNotice" class="mt-2" Kind="NoticeKind.Information"
+                                Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                                @bind-Dismissed:get="false"
+                                @bind-Dismissed:set="_ => setup.StatsCapabilityNoticeDismissed = true">
+                            Your lifetime quiz stats will be saved to
+                            <strong>@QuizStatsFile.FileName</strong> in this folder.
+                        </Notice>
+                        break;
+                    case FolderWriteCapability.BrowserUnsupported:
+                        <Notice id="statsCapabilityNotice" class="mt-2" Kind="NoticeKind.Warning"
+                                Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                                @bind-Dismissed:get="false"
+                                @bind-Dismissed:set="_ => setup.StatsCapabilityNoticeDismissed = true">
+                            Your browser can't save quiz stats — the quiz runs without them.
+                        </Notice>
+                        break;
+                    case FolderWriteCapability.PermissionDenied:
+                        <Notice id="statsCapabilityNotice" class="mt-2" Kind="NoticeKind.Warning"
+                                Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                                @bind-Dismissed:get="false"
+                                @bind-Dismissed:set="_ => setup.StatsCapabilityNoticeDismissed = true">
+                            @(FolderPickDisplay.WriteAccessNotGranted) — the quiz runs, but
+                            @(FolderPickDisplay.WriteAccessConsequence).
+                        </Notice>
+                        break;
+                }
+            }
+
+            @* The forecasts the pick-time probe can make: said here, before Start. The quiz
+               page's own notices stay, since the file can change in between. *@
+            @if (setup.Stats.Unreadable && !setup.StatsUnreadableNoticeDismissed)
+            {
+                <Notice id="statsUnreadableForecastNotice" class="mt-2" Kind="NoticeKind.Warning"
+                        Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                        @bind-Dismissed:get="false"
+                        @bind-Dismissed:set="_ => setup.StatsUnreadableNoticeDismissed = true">
+                    @FolderPickDisplay.StatsUnreadableForecast
+                </Notice>
+            }
+            @if (setup.Stats.Unwritable && !setup.StatsUnwritableNoticeDismissed)
+            {
+                <Notice id="statsUnwritableForecastNotice" class="mt-2" Kind="NoticeKind.Warning"
+                        Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                        @bind-Dismissed:get="false"
+                        @bind-Dismissed:set="_ => setup.StatsUnwritableNoticeDismissed = true">
+                    @FolderPickDisplay.StatsUnwritableForecast
+                </Notice>
+            }
+            @if (setup.Stats.SetAsideForecast is { } forecastSetAsideName && !setup.StatsRetirementNoticeDismissed)
+            {
+                <Notice id="statsRetirementForecastNotice" class="mt-2" Kind="NoticeKind.Information"
+                        Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                        @bind-Dismissed:get="false"
+                        @bind-Dismissed:set="_ => setup.StatsRetirementNoticeDismissed = true">
+                    Your stats file was written by an earlier version of BgQuiz and can't be
+                    carried forward. When you start a quiz it will be set aside as
+                    <strong>@forecastSetAsideName</strong> — nothing is deleted — and a new
+                    <strong>@QuizStatsFile.FileName</strong> started, so your lifetime stats
+                    will begin again.
+                </Notice>
             }
         }
 
@@ -169,7 +233,7 @@
 
     @if (Setup is { } loadedSetup)
     {
-        <FilterSurface Storage="Storage"
+        <FilterSurface Storage="loadedSetup.Documents"
                        CanPersist="loadedSetup.Capability == FolderWriteCapability.Enabled"
                        PersistDisabledReason="@SavedFiltersDisabledReason" />
 
@@ -180,6 +244,14 @@
                     <li><code>@rejection.SourceName</code> — @rejection.Reason.Message</li>
                 }
             </ul>;
+
+        @* The count is filter-only; with a mix in effect the number is the pool the mix
+           draws from, which the quiz can fall far short of, so the line says so. *@
+        RenderFragment mixCaveat =
+            @<text>
+                Your mix applies: the quiz is drawn from these matches rather than
+                presenting all of them, so the quiz itself can be much smaller.
+            </text>;
 
         @if (loadedSetup.Loaded.Report is { AllRejected: true } allRejected)
         {
@@ -198,6 +270,10 @@
             <Notice id="noMatchNotice" class="mb-3" Kind="NoticeKind.Warning"
                     Announcement="NoticeAnnouncement.Polite">
                 <strong>0</strong> decisions match your filters.
+                @if (MixDrawsFromTheMatches)
+                {
+                    @mixCaveat
+                }
             </Notice>
         }
         else if (CurrentSelection is { AnswerTypes: var pool, DuplicatesCollapsed: var collapsed })
@@ -223,6 +299,10 @@
                             @loadedSetup.Loaded.ForcedPlaysSetAside forced
                             @(loadedSetup.Loaded.ForcedPlaysSetAside == 1 ? "play was" : "plays were") set aside: a roll with one legal play asks nothing.
                         </text>
+                    }
+                    @if (MixDrawsFromTheMatches)
+                    {
+                        @mixCaveat
                     }
                 </div>
                 <div class="mt-1">
@@ -253,6 +333,14 @@
                 </div>
                 @rejectedFiles(incomplete)
             </Notice>
+        }
+
+        @* Visible means in effect (SPEC-filtering.md §5): the panel is on screen exactly while
+           the setting is on and this folder holds stats, and the rows on it compose the next
+           Start. Keyed on the setup, so each pick mounts it afresh. *@
+        @if (App.MixInEffect)
+        {
+            <MixPanel @key="loadedSetup" />
         }
     }
 
@@ -290,6 +378,10 @@
     {
         <small class="text-muted ms-2">No problems match the filters — adjust and re-apply them to enable Start.</small>
     }
+    else if (App.MixForStart is null)
+    {
+        <small class="text-muted ms-2">Mix applies but isn't valid — fix it or turn the mix off.</small>
+    }
 
     <Notice class="mt-3" Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
             Dismissible="true"
@@ -297,6 +389,28 @@
             @bind-Dismissed:set="_ => _startError = null">
         <strong>Could not start quiz:</strong> @_startError
     </Notice>
+
+    @* The weighted start was refused: the stats stopped being readable between the pick
+       and Start, and running silently unweighted would substitute a quiz the user did not
+       ask for. The one-click escape runs this quiz unweighted; the mix rows are kept. *@
+    @if (_mixRefused)
+    {
+        <Notice class="mt-3" Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Assertive">
+            <p class="mb-2">
+                Lifetime stats aren't available for this quiz (@MixDisplay.RefusalReason),
+                so the weighted mix can't be applied.
+            </p>
+            <button class="btn btn-outline-primary btn-sm" id="startWithoutMix"
+                    disabled="@IsBusy" @onclick="StartWithoutMixAsync">
+                Start without mix
+            </button>
+            <span class="small text-muted ms-2">
+                runs this one quiz unweighted — or turn the mix off in
+                <em>Settings</em> to stop weighting altogether; your mix rows are
+                kept either way.
+            </span>
+        </Notice>
+    }
 
     @if (!string.IsNullOrEmpty(_noMatchNotice))
     {

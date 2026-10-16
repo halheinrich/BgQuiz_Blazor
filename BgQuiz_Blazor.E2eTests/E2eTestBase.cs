@@ -1093,6 +1093,29 @@ public abstract class E2eTestBase : IAsyncLifetime
         await Expect(Page.Locator(".mix-row")).ToHaveCountAsync(1);
     }
 
+    /// <summary>The mix panel's Add-category button — present exactly while the mix panel is.</summary>
+    protected ILocator MixPanel => Page.Locator("#mixAddRow");
+
+    /// <summary>
+    /// Turn the weighted mix on the only way a user can: the <c>Draw quizzes from your
+    /// weighted mix</c> setting on the Settings page (SPEC-filtering.md §5, "Visible means in
+    /// effect"). Navigates there, checks the box, and comes back to Home. A stored choice, so
+    /// callers run this once, usually before picking, rather than re-arming per setup. Driven
+    /// through the nav link and the real control, the way SettingsTests drives every toggle.
+    /// </summary>
+    protected async Task TurnOnTheWeightedMixSettingAsync()
+    {
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink }).ClickAsync();
+        await ExpectUrlAsync(AppRoute.Settings);
+
+        var box = Page.Locator("#settingsWeightQuizzes");
+        await box.CheckAsync();
+        await Expect(box).ToBeCheckedAsync();
+
+        await Page.GotoAsync(BaseUrl + "/");
+        await Expect(PickFolderButton).ToBeVisibleAsync();
+    }
+
     /// <summary>
     /// Click one of the board's numbered points (1–24) through the diagram's
     /// transparent hit-region overlay — a real user click on the SVG, driving

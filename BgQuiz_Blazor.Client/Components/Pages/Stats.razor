@@ -1,0 +1,28 @@
+@page "/stats"
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+
+@using BgQuiz_Blazor.Client.Quiz
+
+@inject QuizApp App
+@inject NavigationManager Nav
+
+<PageTitle>BgQuiz — Stats</PageTitle>
+
+<div class="container py-3">
+    <h1>Quiz progress</h1>
+
+    <ScorePanel Score="App.Score"
+                Skipped="App.SkippedCount"
+                Source="@App.Name"
+                Heading="Progress so far" />
+
+    <ScoreBreakdown Score="App.Score" Heading="Detailed evaluation so far">
+        <HeadingLead>
+            <ProblemFolderLabel Description="@App.Setup?.DisplayName" />
+        </HeadingLead>
+    </ScoreBreakdown>
+
+    @* The way back: the shared control, which reads "Back to quiz" here since the page
+       settles only with a quiz live. *@
+    <ReturnControl />
+</div>

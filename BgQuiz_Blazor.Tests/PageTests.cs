@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using BgDataTypes_Lib;
 using BgFolderAccess_Razor;
+using BgGame_Lib;
 using BgQuiz_Blazor.Client.Components;
 using BgQuiz_Blazor.Client.Quiz;
 using BgUiPrimitives_Razor;
@@ -16,13 +18,15 @@ using XgFilter_Razor.TestSupport;
 using HomePage = BgQuiz_Blazor.Client.Components.Pages.Home;
 using QuizPage = BgQuiz_Blazor.Client.Components.Pages.Quiz;
 using DonePage = BgQuiz_Blazor.Client.Components.Pages.Done;
+using StatsPage = BgQuiz_Blazor.Client.Components.Pages.Stats;
+using SettingsPage = BgQuiz_Blazor.Client.Components.Pages.Settings;
 
 namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
-/// The pages over the coordinator: Home sets up and starts, Quiz presents and answers, Done
-/// summarises and restarts. The folder seam and the parse are faked; everything else is the
-/// app's own wiring.
+/// The pages over the coordinator: Home sets up and starts, Quiz presents and answers, Stats
+/// shows the progress, Done summarises and restarts, Settings holds the one mix control. The
+/// folder seam and the parse are faked; everything else is the app's own wiring.
 /// </summary>
 public class PageTests : BunitContext
 {
@@ -50,13 +54,14 @@ public class PageTests : BunitContext
         Services.AddScoped<BrowserStorageCondition>();
         Services.AddScoped<FilterStorageRefusalSink>();
         Services.AddFilterSurface<FilterStorageRefusalSink>();
-        Services.AddScoped<PickedFolderDocumentStorage>();
         Services.AddScoped<QuizSettings>();
+        Services.AddScoped(sp => new MixDraft(
+            sp.GetRequiredService<BrowserStorage>(), NullLogger<MixDraft>.Instance, sp.GetRequiredService<BrowserStorageCondition>()));
         Services.AddScoped<NotesPlacementStore>();
         Services.AddScoped<ProblemLoad>(_ => LoadAsync);
         Services.AddScoped(sp => new QuizApp(
             sp.GetRequiredService<IFolderAccess>(), sp.GetRequiredService<FilterSetup>(),
-            sp.GetRequiredService<QuizSettings>(), sp.GetRequiredService<ProblemLoad>(),
+            sp.GetRequiredService<QuizSettings>(), sp.GetRequiredService<MixDraft>(), sp.GetRequiredService<ProblemLoad>(),
             NullLogger<QuizApp>.Instance, TimeProvider.System));
     }
 
@@ -67,6 +72,7 @@ public class PageTests : BunitContext
     }
 
     private QuizApp App => Services.GetRequiredService<QuizApp>();
+    private QuizSettings Settings => Services.GetRequiredService<QuizSettings>();
     private BunitNavigationManager Nav => Services.GetRequiredService<BunitNavigationManager>();
 
     private static Play Best() => TestFixtures.OpeningBest();
@@ -74,6 +80,11 @@ public class PageTests : BunitContext
 
     private static CheckerPlayDecision Problem(int n) =>
         TestFixtures.TwoChoiceDecision(Best(), Alt(), play2Loss: 0.05, away: n);
+
+    /// <summary>A problem with an id of its own: an active mix contributes each decision id once.</summary>
+    private static CheckerPlayDecision DistinctProblem(int n) =>
+        TestFixtures.TwoChoiceDecision(
+            Best(), Alt(), play2Loss: 0.05, away: n, location: TestFixtures.SourceLocation.OnePosition($"p{n}.xgp"));
 
     /// <summary>The page's words, tags stripped and whitespace collapsed.</summary>
     private static string Text(IRenderedComponent<Microsoft.AspNetCore.Components.IComponent> cut) =>
@@ -88,6 +99,16 @@ public class PageTests : BunitContext
     /// <summary>A later Home over a folder mounts the panel again; the owner's restoration is already settled.</summary>
     private void ExpectAnotherHomeOverAFolder() => _plan.ExpectFilterPanelMount();
 
+    /// <summary>The folder the next pick lands.</summary>
+    private FakeFolderContext NextFolder => TestFixtures.FolderOf(_folders.NextPickOutcome);
+
+    /// <summary>A stats document with one record, so the folder "has stats".</summary>
+    private static string StatsWithContent() =>
+        JsonSerializer.Serialize(
+            ProblemStatsDocument.Empty.Plus(
+                TestFixtures.Scored(Problem(9), Best(), PlayRanking.Equity), TimeProvider.System),
+            QuizStatsFile.DocumentTypeInfo);
+
     private async Task<IRenderedComponent<HomePage>> PickedHomeAsync(params BgDecisionData[] problems)
     {
         _problems.AddRange(problems);
@@ -97,6 +118,14 @@ public class PageTests : BunitContext
         await cut.Find("#pickProblemFolder").ClickAsync(new());
         cut.WaitForAssertion(() => Assert.NotNull(App.CurrentSelection));
         return cut;
+    }
+
+    /// <summary>Turn the mix setting on, declaring its write; the folder's stats decide the rest.</summary>
+    private async Task TurnTheMixSettingOnAsync()
+    {
+        await Settings.EnsureHydratedAsync();
+        _plan.ExpectWrite(BrowserStorageArea.Local, QuizSettings.StorageKey, SettingsPayload.Of(weightQuizzesByStats: true), BrowserStorageWriteAnswer.Succeeded);
+        await Settings.SetWeightQuizzesByStatsAsync(true);
     }
 
     // ── Home ────────────────────────────────────────────────────────────────────
@@ -113,7 +142,7 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_APick_ShowsTheFolder_TheFilters_TheCount_AndEnablesStart()
+    public async Task Home_APick_ShowsTheFolder_TheFilters_TheCount_TheStatsLine_AndEnablesStart()
     {
         var cut = await PickedHomeAsync(Problem(1), Problem(2));
         cut.WaitForAssertion(() =>
@@ -123,7 +152,9 @@ public class PageTests : BunitContext
             Assert.Contains("2 decisions match your filters", text);
             Assert.Contains("There are no repeated positions", text);
             Assert.Contains("By answer type", text);
+            Assert.Contains("stats will be saved to bgquiz-stats.json", text);
             Assert.Single(cut.FindComponents<FilterSurface>());
+            Assert.Empty(cut.FindAll("#mixAddRow"));   // the setting is off
             var start = cut.FindAll("button").Single(b => b.TextContent.Trim() == "Start Quiz");
             Assert.False(start.HasAttribute("disabled"));
         });
@@ -202,6 +233,86 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_SaysWhichStatsRungTheFolderLandedOn()
+    {
+        // No write grant: the quiz runs, the record does not accumulate, and no promise is made.
+        _problems.Add(Problem(1));
+        _folders.NextPickOutcome = TestFixtures.Picked("Corpus", FolderWriteCapability.PermissionDenied, [TestFixtures.ReadableXg()]);
+        ExpectHomeOverAFolder();
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("which problems give you difficulty", Text(cut));
+            Assert.DoesNotContain("stats will be saved", Text(cut));
+        });
+    }
+
+    [Fact]
+    public async Task Home_ForecastsAnUnreadableStatsFile_InsteadOfPromisingToSave()
+    {
+        _problems.Add(Problem(1));
+        _folders.NextPickOutcome = TestFixtures.Picked("Corpus", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg()]);
+        NextFolder.StatsJson = "not json at all";
+        ExpectHomeOverAFolder();
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Single(cut.FindAll("#statsUnreadableForecastNotice"));
+            Assert.Contains("can't be read, so the quiz will run but record nothing", Text(cut));
+            Assert.DoesNotContain("stats will be saved", Text(cut));
+        });
+    }
+
+    [Fact]
+    public async Task Home_ForecastsARetiredStatsFile_ByTheNameItWillBeSetAsideUnder()
+    {
+        _problems.Add(Problem(1));
+        _folders.NextPickOutcome = TestFixtures.Picked("Corpus", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg()]);
+        NextFolder.StatsJson = RetiredStatsFixture.V1Json;
+        ExpectHomeOverAFolder();
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("will be set aside as bgquiz-stats.v1.json", Text(cut));
+            Assert.Contains("stats will be saved", Text(cut));   // the promise still holds: the file is readable
+        });
+    }
+
+    [Fact]
+    public async Task Home_OffersTheMix_OnlyWithTheSettingOn_AndStatsInTheFolder()
+    {
+        _problems.Add(Problem(1));
+        _folders.NextPickOutcome = TestFixtures.Picked("Corpus", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg()]);
+        NextFolder.StatsJson = StatsWithContent();
+        ExpectHomeOverAFolder();
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        cut.WaitForAssertion(() => Assert.NotNull(App.CurrentSelection));
+        Assert.True(App.Setup!.Stats.HasStats);
+        Assert.Empty(cut.FindAll("#mixAddRow"));   // the setting is off
+
+        _plan.ExpectRead(BrowserStorageArea.Local, MixDraft.StorageKey, BrowserStorageReadAnswer.Absent);
+        await TurnTheMixSettingOnAsync();
+        cut.Render();
+
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("#mixAddRow")));
+        Assert.Contains("Weighted mix", Text(cut));
+    }
+
+    [Fact]
+    public async Task Home_WithTheSettingOn_ButNoStatsInTheFolder_OffersNoMix()
+    {
+        await TurnTheMixSettingOnAsync();
+        var cut = await PickedHomeAsync(Problem(1));
+
+        Assert.Empty(cut.FindAll("#mixAddRow"));
+        Assert.False(App.MixInEffect);
+    }
+
+    [Fact]
     public async Task Home_Start_NavigatesToTheQuiz_AndBackToQuizAppearsOnReturn()
     {
         var cut = await PickedHomeAsync(Problem(1), Problem(2));
@@ -273,6 +384,78 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Quiz_ShowStats_ReachesTheStatsPage_WhichShowsTheProgress()
+    {
+        var app = await StartedAppAsync(Problem(1), Problem(2));
+        await app.SubmitPlayAsync(Best());
+        var cut = Render<QuizPage>();
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll(".board-container")));
+
+        await cut.Find("button[aria-label='Show stats']").ClickAsync(new());
+
+        cut.WaitForAssertion(() => Assert.EndsWith("/stats", Nav.Uri));
+        var stats = Render<StatsPage>();
+        var text = Text(stats);
+        Assert.Contains("Quiz progress", text);
+        Assert.Contains("Submitted: 1", text);
+        Assert.Contains("Back to quiz", text);
+        Assert.NotNull(app.Run);   // read-only: the run is as it was
+    }
+
+    [Fact]
+    public void Stats_WithNoRun_BouncesHome()
+    {
+        Render<StatsPage>();
+        Assert.EndsWith("/", Nav.Uri);
+    }
+
+    [Fact]
+    public async Task Quiz_ReportsAnUnreadableStatsFile_AndDoneRepeatsIt()
+    {
+        _problems.Add(Problem(1));
+        _folders.NextPickOutcome = TestFixtures.Picked("Corpus", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg()]);
+        NextFolder.StatsJson = "not json at all";
+        ExpectHomeOverAFolder();
+        var home = Render<HomePage>();
+        await home.Find("#pickProblemFolder").ClickAsync(new());
+        home.WaitForAssertion(() => Assert.NotNull(App.CurrentSelection));
+        Assert.Equal(StartOutcome.Started, await App.StartAsync());
+
+        var quiz = Render<QuizPage>();
+        quiz.WaitForAssertion(() => Assert.Contains("couldn't be read, so this quiz won't record stats", Text(quiz)));
+
+        App.EndQuiz();
+        var done = Render<DonePage>();
+        Assert.Contains("couldn't be read, so this quiz didn't record stats", Text(done));
+        Assert.DoesNotContain("Nothing here needs saving", Text(done));
+        Assert.Empty(NextFolder.Writes);
+    }
+
+    [Fact]
+    public async Task Quiz_SaysWhatTheMixDrew_UntilTheFirstAnswer()
+    {
+        _problems.AddRange([DistinctProblem(1), DistinctProblem(2)]);
+        _folders.NextPickOutcome = TestFixtures.Picked("Corpus", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg()]);
+        NextFolder.StatsJson = StatsWithContent();
+        ExpectHomeOverAFolder();
+        var home = Render<HomePage>();
+        await home.Find("#pickProblemFolder").ClickAsync(new());
+        home.WaitForAssertion(() => Assert.NotNull(App.CurrentSelection));
+        await TurnTheMixSettingOnAsync();
+        var draft = Services.GetRequiredService<MixDraft>();
+        _plan.ExpectWrite(BrowserStorageArea.Local, MixDraft.StorageKey,
+            new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)]).ToJson(), BrowserStorageWriteAnswer.Succeeded);
+        await draft.AddRowAsync();
+        Assert.Equal(StartOutcome.Started, await App.StartAsync());
+
+        var quiz = Render<QuizPage>();
+        quiz.WaitForAssertion(() => Assert.Contains("Your quiz has 2 problems: 2 Never seen.", Text(quiz)));
+
+        await App.SubmitPlayAsync(Best());
+        quiz.WaitForAssertion(() => Assert.DoesNotContain("Your quiz has", Text(quiz)));
+    }
+
+    [Fact]
     public async Task Quiz_WhenTheRunFinishes_NavigatesToDone()
     {
         var app = await StartedAppAsync(Problem(1));
@@ -295,6 +478,7 @@ public class PageTests : BunitContext
         var cut = Render<DonePage>();
         Assert.Contains("Quiz complete", Text(cut));
         Assert.Contains("Total problems shown: 1", Text(cut));
+        Assert.Contains("Nothing here needs saving", Text(cut));
         await cut.FindAll("button").Single(b => b.TextContent.Trim() == "Restart with same filters").ClickAsync(new());
         cut.WaitForAssertion(() => Assert.EndsWith("/quiz", Nav.Uri));
         Assert.NotNull(app.Run);
@@ -314,9 +498,50 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Done_WithTheMixGoneSinceTheRun_SaysRestartRunsUnweighted()
+    {
+        _problems.Add(Problem(1));
+        _folders.NextPickOutcome = TestFixtures.Picked("Corpus", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg()]);
+        NextFolder.StatsJson = StatsWithContent();
+        ExpectHomeOverAFolder();
+        var home = Render<HomePage>();
+        await home.Find("#pickProblemFolder").ClickAsync(new());
+        home.WaitForAssertion(() => Assert.NotNull(App.CurrentSelection));
+        await TurnTheMixSettingOnAsync();
+        var draft = Services.GetRequiredService<MixDraft>();
+        _plan.ExpectWrite(BrowserStorageArea.Local, MixDraft.StorageKey,
+            new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)]).ToJson(), BrowserStorageWriteAnswer.Succeeded);
+        await draft.AddRowAsync();
+        Assert.Equal(StartOutcome.Started, await App.StartAsync());
+        App.EndQuiz();
+        _plan.ExpectWrite(BrowserStorageArea.Local, QuizSettings.StorageKey, SettingsPayload.Of(weightQuizzesByStats: false), BrowserStorageWriteAnswer.Succeeded);
+        await Settings.SetWeightQuizzesByStatsAsync(false);
+
+        var cut = Render<DonePage>();
+
+        Assert.Contains("Restart runs unweighted", Text(cut));
+    }
+
+    [Fact]
     public void Done_WithNoRun_BouncesHome()
     {
         Render<DonePage>();
         Assert.EndsWith("/", Nav.Uri);
+    }
+
+    // ── Settings ────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Settings_OffersTheMixToggle_WhichRecordsTheChoice()
+    {
+        var cut = Render<SettingsPage>();
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("#settingsWeightQuizzes")));
+        Assert.Contains("Draw quizzes from your weighted mix", Text(cut));
+        Assert.False(cut.Find("#settingsWeightQuizzes").HasAttribute("checked"));
+
+        _plan.ExpectWrite(BrowserStorageArea.Local, QuizSettings.StorageKey, SettingsPayload.Of(weightQuizzesByStats: true), BrowserStorageWriteAnswer.Succeeded);
+        await cut.Find("#settingsWeightQuizzes").ChangeAsync(new() { Value = true });
+
+        Assert.True(Settings.WeightQuizzesByStats);
     }
 }

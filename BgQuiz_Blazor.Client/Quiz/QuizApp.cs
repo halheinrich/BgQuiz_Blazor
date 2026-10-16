@@ -21,6 +21,9 @@ internal enum QuizPhase
 
     /// <summary>A count or a Start is composing over the loaded problems.</summary>
     Preparing,
+
+    /// <summary>An answer of record is being folded into the folder's stats file; the next answer waits for it.</summary>
+    Recording,
 }
 
 internal enum StartOutcome
@@ -33,22 +36,37 @@ internal enum StartOutcome
 
     /// <summary>The selection composed to nothing; the run or summary in hand is kept.</summary>
     NoProblems,
+
+    /// <summary>The mix on screen does not build; it is in effect, so Start waits for it to be fixed or turned off.</summary>
+    MixInvalid,
+
+    /// <summary>The mix needs the folder's stats and the bind found no document; the run in hand is kept.</summary>
+    MixRequiresStats,
 }
 
 /// <summary>
 /// The app's one coordinator: it owns the phase (the one operation in flight), the setup
-/// (the folder in hand and its problems), the live run or the finished result, and the
-/// selection (the count for the filter in effect). Pages render it and send commands; a
-/// command that does not fit the phase is refused before any await, so nothing overlaps.
-/// The one long operation is the parse, in <see cref="QuizPhase.Loading"/>; a count or a
-/// Start prepares in <see cref="QuizPhase.Preparing"/>, yielding to the browser as it goes;
-/// the run itself navigates a fixed sequence and is synchronous.
+/// (the folder in hand, its problems and its stats destination), the live run or the
+/// finished result, and the selection (the count for the filter in effect). Pages render it
+/// and send commands; a command that does not fit the phase is refused before any await, so
+/// nothing overlaps. The one long operation is the parse, in <see cref="QuizPhase.Loading"/>;
+/// a count or a Start prepares in <see cref="QuizPhase.Preparing"/>; each answer of record's
+/// write is awaited in <see cref="QuizPhase.Recording"/>; the run itself navigates a fixed
+/// sequence and is synchronous.
+///
+/// <para>
+/// The folder context is captured with the setup at the pick and activated with the run at
+/// Start or Restart, on success only, so a later pick cannot retarget a live quiz's recording
+/// (halheinrich/backgammon#404). A live run keeps its folder across Clear and across a
+/// failed replacement; a landing ends the run; a folder nothing holds is released.
+/// </para>
 /// </summary>
 internal sealed class QuizApp : IDisposable
 {
     private readonly IFolderAccess _folders;
     private readonly FilterSetup _filterSetup;
     private readonly QuizSettings _settings;
+    private readonly MixDraft _mixDraft;
     private readonly ProblemLoad _load;
     private readonly ILogger<QuizApp> _logger;
     private readonly TimeProvider _clock;
@@ -59,12 +77,13 @@ internal sealed class QuizApp : IDisposable
     private bool _recountPending;
 
     public QuizApp(
-        IFolderAccess folders, FilterSetup filterSetup, QuizSettings settings, ProblemLoad load,
+        IFolderAccess folders, FilterSetup filterSetup, QuizSettings settings, MixDraft mixDraft, ProblemLoad load,
         ILogger<QuizApp> logger, TimeProvider clock)
     {
         _folders = folders ?? throw new ArgumentNullException(nameof(folders));
         _filterSetup = filterSetup ?? throw new ArgumentNullException(nameof(filterSetup));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _mixDraft = mixDraft ?? throw new ArgumentNullException(nameof(mixDraft));
         _load = load ?? throw new ArgumentNullException(nameof(load));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
@@ -104,6 +123,30 @@ internal sealed class QuizApp : IDisposable
 
     public PlayRanking Ranking => Run?.Ranking ?? Finished?.Result.Ranking
         ?? throw new InvalidOperationException("No quiz has been started, so there is no quiz ranking.");
+
+    /// <summary>The stats report of the run in hand, live or finished, or null before any run.</summary>
+    public QuizStatsReport? Stats => _live?.Stats.Report ?? Finished?.Stats;
+
+    /// <summary>How the mix composed the live run, or null for a blank mix or no live run.</summary>
+    public MixComposition? Composition => _live?.Composition;
+
+    /// <summary>Whether the live run's composition notice was dismissed; it is the run's, so a page revisit does not revive it.</summary>
+    public bool CompositionNoticeDismissed => _live?.CompositionNoticeDismissed ?? true;
+
+    public void DismissCompositionNotice()
+    {
+        if (_live is { } live) live.CompositionNoticeDismissed = true;
+    }
+
+    /// <summary>
+    /// Visible means in effect (SPEC-filtering.md §5): the mix panel is on screen, and the
+    /// rows on it compose the next Start, exactly when the setting is on and the folder in
+    /// hand holds a stats document with content.
+    /// </summary>
+    public bool MixInEffect => _settings.WeightQuizzesByStats && Setup is { Stats.HasStats: true };
+
+    /// <summary>The mix the next Start composes with: the draft while in effect, else blank; null while the draft on screen does not build.</summary>
+    public QuizMix? MixForStart => MixInEffect ? _mixDraft.Build() : QuizMix.Empty;
 
     /// <summary>The filter in effect for the setup in hand, or null when there is none or nothing is applied.</summary>
     public FilterConfig? FilterInEffect =>
@@ -154,8 +197,8 @@ internal sealed class QuizApp : IDisposable
                 return FolderOutcome.Failed(failure);
             }
 
-            if (picked.Cancelled) return FolderOutcome.Cancelled;
-            return await LandAsync(picked);
+            if (picked.Folder is not { } folder) return FolderOutcome.Cancelled;
+            return await LandAsync(folder, picked.Sample);
         }
         finally
         {
@@ -180,7 +223,7 @@ internal sealed class QuizApp : IDisposable
                 return FolderOutcome.Failed(failure);
             }
 
-            return await LandAsync(collected);
+            return await LandAsync(collected.Folder!, collected.Sample);
         }
         finally
         {
@@ -188,7 +231,7 @@ internal sealed class QuizApp : IDisposable
         }
     }
 
-    /// <summary>Let the folder go. The run in hand, live or finished, stays.</summary>
+    /// <summary>Let the folder go. The run in hand, live or finished, stays; a live run keeps recording into its folder.</summary>
     public async Task<bool> ClearFolderAsync()
     {
         if (!TryBegin(QuizPhase.Loading)) return false;
@@ -203,27 +246,28 @@ internal sealed class QuizApp : IDisposable
         }
     }
 
-    private async Task<FolderOutcome> LandAsync(FolderPickOutcome picked)
+    private async Task<FolderOutcome> LandAsync(IFolderContext folder, FolderSample sample)
     {
         Enter(QuizPhase.Loading);
-        if (picked.Sample.Files.IsEmpty)
+        if (sample.Files.IsEmpty)
         {
+            await ReleaseIfUnheldAsync(folder);
             await DropSetupAsync();
             return FolderOutcome.NoFiles;
         }
 
         // The sample has landed, and the run in progress ends here, its summary kept; the old
-        // collection, its count and its filter source go with it, before the new files are
-        // read, so two parsed collections never coexist (SPEC-quiz-history.md §9; ruled
+        // setup, its count, its filter source and its folder go with it, before the new files
+        // are read, so two parsed collections never coexist (SPEC-quiz-history.md §9; ruled
         // 2026-10-16, halheinrich/backgammon#421).
         EndRun(endedByNewSample: true);
-        ReleaseSetup();
+        await DropSetupAsync();
 
         LoadedProblems loaded;
         try
         {
             loaded = await _load(
-                picked.Sample.Files,
+                sample.Files,
                 progress =>
                 {
                     Progress = progress;
@@ -233,16 +277,14 @@ internal sealed class QuizApp : IDisposable
         }
         catch (Exception failure)
         {
-            // The folder arrived but could not be read as problems. The browser's slot
-            // moved to it, so no folder is in hand; the run the landing finished stays
-            // finished, with its summary (§9).
-            await DropSetupAsync();
+            // The folder arrived but could not be read as problems: no folder is in hand, and
+            // the run the landing finished stays finished, with its summary (§9).
+            await ReleaseIfUnheldAsync(folder);
             return FolderOutcome.Failed(failure);
         }
 
         var setup = new QuizSetup(
-            picked.DirectoryName, picked.Capability, picked.Sample, loaded,
-            FilterSourceToken.FromGeneration(++_setups));
+            folder, sample, loaded, await StatsProbe.OfAsync(folder), FilterSourceToken.FromGeneration(++_setups));
         Setup = setup;
         _filterSetup.ReportSource(setup.FilterSource);
         Changed?.Invoke();
@@ -250,22 +292,24 @@ internal sealed class QuizApp : IDisposable
         return FolderOutcome.Landed;
     }
 
-    /// <summary>The setup in hand, its count and its filter source go; the folder's slot is not touched.</summary>
-    private void ReleaseSetup()
+    /// <summary>No folder is in hand any more: the setup, its count and its filter source go, and its folder is released unless a live run still records into it.</summary>
+    private async Task DropSetupAsync()
     {
+        var setup = Setup;
         Setup = null;
         _selection = null;
         _filterSetup.ReportSource(null);
         Changed?.Invoke();
+        if (setup is not null) await ReleaseIfUnheldAsync(setup.Folder);
     }
 
-    /// <summary>No folder is in hand any more: the setup goes and the module's slot is released.</summary>
-    private async Task DropSetupAsync()
+    /// <summary>Release <paramref name="folder"/> unless the setup or the live run still holds it. Never throws: a release that fails is logged, and nothing reads the handle again.</summary>
+    private async Task ReleaseIfUnheldAsync(IFolderContext folder)
     {
-        ReleaseSetup();
+        if (ReferenceEquals(Setup?.Folder, folder) || ReferenceEquals(_live?.Folder, folder)) return;
         try
         {
-            await _folders.ClearPickedAsync();
+            await folder.DisposeAsync();
         }
         catch (Exception releaseFault)
         {
@@ -330,25 +374,36 @@ internal sealed class QuizApp : IDisposable
 
     // ── Starting a run ───────────────────────────────────────────────────────────
 
-    /// <summary>Compose a new run from the setup under the filter in effect and the current settings.</summary>
-    public Task<StartOutcome> StartAsync()
+    /// <summary>
+    /// Compose a new run from the setup under the filter in effect, the current settings
+    /// and the mix in effect; <paramref name="withoutMix"/> runs this one quiz unweighted
+    /// while the mix stays what the user built.
+    /// </summary>
+    public Task<StartOutcome> StartAsync(bool withoutMix = false)
     {
         if (IsBusy) return Task.FromResult(StartOutcome.Busy);
         if (Setup is not { } setup) return Task.FromResult(StartOutcome.NoSetup);
         if (FilterInEffect is not { } config) return Task.FromResult(StartOutcome.NoFilterInEffect);
-        return StartCoreAsync(setup, config);
+        var mix = withoutMix ? QuizMix.Empty : MixForStart;
+        if (mix is null) return Task.FromResult(StartOutcome.MixInvalid);
+        return StartCoreAsync(setup, config, mix);
     }
 
-    /// <summary>Compose a new run from the setup under the finished run's filter and the current settings.</summary>
-    public Task<StartOutcome> RestartAsync()
+    /// <summary>
+    /// Compose a new run from the setup under the finished run's filter and mix and the
+    /// current settings. Restart weights iff the mix is in effect at this moment
+    /// (SPEC-filtering.md §5): with the mix gone, it runs unweighted.
+    /// </summary>
+    public Task<StartOutcome> RestartAsync(bool withoutMix = false)
     {
         if (IsBusy) return Task.FromResult(StartOutcome.Busy);
         if (Finished is not { } finished) return Task.FromResult(StartOutcome.NothingToRestart);
         if (Setup is not { } setup) return Task.FromResult(StartOutcome.NoSetup);
-        return StartCoreAsync(setup, finished.Filters);
+        var mix = withoutMix || !MixInEffect ? QuizMix.Empty : finished.Mix;
+        return StartCoreAsync(setup, finished.Filters, mix);
     }
 
-    private async Task<StartOutcome> StartCoreAsync(QuizSetup setup, FilterConfig config)
+    private async Task<StartOutcome> StartCoreAsync(QuizSetup setup, FilterConfig config, QuizMix mix)
     {
         if (!TryBegin(QuizPhase.Preparing)) return StartOutcome.Busy;
         try
@@ -356,19 +411,26 @@ internal sealed class QuizApp : IDisposable
             await _settings.EnsureHydratedAsync();
             var ranking = _settings.Ranking;
             var yielder = new CooperativeYielder(_clock);
+
+            // The stats destination activates with the run: bound now, over the setup's
+            // folder, and held by the run only on success, so a refused or faulted attempt
+            // leaves the run in hand recording where it was (halheinrich/backgammon#404).
+            var stats = await QuizStats.BindAsync(setup.Folder, _clock);
+            if (!mix.IsPassthrough && stats.Document is null) return StartOutcome.MixRequiresStats;
+
             var selection = _selection?.Describes(setup, config, ranking) == true
                 ? _selection
                 : await Selection.ComputeAsync(setup, config, ranking, yielder, CancellationToken.None);
             if (config.Equals(FilterInEffect)) _selection = selection;
 
             var sequence = await ProblemSequence.BuildAsync(
-                selection.Pool, QuizMix.Empty, _settings.Order, ranking,
-                stats: null, _clock.GetUtcNow(), new Random(), yielder, CancellationToken.None);
+                selection.Pool, mix, _settings.Order, ranking,
+                stats.Document, _clock.GetUtcNow(), new Random(), yielder, CancellationToken.None);
             if (sequence.Problems.Count == 0) return StartOutcome.NoProblems;
 
             // The prepared run replaces whatever was in hand only now, on success.
             var run = QuizRun.Begin(ranking, sequence.Problems).PresentNext(RandomSide());
-            _live = new LiveQuiz(run, config, setup.Name);
+            _live = new LiveQuiz(run, config, mix, setup.Name, setup.Folder, stats, sequence.Composition);
             Finished = null;
             return StartOutcome.Started;
         }
@@ -380,26 +442,42 @@ internal sealed class QuizApp : IDisposable
 
     // ── The run ──────────────────────────────────────────────────────────────────
 
-    public Task SubmitPlayAsync(Play play)
+    /// <summary>
+    /// Submit a play. The first submission retires the composition notice (it said how the
+    /// quiz was built, and the user has now acted on it); an answer of record is folded into
+    /// the folder's stats file before the call returns, with the app busy meanwhile.
+    /// </summary>
+    public async Task SubmitPlayAsync(Play play)
     {
-        if (!IsBusy && _live is { Run.IsAnswering: true } live)
-        {
-            live.Run = live.Run.SubmitPlay(play, out _);
-            Changed?.Invoke();
-        }
-
-        return Task.CompletedTask;
+        if (IsBusy || _live is not { Run.IsAnswering: true } live) return;
+        live.Run = live.Run.SubmitPlay(play, out var answer);
+        live.CompositionNoticeDismissed = true;
+        Changed?.Invoke();
+        if (answer is not null) await RecordAsync(live, answer);
     }
 
-    public Task SubmitCubeAnswerAsync(CubeAnswer answer)
+    /// <summary>Submit a cube answer, as <see cref="SubmitPlayAsync"/> submits a play.</summary>
+    public async Task SubmitCubeAnswerAsync(CubeAnswer answer)
     {
-        if (!IsBusy && _live is { Run.IsAnswering: true } live)
-        {
-            live.Run = live.Run.SubmitCubeAnswer(answer, out _);
-            Changed?.Invoke();
-        }
+        if (IsBusy || _live is not { Run.IsAnswering: true } live) return;
+        live.Run = live.Run.SubmitCubeAnswer(answer, out var answerOfRecord);
+        live.CompositionNoticeDismissed = true;
+        Changed?.Invoke();
+        if (answerOfRecord is not null) await RecordAsync(live, answerOfRecord);
+    }
 
-        return Task.CompletedTask;
+    /// <summary>The one stats write per answer of record, awaited before the next command is accepted; the recording never throws.</summary>
+    private async Task RecordAsync(LiveQuiz live, AnswerOfRecord answer)
+    {
+        Enter(QuizPhase.Recording);
+        try
+        {
+            await live.Stats.RecordAsync(answer);
+        }
+        finally
+        {
+            End();
+        }
     }
 
     /// <summary>Move on; at the frontier, present the next problem or finish the run.</summary>
@@ -460,8 +538,10 @@ internal sealed class QuizApp : IDisposable
     private void Finish(QuizRun ended, bool endedByNewSample)
     {
         var live = _live ?? throw new InvalidOperationException("Only a live run finishes.");
-        Finished = new FinishedQuiz(ended.ToResult(), live.Filters, live.Name, endedByNewSample);
+        Finished = new FinishedQuiz(ended.ToResult(), live.Filters, live.Mix, live.Name, live.Stats.Report, endedByNewSample);
         _live = null;
+        // The finished run holds nothing of the folder; nothing waits on the release and nothing reads the handle again.
+        _ = ReleaseIfUnheldAsync(live.Folder);
     }
 
     private bool RandomSide() => _settings.RandomizeSidePerProblem && Random.Shared.Next(2) == 0;
@@ -495,11 +575,17 @@ internal sealed class QuizApp : IDisposable
 
     public void Dispose() => _filterSetup.Applied -= OnFilterApplied;
 
-    /// <summary>A run in progress with what a Restart needs beside it.</summary>
-    private sealed class LiveQuiz(QuizRun run, FilterConfig filters, string name)
+    /// <summary>A run in progress: its folder and stats recording, and what a Restart needs beside it.</summary>
+    private sealed class LiveQuiz(
+        QuizRun run, FilterConfig filters, QuizMix mix, string name, IFolderContext folder, QuizStats stats, MixComposition? composition)
     {
         public QuizRun Run { get; set; } = run;
         public FilterConfig Filters { get; } = filters;
+        public QuizMix Mix { get; } = mix;
         public string Name { get; } = name;
+        public IFolderContext Folder { get; } = folder;
+        public QuizStats Stats { get; } = stats;
+        public MixComposition? Composition { get; } = composition;
+        public bool CompositionNoticeDismissed { get; set; }
     }
 }
