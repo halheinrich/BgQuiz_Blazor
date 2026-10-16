@@ -35,7 +35,13 @@ public partial class Home : ComponentBase, IDisposable
     private FinishedQuiz? _endedNoticeDismissedFor;
 
     private QuizSetup? Setup => App.Setup;
-    private bool IsBusy => App.IsBusy;
+
+    /// <summary>
+    /// The page locks while the app works (loading, preparing), not while the browser's
+    /// prompts are up: the picking phase is the user's turn, and a disabled fieldset would
+    /// disable the hidden input the fallback picker opens through.
+    /// </summary>
+    private bool IsBusy => App.Phase is QuizPhase.Loading or QuizPhase.Preparing;
     private FilterConfig? FilterInEffect => App.FilterInEffect;
     private Selection? CurrentSelection => App.CurrentSelection;
 

@@ -22,14 +22,14 @@ public sealed class ForcedPlaySetAsideTests : E2eTestBase
         await Expect(body).ToContainTextAsync(ExpectedText.DecisionsMatchYourFilters(1));
         await Expect(body).ToContainTextAsync("1 forced play was set aside");
         await StartQuizAsync();
-        await ExpectProblemNumberAsync(1);
-        await Expect(Page.Locator(".problem-position")).ToContainTextAsync("of 1");
         await Expect(Page.Locator(".board-container .bg-play-entry")).ToBeVisibleAsync();
         await ClickBoardPointAsync(24);
         await ClickBoardPointAsync(18);
         await Expect(SubmitButton).ToBeEnabledAsync();
         await SubmitButton.ClickAsync();
         await Expect(VerdictBand).ToHaveTextAsync(ExpectedText.CorrectPlayVerdict);
+        await ExpectProblemNumberAsync(1);   // the score panel shows at review: one problem, not two
+        await Expect(Page.Locator(".problem-position")).ToContainTextAsync("of 1");
         await ContinueToDoneAsync();
         await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
     }
