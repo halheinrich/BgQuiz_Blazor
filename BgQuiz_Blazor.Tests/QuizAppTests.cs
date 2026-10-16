@@ -79,7 +79,7 @@ public class QuizAppTests : BunitContext
         _problems.AddRange(problems);
         _folders.NextPickOutcome = Folder();
         var app = App;
-        var outcome = await app.PickFolderAsync();
+        var outcome = await app.PickFolderAsync(default);
         Assert.Equal(FolderOutcomeKind.Landed, outcome.Kind);
         return app;
     }
@@ -113,7 +113,7 @@ public class QuizAppTests : BunitContext
         var app = await PickedAsync(Problem(1));
         var setup = app.Setup;
         _folders.NextPickOutcome = FolderPickOutcome.CancelledOutcome;
-        Assert.Equal(FolderOutcomeKind.Cancelled, (await app.PickFolderAsync()).Kind);
+        Assert.Equal(FolderOutcomeKind.Cancelled, (await app.PickFolderAsync(default)).Kind);
         Assert.Same(setup, app.Setup);
         Assert.Equal(1, _loads);
     }
@@ -123,14 +123,14 @@ public class QuizAppTests : BunitContext
     {
         var app = await PickedAsync(Problem(1));
         _folders.NextPickOutcome = TestFixtures.Picked("Empty", FolderWriteCapability.Enabled, []);
-        Assert.Equal(FolderOutcomeKind.NoFiles, (await app.PickFolderAsync()).Kind);
+        Assert.Equal(FolderOutcomeKind.NoFiles, (await app.PickFolderAsync(default)).Kind);
         Assert.Null(app.Setup);
         Assert.Null(Setup.Current.Source);
         Assert.Equal(1, _folders.ClearPickedCallCount);
 
         _folders.NextPickOutcome = Folder();
         _folders.PickException = new IOException("the drive went away");
-        var failed = await app.PickFolderAsync();
+        var failed = await app.PickFolderAsync(default);
         Assert.Equal(FolderOutcomeKind.Failed, failed.Kind);
         Assert.IsType<IOException>(failed.Failure);
         Assert.Null(app.Setup);
@@ -145,7 +145,7 @@ public class QuizAppTests : BunitContext
         _loadFailure = new InvalidDataException("not an XG file after all");
         _folders.NextPickOutcome = Folder("Other");
 
-        var outcome = await app.PickFolderAsync();
+        var outcome = await app.PickFolderAsync(default);
 
         Assert.Equal(FolderOutcomeKind.Failed, outcome.Kind);
         Assert.Null(app.Setup);
@@ -160,7 +160,7 @@ public class QuizAppTests : BunitContext
         await app.SubmitPlayAsync(Best());
         _folders.NextPickOutcome = Folder("Other");
 
-        Assert.Equal(FolderOutcomeKind.Landed, (await app.PickFolderAsync()).Kind);
+        Assert.Equal(FolderOutcomeKind.Landed, (await app.PickFolderAsync(default)).Kind);
 
         Assert.Null(app.Run);
         Assert.NotNull(app.Finished);
@@ -193,7 +193,7 @@ public class QuizAppTests : BunitContext
         var run = app.Run;
         _problems.Clear();
         _folders.NextPickOutcome = Folder("Empty-ish");
-        Assert.Equal(FolderOutcomeKind.Landed, (await app.PickFolderAsync()).Kind);   // ends the run: a new sample
+        Assert.Equal(FolderOutcomeKind.Landed, (await app.PickFolderAsync(default)).Kind);   // ends the run: a new sample
         var finished = app.Finished;
         Assert.NotNull(finished);
         Assert.Equal(StartOutcome.NoProblems, await app.RestartAsync());
@@ -281,9 +281,9 @@ public class QuizAppTests : BunitContext
         _folders.OnPrompts = () => prompts.Task;
         _folders.NextPickOutcome = Folder();
 
-        var pick = app.PickFolderAsync();
+        var pick = app.PickFolderAsync(default);
         Assert.Equal(QuizPhase.Picking, app.Phase);
-        Assert.Equal(FolderOutcomeKind.Refused, (await app.PickFolderAsync()).Kind);
+        Assert.Equal(FolderOutcomeKind.Refused, (await app.PickFolderAsync(default)).Kind);
         Assert.Equal(StartOutcome.Busy, await app.StartAsync());
         Assert.False(await app.ClearFolderAsync());
 
@@ -305,7 +305,7 @@ public class QuizAppTests : BunitContext
         Assert.Same(first, app.CurrentSelection);
 
         _folders.NextPickOutcome = Folder("Other");
-        Assert.Equal(FolderOutcomeKind.Landed, (await app.PickFolderAsync()).Kind);
+        Assert.Equal(FolderOutcomeKind.Landed, (await app.PickFolderAsync(default)).Kind);
         var second = app.CurrentSelection;
         Assert.NotNull(second);
         Assert.NotSame(first, second);

@@ -122,10 +122,13 @@ internal sealed class QuizApp : IDisposable
     // ── Folder ───────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Choose a folder with the browser's directory picker. Cancelling keeps the setup in
-    /// hand; a folder the browser accepts replaces it, whatever the folder holds.
+    /// The "choose a folder" gesture. The mechanism is probed at the click: with the
+    /// browser's directory picker, the prompts are the user's turn and a folder the browser
+    /// accepts replaces the setup, whatever it holds, while cancelling keeps the setup in
+    /// hand; without it, the hidden <c>webkitdirectory</c> input's picker opens and the
+    /// selection arrives later through <see cref="CollectFallbackAsync"/>.
     /// </summary>
-    public async Task<FolderOutcome> PickFolderAsync()
+    public async Task<FolderOutcome> PickFolderAsync(ElementReference fallbackInput)
     {
         if (!TryBegin(QuizPhase.Picking)) return FolderOutcome.Refused;
         try
@@ -133,6 +136,12 @@ internal sealed class QuizApp : IDisposable
             FolderPickOutcome picked;
             try
             {
+                if (!await _folders.SupportsDirectoryPickerAsync())
+                {
+                    await _folders.TriggerFallbackPickerAsync(fallbackInput);
+                    return FolderOutcome.AwaitingSelection;
+                }
+
                 picked = await _folders.PickFolderAsync(onPickAccepted: () =>
                 {
                     Enter(QuizPhase.Loading);
@@ -153,10 +162,6 @@ internal sealed class QuizApp : IDisposable
             End();
         }
     }
-
-    /// <summary>Open the hidden <c>webkitdirectory</c> input's picker (the fallback mechanism). The selection arrives through <see cref="CollectFallbackAsync"/>.</summary>
-    public Task OpenFallbackPickerAsync(ElementReference fallbackInput) =>
-        _folders.TriggerFallbackPickerAsync(fallbackInput);
 
     /// <summary>Take the fallback input's selection as the new setup.</summary>
     public async Task<FolderOutcome> CollectFallbackAsync(ElementReference fallbackInput)

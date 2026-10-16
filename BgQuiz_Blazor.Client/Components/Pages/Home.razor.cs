@@ -83,10 +83,7 @@ public partial class Home : ComponentBase, IDisposable
     private async Task PickFolderAsync()
     {
         ClearPickNotices();
-        if (_fsAccessAvailable)
-            Report(await App.PickFolderAsync());
-        else
-            await App.OpenFallbackPickerAsync(_fallbackInput);
+        Report(await App.PickFolderAsync(_fallbackInput));
     }
 
     private async Task HandleFallbackPickedAsync(ChangeEventArgs _) =>
@@ -115,6 +112,7 @@ public partial class Home : ComponentBase, IDisposable
                 break;
             case FolderOutcomeKind.Landed:
             case FolderOutcomeKind.Refused:
+            case FolderOutcomeKind.AwaitingSelection:
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(outcome), outcome.Kind, null);

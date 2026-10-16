@@ -17,6 +17,9 @@ internal enum FolderOutcomeKind
 
     /// <summary>The folder could not be read (<see cref="FolderOutcome.Failure"/>).</summary>
     Failed,
+
+    /// <summary>The fallback picker is open; its selection arrives through the input's change event.</summary>
+    AwaitingSelection,
 }
 
 /// <summary>What a folder operation came to: its kind, and the failure where the kind carries one.</summary>
@@ -32,6 +35,7 @@ internal sealed class FolderOutcome
     public static FolderOutcome Refused { get; } = new(FolderOutcomeKind.Refused);
     public static FolderOutcome Cancelled { get; } = new(FolderOutcomeKind.Cancelled);
     public static FolderOutcome NoFiles { get; } = new(FolderOutcomeKind.NoFiles);
+    public static FolderOutcome AwaitingSelection { get; } = new(FolderOutcomeKind.AwaitingSelection);
 
     public static FolderOutcome Failed(Exception failure) =>
         new(FolderOutcomeKind.Failed, failure ?? throw new ArgumentNullException(nameof(failure)));
