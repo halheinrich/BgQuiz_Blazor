@@ -487,7 +487,7 @@ public class QuizAppTests : BunitContext
     [Fact]
     public async Task AFailedReplacement_KeepsThePriorRun_AndItsRecording()
     {
-        // The #404 case: a Start that is refused leaves the run in hand recording where it
+        // The halheinrich/backgammon#404 case: a Start that is refused leaves the run in hand recording where it
         // was, into its own folder, with its own report. Here the folder's stats file turns
         // unreadable under a live weighted run, so the next weighted Start is refused.
         SettleTheFilterOwner();
