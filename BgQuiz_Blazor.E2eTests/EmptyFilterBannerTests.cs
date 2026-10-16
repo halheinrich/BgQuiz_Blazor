@@ -46,16 +46,22 @@ public sealed class EmptyFilterBannerTests : E2eTestBase
                 "No problems match the filters — adjust and re-apply them to enable Start."))
             .ToBeVisibleAsync();
 
-        // Adjust — what the hint says — and the page recovers: a non-empty
-        // count, the hint gone, Start live. Relaxed all the way back to no
-        // filter there is nothing to re-apply: the empty selection is in
-        // effect on its own (halheinrich/backgammon#266), and Apply is off.
+        // Adjust — what the hint says — and the page recovers: the hint gone,
+        // Start live. Relaxed all the way back to no filter there is nothing to
+        // re-apply: the empty selection is in effect on its own
+        // (halheinrich/backgammon#266) and Apply is off; the count follows a
+        // commit, never an edit (halheinrich/backgammon#421), so Home says what
+        // it waits for until Clear commits the empty selection.
         await Page.GetByLabel("Race", new() { Exact = true }).UncheckAsync();
         await ExpectFilterInEffectAsync();
 
-        await Expect(Page.GetByText(ExpectedText.DecisionsMatchYourFilters(1))).ToBeVisibleAsync();
         await Expect(Page.GetByText("No problems match the filters")).ToHaveCountAsync(0);
         await Expect(StartButton).ToBeEnabledAsync();
+        await Expect(Page.Locator("#countFollowsCommit")).ToBeVisibleAsync();
+
+        await Page.Locator("#clearFilters").ClickAsync();
+        await Expect(Page.GetByText(ExpectedText.DecisionsMatchYourFilters(1))).ToBeVisibleAsync();
+        await Expect(Page.Locator("#countFollowsCommit")).ToHaveCountAsync(0);
     }
 
     [Fact]

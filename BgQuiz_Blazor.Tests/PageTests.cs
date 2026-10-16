@@ -159,10 +159,9 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_AFolderThatCannotBeReadAsProblems_ShowsTheError_AndTheRunInProgressGoesOn()
+    public async Task Home_AFolderThatCannotBeReadAsProblems_ShowsTheError_AndTheRunTheLandingFinished_StaysFinished()
     {
         var app = await StartedAppAsync(Problem(1), Problem(2));
-        var run = app.Run;
         _loadFailure = new InvalidDataException("not XG after all");
         _folders.NextPickOutcome = TestFixtures.Picked("Other", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg()]);
         ExpectAnotherHomeOverAFolder();
@@ -172,9 +171,11 @@ public class PageTests : BunitContext
         {
             Assert.Contains("Could not read the folder:", Text(cut));
             Assert.Contains("not XG after all", Text(cut));
+            Assert.Contains("finished the quiz you had in progress", Text(cut));
         });
         Assert.Null(app.Setup);
-        Assert.Same(run, app.Run);
+        Assert.Null(app.Run);
+        Assert.True(app.Finished!.EndedByNewSample);
     }
 
     [Fact]

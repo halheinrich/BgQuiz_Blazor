@@ -63,13 +63,18 @@ on every move, on the renderer's context.
 - **Pick.** The browser's prompts are the user's turn (picking); a folder it
   accepts is parsed once, in full, with the screen locked and a progress line
   (loading). Forced plays are set aside. A new sample ends the run in
-  progress and keeps its summary; a cancelled pick keeps the setup in hand; a
-  folder with no files, or one that cannot be read, leaves no setup.
+  progress as it lands, keeping its summary, and releases the old setup and
+  its count before the new files are read (SPEC-quiz-history §9: two parsed
+  collections never coexist); a cancelled pick keeps the setup in hand; a
+  folder with no files, or one that cannot be read, leaves no setup, and a
+  run the landing finished stays finished.
 - **Filter.** XgFilter_Razor's `FilterSetup` is the one owner of the draft
   and what is applied; the app reports each setup's token to it and raises
   nothing from its snapshot stream. Its `Applied` event is the one entry for
   the count, which runs as the preparing operation (or waits for the one in
-  flight). The ready-empty filter is in effect without an Apply.
+  flight). The ready-empty filter is in effect without an Apply; an edit
+  that empties an applied filter puts it in effect too, and is counted only
+  at the next Clear or Apply — Home says so meanwhile.
 - **Start.** Filter the problems under the ranking, deduplicate by position
   (`DistinctProblems`), compose the sequence in the order
   (`ProblemSequence`, blank mix for now), present the first problem. The

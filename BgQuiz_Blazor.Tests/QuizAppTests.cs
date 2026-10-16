@@ -23,6 +23,7 @@ public class QuizAppTests : BunitContext
     private readonly FakeFolderAccess _folders = new();
     private readonly List<BgDecisionData> _problems = [];
     private Exception? _loadFailure;
+    private Action? _onLoad;
     private int _loads;
     private readonly BrowserStoragePlan _plan;
 
@@ -49,6 +50,7 @@ public class QuizAppTests : BunitContext
     {
         _loads++;
         progress?.Invoke(new LoadProgress(0, files.Length));
+        _onLoad?.Invoke();
         if (_loadFailure is { } failure) return Task.FromException<LoadedProblems>(failure);
         return Task.FromResult(new LoadedProblems([.. _problems], TestFixtures.WalkedReport(), forcedPlaysSetAside: 0));
     }
@@ -138,20 +140,56 @@ public class QuizAppTests : BunitContext
     }
 
     [Fact]
-    public async Task AParseFailure_LeavesNoSetup_AndTheRunInProgressGoesOn()
+    public async Task AParseFailureAfterLanding_LeavesNoSetup_AndTheRunTheLandingFinished_StaysFinished()
     {
         var app = await StartedAsync(await PickedAsync(Problem(1), Problem(2)));
-        var run = app.Run;
         _loadFailure = new InvalidDataException("not an XG file after all");
         _folders.NextPickOutcome = Folder("Other");
 
         var outcome = await app.PickFolderAsync(default);
 
+        // The sample landed, so the run ended there (SPEC-quiz-history.md §9); the failure to read
+        // it leaves no folder and revives nothing.
         Assert.Equal(FolderOutcomeKind.Failed, outcome.Kind);
         Assert.Null(app.Setup);
-        Assert.Same(run, app.Run);
-        Assert.Null(app.Finished);
+        Assert.Null(app.Run);
+        Assert.True(app.Finished!.EndedByNewSample);
+        Assert.Equal(1, _folders.ClearPickedCallCount);
     }
+
+    [Fact]
+    public void ANewSampleLanding_ReleasesTheOldCollectionAndItsCount_BeforeTheNewFilesAreRead()
+    {
+        // Two parsed collections never coexist (§9): the old setup and its count are unreachable
+        // by the time the parse begins. Measured inside the parse, on one thread, so no idle
+        // worker holds a state machine that would keep them alive for the test host's own reasons.
+        SingleThreadedRunner.Run(async () =>
+        {
+            var app = await StartedAsync(await PickedAsync(Problem(1), Problem(2)));
+            var (oldSetup, oldSelection) = WeakReferencesTo(app);
+            bool? setupAlive = null, selectionAlive = null;
+            _onLoad = () =>
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                setupAlive = oldSetup.IsAlive;
+                selectionAlive = oldSelection.IsAlive;
+            };
+            _folders.NextPickOutcome = Folder("Other");
+
+            Assert.Equal(FolderOutcomeKind.Landed, (await app.PickFolderAsync(default)).Kind);
+
+            Assert.False(setupAlive, "the old setup was still reachable while the new files were read");
+            Assert.False(selectionAlive, "the old count was still reachable while the new files were read");
+            Assert.True(app.Finished!.EndedByNewSample);
+            Assert.Equal("Other", app.Setup!.FolderName);
+        });
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static (WeakReference Setup, WeakReference Selection) WeakReferencesTo(QuizApp app) =>
+        (new WeakReference(app.Setup!), new WeakReference(app.CurrentSelection!));
 
     [Fact]
     public async Task ANewSampleLanding_EndsTheRunInProgress_WithItsSummaryKept()

@@ -68,7 +68,7 @@ internal sealed class QuizApp : IDisposable
         _load = load ?? throw new ArgumentNullException(nameof(load));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
-        _filterSetup.InEffectChanged += OnFilterInEffectChanged;
+        _filterSetup.Applied += OnFilterApplied;
     }
 
     // ── State pages render ───────────────────────────────────────────────────────
@@ -212,6 +212,13 @@ internal sealed class QuizApp : IDisposable
             return FolderOutcome.NoFiles;
         }
 
+        // The sample has landed, and the run in progress ends here, its summary kept; the old
+        // collection, its count and its filter source go with it, before the new files are
+        // read, so two parsed collections never coexist (SPEC-quiz-history.md §9; ruled
+        // 2026-10-16, halheinrich/backgammon#421).
+        EndRun(endedByNewSample: true);
+        ReleaseSetup();
+
         LoadedProblems loaded;
         try
         {
@@ -227,32 +234,35 @@ internal sealed class QuizApp : IDisposable
         catch (Exception failure)
         {
             // The folder arrived but could not be read as problems. The browser's slot
-            // moved to it, so no folder is in hand; the run in progress, not yet ended,
-            // goes on.
+            // moved to it, so no folder is in hand; the run the landing finished stays
+            // finished, with its summary (§9).
             await DropSetupAsync();
             return FolderOutcome.Failed(failure);
         }
 
-        // A new sample ends the run in progress (ruled 2026-10-16, halheinrich/backgammon#421).
-        EndRun(endedByNewSample: true);
         var setup = new QuizSetup(
             picked.DirectoryName, picked.Capability, picked.Sample, loaded,
             FilterSourceToken.FromGeneration(++_setups));
         Setup = setup;
-        _selection = null;
         _filterSetup.ReportSource(setup.FilterSource);
         Changed?.Invoke();
         await RecountCoreAsync();
         return FolderOutcome.Landed;
     }
 
-    /// <summary>No folder is in hand any more: the module's slot is released, the filter owner told.</summary>
-    private async Task DropSetupAsync()
+    /// <summary>The setup in hand, its count and its filter source go; the folder's slot is not touched.</summary>
+    private void ReleaseSetup()
     {
         Setup = null;
         _selection = null;
         _filterSetup.ReportSource(null);
         Changed?.Invoke();
+    }
+
+    /// <summary>No folder is in hand any more: the setup goes and the module's slot is released.</summary>
+    private async Task DropSetupAsync()
+    {
+        ReleaseSetup();
         try
         {
             await _folders.ClearPickedAsync();
@@ -275,8 +285,13 @@ internal sealed class QuizApp : IDisposable
     /// <summary>Compute the count for the filter in effect if none describes it; a page asks on mount.</summary>
     public Task EnsureSelectionAsync() => IsBusy ? Task.CompletedTask : RecountAsync();
 
-    /// <summary>What is in effect moved (an Apply, a Clear, a restoration settling): count it, now or when the operation in flight ends.</summary>
-    private void OnFilterInEffectChanged(FilterSetupSnapshot snapshot)
+    /// <summary>
+    /// A selection was committed (an Apply, a Clear, a restoration settling the ready empty
+    /// selection): count it, now or when the operation in flight ends. An edit commits nothing,
+    /// so nothing runs as the user types; what an edit alone puts in effect — the empty
+    /// selection — is counted at the next commit and composed at Start.
+    /// </summary>
+    private void OnFilterApplied(FilterSetupSnapshot snapshot)
     {
         if (Setup is not { } setup || !snapshot.IsInEffectFor(setup.FilterSource)) return;
         if (IsBusy)
@@ -478,7 +493,7 @@ internal sealed class QuizApp : IDisposable
         }
     }
 
-    public void Dispose() => _filterSetup.InEffectChanged -= OnFilterInEffectChanged;
+    public void Dispose() => _filterSetup.Applied -= OnFilterApplied;
 
     /// <summary>A run in progress with what a Restart needs beside it.</summary>
     private sealed class LiveQuiz(QuizRun run, FilterConfig filters, string name)

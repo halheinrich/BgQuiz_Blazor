@@ -236,6 +236,12 @@
                 </div>
             </div>
         }
+        else if (FilterInEffect is not null)
+        {
+            @* In effect but not counted: an edit emptied the draft (the empty selection needs
+               no Apply), or the last count failed. The count follows a commit, never typing. *@
+            <div class="text-muted small mb-3" role="status" id="countFollowsCommit">The count follows Apply or Clear.</div>
+        }
 
         @if (loadedSetup.Loaded.Report is { AllRejected: false, Rejected.Count: > 0 } incomplete)
         {
