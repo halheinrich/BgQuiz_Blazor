@@ -540,6 +540,9 @@ internal sealed class QuizApp : IDisposable
         var live = _live ?? throw new InvalidOperationException("Only a live run finishes.");
         Finished = new FinishedQuiz(ended.ToResult(), live.Filters, live.Mix, live.Name, live.Stats.Report, endedByNewSample);
         _live = null;
+        // The setup the run was composed from, where it is still in hand: a fresh folder's first
+        // run is what gives it the stats the mix shows for, without a re-pick.
+        if (Setup is { } setup && ReferenceEquals(setup.Folder, live.Folder)) setup.NoteRunEnded(live.Stats);
         // The finished run holds nothing of the folder; nothing waits on the release and nothing reads the handle again.
         _ = ReleaseIfUnheldAsync(live.Folder);
     }

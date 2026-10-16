@@ -6,11 +6,12 @@ using BgGame_Lib;
 using Microsoft.JSInterop;
 
 /// <summary>
-/// What the folder's stats file holds, read at the pick and kept on the setup: whether there
-/// is a document with content (the fact the mix's visibility reads, SPEC-filtering.md §5:
-/// missing, empty and unreadable are one answer), and the forecasts Home says before Start —
-/// a retired version the next bind will set aside, a file that cannot be read, a file that
-/// cannot be written. A probe reads and never writes; the set-aside is the bind's.
+/// What the folder's stats file holds, read at the pick, kept on the setup and brought up to
+/// date by each run's recording (<see cref="AfterRun"/>): whether there is a document with
+/// content (the fact the mix's visibility reads, SPEC-filtering.md §5: missing, empty and
+/// unreadable are one answer), and the forecasts Home says before Start — a retired version
+/// the next bind will set aside, a file that cannot be read, a file that cannot be written.
+/// A probe reads and never writes; the set-aside is the bind's.
 /// </summary>
 internal sealed record StatsProbe(bool HasStats, int? RetiredSchemaVersion, bool Unreadable, bool Unwritable)
 {
@@ -20,6 +21,21 @@ internal sealed record StatsProbe(bool HasStats, int? RetiredSchemaVersion, bool
     /// <summary>The name the next bind will set a retired document aside under, or null when none is in prospect.</summary>
     public string? SetAsideForecast =>
         RetiredSchemaVersion is { } version ? QuizStatsFile.RetiredNameFor(version) : null;
+
+    /// <summary>
+    /// This probe once a run's recording has left the file. A recording that resolved the
+    /// file (read it, set a retired one aside, folded an interim one in) has made the
+    /// forecasts moot and knows whether it holds a record now; one that never did changed
+    /// nothing, so the pick's reading stands. Writability is the pick's probe either way: a
+    /// write that failed is the finished quiz's report.
+    /// </summary>
+    public StatsProbe AfterRun(QuizStats stats)
+    {
+        ArgumentNullException.ThrowIfNull(stats);
+        return stats.FileHasStats is { } hasStats
+            ? new StatsProbe(hasStats, RetiredSchemaVersion: null, Unreadable: false, Unwritable)
+            : this;
+    }
 
     /// <summary>
     /// Probe <paramref name="folder"/>'s stats file. A folder without write capability is

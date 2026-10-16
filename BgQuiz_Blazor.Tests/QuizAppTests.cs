@@ -547,6 +547,33 @@ public class QuizAppTests : BunitContext
     }
 
     [Fact]
+    public async Task TheMix_ComesIntoEffect_OnceARunHasRecordedIntoAFreshFolder()
+    {
+        // A fresh folder's first run is what gives it stats; the same setup, no re-pick.
+        var app = await PickedAsync(Problem(1), Problem(2));
+        await TurnTheMixOnAsync();
+        Assert.False(app.MixInEffect);   // nothing in the folder at the pick
+
+        await StartedAsync(app);
+        await app.SubmitPlayAsync(Best());
+        app.EndQuiz();
+
+        Assert.True(app.MixInEffect);
+    }
+
+    [Fact]
+    public async Task ARun_ThatRecordedNothing_LeavesTheMixOut()
+    {
+        var app = await PickedAsync(Problem(1));
+        await TurnTheMixOnAsync();
+        await StartedAsync(app);
+
+        app.EndQuiz();   // nothing answered, nothing written
+
+        Assert.False(app.MixInEffect);
+    }
+
+    [Fact]
     public async Task Start_ComposesWithTheMixInEffect_AndTheRunSaysWhatItDrew()
     {
         SettleTheFilterOwner();

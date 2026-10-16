@@ -46,11 +46,14 @@ internal sealed class QuizStats
     private readonly TimeProvider _clock;
     private ProblemStatsDocument _document;
 
+    private bool _fileHasStats;
+
     private QuizStats(IFolderContext? folder, TimeProvider clock, ProblemStatsDocument document, QuizStatsReport report)
     {
         _folder = folder;
         _clock = clock;
         _document = document;
+        _fileHasStats = document.Count > 0;   // the bind leaves the file holding this document, or no file at all
         Report = report;
     }
 
@@ -63,6 +66,14 @@ internal sealed class QuizStats
     /// </summary>
     public ProblemStatsDocument? Document =>
         Report.Status is QuizStatsStatus.Ready or QuizStatsStatus.WriteFailed ? _document : null;
+
+    /// <summary>
+    /// Whether the file holds a record now, as this recording left it: the mix's visibility
+    /// fact once the run is over. Follows the writes, not the memory, so a failed write leaves
+    /// it as it was. Null when this recording never resolved the file, which then stands as
+    /// the pick found it.
+    /// </summary>
+    public bool? FileHasStats => Document is null ? null : _fileHasStats;
 
     /// <summary>
     /// Bind the recording for a run over <paramref name="folder"/>: load the document, seed
@@ -218,6 +229,7 @@ internal sealed class QuizStats
         try
         {
             await _folder!.WriteFileAsync(QuizStatsFile.FileName, Serialize(_document));
+            _fileHasStats = _document.Count > 0;
         }
         catch (JSException)
         {

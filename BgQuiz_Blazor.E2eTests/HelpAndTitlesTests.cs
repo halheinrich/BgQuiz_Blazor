@@ -224,9 +224,10 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await Expect(body).ToContainTextAsync("Widening the window brings it back as you left it");
 
         // And the row's own narrow form (the same ruling's widened fourth):
-        // the right-hand group behind the More button, End quiz among it.
+        // the right-hand group behind the More button, Show stats and End quiz
+        // among it.
         await Expect(body).ToContainTextAsync("folds behind one button at the row's far end, More, drawn as three dots");
-        await Expect(body).ToContainTextAsync("Copy XGID to clipboard and End quiz");
+        await Expect(body).ToContainTextAsync("Show stats and End quiz");
 
         // ...and the way out of that reset, which is the whole reason the fold
         // setting exists. Named by the words on the control, so a reader can find

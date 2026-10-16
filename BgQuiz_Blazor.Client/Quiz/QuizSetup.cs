@@ -41,8 +41,14 @@ internal sealed class QuizSetup
     public FolderSample Sample { get; }
     public LoadedProblems Loaded { get; }
 
-    /// <summary>What the folder's stats file held at the pick: the mix's visibility fact and Home's forecasts.</summary>
-    public StatsProbe Stats { get; }
+    /// <summary>
+    /// What the folder's stats file holds — read at the pick, then as the last run from this
+    /// setup left it: the mix's visibility fact and Home's forecasts.
+    /// </summary>
+    public StatsProbe Stats { get; private set; }
+
+    /// <summary>A run from this setup has ended: what its recording learned of the file supersedes the reading in hand.</summary>
+    public void NoteRunEnded(QuizStats stats) => Stats = Stats.AfterRun(stats);
 
     public FilterSourceToken FilterSource { get; }
 

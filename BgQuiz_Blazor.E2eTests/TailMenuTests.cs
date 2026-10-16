@@ -142,7 +142,7 @@ public sealed class TailMenuTests : E2eTestBase
 
         await ResizeAsync((int)Math.Ceiling(tailSwitch) + 1);
         Assert.Equal(
-            ["xgid-label", "problem-locator", ExpectedText.EndQuizButton],
+            ["xgid-label", "problem-locator", ExpectedText.ShowStatsButton, ExpectedText.EndQuizButton],
             await TailContentsAsync());
         await Expect(More).ToHaveCountAsync(0);
         Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page));
@@ -224,11 +224,12 @@ public sealed class TailMenuTests : E2eTestBase
 
         await Expect(More).ToHaveAttributeAsync("aria-expanded", "true");
         await Expect(Menu).ToHaveAccessibleNameAsync(ExpectedText.MoreButton);
-        await Expect(Items).ToHaveCountAsync(2);
+        await Expect(Items).ToHaveCountAsync(3);
         await Expect(Items.Nth(0)).ToHaveAccessibleNameAsync(ExpectedText.CopyXgidButton);
-        await Expect(Items.Nth(1)).ToHaveAccessibleNameAsync(ExpectedText.EndQuizButton);
+        await Expect(Items.Nth(1)).ToHaveAccessibleNameAsync(ExpectedText.ShowStatsButton);
+        await Expect(Items.Nth(2)).ToHaveAccessibleNameAsync(ExpectedText.EndQuizButton);
         Assert.Equal(
-            [ExpectedText.CopyXgidButton, ExpectedText.EndQuizButton],
+            [ExpectedText.CopyXgidButton, ExpectedText.ShowStatsButton, ExpectedText.EndQuizButton],
             (await Items.AllInnerTextsAsync()).Select(t => t.Trim()));
 
         // The locator: a line to read, in full, naming the group the copy
@@ -323,6 +324,30 @@ public sealed class TailMenuTests : E2eTestBase
     }
 
     [Fact]
+    public async Task ShowStats_GoesWhereItsButtonGoes_AndFocusIsWhereThatNavigationPutsIt()
+    {
+        // The button first, at a width that shows it, and where its navigation
+        // leaves focus; then the item, from the list, compared with that.
+        await StartOnTheMatchAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ShowStatsButton, Exact = true }).ClickAsync();
+        await ExpectUrlAsync(AppRoute.Stats);
+        var backToQuiz = Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton });
+        await Expect(backToQuiz).ToBeVisibleAsync();
+        var focusAfterTheButton = await FocusedAsync();
+        await backToQuiz.ClickAsync();
+        await ExpectUrlAsync(AppRoute.Quiz);
+        await ExpectKeyboardShortcutReadyAsync();
+
+        await NarrowBelowTheSwitchAsync();
+        await More.ClickAsync();
+        await Item(ExpectedText.ShowStatsButton).ClickAsync();
+
+        await ExpectUrlAsync(AppRoute.Stats);
+        await Expect(backToQuiz).ToBeVisibleAsync();
+        Assert.Equal(focusAfterTheButton, await FocusedAsync());
+    }
+
+    [Fact]
     public async Task TheKeyboard_OpensWithEnterOrSpace_MovesWithTheArrows_AndEscapeReturnsFocusToTheToggle()
     {
         await StartOnTheMatchAsync();
@@ -337,6 +362,7 @@ public sealed class TailMenuTests : E2eTestBase
 
         foreach (var (key, expected) in new[]
         {
+            ("ArrowDown", ExpectedText.ShowStatsButton),
             ("ArrowDown", ExpectedText.EndQuizButton),
             ("ArrowDown", ExpectedText.CopyXgidButton),   // wraps
             ("ArrowUp", ExpectedText.EndQuizButton),      // and back

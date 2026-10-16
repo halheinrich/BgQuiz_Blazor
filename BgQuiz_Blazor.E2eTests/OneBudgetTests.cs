@@ -635,7 +635,7 @@ public sealed class OneBudgetTests : E2eTestBase
         Assert.Equal(4, await Page.GetByRole(AriaRole.Radio).CountAsync());
         Assert.Equal(0, await Page.Locator(".action-row .bg-cube-actions-ruler").CountAsync());
         // The live row's controls: four pills, Submit, the four, and the tail's
-        // copy button and End quiz.
-        Assert.Equal(4 + 1 + 4 + 2, await ActionRowGeometry.RowControlCountAsync(Page));
+        // copy button, Show stats and End quiz.
+        Assert.Equal(4 + 1 + 4 + 3, await ActionRowGeometry.RowControlCountAsync(Page));
     }
 }

@@ -431,6 +431,9 @@ public abstract class E2eTestBase : IAsyncLifetime
             new("/quiz", "the quiz page's root, .board-page", page => page.Locator(".board-page"));
 
         /// <summary>The summary at the end of a run.</summary>
+        /// <summary>Stats: the mid-quiz scoreboard, reached from the quiz's Show stats.</summary>
+        public static AppRoute Stats { get; } = Heading("/stats", ExpectedText.StatsHeading);
+
         public static AppRoute Done { get; } = Heading("/done", ExpectedText.DoneHeading);
 
         /// <summary>The settings page.</summary>
@@ -442,7 +445,7 @@ public abstract class E2eTestBase : IAsyncLifetime
         /// <summary>The progress page a running quiz's Show stats opens.</summary>
 
         /// <summary>Every route, for a scenario about the landmarks themselves.</summary>
-        public static IReadOnlyList<AppRoute> All { get; } = [Home, Quiz, Done, Settings, Help];
+        public static IReadOnlyList<AppRoute> All { get; } = [Home, Quiz, Stats, Done, Settings, Help];
 
         /// <summary>The route's path, as the app routes it.</summary>
         public string Path { get; }

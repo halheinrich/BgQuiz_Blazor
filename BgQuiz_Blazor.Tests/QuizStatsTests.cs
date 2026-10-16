@@ -950,4 +950,104 @@ public class QuizStatsTests
 
         Assert.Equal(reflection, sourceGenerated);
     }
+
+    // -----------------------------------------------------------------------
+    //  After the run — the recording's knowledge of the file supersedes the pick's
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task FileHasStats_FollowsTheWrites_FromTheSeedToTheFirstRecord()
+    {
+        var folder = Folder();
+        var stats = await BindAsync(folder);
+        Assert.False(stats.FileHasStats);   // seeded in memory; no file yet
+
+        await stats.RecordAsync(Play());
+
+        Assert.True(stats.FileHasStats);
+    }
+
+    [Fact]
+    public async Task FileHasStats_AfterARetirement_IsTheSeededEmptyFile()
+    {
+        var folder = Folder();
+        folder.StatsJson = RetiredStatsFixture.V1Json;
+
+        var stats = await BindAsync(folder);
+
+        Assert.False(stats.FileHasStats);
+    }
+
+    [Fact]
+    public async Task FileHasStats_AfterAFold_IsTheMergedFile()
+    {
+        var folder = Folder();
+        folder.StatsJson = RetiredStatsFixture.V4Json;
+
+        var stats = await BindAsync(folder);
+
+        Assert.True(stats.FileHasStats);
+    }
+
+    [Fact]
+    public async Task FileHasStats_AFailedWrite_LeavesTheFileAsItWas()
+    {
+        var folder = Folder();
+        folder.WriteException = new JSException("disk gone");
+        var stats = await BindAsync(folder);
+
+        await stats.RecordAsync(Play());
+
+        Assert.Equal(QuizStatsStatus.WriteFailed, stats.Report.Status);
+        Assert.False(stats.FileHasStats);   // the fold stands in memory only
+    }
+
+    [Theory]
+    [InlineData(FolderWriteCapability.PermissionDenied, null)]
+    [InlineData(FolderWriteCapability.Enabled, "not json at all")]
+    public async Task FileHasStats_ARecordingThatNeverResolvedTheFile_SaysNothing(FolderWriteCapability capability, string? statsJson)
+    {
+        var folder = Folder(capability);
+        folder.StatsJson = statsJson;
+
+        var stats = await BindAsync(folder);
+
+        Assert.Null(stats.Document);
+        Assert.Null(stats.FileHasStats);
+    }
+
+    [Fact]
+    public async Task AfterRun_ARecordingThatResolvedTheFile_ClearsTheForecasts_AndSaysWhatItHoldsNow()
+    {
+        var folder = Folder();
+        folder.StatsJson = RetiredStatsFixture.V1Json;
+        folder.Writability = FileWritability.NotWritable;
+        var atThePick = await StatsProbe.OfAsync(folder);
+        Assert.NotNull(atThePick.SetAsideForecast);
+        var stats = await BindAsync(folder);   // the set-aside happens here
+
+        var seeded = atThePick.AfterRun(stats);
+
+        Assert.False(seeded.HasStats);
+        Assert.Null(seeded.SetAsideForecast);
+        Assert.False(seeded.Unreadable);
+        Assert.True(seeded.Unwritable);   // the pick's probe stands
+
+        await stats.RecordAsync(Play());
+
+        Assert.True(atThePick.AfterRun(stats).HasStats);
+    }
+
+    [Fact]
+    public async Task AfterRun_ARecordingThatNeverResolvedTheFile_LeavesThePicksReadingStanding()
+    {
+        var folder = Folder();
+        folder.StatsJson = "not json at all";
+        var atThePick = await StatsProbe.OfAsync(folder);
+        var stats = await BindAsync(folder);
+        Assert.Equal(QuizStatsStatus.LoadFailed, stats.Report.Status);
+
+        Assert.Same(atThePick, atThePick.AfterRun(stats));
+        Assert.True(atThePick.Unreadable);
+    }
 }
