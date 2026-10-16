@@ -49,7 +49,6 @@ public sealed class TailMenuEndQuizTests : FsAccessFakeTestBase
         await SettleAsync();
         await More.ClickAsync();
         await Expect(Item(ExpectedText.EndQuizButton)).ToBeDisabledAsync();
-        await Expect(Item(ExpectedText.ShowStatsButton)).ToBeEnabledAsync();
         await Page.Keyboard.PressAsync("Escape");
         await Expect(Page.GetByRole(AriaRole.Menu)).ToHaveCountAsync(0);
 

@@ -20,8 +20,8 @@ namespace BgQuiz_Blazor.Client.Components;
 /// </para>
 ///
 /// <para>
-/// <b>Live</b> is <see cref="QuizController.HasStarted"/> and not
-/// <see cref="QuizController.IsFinished"/> — the predicate the pages' conditional
+/// <b>Live</b> is <see cref="QuizApp.HasStarted"/> and not
+/// <see cref="QuizApp.IsFinished"/> — the predicate the pages' conditional
 /// buttons used, moved here rather than restated. A finished quiz is not
 /// something to go back to: its summary is <c>Done</c>'s, reached from the quiz
 /// itself.
@@ -56,7 +56,7 @@ public partial class ReturnControl : ComponentBase
     private const string OwnClass = "btn btn-primary";
 
     [Inject]
-    private QuizController Controller { get; set; } = default!;
+    private QuizApp App { get; set; } = default!;
 
     [Inject]
     private NavigationManager Nav { get; set; } = default!;
@@ -70,7 +70,7 @@ public partial class ReturnControl : ComponentBase
     public string? Class { get; set; }
 
     /// <summary>Whether a quiz is under way to go back to.</summary>
-    private bool QuizIsLive => Controller.HasStarted && !Controller.IsFinished;
+    private bool QuizIsLive => App.HasStarted && !App.IsFinished;
 
     private string Label => QuizIsLive ? "Back to quiz" : "Back to Home";
 

@@ -1,148 +1,27 @@
 @page "/done"
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
-
 @using BgQuiz_Blazor.Client.Quiz
-
-@inject QuizController Controller
-@inject PickedProblemFolder Folder
-@inject QuizStatsStore StatsStore
-@inject QuizSettings Settings
-@inject MixVisibility MixVisibility
-@inject NavigationManager Nav
-@inject QuizNoticeDismissal Notices
-@inject FolderOperations Operations
 
 <PageTitle>BgQuiz — Done</PageTitle>
 
-@* app-busy: progress cursor while a Restart transition runs (app.css). *@
-<div class="container py-3 @(Controller.IsBusy ? "app-busy" : null)">
+<div class="container py-3 @(App.IsBusy ? "app-busy" : null)">
     <h1>Quiz complete</h1>
 
-    @* Active-context stats notices, mirrored from Quiz: a failure on the FINAL
-       Continue lands the user here without ever seeing the in-quiz notice, so
-       Done must state it too. No subscription needed — the status cannot
-       change while this page is shown (no folds happen here; Restart
-       navigates away and re-binds). *@
-    @* The retirement report, mirrored from Quiz for the same reason the notices
-       below are: what happened to the stats context is exactly what someone
-       reading their results wants to know, and "your lifetime record restarted"
-       is the most consequential thing that can have happened to it.
-
-       Dismissible, like its neighbours and like every notice on every page
-       (SPEC-notices.md Fork B, which overturned this page's earlier "read
-       once" exception): one rule, not one per page. These are the same
-       notices as the Quiz page's, so they bind to the same QuizNoticeDismissal
-       slot and the same occurrence — one occurrence, one dismissal: a notice
-       dismissed on the Quiz page stays dismissed here, and the next occurrence
-       shows fresh on both. *@
-    @if (StatsStore.StatsRetiredOccurrence is { } retired)
-    {
-        <Notice Kind="NoticeKind.Information" Announcement="NoticeAnnouncement.Polite"
-                Dismissible="true"
-                @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.StatsRetired, retired)"
-                @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.StatsRetired, retired)">
-            Your stats file was written by an earlier version of BgQuiz and can't be
-            carried forward. It has been set aside as
-            <strong>@retired.SetAsideFileName</strong> and a new
-            <strong>@QuizStatsFile.FileName</strong> started, so your lifetime stats
-            began again with this quiz.
-        </Notice>
-    }
-
-    @if (StatsStore.Status == QuizStatsStatus.LoadFailed)
-    {
-        <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Polite"
-                Dismissible="true"
-                @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.StatsContext, StatsStore.StatusOccurrence)"
-                @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.StatsContext, StatsStore.StatusOccurrence)">
-            The existing <strong>@QuizStatsFile.FileName</strong> couldn't be read, so this
-            quiz didn't record stats. The file has not been changed.
-        </Notice>
-    }
-    else if (StatsStore.Status == QuizStatsStatus.WriteFailed)
-    {
-        <Notice Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
-                Dismissible="true"
-                @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.StatsContext, StatsStore.StatusOccurrence)"
-                @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.StatsContext, StatsStore.StatusOccurrence)">
-            Your stats file could not be saved — this quiz's stats were not recorded.
-        </Notice>
-    }
-
-    <ScorePanel Score="Controller.Score"
-                Skipped="Controller.SkippedCount"
-                Source="@Controller.Name"
+    <ScorePanel Score="App.Score"
+                Skipped="App.SkippedCount"
+                Source="@App.Name"
                 Heading="Final" />
 
-    @* The problem folder leads the breakdown's heading, on its line
-       (halheinrich/backgammon#199): the folder held NOW, by ruling — a re-pick
-       mid-quiz does not bear on this, so no run-captured copy exists. The
-       quoting is the holder's DisplayName and the caption ProblemFolderLabel's;
-       a pick cleared mid-quiz leaves the heading alone. *@
-    <ScoreBreakdown Score="Controller.Score" Heading="Detailed evaluation">
+    <ScoreBreakdown Score="App.Score" Heading="Detailed evaluation">
         <HeadingLead>
-            <ProblemFolderLabel Description="@Folder.DisplayName" />
+            <ProblemFolderLabel Description="@App.Setup?.DisplayName" />
         </HeadingLead>
     </ScoreBreakdown>
 
     <p class="text-muted">
-        Total problems shown: <strong>@(ProblemsShown)</strong>.
+        Total problems shown: <strong>@App.PresentedCount</strong>.
     </p>
 
-    @* Restart follows the one rule with no special case (SPEC-filtering.md §5,
-       "Visible means in effect"; halheinrich/backgammon#5): it weights iff the
-       mix panel is visible AT THIS MOMENT. So a run that was weighted can find
-       the mix gone underneath it — the setting turned off from Settings
-       mid-quiz, or a re-pick to a folder without stats — and the honest thing is
-       to say so BEFORE the click rather than silently dropping the weighting or
-       refusing after it. One sentence, and it names both ways the mix can have
-       gone because this page cannot tell them apart: visibility is one fact,
-       deliberately, and splitting it here to word this better would be a second
-       copy of its halves. *@
-    @if (RestartWillDropTheMix)
-    {
-        <p class="text-muted" role="status">
-            This quiz was drawn from your weighted mix, but the mix isn't in
-            effect now — it's switched off in <strong>Settings</strong>, or the
-            folder in hand has no stats to weight by — so
-            <strong>Restart</strong> runs unweighted.
-        </p>
-    }
-
-    @* Weighted-restart refusal, mirroring Home's Start: a Restart that IS
-       weighted composes against the stats document, and the file can have
-       stopped being readable since the last run. That is now the only way here:
-       a cleared pick or a folder without stats takes the panel off screen, which
-       the rule above turns into an unweighted restart, not a refusal. The
-       refusal touches no controller state — this summary stays intact — and the
-       one-click per-run escape sits inside the notice; the stored mix is never
-       touched. A gate reason, so not dismissible (SPEC-notices.md Fork C): it
-       carries the escape button, and closing it would take that with it. *@
-    @if (_mixRefused)
-    {
-        <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Assertive">
-            <p class="mb-2">
-                Lifetime stats aren't available for a restart
-                (@MixDisplay.RefusalReason(StatsStore.Status)),
-                so the weighted mix can't be applied.
-            </p>
-            <button class="btn btn-outline-primary btn-sm" id="restartWithoutMix"
-                    disabled="@(Controller.IsBusy || Operations.IsInFlight)"
-                    @onclick="RestartWithoutMixAsync">
-                Restart without mix
-            </button>
-            <span class="small text-muted ms-2">
-                runs one quiz unweighted — or go Back to setup to change the
-                mix; your saved mix is kept either way.
-            </span>
-        </Notice>
-    }
-
-    @* Restart failure: the sibling of Home's "Could not start quiz", in its
-       shape — an error, assertive and dismissible, the message field the
-       box's whole state (SPEC-notices.md §4's 2026-10-13 entry, Fork A). A
-       faulted Restart keeps the finished run (SPEC-quiz-history.md §8), so
-       the summary above still stands and Restart below can be pressed again. *@
     <Notice Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
             Dismissible="true"
             @bind-Dismissed:get="string.IsNullOrEmpty(_restartError)"
@@ -150,33 +29,27 @@
         <strong>Could not restart quiz:</strong> @_restartError
     </Notice>
 
-    @* Restart disables while the controller is busy (the gate would no-op it
-       anyway — this is the honest mirror); Back to setup stays enabled: it
-       only navigates. *@
-    <div class="d-flex flex-wrap gap-2">
-        <button class="btn btn-primary" disabled="@(Controller.IsBusy || Operations.IsInFlight)"
-                @onclick="RestartAsync">
+    @if (!string.IsNullOrEmpty(_restartNotice))
+    {
+        <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Polite">
+            @_restartNotice
+        </Notice>
+    }
+
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+        <button class="btn btn-primary" disabled="@(App.IsBusy || App.Setup is null)" @onclick="RestartAsync">
             Restart with same filters
         </button>
         <button class="btn btn-outline-secondary" @onclick="BackToSetup">
             Back to setup
         </button>
+        @if (App.Setup is null)
+        {
+            <small class="text-muted">Pick a folder on the setup page to restart.</small>
+        }
     </div>
 
-    @* The third exit, stated because it is the one with no button (issue halheinrich/backgammon#51):
-       whoever has just finished a quiz is exactly who wonders whether anything
-       needs saving first. Nothing does — the lifetime record is written as each
-       answer lands, not banked for the end.
-
-       One line, and Help carries the reasons; this is an echo, not a second
-       account. Gated on the two failure statuses the notices at the top of this
-       page report, because "nothing needs saving" printed under "your stats
-       could not be saved" reads as a contradiction — in those states the notice
-       is the honest word and this would soften it. *@
-    @if (StatsStore.Status is not (QuizStatsStatus.LoadFailed or QuizStatsStatus.WriteFailed))
-    {
-        <p class="text-muted small mt-3">
-            Nothing here needs saving — you can close the tab whenever you like.
-        </p>
-    }
+    <p class="text-muted small mt-3">
+        Nothing here needs saving — you can close the tab whenever you like.
+    </p>
 </div>

@@ -29,7 +29,7 @@ using XgFilter_Razor;
 ///
 /// <para>
 /// <b>No draft, no commit, no dirty flag — deliberately.</b> Unlike the
-/// start-gate state (<see cref="FilterSetup"/>, <see cref="MixDraft"/>),
+/// start-gate state (<see cref="FilterSetup"/>, <c>MixDraft</c>),
 /// nothing here is composed into a quiz at a Start
 /// gesture, so there is no half-edited state to guard against and no gate to
 /// derive: a toggle is a complete, immediately valid choice. Introducing a
@@ -40,7 +40,7 @@ using XgFilter_Razor;
 /// <para>
 /// <b>No <c>Changed</c> event.</b> Each setting is rendered by the one page
 /// that edits it — the <c>Settings</c> page, or <c>Home</c> for
-/// <see cref="Order"/> — and the one reader elsewhere — <see cref="MixVisibility"/>,
+/// <see cref="Order"/> — and the one reader elsewhere — <c>MixVisibility</c>,
 /// over <see cref="WeightQuizzesByStats"/> — cannot be on screen while it
 /// moves: changing it means standing on the Settings page, so every surface
 /// derived from one re-renders on its own next mount. <c>Home</c> renders
@@ -48,7 +48,7 @@ using XgFilter_Razor;
 /// <c>SPEC-filtering.md</c> §7), only the control itself, which re-renders with
 /// the gesture that moved it. That is a fact about where the controls live,
 /// not a timing bet, and it is why the state-container pattern
-/// <see cref="MixDraft.Changed"/> exists for still buys nothing here. Add
+/// <c>MixDraft.Changed</c> exists for still buys nothing here. Add
 /// notify plumbing if (and only if) a setting ever becomes editable from a page
 /// that also renders something derived from it.
 /// </para>
@@ -101,7 +101,7 @@ using XgFilter_Razor;
 /// <b>Persistence.</b> One localStorage key (<see cref="StorageKey"/>) holding
 /// every setting as one JSON object — see <see cref="ToJson"/> for the wire
 /// format and why it is pinned by a test. <see cref="EnsureHydratedAsync"/> is
-/// idempotent (the <see cref="MixDraft.EnsureHydratedAsync"/> pattern) but needs
+/// idempotent (the <c>MixDraft.EnsureHydratedAsync</c> pattern) but needs
 /// no stale-read generation guard: settings have no per-setup lifecycle, so
 /// there is no <c>Discard</c> for a read in flight to land behind.
 /// </para>
@@ -137,14 +137,14 @@ internal sealed class QuizSettings(
     /// <summary>
     /// The single localStorage key holding every setting as one JSON object.
     /// <c>camelCase</c> after the <c>xg_</c> prefix, per the key family
-    /// <see cref="MixDraft.StorageKey"/> established.
+    /// <c>MixDraft.StorageKey</c> established.
     ///
     /// <para>
     /// <b><c>internal</c>, and named for its siblings</b> — <c>Help</c>'s data
     /// section names this entry to the user and renders it from here, so the name
     /// a reader verifies in devtools cannot drift from the name this type writes
     /// under. Same discipline, and the same deliberate stop short of
-    /// <c>public</c>, as <see cref="QuizLiveMarker.StorageKey"/>.
+    /// <c>public</c>, as <c>QuizLiveMarker.StorageKey</c>.
     /// </para>
     /// </summary>
     internal const string StorageKey = "xg_quizSettings";
@@ -322,7 +322,7 @@ internal sealed class QuizSettings(
     /// the mix</b> (<c>SPEC-filtering.md</c> §5, "Visible means in effect",
     /// ruled 2026-09-07). It is half of the <i>visible</i> derivation; the
     /// folder's stats fact is the other half, and
-    /// <see cref="MixVisibility"/> is the single place the two meet. Visible
+    /// <c>MixVisibility</c> is the single place the two meet. Visible
     /// means the rows on screen are in effect at Start, so this setting and
     /// the panel's presence say the same thing and cannot disagree.
     ///
@@ -402,8 +402,8 @@ internal sealed class QuizSettings(
     ///
     /// <para>
     /// <b>Read where a Start or Restart builds the run's source, and nowhere
-    /// else.</b> The pages hand it to <see cref="QuizController.StartAsync"/> and
-    /// <see cref="QuizController.RestartAsync"/>, exactly as they hand the
+    /// else.</b> The pages hand it to <see cref="QuizApp.StartAsync"/> and
+    /// <see cref="QuizApp.RestartAsync"/>, exactly as they hand the
     /// ranking, so a Restart uses the Order chosen at Restart
     /// (<c>SPEC-quiz-history.md</c> §8). A run keeps its sequence: the Order
     /// changed mid-quiz reaches the next run. The match count never sorts and
@@ -457,7 +457,7 @@ internal sealed class QuizSettings(
     /// that flipped in some views but not others would read as a bug.
     /// </summary>
     /// <param name="randomSide">
-    /// The current problem's roll — <see cref="QuizController.RandomHomeBoardOnRight"/>,
+    /// The current problem's roll — <see cref="QuizApp.RandomHomeBoardOnRight"/>,
     /// which the controller takes unconditionally for each problem it presents
     /// and the run keeps with that problem, so it holds steady across submit,
     /// review, and every return to it. Passing it in is what keeps the controller and the run
@@ -475,9 +475,9 @@ internal sealed class QuizSettings(
     ///
     /// <para>
     /// <b>Read where a quiz begins, and nowhere else.</b> The pages hand this to
-    /// <see cref="QuizController.StartAsync"/>,
-    /// <see cref="QuizController.RestartAsync"/> and
-    /// <see cref="QuizController.SummarizeMatchesAsync"/>. A Start or Restart
+    /// <see cref="QuizApp.StartAsync"/>,
+    /// <see cref="QuizApp.RestartAsync"/> and
+    /// <c>Selection.ComputeAsync</c>. A Start or Restart
     /// begins a run under it, and that run owns it from then on
     /// (<see cref="QuizRun.Ranking"/>): every producer operation whose meaning
     /// depends on a ranking — the problem filter, scoring, and the diagrams,

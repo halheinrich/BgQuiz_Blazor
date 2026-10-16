@@ -202,8 +202,9 @@ public sealed class OneBudgetTests : E2eTestBase
             await ExpectTheFirstProblemAsync(problem);
             await SettleAsync();
             await More.ClickAsync();
-            await Page.GetByRole(AriaRole.Menuitem, new() { Name = ExpectedText.ShowStatsButton, Exact = true }).ClickAsync();
-            await ExpectUrlAsync(AppRoute.Stats);
+            await Page.Keyboard.PressAsync("Escape");
+            await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink, Exact = true }).ClickAsync();
+            await ExpectUrlAsync(AppRoute.Settings);
             var back = Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton });
             await Expect(back).ToBeVisibleAsync();
             await Expect(CollapseRail).Not.ToBeCheckedAsync();

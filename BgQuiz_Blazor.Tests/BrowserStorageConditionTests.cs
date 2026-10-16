@@ -2,13 +2,7 @@ using BgQuiz_Blazor.Client.Quiz;
 
 namespace BgQuiz_Blazor.Tests;
 
-/// <summary>
-/// <see cref="BrowserStorageCondition"/>, the one fact that browser storage
-/// has been refused this visit (issue <c>halheinrich/backgammon#360</c>):
-/// nothing until a refusal, then one occurrence for the rest of the visit,
-/// whoever reports and however often — which is what lets a dismissal of
-/// <c>Home</c>'s notice survive a remounted panel's fresh report.
-/// </summary>
+/// <summary>The one fact that the browser refused a storage call this visit: begins once, then holds.</summary>
 public class BrowserStorageConditionTests
 {
     [Fact]
@@ -33,9 +27,6 @@ public class BrowserStorageConditionTests
     [Fact]
     public void EveryLaterRefusal_IsTheSameOccurrence_AndBeginsNothing()
     {
-        // A remounted filter panel reports again, and so does every store that
-        // is refused after the first: the same condition, so the same token —
-        // by identity, which is how QuizNoticeDismissal compares it.
         var condition = new BrowserStorageCondition();
         var began = 0;
         condition.Began += () => began++;
@@ -50,21 +41,12 @@ public class BrowserStorageConditionTests
     }
 
     [Fact]
-    public void ADismissalOfTheOccurrence_HoldsAcrossLaterRefusals_AndANewAppShowsItFresh()
+    public void ANewApp_HasItsOwnOccurrence()
     {
-        // The holder's half of SPEC-notices.md §2 for this notice: the
-        // dismissal is keyed on the occurrence, which later reports keep; a
-        // reload is a new app, whose condition is a new occurrence.
-        var notices = new QuizNoticeDismissal();
-        var condition = new BrowserStorageCondition();
-        condition.ReportRefused();
-        notices.Dismiss(QuizNotice.StorageUnavailable, condition.Occurrence!);
-
-        condition.ReportRefused();
-        Assert.True(notices.IsDismissed(QuizNotice.StorageUnavailable, condition.Occurrence));
-
+        var first = new BrowserStorageCondition();
+        first.ReportRefused();
         var afterAReload = new BrowserStorageCondition();
         afterAReload.ReportRefused();
-        Assert.False(notices.IsDismissed(QuizNotice.StorageUnavailable, afterAReload.Occurrence));
+        Assert.NotSame(first.Occurrence, afterAReload.Occurrence);
     }
 }

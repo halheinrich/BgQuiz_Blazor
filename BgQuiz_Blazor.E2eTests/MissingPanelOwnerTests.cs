@@ -30,7 +30,7 @@ public sealed class MissingPanelOwnerTests : E2eTestBase
         FirstLoad,
 
         /// <summary>Back from Show stats, which re-creates the page from the modules already loaded.</summary>
-        ReturnFromStats,
+        ReturnFromSettings,
     }
 
     /// <summary>What actionRowFit.js says, once per row it observes, when the owner is missing.</summary>
@@ -84,27 +84,16 @@ public sealed class MissingPanelOwnerTests : E2eTestBase
             "the row-fit module has not acted on the row yet"));
 
     /// <summary>Show stats, from the "⋯" where the tail is folded behind it, else from the tail itself.</summary>
-    private async Task ShowStatsAsync()
-    {
-        var more = Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.MoreButton, Exact = true });
-        if (await more.CountAsync() > 0)
-        {
-            await more.ClickAsync();
-            await Page.GetByRole(AriaRole.Menuitem, new() { Name = ExpectedText.ShowStatsButton, Exact = true }).ClickAsync();
-        }
-        else
-        {
-            await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ShowStatsButton, Exact = true }).ClickAsync();
-        }
-    }
+    private Task LeaveForSettingsAsync() =>
+        Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink, Exact = true }).ClickAsync();
 
     [Theory]
     [InlineData(PanelOwnerAbsence.RequestFailed, Entry.FirstLoad)]
-    [InlineData(PanelOwnerAbsence.RequestFailed, Entry.ReturnFromStats)]
+    [InlineData(PanelOwnerAbsence.RequestFailed, Entry.ReturnFromSettings)]
     [InlineData(PanelOwnerAbsence.EmptyBody, Entry.FirstLoad)]
-    [InlineData(PanelOwnerAbsence.EmptyBody, Entry.ReturnFromStats)]
+    [InlineData(PanelOwnerAbsence.EmptyBody, Entry.ReturnFromSettings)]
     [InlineData(PanelOwnerAbsence.ScriptThrew, Entry.FirstLoad)]
-    [InlineData(PanelOwnerAbsence.ScriptThrew, Entry.ReturnFromStats)]
+    [InlineData(PanelOwnerAbsence.ScriptThrew, Entry.ReturnFromSettings)]
     public async Task WithoutItsOwner_TheRowStaysPending_CoveringNothing_OnOneLine_WithTheBoardAtItsSize(
         PanelOwnerAbsence absence, Entry entry)
     {
@@ -123,11 +112,11 @@ public sealed class MissingPanelOwnerTests : E2eTestBase
         Assert.False(await PanelOwner.PresentAsync(Page), "the owner is missing");
         await StartTheMatchAsync();
         var rowsObserved = 1;
-        if (entry == Entry.ReturnFromStats)
+        if (entry == Entry.ReturnFromSettings)
         {
             await RowFitHasActedAsync(rowsObserved);
-            await ShowStatsAsync();
-            await ExpectUrlAsync(AppRoute.Stats);
+            await LeaveForSettingsAsync();
+            await ExpectUrlAsync(AppRoute.Settings);
             await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton }).ClickAsync();
             await ExpectUrlAsync(AppRoute.Quiz);
             await Expect(Captions).ToHaveCountAsync(4);

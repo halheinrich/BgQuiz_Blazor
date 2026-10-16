@@ -6,94 +6,24 @@
 @using XgFilter_Razor
 @using XgFilter_Razor.Components
 @using XgFilter_Lib
-@using XgFilter_Lib.Filtering
 @using XgFilter_Lib.Enums
-@using Microsoft.Extensions.Logging
-
-@inject IFolderAccess FolderAccess
-@inject PickedProblemFolder Folder
-@inject FilterSetup FilterSetup
-@inject MatchCount MatchCount
-@inject MixVisibility MixVisibility
-@inject MixDraft MixDraft
-@inject QuizStatsStore StatsStore
-@inject PickedFolderDocumentStorage DocumentStorage
-@inject NavigationManager Nav
-@inject QuizController Controller
-@inject QuizLiveMarker Marker
-@inject QuizSettings Settings
-@inject QuizNoticeDismissal Notices
-@inject BrowserStorageCondition StorageCondition
-@inject FolderOperations Operations
-@inject ILogger<Home> Logger
 
 <PageTitle>BgQuiz</PageTitle>
 
-@* app-busy: the progress-cursor idiom (app.css) whenever this page is working
-   — a controller transition, a pick's scan-and-buffer, or the match count
-   that parses a new pick. The predicate is IsBusy for all of them, and the
-   fieldset below reads the same one, so cursor and disabled controls cannot
-   disagree. A later count, over the parse the pick holds, is not page-busy:
-   it runs whenever the filter in effect changes, typing included, and must
-   not disable the box being typed in (IsBusy's remarks). *@
 <div class="container py-3 @(IsBusy ? "app-busy" : null)">
     <h1>BgQuiz</h1>
 
-    @* Reload-reset notice: a full reload rebooted the runtime and discarded a
-       live quiz. An outcome the user should understand, not an error — polite
-       (matching the no-match notice), not assertive.
-
-       An event notice, so dismissible (SPEC-notices.md §1), and the component
-       holds the dismissal: the occurrence is this boot's reset, which lives in
-       _showReloadNotice and dies with this page instance — the marker that
-       raised it is cleared in the same step, so a navigate-back re-instantiates
-       the page with nothing to show. No holder slot and no occurrence key: an
-       owner that outlived the page would lengthen the notice's one-shot
-       lifetime, and this instance never sees a second reset (SPEC-notices.md
-       §2, the component-held case). *@
-    @if (_showReloadNotice)
-    {
-        <Notice Kind="NoticeKind.Information" Announcement="NoticeAnnouncement.Polite"
-                Dismissible="true">
-            Your previous quiz was reset by the page reload — quiz progress
-            doesn't survive a full reload.
-        </Notice>
-    }
-
-    @* Browser storage refused (issue halheinrich/backgammon#360): a condition
-       notice (SPEC-notices.md §1), so polite, a warning and dismissible per
-       occurrence. One fact however it arose — the filter surface's refusals
-       (through the registered FilterStorageRefusalSink) and this app's own
-       stores' all feed BrowserStorageCondition — so one notice, with one
-       occurrence that lasts the visit: a dismissal holds across navigation,
-       every later refusal from any reporter, and a refusal answered after
-       this page had gone; a reload, a new app, shows it fresh.
-       QuizNoticeDismissal holds the dismissal because the occurrence outlives
-       this page (§2).
-
-       Above the setup surface and outside its disclosure gate, because the
-       condition is the app's, not a pick's: a refusal before any folder is
-       picked — the settings read on this page's own init, the notes on the
-       Quiz page — is said here as soon as this page renders. The wording
-       (Hal's, 2026-10-07) says what is known to be lost: not that nothing
-       works, but that some choices may not be there next time. *@
-    @if (StorageCondition.Occurrence is { } storageOccurrence)
+    @if (StorageCondition.Occurrence is { } storageOccurrence && !ReferenceEquals(_storageNoticeDismissedFor, storageOccurrence))
     {
         <Notice id="storageUnavailableNotice" Kind="NoticeKind.Warning"
                 Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.StorageUnavailable, storageOccurrence)"
-                @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.StorageUnavailable, storageOccurrence)">
+                @bind-Dismissed:get="false"
+                @bind-Dismissed:set="_ => _storageNoticeDismissedFor = storageOccurrence">
             BgQuiz had trouble using your browser's storage. You can keep using
             it, but some choices may not be remembered next time.
         </Notice>
     }
 
-    @* One disabled-while-busy boundary for the whole setup surface. A native
-       <fieldset disabled> disables every form control inside — including the
-       Apply buttons *inside* the imported FilterSurface/MixPanel, which expose
-       no disabled parameter of their own — so no panel needs busy-awareness
-       and no control can slip through unlisted. Bootstrap's reboot zeroes
-       fieldset chrome, so layout is unchanged. *@
     <fieldset disabled="@IsBusy">
 
     <div class="mb-3" style="max-width:800px">
@@ -103,402 +33,114 @@
                 (a local folder of .xg / .xgp files — parsed in your browser, never uploaded)
             </small>
         </label>
-        @* Disabled while a folder operation is in flight — the app's, whichever
-           page began it (FolderOperations) — including a pick's prompts, where
-           the busy fieldset is not yet raised. The handler refuses too. *@
         <div>
             <button type="button" id="pickProblemFolder" class="btn btn-outline-primary"
-                    disabled="@Operations.IsInFlight"
-                    @onclick="PickFolderAsync">
+                    disabled="@IsBusy" @onclick="PickFolderAsync">
                 Choose folder…
             </button>
         </div>
-        @* Supported-browser statement. Where the browser can serve neither pick
-           mechanism the button is a dead entry point: it may raise nothing at
-           all, and no code path here ever runs to explain it. Only a statement
-           made *before* the gesture reaches that reader. Capability-shaped, not
-           device-shaped — FolderPickDisplay records why the old phone framing
-           was false in both directions.
 
-           Deliberately NOT gated on _fsAccessAvailable, unlike the permission
-           guidance below: the readers this is written for are exactly the ones
-           that probe excludes. Gated only on "no folder held" — once a pick
-           lands, the pick worked and the caution is moot — which is the same
-           window its neighbour uses.
-
-           Rendered from FolderPickDisplay, not a literal: Help's "before you
-           start" lead states the identical rule, and a second surface is that
-           class's stated bar for owning a phrase. Polite role="status", like
-           every other outcome/advisory line on this page. *@
-        @if (!Folder.HasFiles)
+        @if (Setup is null)
         {
             <div class="text-muted small mt-1" role="status">
                 @FolderPickDisplay.SupportedBrowsers
             </div>
+            @if (_fsAccessAvailable)
+            {
+                <div class="text-muted small mt-1" role="status">
+                    Your browser will ask about the selected folder, near the address bar:
+                    <ol class="mb-0 mt-1">
+                        <li>
+                            <strong>To view the selected folder's files — required.</strong>
+                            Nothing works without it: decline and no folder is picked at all.
+                        </li>
+                        <li>
+                            <strong>To save files into the folder — optional.</strong>
+                            The quiz runs either way; without it,
+                            @(FolderPickDisplay.WriteAccessConsequence).
+                        </li>
+                    </ol>
+                </div>
+            }
+            else
+            {
+                <div class="text-muted small mt-1" role="status">
+                    If choosing a folder opens nothing at all,
+                    @(FolderPickDisplay.DeadPickVerdict) — there's nothing more to
+                    try here.
+                </div>
+            }
         }
-        @* FS-Access pick guidance: the pick deliberately raises *two*
-           browser-anchored prompts (folderAccess.js beginPick records why
-           collapsing them to one is a closed won't-do), both easily missed, and
-           neither says what declining costs — yet the two declines are wildly
-           asymmetric. So name both grants and both consequences.
 
-           Shown from page load, not only while the pick is in flight: knowing
-           what is coming is only useful *before* the gesture that triggers it.
-           So the note runs continuously from load, through the in-flight pick,
-           until a folder is held — at which point its job is done and leaving it
-           beside a populated summary would be stale noise. It reappears on
-           Clear, and deliberately survives a *cancelled* pick: no folder is
-           held, so the guidance is still the next thing the user needs.
-
-           Still capability-gated (_fsAccessAvailable), not ungated: the fallback
-           mechanism raises no permission prompt at all, so showing this there
-           would promise prompts that never come — the same false-assertion class
-           the wording below is written to avoid.
-
-           Static, not stage-aware. Swapping the text as each prompt arrives was
-           considered and DECLINED, not deferred: it needs a Blazor render to land
-           between two back-to-back prompts on WASM's single thread, and the two
-           arrive seconds apart, so one read covers both.
-
-           Describes the grants; quotes no browser's prompt text — see
-           FolderPickDisplay for why any such quote would be wrong somewhere.
-           The lead-in promises no *count* of prompts on purpose: where the
-           browser refuses to ask for the write grant at all (folderAccess.js
-           catches that refusal and degrades — it is Chrome for Android's every
-           pick), the second prompt never appears — so the list says what the
-           browser may ask, not that it will ask twice. Step 2's consequence
-           is worded "without it" rather than "decline and" for the same reason.
-           Polite role="status". *@
-        @if (_fsAccessAvailable && !Folder.HasFiles)
-        {
-            <div class="text-muted small mt-1" role="status">
-                Your browser will ask about the selected folder, near the address bar:
-                <ol class="mb-0 mt-1">
-                    <li>
-                        <strong>To view the selected folder's files — required.</strong>
-                        Nothing works without it: decline and no folder is picked at all.
-                    </li>
-                    <li>
-                        <strong>To save files into the folder — optional.</strong>
-                        The quiz runs either way; without it,
-                        @(FolderPickDisplay.WriteAccessConsequence).
-                    </li>
-                </ol>
-            </div>
-        }
-        @* Silent-gesture account, the OTHER branch of the same probe the
-           guidance above is gated on — one snapshot, two branches, each saying
-           what its branch means. Where showDirectoryPicker is absent the hidden
-           webkitdirectory input below is the only mechanism left, and whether a
-           given browser HONORS it cannot be feature-detected: the attribute
-           exists on the input object even where the picker never opens (observed
-           on a tablet, halheinrich/backgammon#108, where Choose folder raised no
-           chooser of any kind). So this gate does not claim the pick is dead —
-           it claims the mechanism whose viability is undetectable is the one
-           that will run, which is exactly what the probe can honestly report.
-
-           The wording carries the rest. It is a CONDITIONAL, and asserts nothing
-           about this browser: on desktop Firefox or Safari, where the fallback
-           works, the antecedent is simply never met and no false claim has been
-           made — the price is one grey line. A detection that overclaimed
-           certainty would be worse than this hedge.
-
-           Deliberately NOT gated on any pick state beyond "no folder held": the
-           reader it is written for taps the button and sees nothing happen, so
-           it must still be standing after that gesture. It is (the cancelled
-           notice below appears beside it, not instead of it), and it goes away
-           on the one event that proves the mechanism worked — a folder held.
-
-           Names no vendor, no device class, no prompt count; quotes no browser
-           UI. Polite role="status", like both advisories above it. *@
-        @if (!_fsAccessAvailable && !Folder.HasFiles)
-        {
-            <div class="text-muted small mt-1" role="status">
-                If choosing a folder opens nothing at all,
-                @(FolderPickDisplay.DeadPickVerdict) — there's nothing more to
-                try here.
-            </div>
-        }
-        @* Fallback picker for browsers without showDirectoryPicker: a hidden
-           webkitdirectory input, opened by the same button. Always rendered —
-           not conditional on the capability probe — so the e2e suite can drive
-           it directly. The probe now has two consumers with different jobs: the
-           init-time snapshot above, which only decides whether guidance is worth
-           showing, and the per-gesture probe in PickFolderAsync, which is the
-           authoritative mechanism fork. This input is gated by neither. The
-           FileList is read by the JS module (Blazor's InputFile can't see
-           webkitRelativePath, which the top-level-only filter needs).
-
-           Two landings, because this mechanism reports its two outcomes on two
-           different events: change carries a selection, and cancel is the only
-           signal a dismissal gives (no change event fires). The cancel binding
-           is what keeps a dismissed fallback pick from ending on the screen the
-           click just reset with nothing said — see _cancelledPickNotice for its
-           best-effort nature. *@
         <input type="file" id="problemFolderFallback" webkitdirectory class="d-none"
                @ref="_fallbackInput" @onchange="HandleFallbackPickedAsync"
                @oncancel="HandleFallbackCancelled" />
-        @if (!string.IsNullOrEmpty(Folder.Summary))
+
+        @if (App.Phase == QuizPhase.Loading)
+        {
+            <div class="text-muted small mt-1" role="status" id="loadingProgress">
+                @if (App.Progress is { } progress)
+                {
+                    <text>Reading file @Math.Min(progress.FilesRead + 1, progress.FileCount) of @progress.FileCount…</text>
+                }
+                else
+                {
+                    <text>Reading the folder…</text>
+                }
+            </div>
+        }
+
+        @if (Setup is { } setup)
         {
             <div class="text-muted small mt-1 d-flex align-items-center gap-2">
-                @* The caption is ProblemFolderLabel's, the one owner Home, Done
-                   and Stats all render it through (halheinrich/backgammon#199);
-                   Summary stays the holder's description of the pick and never
-                   carries the caption. Home frames Summary because the file
-                   count is what setup needs to see; the stats pages frame the
-                   bare DisplayName. *@
-                <ProblemFolderLabel Description="@Folder.Summary" />
-                @* Resample (SPEC-filtering.md §4, "The sample, the limits and
-                   Resample"): another draw of the held folder at the limits,
-                   without the picker. Offered exactly while another draw could
-                   hold different files — some kind was over its limit
-                   (PickedProblemFolder.CanResample, the producer's per-kind
-                   report read, not restated). Not Clear's kin: it keeps the
-                   setup and replaces only the sample, so it has its own
-                   handler (ResampleAsync). *@
-                @if (Folder.CanResample)
-                {
-                    <button type="button" id="resampleProblemFolder"
-                            class="btn btn-link btn-sm p-0 align-baseline"
-                            disabled="@Operations.IsInFlight"
-                            @onclick="ResampleAsync">
-                        Resample
-                    </button>
-                }
-                @* Clear and "Choose folder…" end the current setup identically —
-                   one handler, so the two can't drift. *@
+                <ProblemFolderLabel Description="@setup.Summary" />
                 <button type="button" class="btn btn-link btn-sm p-0 align-baseline"
-                        disabled="@Operations.IsInFlight"
-                        @onclick="ClearSetupAsync">
+                        disabled="@IsBusy" @onclick="ClearSetupAsync">
                     Clear
                 </button>
             </div>
-        }
-        @* A new sample finished the quiz in progress (SPEC-quiz-history.md §9,
-           "Home after it"): a pick or a Resample that landed ended the run as
-           End quiz ends it, and this line says so where the gesture was made,
-           with the way to the summary Done shows for it. An event notice —
-           polite, an outcome the user's own gesture caused, not a failure —
-           and dismissible, held by the app-scoped QuizNoticeDismissal on the
-           finished run itself (QuizController.EndedByNewSample), so it
-           survives navigating away and back, and the next run so finished
-           shows fresh. It stands while that run is the one the controller
-           holds finished: the next Start or Restart replaces it.
 
-           Outside the HasFiles gate on purpose: the run ended at the landing,
-           and a later Clear or pick does not unsay it. *@
-        @if (Controller.EndedByNewSample is { } endedRun)
+            @if (!setup.Sample.HoldsEveryMatchingFile && !ReferenceEquals(_truncationNoticeDismissedFor, setup))
+            {
+                <Notice id="truncationNotice" class="mt-2" Kind="NoticeKind.Warning"
+                        Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                        @bind-Dismissed:get="false"
+                        @bind-Dismissed:set="_ => _truncationNoticeDismissedFor = setup">
+                    @foreach (var kind in setup.Sample.Kinds.Where(kind => kind.OmittedCount > 0))
+                    {
+                        <div>
+                            Using @kind.MaxFileCount @kind.Extension files chosen at random;
+                            @kind.OmittedCount more @(kind.OmittedCount == 1 ? "was" : "were") not read.
+                        </div>
+                    }
+                </Notice>
+            }
+
+            @if (setup.Capability == FolderWriteCapability.PermissionDenied)
+            {
+                <div class="text-muted small mt-1" role="status">
+                    @(FolderPickDisplay.WriteAccessNotGranted) — the quiz runs, but
+                    @(FolderPickDisplay.WriteAccessConsequence).
+                </div>
+            }
+        }
+
+        @if (App.Finished is { EndedByNewSample: true } endedRun && !ReferenceEquals(_endedNoticeDismissedFor, endedRun))
         {
             <Notice id="quizEndedByNewSampleNotice" class="mt-2" Kind="NoticeKind.Information"
                     Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.QuizEndedByNewSample, endedRun)"
-                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.QuizEndedByNewSample, endedRun)">
+                    @bind-Dismissed:get="false"
+                    @bind-Dismissed:set="_ => _endedNoticeDismissedFor = endedRun">
                 Reading new files finished the quiz you had in progress —
                 <a href="done">see its summary</a>.
             </Notice>
         }
-        @* Truncated pick (issue halheinrich/backgammon#59): the folder held more files of some kind
-           than that kind's cap admits, so a randomly drawn N were taken and
-           the rest left unread. An outcome, not a failure — the quiz runs on
-           what was read, and everything downstream (match count, mix, stats)
-           derives from that partial pool — so polite like its neighbours, not
-           the error.
 
-           One line per truncated kind, and only for kinds with omitted files:
-           the caps are per format and independent, so a folder can be far past
-           one and nowhere near the other. Both figures come from the sample's
-           own report — the cap via SampledKind.MaxFileCount, which the folder
-           module takes from the very table it enforced, so the sentence cannot
-           claim a limit the app does not apply.
-
-           "chosen at random" is in the copy because the draw is OBSERVABLE
-           (issue halheinrich/backgammon#106): re-picking one over-cap folder reads a different
-           subset, so the match count and the problems shift between picks of
-           the same folder. Unexplained, that reads as a bug; named, it reads
-           as the reason to re-pick — the excess is reachable, not lost. The
-           line still claims only how many were used and how many were not,
-           never which: SampledKind carries counts, no identities.
-
-           Dismissible (issue halheinrich/backgammon#107), and the owner of the
-           occurrence holds the dismissal (SPEC-notices.md §2): the app-scoped
-           QuizNoticeDismissal, so navigating away and back cannot resurrect
-           it, keyed on the sample's identity so the next sample's report —
-           a re-pick's or a resample's — shows fresh with no reset wiring. *@
-        @if (!Folder.Sample.HoldsEveryMatchingFile)
-        {
-            <Notice id="truncationNotice" class="mt-2" Kind="NoticeKind.Warning"
-                    Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickTruncations, Folder.SampleIdentity)"
-                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickTruncations, Folder.SampleIdentity)">
-                @foreach (var kind in Folder.Sample.Kinds.Where(kind => kind.OmittedCount > 0))
-                {
-                    <div>
-                        Using @kind.MaxFileCount @kind.Extension files chosen at random;
-                        @kind.OmittedCount more @(kind.OmittedCount == 1 ? "was" : "were") not read.
-                    </div>
-                }
-            </Notice>
-        }
-        @* Pick-time stats status: which rung of the degrade ladder this folder
-           landed on. Outcomes the user should understand, not errors — polite
-           like the other outcome notices. Rendered only while a
-           pick is held (the capability is meaningless otherwise).
-
-           Dismissible (issue halheinrich/backgammon#107), held like the
-           truncation notice above — one holder slot for all three branches,
-           because they are mutually exclusive renderings of one per-pick
-           verdict, so a dismissal can only ever cover the one the user actually
-           read. Keyed on the sample's identity: a re-pick or a resample
-           reports its verdict fresh.
-
-           The Enabled branch's "will be saved" is a promise, so it is made only
-           while neither stats forecast below says otherwise (issues
-           halheinrich/backgammon#260, halheinrich/backgammon#261): with one in
-           force, the forecast is the whole statement. StatsWillNotRecord reads
-           the very store properties those notices render from — one fact
-           decides both. *@
-        @if (Folder.HasFiles)
-        {
-            @switch (Folder.Capability)
-            {
-                case FolderWriteCapability.Enabled when StatsWillNotRecord:
-                    break;
-                case FolderWriteCapability.Enabled:
-                    <Notice id="statsCapabilityNotice" class="mt-2" Kind="NoticeKind.Information"
-                            Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                            @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsCapability, Folder.SampleIdentity)"
-                            @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.SampleIdentity)">
-                        Your lifetime quiz stats will be saved to
-                        <strong>@QuizStatsFile.FileName</strong> in this folder.
-                    </Notice>
-                    break;
-                case FolderWriteCapability.BrowserUnsupported:
-                    <Notice id="statsCapabilityNotice" class="mt-2" Kind="NoticeKind.Warning"
-                            Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                            @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsCapability, Folder.SampleIdentity)"
-                            @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.SampleIdentity)">
-                        Your browser can't save quiz stats — the quiz runs without them.
-                    </Notice>
-                    break;
-                case FolderWriteCapability.PermissionDenied:
-                    @* Both halves come from FolderPickDisplay: the premise is
-                       cause-agnostic (this rung is also reached by a browser
-                       that refused to ask, with no prompt the user ever saw, so
-                       "you declined" would attribute a decision they never
-                       made), and the consequence is the same
-                       clause the pre-pick guidance's step 2 promised — one
-                       constant each, so warning and follow-through can't drift. *@
-                    <Notice id="statsCapabilityNotice" class="mt-2" Kind="NoticeKind.Warning"
-                            Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                            @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsCapability, Folder.SampleIdentity)"
-                            @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsCapability, Folder.SampleIdentity)">
-                        @(FolderPickDisplay.WriteAccessNotGranted) — the quiz runs, but
-                        @(FolderPickDisplay.WriteAccessConsequence).
-                    </Notice>
-                    break;
-            }
-        }
-        @* The two will-not-record forecasts (issues halheinrich/backgammon#260,
-           halheinrich/backgammon#261): what the pick-time probe already knows,
-           said at the pick rather than after Start — the stats file exists and
-           can't be read, or can't be written. Each is its own condition notice
-           on its own holder slot, keyed on the sample's identity like every
-           notice in this band, and both may show at once. Polite warnings:
-           outcomes the user should understand before acting, not failures.
-
-           The copy is FolderPickDisplay's, which Help quotes. The Quiz and Done
-           pages' Start-time and write-time notices stay regardless: the file
-           can change between pick and Start, and a file another program holds
-           open is only ever found at the write. *@
-        @if (StatsStore.ForecastStatsUnreadable)
-        {
-            <Notice id="statsUnreadableForecastNotice" class="mt-2" Kind="NoticeKind.Warning"
-                    Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsUnreadableForecast, Folder.SampleIdentity)"
-                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsUnreadableForecast, Folder.SampleIdentity)">
-                @FolderPickDisplay.StatsUnreadableForecast
-            </Notice>
-        }
-        @if (StatsStore.ForecastStatsUnwritable)
-        {
-            <Notice id="statsUnwritableForecastNotice" class="mt-2" Kind="NoticeKind.Warning"
-                    Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsUnwritableForecast, Folder.SampleIdentity)"
-                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsUnwritableForecast, Folder.SampleIdentity)">
-                @FolderPickDisplay.StatsUnwritableForecast
-            </Notice>
-        }
-        @* Stats-retirement forecast (issue halheinrich/backgammon#146): this folder's stats file was
-           written by an earlier version, so the next quiz will set it aside and
-           start fresh. The act itself stays at the quiz bind — a pick must not
-           mutate the folder (SPEC-stats-identity.md §3) — and the Quiz page's
-           notice stays as its report; this is the same event in forecast tense,
-           moved to where the consequence-bearing information belongs: before
-           the action, like the "your data stays yours" line above the pick.
-
-           Both tenses render the name from QuizStatsFile.RetiredNameFor over
-           the version the file itself declared (surfaced by the pick-time
-           probe), so the forecast and the report cannot name two different
-           files, and a v1 holder is told about the v1 name.
-
-           Reads below the capability notice, which it qualifies: that line says
-           where stats will be saved, this one says what happens to what is
-           already there. Polite — an outcome, not a failure — and dismissible,
-           held on its own slot keyed on the sample's identity, exactly like
-           the two notices above it. *@
-        @if (StatsStore.ForecastStatsSetAsideName is { } forecastSetAsideName)
-        {
-            <Notice id="statsRetirementForecastNotice" class="mt-2" Kind="NoticeKind.Information"
-                    Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.PickStatsRetirementForecast, Folder.SampleIdentity)"
-                    @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.PickStatsRetirementForecast, Folder.SampleIdentity)">
-                Your stats file was written by an earlier version of BgQuiz and can't be
-                carried forward. When you start a quiz it will be set aside as
-                <strong>@forecastSetAsideName</strong> — nothing is deleted — and a new
-                <strong>@QuizStatsFile.FileName</strong> started, so your lifetime stats
-                will begin again.
-            </Notice>
-        }
-        @* Cancelled-pick outcome (not a failure): the pick ended holding no
-           folder. Three causes reach here — the picker was dismissed, the
-           required view-files permission was declined, or a present-but-inert
-           showDirectoryPicker aborted without ever opening (issue halheinrich/backgammon#116,
-           observed live) — and they are deliberately not distinguished
-           (AbortError conflates them; pinned in BgFolderAccess_Razor), so the
-           wording must be true under all of them and stay non-accusatory
-           toward the user who simply backed out. Hence the advice is a
-           CONDITIONAL ("if your browser asks…"): on the inert browser no
-           request ever appears, and the old imperative "allow your browser's
-           request" recommended an action that could not be taken. Silence
-           (the earlier choice) left them on an unchanged, empty page with no
-           explanation of why nothing happened. Polite, like its sibling
-           outcome notices.
-
-           The dead-chooser tail renders on the FS-Access branch only — the
-           same one-snapshot two-branches discipline as the advisories above.
-           On that branch the inert case lands here with nothing else on the
-           page accounting for it, and the tail is the post-gesture sibling of
-           the halheinrich/backgammon#105 conditional (same FolderPickDisplay verdict, its own
-           antecedent), which is what breaks the retry loop the issue
-           reported. On the fallback branch the tail is omitted because its
-           antecedent is known false — this notice only fires there via the
-           input's cancel event, which a chooser must open to raise — and the
-           halheinrich/backgammon#105 grey line already stands beside this notice covering the
-           silent case.
-
-           Dismissible (issue halheinrich/backgammon#107), like the holder-backed
-           notices above — but the page field is the notice's whole state, not
-           the dismissal holder: the notice is per-visit by construction (it
-           describes a gesture that left nothing behind), so its own transience
-           already scopes the dismissal and an occurrence token would have
-           nothing to outlive. Dismissing clears the field; the next cancelled
-           pick sets it again and shows fresh. No @if around it — one fact,
-           read once. *@
         <Notice id="cancelledPickNotice" class="mt-2" Kind="NoticeKind.Warning"
                 Announcement="NoticeAnnouncement.Polite" Dismissible="true"
                 @bind-Dismissed:get="!_cancelledPickNotice"
                 @bind-Dismissed:set="_ => _cancelledPickNotice = false">
-            No folder is picked, so there's nothing for BgQuiz to read yet —
+            No folder was picked —
             choose a folder and, if your browser asks to view its files,
             allow that request.
             @if (_fsAccessAvailable)
@@ -509,34 +151,14 @@
                 </text>
             }
         </Notice>
-        @* Empty-folder outcome (not a failure): a completed pick that yielded
-           no problem files. Polite, like the no-match notice. Its page field
-           is its whole state, like the cancelled notice above. *@
+
         <Notice id="emptyFolderNotice" class="mt-2" Kind="NoticeKind.Warning"
                 Announcement="NoticeAnnouncement.Polite" Dismissible="true"
                 @bind-Dismissed:get="!_emptyFolderNotice"
                 @bind-Dismissed:set="_ => _emptyFolderNotice = false">
             No .xg / .xgp files found directly in that folder.
         </Notice>
-        @* Empty-resample outcome (not a failure): the folder held no problem
-           files when it was drawn again — they were moved or deleted since
-           the pick. An empty resample replaces nothing (SPEC-filtering.md §4),
-           so the files already read stay in use, and the line says so: the
-           gesture must not end on an unchanged page with nothing said. Its
-           page field is its whole state, like the empty-folder notice's. *@
-        <Notice id="emptyResampleNotice" class="mt-2" Kind="NoticeKind.Warning"
-                Announcement="NoticeAnnouncement.Polite" Dismissible="true"
-                @bind-Dismissed:get="!_emptyResampleNotice"
-                @bind-Dismissed:set="_ => _emptyResampleNotice = false">
-            Resample found no .xg / .xgp files directly in that folder, so the
-            files already read are still the ones in use.
-        </Notice>
-        @* Pick failure: a gesture that failed, so assertive, and dismissible
-           (SPEC-notices.md Fork A — an error already read should not sit until
-           the next attempt). The message field is the box's whole state:
-           dismissing clears it, and the next failure assigns it again and
-           shows fresh even with identical text — the text was never the
-           occurrence. No dismissed bit anywhere, and no @if around it. *@
+
         <Notice class="mt-2" Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
                 Dismissible="true"
                 @bind-Dismissed:get="string.IsNullOrEmpty(_pickError)"
@@ -545,311 +167,89 @@
         </Notice>
     </div>
 
-    @* Progressive disclosure: the filters, saved filters, weighted mix, the
-       Order, and Start button (with all their hints and notices) appear only
-       once a folder with problem files is picked. Before a pick there is
-       nothing to filter, weight, or start, so showing them is noise that buries
-       the one required first step — picking a folder. Following the enclosing <fieldset>'s
-       whole-setup-surface convention, this wrapper does not re-indent its body. *@
-    @if (Folder.HasFiles)
+    @if (Setup is { } loadedSetup)
     {
+        <FilterSurface Storage="Storage"
+                       CanPersist="loadedSetup.Capability == FolderWriteCapability.Enabled"
+                       PersistDisabledReason="@SavedFiltersDisabledReason" />
 
-    @* The whole filter surface — saved filters, their degrade/refusal notices,
-       and the filter panel — is one producer composite: FilterSurface owns the
-       panels and every interaction between them, and injects the app-scoped
-       FilterSetup that holds the selection, so this host binds only what is
-       the host's to say: the saved-filters seam and its capability ruling.
-
-       Nothing about the selection is bound here. The pick is reported to the
-       owner where this page latches it (ReportFilterSource), whether or not
-       this region is mounted; the gate, the filter to run and the match
-       count read the owner's snapshot (see the code-behind); and the
-       surface's storage refusals reach BrowserStorageCondition through the
-       sink Program.cs registers. Unmounting this region on Clear or a pick
-       therefore loses nothing: a remount over an unchanged pick finds its
-       setup as it was left, and a new pick has already ended the old one.
-
-       Storage is the picked-slot adapter — supplied only while the pick's
-       capability exposes a readable directory handle, so a fallback pick
-       (BrowserUnsupported) gets no saved-filters section at all, and
-       PermissionDenied stays load-only through CanPersist with the host's
-       FS-Access wording. *@
-    <FilterSurface Storage="Storage"
-                   CanPersist="Folder.Capability == FolderWriteCapability.Enabled"
-                   PersistDisabledReason="@SavedFiltersDisabledReason" />
-
-    @* Match summary: how many decisions the filter in effect selects — the
-       pre-mix pool the quiz (and any weighted mix) draws from — and what
-       kinds of answer those decisions call for. Positions offering no play
-       choice (a pass, or a forced play) are included because they auto-skip at
-       quiz time, so the wording is "decisions that match", not "problems you'll
-       see". Polite role="status"; advisory only
-       (Start is gated by CanStart, not by this). The counting line shows while
-       the count of the inputs on screen runs; only the first after a pick,
-       which parses it, also makes the page busy.
-
-       Read from the app-scoped MatchCount holder, keyed by the pick, the
-       filter in effect and the ranking (CurrentCount), so the counting line
-       and the result are both shown only for the inputs on screen — a count
-       left running for a cleared pick or an edited-away filter shows neither
-       — and a navigate-back finds the count it left, and the known-zero gate
-       with it.
-
-       The count is filter-only by construction — SummarizeMatchesAsync passes
-       QuizMix.Empty — so with a mix in effect the number describes the pool the
-       mix draws *from*, which the quiz itself can fall far short of. Rather than
-       leave that number to be read as the quiz's length, the caveat states the
-       relationship; it rides inside the same role="status" region so the count
-       and its qualification are announced together, and it derives from
-       MixInEffect (checked ∧ non-passthrough, live per keystroke) so checking,
-       unchecking, or clearing the mix updates it the moment it happens. Hedged
-       ("can be"), not "will be smaller": a capless mix over Everything else can
-       legitimately draw the whole pool. Pre-Start composition *preview* is a
-       separate, deliberately unbuilt thing — a preview would have to compose
-       against the lifetime stats, which is Start's work.
-
-       The number is a count of distinct positions (the source stack dedupes by
-       content identity), and saying nothing about that is what raised issue
-       halheinrich/backgammon#104: a user reads their file count, reads this number, subtracts, and
-       has no account for the difference except a bug. The line closes that in
-       one of two forms, by whether anything collapsed (Hal's wording on
-       halheinrich/backgammon#366). Where something did, it states the rule —
-       repeats are counted once — and then the magnitude, naming what was
-       dropped: "2 duplicates are omitted." Only the magnitude actually removes
-       the mystery: "distinct" alone still leaves the subtraction unexplained.
-       Where nothing did, it says so in one sentence, "There are no repeated
-       positions.", rather than stating a rule with nothing to apply to; the
-       count is still legible as a whole count, since it says nothing repeated.
-
-       Every form claims exactly what the telemetry measures — matching
-       decisions dropped as duplicates of a position already counted. Not files:
-       a file can hold many decisions, and the magnitude is measured on the
-       filtered stream, so any claim about how many *files* repeat would be a
-       different number the app does not have. No sentence inventories what
-       makes two positions the same; that is the producer's identity rule
-       (SPEC-stats-identity.md §4) and restating it here would be a second
-       spelling of it to keep in step.
-
-       A ZERO count is not this line (halheinrich/backgammon#262). CanStart is
-       false at zero, so the count is the only thing on the page saying why
-       Start is dark — a gate reason, by SPEC-notices.md's own test — and it
-       renders as the non-dismissible warning box #noMatchNotice: the same
-       sentence, the mix caveat inside it when the mix applies, polite because
-       the count is an outcome that lands, not a gesture's answer. The
-       repeated-positions sentences and the breakdown do not ride in it: with
-       nothing matched there is no pool to characterize.
-
-       The breakdown answers a different question than the count does — not "how
-       big is the pool" but "what is my collection made of", the curation-bias
-       check a beta tester asked for. It is one number and five short pairs on
-       the lines the count line already occupies, deliberately not a panel and
-       not a disclosure: this page has just been through an information-hierarchy
-       pass, and a click-to-open control here would either re-crowd it or hide
-       the finding behind a gesture nobody knows to make. Buckets and labels come
-       from AnswerTypeDisplay over the SAME AnswerTypeDistribution the count
-       renders its Total from — one enumeration, one fold, so the parts cannot
-       disagree with the whole. Zero buckets are rendered, not skipped: an
-       answer type the collection has none of is precisely the signal.
-
-       It rides inside the same role="status" region for the same reason the mix
-       caveat does — a screen reader gets the pool and its make-up in one
-       announcement rather than a number with a silent qualification.
-
-       Named for its axis ("By answer type"), which leaves the region open for
-       issue halheinrich/backgammon#3's pre-Start composition preview to sit beside it as its own
-       block on the mix axis. Nothing here is built for that; it is only kept
-       un-claimed. *@
-    @* The mix caveat, written once for both renderings of the count. *@
-    RenderFragment mixCaveat =
-        @<text>
-            Your mix applies: the quiz is drawn from these matches rather than
-            presenting all of them, so the quiz itself can be much smaller.
-        </text>;
-    @* The files the parse could not read, one line each — the file by the
-       name the picker gave it and the read's own reason, the exception's
-       message naming the check that failed (the producer's SourceRejection
-       carries the exception as the value it is; nothing here parses a log).
-       Written once for both boxes below: the all-rejected box lists them as
-       the whole account of its zero, the partial record as what the selection
-       lost. The shape is Extract's skipped-files notice: a headline, then one
-       line per file with its reason. *@
-    RenderFragment<SourceReport> rejectedFiles = report =>
-        @<ul class="mb-0">
-            @foreach (var rejection in report.Rejected)
-            {
-                <li><code>@rejection.SourceName</code> — @rejection.Reason.Message</li>
-            }
-        </ul>;
-    @if (CurrentCount.IsCounting)
-    {
-        <div class="text-muted small mb-3" role="status">Counting matching decisions…</div>
-    }
-    else if (Folder.Parsed is { Report: { AllRejected: true } allRejected })
-    {
-        @* EVERY file was rejected (halheinrich/backgammon#368): the zero this
-           pick counts to is not "0 decisions match your filters" — no filter
-           was ever applied to a decision, because no file could be read. Read
-           off the holder's parse, not the transient summary, for the same
-           reason the gate below reads it: the cause is a property of the
-           selection, which stands through a filter edit, a recount and a
-           count that fails, and leaves only with the pick (a re-pick or Clear
-           nulls Parsed). That is a policy, accepted as such at the 2026-10-07
-           review: a successfully completed parse is sufficient for this
-           notice's first publication, with no successful count required —
-           including when counting then fails, or when Start performs the
-           first parse. A gate reason by SPEC-notices.md's own test — Start
-           is dark for it and this box is the only thing saying why — so not
-           dismissible, non-vacuous by the producer's contract (AllRejected is
-           drawn only from a completed walk over at least one file), and
-           polite like the no-match box: an outcome that lands, not a gesture's
-           answer. The record of the files rides inside it, so the partial
-           record below does not also render — one account of one selection. *@
-        <Notice id="allRejectedNotice" class="mb-3" Kind="NoticeKind.Warning"
-                Announcement="NoticeAnnouncement.Polite">
-            <div><strong>None</strong> of the selected problem files could be read, so there are no decisions to count:</div>
-            @rejectedFiles(allRejected)
-        </Notice>
-    }
-    else if (CurrentMatchSummary is { AnswerTypes.Total: 0 })
-    {
-        <Notice id="noMatchNotice" class="mb-3" Kind="NoticeKind.Warning"
-                Announcement="NoticeAnnouncement.Polite">
-            <strong>0</strong> decisions match your filters.
-            @if (MixInEffect)
-            {
-                @mixCaveat
-            }
-        </Notice>
-    }
-    else if (CurrentMatchSummary is { AnswerTypes: var pool, DuplicatesCollapsed: var collapsed })
-    {
-        <div class="text-muted small mb-3" role="status">
-            <div>
-                <strong>@pool.Total</strong>
-                @(pool.Total == 1 ? "decision matches" : "decisions match") your filters.
-                @if (collapsed > 0)
+        RenderFragment<SourceReport> rejectedFiles = report =>
+            @<ul class="mb-0">
+                @foreach (var rejection in report.Rejected)
                 {
-                    <text>
-                        Repeated positions are counted once. @collapsed
-                        @(collapsed == 1 ? "duplicate is" : "duplicates are") omitted.
-                    </text>
+                    <li><code>@rejection.SourceName</code> — @rejection.Reason.Message</li>
                 }
-                else
-                {
-                    <text>There are no repeated positions.</text>
-                }
-                @if (MixInEffect)
-                {
-                    @mixCaveat
-                }
-            </div>
-            @* A zero BUCKET inside a non-empty pool is a finding and always
-               renders; only an empty pool has no make-up, and that is the box
-               above. *@
-            <div class="mt-1">
-                By answer type:
-                <ul class="list-inline d-inline mb-0">
-                    @foreach (var bucket in AnswerTypeDisplay.Buckets(pool))
+            </ul>;
+
+        @if (loadedSetup.Loaded.Report is { AllRejected: true } allRejected)
+        {
+            <Notice id="allRejectedNotice" class="mb-3" Kind="NoticeKind.Warning"
+                    Announcement="NoticeAnnouncement.Polite">
+                <div><strong>None</strong> of the selected problem files could be read, so there are no decisions to count:</div>
+                @rejectedFiles(allRejected)
+            </Notice>
+        }
+        else if (IsCounting)
+        {
+            <div class="text-muted small mb-3" role="status">Counting matching decisions…</div>
+        }
+        else if (CurrentSelection is { AnswerTypes.Total: 0 })
+        {
+            <Notice id="noMatchNotice" class="mb-3" Kind="NoticeKind.Warning"
+                    Announcement="NoticeAnnouncement.Polite">
+                <strong>0</strong> decisions match your filters.
+            </Notice>
+        }
+        else if (CurrentSelection is { AnswerTypes: var pool, DuplicatesCollapsed: var collapsed })
+        {
+            <div class="text-muted small mb-3" role="status">
+                <div>
+                    <strong>@pool.Total</strong>
+                    @(pool.Total == 1 ? "decision matches" : "decisions match") your filters.
+                    @if (collapsed > 0)
                     {
-                        <li class="list-inline-item">@bucket.Label: <strong>@bucket.Count</strong></li>
+                        <text>
+                            Repeated positions are counted once. @collapsed
+                            @(collapsed == 1 ? "duplicate is" : "duplicates are") omitted.
+                        </text>
                     }
-                </ul>
+                    else
+                    {
+                        <text>There are no repeated positions.</text>
+                    }
+                    @if (loadedSetup.Loaded.ForcedPlaysSetAside > 0)
+                    {
+                        <text>
+                            @loadedSetup.Loaded.ForcedPlaysSetAside forced
+                            @(loadedSetup.Loaded.ForcedPlaysSetAside == 1 ? "play was" : "plays were") set aside: a roll with one legal play asks nothing.
+                        </text>
+                    }
+                </div>
+                <div class="mt-1">
+                    By answer type:
+                    <ul class="list-inline d-inline mb-0">
+                        @foreach (var bucket in AnswerTypeDisplay.Buckets(pool))
+                        {
+                            <li class="list-inline-item">@bucket.Label: <strong>@bucket.Count</strong></li>
+                        }
+                    </ul>
+                </div>
             </div>
-        </div>
+        }
+
+        @if (loadedSetup.Loaded.Report is { AllRejected: false, Rejected.Count: > 0 } incomplete)
+        {
+            <Notice id="rejectedFilesNotice" class="mb-3" Kind="NoticeKind.Warning"
+                    Announcement="NoticeAnnouncement.Polite">
+                <div>
+                    <strong>@incomplete.Rejected.Count</strong> of @incomplete.AttemptedCount files could not
+                    be read, so this selection is incomplete:
+                </div>
+                @rejectedFiles(incomplete)
+            </Notice>
+        }
     }
 
-    @* The record of what the selection lost (halheinrich/backgammon#368): some
-       of the picked files could not be read, so the count above — and every
-       quiz over this pick — runs over an incomplete selection. Beside the
-       count line, not above the board: it qualifies the number the user is
-       reading, and the quiz runs over the readable files as before.
-
-       Rendered from the holder's parse, the one place the facts exist: the
-       parse happens once per pick and no later Start, Restart or re-count
-       walks the files again, so there is nothing that could clear, append to
-       or replace this record except the pick itself — Set and Clear null
-       Parsed, which is how a new pick or Clear retires it, and how navigating
-       away and back recovers it (the holder outlives the page, as it does for
-       the truncation notice). Deliberately NOT read from the match summary,
-       which is absent while the filters are edited away from what is in
-       effect, while a count runs and after a count fails: the selection and its rejected files stand through all
-       three, so a notice that hid with the summary would say the selection
-       was whole exactly while the user edits the filters over it. The summary
-       carries the same report object (MatchSummary.Sources), so the count and
-       this record describe one parse by construction. The policy, accepted as
-       such at the 2026-10-07 review: a successfully completed parse is
-       sufficient for this notice's first publication, with no successful
-       count required — including when counting then fails, or when Start
-       performs the first parse.
-
-       The class Extract's skipped-files notice sits in — the record of what a
-       run lost (SPEC-notices.md §4, halheinrich/backgammon#223) — so not
-       dismissible: the selection is incomplete for as long as it stands, and a
-       dismissed record would let a quiz run over a selection the page no
-       longer says is incomplete. Polite: an outcome of the pick's parse that
-       lands, not a gesture that failed. "N of M files" needs no singular —
-       with at least one rejected beside at least one readable, M is at least
-       two — and the counts are the report's own, never the holder's file
-       count, so the sentence claims exactly what the walk measured. Not
-       rendered when every file was rejected: that box carries the list itself. *@
-    @if (Folder.Parsed is { Report: { AllRejected: false, Rejected.Count: > 0 } incomplete })
-    {
-        <Notice id="rejectedFilesNotice" class="mb-3" Kind="NoticeKind.Warning"
-                Announcement="NoticeAnnouncement.Polite">
-            <div>
-                <strong>@incomplete.Rejected.Count</strong> of @incomplete.AttemptedCount files could not
-                be read, so this selection is incomplete:
-            </div>
-            @rejectedFiles(incomplete)
-        </Notice>
-    }
-
-    @* Weighted mix — VISIBLE MEANS IN EFFECT (SPEC-filtering.md §5, ruled
-       2026-09-07; halheinrich/backgammon#181). The one derivation,
-       MixVisibility.IsVisible, is the user's standing setting AND this folder's
-       stats fact. The second half asks what the folder holds — weighting
-       composes FROM that record, so an empty one expresses no weighting anybody
-       asked for, and missing, empty and unreadable are one answer, not three
-       rungs.
-
-       This condition is not a display rule with an effect rule beside it: it IS
-       the effect rule. EffectiveMix reads the same member, so a visible mix
-       always applies and a hidden one never does — the panel on screen is the
-       whole disclosure, and there is no control here to arm.
-
-       Nothing is disabled and no reason is given: the panel simply isn't here.
-       The emergent behavior is accepted, not worked around — a brand-new folder
-       offers no mix until its own first quiz has written some stats, whatever
-       the setting says.
-
-       Under a false derivation the mix plays no part in Start, by construction:
-       with no panel mounted nothing re-hydrates, and EffectiveMix reads the
-       passthrough, so no mix gate, warning, or refusal can fire. Keyed on the
-       setup's identity so every pick re-mounts it and a resample does not (the
-       mix is the setup's, SPEC-filtering.md §4): the fresh mount triggers the
-       discarded draft's re-hydration, which re-offers the stored last-valid mix
-       — and, into a folder that has stats while the setting is on, re-offers it
-       IN EFFECT. That is the ruling and not an oversight: the rows are a
-       standing choice, the setting is a standing choice, and the panel showing
-       them is how the user is told.
-
-       The @key now decides less than it did: since the reset moved to the click,
-       the enclosing HasFiles gate already unmounts this panel on every pick. The
-       key stays because it — not the gate — is what guarantees the remount, and
-       nothing here should depend on the gate's timing. *@
-    @if (MixVisibility.IsVisible)
-    {
-        <MixPanel @key="Folder.SetupIdentity" />
-    }
-
-    @* The Order (SPEC-filtering.md §7): one control, its four values
-       the producer's, labelled from ProblemOrder's descriptions and offered
-       from QuizSettings.Orders. Always available — a mix never disables it:
-       the mix selects, the order presents (§5). It is a remembered
-       choice, recorded the moment it changes, and read where a Start or a
-       Restart builds the run's source, so nothing on this page derives from
-       it: the count never sorts. A radio group rather than a select, so each
-       value is a control of its own and no token is read back from the DOM. *@
     <fieldset class="mb-3" id="problemOrder">
         <legend class="form-label fs-6 mb-1">Order</legend>
         @foreach (var order in QuizSettings.Orders)
@@ -864,56 +264,27 @@
         }
     </fieldset>
 
-    @* The busy half is redundant under the enclosing fieldset, but explicit:
-       the gate condition and the busy condition are both visible here. A
-       count over a parse the pick already holds does not hold Start back:
-       it parses nothing, so a Start beside it reads the same held parse, and
-       a Start made before it knows a zero has the no-match outcome as its
-       backstop. The pick's first parse does hold it, through the fieldset. A
-       folder operation in flight holds it too, whichever page began it — and
-       the handler refuses a Start then, whatever the button shows. *@
-    <button class="btn btn-primary"
-            disabled="@(!CanStart || Controller.IsBusy || Operations.IsInFlight)"
-            @onclick="StartQuizAsync">
+    <button class="btn btn-primary" disabled="@(!CanStart || IsBusy)" @onclick="StartQuizAsync">
         Start Quiz
     </button>
 
-    @* Five sibling hints, one per Start gate, in the gate's own order: each
-       states its reason, and exactly one shows at a time (the chain mirrors
-       CanStart's conjunction, most-fundamental first). The all-rejected hint
-       reads the holder's parse, as its gate does, so it stands whether or not
-       a count is on screen and precedes the zero-pool hint, whose sentence —
-       adjust the filters — would be wrong advice for a zero no filter
-       produced (halheinrich/backgammon#368). The zero-pool hint renders only
-       on a KNOWN-empty pool — a resolved summary with Total 0 — never while
-       the count is null or still running, matching the gate. The mix hint is
-       the ruled fix-or-turn-off sentence: the panel stays visible (the setting
-       records the choice), Start goes dark, and the panel's own validation
-       line says what specifically is broken. *@
-    @if (FilterInEffect is null)
-    {
-        <small class="text-muted ms-2">Apply the filters above to enable Start.</small>
-    }
-    else if (!Folder.HasFiles)
+    @if (Setup is null)
     {
         <small class="text-muted ms-2">Pick a folder containing .xg / .xgp files to enable Start.</small>
     }
-    else if (Folder.Parsed is { Report.AllRejected: true })
+    else if (FilterInEffect is null)
+    {
+        <small class="text-muted ms-2">Apply the filters above to enable Start.</small>
+    }
+    else if (Setup.Loaded.Report.AllRejected)
     {
         <small class="text-muted ms-2">No selected problem file could be read — pick a folder with readable problem files to enable Start.</small>
     }
-    else if (CurrentMatchSummary is { AnswerTypes.Total: 0 })
+    else if (CurrentSelection is { AnswerTypes.Total: 0 })
     {
         <small class="text-muted ms-2">No problems match the filters — adjust and re-apply them to enable Start.</small>
     }
-    else if (EffectiveMix is null)
-    {
-        <small class="text-muted ms-2">Mix applies but isn't valid — fix it or turn the mix off.</small>
-    }
 
-    @* Start failure: assertive and dismissible, with the message field as the
-       box's whole state — the pick error's shape, for the pick error's
-       reasons. *@
     <Notice class="mt-3" Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
             Dismissible="true"
             @bind-Dismissed:get="string.IsNullOrEmpty(_startError)"
@@ -921,92 +292,22 @@
         <strong>Could not start quiz:</strong> @_startError
     </Notice>
 
-    @* Weighted-start refusal: the effective mix has entries but no lifetime
-       stats are available, and running silently unweighted would substitute
-       content the user didn't ask for. Actionable and assertive — the
-       one-click per-run escape sits inside the notice; the mix rows and the
-       checkbox are never touched by either path (the escape is per-run, and
-       unchecking is the user's own standing off-switch). The copy no longer
-       points at Clear mix: under screen-follows-storage Clear genuinely
-       deletes the rows, so the honest keep-your-mix escape is uncheck.
-
-       A gate reason, so not dismissible (SPEC-notices.md Fork C): closing it
-       would take the escape button with it and leave a Start click that did
-       nothing, with no account of why. *@
-    @if (_mixRefused)
-    {
-        <Notice class="mt-3" Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Assertive">
-            <p class="mb-2">
-                Lifetime stats aren't available for this quiz
-                (@MixDisplay.RefusalReason(StatsStore.Status)),
-                so the weighted mix can't be applied.
-            </p>
-            <button class="btn btn-outline-primary btn-sm" id="startWithoutMix"
-                    disabled="@Operations.IsInFlight"
-                    @onclick="StartWithoutMixAsync">
-                Start without mix
-            </button>
-            <span class="small text-muted ms-2">
-                runs this one quiz unweighted — or turn the mix off in
-                <em>Settings</em> to stop weighting altogether; your mix rows are
-                kept either way.
-            </span>
-        </Notice>
-    }
-
-    @* Empty-result outcome (not a failure): a valid Start that admitted no
-       showable problem. Polite, not the error banner's assertive
-       announcement. A gate reason — it is why Start found nothing — so not
-       dismissible (SPEC-notices.md Fork C). *@
     @if (!string.IsNullOrEmpty(_noMatchNotice))
     {
         <Notice class="mt-3" Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Polite">
             @_noMatchNotice
         </Notice>
     }
-    } @* end progressive-disclosure @if (Folder.HasFiles) *@
 
     </fieldset>
 
-    @* The way back to a running quiz (issue halheinrich/backgammon#58). Home is the third page
-       reachable mid-quiz with no way back — Help and Settings already carried
-       this affordance, and this is the same predicate and the same words, so a
-       user who has met it once meets the same one here.
-
-       Not the shared ReturnControl those pages render now
-       (halheinrich/backgammon#241), deliberately: that control falls back to
-       "Back to Home" with no quiz live, and Home is the setup page — it does
-       not return to itself. So here the button is conditional, and absent
-       when there is no quiz to go back to.
-
-       Mid-quiz visits to Home are safe by design — the picked files are read
-       at Start only, and Clear, a cancelled or empty pick and a failed one are
-       pinned not to disturb a running quiz — so this adds a way back and
-       nothing else. No guard, no warning. The one setup gesture that does end
-       the quiz is a new sample landing — a pick or a Resample that read files
-       (SPEC-quiz-history.md §9) — and once it has, there is no quiz to go back
-       to: this button goes, and the line in the pick band says why.
-
-       OUTSIDE the busy fieldset, deliberately: this navigates and drives no
-       transition, so it follows the Show-stats / Back-to-setup convention of
-       staying live while the page works. Inside, the fieldset's disabled would
-       take the way back away exactly while a long parse makes a user most likely
-       to want it. *@
-    @if (Controller.HasStarted && !Controller.IsFinished)
+    @if (App.HasStarted && !App.IsFinished)
     {
         <button class="btn btn-primary mt-3" @onclick="BackToQuiz">
             Back to quiz
         </button>
     }
 
-    @* Version + beta feedback, one footer line. The link sits here because the
-       version is what makes a report actionable and this is where the version
-       already is — a tester reads the build they are on and mails about it in
-       one gesture, with no chance of quoting the wrong one: both halves come
-       from AppInfo, so the subject can't drift from the footer.
-
-       Explicit-expression parens: bare "v@AppInfo.Version" is parsed as an
-       email literal. *@
     <div class="text-muted small mt-4">
         <span id="appVersion">v@(AppInfo.Version)</span>
         · <a href="@AppInfo.FeedbackMailto">Send feedback</a>

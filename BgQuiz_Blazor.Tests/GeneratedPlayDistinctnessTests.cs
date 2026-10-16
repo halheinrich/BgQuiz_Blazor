@@ -4,7 +4,7 @@ using BgMoveGen;
 namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
-/// What <c>QuizController.HasNoPlayChoice</c> stands on: that
+/// What <c>ProblemLoader.HasNoPlayChoice</c> stands on: that
 /// <see cref="MoveGenerator.GeneratePlays"/>' candidate list holds one play
 /// per distinct position a legal play reaches.
 ///

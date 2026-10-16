@@ -99,7 +99,7 @@
             </li>
             <li>
                 <strong>Two small files, written into that folder.</strong> BgQuiz
-                saves <code>@QuizStatsFile.FileName</code> (your lifetime record) and
+                saves <code>bgquiz-stats.json</code> (your lifetime record) and
                 <code>@SavedFiltersDocument.FileName</code> (filters you save by name)
                 beside your problem files. It writes nothing else, and never changes
                 the files it quizzes you on.
@@ -150,7 +150,7 @@
         </p>
         <ul>
             <li>
-                <code>@MixDraft.StorageKey</code> — your weighted mix as last shown
+                <code>xg_quizMix</code> — your weighted mix as last shown
                 on screen, in this site's local storage. It survives reloading the
                 page and closing the browser, and it holds the mix settings only:
                 the categories, their percentages and order, and the quiz length.
@@ -169,7 +169,7 @@
                 reloading and closing the browser.
             </li>
             <li>
-                <code>@QuizLiveMarker.StorageKey</code> — a single mark noting that a
+                <code>bgquiz.quizLive</code> — a single mark noting that a
                 quiz was running, which is how BgQuiz can tell you afterwards that a
                 reload reset it. It is kept in <em>session</em> storage, which belongs
                 to this browser tab alone: another tab never sees it, and it
@@ -723,9 +723,7 @@
            review comes first — so the sentence names the move on, not the
            answer. *@
         <p>
-            The <em>Show stats</em> button near the right-hand end of the row under the board
-            — a small chart; its name shows when you point at it — opens a running scoreboard
-            at any point mid-quiz, and returns you to exactly where you were. When there are
+            The score panel under the board keeps the running tally. When there are
             no more problems to show, moving on from the last one — after answering it, or
             with <em>Skip</em> — takes you to the summary page, where you can restart with
             the same filters or start over with new ones.
@@ -753,12 +751,12 @@
         </p>
         <p>
             In a window too narrow for the whole row, its right-hand group — the XGID's copy
-            button, the label naming the file, <em>Show stats</em> and <em>End quiz</em> —
+            button, the label naming the file and <em>End quiz</em> —
             folds behind one button at the row's far end, <em>More</em>, drawn as three dots.
             Click it, or press Enter or Space on it, for a list that holds the location and
-            three actions: <em>Copy XGID to clipboard</em>, <em>Show stats</em> and
-            <em>End quiz</em>. Choosing an action performs it. Escape, or a click anywhere
-            else, closes the list. Widen the window and the group comes back as it was.
+            two actions: <em>Copy XGID to clipboard</em> and <em>End quiz</em>. Choosing an
+            action performs it. Escape, or a click anywhere else, closes the list. Widen the
+            window and the group comes back as it was.
         </p>
 
         <h3 class="h4 mt-4" id="@HelpSections.LifetimeStats.AnchorId">@HelpSections.LifetimeStats.Heading</h3>
@@ -766,7 +764,7 @@
             In browsers that can grant write access to a folder (Chrome and Edge), BgQuiz
             also keeps a <em>lifetime</em> record: how often each position has been quizzed,
             how often you got it right, and when you last saw it. It lives in a small file
-            named <code>@QuizStatsFile.FileName</code> inside your problem folder, right
+            named <code>bgquiz-stats.json</code> inside your problem folder, right
             beside the files it tracks, and is updated after each problem you answer.
             Like your problem files, it never leaves your machine — it is written directly
             to your own folder, and nothing is uploaded anywhere.
@@ -799,7 +797,7 @@
                 <strong>An unreadable stats file is left alone.</strong> If the file can't be
                 read (edited by hand, or written by a newer BgQuiz), the quiz runs without
                 recording and the file is not touched. The home page says so as soon as
-                you pick the folder: “@FolderPickDisplay.StatsUnreadableForecast”
+                you pick the folder: “This folder's bgquiz-stats.json can't be read, so the quiz will run but record nothing — and the file will be left untouched.”
             </li>
             @* The pick-time forecasts are quoted from the constants Home renders
                (FolderPickDisplay), so Help cannot promise one wording while the
@@ -809,7 +807,7 @@
                claiming the pick catches it. *@
             <li>
                 <strong>A stats file that can't be written records nothing.</strong> When
-                you pick the folder, the home page tells you: “@FolderPickDisplay.StatsUnwritableForecast”
+                you pick the folder, the home page tells you: “This folder's bgquiz-stats.json can't be written — it's marked read-only, or the browser isn't allowed to write it — so the quiz will run but record nothing.”
                 If the file can't be saved once the quiz is under way, the quiz page says so
                 and the quiz carries on without saving.
             </li>
@@ -826,11 +824,11 @@
                 how it recognises a position, so a stats file written by an earlier version
                 can't be carried forward. The first quiz you run in that folder sets the old
                 file aside — nothing is deleted — under a name that records the version it
-                came from, such as <code>@QuizStatsFile.RetiredNameFor(1)</code>, and starts
-                a fresh <code>@QuizStatsFile.FileName</code> beside it. The quiz tells you
+                came from, such as <code>bgquiz-stats.v1.json</code>, and starts
+                a fresh <code>bgquiz-stats.json</code> beside it. The quiz tells you
                 the name it used. One interim format is folded into your record instead of
                 set aside, and its file is kept as
-                <code>@QuizStatsFile.MergedNameFor(BgGame_Lib.ProblemStatsDocument.FoldableSchemaVersion)</code>.
+                <code>bgquiz-stats.v4.merged.json</code>.
             </li>
         </ul>
 

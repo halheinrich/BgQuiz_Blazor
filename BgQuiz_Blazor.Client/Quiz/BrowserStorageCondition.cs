@@ -10,8 +10,8 @@ namespace BgQuiz_Blazor.Client.Quiz;
 /// <para>
 /// <b>One fact, many reporters.</b> Every store that touches browser storage
 /// reports a refusal here from its own guard — <see cref="QuizSettings"/>,
-/// <see cref="MixDraft"/>, <see cref="NotesPlacementStore"/> and
-/// <see cref="QuizLiveMarker"/> — and the filter surface reports every refusal
+/// <c>MixDraft</c>, <see cref="NotesPlacementStore"/> and
+/// <c>QuizLiveMarker</c> — and the filter surface reports every refusal
 /// of its own through <see cref="FilterStorageRefusalSink"/>, the sink this app
 /// registers with it, also after the page that started the call has gone
 /// (halheinrich/backgammon#374). They feed one occurrence
@@ -58,9 +58,9 @@ internal sealed class BrowserStorageCondition
     /// The occurrence of the refusal condition — <see langword="null"/> while
     /// nothing has been refused this visit, and one opaque token from the first
     /// refusal on. <b>The token is the flag</b>, the
-    /// <see cref="QuizStatsStore.StatsRetiredOccurrence"/> discipline: no
+    /// <c>QuizStatsStore.StatsRetiredOccurrence</c> discipline: no
     /// companion boolean can disagree with it. Compared by identity only, as
-    /// every occurrence <see cref="QuizNoticeDismissal"/> holds.
+    /// every occurrence <c>QuizNoticeDismissal</c> holds.
     /// </summary>
     public object? Occurrence { get; private set; }
 

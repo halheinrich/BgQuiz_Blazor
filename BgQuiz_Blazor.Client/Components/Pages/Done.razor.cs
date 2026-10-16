@@ -3,192 +3,61 @@ using Microsoft.AspNetCore.Components;
 
 namespace BgQuiz_Blazor.Client.Components.Pages;
 
-/// <summary>
-/// Phase 1 final-summary page rendered after the active
-/// <see cref="QuizController"/> exhausts its source. Two buttons close the
-/// loop: <i>Restart with same filters</i> re-runs the same (already-augmented)
-/// filter set, and <i>Back to setup</i> navigates to <c>Home</c>. The latter is
-/// navigation only — the start-gate holders persist across it, so <c>Home</c>
-/// arrives armed with the same picks and filters; the label describes that
-/// navigation rather than promising a reset the button doesn't perform.
-///
-/// <para>Direct nav to <c>/done</c> with no quiz in progress bounces to <c>/</c>.</para>
-///
-/// <para>
-/// This page writes no <see cref="QuizLiveMarker"/>: the controller is its one
-/// writer, clearing it wherever a run finishes and setting it when a Start or
-/// Restart commits a live run (<c>SPEC-quiz-history.md</c> §9), so a reload
-/// on or after Done reports no live quiz lost and a reload during a restarted
-/// quiz reports one, with nothing here to forget.
-/// </para>
-///
-/// <para>
-/// <b>Neither Restart begins while a folder operation is in flight</b>
-/// (<see cref="FolderOperations"/>; halheinrich/backgammon#403): a pick or a
-/// resample begun on Home can still be running — the user may have come here
-/// in the middle of one — and a run started meanwhile would start over a
-/// sample about to be replaced, or over none. Both are refused where they are
-/// entered (<see cref="RestartCoreAsync"/>) and disabled while one is, and
-/// this page re-renders as an operation begins and ends.
-/// </para>
-/// </summary>
+/// <summary>The finished run's summary, with Restart and the way back to setup.</summary>
 public partial class Done : ComponentBase, IDisposable
 {
-    /// <summary>
-    /// Number of distinct problems the user was shown — the run's own fact, its
-    /// presented sequence (<see cref="QuizController.PresentedCount"/>), read
-    /// and never rebuilt here from the score and the skip count
-    /// (halheinrich/backgammon#325, item 2).
-    /// </summary>
-    private int ProblemsShown => Controller.PresentedCount;
+    [Inject] private QuizApp App { get; set; } = default!;
+    [Inject] private NavigationManager Nav { get; set; } = default!;
 
-    /// <summary>
-    /// On load: bounce to <c>/</c> if no quiz has started, and hydrate the
-    /// settings its Restart reads.
-    /// </summary>
-    protected override async Task OnInitializedAsync()
+    private string? _restartError;
+    private string? _restartNotice;
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
     {
-        if (!Controller.HasStarted)
+        if (!App.HasStarted)
         {
             Nav.NavigateTo("/", replace: true);
             return;
         }
 
-        // Restart's two buttons are disabled while a folder operation is in
-        // flight, and one can begin or end while this page is up: re-render
-        // when it does. Unsubscribed in Dispose.
-        Operations.Changed += StateHasChanged;
-
-        // Restart reads the mix's visibility, half of which is a stored
-        // setting, and the ranking, which is one, so this page must not render
-        // its Restart affordances over an unhydrated QuizSettings. In practice Home has always hydrated it —
-        // reaching Done requires a Start, and Start happens there — but the
-        // call is idempotent and already complete by now, so awaiting it costs
-        // no render pass and turns a claim about page ordering into something
-        // structural.
-        await Settings.EnsureHydratedAsync();
+        App.Changed += OnAppChanged;
     }
 
-    /// <summary>
-    /// Set when a weighted Restart was refused — the stored mix is re-attempted
-    /// on every Restart, and stats can have fallen away since the last run.
-    /// Drives the refusal notice with its per-run "Restart without mix"
-    /// override; the summary underneath survives by the refusal's own
-    /// touches-no-state guarantee. Per-visit outcome state, so a component
-    /// field.
-    /// </summary>
-    private bool _mixRefused;
+    /// <inheritdoc />
+    public void Dispose() => App.Changed -= OnAppChanged;
 
-    /// <summary>
-    /// The message of the last Restart that faulted, or null — the sibling of
-    /// Home's start error, <c>"Could not restart quiz:"</c>
-    /// (<c>SPEC-quiz-history.md</c> §8; <c>SPEC-notices.md</c> §4's 2026-10-13
-    /// entry). A faulted Restart keeps the finished run, so the summary on
-    /// this page still stands beneath the notice, and Restart can be pressed
-    /// again. A per-visit failure notice, assertive and dismissible, and this
-    /// field is its whole state, as Home's is: dismissing it clears the field,
-    /// and the next fault assigns it again and shows fresh.
-    /// </summary>
-    private string? _restartError;
+    private void OnAppChanged() => _ = InvokeAsync(StateHasChanged);
 
-    /// <summary>
-    /// Whether the finished run was weighted while a restart of it would not
-    /// be — the one state <see cref="RestartAsync"/>'s rule makes possible, and
-    /// the one this page has to disclose before the click.
-    ///
-    /// <para>
-    /// "Was weighted" is <see cref="QuizController.LastComposition"/>, which is
-    /// non-null exactly when a composing layer was wired: no new state, and no
-    /// second copy of what the last Start decided. "Would not be" is the same
-    /// <see cref="MixVisibility.IsVisible"/> the restart itself reads, so the
-    /// sentence cannot promise something other than what the button does.
-    /// </para>
-    /// </summary>
-    private bool RestartWillDropTheMix =>
-        Controller.LastComposition is not null && !MixVisibility.IsVisible;
-
-    /// <summary>
-    /// <b>Restart weights iff the mix panel is visible at this moment</b>
-    /// (<c>SPEC-filtering.md</c> §5, "Visible means in effect";
-    /// <c>halheinrich/backgammon#5</c>) — the same rule Home's Start follows,
-    /// with no special case for the fact that the mix being re-attempted came
-    /// from a previous run.
-    ///
-    /// <para>
-    /// It used to pass <c>ignoreMix: false</c> unconditionally and let the
-    /// controller re-attempt whatever the last Start stored, which is how a
-    /// weighted mix could reach a folder the panel was no longer rendering
-    /// under. Reading visibility here closes that: a weighted Restart is now
-    /// always against the pick the panel rendered under, so the folder's write
-    /// capability is <c>Enabled</c> by construction — which is what let
-    /// <see cref="MixDisplay.RefusalReason"/> collapse to status-only. When the
-    /// mix has gone the restart runs unweighted and
-    /// <see cref="RestartWillDropTheMix"/> has already said so.
-    /// </para>
-    /// </summary>
-    private Task RestartAsync() => RestartCoreAsync(ignoreMix: !MixVisibility.IsVisible);
-
-    /// <summary>
-    /// The refusal notice's one-click escape: restart this one quiz as
-    /// passthrough. Per-run only — the stored mix is untouched and re-applies
-    /// on the next Start/Restart that can honor it.
-    /// </summary>
-    private Task RestartWithoutMixAsync() => RestartCoreAsync(ignoreMix: true);
-
-    /// <summary>Detach from the folder operations' owner — this page dies before it does.</summary>
-    public void Dispose() => Operations.Changed -= StateHasChanged;
-
-    private async Task RestartCoreAsync(bool ignoreMix)
+    private async Task RestartAsync()
     {
-        // No run begins while a folder operation is in flight, whichever page
-        // began it. Refused here, where the gesture is entered, whatever the
-        // buttons show.
-        if (Operations.IsInFlight) return;
-
-        _mixRefused = false;
         _restartError = null;
-
-        // The ranking and the Order are the user's settings as they stand now:
-        // a restart is a new run, and a run takes both where it begins
-        // (SPEC-scoring.md §2a; SPEC-quiz-history.md §8, the Order chosen at
-        // Restart).
-        QuizStartOutcome outcome;
+        _restartNotice = null;
         try
         {
-            outcome = await Controller.RestartAsync(Settings.Ranking, Settings.Order, ignoreMix);
+            switch (await App.RestartAsync())
+            {
+                case StartOutcome.Started:
+                    Nav.NavigateTo("/quiz");
+                    break;
+                case StartOutcome.NoProblems:
+                    _restartNotice = "No quiz problems could be presented from the folder in hand — the summary above stands.";
+                    break;
+                case StartOutcome.NoSetup:
+                    _restartNotice = "No folder is in hand; pick one on the setup page to restart.";
+                    break;
+                case StartOutcome.Busy:
+                case StartOutcome.NoFilterInEffect:
+                case StartOutcome.NothingToRestart:
+                    break;
+            }
         }
         catch (Exception ex)
         {
-            // The attempt faulted — building the source, opening its stream
-            // or drawing to its first problem — and kept the finished run
-            // (SPEC-quiz-history.md §8): the summary stands, nothing became
-            // live, and the marker stays cleared. Surface it rather than
-            // faulting the app. Only the controller's call is caught, so the
-            // notice never names a failure that was not the Restart's.
+            // A faulted Restart keeps the finished run, so the summary stands and Restart can be pressed again.
             _restartError = ex.Message;
-            return;
         }
-
-        // Overlapped gesture: the transition gate ignored this call — change
-        // nothing; the in-flight Restart owns any navigation and notices.
-        if (outcome == QuizStartOutcome.Busy) return;
-
-        if (outcome == QuizStartOutcome.MixRequiresStats)
-        {
-            // Refused: no quiz state changed, the summary stands, and the
-            // notice offers the per-run escape. The marker stays cleared —
-            // nothing became live.
-            _mixRefused = true;
-            return;
-        }
-
-        // The controller marked the restarted quiz live as it became current, so
-        // a reload during it gets the same reset notice as one during a Start.
-        Nav.NavigateTo("/quiz");
     }
 
-    private void BackToSetup()
-    {
-        Nav.NavigateTo("/");
-    }
+    private void BackToSetup() => Nav.NavigateTo("/");
 }

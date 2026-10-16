@@ -160,12 +160,6 @@ public sealed class PageRenderedTests : E2eTestBase
         await StartQuizAsync();
         await ExpectOnlyTheLandmarkOfAsync(AppRoute.Quiz);
 
-        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ShowStatsButton, Exact = true }).ClickAsync();
-        await ExpectOnlyTheLandmarkOfAsync(AppRoute.Stats);
-
-        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton }).ClickAsync();
-        await ExpectOnlyTheLandmarkOfAsync(AppRoute.Quiz);
-
         await AnswerCubeNoDoubleAsync();
         await ContinueToDoneAsync();
         await ExpectOnlyTheLandmarkOfAsync(AppRoute.Done);

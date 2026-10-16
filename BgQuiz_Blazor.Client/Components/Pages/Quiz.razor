@@ -6,9 +6,7 @@
 @using BgDiag_Razor.Components
 @using BgQuiz_Blazor.Client.Quiz
 
-@inject QuizController Controller
-@inject QuizStatsStore StatsStore
-@inject QuizNoticeDismissal Notices
+@inject QuizApp App
 @inject QuizSettings Settings
 @inject NavigationManager Nav
 @inject IJSRuntime JS
@@ -19,138 +17,14 @@
 @* app-busy: progress cursor while a transition runs — a draw for ▶, or a
    Submit's write to the lifetime record (app.css); the controller's gate yield
    lets it paint before an advance's churn. *@
-<div class="container-fluid py-3 board-page @(Controller.IsBusy ? "app-busy" : null)">
-    @* Active-context stats notices: scoped to the running quiz's stats context
-       (bound at Start, reset by the next Start's re-bind). A load failure is an
-       outcome — the quiz runs, the file stays untouched — so polite; a write
-       failure is a failure mid-quiz, so assertive. Neither ever blocks the quiz.
-
-       Dismissible, like every notice on this page, and held by the owner of
-       the occurrence (SPEC-notices.md §2): QuizNoticeDismissal, keyed on the
-       store's StatusOccurrence, so a dismissal covers the report the user
-       actually read — a later Ready → WriteFailed, or the next run binding
-       against the same unreadable file, is a new occurrence and shows again.
-       Done renders the same notices bound to the same slot and occurrence, so
-       one dismissed here stays dismissed there. *@
-    @* The stats-retirement report: this run found a stats file in the retired
-       format, set it aside, and started a fresh one. An outcome and not a
-       failure — the quiz records normally into the new file — so polite and
-       informational, beside (not instead of) whatever the degrade notice below
-       is saying. Its own slot and occurrence token, so dismissing it and
-       dismissing a later write failure are two separate gestures. *@
-    @if (StatsStore.StatsRetiredOccurrence is { } retired)
-    {
-        <Notice Kind="NoticeKind.Information" Announcement="NoticeAnnouncement.Polite"
-                Dismissible="true"
-                @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.StatsRetired, retired)"
-                @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.StatsRetired, retired)">
-            Your stats file was written by an earlier version of BgQuiz and can't be
-            carried forward. It has been set aside as
-            <strong>@retired.SetAsideFileName</strong> and a new
-            <strong>@QuizStatsFile.FileName</strong> started, so your lifetime stats
-            begin again with this quiz.
-        </Notice>
-    }
-    @if (StatsStore.Status == QuizStatsStatus.LoadFailed)
-    {
-        <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Polite"
-                Dismissible="true"
-                @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.StatsContext, StatsStore.StatusOccurrence)"
-                @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.StatsContext, StatsStore.StatusOccurrence)">
-            The existing <strong>@QuizStatsFile.FileName</strong> couldn't be read, so this
-            quiz won't record stats. The file has not been changed.
-        </Notice>
-    }
-    else if (StatsStore.Status == QuizStatsStatus.WriteFailed)
-    {
-        <Notice Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
-                Dismissible="true"
-                @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.StatsContext, StatsStore.StatusOccurrence)"
-                @bind-Dismissed:set="_ => Notices.Dismiss(QuizNotice.StatsContext, StatsStore.StatusOccurrence)">
-            Your stats file could not be saved — the quiz continues, but this
-            quiz's stats won't be recorded.
-        </Notice>
-    }
-    @* Mix notices, composition-first: whatever the framing, the first line is
-       the quiz actually underway ("Your quiz has N problems: …"), rendered
-       from every entry's actual draw. A capless mix gets a polite,
-       composition-only status line — without a requested QuizLength the
-       percentages bind to nothing, so an entry outdrawn by largest-remainder
-       apportionment is composition noise, not a shortfall, and "requested"
-       framing would misreport it (the producer guarantees Drawn == Target
-       capless: the quiz is the whole deduped union). A length-bound mix keeps
-       the honest shortfall alert (assertive — the quiz underway differs from
-       what was asked), leading with the composition and demoting the
-       per-entry apportionment internals to the explanation below it.
-
-       Both variants retire on the user's first submitted answer OR on a click:
-       the notice says how this quiz was built, which is worth reading before
-       answering and is stale chrome above the board for every problem after.
-       Either gesture ends it — the first-answer retirement is unchanged by the
-       click affordance, and a user who has read it early gets the space back
-       early. The dismissal lives in QuizNoticeDismissal — a holder, not a page
-       field, so the Show-stats round trip can't resurrect it — keyed on this
-       composition's identity so the next run's notice shows again. The
-       controller's telemetry is deliberately left intact: it still frames this
-       notice, counts the quiz's problems, and feeds Home's composed-to-zero
-       wording. *@
-    @if (Controller.LastComposition is { } comp)
-    {
-        @if (!comp.HasRequestedLength)
-        {
-            <Notice Kind="NoticeKind.Information" Announcement="NoticeAnnouncement.Polite"
-                    Dismissible="true"
-                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.Composition, comp)"
-                    @bind-Dismissed:set="_ => DismissComposition(comp)">
-                @MixDisplay.CompositionSummary(comp)
-            </Notice>
-        }
-        else if (HasShortfall(comp))
-        {
-            <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Assertive"
-                    Dismissible="true"
-                    @bind-Dismissed:get="Notices.IsDismissed(QuizNotice.Composition, comp)"
-                    @bind-Dismissed:set="_ => DismissComposition(comp)">
-                <div>@MixDisplay.CompositionSummary(comp)</div>
-                @if (comp.DrawnCount < comp.TargetCount)
-                {
-                    <div>
-                        Your mix asked for @comp.TargetCount problems but only
-                        @comp.DrawnCount could be drawn — these categories ran short:
-                    </div>
-                    <ul class="mb-0">
-                        @foreach (var entry in comp.Entries.Where(e => e.Drawn < e.Requested))
-                        {
-                            <li>@MixDisplay.CategoryLabel(entry.Category): drew @entry.Drawn of @entry.Requested requested</li>
-                        }
-                    </ul>
-                }
-                else
-                {
-                    <div>
-                        Some categories couldn't fill their share; the difference
-                        went to the others:
-                    </div>
-                    <ul class="mb-0">
-                        @foreach (var entry in comp.Entries.Where(e => e.Drawn < e.Requested))
-                        {
-                            <li>@MixDisplay.CategoryLabel(entry.Category): filled @entry.Drawn of its @entry.Percent% share (@entry.Requested requested)</li>
-                        }
-                    </ul>
-                }
-            </Notice>
-        }
-    }
-    @* The page's whole content in this state, so a gate reason and not
-       dismissible (SPEC-notices.md Fork C): closed, it would leave an empty
-       page that cannot say why. *@
-    @if (!Controller.HasStarted)
+<div class="container-fluid py-3 board-page @(App.IsBusy ? "app-busy" : null)">
+    @if (!App.HasStarted)
     {
         <Notice Kind="NoticeKind.Warning" Announcement="NoticeAnnouncement.Assertive">
             No quiz in progress. <a href="/">Pick filters and start a quiz.</a>
         </Notice>
     }
-    else if (Controller.Current is { } current && RowFitReady)
+    else if (App.Current is { } current && RowFitReady)
     {
         @* The board and its chrome render once the row-fit module is in
            (RowFitReady): the page lays out its board and row when it can fit
@@ -160,7 +34,7 @@
         // Captured once: both the board branch and the chrome branch key off
         // review, and two separate `is { } review` patterns would collide in
         // the single generated render method's scope.
-        var review = Controller.Review;
+        var review = App.Review;
 
         @* Board on top; the chrome (score panel, legend, verdict, actions) sits
            in the full-width region below it. The board sizes width-first from
@@ -202,7 +76,7 @@
                    problems of a run can share one, so a landing from one to the
                    other would otherwise keep the half-built play. *@
                 <BackgammonPlayEntry @ref="_playEntry"
-                                     @key="Controller.ProblemNumber"
+                                     @key="App.ProblemNumber"
                                      Request="BuildRenderRequest(current)"
                                      Options="BoardOptions"
                                      OnPlayCompleted="HandlePlayCompleted"
@@ -535,11 +409,11 @@
                each problem. *@
             @if (!MaximizedAnswering)
             {
-                <ScorePanel Score="Controller.Score"
-                            Skipped="Controller.SkippedCount"
-                            Source="@Controller.Name"
-                            ProblemNumber="Controller.ProblemNumber"
-                            ProblemCount="Controller.ProblemCount" />
+                <ScorePanel Score="App.Score"
+                            Skipped="App.SkippedCount"
+                            Source="@App.Name"
+                            ProblemNumber="App.ProblemNumber"
+                            ProblemCount="App.ProblemCount" />
             }
         </div>
     }
@@ -576,10 +450,10 @@
     /// See UndoLast.
     /// </summary>
     private RenderFragment UndoControls => @<text>
-        <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy" @onclick="UndoAll">
+        <button class="btn btn-outline-secondary" disabled="@App.IsBusy" @onclick="UndoAll">
             Undo all
         </button>
-        <button class="btn btn-outline-secondary" disabled="@Controller.IsBusy" @onclick="UndoLast">
+        <button class="btn btn-outline-secondary" disabled="@App.IsBusy" @onclick="UndoLast">
             Undo last
         </button>
     </text>;
@@ -590,7 +464,7 @@
     /// tooltip are its words, the inline-SVG glyph hidden from assistive
     /// technology. ▶ is called Skip where a press would add to the skip count
     /// and Next elsewhere — the run's rule, read as
-    /// Controller.NextAddsToSkipCount and never rebuilt here. ⏮ and ◀ share one
+    /// App.NextAddsToSkipCount and never rebuilt here. ⏮ and ◀ share one
     /// gate (unavailable on the first problem), ⏭ is unavailable on the
     /// frontier, and ▶ only while busy.
     /// </summary>
@@ -629,7 +503,7 @@
     /// bar-chart-line and box-arrow-right, inline.
     ///
     /// <para>
-    /// Show stats only navigates, so it never disables. End quiz
+    /// End quiz
     /// (halheinrich/backgammon#57) IS a transition — it retires the enumerator
     /// and finishes the run — so it disables on IsBusy (CanEndQuiz). Where the
     /// tail folds behind its "⋯", TailMenuActions offers the same two, built
@@ -644,12 +518,6 @@
     /// </para>
     /// </summary>
     private RenderFragment TailButtons => @<text>
-        <button class="btn btn-outline-secondary action-row-icon"
-                aria-label="@ShowStatsName" title="@ShowStatsName" @onclick="ShowStats">
-            <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">
-                <path d="M11 2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12h.5a.5.5 0 0 1 0 1H.5a.5.5 0 0 1 0-1H1v-3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3h1V7a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7h1zm1 12h2V2h-2zm-3 0V7H7v7zm-5 0v-3H2v3z" fill="currentColor" />
-            </svg>
-        </button>
         <button class="btn btn-outline-secondary action-row-icon" disabled="@(!CanEndQuiz)"
                 aria-label="@EndQuizName" title="@EndQuizName" @onclick="EndQuizAsync">
             <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">

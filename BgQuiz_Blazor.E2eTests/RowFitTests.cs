@@ -152,12 +152,12 @@ public sealed class RowFitTests : E2eTestBase
     }
 
     [Fact]
-    public async Task ShowStatsAndEndQuiz_AreIconButtons_NamedAndTitledByTheirWords()
+    public async Task EndQuiz_IsAnIconButton_NamedAndTitledByItsWords()
     {
         // halheinrich/backgammon#264's ruling: "Their names stay as their
         // tooltips and accessible names, and End quiz keeps the far end."
         await StartOnTheMatchAsync(1280);
-        foreach (var name in new[] { ExpectedText.ShowStatsButton, ExpectedText.EndQuizButton })
+        foreach (var name in new[] { ExpectedText.EndQuizButton })
         {
             var button = Page.GetByRole(AriaRole.Button, new() { Name = name, Exact = true });
             await Expect(button).ToHaveCountAsync(1);

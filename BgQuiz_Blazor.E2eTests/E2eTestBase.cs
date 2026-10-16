@@ -440,10 +440,9 @@ public abstract class E2eTestBase : IAsyncLifetime
         public static AppRoute Help { get; } = Heading("/help", ExpectedText.HelpHeading);
 
         /// <summary>The progress page a running quiz's Show stats opens.</summary>
-        public static AppRoute Stats { get; } = Heading("/stats", ExpectedText.StatsHeading);
 
         /// <summary>Every route, for a scenario about the landmarks themselves.</summary>
-        public static IReadOnlyList<AppRoute> All { get; } = [Home, Quiz, Done, Settings, Help, Stats];
+        public static IReadOnlyList<AppRoute> All { get; } = [Home, Quiz, Done, Settings, Help];
 
         /// <summary>The route's path, as the app routes it.</summary>
         public string Path { get; }

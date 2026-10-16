@@ -25,7 +25,7 @@ namespace BgQuiz_Blazor.Tests;
 /// <see cref="LegacyFiltersJson"/> the
 /// <see cref="SavedFiltersDocument.LegacyFileName"/> content, so a host test
 /// can stage the read-fallback exactly — plus the <b>setup-time stats</b>
-/// document under <see cref="QuizStatsFile.FileName"/>
+/// document under <see cref="StatsFileName"/>
 /// (<see cref="PickedStatsJson"/>), which is what the mix predicate's pick-time
 /// probe reads. Any other picked name reads as absent.
 /// </para>
@@ -129,30 +129,34 @@ internal sealed class FakeFolderAccess : IFolderAccess
     /// — and the slot has to tell its files apart. Both were invisible to the
     /// single-blob-for-every-name fake this replaced.
     /// </summary>
+    // The stats file names BgQuiz writes (increment 2 of halheinrich/backgammon#421 restores their one source).
+    internal const string StatsFileName = "bgquiz-stats.json";
+    internal static string RetiredStatsName(int schemaVersion) => $"bgquiz-stats.v{schemaVersion}.json";
+    internal static string MergedStatsName(int schemaVersion) => $"bgquiz-stats.v{schemaVersion}.merged.json";
     private readonly Dictionary<string, string> _activeFiles = [];
 
     /// <summary>
-    /// Stats-file content under <see cref="QuizStatsFile.FileName"/> — the
+    /// Stats-file content under <see cref="StatsFileName"/> — the
     /// staging property tests set, and the one they read back to see what the
     /// folder now holds. Setting null removes the file (an absent read).
     /// </summary>
     public string? StatsJson
     {
-        get => _activeFiles.GetValueOrDefault(QuizStatsFile.FileName);
-        set => SetActiveFile(QuizStatsFile.FileName, value);
+        get => _activeFiles.GetValueOrDefault(StatsFileName);
+        set => SetActiveFile(StatsFileName, value);
     }
 
     /// <summary>
     /// Content of the document set aside for retired schema version
     /// <paramref name="schemaVersion"/>
-    /// (<see cref="QuizStatsFile.RetiredNameFor"/>); null = no such file. The
+    /// (the retired-stats name); null = no such file. The
     /// retirement's whole promise is that these bytes are the old file's, so a
     /// test reads them here and compares — and asking per version is how a test
     /// can tell a set-aside that landed under the right name from one that
     /// landed under some other.
     /// </summary>
     public string? RetiredStatsJson(int schemaVersion) =>
-        _activeFiles.GetValueOrDefault(QuizStatsFile.RetiredNameFor(schemaVersion));
+        _activeFiles.GetValueOrDefault(RetiredStatsName(schemaVersion));
 
     /// <summary>
     /// Stage a set-aside file for retired schema version
@@ -160,17 +164,17 @@ internal sealed class FakeFolderAccess : IFolderAccess
     /// already sitting in the folder before this run binds. Null removes it.
     /// </summary>
     public void SetRetiredStatsJson(int schemaVersion, string? content) =>
-        SetActiveFile(QuizStatsFile.RetiredNameFor(schemaVersion), content);
+        SetActiveFile(RetiredStatsName(schemaVersion), content);
 
     /// <summary>
     /// Content of the document renamed aside as merged for foldable schema
     /// version <paramref name="schemaVersion"/>
-    /// (<see cref="QuizStatsFile.MergedNameFor"/>); null = no such file. The
+    /// (the merged-stats name); null = no such file. The
     /// fold's promise about these bytes is the retirement's — the old file's,
     /// unparsed — under the name that says its contents live on.
     /// </summary>
     public string? MergedStatsJson(int schemaVersion) =>
-        _activeFiles.GetValueOrDefault(QuizStatsFile.MergedNameFor(schemaVersion));
+        _activeFiles.GetValueOrDefault(MergedStatsName(schemaVersion));
 
     private void SetActiveFile(string fileName, string? content)
     {
@@ -214,7 +218,7 @@ internal sealed class FakeFolderAccess : IFolderAccess
 
     /// <summary>
     /// Stats-document content the <b>picked</b> slot serves under
-    /// <see cref="QuizStatsFile.FileName"/>; null = no such file. This is what
+    /// <see cref="StatsFileName"/>; null = no such file. This is what
     /// the mix predicate's pick-time probe
     /// (<c>QuizStatsStore.RefreshPickedStatsAsync</c>) reads, and it is
     /// deliberately a separate slot from <see cref="StatsJson"/>: that one is
@@ -227,7 +231,7 @@ internal sealed class FakeFolderAccess : IFolderAccess
 
     /// <summary>
     /// When set, <see cref="ReadPickedFileAsync"/> throws it for the
-    /// <see cref="QuizStatsFile.FileName"/> read only — the browser failing the
+    /// <see cref="StatsFileName"/> read only — the browser failing the
     /// pick-time stats probe's read, the stats half of what
     /// <see cref="FiltersReadException"/> is for the saved-filters names.
     /// </summary>
@@ -379,7 +383,7 @@ internal sealed class FakeFolderAccess : IFolderAccess
         {
             return Task.FromException<string?>(ex);
         }
-        if (fileName == QuizStatsFile.FileName)
+        if (fileName == StatsFileName)
         {
             return AnswerAsync(PickedStatsReadHolds, PickedStatsReadException, PickedStatsJson);
         }

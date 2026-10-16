@@ -224,7 +224,7 @@ public sealed class EnvironmentFidelityTests : E2eTestBase
     /// notices are the sample's, and a new sample shows them fresh.
     /// </summary>
     [Fact]
-    public async Task APickAndAResample_ServeEverythingTheyAskFor_AndLogNothing()
+    public async Task AnOverLimitPick_ServesEverythingItAsksFor_AndLogsNothing()
     {
         var load = new ColdLoadLog(Page);
 
@@ -233,12 +233,10 @@ public sealed class EnvironmentFidelityTests : E2eTestBase
         await ExpectFilterInEffectAsync();
         await TruncationNotice.ClickAsync(); // the whole box dismisses it
         await Expect(TruncationNotice).ToHaveCountAsync(0);
-        await ResampleButton.ClickAsync();
-        await Expect(TruncationNotice).ToBeVisibleAsync();
         await StartQuizAsync();
         await Expect(HitOverlaySvg).ToBeVisibleAsync();
 
-        load.AssertClean("/quiz (through an over-limit pick → Resample → start)");
+        load.AssertClean("/quiz (through an over-limit pick → start)");
     }
 
     /// <summary>
@@ -353,10 +351,10 @@ public sealed class EnvironmentFidelityTests : E2eTestBase
     public async Task ADismissibleNotice_ShowsThePointer_OnARealPageLoad()
     {
         await BootHomeAsync();
-        await PickFixtureAsync(CubeFixture);
+        await PickOverLimitFolderAsync();
 
-        await Expect(StatsCapabilityNotice).ToBeVisibleAsync();
-        await Expect(StatsCapabilityNotice).ToHaveCSSAsync("cursor", DismissibleNoticeCursor);
+        await Expect(TruncationNotice).ToBeVisibleAsync();
+        await Expect(TruncationNotice).ToHaveCSSAsync("cursor", DismissibleNoticeCursor);
     }
 
     /// <summary>

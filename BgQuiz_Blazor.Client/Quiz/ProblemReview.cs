@@ -6,7 +6,7 @@ using BgGame_Lib;
 /// <summary>
 /// The scored outcome of a just-submitted problem — the <i>displayed
 /// review</i>, held by the run (<see cref="QuizRun.Review"/>, surfaced as
-/// <see cref="QuizController.Review"/>) from Submit until the cursor leaves
+/// <see cref="QuizApp.Review"/>) from Submit until the cursor leaves
 /// the problem. It carries exactly what the review
 /// surfaces need to mark and name the user's answer: for a checker play, the
 /// producer's scored outcome (<see cref="PlaySubmission"/>) and the play the

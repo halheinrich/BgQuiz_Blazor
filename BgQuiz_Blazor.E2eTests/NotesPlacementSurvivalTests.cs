@@ -23,8 +23,6 @@ public sealed class NotesPlacementSurvivalTests : NotesPlacementTestBase
     /// <inheritdoc cref="ChosenHorizontal"/>
     private const double ChosenVertical = 0.625;
 
-    private ILocator ShowStatsButton =>
-        Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ShowStatsButton, Exact = true });
 
     private ILocator EndQuizButton =>
         Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.EndQuizButton, Exact = true });
@@ -62,13 +60,13 @@ public sealed class NotesPlacementSurvivalTests : NotesPlacementTestBase
 
         // Navigating away and back.
         await CloseNotesButton.ClickAsync();
-        await ShowStatsButton.ClickAsync();
-        await ExpectUrlAsync(AppRoute.Stats);
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink, Exact = true }).ClickAsync();
+        await ExpectUrlAsync(AppRoute.Settings);
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton }).ClickAsync();
         await ExpectUrlAsync(AppRoute.Quiz);
         await Expect(NotesButton).ToBeVisibleAsync();
         await OpenNotesAsync();
-        await ExpectChosenAsync("after Show stats and back");
+        await ExpectChosenAsync("after Settings and back");
 
         // End quiz, and the next Start.
         await CloseNotesButton.ClickAsync();

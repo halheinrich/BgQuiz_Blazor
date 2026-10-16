@@ -27,7 +27,7 @@ namespace BgQuiz_Blazor.Tests;
 /// into. <c>TestFixtureContractTests</c> holds every fixture to that. The
 /// <i>boards</i> of the auto-skip fixtures are exact too: what
 /// <c>MoveGenerator.GeneratePlays</c> derives from the board and the dice is
-/// the whole fact <c>QuizController.HasNoPlayChoice</c> reads.
+/// the whole fact <c>ProblemLoader.HasNoPlayChoice</c> reads.
 /// </para>
 ///
 /// <para>
@@ -282,7 +282,7 @@ internal static class TestFixtures
     /// <para>
     /// <b>Two legal plays is the load-bearing property, not a detail.</b> A
     /// position offering one is auto-skipped before it can reach a page
-    /// (<c>QuizController.HasNoPlayChoice</c>, halheinrich/backgammon#140), so
+    /// (<c>ProblemLoader.HasNoPlayChoice</c>, halheinrich/backgammon#140), so
     /// the obvious one-click fixture — a lone checker on the 1-pt bearing off —
     /// can no longer be shown at all. Anything staged here to drive the play
     /// entry <i>through the controller</i> must offer a choice.
@@ -434,29 +434,6 @@ internal static class TestFixtures
                 $"{play.ToNotation()} does not score against this fixture under {ranking}.");
 
     /// <summary>
-    /// A <see cref="ComposedProblemSource"/> over <paramref name="source"/> —
-    /// what a substitute <c>ProblemSetSourceFactory</c> hands back where the
-    /// test's subject is the source and not the stack's telemetry.
-    ///
-    /// <para>
-    /// <paramref name="duplicatesCollapsed"/> defaults to <c>0</c> because a
-    /// substitute stack has no dedupe layer and so genuinely collapses nothing
-    /// — an honest report, not a stub. <paramref name="sources"/> defaults the
-    /// same way, to the completed report of a walk over no files
-    /// (<see cref="WalkedReport"/>): a substitute stack has no parse layer, so
-    /// it attempted nothing and rejected nothing. A test about either passes
-    /// what its stack should report: the composed value is the contract the
-    /// controller consumes, so driving it directly is what pins the wire.
-    /// </para>
-    /// </summary>
-    public static ComposedProblemSource Composed(
-        IProblemSetSource source, int duplicatesCollapsed = 0, SourceReport? sources = null)
-    {
-        var report = sources ?? WalkedReport();
-        return new(source, () => duplicatesCollapsed, () => report);
-    }
-
-    /// <summary>
     /// The e2e suite's synthesized <c>.xg</c> match (<see cref="SyntheticXgMatch"/>,
     /// linked into this project) as a picked file — readable by construction,
     /// so the facts a pin reads come off the real parse of a real match, and
@@ -495,15 +472,6 @@ internal static class TestFixtures
         foreach (var _ in iterator.IterateXgStreamDiagrams(streams, report)) { }
         return report;
     }
-
-    /// <summary>
-    /// A parse result over <paramref name="decisions"/> nobody walked a file
-    /// for — the completed report of an empty walk beside them — for seeding a
-    /// holder's cache (<c>PickedProblemFolder.StoreParsed</c>) where the test's
-    /// subject is what happens <i>over</i> a parsed pick, not the parse.
-    /// </summary>
-    public static ParsedProblemSet Parsed(params BgDecisionData[] decisions) =>
-        new([.. decisions], WalkedReport());
 
     /// <summary>
     /// A draw of a folder as BgFolderAccess_Razor's module reports one: the

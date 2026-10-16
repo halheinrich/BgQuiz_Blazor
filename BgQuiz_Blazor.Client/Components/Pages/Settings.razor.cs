@@ -36,7 +36,7 @@ namespace BgQuiz_Blazor.Client.Components.Pages;
 /// </para>
 ///
 /// <para>
-/// Like <see cref="Help"/> — and unlike <see cref="Stats"/> — this page never
+/// Like <see cref="Help"/> — and unlike the Stats page — this page never
 /// redirects: settings are reachable from any state, including a cold bookmark.
 /// So its way back is always present, and the shared <see cref="ReturnControl"/>
 /// decides where it goes: <b>Back to quiz</b> while a quiz is live, <b>Back to

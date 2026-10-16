@@ -52,7 +52,7 @@ internal sealed class NotesPlacementStore(
 {
     /// <summary>
     /// The localStorage key holding the placement as one JSON object, in the
-    /// <c>xg_</c> family <see cref="MixDraft.StorageKey"/> established.
+    /// <c>xg_</c> family <c>MixDraft.StorageKey</c> established.
     /// Absent while the preference is unset: Reset removes it.
     ///
     /// <para>
