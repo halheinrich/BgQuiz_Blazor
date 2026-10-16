@@ -128,6 +128,41 @@ public sealed class MixVisibilityTests : FsAccessFakeTestBase
     }
 
     /// <summary>
+    /// <b>A folder's first run gives it stats as it records, not when it ends.</b> A
+    /// fresh folder offers no mix; its first answer of record writes the stats file, and
+    /// Home, visited while that quiz is still live, offers the mix on the same setup — and
+    /// a Start from there is weighted (ChatGPT's review of increment 2,
+    /// halheinrich/backgammon#421: the fact refreshed only when the run ended).
+    /// </summary>
+    [Fact]
+    public async Task MidQuiz_TheFirstAnswerOfRecord_PutsTheMixOnHome_AndAnotherStartIsWeighted()
+    {
+        await BootHomeAsync();
+        await TurnOnTheWeightedMixSettingAsync();
+        await PickFakeFolderAsync();
+        await ExpectFilterInEffectAsync();
+        await Expect(MixPanel).ToHaveCountAsync(0); // nothing to weight by yet
+
+        await StartQuizAsync();
+        await AnswerCubeNoDoubleAsync(); // the answer of record: the folder has stats now
+        await StageFirstWriteAsTheFoldersStatsFileAsync();
+
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HomeNavLink }).ClickAsync();
+        await ExpectUrlAsync(AppRoute.Home);
+        await Expect(MixPanel).ToBeVisibleAsync();
+
+        // 100% never seen, and the one decision has just been seen: a weighted Start
+        // composes to zero and stays on Home behind the mix-aware notice, where an
+        // unweighted one would have gone to the quiz.
+        await AddDefaultMixRowAsync();
+        await Expect(StartButton).ToBeEnabledAsync();
+        await StartButton.ClickAsync();
+
+        await Expect(Page.GetByText("Your mix drew no problems")).ToBeVisibleAsync();
+        await ExpectUrlAsync(AppRoute.Home);
+    }
+
+    /// <summary>
     /// <b>The filter no longer sequences the mix.</b> Rule 2's activation gate
     /// is deleted, so the panel is composable with no filter in effect and stays
     /// in effect across a filter edit; Start's own filter gate is the only

@@ -952,7 +952,7 @@ public class QuizStatsTests
     }
 
     // -----------------------------------------------------------------------
-    //  After the run — the recording's knowledge of the file supersedes the pick's
+    //  As the recording goes — its knowledge of the file supersedes the pick's
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -1017,7 +1017,7 @@ public class QuizStatsTests
     }
 
     [Fact]
-    public async Task AfterRun_ARecordingThatResolvedTheFile_ClearsTheForecasts_AndSaysWhatItHoldsNow()
+    public async Task AfterRecording_ARecordingThatResolvedTheFile_ClearsTheForecasts_AndSaysWhatItHoldsNow()
     {
         var folder = Folder();
         folder.StatsJson = RetiredStatsFixture.V1Json;
@@ -1026,7 +1026,7 @@ public class QuizStatsTests
         Assert.NotNull(atThePick.SetAsideForecast);
         var stats = await BindAsync(folder);   // the set-aside happens here
 
-        var seeded = atThePick.AfterRun(stats);
+        var seeded = atThePick.AfterRecording(stats);
 
         Assert.False(seeded.HasStats);
         Assert.Null(seeded.SetAsideForecast);
@@ -1035,11 +1035,11 @@ public class QuizStatsTests
 
         await stats.RecordAsync(Play());
 
-        Assert.True(atThePick.AfterRun(stats).HasStats);
+        Assert.True(atThePick.AfterRecording(stats).HasStats);
     }
 
     [Fact]
-    public async Task AfterRun_ARecordingThatNeverResolvedTheFile_LeavesThePicksReadingStanding()
+    public async Task AfterRecording_ARecordingThatNeverResolvedTheFile_LeavesThePicksReadingStanding()
     {
         var folder = Folder();
         folder.StatsJson = "not json at all";
@@ -1047,7 +1047,7 @@ public class QuizStatsTests
         var stats = await BindAsync(folder);
         Assert.Equal(QuizStatsStatus.LoadFailed, stats.Report.Status);
 
-        Assert.Same(atThePick, atThePick.AfterRun(stats));
+        Assert.Same(atThePick, atThePick.AfterRecording(stats));
         Assert.True(atThePick.Unreadable);
     }
 }

@@ -7,7 +7,7 @@ using Microsoft.JSInterop;
 
 /// <summary>
 /// What the folder's stats file holds, read at the pick, kept on the setup and brought up to
-/// date by each run's recording (<see cref="AfterRun"/>): whether there is a document with
+/// date as a recording touches the file (<see cref="AfterRecording"/>): whether there is a document with
 /// content (the fact the mix's visibility reads, SPEC-filtering.md §5: missing, empty and
 /// unreadable are one answer), and the forecasts Home says before Start — a retired version
 /// the next bind will set aside, a file that cannot be read, a file that cannot be written.
@@ -23,13 +23,13 @@ internal sealed record StatsProbe(bool HasStats, int? RetiredSchemaVersion, bool
         RetiredSchemaVersion is { } version ? QuizStatsFile.RetiredNameFor(version) : null;
 
     /// <summary>
-    /// This probe once a run's recording has left the file. A recording that resolved the
-    /// file (read it, set a retired one aside, folded an interim one in) has made the
-    /// forecasts moot and knows whether it holds a record now; one that never did changed
-    /// nothing, so the pick's reading stands. Writability is the pick's probe either way: a
-    /// write that failed is the finished quiz's report.
+    /// This probe once a recording has touched the file — at its bind, after each write. A
+    /// recording that resolved the file (read it, set a retired one aside, folded an interim
+    /// one in) has made the forecasts moot and knows whether it holds a record now; one that
+    /// never did changed nothing, so the reading in hand stands. Writability is the pick's
+    /// probe either way: a write that failed is the recording's report.
     /// </summary>
-    public StatsProbe AfterRun(QuizStats stats)
+    public StatsProbe AfterRecording(QuizStats stats)
     {
         ArgumentNullException.ThrowIfNull(stats);
         return stats.FileHasStats is { } hasStats

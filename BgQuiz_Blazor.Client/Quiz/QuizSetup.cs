@@ -42,13 +42,13 @@ internal sealed class QuizSetup
     public LoadedProblems Loaded { get; }
 
     /// <summary>
-    /// What the folder's stats file holds — read at the pick, then as the last run from this
-    /// setup left it: the mix's visibility fact and Home's forecasts.
+    /// What the folder's stats file holds — read at the pick, then as the recording leaves
+    /// it: the mix's visibility fact and Home's forecasts.
     /// </summary>
     public StatsProbe Stats { get; private set; }
 
-    /// <summary>A run from this setup has ended: what its recording learned of the file supersedes the reading in hand.</summary>
-    public void NoteRunEnded(QuizStats stats) => Stats = Stats.AfterRun(stats);
+    /// <summary>The recording over this folder has touched the file (its bind, a write): what it knows supersedes the reading in hand.</summary>
+    public void NoteRecording(QuizStats stats) => Stats = Stats.AfterRecording(stats);
 
     public FilterSourceToken FilterSource { get; }
 

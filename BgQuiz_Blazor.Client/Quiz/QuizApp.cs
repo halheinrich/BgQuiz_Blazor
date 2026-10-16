@@ -416,6 +416,7 @@ internal sealed class QuizApp : IDisposable
             // folder, and held by the run only on success, so a refused or faulted attempt
             // leaves the run in hand recording where it was (halheinrich/backgammon#404).
             var stats = await QuizStats.BindAsync(setup.Folder, _clock);
+            setup.NoteRecording(stats);   // the bind resolved the file: Home's forecasts follow it
             if (!mix.IsPassthrough && stats.Document is null) return StartOutcome.MixRequiresStats;
 
             var selection = _selection?.Describes(setup, config, ranking) == true
@@ -473,6 +474,9 @@ internal sealed class QuizApp : IDisposable
         try
         {
             await live.Stats.RecordAsync(answer);
+            // The write has moved the file: the setup composed from the same folder, where it
+            // is still in hand, follows it, so a fresh folder's first answer puts the mix on Home.
+            if (Setup is { } setup && ReferenceEquals(setup.Folder, live.Folder)) setup.NoteRecording(live.Stats);
         }
         finally
         {
@@ -540,9 +544,6 @@ internal sealed class QuizApp : IDisposable
         var live = _live ?? throw new InvalidOperationException("Only a live run finishes.");
         Finished = new FinishedQuiz(ended.ToResult(), live.Filters, live.Mix, live.Name, live.Stats.Report, endedByNewSample);
         _live = null;
-        // The setup the run was composed from, where it is still in hand: a fresh folder's first
-        // run is what gives it the stats the mix shows for, without a re-pick.
-        if (Setup is { } setup && ReferenceEquals(setup.Folder, live.Folder)) setup.NoteRunEnded(live.Stats);
         // The finished run holds nothing of the folder; nothing waits on the release and nothing reads the handle again.
         _ = ReleaseIfUnheldAsync(live.Folder);
     }

@@ -547,18 +547,41 @@ public class QuizAppTests : BunitContext
     }
 
     [Fact]
-    public async Task TheMix_ComesIntoEffect_OnceARunHasRecordedIntoAFreshFolder()
+    public async Task TheMix_ComesIntoEffect_AsAFreshFoldersFirstAnswerRecords_AndANewStartIsWeighted()
     {
-        // A fresh folder's first run is what gives it stats; the same setup, no re-pick.
-        var app = await PickedAsync(Problem(1), Problem(2));
+        // A fresh folder's first run is what gives it stats — as it records, on the same
+        // setup, with no re-pick and before the run ends (ChatGPT's review of increment 2,
+        // halheinrich/backgammon#421: the fact refreshed only when the run ended).
+        var app = await PickedAsync(DistinctProblem(1), DistinctProblem(2));
         await TurnTheMixOnAsync();
         Assert.False(app.MixInEffect);   // nothing in the folder at the pick
 
         await StartedAsync(app);
+        Assert.Null(app.Composition);    // unweighted: nothing to weight by
         await app.SubmitPlayAsync(Best());
-        app.EndQuiz();
 
-        Assert.True(app.MixInEffect);
+        Assert.True(app.MixInEffect);    // mid-quiz, the run still live
+        Assert.NotNull(app.Run);
+
+        await StartedAsync(app);         // Home's Start with the quiz still live
+        Assert.NotNull(app.Composition); // weighted
+    }
+
+    [Fact]
+    public async Task Start_TakesTheBindsResolutionOntoTheSetup_SoHomeForecastsNothingThatHasHappened()
+    {
+        SettleTheFilterOwner();
+        _problems.Add(Problem(1));
+        _folders.NextPickOutcome = Folder();
+        NextFolder.StatsJson = RetiredStatsFixture.V1Json;
+        var app = App;
+        Assert.Equal(FolderOutcomeKind.Landed, (await app.PickFolderAsync(default)).Kind);
+        Assert.Equal(QuizStatsFile.RetiredNameFor(1), app.Setup!.Stats.SetAsideForecast);
+
+        await StartedAsync(app);
+
+        Assert.Null(app.Setup!.Stats.SetAsideForecast);   // set aside at the bind
+        Assert.Equal(QuizStatsFile.RetiredNameFor(1), app.Stats!.SetAsideFileName);
     }
 
     [Fact]

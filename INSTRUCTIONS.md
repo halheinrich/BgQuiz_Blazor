@@ -38,7 +38,7 @@ board), BgUiPrimitives_Razor (notices, browser storage), BgMoveGen
   parse, once, at the pick), `QuizStats` (a run's recording into its
   folder's stats file; `QuizStatsReport` is what it came to, `QuizStatsFile`
   the names and the serializer contract, `StatsProbe` what the file holds:
-  read at the pick, brought up to date when a run from the setup ends),
+  read at the pick, brought up to date as a run's recording touches it),
   `MixDraft` (the mix builder's edit state, persisted as the
   user types) with `MixDisplay`, `QuizSettings`, `NotesPlacementStore`,
   `BrowserStorageCondition`, `PickedFileLimits` (the pick caps: this app's
@@ -88,9 +88,9 @@ so nothing overlaps. `Changed` fires on every move, on the renderer's context.
   it in effect too, and is counted only at the next Clear or Apply.
 - **The mix.** Visible means in effect (SPEC-filtering §5): the panel is on
   Home exactly while the Settings choice is on and the setup's probe — the
-  pick's reading, then what the last run from it left in the file — found a
-  stats document with content, and the rows on it are what Start composes
-  with. The draft is app-scoped and written through on every valid edit; a
+  pick's reading, then what the recording leaves in the file, bind and
+  write by write — found a stats document with content, and the rows on it
+  are what Start composes with. The draft is app-scoped and written through on every valid edit; a
   visible draft that does not build holds Start; a weighted Start whose bind
   finds no document is refused with a one-quiz "Start without mix" escape.
 - **Start.** Bind the stats recording over the setup's folder, filter the
