@@ -1,4 +1,4 @@
-using Microsoft.Playwright;
+﻿using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
 
 namespace BgQuiz_Blazor.E2eTests;
@@ -288,64 +288,6 @@ public abstract class FsAccessFakeTestBase : E2eTestBase
     {
         await PickFolderButton.ClickAsync();
         await Expect(Page.GetByText(ExpectedText.ProblemFiles(1))).ToBeVisibleAsync();
-    }
-
-    /// <summary>
-    /// Leave the fake folder holding a real lifetime-stats record, so the
-    /// weighted mix is offered at all — the precondition every mix scenario
-    /// needs since issue <c>halheinrich/backgammon#87</c>, where a folder with
-    /// no stats history offers no mix panel.
-    ///
-    /// <para>
-    /// The record is produced by <b>running a quiz</b> and feeding the app's own
-    /// captured write back as the folder's pre-existing file — the suite's
-    /// standing trick, so no scenario ever hand-crafts the stats wire format or
-    /// the decision-id encoding. It is also the honest shape of the behavior: a
-    /// folder acquires a stats history exactly by being quizzed from.
-    /// </para>
-    ///
-    /// <para>
-    /// It ends by <b>re-picking</b>, which leaves the setup in the state these
-    /// scenarios assume: a folder held, its stats now readable (the pick
-    /// re-probes), and no filter in effect for the current pick — the pick
-    /// generation bumped past the key the seeding quiz's Apply left its config
-    /// under.
-    /// </para>
-    ///
-    /// <para>
-    /// It also turns the <b>weighted-mix setting</b> on first, because since
-    /// <c>SPEC-filtering.md</c> §5's "Visible means in effect" ruling that is
-    /// half of what makes a mix panel exist — seeding a stats record alone no
-    /// longer offers one. Turning it on before the seeding quiz is deliberate:
-    /// the first pick has no stats, so no panel appears then either, which is
-    /// what keeps the wait below a valid signal.
-    /// </para>
-    ///
-    /// <para>
-    /// The wait is on the <b>mix panel itself</b>, which is the one thing true
-    /// only after the re-pick lands: it needs the probe to have found the seeded
-    /// record, and the first pick could not have shown it. (It replaced the
-    /// Apply-Mix gate hint, which said the same thing until the gate was
-    /// deleted.) Waiting on the folder summary instead would race — the outgoing
-    /// pick's summary reads identically.
-    /// </para>
-    /// </summary>
-    protected async Task SeedStatsHistoryAsync()
-    {
-        await TurnOnTheWeightedMixSettingAsync();
-        await PickFakeFolderAsync();
-        await ExpectFilterInEffectAsync();
-        await StartQuizAsync();
-        await AnswerCubeNoDoubleAsync();
-        await ContinueToDoneAsync();
-
-        await StageFirstWriteAsTheFoldersStatsFileAsync();
-
-        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToSetupButton }).ClickAsync();
-        await ExpectUrlAsync(AppRoute.Home);
-
-        await PickFolderButton.ClickAsync();
-        await Expect(MixPanel).ToBeVisibleAsync();
     }
 
     /// <summary>
