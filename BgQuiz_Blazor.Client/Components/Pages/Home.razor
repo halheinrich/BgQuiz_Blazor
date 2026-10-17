@@ -24,6 +24,20 @@
         </Notice>
     }
 
+    @* A reload mid-quiz: the live mark is the one thing that survives it, so this boot can
+       say the quiz was reset. One-shot and component-held: the occurrence is this boot's,
+       the mark it read is already cleared, and a navigate-back finds nothing to show. *@
+    @if (_showReloadNotice)
+    {
+        <Notice id="reloadNotice" Kind="NoticeKind.Information" Announcement="NoticeAnnouncement.Polite"
+                Dismissible="true"
+                @bind-Dismissed:get="false"
+                @bind-Dismissed:set="_ => _showReloadNotice = false">
+            Your previous quiz was reset by the page reload — quiz progress
+            doesn't survive a full reload.
+        </Notice>
+    }
+
     <fieldset disabled="@IsBusy">
 
     <div class="mb-3" style="max-width:800px">
@@ -33,11 +47,22 @@
                 (a local folder of .xg / .xgp files — parsed in your browser, never uploaded)
             </small>
         </label>
-        <div>
+        <div class="d-flex flex-wrap gap-2">
             <button type="button" id="pickProblemFolder" class="btn btn-outline-primary"
                     disabled="@IsBusy" @onclick="PickFolderAsync">
                 Choose folder…
             </button>
+            @* Resample (SPEC-filtering.md §4): another draw of the held folder at the limits,
+               without the picker — offered exactly while another draw could hold different
+               files, the producer's per-kind report read, and placed as Hal asked
+               (halheinrich/backgammon#416). It keeps the setup and replaces only the sample. *@
+            @if (Setup is { CanResample: true })
+            {
+                <button type="button" id="resampleProblemFolder" class="btn btn-outline-primary"
+                        disabled="@IsBusy" @onclick="ResampleAsync">
+                    Resample
+                </button>
+            }
         </div>
 
         @if (Setup is null)
@@ -221,6 +246,16 @@
                 @bind-Dismissed:get="!_emptyFolderNotice"
                 @bind-Dismissed:set="_ => _emptyFolderNotice = false">
             No .xg / .xgp files found directly in that folder.
+        </Notice>
+
+        @* An empty draw of the held folder replaces nothing, and the line says so: the gesture
+           must not end on an unchanged page with nothing said. *@
+        <Notice id="emptyResampleNotice" class="mt-2" Kind="NoticeKind.Warning"
+                Announcement="NoticeAnnouncement.Polite" Dismissible="true"
+                @bind-Dismissed:get="!_emptyResampleNotice"
+                @bind-Dismissed:set="_ => _emptyResampleNotice = false">
+            Resample found no .xg / .xgp files directly in that folder, so the files already
+            read are still the ones in use.
         </Notice>
 
         <Notice class="mt-2" Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"

@@ -31,6 +31,7 @@ namespace BgQuiz_Blazor.Tests;
 public class PageTests : BunitContext
 {
     private readonly FakeFolderAccess _folders = new();
+    private readonly FakeQuizLiveMarker _marker = new();
     private readonly List<BgDecisionData> _problems = [];
     private Exception? _loadFailure;
     private readonly BrowserStoragePlan _plan;
@@ -59,10 +60,11 @@ public class PageTests : BunitContext
             sp.GetRequiredService<BrowserStorage>(), NullLogger<MixDraft>.Instance, sp.GetRequiredService<BrowserStorageCondition>()));
         Services.AddScoped<NotesPlacementStore>();
         Services.AddScoped<ProblemLoad>(_ => LoadAsync);
+        Services.AddSingleton<IQuizLiveMarker>(_marker);
         Services.AddScoped(sp => new QuizApp(
             sp.GetRequiredService<IFolderAccess>(), sp.GetRequiredService<FilterSetup>(),
             sp.GetRequiredService<QuizSettings>(), sp.GetRequiredService<MixDraft>(), sp.GetRequiredService<ProblemLoad>(),
-            NullLogger<QuizApp>.Instance, TimeProvider.System));
+            sp.GetRequiredService<IQuizLiveMarker>(), NullLogger<QuizApp>.Instance, TimeProvider.System));
     }
 
     private Task<LoadedProblems> LoadAsync(ImmutableArray<PickedFile> files, Action<LoadProgress>? progress, CancellationToken ct)
@@ -337,6 +339,129 @@ public class PageTests : BunitContext
             var start = cut.FindAll("button").Single(b => b.TextContent.Trim() == "Start Quiz");
             Assert.True(start.HasAttribute("disabled"));
         });
+    }
+
+    // ── Resample, and the reload notice ─────────────────────────────────────────
+
+    private async Task<(IRenderedComponent<HomePage> Home, FakeFolderContext Folder)> PickedTruncatedHomeAsync(params BgDecisionData[] problems)
+    {
+        _problems.AddRange(problems);
+        _folders.NextPickOutcome = TestFixtures.Picked(
+            "Big", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg()], (".xg", 7));
+        var folder = NextFolder;
+        ExpectHomeOverAFolder();
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        cut.WaitForAssertion(() => Assert.Contains("7 more were not read", Text(cut)));
+        return (cut, folder);
+    }
+
+    private static FolderSample ANewDraw() => TestFixtures.Sample([TestFixtures.ReadableXg("again.xg")], (".xg", 2));
+
+    [Fact]
+    public async Task Home_OffersResample_WhileAnotherDrawCouldDiffer_AndItReplacesTheSample()
+    {
+        var (cut, folder) = await PickedTruncatedHomeAsync(Problem(1));
+        folder.NextResample = ANewDraw();
+
+        await cut.Find("#resampleProblemFolder").ClickAsync(new());
+
+        cut.WaitForAssertion(() => Assert.Contains("2 more were not read", Text(cut)));
+        Assert.Same(folder, App.Setup!.Folder);
+        Assert.Same(folder.NextResample, App.Setup.Sample);
+    }
+
+    [Fact]
+    public async Task Home_OffersNoResample_ForAFolderHeldWhole()
+    {
+        var cut = await PickedHomeAsync(Problem(1));
+        Assert.Empty(cut.FindAll("#resampleProblemFolder"));
+    }
+
+    [Fact]
+    public async Task Home_AnEmptyResample_SaysSo_AndKeepsTheFilesInUse()
+    {
+        var (cut, folder) = await PickedTruncatedHomeAsync(Problem(1));
+        var setup = App.Setup;
+        folder.NextResample = TestFixtures.Sample([]);
+
+        await cut.Find("#resampleProblemFolder").ClickAsync(new());
+
+        cut.WaitForAssertion(() => Assert.Contains("Resample found no .xg / .xgp files", Text(cut)));
+        Assert.Contains("7 more were not read", Text(cut));
+        Assert.Same(setup, App.Setup);
+    }
+
+    [Fact]
+    public async Task Done_OffersRestartWithANewSample_WhileResampleIsOffered_AndItRunsTheQuizOverTheNewDraw()
+    {
+        var (home, folder) = await PickedTruncatedHomeAsync(Problem(1));
+        home.WaitForAssertion(() => Assert.NotNull(App.CurrentSelection));
+        Assert.Equal(StartOutcome.Started, await App.StartAsync());
+        App.EndQuiz();
+        folder.NextResample = ANewDraw();
+
+        var cut = Render<DonePage>();
+        await cut.Find("#restartWithNewSample").ClickAsync(new());
+
+        cut.WaitForAssertion(() => Assert.EndsWith("/quiz", Nav.Uri));
+        Assert.NotNull(App.Run);
+        Assert.Same(folder.NextResample, App.Setup!.Sample);
+    }
+
+    [Fact]
+    public async Task Done_OffersNoRestartWithANewSample_ForAFolderHeldWhole()
+    {
+        var app = await StartedAppAsync(Problem(1));
+        app.EndQuiz();
+        var cut = Render<DonePage>();
+        Assert.Empty(cut.FindAll("#restartWithNewSample"));
+    }
+
+    [Fact]
+    public async Task Done_WhenTheNewSampleLandsButNothingCanBePresented_SaysTheSampleIsHeld()
+    {
+        var (home, folder) = await PickedTruncatedHomeAsync(Problem(1));
+        home.WaitForAssertion(() => Assert.NotNull(App.CurrentSelection));
+        Assert.Equal(StartOutcome.Started, await App.StartAsync());
+        App.EndQuiz();
+        folder.NextResample = ANewDraw();
+        _problems.Clear();   // the new draw parses to nothing to present
+
+        var cut = Render<DonePage>();
+        await cut.Find("#restartWithNewSample").ClickAsync(new());
+
+        cut.WaitForAssertion(() => Assert.Contains("The new sample is held", Text(cut)));
+        Assert.Contains("Quiz complete", Text(cut));
+        Assert.Same(folder.NextResample, App.Setup!.Sample);
+        Assert.Null(App.Run);
+    }
+
+    [Fact]
+    public void Home_AfterAReloadMidQuiz_SaysTheQuizWasReset_OnceOnly()
+    {
+        _marker.IsLive = true;   // the mark a reload left behind; no run at all is in hand
+
+        var cut = Render<HomePage>();
+
+        cut.WaitForAssertion(() => Assert.Contains("reset by the page reload", Text(cut)));
+        Assert.False(_marker.IsLive);
+        var again = Render<HomePage>();
+        Assert.DoesNotContain("reset by the page reload", Text(again));
+    }
+
+    [Fact]
+    public async Task Home_MidQuiz_ReadsTheLiveMarkAsNavigation_NotAReload()
+    {
+        await StartedAppAsync(Problem(1));
+        Assert.True(_marker.IsLive);
+        ExpectAnotherHomeOverAFolder();
+
+        var cut = Render<HomePage>();
+
+        cut.WaitForAssertion(() => Assert.Contains("Back to quiz", Text(cut)));
+        Assert.DoesNotContain("reset by the page reload", Text(cut));
+        Assert.True(_marker.IsLive);
     }
 
     // ── Quiz ────────────────────────────────────────────────────────────────────

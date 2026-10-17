@@ -6,7 +6,7 @@ internal enum FolderOutcomeKind
     /// <summary>A new setup landed.</summary>
     Landed,
 
-    /// <summary>Nothing began: another operation was in flight.</summary>
+    /// <summary>Nothing began: another operation was in flight, or there was no folder to draw again.</summary>
     Refused,
 
     /// <summary>The picker was dismissed, or the required grant declined; the setup in hand is unchanged.</summary>
@@ -45,3 +45,6 @@ internal sealed class FolderOutcome
     /// <summary>The failure, for <see cref="FolderOutcomeKind.Failed"/>; otherwise null.</summary>
     public Exception? Failure { get; }
 }
+
+/// <summary>What Done's resample-and-restart came to: the draw, and the restart where the draw landed.</summary>
+internal readonly record struct ResampleRestartOutcome(FolderOutcome Draw, StartOutcome? Restart);

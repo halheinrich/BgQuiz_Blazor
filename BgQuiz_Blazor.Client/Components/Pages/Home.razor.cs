@@ -19,6 +19,7 @@ public partial class Home : ComponentBase, IDisposable
     [Inject] private MixDraft Draft { get; set; } = default!;
     [Inject] private IFolderAccess FolderAccess { get; set; } = default!;
     [Inject] private BrowserStorageCondition StorageCondition { get; set; } = default!;
+    [Inject] private IQuizLiveMarker Marker { get; set; } = default!;
     [Inject] private NavigationManager Nav { get; set; } = default!;
 
     private ElementReference _fallbackInput;
@@ -30,7 +31,9 @@ public partial class Home : ComponentBase, IDisposable
     // sample) is kept on that thing, so it holds across navigation.
     private string? _pickError;
     private bool _emptyFolderNotice;
+    private bool _emptyResampleNotice;
     private bool _cancelledPickNotice;
+    private bool _showReloadNotice;
     private string? _startError;
     private string? _noMatchNotice;
     private bool _mixRefused;
@@ -73,6 +76,14 @@ public partial class Home : ComponentBase, IDisposable
         _filterAttachment = FilterSetup.Attach(_ => OnAppChanged());
         await Settings.EnsureHydratedAsync();
         _fsAccessAvailable = await FolderAccess.SupportsDirectoryPickerAsync();
+        // A boot that finds the live mark with no run at all is a reload mid-quiz: say so once
+        // and clear the mark. With a run in hand the mark is in-app navigation back here.
+        if (!App.HasStarted && await Marker.WasLiveAsync())
+        {
+            _showReloadNotice = true;
+            await Marker.ClearAsync();
+        }
+
         await App.EnsureSelectionAsync();
     }
 
@@ -104,7 +115,14 @@ public partial class Home : ComponentBase, IDisposable
         await App.ClearFolderAsync();
     }
 
-    private void Report(FolderOutcome outcome)
+    /// <summary>Resample (SPEC-filtering.md §4): the setup's folder drawn again, the sample replaced, the setup kept; an empty draw replaces nothing and says so.</summary>
+    private async Task ResampleAsync()
+    {
+        ClearPickNotices();
+        Report(await App.ResampleAsync(), resample: true);
+    }
+
+    private void Report(FolderOutcome outcome, bool resample = false)
     {
         switch (outcome.Kind)
         {
@@ -113,6 +131,9 @@ public partial class Home : ComponentBase, IDisposable
                 break;
             case FolderOutcomeKind.Cancelled:
                 _cancelledPickNotice = true;
+                break;
+            case FolderOutcomeKind.NoFiles when resample:
+                _emptyResampleNotice = true;
                 break;
             case FolderOutcomeKind.NoFiles:
                 _emptyFolderNotice = true;
@@ -130,6 +151,7 @@ public partial class Home : ComponentBase, IDisposable
     {
         _pickError = null;
         _emptyFolderNotice = false;
+        _emptyResampleNotice = false;
         _cancelledPickNotice = false;
         _startError = null;
         _noMatchNotice = null;

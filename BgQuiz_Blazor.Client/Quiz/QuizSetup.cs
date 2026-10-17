@@ -39,6 +39,9 @@ internal sealed class QuizSetup
     public string FolderName => Folder.Name;
     public FolderWriteCapability Capability => Folder.Capability;
     public FolderSample Sample { get; }
+
+    /// <summary>Whether another draw could hold different files: some kind was over its limit (SPEC-filtering.md §4), the producer's per-kind report read.</summary>
+    public bool CanResample => !Sample.HoldsEveryMatchingFile;
     public LoadedProblems Loaded { get; }
 
     /// <summary>

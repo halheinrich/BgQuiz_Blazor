@@ -68,6 +68,7 @@ internal sealed class QuizApp : IDisposable
     private readonly QuizSettings _settings;
     private readonly MixDraft _mixDraft;
     private readonly ProblemLoad _load;
+    private readonly IQuizLiveMarker _liveMarker;
     private readonly ILogger<QuizApp> _logger;
     private readonly TimeProvider _clock;
 
@@ -78,13 +79,14 @@ internal sealed class QuizApp : IDisposable
 
     public QuizApp(
         IFolderAccess folders, FilterSetup filterSetup, QuizSettings settings, MixDraft mixDraft, ProblemLoad load,
-        ILogger<QuizApp> logger, TimeProvider clock)
+        IQuizLiveMarker liveMarker, ILogger<QuizApp> logger, TimeProvider clock)
     {
         _folders = folders ?? throw new ArgumentNullException(nameof(folders));
         _filterSetup = filterSetup ?? throw new ArgumentNullException(nameof(filterSetup));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _mixDraft = mixDraft ?? throw new ArgumentNullException(nameof(mixDraft));
         _load = load ?? throw new ArgumentNullException(nameof(load));
+        _liveMarker = liveMarker ?? throw new ArgumentNullException(nameof(liveMarker));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _filterSetup.Applied += OnFilterApplied;
@@ -231,6 +233,74 @@ internal sealed class QuizApp : IDisposable
         }
     }
 
+    /// <summary>
+    /// Draw the setup's folder again at the limits (SPEC-filtering.md §4, "The sample, the
+    /// limits and Resample"), without the picker. The draw replaces the sample through the same
+    /// landing as a pick — a live run ends with its summary, the files are parsed afresh, the
+    /// stats file is re-probed — while the folder context, the filter in effect, the mix and the
+    /// saved filters stay. A failed or empty draw keeps the sample and the setup in hand.
+    /// </summary>
+    public async Task<FolderOutcome> ResampleAsync()
+    {
+        if (Setup is not { } setup) return FolderOutcome.Refused;
+        if (!TryBegin(QuizPhase.Loading)) return FolderOutcome.Refused;
+        try
+        {
+            FolderSample sample;
+            try
+            {
+                sample = await setup.Folder.ResampleAsync();
+            }
+            catch (Exception failure) when (IsAcquisitionFailure(failure))
+            {
+                return FolderOutcome.Failed(failure);
+            }
+
+            return await LandAsync(setup.Folder, sample);
+        }
+        finally
+        {
+            End();
+        }
+    }
+
+    /// <summary>
+    /// Done's one button (halheinrich/backgammon#417): draw the folder again and restart over
+    /// the new sample, as one operation. The draw lands as <see cref="ResampleAsync"/> lands,
+    /// the finished summary standing; the restart then replays the finished run's filters and
+    /// mix as <see cref="RestartAsync"/> does. A draw that fails or lands nothing restarts
+    /// nothing; a sample that lands is held whatever the restart comes to, so a plain Restart
+    /// replays over it — there is no rollback (SPEC-filtering.md §4).
+    /// </summary>
+    public async Task<ResampleRestartOutcome> ResampleAndRestartAsync()
+    {
+        if (Finished is not { } finished || Setup is not { } setup) return new(FolderOutcome.Refused, Restart: null);
+        if (!TryBegin(QuizPhase.Loading)) return new(FolderOutcome.Refused, Restart: null);
+        try
+        {
+            FolderSample sample;
+            try
+            {
+                sample = await setup.Folder.ResampleAsync();
+            }
+            catch (Exception failure) when (IsAcquisitionFailure(failure))
+            {
+                return new(FolderOutcome.Failed(failure), Restart: null);
+            }
+
+            var draw = await LandAsync(setup.Folder, sample);
+            if (draw.Kind != FolderOutcomeKind.Landed || Setup is not { } landed) return new(draw, Restart: null);
+
+            var mix = MixInEffect ? finished.Mix : QuizMix.Empty;
+            Enter(QuizPhase.Preparing);
+            return new(draw, await PrepareAsync(landed, finished.Filters, mix));
+        }
+        finally
+        {
+            End();
+        }
+    }
+
     /// <summary>Let the folder go. The run in hand, live or finished, stays; a live run keeps recording into its folder.</summary>
     public async Task<bool> ClearFolderAsync()
     {
@@ -251,17 +321,17 @@ internal sealed class QuizApp : IDisposable
         Enter(QuizPhase.Loading);
         if (sample.Files.IsEmpty)
         {
+            // Nothing landed: the setup and the run in hand stay as they were (ruled 2026-10-16,
+            // halheinrich/backgammon#421); a folder nothing holds is released.
             await ReleaseIfUnheldAsync(folder);
-            await DropSetupAsync();
             return FolderOutcome.NoFiles;
         }
 
         // The sample has landed, and the run in progress ends here, its summary kept; the old
-        // setup, its count, its filter source and its folder go with it, before the new files
-        // are read, so two parsed collections never coexist (SPEC-quiz-history.md §9; ruled
-        // 2026-10-16, halheinrich/backgammon#421).
+        // setup and its count go before the new files are read, so two parsed collections never
+        // coexist (SPEC-quiz-history.md §9; ruled 2026-10-16, halheinrich/backgammon#421).
         EndRun(endedByNewSample: true);
-        await DropSetupAsync();
+        var filterSource = await RetireSetupAsync(landingOn: folder);
 
         LoadedProblems loaded;
         try
@@ -279,12 +349,12 @@ internal sealed class QuizApp : IDisposable
         {
             // The folder arrived but could not be read as problems: no folder is in hand, and
             // the run the landing finished stays finished, with its summary (§9).
+            _filterSetup.ReportSource(null);
             await ReleaseIfUnheldAsync(folder);
             return FolderOutcome.Failed(failure);
         }
 
-        var setup = new QuizSetup(
-            folder, sample, loaded, await StatsProbe.OfAsync(folder), FilterSourceToken.FromGeneration(++_setups));
+        var setup = new QuizSetup(folder, sample, loaded, await StatsProbe.OfAsync(folder), filterSource);
         Setup = setup;
         _filterSetup.ReportSource(setup.FilterSource);
         Changed?.Invoke();
@@ -301,6 +371,30 @@ internal sealed class QuizApp : IDisposable
         _filterSetup.ReportSource(null);
         Changed?.Invoke();
         if (setup is not null) await ReleaseIfUnheldAsync(setup.Folder);
+    }
+
+    /// <summary>
+    /// Let the setup in hand go for a sample landing on <paramref name="landingOn"/>, and say
+    /// which filter source the new setup takes. A resample lands on the setup's own folder: its
+    /// context and its filter source stay, so the filter in effect, the mix and the saved filters
+    /// survive the new sample (SPEC-filtering.md §4); a new folder's landing ends the old setup
+    /// whole, as <see cref="DropSetupAsync"/> does.
+    /// </summary>
+    private async Task<FilterSourceToken> RetireSetupAsync(IFolderContext landingOn)
+    {
+        var setup = Setup;
+        Setup = null;
+        _selection = null;
+        if (setup is not null && ReferenceEquals(setup.Folder, landingOn))
+        {
+            Changed?.Invoke();
+            return setup.FilterSource;
+        }
+
+        _filterSetup.ReportSource(null);
+        Changed?.Invoke();
+        if (setup is not null) await ReleaseIfUnheldAsync(setup.Folder);
+        return FilterSourceToken.FromGeneration(++_setups);
     }
 
     /// <summary>Release <paramref name="folder"/> unless the setup or the live run still holds it. Never throws: a release that fails is logged, and nothing reads the handle again.</summary>
@@ -408,37 +502,44 @@ internal sealed class QuizApp : IDisposable
         if (!TryBegin(QuizPhase.Preparing)) return StartOutcome.Busy;
         try
         {
-            await _settings.EnsureHydratedAsync();
-            var ranking = _settings.Ranking;
-            var yielder = new CooperativeYielder(_clock);
-
-            // The stats destination activates with the run: bound now, over the setup's
-            // folder, and held by the run only on success, so a refused or faulted attempt
-            // leaves the run in hand recording where it was (halheinrich/backgammon#404).
-            var stats = await QuizStats.BindAsync(setup.Folder, _clock);
-            setup.NoteRecording(stats);   // the bind resolved the file: Home's forecasts follow it
-            if (!mix.IsPassthrough && stats.Document is null) return StartOutcome.MixRequiresStats;
-
-            var selection = _selection?.Describes(setup, config, ranking) == true
-                ? _selection
-                : await Selection.ComputeAsync(setup, config, ranking, yielder, CancellationToken.None);
-            if (config.Equals(FilterInEffect)) _selection = selection;
-
-            var sequence = await ProblemSequence.BuildAsync(
-                selection.Pool, mix, _settings.Order, ranking,
-                stats.Document, _clock.GetUtcNow(), new Random(), yielder, CancellationToken.None);
-            if (sequence.Problems.Count == 0) return StartOutcome.NoProblems;
-
-            // The prepared run replaces whatever was in hand only now, on success.
-            var run = QuizRun.Begin(ranking, sequence.Problems).PresentNext(RandomSide());
-            _live = new LiveQuiz(run, config, mix, setup.Name, setup.Folder, stats, sequence.Composition);
-            Finished = null;
-            return StartOutcome.Started;
+            return await PrepareAsync(setup, config, mix);
         }
         finally
         {
             End();
         }
+    }
+
+    /// <summary>The attempt itself, inside an operation already begun: bind, compose, and replace the run in hand on success only (SPEC-quiz-history.md §8).</summary>
+    private async Task<StartOutcome> PrepareAsync(QuizSetup setup, FilterConfig config, QuizMix mix)
+    {
+        await _settings.EnsureHydratedAsync();
+        var ranking = _settings.Ranking;
+        var yielder = new CooperativeYielder(_clock);
+
+        // The stats destination activates with the run: bound now, over the setup's folder,
+        // and held by the run only on success, so a refused or faulted attempt leaves the run
+        // in hand recording where it was (halheinrich/backgammon#404).
+        var stats = await QuizStats.BindAsync(setup.Folder, _clock);
+        setup.NoteRecording(stats);   // the bind resolved the file: Home's forecasts follow it
+        if (!mix.IsPassthrough && stats.Document is null) return StartOutcome.MixRequiresStats;
+
+        var selection = _selection?.Describes(setup, config, ranking) == true
+            ? _selection
+            : await Selection.ComputeAsync(setup, config, ranking, yielder, CancellationToken.None);
+        if (config.Equals(FilterInEffect)) _selection = selection;
+
+        var sequence = await ProblemSequence.BuildAsync(
+            selection.Pool, mix, _settings.Order, ranking,
+            stats.Document, _clock.GetUtcNow(), new Random(), yielder, CancellationToken.None);
+        if (sequence.Problems.Count == 0) return StartOutcome.NoProblems;
+
+        // The prepared run replaces whatever was in hand only now, on success.
+        var run = QuizRun.Begin(ranking, sequence.Problems).PresentNext(RandomSide());
+        _live = new LiveQuiz(run, config, mix, setup.Name, setup.Folder, stats, sequence.Composition);
+        Finished = null;
+        await _liveMarker.MarkLiveAsync();   // a reload from here on is a quiz lost, and Home says so
+        return StartOutcome.Started;
     }
 
     // ── The run ──────────────────────────────────────────────────────────────────
@@ -544,6 +645,9 @@ internal sealed class QuizApp : IDisposable
         var live = _live ?? throw new InvalidOperationException("Only a live run finishes.");
         Finished = new FinishedQuiz(ended.ToResult(), live.Filters, live.Mix, live.Name, live.Stats.Report, endedByNewSample);
         _live = null;
+        // No quiz is live now; the mark goes with it. Nothing waits on the removal: a reload in
+        // the moment it takes would report a quiz that was lost a moment before.
+        _ = _liveMarker.ClearAsync();
         // The finished run holds nothing of the folder; nothing waits on the release and nothing reads the handle again.
         _ = ReleaseIfUnheldAsync(live.Folder);
     }

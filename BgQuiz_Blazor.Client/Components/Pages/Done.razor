@@ -110,6 +110,15 @@
         <button class="btn btn-primary" disabled="@(App.IsBusy || App.Setup is null)" @onclick="RestartAsync">
             Restart with same filters
         </button>
+        @* One button that resamples and restarts (halheinrich/backgammon#417): offered exactly
+           while the folder held can be resampled, beside the restart it varies from. *@
+        @if (App.Setup is { CanResample: true })
+        {
+            <button class="btn btn-outline-primary" id="restartWithNewSample" disabled="@App.IsBusy"
+                    @onclick="RestartWithNewSampleAsync">
+                Restart with a new sample
+            </button>
+        }
         <button class="btn btn-outline-secondary" @onclick="BackToSetup">
             Back to setup
         </button>

@@ -24,6 +24,7 @@ namespace BgQuiz_Blazor.Tests;
 public class QuizAppTests : BunitContext
 {
     private readonly FakeFolderAccess _folders = new();
+    private readonly FakeQuizLiveMarker _marker = new();
     private readonly List<BgDecisionData> _problems = [];
     private Exception? _loadFailure;
     private Action? _onLoad;
@@ -45,10 +46,11 @@ public class QuizAppTests : BunitContext
         Services.AddScoped(sp => new MixDraft(
             sp.GetRequiredService<BrowserStorage>(), NullLogger<MixDraft>.Instance, sp.GetRequiredService<BrowserStorageCondition>()));
         Services.AddScoped<ProblemLoad>(_ => LoadAsync);
+        Services.AddSingleton<IQuizLiveMarker>(_marker);
         Services.AddScoped(sp => new QuizApp(
             sp.GetRequiredService<IFolderAccess>(), sp.GetRequiredService<FilterSetup>(),
             sp.GetRequiredService<QuizSettings>(), sp.GetRequiredService<MixDraft>(), sp.GetRequiredService<ProblemLoad>(),
-            NullLogger<QuizApp>.Instance, TimeProvider.System));
+            sp.GetRequiredService<IQuizLiveMarker>(), NullLogger<QuizApp>.Instance, TimeProvider.System));
     }
 
     private Task<LoadedProblems> LoadAsync(ImmutableArray<PickedFile> files, Action<LoadProgress>? progress, CancellationToken ct)
@@ -174,25 +176,242 @@ public class QuizAppTests : BunitContext
     }
 
     [Fact]
-    public async Task AFolderWithNoFiles_OrOneThatFailsToArrive_LeavesNoSetup_AndReleasesTheFolders()
+    public async Task AFolderWithNoFiles_KeepsTheSetupInHand_AndReleasesOnlyTheEmptyFolder()
+    {
+        // Ruled 2026-10-16 (halheinrich/backgammon#421): nothing landed, so nothing changes.
+        var app = await StartedAsync(await PickedAsync(Problem(1)));
+        var first = NextFolder;
+        var setup = app.Setup;
+        _folders.NextPickOutcome = TestFixtures.Picked("Empty", FolderWriteCapability.Enabled, []);
+        var empty = NextFolder;
+
+        Assert.Equal(FolderOutcomeKind.NoFiles, (await app.PickFolderAsync(default)).Kind);
+
+        Assert.Same(setup, app.Setup);
+        Assert.Equal(setup!.FilterSource, Setup.Current.Source);
+        Assert.NotNull(app.Run);         // the run goes on
+        Assert.False(first.IsReleased);
+        Assert.True(empty.IsReleased);   // nothing holds the empty folder
+        Assert.Equal(QuizPhase.Idle, app.Phase);
+    }
+
+    [Fact]
+    public async Task AFolderThatFailsToArrive_LeavesNoSetup()
     {
         var app = await PickedAsync(Problem(1));
         var first = NextFolder;
-        _folders.NextPickOutcome = TestFixtures.Picked("Empty", FolderWriteCapability.Enabled, []);
-        var empty = NextFolder;
-        Assert.Equal(FolderOutcomeKind.NoFiles, (await app.PickFolderAsync(default)).Kind);
-        Assert.Null(app.Setup);
-        Assert.Null(Setup.Current.Source);
-        Assert.True(first.IsReleased);   // the setup in hand went with the landing
-        Assert.True(empty.IsReleased);   // and nothing holds the empty folder
-
         _folders.NextPickOutcome = Folder();
         _folders.PickException = new IOException("the drive went away");
+
         var failed = await app.PickFolderAsync(default);
+
         Assert.Equal(FolderOutcomeKind.Failed, failed.Kind);
         Assert.IsType<IOException>(failed.Failure);
         Assert.Null(app.Setup);
+        Assert.Null(Setup.Current.Source);
+        Assert.True(first.IsReleased);
         Assert.Equal(QuizPhase.Idle, app.Phase);
+    }
+
+    // ── Resample ────────────────────────────────────────────────────────────────
+
+    private static FolderSample TruncatedSample() =>
+        TestFixtures.Sample([TestFixtures.ReadableXg("again.xg")], (".xg", 3));
+
+    [Fact]
+    public async Task Resample_ReplacesTheSample_KeepsTheFolderAndTheFilterInEffect_AndEndsTheRun()
+    {
+        var app = await StartedAsync(await PickedAsync(Problem(1)));
+        var folder = NextFolder;
+        var before = app.Setup!;
+        folder.NextResample = TruncatedSample();
+
+        Assert.Equal(FolderOutcomeKind.Landed, (await app.ResampleAsync()).Kind);
+
+        var after = app.Setup!;
+        Assert.NotSame(before, after);
+        Assert.Same(folder, after.Folder);                       // the context stays
+        Assert.Same(folder.NextResample, after.Sample);          // the sample is the new draw
+        Assert.Equal(before.FilterSource, after.FilterSource);   // the filter in effect survives (SPEC-filtering §4)
+        Assert.True(Setup.Current.IsInEffectFor(after.FilterSource));
+        Assert.True(after.CanResample);
+        Assert.Equal(2, _loads);                                 // parsed afresh
+        Assert.Null(app.Run);
+        Assert.True(app.Finished!.EndedByNewSample);
+        Assert.False(folder.IsReleased);
+        Assert.NotNull(app.CurrentSelection);                    // counted again
+        Assert.Equal(QuizPhase.Idle, app.Phase);
+    }
+
+    [Fact]
+    public async Task Resample_ThatDrawsNothing_KeepsTheSampleAndTheRun()
+    {
+        var app = await StartedAsync(await PickedAsync(Problem(1)));
+        var setup = app.Setup;
+        NextFolder.NextResample = TestFixtures.Sample([]);
+
+        Assert.Equal(FolderOutcomeKind.NoFiles, (await app.ResampleAsync()).Kind);
+
+        Assert.Same(setup, app.Setup);
+        Assert.NotNull(app.Run);
+        Assert.False(NextFolder.IsReleased);
+        Assert.Equal(QuizPhase.Idle, app.Phase);
+    }
+
+    [Fact]
+    public async Task Resample_ThatFailsToDraw_KeepsTheSampleAndTheRun_AndReportsTheFailure()
+    {
+        var app = await StartedAsync(await PickedAsync(Problem(1)));
+        var setup = app.Setup;
+        NextFolder.ResampleException = new IOException("the drive went away");
+
+        var outcome = await app.ResampleAsync();
+
+        Assert.Equal(FolderOutcomeKind.Failed, outcome.Kind);
+        Assert.IsType<IOException>(outcome.Failure);
+        Assert.Same(setup, app.Setup);
+        Assert.NotNull(app.Run);
+        Assert.Equal(QuizPhase.Idle, app.Phase);
+    }
+
+    [Fact]
+    public async Task Resample_WithNoFolderInHand_OrWhileBusy_IsRefused()
+    {
+        var app = App;
+        Assert.Equal(FolderOutcomeKind.Refused, (await app.ResampleAsync()).Kind);
+
+        await PickedAsync(Problem(1));
+        NextFolder.NextResample = TruncatedSample();
+        FolderOutcome? duringTheParse = null;
+        _onLoad = () => duringTheParse = app.ResampleAsync().Result;   // refused before any await
+
+        Assert.Equal(FolderOutcomeKind.Landed, (await app.ResampleAsync()).Kind);
+        Assert.Equal(FolderOutcomeKind.Refused, duringTheParse!.Kind);
+    }
+
+    [Fact]
+    public async Task CanResample_IsTheProducersReport()
+    {
+        SettleTheFilterOwner();
+        _problems.Add(Problem(1));
+        _folders.NextPickOutcome = TestFixtures.Picked("Whole", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg()]);
+        Assert.Equal(FolderOutcomeKind.Landed, (await App.PickFolderAsync(default)).Kind);
+        Assert.False(App.Setup!.CanResample);
+
+        _folders.NextPickOutcome = TestFixtures.Picked("Big", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg()], (".xg", 7));
+        Assert.Equal(FolderOutcomeKind.Landed, (await App.PickFolderAsync(default)).Kind);
+        Assert.True(App.Setup!.CanResample);
+    }
+
+    [Fact]
+    public async Task ResampleAndRestart_DrawsThenRestartsOverTheNewSample_AsOneOperation()
+    {
+        var app = await StartedAsync(await PickedAsync(Problem(1), Problem(2)));
+        app.EndQuiz();
+        var folder = NextFolder;
+        folder.NextResample = TruncatedSample();
+        var phases = new List<QuizPhase>();
+        _onLoad = () => phases.Add(app.Phase);
+
+        var outcome = await app.ResampleAndRestartAsync();
+
+        Assert.Equal(FolderOutcomeKind.Landed, outcome.Draw.Kind);
+        Assert.Equal(StartOutcome.Started, outcome.Restart);
+        Assert.NotNull(app.Run);
+        Assert.Null(app.Finished);
+        Assert.Same(folder, app.Setup!.Folder);
+        Assert.Same(folder.NextResample, app.Setup.Sample);
+        Assert.Equal([QuizPhase.Loading], phases);
+        Assert.Equal(QuizPhase.Idle, app.Phase);
+        Assert.Equal(1, folder.ResampleCallCount);
+    }
+
+    [Fact]
+    public async Task ResampleAndRestart_ADrawThatLandsNothingOrFails_RestartsNothing_AndKeepsTheSummary()
+    {
+        var app = await StartedAsync(await PickedAsync(Problem(1)));
+        app.EndQuiz();
+        var finished = app.Finished;
+        var setup = app.Setup;
+        NextFolder.NextResample = TestFixtures.Sample([]);
+
+        var empty = await app.ResampleAndRestartAsync();
+        Assert.Equal(FolderOutcomeKind.NoFiles, empty.Draw.Kind);
+        Assert.Null(empty.Restart);
+
+        NextFolder.ResampleException = new IOException("the drive went away");
+        var failed = await app.ResampleAndRestartAsync();
+        Assert.Equal(FolderOutcomeKind.Failed, failed.Draw.Kind);
+        Assert.Null(failed.Restart);
+
+        Assert.Same(finished, app.Finished);
+        Assert.Same(setup, app.Setup);
+        Assert.Null(app.Run);
+        Assert.Equal(QuizPhase.Idle, app.Phase);
+    }
+
+    [Fact]
+    public async Task ResampleAndRestart_WhenTheRestartFindsNothing_TheNewSampleIsHeld_AndTheSummaryStands()
+    {
+        var app = await StartedAsync(await PickedAsync(Problem(1)));
+        app.EndQuiz();
+        var finished = app.Finished;
+        var folder = NextFolder;
+        folder.NextResample = TruncatedSample();
+        _problems.Clear();   // the new draw parses to nothing to present
+
+        var outcome = await app.ResampleAndRestartAsync();
+
+        Assert.Equal(FolderOutcomeKind.Landed, outcome.Draw.Kind);
+        Assert.Equal(StartOutcome.NoProblems, outcome.Restart);
+        Assert.Same(finished, app.Finished);
+        Assert.Same(folder.NextResample, app.Setup!.Sample);   // held: a plain Restart replays over it
+        Assert.Null(app.Run);
+    }
+
+    [Fact]
+    public async Task ResampleAndRestart_WithNothingFinished_IsRefused()
+    {
+        var app = await StartedAsync(await PickedAsync(Problem(1)));
+        NextFolder.NextResample = TruncatedSample();
+
+        var outcome = await app.ResampleAndRestartAsync();
+
+        Assert.Equal(FolderOutcomeKind.Refused, outcome.Draw.Kind);
+        Assert.Null(outcome.Restart);
+        Assert.NotNull(app.Run);
+    }
+
+    // ── The live mark ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task TheLiveMark_IsSetWhenARunStarts_AndClearedWhereverItFinishes()
+    {
+        var app = await PickedAsync(Problem(1), Problem(2));
+        Assert.False(_marker.IsLive);
+
+        await StartedAsync(app);
+        Assert.True(_marker.IsLive);
+
+        app.EndQuiz();
+        Assert.False(_marker.IsLive);
+
+        Assert.Equal(StartOutcome.Started, await app.RestartAsync());
+        Assert.True(_marker.IsLive);
+
+        _folders.NextPickOutcome = Folder("Other");
+        Assert.Equal(FolderOutcomeKind.Landed, (await app.PickFolderAsync(default)).Kind);   // a landing ends the run
+        Assert.False(_marker.IsLive);
+    }
+
+    [Fact]
+    public async Task TheLiveMark_IsNotSet_ByAStartThatFindsNothing()
+    {
+        var app = await PickedAsync();
+
+        Assert.Equal(StartOutcome.NoProblems, await app.StartAsync());
+
+        Assert.False(_marker.IsLive);
     }
 
     [Fact]

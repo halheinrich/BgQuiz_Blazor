@@ -26,6 +26,7 @@ builder.Services.AddScoped<BrowserStorageCondition>();
 builder.Services.AddScoped<QuizSettings>();
 builder.Services.AddScoped<MixDraft>();
 builder.Services.AddScoped<NotesPlacementStore>();
+builder.Services.AddScoped<IQuizLiveMarker, QuizLiveMarker>();
 
 // The shared filter surface, with this app's refusal sink; saved filters live in
 // the picked folder, through the setup's document storage over its folder context.
