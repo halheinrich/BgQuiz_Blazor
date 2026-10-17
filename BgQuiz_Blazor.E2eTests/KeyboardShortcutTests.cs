@@ -55,6 +55,7 @@ public sealed class KeyboardShortcutTests : E2eTestBase
         : base(app, playwright, output) { }
 
     private ILocator ContinueButton => Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton });
+    private ILocator ShowStatsButton => Page.GetByRole(AriaRole.Button, new() { Name = "Show stats", Exact = true });
     private ILocator NoDoublePill => CubePill(ExpectedText.NoDoublePill);
     private ILocator DoubleTakePill => CubePill(ExpectedText.DoubleTakePill);
 
@@ -267,6 +268,35 @@ public sealed class KeyboardShortcutTests : E2eTestBase
     }
 
     [Fact]
+    public async Task OnAFocusedButton_SpaceIsThatButtonsOwnPress_NotTheShortcut()
+    {
+        await StartQuizOnAsync(CubeFixture);
+        await AnswerCubeNoDoubleAsync();
+        string xgid = (await XgidBadgeText.TextContentAsync())!;
+        Assert.False(string.IsNullOrWhiteSpace(xgid));
+
+        // Focus on Show stats — a button, which space activates natively, and
+        // one whose effect leaves the run where it is. Had the shortcut fired as
+        // well, Continue would have finished the one-problem quiz, and the stats
+        // page redirects a finished quiz to Done; Show stats alone leaves the
+        // review standing behind it, which the round trip back reads. The order
+        // is deterministic in the shortcut's disfavour: keydown (where the
+        // shortcut listens) precedes the click a button synthesizes on keyup.
+        await ShowStatsButton.FocusAsync();
+        Assert.Equal("button Show stats", await ActiveElementAsync());
+
+        await Page.Keyboard.PressAsync("Space");
+
+        // Show stats' effect, and only its: the stats page, then back to the
+        // same problem's review, nothing continued.
+        await ExpectUrlAsync(AppRoute.Stats);
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton }).ClickAsync();
+        await ExpectUrlAsync(AppRoute.Quiz);
+        await Expect(ContinueButton).ToBeVisibleAsync();
+        await Expect(XgidBadgeText).ToHaveTextAsync(xgid);
+    }
+
+    [Fact]
     public async Task TheReadinessMark_ReturnsWithTheNextQuizPage_AndSoDoesTheKey()
     {
         // Show stats disposes the quiz page and Back to quiz renders a new one
@@ -279,8 +309,8 @@ public sealed class KeyboardShortcutTests : E2eTestBase
         // removal is pinned where it can fail — the next scenario.
         await StartQuizOnAsync(CubeFixture);
 
-        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink, Exact = true }).ClickAsync();
-        await ExpectUrlAsync(AppRoute.Settings);
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Show stats" }).ClickAsync();
+        await ExpectUrlAsync(AppRoute.Stats);
 
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton }).ClickAsync();
         await ExpectUrlAsync(AppRoute.Quiz);

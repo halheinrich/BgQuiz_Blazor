@@ -99,7 +99,7 @@
             </li>
             <li>
                 <strong>Two small files, written into that folder.</strong> BgQuiz
-                saves <code>bgquiz-stats.json</code> (your lifetime record) and
+                saves <code>@QuizStatsFile.FileName</code> (your lifetime record) and
                 <code>@SavedFiltersDocument.FileName</code> (filters you save by name)
                 beside your problem files. It writes nothing else, and never changes
                 the files it quizzes you on.
@@ -150,7 +150,7 @@
         </p>
         <ul>
             <li>
-                <code>xg_quizMix</code> — your weighted mix as last shown
+                <code>@MixDraft.StorageKey</code> — your weighted mix as last shown
                 on screen, in this site's local storage. It survives reloading the
                 page and closing the browser, and it holds the mix settings only:
                 the categories, their percentages and order, and the quiz length.
@@ -169,7 +169,7 @@
                 reloading and closing the browser.
             </li>
             <li>
-                <code>bgquiz.quizLive</code> — a single mark noting that a
+                <code>@QuizLiveMarker.StorageKey</code> — a single mark noting that a
                 quiz was running, which is how BgQuiz can tell you afterwards that a
                 reload reset it. It is kept in <em>session</em> storage, which belongs
                 to this browser tab alone: another tab never sees it, and it
@@ -278,7 +278,7 @@
             work. If a folder holds more of either than that, BgQuiz quizzes you on the
             ones it read and tells you on the home page how many it left — nothing fails,
             and the quiz simply does not include them. Which ones it reads are drawn at
-            random, and <em>Resample</em>, beside the folder's name, draws again: a
+            random, and <em>Resample</em>, beside <em>Choose folder…</em>, draws again: a
             different selection from the same folder, with your filters and your mix
             kept as they are. Choosing the folder again also draws afresh, but starts
             your setup over. Nothing in an oversized folder is shut out permanently — it
@@ -288,7 +288,11 @@
             Reading new files ends a quiz in progress. If you choose a folder or
             <em>Resample</em> partway through a quiz, that quiz ends as <em>End quiz</em>
             would end it, and the home page says so, with a link to its summary — where
-            <em>Restart with same filters</em> runs it again over the new files.
+            <em>Restart with same filters</em> runs it again over the new files. From the
+            summary page, <em>Restart with a new sample</em> draws the folder again and runs
+            the quiz over that draw in one click; it is offered exactly when
+            <em>Resample</em> would be, and if the draw finds nothing the files already
+            read stay in use and the summary stands.
             Cancelling the folder chooser, a folder with no problem files, <em>Clear</em>,
             or a read that fails ends nothing.
         </p>
@@ -333,7 +337,9 @@
             every time you start; <em>@ProblemOrder.ByErrorLargestFirst.ToLabel()</em>
             puts first the decisions where the move played lost the most, by the
             analysis; and <em>@ProblemOrder.ByMoveNumberAscending.ToLabel()</em> runs
-            from the earliest move of a game to the latest, position files last.
+            from the earliest move of a game to the latest, position files last. Where
+            decisions tie — the same error, the same move number — they come in a fresh
+            random order each time you start, so a restart never repeats the tie-break.
             BgQuiz remembers your choice, and each Start or Restart uses the order
             chosen at that moment.
         </p>
@@ -723,7 +729,9 @@
            review comes first — so the sentence names the move on, not the
            answer. *@
         <p>
-            The score panel under the board keeps the running tally. When there are
+            The <em>Show stats</em> button near the right-hand end of the row under the board
+            — a small chart; its name shows when you point at it — opens a running scoreboard
+            at any point mid-quiz, and returns you to exactly where you were. When there are
             no more problems to show, moving on from the last one — after answering it, or
             with <em>Skip</em> — takes you to the summary page, where you can restart with
             the same filters or start over with new ones.
@@ -764,7 +772,7 @@
             In browsers that can grant write access to a folder (Chrome and Edge), BgQuiz
             also keeps a <em>lifetime</em> record: how often each position has been quizzed,
             how often you got it right, and when you last saw it. It lives in a small file
-            named <code>bgquiz-stats.json</code> inside your problem folder, right
+            named <code>@QuizStatsFile.FileName</code> inside your problem folder, right
             beside the files it tracks, and is updated after each problem you answer.
             Like your problem files, it never leaves your machine — it is written directly
             to your own folder, and nothing is uploaded anywhere.
@@ -797,7 +805,7 @@
                 <strong>An unreadable stats file is left alone.</strong> If the file can't be
                 read (edited by hand, or written by a newer BgQuiz), the quiz runs without
                 recording and the file is not touched. The home page says so as soon as
-                you pick the folder: “This folder's bgquiz-stats.json can't be read, so the quiz will run but record nothing — and the file will be left untouched.”
+                you pick the folder: “@FolderPickDisplay.StatsUnreadableForecast”
             </li>
             @* The pick-time forecasts are quoted from the constants Home renders
                (FolderPickDisplay), so Help cannot promise one wording while the
@@ -807,7 +815,7 @@
                claiming the pick catches it. *@
             <li>
                 <strong>A stats file that can't be written records nothing.</strong> When
-                you pick the folder, the home page tells you: “This folder's bgquiz-stats.json can't be written — it's marked read-only, or the browser isn't allowed to write it — so the quiz will run but record nothing.”
+                you pick the folder, the home page tells you: “@FolderPickDisplay.StatsUnwritableForecast”
                 If the file can't be saved once the quiz is under way, the quiz page says so
                 and the quiz carries on without saving.
             </li>
@@ -824,11 +832,11 @@
                 how it recognises a position, so a stats file written by an earlier version
                 can't be carried forward. The first quiz you run in that folder sets the old
                 file aside — nothing is deleted — under a name that records the version it
-                came from, such as <code>bgquiz-stats.v1.json</code>, and starts
-                a fresh <code>bgquiz-stats.json</code> beside it. The quiz tells you
+                came from, such as <code>@QuizStatsFile.RetiredNameFor(1)</code>, and starts
+                a fresh <code>@QuizStatsFile.FileName</code> beside it. The quiz tells you
                 the name it used. One interim format is folded into your record instead of
                 set aside, and its file is kept as
-                <code>bgquiz-stats.v4.merged.json</code>.
+                <code>@QuizStatsFile.MergedNameFor(BgGame_Lib.ProblemStatsDocument.FoldableSchemaVersion)</code>.
             </li>
         </ul>
 

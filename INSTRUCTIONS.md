@@ -40,7 +40,8 @@ board), BgUiPrimitives_Razor (notices, browser storage), BgMoveGen
   the names and the serializer contract, `StatsProbe` what the file holds:
   read at the pick, brought up to date as a run's recording touches it),
   `MixDraft` (the mix builder's edit state, persisted as the
-  user types) with `MixDisplay`, `QuizSettings`, `NotesPlacementStore`,
+  user types) with `MixDisplay`, `QuizLiveMarker` (the live mark in
+  `sessionStorage` the reload notice reads), `QuizSettings`, `NotesPlacementStore`,
   `BrowserStorageCondition`, `PickedFileLimits` (the pick caps: this app's
   policy).
 - **`Components/Pages`** — `Home` (setup, the mix panel and Start), `Quiz`
@@ -78,8 +79,15 @@ so nothing overlaps. `Changed` fires on every move, on the renderer's context.
   the run in progress as it lands, keeping its summary, and releases the old
   setup, its count and its folder before the new files are read
   (SPEC-quiz-history §9: two parsed collections never coexist); a cancelled
-  pick keeps the setup in hand; a folder with no files, or one that cannot
-  be read, leaves no setup, and a run the landing finished stays finished.
+  pick and a folder with no files keep the setup and the run as they were
+  (ruled 2026-10-16); a folder that cannot be read leaves no setup, and a
+  run the landing finished stays finished.
+- **Resample.** The setup's own context drawn again at the limits, landing
+  as a pick lands — the run ends, the files parse afresh, the stats file is
+  re-probed — while the context, the filter source (so the filter in
+  effect), the mix and the saved filters stay; a failed or empty draw keeps
+  the sample. Offered while `QuizSetup.CanResample`, the producer's per-kind
+  report (SPEC-filtering §4).
 - **Filter.** XgFilter_Razor's `FilterSetup` is the one owner of the draft
   and what is applied; the app reports each setup's token to it and raises
   nothing from its snapshot stream. Its `Applied` event is the one entry for
@@ -100,7 +108,9 @@ so nothing overlaps. `Changed` fires on every move, on the renderer's context.
   in hand only on success, so a refused or faulted attempt leaves the run in
   hand recording where it was (halheinrich/backgammon#404). Restart composes
   again from the setup in hand under the finished run's filter and mix,
-  weighted only while the mix is in effect now.
+  weighted only while the mix is in effect now. Done's *Restart with a new
+  sample* (`ResampleAndRestartAsync`) draws and restarts as one operation:
+  the summary stands whatever it comes to, and a sample that landed is held.
 - **The run** indexes its sequence: Next, Back, first, last are synchronous.
   Each answer of record is folded into the folder's stats file and written
   back before the next command is accepted (recording), with the pre-write
@@ -109,6 +119,9 @@ so nothing overlaps. `Changed` fires on every move, on the renderer's context.
   way. `QuizRun` is immutable; each transition returns the run that follows.
 - **Clear** lets the folder go and keeps the run, which keeps recording into
   its folder. A folder neither the setup nor the live run holds is released.
+- **The live mark** (`QuizLiveMarker`, `sessionStorage`) is set when a run
+  starts and cleared wherever one finishes; Home reads it on a boot with no
+  run at all, says the reload reset the quiz, once, and clears it.
 
 ## Running it
 

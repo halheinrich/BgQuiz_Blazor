@@ -56,12 +56,12 @@ public sealed class NotesPlacementStorageTests : NotesPlacementTestBase
         await ExpectAtPositionAsync(0.625, 0.375, "reopened");
 
         await CloseNotesButton.ClickAsync();
-        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink, Exact = true }).ClickAsync();
-        await ExpectUrlAsync(AppRoute.Settings);
+        await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ShowStatsButton, Exact = true }).ClickAsync();
+        await ExpectUrlAsync(AppRoute.Stats);
         await Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.BackToQuizButton }).ClickAsync();
         await ExpectUrlAsync(AppRoute.Quiz);
         await OpenNotesAsync();
-        await ExpectAtPositionAsync(0.625, 0.375, "after Settings and back");
+        await ExpectAtPositionAsync(0.625, 0.375, "after Show stats and back");
 
         // Reset works the same way, and none of it was ever an error.
         await OpenMoveControlAsync();
