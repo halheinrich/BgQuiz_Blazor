@@ -12,6 +12,7 @@ public partial class Done : ComponentBase, IDisposable
     private string? _restartError;
     private string? _restartNotice;
     private bool _mixRefused;
+    private bool _newSampleHeld;
 
     /// <summary>Whether the finished run was weighted while a restart of it would not be: the one state to disclose before the click.</summary>
     private bool RestartWillDropTheMix => App.Finished is { Mix.IsPassthrough: false } && !App.MixInEffect;
@@ -106,6 +107,7 @@ public partial class Done : ComponentBase, IDisposable
                 break;
             case StartOutcome.MixRequiresStats:
                 _mixRefused = true;   // its override restarts unweighted over the sample held, the new one included
+                _newSampleHeld = overANewSample;
                 break;
             case StartOutcome.Busy:
             case StartOutcome.NoFilterInEffect:
@@ -120,6 +122,7 @@ public partial class Done : ComponentBase, IDisposable
         _restartError = null;
         _restartNotice = null;
         _mixRefused = false;
+        _newSampleHeld = false;
     }
 
     private void BackToSetup() => Nav.NavigateTo("/");

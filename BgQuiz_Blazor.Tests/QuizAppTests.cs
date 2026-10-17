@@ -382,6 +382,99 @@ public class QuizAppTests : BunitContext
         Assert.NotNull(app.Run);
     }
 
+    [Fact]
+    public async Task ResampleAndRestart_WhenTheMixNeedsStatsAfterTheLanding_IsRefused_AndTheNewSampleIsHeld()
+    {
+        // The backstop refusal (SPEC-filtering.md §5): the landing's probe found stats, so the
+        // mix is in effect and replays, and the restart's bind then finds the file unreadable.
+        SettleTheFilterOwner();
+        _problems.AddRange([DistinctProblem(1), DistinctProblem(2)]);
+        _folders.NextPickOutcome = Folder();
+        var folder = NextFolder;
+        folder.StatsJson = StatsWithContent();
+        var app = App;
+        Assert.Equal(FolderOutcomeKind.Landed, (await app.PickFolderAsync(default)).Kind);
+        await TurnTheMixOnAsync();
+        await StartedAsync(app);
+        app.EndQuiz();
+        var finished = app.Finished;
+        folder.NextResample = TruncatedSample();
+        app.Changed += () =>
+        {
+            if (app.Setup is { } landed && ReferenceEquals(landed.Sample, folder.NextResample))
+                folder.StatsJson = "not json at all";   // between the landing's probe and the restart's bind
+        };
+
+        var outcome = await app.ResampleAndRestartAsync();
+
+        Assert.Equal(FolderOutcomeKind.Landed, outcome.Draw.Kind);
+        Assert.Equal(StartOutcome.MixRequiresStats, outcome.Restart);
+        Assert.Same(finished, app.Finished);
+        Assert.Same(folder.NextResample, app.Setup!.Sample);
+        Assert.Equal(StartOutcome.Started, await app.RestartAsync(withoutMix: true));   // the override, over the sample held
+    }
+
+    [Fact]
+    public void AResample_ReleasesTheOldCollectionAndItsCount_BeforeTheNewFilesAreRead()
+    {
+        // ChatGPT's review of increment 3 (halheinrich/backgammon#421, 6229447651): a setup held
+        // across the draw kept its collection alive while the replacement parsed. Only the
+        // folder context crosses those awaits now; the draw suspends, as the browser's does.
+        SingleThreadedRunner.Run(async () =>
+        {
+            var app = await StartedAsync(await PickedAsync(Problem(1), Problem(2)));
+            var folder = NextFolder;
+            folder.NextResample = TruncatedSample();
+            folder.OnResampling = async () => await Task.Yield();
+            var (oldSetup, oldSelection) = WeakReferencesTo(app);
+            bool? setupAlive = null, selectionAlive = null;
+            _onLoad = () =>
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                setupAlive = oldSetup.IsAlive;
+                selectionAlive = oldSelection.IsAlive;
+            };
+
+            Assert.Equal(FolderOutcomeKind.Landed, (await app.ResampleAsync()).Kind);
+
+            Assert.False(setupAlive, "the old setup was still reachable while the new files were read");
+            Assert.False(selectionAlive, "the old count was still reachable while the new files were read");
+            Assert.True(app.Finished!.EndedByNewSample);
+            Assert.Same(folder, app.Setup!.Folder);
+        });
+    }
+
+    [Fact]
+    public void AResampleAndRestart_ReleasesTheOldCollectionAndItsCount_BeforeTheNewFilesAreRead()
+    {
+        SingleThreadedRunner.Run(async () =>
+        {
+            var app = await StartedAsync(await PickedAsync(Problem(1), Problem(2)));
+            app.EndQuiz();
+            var folder = NextFolder;
+            folder.NextResample = TruncatedSample();
+            folder.OnResampling = async () => await Task.Yield();
+            var (oldSetup, oldSelection) = WeakReferencesTo(app);
+            bool? setupAlive = null, selectionAlive = null;
+            _onLoad = () =>
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                setupAlive = oldSetup.IsAlive;
+                selectionAlive = oldSelection.IsAlive;
+            };
+
+            var outcome = await app.ResampleAndRestartAsync();
+
+            Assert.Equal(StartOutcome.Started, outcome.Restart);
+            Assert.False(setupAlive, "the old setup was still reachable while the new files were read");
+            Assert.False(selectionAlive, "the old count was still reachable while the new files were read");
+        });
+    }
+
     // ── The live mark ───────────────────────────────────────────────────────────
 
     [Fact]

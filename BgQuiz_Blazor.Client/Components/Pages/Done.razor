@@ -80,6 +80,10 @@
             <p class="mb-2">
                 Lifetime stats aren't available for a restart (@MixDisplay.RefusalReason),
                 so the weighted mix can't be applied.
+                @if (_newSampleHeld)
+                {
+                    <text>The new sample is held, so a restart — with or without the mix — now runs over it.</text>
+                }
             </p>
             <button class="btn btn-outline-primary btn-sm" id="restartWithoutMix"
                     disabled="@App.IsBusy" @onclick="RestartWithoutMixAsync">

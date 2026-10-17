@@ -242,21 +242,25 @@ internal sealed class QuizApp : IDisposable
     /// </summary>
     public async Task<FolderOutcome> ResampleAsync()
     {
-        if (Setup is not { } setup) return FolderOutcome.Refused;
+        // Only the folder context crosses the awaits: a reference to the setup itself would
+        // keep its parsed collection alive while the replacement parses, which is exactly what
+        // retiring the setup before the parse is there to prevent (two collections never coexist).
+        var folder = Setup?.Folder;
+        if (folder is null) return FolderOutcome.Refused;
         if (!TryBegin(QuizPhase.Loading)) return FolderOutcome.Refused;
         try
         {
             FolderSample sample;
             try
             {
-                sample = await setup.Folder.ResampleAsync();
+                sample = await folder.ResampleAsync();
             }
             catch (Exception failure) when (IsAcquisitionFailure(failure))
             {
                 return FolderOutcome.Failed(failure);
             }
 
-            return await LandAsync(setup.Folder, sample);
+            return await LandAsync(folder, sample);
         }
         finally
         {
@@ -274,21 +278,24 @@ internal sealed class QuizApp : IDisposable
     /// </summary>
     public async Task<ResampleRestartOutcome> ResampleAndRestartAsync()
     {
-        if (Finished is not { } finished || Setup is not { } setup) return new(FolderOutcome.Refused, Restart: null);
+        // As in ResampleAsync, only the folder context crosses the awaits; the finished result
+        // is compact and is what the restart replays.
+        var folder = Setup?.Folder;
+        if (Finished is not { } finished || folder is null) return new(FolderOutcome.Refused, Restart: null);
         if (!TryBegin(QuizPhase.Loading)) return new(FolderOutcome.Refused, Restart: null);
         try
         {
             FolderSample sample;
             try
             {
-                sample = await setup.Folder.ResampleAsync();
+                sample = await folder.ResampleAsync();
             }
             catch (Exception failure) when (IsAcquisitionFailure(failure))
             {
                 return new(FolderOutcome.Failed(failure), Restart: null);
             }
 
-            var draw = await LandAsync(setup.Folder, sample);
+            var draw = await LandAsync(folder, sample);
             if (draw.Kind != FolderOutcomeKind.Landed || Setup is not { } landed) return new(draw, Restart: null);
 
             var mix = MixInEffect ? finished.Mix : QuizMix.Empty;

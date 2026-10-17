@@ -438,6 +438,47 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Done_WhenTheNewSampleLandsButTheMixNeedsStats_SaysTheSampleIsHeld_AndOffersRestartWithoutMix()
+    {
+        // The refusal over a new sample says the sample is held (halheinrich/backgammon#417;
+        // ChatGPT's review 6229447651). The backstop case: the landing's probe finds stats, the
+        // restart's bind then cannot read the file.
+        _problems.Add(Problem(1));
+        _folders.NextPickOutcome = TestFixtures.Picked(
+            "Big", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg()], (".xg", 7));
+        var folder = NextFolder;
+        folder.StatsJson = StatsWithContent();
+        ExpectHomeOverAFolder();
+        var home = Render<HomePage>();
+        await home.Find("#pickProblemFolder").ClickAsync(new());
+        home.WaitForAssertion(() => Assert.NotNull(App.CurrentSelection));
+        await TurnTheMixSettingOnAsync();
+        var draft = Services.GetRequiredService<MixDraft>();
+        // The first edit re-renders Home with the mix in effect, so its mix panel mounts and
+        // hydrates the draft before the edit writes through: the read comes first, then the write.
+        _plan.ExpectRead(BrowserStorageArea.Local, MixDraft.StorageKey, BrowserStorageReadAnswer.Absent);
+        _plan.ExpectWrite(BrowserStorageArea.Local, MixDraft.StorageKey,
+            new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)]).ToJson(), BrowserStorageWriteAnswer.Succeeded);
+        await draft.AddRowAsync();
+        Assert.Equal(StartOutcome.Started, await App.StartAsync());
+        App.EndQuiz();
+        folder.NextResample = ANewDraw();
+        App.Changed += () =>
+        {
+            if (App.Setup is { } landed && ReferenceEquals(landed.Sample, folder.NextResample))
+                folder.StatsJson = "not json at all";
+        };
+
+        var cut = Render<DonePage>();
+        await cut.Find("#restartWithNewSample").ClickAsync(new());
+
+        cut.WaitForAssertion(() => Assert.Contains("The new sample is held", Text(cut)));
+        Assert.NotNull(cut.Find("#restartWithoutMix"));
+        Assert.Contains("Quiz complete", Text(cut));
+        Assert.Same(folder.NextResample, App.Setup!.Sample);
+    }
+
+    [Fact]
     public void Home_AfterAReloadMidQuiz_SaysTheQuizWasReset_OnceOnly()
     {
         _marker.IsLive = true;   // the mark a reload left behind; no run at all is in hand
@@ -634,6 +675,7 @@ public class PageTests : BunitContext
         home.WaitForAssertion(() => Assert.NotNull(App.CurrentSelection));
         await TurnTheMixSettingOnAsync();
         var draft = Services.GetRequiredService<MixDraft>();
+        _plan.ExpectRead(BrowserStorageArea.Local, MixDraft.StorageKey, BrowserStorageReadAnswer.Absent);   // the panel mounts on the first edit
         _plan.ExpectWrite(BrowserStorageArea.Local, MixDraft.StorageKey,
             new QuizMix([new QuizMixEntry(QuizCategory.NeverSeen, 100)]).ToJson(), BrowserStorageWriteAnswer.Succeeded);
         await draft.AddRowAsync();

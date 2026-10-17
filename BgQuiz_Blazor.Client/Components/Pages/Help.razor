@@ -338,8 +338,9 @@
             puts first the decisions where the move played lost the most, by the
             analysis; and <em>@ProblemOrder.ByMoveNumberAscending.ToLabel()</em> runs
             from the earliest move of a game to the latest, position files last. Where
-            decisions tie — the same error, the same move number — they come in a fresh
-            random order each time you start, so a restart never repeats the tie-break.
+            decisions tie — the same error, the same move number — they come in a random
+            order drawn afresh each time you start, so a restart does not carry the last
+            run's tie-break over.
             BgQuiz remembers your choice, and each Start or Restart uses the order
             chosen at that moment.
         </p>
