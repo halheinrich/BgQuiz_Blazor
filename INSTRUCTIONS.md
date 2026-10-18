@@ -13,9 +13,10 @@ WASM client (`BgQuiz_Blazor.Client`) that does everything in the browser; the
 files never leave the machine. Solution
 `D:\Users\Hal\Documents\Visual Studio 2026\Projects\backgammon\BgQuiz_Blazor\BgQuiz_Blazor.slnx`;
 repo https://github.com/halheinrich/BgQuiz_Blazor, branch `main`. Rebuilt on
-its libraries in 2026-10 (halheinrich/backgammon#421): increment 1 is the
+its libraries in 2026-10 (halheinrich/backgammon#421): increment 1 the
 first complete path, increment 2 the folder context, lifetime stats, the
-Stats page and the weighted mix; resample follows.
+Stats page and the weighted mix, increment 3 resample, Done's resample-and-
+restart, the order tie-break, the reload notice and the help text.
 
 Depends on BgGame_Lib (scoring, lifetime stats, the mix, the run's pool
 functions `DistinctProblems` and `ProblemSequence`, `ProblemOrder`,
