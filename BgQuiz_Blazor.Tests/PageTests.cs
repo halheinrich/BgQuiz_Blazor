@@ -176,19 +176,25 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_APickThatFailsMidScan_LowersBusy_AndShowsTheError()
+    public async Task Home_APickThatFailsMidScan_LowersBusy_ShowsTheError_AndNamesTheFolderKept()
     {
-        _folders.NextPickOutcome = TestFixtures.Picked("Corpus", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg()]);
-        _folders.PickException = new IOException("the drive went away");
-        var cut = Render<HomePage>();
+        // The pick failed after the browser granted 'Other', before a sample landed: 'Corpus' is
+        // still in hand and the error says so (halheinrich/backgammon#424).
+        var cut = await PickedHomeAsync(Problem(1));
+        _folders.NextPickOutcome = TestFixtures.Picked("Other", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg()]);
+        _folders.OnScanning = () => throw new IOException("the drive went away");
         await cut.Find("#pickProblemFolder").ClickAsync(new());
         cut.WaitForAssertion(() =>
         {
-            Assert.Contains("Could not read the folder:", Text(cut));
-            Assert.Contains("the drive went away", Text(cut));
+            var text = Text(cut);
+            Assert.Contains("Could not read the folder:", text);
+            Assert.Contains("the drive went away", text);
+            Assert.Contains("Current folder is still 'Corpus'", text);
+            Assert.Contains("'Corpus' — 1 problem file", text);
             Assert.False(App.IsBusy);
             Assert.DoesNotContain("app-busy", cut.Find("div.container").ClassName);
         });
+        Assert.Equal("Corpus", App.Setup!.FolderName);
     }
 
     [Fact]

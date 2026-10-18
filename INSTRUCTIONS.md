@@ -80,9 +80,10 @@ so nothing overlaps. `Changed` fires on every move, on the renderer's context.
   the run in progress as it lands, keeping its summary, and releases the old
   setup, its count and its folder before the new files are read
   (SPEC-quiz-history §9: two parsed collections never coexist); a cancelled
-  pick and a folder with no files keep the setup and the run as they were
-  (ruled 2026-10-16); a folder that cannot be read leaves no setup, and a
-  run the landing finished stays finished.
+  pick, a folder with no files and a pick that fails before its sample lands
+  keep the setup and the run as they were, by either picker (ruled
+  2026-10-16 and 2026-10-18); a folder that landed but cannot be read as
+  problems leaves no setup, and a run the landing finished stays finished.
 - **Resample.** The setup's own context drawn again at the limits, landing
   as a pick lands — the run ends, the files parse afresh, the stats file is
   re-probed — while the context, the filter source (so the filter in

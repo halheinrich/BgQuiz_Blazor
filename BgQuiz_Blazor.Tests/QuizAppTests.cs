@@ -196,9 +196,12 @@ public class QuizAppTests : BunitContext
     }
 
     [Fact]
-    public async Task AFolderThatFailsToArrive_LeavesNoSetup()
+    public async Task AFolderThatFailsToArrive_KeepsTheSetupAndTheRunInHand()
     {
-        var app = await PickedAsync(Problem(1));
+        // A failure in the prompts lands nothing, so nothing in hand changes (ruled 2026-10-18,
+        // halheinrich/backgammon#424), as for a cancelled or an empty pick.
+        var app = await StartedAsync(await PickedAsync(Problem(1)));
+        var setup = app.Setup;
         var first = NextFolder;
         _folders.NextPickOutcome = Folder();
         _folders.PickException = new IOException("the drive went away");
@@ -207,9 +210,10 @@ public class QuizAppTests : BunitContext
 
         Assert.Equal(FolderOutcomeKind.Failed, failed.Kind);
         Assert.IsType<IOException>(failed.Failure);
-        Assert.Null(app.Setup);
-        Assert.Null(Setup.Current.Source);
-        Assert.True(first.IsReleased);
+        Assert.Same(setup, app.Setup);
+        Assert.Equal(setup!.FilterSource, Setup.Current.Source);
+        Assert.NotNull(app.Run);         // the run goes on
+        Assert.False(first.IsReleased);
         Assert.Equal(QuizPhase.Idle, app.Phase);
     }
 
@@ -508,9 +512,12 @@ public class QuizAppTests : BunitContext
     }
 
     [Fact]
-    public async Task APickThatFailsAfterItsPrompts_LeavesNoSetup_AndTheSeamReleasedItsFolder()
+    public async Task APickThatFailsAfterItsPrompts_KeepsTheSetupInHand_AndTheSeamReleasedItsFolder()
     {
+        // The browser granted a folder but its draw failed before a sample landed: the setup in
+        // hand stays (halheinrich/backgammon#424), and the failed folder is the seam's to release.
         var app = await PickedAsync(Problem(1));
+        var setup = app.Setup;
         var first = NextFolder;
         _folders.NextPickOutcome = Folder("Other");
         var other = NextFolder;
@@ -519,9 +526,32 @@ public class QuizAppTests : BunitContext
         var outcome = await app.PickFolderAsync(default);
 
         Assert.Equal(FolderOutcomeKind.Failed, outcome.Kind);
-        Assert.Null(app.Setup);
-        Assert.True(first.IsReleased);
+        Assert.Same(setup, app.Setup);
+        Assert.False(first.IsReleased);
         Assert.True(other.IsReleased);
+        Assert.Equal(QuizPhase.Idle, app.Phase);
+    }
+
+    [Fact]
+    public async Task AFallbackCollectionThatFails_KeepsTheSetupInHand_AndTheSeamReleasedItsFolder()
+    {
+        // The other picker, same rule (halheinrich/backgammon#424): the webkitdirectory input's
+        // selection failed to draw, so the setup picked earlier stays and only the failed folder goes.
+        var app = await PickedAsync(Problem(1));
+        var setup = app.Setup;
+        var first = NextFolder;
+        _folders.NextCollectOutcome = Folder("Other", FolderWriteCapability.BrowserUnsupported);
+        var other = TestFixtures.FolderOf(_folders.NextCollectOutcome);
+        _folders.CollectScanException = new IOException("a file could not be read");
+
+        var outcome = await app.CollectFallbackAsync(default);
+
+        Assert.Equal(FolderOutcomeKind.Failed, outcome.Kind);
+        Assert.Same(setup, app.Setup);
+        Assert.Equal(setup!.FilterSource, Setup.Current.Source);
+        Assert.False(first.IsReleased);
+        Assert.True(other.IsReleased);
+        Assert.Equal(QuizPhase.Idle, app.Phase);
     }
 
     [Fact]

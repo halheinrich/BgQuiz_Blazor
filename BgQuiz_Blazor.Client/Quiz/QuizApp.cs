@@ -169,9 +169,10 @@ internal sealed class QuizApp : IDisposable
     /// <summary>
     /// The "choose a folder" gesture. The mechanism is probed at the click: with the
     /// browser's directory picker, the prompts are the user's turn and a folder the browser
-    /// accepts replaces the setup, whatever it holds, while cancelling keeps the setup in
-    /// hand; without it, the hidden <c>webkitdirectory</c> input's picker opens and the
-    /// selection arrives later through <see cref="CollectFallbackAsync"/>.
+    /// accepts replaces the setup, whatever it holds, while cancelling, or a pick that fails
+    /// before its sample lands, keeps the setup in hand; without it, the hidden
+    /// <c>webkitdirectory</c> input's picker opens and the selection arrives later through
+    /// <see cref="CollectFallbackAsync"/>.
     /// </summary>
     public async Task<FolderOutcome> PickFolderAsync(ElementReference fallbackInput)
     {
@@ -195,7 +196,9 @@ internal sealed class QuizApp : IDisposable
             }
             catch (Exception failure) when (IsAcquisitionFailure(failure))
             {
-                await DropSetupAsync();
+                // No sample landed, so the setup and the run in hand stay as they were, as for
+                // a cancelled or an empty pick (ruled 2026-10-18, halheinrich/backgammon#424);
+                // the seam has released whatever the failed pick held.
                 return FolderOutcome.Failed(failure);
             }
 
@@ -221,7 +224,8 @@ internal sealed class QuizApp : IDisposable
             }
             catch (Exception failure) when (IsAcquisitionFailure(failure))
             {
-                await DropSetupAsync();
+                // As in PickFolderAsync: nothing landed, so nothing in hand changes
+                // (halheinrich/backgammon#424).
                 return FolderOutcome.Failed(failure);
             }
 

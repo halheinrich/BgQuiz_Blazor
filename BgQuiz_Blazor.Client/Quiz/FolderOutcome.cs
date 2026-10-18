@@ -15,7 +15,10 @@ internal enum FolderOutcomeKind
     /// <summary>The folder holds no problem files.</summary>
     NoFiles,
 
-    /// <summary>The folder could not be read (<see cref="FolderOutcome.Failure"/>).</summary>
+    /// <summary>
+    /// The folder could not be read (<see cref="FolderOutcome.Failure"/>). A failure before its
+    /// sample landed leaves the setup in hand unchanged; one after, no setup at all.
+    /// </summary>
     Failed,
 
     /// <summary>The fallback picker is open; its selection arrives through the input's change event.</summary>
