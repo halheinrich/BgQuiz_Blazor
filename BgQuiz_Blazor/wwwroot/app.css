@@ -913,13 +913,17 @@ h1:focus {
     overflow-wrap: anywhere;
 }
 
-/* Busy transition (controller IsBusy): the progress-cursor idiom over the
-   whole page region while a Start/Restart/Continue/Skip transition runs.
-   The descendant selector matters — Bootstrap's disabled buttons drop
-   pointer-events, so the cursor a hovering user sees is this ancestor's. */
+/* Busy (QuizApp.IsBusy): the wait cursor over the whole page region while an
+   operation runs — a pick's scan and parse, a Start or Restart's prepare, Done's
+   resample-and-restart, a Submit's write. The wait cursor, not progress: the
+   progress cursor is an arrow with a small ring, which Hal read as no busy sign
+   at all on Done's Restart with a new sample (2026-10-17); the hourglass is the
+   unmistakable one. The descendant selector matters — Bootstrap's disabled
+   buttons drop pointer-events, so the cursor a hovering user sees is this
+   ancestor's. */
 .app-busy,
 .app-busy * {
-    cursor: progress;
+    cursor: wait;
 }
 
 /* ---------------------------------------------------------------------------

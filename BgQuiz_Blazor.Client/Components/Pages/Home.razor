@@ -125,7 +125,11 @@
                 </button>
             </div>
 
-            @if (!setup.Sample.HoldsEveryMatchingFile && !setup.TruncationNoticeDismissed)
+            @* While the empty-pick notice stands, this folder's own notices step aside: read
+               beside it they describe the folder that was just picked, which they do not
+               (Hal, 2026-10-17). They return when it is dismissed; nothing here is dismissed
+               for the user. *@
+            @if (!setup.Sample.HoldsEveryMatchingFile && !setup.TruncationNoticeDismissed && !_emptyFolderNotice)
             {
                 <Notice id="truncationNotice" class="mt-2" Kind="NoticeKind.Warning"
                         Announcement="NoticeAnnouncement.Polite" Dismissible="true"
@@ -144,7 +148,7 @@
             @* Which stats rung this folder landed on. The "will be saved" promise is made only
                while neither forecast below says otherwise; the no-grant line never says the
                user declined, since the browser can refuse to ask. *@
-            @if (!setup.StatsCapabilityNoticeDismissed)
+            @if (!setup.StatsCapabilityNoticeDismissed && !_emptyFolderNotice)
             {
                 @switch (setup.Capability)
                 {
@@ -246,6 +250,10 @@
                 @bind-Dismissed:get="!_emptyFolderNotice"
                 @bind-Dismissed:set="_ => _emptyFolderNotice = false">
             No .xg / .xgp files found directly in that folder.
+            @if (Setup is { } kept)
+            {
+                <text>Current folder is still @kept.DisplayName.</text>
+            }
         </Notice>
 
         @* An empty draw of the held folder replaces nothing, and the line says so: the gesture

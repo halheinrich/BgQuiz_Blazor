@@ -218,7 +218,33 @@ public class PageTests : BunitContext
         var cut = Render<HomePage>();
         await cut.Find("#pickProblemFolder").ClickAsync(new());
         cut.WaitForAssertion(() => Assert.Contains("No .xg / .xgp files found directly in that folder", Text(cut)));
+        Assert.DoesNotContain("Current folder is still", Text(cut));   // there was none to keep
         Assert.Null(App.Setup);
+    }
+
+    [Fact]
+    public async Task Home_AnEmptyPick_WithAFolderInHand_NamesTheFolderKept_AndItsNoticesStepAsideMeanwhile()
+    {
+        // Hal, 2026-10-17: beside the empty-pick notice, the kept folder's own notices read as
+        // the empty folder's. They step aside while that notice stands and return when it goes;
+        // nothing is dismissed for the user.
+        var (cut, _) = await PickedTruncatedHomeAsync(Problem(1));
+        Assert.Single(cut.FindAll("#truncationNotice"));
+        Assert.Single(cut.FindAll("#statsCapabilityNotice"));
+        _folders.NextPickOutcome = TestFixtures.Picked("Empty", FolderWriteCapability.Enabled, []);
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        cut.WaitForAssertion(() => Assert.Contains("Current folder is still 'Big'", Text(cut)));
+        Assert.Equal("Big", App.Setup!.FolderName);
+        Assert.Empty(cut.FindAll("#truncationNotice"));
+        Assert.Empty(cut.FindAll("#statsCapabilityNotice"));
+
+        await cut.Find("#emptyFolderNotice .btn-close").ClickAsync(new());
+
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll("#emptyFolderNotice")));
+        Assert.Single(cut.FindAll("#truncationNotice"));
+        Assert.Single(cut.FindAll("#statsCapabilityNotice"));
     }
 
     [Fact]

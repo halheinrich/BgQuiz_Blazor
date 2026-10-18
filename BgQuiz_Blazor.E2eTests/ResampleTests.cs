@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
 
@@ -100,6 +101,33 @@ public sealed class ResampleTests : E2eTestBase
         await ExpectPageRenderedAsync(AppRoute.Quiz);
         await Expect(CubePill(ExpectedText.NoDoublePill)).ToBeVisibleAsync();
     }
+
+    /// <summary>
+    /// The busy affordance through the combined operation (Hal, 2026-10-17): from the click,
+    /// through the draw and the parse of the new sample, to the quiz, the page carries the busy
+    /// class and the button is disabled. Read from the real DOM while the operation runs, as the
+    /// pick's scenario reads it; the over-limit folder's draw and parse give it the time.
+    /// </summary>
+    [Fact]
+    public async Task RestartWithANewSample_PaintsTheBusyAffordance_FromTheClickToTheQuiz()
+    {
+        await BootHomeAsync();
+        await PickOverLimitFolderAsync();
+        await ExpectFilterInEffectAsync();
+        await StartQuizAsync();
+        await AnswerCubeNoDoubleAsync();
+        await ContinueToDoneAsync();
+        var container = Page.Locator("div.container").First;
+        await Expect(container).Not.ToHaveClassAsync(BusyClass);
+
+        await RestartWithNewSampleButton.ClickAsync();
+
+        await Expect(container).ToHaveClassAsync(BusyClass);
+        await Expect(RestartWithNewSampleButton).ToBeDisabledAsync();
+        await ExpectPageRenderedAsync(AppRoute.Quiz);
+    }
+
+    private static Regex BusyClass => new(@"\bapp-busy\b");
 
     [Fact]
     public async Task RestartWithANewSample_IsNotOffered_ForAFolderHeldWhole()
