@@ -125,11 +125,11 @@
                 </button>
             </div>
 
-            @* While the empty-pick notice stands, this folder's own notices step aside: read
-               beside it they describe the folder that was just picked, which they do not
-               (Hal, 2026-10-17). They return when it is dismissed; nothing here is dismissed
-               for the user. *@
-            @if (!setup.Sample.HoldsEveryMatchingFile && !setup.TruncationNoticeDismissed && !_emptyFolderNotice)
+            @* While a notice about another folder's pick stands (empty, or failed), this
+               folder's own notices step aside: read beside it they describe the folder that
+               was just picked, which they do not (Hal, 2026-10-17). They return when it is
+               dismissed; nothing here is dismissed for the user. *@
+            @if (!setup.Sample.HoldsEveryMatchingFile && !setup.TruncationNoticeDismissed && !AnotherPicksNoticeStands)
             {
                 <Notice id="truncationNotice" class="mt-2" Kind="NoticeKind.Warning"
                         Announcement="NoticeAnnouncement.Polite" Dismissible="true"
@@ -148,7 +148,7 @@
             @* Which stats rung this folder landed on. The "will be saved" promise is made only
                while neither forecast below says otherwise; the no-grant line never says the
                user declined, since the browser can refuse to ask. *@
-            @if (!setup.StatsCapabilityNoticeDismissed && !_emptyFolderNotice)
+            @if (!setup.StatsCapabilityNoticeDismissed && !AnotherPicksNoticeStands)
             {
                 @switch (setup.Capability)
                 {

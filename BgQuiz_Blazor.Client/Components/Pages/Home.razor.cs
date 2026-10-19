@@ -46,6 +46,14 @@ public partial class Home : ComponentBase, IDisposable
     /// fieldset would disable the hidden input the fallback picker opens through.
     /// </summary>
     private bool IsBusy => App.Phase is QuizPhase.Loading or QuizPhase.Preparing or QuizPhase.Recording;
+
+    /// <summary>
+    /// A notice about another folder's pick stands — the empty-pick line or the failed-pick
+    /// error — while the folder in hand is unchanged. The kept folder's own notices step aside
+    /// while it does, since read beside it they describe the folder just picked, which they do
+    /// not (Hal, 2026-10-17; halheinrich/backgammon#424).
+    /// </summary>
+    private bool AnotherPicksNoticeStands => _emptyFolderNotice || !string.IsNullOrEmpty(_pickError);
     private FilterConfig? FilterInEffect => App.FilterInEffect;
     private Selection? CurrentSelection => App.CurrentSelection;
 

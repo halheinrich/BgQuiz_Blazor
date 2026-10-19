@@ -254,6 +254,33 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_AFailedPick_WithAFolderInHand_NamesTheFolderKept_AndItsNoticesStepAsideMeanwhile()
+    {
+        // The failed-pick error stands beside the kept folder as the empty-pick notice does, and
+        // the same misreading follows: the folder's own notices step aside while it stands and
+        // return when it is dismissed, nothing dismissed for the user (halheinrich/backgammon#424).
+        var (cut, _) = await PickedTruncatedHomeAsync(Problem(1));
+        Assert.Single(cut.FindAll("#truncationNotice"));
+        Assert.Single(cut.FindAll("#statsCapabilityNotice"));
+        _folders.NextPickOutcome = TestFixtures.Picked("Other", FolderWriteCapability.Enabled, [TestFixtures.ReadableXg()]);
+        _folders.OnScanning = () => throw new IOException("the drive went away");
+
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+
+        cut.WaitForAssertion(() => Assert.Contains("Current folder is still 'Big'", Text(cut)));
+        Assert.Contains("the drive went away", Text(cut));
+        Assert.Equal("Big", App.Setup!.FolderName);
+        Assert.Empty(cut.FindAll("#truncationNotice"));
+        Assert.Empty(cut.FindAll("#statsCapabilityNotice"));
+
+        await cut.Find("#pickErrorNotice .btn-close").ClickAsync(new());
+
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll("#pickErrorNotice")));
+        Assert.Single(cut.FindAll("#truncationNotice"));
+        Assert.Single(cut.FindAll("#statsCapabilityNotice"));
+    }
+
+    [Fact]
     public async Task Home_ATruncatedSample_IsReported_AndTheNoticeDismissesForThatSetup()
     {
         _problems.Add(Problem(1));
