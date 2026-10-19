@@ -30,6 +30,7 @@ public partial class Home : ComponentBase, IDisposable
     // that outlives the page (the storage refusal, a setup's notices, a run ended by a new
     // sample) is kept on that thing, so it holds across navigation.
     private string? _pickError;
+    private bool _pickErrorFromResample;
     private bool _emptyFolderNotice;
     private bool _emptyResampleNotice;
     private bool _cancelledPickNotice;
@@ -53,7 +54,13 @@ public partial class Home : ComponentBase, IDisposable
     /// while it does, since read beside it they describe the folder just picked, which they do
     /// not (Hal, 2026-10-17; halheinrich/backgammon#424).
     /// </summary>
-    private bool AnotherPicksNoticeStands => _emptyFolderNotice || !string.IsNullOrEmpty(_pickError);
+    private bool AnotherPicksNoticeStands => _emptyFolderNotice || FailedPickNoticeStands;
+
+    /// <summary>
+    /// The error notice stands for a pick, not a resample: a failed draw is about the folder in
+    /// hand, so it names no folder kept and that folder's notices stand, as beside an empty draw.
+    /// </summary>
+    private bool FailedPickNoticeStands => !string.IsNullOrEmpty(_pickError) && !_pickErrorFromResample;
     private FilterConfig? FilterInEffect => App.FilterInEffect;
     private Selection? CurrentSelection => App.CurrentSelection;
 
@@ -136,6 +143,7 @@ public partial class Home : ComponentBase, IDisposable
         {
             case FolderOutcomeKind.Failed:
                 _pickError = outcome.Failure?.Message;
+                _pickErrorFromResample = resample;
                 break;
             case FolderOutcomeKind.Cancelled:
                 _cancelledPickNotice = true;
@@ -158,6 +166,7 @@ public partial class Home : ComponentBase, IDisposable
     private void ClearPickNotices()
     {
         _pickError = null;
+        _pickErrorFromResample = false;
         _emptyFolderNotice = false;
         _emptyResampleNotice = false;
         _cancelledPickNotice = false;

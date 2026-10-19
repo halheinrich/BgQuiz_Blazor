@@ -452,6 +452,26 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Home_AFailedResample_ShowsTheError_AndTheFolderInHandKeepsItsNotices()
+    {
+        // A failed draw is about the folder in hand, not another, so the error names no folder
+        // kept and the folder's own notices stand, as beside an empty draw: those two are a
+        // failed pick's (halheinrich/backgammon#424).
+        var (cut, folder) = await PickedTruncatedHomeAsync(Problem(1));
+        var setup = App.Setup;
+        folder.ResampleException = new IOException("the drive went away");
+
+        await cut.Find("#resampleProblemFolder").ClickAsync(new());
+
+        cut.WaitForAssertion(() => Assert.Contains("the drive went away", Text(cut)));
+        Assert.Contains("Could not read the folder:", Text(cut));
+        Assert.DoesNotContain("Current folder is still", Text(cut));
+        Assert.Single(cut.FindAll("#truncationNotice"));
+        Assert.Single(cut.FindAll("#statsCapabilityNotice"));
+        Assert.Same(setup, App.Setup);
+    }
+
+    [Fact]
     public async Task Done_OffersRestartWithANewSample_WhileResampleIsOffered_AndItRunsTheQuizOverTheNewDraw()
     {
         var (home, folder) = await PickedTruncatedHomeAsync(Problem(1));

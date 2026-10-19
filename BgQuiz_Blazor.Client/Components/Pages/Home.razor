@@ -267,13 +267,14 @@
         </Notice>
 
         @* A pick that fails before its sample lands leaves the folder in hand as it was, and
-           the line says so (halheinrich/backgammon#424); after a landing there is none to keep. *@
+           the line says so (halheinrich/backgammon#424); after a landing there is none to keep,
+           and a failed resample's error is about that folder itself. *@
         <Notice id="pickErrorNotice" class="mt-2" Kind="NoticeKind.Error" Announcement="NoticeAnnouncement.Assertive"
                 Dismissible="true"
                 @bind-Dismissed:get="string.IsNullOrEmpty(_pickError)"
                 @bind-Dismissed:set="_ => _pickError = null">
             <strong>Could not read the folder:</strong> @_pickError
-            @if (Setup is { } kept)
+            @if (FailedPickNoticeStands && Setup is { } kept)
             {
                 <text>Current folder is still @kept.DisplayName.</text>
             }
