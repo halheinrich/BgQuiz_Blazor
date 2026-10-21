@@ -43,7 +43,7 @@ internal sealed class QuizLiveMarker(ReportingBrowserStorage storage) : IQuizLiv
     /// <inheritdoc />
     public async ValueTask ClearAsync() =>
         await _storage.RemoveAsync(BrowserStorageArea.Session, StorageKey,
-            "the quiz-live mark stays set");
+            "the quiz-live mark may remain set");
 
     /// <inheritdoc />
     public async ValueTask<bool> WasLiveAsync()

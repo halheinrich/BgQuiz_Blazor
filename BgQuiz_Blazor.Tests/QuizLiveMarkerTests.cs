@@ -21,7 +21,7 @@ public class QuizLiveMarkerTests : BunitContext
 
     private const string ReadConsequence = "no reload is reported";
     private const string WriteConsequence = "a reload during this quiz will not be explained";
-    private const string RemovalConsequence = "the quiz-live mark stays set";
+    private const string RemovalConsequence = "the quiz-live mark may remain set";
 
     public QuizLiveMarkerTests()
     {
