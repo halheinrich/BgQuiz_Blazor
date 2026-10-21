@@ -24,7 +24,8 @@ functions `DistinctProblems` and `ProblemSequence`, `ProblemOrder`,
 filters), XgFilter_Razor (the shared filter surface and its app-scoped
 `FilterSetup`), BgFolderAccess_Razor (the browser's folder facilities, as a
 context per landed folder), BgDiag_Razor and BackgammonDiagram_Lib (the
-board), BgUiPrimitives_Razor (notices, browser storage), BgMoveGen
+board), BgUiPrimitives_Razor (notices, browser storage and its refusal
+condition), BgMoveGen
 (forced-play detection).
 
 ## Layout
@@ -43,8 +44,7 @@ board), BgUiPrimitives_Razor (notices, browser storage), BgMoveGen
   `MixDraft` (the mix builder's edit state, persisted as the
   user types) with `MixDisplay`, `QuizLiveMarker` (the live mark in
   `sessionStorage` the reload notice reads), `QuizSettings`, `NotesPlacementStore`,
-  `BrowserStorageCondition`, `PickedFileLimits` (the pick caps: this app's
-  policy).
+  `PickedFileLimits` (the pick caps: this app's policy).
 - **`Components/Pages`** — `Home` (setup, the mix panel and Start), `Quiz`
   (the board, the answer and navigation row, the run's notices), `Stats`
   (the progress so far), `Done` (the summary and Restart), `Settings`,
@@ -158,7 +158,16 @@ build's output).
   budget so the progress line paints. Keep it inside the loading phase.
 - **A dismissal lives on the thing it is about** (SPEC-notices §2): the
   setup's notices on `QuizSetup`, the run's on `QuizStatsReport` and the
-  live run, the storage refusal on `BrowserStorageCondition`.
+  live run, the storage refusal on BgUiPrimitives_Razor's
+  `BrowserStorageCondition`.
+- **Browser storage has shared owners.** Hal ruled that common code has one
+  shared owner (2026-10-19, halheinrich/backgammon#424): BgUiPrimitives_Razor
+  owns the condition Home's notice reads and `ReportingBrowserStorage`, which
+  every store calls; XgFilter_Razor's adapter takes the filter surface's
+  refusals to the same condition; `AddFilterSurface()` registers all of it.
+  Each call passes the store's consequence phrase, what the refusal costs it
+  ("the mix panel starts blank for this visit"), and the shared template
+  supplies the operation and the key.
 - **`BrowserStoragePlan` is strict about every storage key a page reads**:
   the mix panel's mount reads `MixDraft.StorageKey`.
 - **The shell runs `navFold.js` parser-blocking after `blazor.web.js`**; the
