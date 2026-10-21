@@ -51,13 +51,9 @@ public class PageTests : BunitContext
 
         Services.AddSingleton<IFolderAccess>(_folders);
         Services.AddSingleton(TimeProvider.System);
-        Services.AddBrowserStorage();
-        Services.AddScoped<BrowserStorageCondition>();
-        Services.AddScoped<FilterStorageRefusalSink>();
-        Services.AddFilterSurface<FilterStorageRefusalSink>();
+        Services.AddFilterSurface();
         Services.AddScoped<QuizSettings>();
-        Services.AddScoped(sp => new MixDraft(
-            sp.GetRequiredService<BrowserStorage>(), NullLogger<MixDraft>.Instance, sp.GetRequiredService<BrowserStorageCondition>()));
+        Services.AddScoped<MixDraft>();
         Services.AddScoped<NotesPlacementStore>();
         Services.AddScoped<ProblemLoad>(_ => LoadAsync);
         Services.AddSingleton<IQuizLiveMarker>(_marker);

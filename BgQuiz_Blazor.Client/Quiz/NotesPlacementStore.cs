@@ -4,7 +4,6 @@ using System.Buffers;
 using System.Text;
 using System.Text.Json;
 using BgUiPrimitives_Razor;
-using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// The per-app (Scoped, one-per-tab in WASM) holder of the decision's notes'
@@ -42,13 +41,14 @@ using Microsoft.Extensions.Logging;
 /// warnings and neither is surfaced as an error: the notes open, close and
 /// move regardless. A refusal is reported to <see cref="BrowserStorageCondition"/>,
 /// the one fact <c>Home</c>'s storage notice says (halheinrich/backgammon#360).
-/// Every call goes through <see cref="BrowserStorage"/>, which tells the
-/// browser's refusal from every other failure — the one line this store does
-/// not draw — and keeps no latch, so a refusal disables no later call.
+/// Every call goes through <see cref="ReportingBrowserStorage"/>, which reports
+/// and logs a refusal in this store's words, and whose
+/// <see cref="BrowserStorage"/> tells the browser's refusal from every other
+/// failure — the one line this store does not draw — and keeps no latch, so a
+/// refusal disables no later call.
 /// </para>
 /// </summary>
-internal sealed class NotesPlacementStore(
-    BrowserStorage browser, ILogger<NotesPlacementStore> logger, BrowserStorageCondition storage)
+internal sealed class NotesPlacementStore(ReportingBrowserStorage storage)
 {
     /// <summary>
     /// The localStorage key holding the placement as one JSON object, in the
@@ -105,29 +105,17 @@ internal sealed class NotesPlacementStore(
     {
         _setSinceLoadBegan = true;
         Current = placement;
-        var written = placement.IsUnset
-            ? await browser.RemoveAsync(BrowserStorageArea.Local, StorageKey)
-            : await browser.WriteAsync(BrowserStorageArea.Local, StorageKey, ToJson(placement));
-        if (written.IsRefused)
-        {
-            logger.LogWarning(written.Refusal,
-                "The notes' placement could not be saved to browser storage ({Key}); it is kept for this session only.",
-                StorageKey);
-            storage.ReportRefused();
-        }
+        const string consequence = "the notes' placement is kept for this session only";
+        if (placement.IsUnset)
+            await storage.RemoveAsync(BrowserStorageArea.Local, StorageKey, consequence);
+        else
+            await storage.WriteAsync(BrowserStorageArea.Local, StorageKey, ToJson(placement), consequence);
     }
 
     private async Task LoadAsync()
     {
-        var read = await browser.ReadAsync(BrowserStorageArea.Local, StorageKey);
-        if (read.IsRefused)
-        {
-            logger.LogWarning(read.Refusal,
-                "The notes' placement could not be read from browser storage ({Key}); the notes open centred.",
-                StorageKey);
-            storage.ReportRefused();
-            return;
-        }
+        var read = await storage.ReadAsync(BrowserStorageArea.Local, StorageKey, "the notes open centred");
+        if (read.IsRefused) return;
         if (!_setSinceLoadBegan) Current = Parse(read.Value);
     }
 

@@ -4,7 +4,6 @@ using System.Collections.Immutable;
 using System.Globalization;
 using BgGame_Lib;
 using BgUiPrimitives_Razor;
-using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// The app-scoped mix draft: the edit state of the stats-weighted mix builder, the ordered
@@ -22,10 +21,11 @@ using Microsoft.Extensions.Logging;
 /// that leaves the draft invalid skips the write, and the stored mix is read once per visit.
 /// Storage that refuses never stops the mix (halheinrich/backgammon#360): a refused read
 /// hydrates nothing, a refused write keeps the draft for the visit, and each is logged and
-/// reported to <see cref="BrowserStorageCondition"/>.
+/// reported to the app's <see cref="BrowserStorageCondition"/> by
+/// <see cref="ReportingBrowserStorage"/>, in this store's words.
 /// </para>
 /// </summary>
-internal sealed class MixDraft(BrowserStorage browser, ILogger<MixDraft> logger, BrowserStorageCondition storage)
+internal sealed class MixDraft(ReportingBrowserStorage storage)
 {
     /// <summary>The one localStorage key, holding the last well-formed mix as the lib's own JSON.</summary>
     internal const string StorageKey = "xg_quizMix";
@@ -84,15 +84,9 @@ internal sealed class MixDraft(BrowserStorage browser, ILogger<MixDraft> logger,
 
     private async Task HydrateAsync()
     {
-        var read = await browser.ReadAsync(BrowserStorageArea.Local, StorageKey);
-        if (read.IsRefused)
-        {
-            logger.LogWarning(read.Refusal,
-                "The mix could not be read from browser storage ({Key}); the mix panel starts blank for this visit.",
-                StorageKey);
-            storage.ReportRefused();
-            return;
-        }
+        var read = await storage.ReadAsync(BrowserStorageArea.Local, StorageKey,
+            "the mix panel starts blank for this visit");
+        if (read.IsRefused) return;
 
         if (QuizMix.TryFromJson(read.Value, out var mix)) Project(mix);
         Changed?.Invoke();
@@ -101,14 +95,8 @@ internal sealed class MixDraft(BrowserStorage browser, ILogger<MixDraft> logger,
     private async Task WriteThroughAsync()
     {
         if (Build() is not { } mix) return;
-        var written = await browser.WriteAsync(BrowserStorageArea.Local, StorageKey, mix.ToJson());
-        if (written.IsRefused)
-        {
-            logger.LogWarning(written.Refusal,
-                "The mix could not be saved to browser storage ({Key}); it is kept for this visit only.",
-                StorageKey);
-            storage.ReportRefused();
-        }
+        await storage.WriteAsync(BrowserStorageArea.Local, StorageKey, mix.ToJson(),
+            "the mix is kept for this visit only");
     }
 
     /// <summary>The shared tail of every mutator: announce the change, then write through.</summary>

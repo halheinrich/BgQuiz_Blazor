@@ -1,8 +1,6 @@
 namespace BgQuiz_Blazor.Client.Quiz;
 
 using BgUiPrimitives_Razor;
-using Microsoft.Extensions.Logging;
-using Microsoft.JSInterop;
 
 /// <summary>
 /// The mark that a quiz is live in this tab, kept where a full reload cannot erase it. The
@@ -28,45 +26,29 @@ internal interface IQuizLiveMarker
 /// mark's meaning; a shared area would have a fresh tab announce a reset for a quiz it never
 /// ran. Storage that refuses costs only the reset notice: a refused read reads as no quiz having
 /// been live, a refused write or removal leaves things as they were, each is logged and reported
-/// to <see cref="BrowserStorageCondition"/>, and none throws.
+/// to <see cref="BrowserStorageCondition"/> by <see cref="ReportingBrowserStorage"/>, and none
+/// throws.
 /// </summary>
-internal sealed class QuizLiveMarker(BrowserStorage browser, ILogger<QuizLiveMarker> logger, BrowserStorageCondition storage)
-    : IQuizLiveMarker
+internal sealed class QuizLiveMarker(ReportingBrowserStorage storage) : IQuizLiveMarker
 {
     internal const string StorageKey = "bgquiz.quizLive";
 
-    private readonly BrowserStorage _browser = browser ?? throw new ArgumentNullException(nameof(browser));
-    private readonly ILogger<QuizLiveMarker> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    private readonly BrowserStorageCondition _storage = storage ?? throw new ArgumentNullException(nameof(storage));
+    private readonly ReportingBrowserStorage _storage = storage ?? throw new ArgumentNullException(nameof(storage));
 
     /// <inheritdoc />
-    public async ValueTask MarkLiveAsync()
-    {
-        var written = await _browser.WriteAsync(BrowserStorageArea.Session, StorageKey, "1");
-        if (written.IsRefused)
-            Refused(written.Refusal, "could not be set; a reload during this quiz will not be explained");
-    }
+    public async ValueTask MarkLiveAsync() =>
+        await _storage.WriteAsync(BrowserStorageArea.Session, StorageKey, "1",
+            "a reload during this quiz will not be explained");
 
     /// <inheritdoc />
-    public async ValueTask ClearAsync()
-    {
-        var removed = await _browser.RemoveAsync(BrowserStorageArea.Session, StorageKey);
-        if (removed.IsRefused)
-            Refused(removed.Refusal, "could not be cleared");
-    }
+    public async ValueTask ClearAsync() =>
+        await _storage.RemoveAsync(BrowserStorageArea.Session, StorageKey,
+            "the quiz-live mark stays set");
 
     /// <inheritdoc />
     public async ValueTask<bool> WasLiveAsync()
     {
-        var read = await _browser.ReadAsync(BrowserStorageArea.Session, StorageKey);
-        if (read.IsRefused)
-            Refused(read.Refusal, "could not be read; no reload is reported");
+        var read = await _storage.ReadAsync(BrowserStorageArea.Session, StorageKey, "no reload is reported");
         return read.IsStored;
-    }
-
-    private void Refused(JSException refusal, string consequence)
-    {
-        _logger.LogWarning(refusal, "The quiz-live marker in browser storage ({Key}) {Consequence}.", StorageKey, consequence);
-        _storage.ReportRefused();
     }
 }

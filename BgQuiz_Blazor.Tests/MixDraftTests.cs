@@ -1,9 +1,9 @@
+using BgDataTypes_Lib.TestSupport;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using BgUiPrimitives_Razor;
 using BgUiPrimitives_Razor.TestSupport;
 using Bunit;
-using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 
 namespace BgQuiz_Blazor.Tests;
@@ -25,9 +25,9 @@ public class MixDraftTests : BunitContext
 
     private readonly BrowserStorageCondition _storage = new();
 
-    private readonly RecordingLogger<MixDraft> _log = new();
+    private readonly RecordingLogger<ReportingBrowserStorage> _log = new();
 
-    private MixDraft NewDraft() => new(new BrowserStorage(JSInterop.JSRuntime), _log, _storage);
+    private MixDraft NewDraft() => new(new ReportingBrowserStorage(new BrowserStorage(JSInterop.JSRuntime), _storage, _log));
 
     private BrowserStoragePlan? _plan;
 
@@ -42,12 +42,16 @@ public class MixDraftTests : BunitContext
         Plan.ExpectWrite(
             BrowserStorageArea.Local, MixDraft.StorageKey, mix.ToJson(), answer ?? BrowserStorageWriteAnswer.Succeeded);
 
-    private void AssertRefusalSaid()
+    private void AssertReadRefusalSaid()
     {
-        var entry = Assert.Single(_log.Entries);
-        Assert.Equal(LogLevel.Warning, entry.Level);
-        Assert.IsType<JSException>(entry.Exception);
-        Assert.NotNull(_storage.Occurrence);
+        StorageRefusalLog.AssertSaidOnce(_log, "read", MixDraft.StorageKey, "the mix panel starts blank for this visit");
+        Assert.True(_storage.HasOccurred);
+    }
+
+    private void AssertWriteRefusalSaid()
+    {
+        StorageRefusalLog.AssertSaidOnce(_log, "write", MixDraft.StorageKey, "the mix is kept for this visit only");
+        Assert.True(_storage.HasOccurred);
     }
 
     /// <summary>A one-row never-seen mix: what one Add builds.</summary>
@@ -244,7 +248,7 @@ public class MixDraftTests : BunitContext
 
         Assert.Empty(draft.Rows);
         Assert.Equal(QuizMix.Empty, draft.Build());
-        AssertRefusalSaid();
+        AssertReadRefusalSaid();
         Plan.Verify();
     }
 
@@ -269,7 +273,7 @@ public class MixDraftTests : BunitContext
         await draft.AddRowAsync();
 
         Assert.Equal(NeverSeenMix(), draft.Build());
-        AssertRefusalSaid();
+        AssertWriteRefusalSaid();
         Plan.Verify();
     }
 
@@ -283,14 +287,14 @@ public class MixDraftTests : BunitContext
         await draft.AddRowAsync();
         await draft.SetLengthTextAsync("7");
 
-        AssertRefusalSaid();
+        AssertWriteRefusalSaid();
         Plan.Verify();
     }
 
     [Fact]
     public async Task Hydration_AfterAnotherStoresRefusal_StillReadsAndRestores()
     {
-        _storage.ReportRefused();
+        _storage.ReportRefused(new JSException("Another store's write was refused."));
         StageStored(NeverSeenMix().ToJson());
         var draft = NewDraft();
 

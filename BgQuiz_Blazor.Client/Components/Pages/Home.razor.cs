@@ -1,5 +1,6 @@
 using BgFolderAccess_Razor;
 using BgQuiz_Blazor.Client.Quiz;
+using BgUiPrimitives_Razor;
 using Microsoft.AspNetCore.Components;
 using XgFilter_Lib.Filtering;
 using XgFilter_Razor;
@@ -24,6 +25,7 @@ public partial class Home : ComponentBase, IDisposable
 
     private ElementReference _fallbackInput;
     private bool _fsAccessAvailable;
+    private IDisposable? _storageAttachment;
     private IDisposable? _filterAttachment;
 
     // Per-visit notices: the page's whole state. A dismissal of a notice about something
@@ -87,7 +89,7 @@ public partial class Home : ComponentBase, IDisposable
     {
         App.Changed += OnAppChanged;
         Draft.Changed += OnAppChanged;
-        StorageCondition.Began += OnAppChanged;
+        _storageAttachment = StorageCondition.Attach(OnAppChanged);
         _filterAttachment = FilterSetup.Attach(_ => OnAppChanged());
         await Settings.EnsureHydratedAsync();
         _fsAccessAvailable = await FolderAccess.SupportsDirectoryPickerAsync();
@@ -107,7 +109,7 @@ public partial class Home : ComponentBase, IDisposable
     {
         App.Changed -= OnAppChanged;
         Draft.Changed -= OnAppChanged;
-        StorageCondition.Began -= OnAppChanged;
+        _storageAttachment?.Dispose();
         _filterAttachment?.Dispose();
     }
 

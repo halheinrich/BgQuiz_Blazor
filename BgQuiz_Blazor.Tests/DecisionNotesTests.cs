@@ -46,9 +46,8 @@ public class DecisionNotesTests : BunitContext
         var module = JSInterop.SetupModule(DecisionNotes.ModulePath);
         module.Mode = JSRuntimeMode.Loose;
         module.SetupModule("watch", _ => true).Mode = JSRuntimeMode.Loose;
-        Services.AddBrowserStorage();
+        Services.AddReportingBrowserStorage();
         Services.AddScoped<NotesPlacementStore>();
-        Services.AddScoped<BrowserStorageCondition>();
     }
 
     /// <summary>

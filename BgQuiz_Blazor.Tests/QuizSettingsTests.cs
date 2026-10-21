@@ -1,5 +1,6 @@
 using BackgammonDiagram_Lib;
 using BgDataTypes_Lib;
+using BgDataTypes_Lib.TestSupport;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using BgUiPrimitives_Razor;
@@ -37,10 +38,15 @@ public class QuizSettingsTests : BunitContext
     /// <summary>The app's one storage fact, which a refusal here is reported to (halheinrich/backgammon#360).</summary>
     private readonly BrowserStorageCondition _storage = new();
 
+    /// <summary>The settings' own log: the navigation panel's applier calls, which are not storage.</summary>
     private readonly RecordingLogger<QuizSettings> _log = new();
 
+    /// <summary>The storage refusals' log, written by the reporting access in this type's words.</summary>
+    private readonly RecordingLogger<ReportingBrowserStorage> _storageLog = new();
+
     private QuizSettings NewSettings() =>
-        new(new BrowserStorage(JSInterop.JSRuntime), JSInterop.JSRuntime, _log, _storage);
+        new(new ReportingBrowserStorage(new BrowserStorage(JSInterop.JSRuntime), _storage, _storageLog),
+            JSInterop.JSRuntime, _log);
 
     private BrowserStoragePlan? _plan;
 
@@ -584,7 +590,8 @@ public class QuizSettingsTests : BunitContext
         Assert.Equal(folded, settings.KeepNavigationPanelFolded);
         Assert.Equal([folded], JSInterop.Invocations["bgquizNavFold.prefer"].Select(i => i.Arguments[0]));
         Assert.Equal(folded ? 0 : 1, JSInterop.Invocations["bgquizNavFold.apply"].Count);
-        AssertRefusalSaid();
+        AssertWriteRefusalSaid();
+        Assert.Empty(_log.Entries);
         Plan.Verify();
     }
 
@@ -629,7 +636,8 @@ public class QuizSettingsTests : BunitContext
         Assert.IsType<JSException>(entry.Exception);
         Assert.Contains("bgquizNavFold.prefer failed", entry.Message);
         Assert.Contains("the choice is saved", entry.Message);
-        Assert.Null(_storage.Occurrence);
+        Assert.Empty(_storageLog.Entries);
+        Assert.False(_storage.HasOccurred);
     }
 
     [Fact]
@@ -652,8 +660,8 @@ public class QuizSettingsTests : BunitContext
         Plan.Verify();
         Assert.False(settings.KeepNavigationPanelFolded);
         Assert.Equal([false], JSInterop.Invocations["bgquizNavFold.prefer"].Select(i => i.Arguments[0]));
-        Assert.Equal(2, _log.Entries.Count);   // the refused write, then the unfold
-        var unfold = _log.Entries[^1];
+        AssertWriteRefusalSaid();              // the refused write, then the unfold
+        var unfold = Assert.Single(_log.Entries);
         Assert.Equal(LogLevel.Warning, unfold.Level);
         Assert.IsType<JSException>(unfold.Exception);
         Assert.Contains("bgquizNavFold.apply failed", unfold.Message);
@@ -674,24 +682,26 @@ public class QuizSettingsTests : BunitContext
 
         Plan.Verify();
         Assert.True(settings.KeepNavigationPanelFolded);
-        Assert.Equal(2, _log.Entries.Count);
-        Assert.All(_log.Entries, e => Assert.DoesNotContain("saved and", e.Message));
-        Assert.Contains("could not be saved either", _log.Entries[^1].Message);
-        Assert.NotNull(_storage.Occurrence);
+        AssertWriteRefusalSaid();
+        var applier = Assert.Single(_log.Entries);
+        Assert.All([.. _storageLog.Entries, applier], e => Assert.DoesNotContain("saved and", e.Message));
+        Assert.Contains("could not be saved either", applier.Message);
     }
 
     // -----------------------------------------------------------------------
     //  Storage the browser refuses (halheinrich/backgammon#360)
     // -----------------------------------------------------------------------
 
-    /// <summary>A refusal of the settings' own entry is said: one warning carrying the browser's exception, and the report.</summary>
-    private void AssertRefusalSaid()
+    /// <summary>A refusal of the settings' own entry is said: one warning carrying the browser's exception, in this type's words, and the report.</summary>
+    private void AssertRefusalSaid(string operation, string consequence)
     {
-        var entry = Assert.Single(_log.Entries);
-        Assert.Equal(LogLevel.Warning, entry.Level);
-        Assert.IsType<JSException>(entry.Exception);
-        Assert.NotNull(_storage.Occurrence);
+        StorageRefusalLog.AssertSaidOnce(_storageLog, operation, QuizSettings.StorageKey, consequence);
+        Assert.True(_storage.HasOccurred);
     }
+
+    private void AssertReadRefusalSaid() => AssertRefusalSaid("read", "every setting takes its default for this visit");
+
+    private void AssertWriteRefusalSaid() => AssertRefusalSaid("write", "the change is kept for this visit only");
 
     [Fact]
     public async Task Hydrate_ARefusedRead_LeavesEveryDefault_IsSaid_AndThrowsNothing()
@@ -711,7 +721,8 @@ public class QuizSettingsTests : BunitContext
         Assert.Equal(fresh.SortAnalysisByDepthFirst, settings.SortAnalysisByDepthFirst);
         Assert.Equal(fresh.MaximumHiddenCandidateAnalysisLevel, settings.MaximumHiddenCandidateAnalysisLevel);
         Assert.Equal(fresh.WeightQuizzesByStats, settings.WeightQuizzesByStats);
-        AssertRefusalSaid();
+        AssertReadRefusalSaid();
+        Assert.Empty(_log.Entries);
     }
 
     [Fact]
@@ -719,13 +730,14 @@ public class QuizSettingsTests : BunitContext
     {
         // The fact reports and never gates: a refusal elsewhere — a quota-full
         // write, say — does not establish that this read will fail.
-        _storage.ReportRefused();
+        _storage.ReportRefused(new JSException("Another store's write was refused."));
         StageStored("""{"homeBoardOnRight":false}""");
         var settings = NewSettings();
 
         await settings.EnsureHydratedAsync();
 
         Assert.False(settings.HomeBoardOnRight);
+        Assert.Empty(_storageLog.Entries);
         Assert.Empty(_log.Entries);
     }
 
@@ -779,7 +791,8 @@ public class QuizSettingsTests : BunitContext
                 break;
         }
 
-        AssertRefusalSaid();
+        AssertWriteRefusalSaid();
+        Assert.Empty(_log.Entries);
         Plan.Verify();
     }
 
@@ -797,7 +810,8 @@ public class QuizSettingsTests : BunitContext
         await settings.SetHomeBoardOnRightAsync(false);
         await settings.SetRandomizeSidePerProblemAsync(true);
 
-        AssertRefusalSaid();
+        AssertWriteRefusalSaid();
+        Assert.Empty(_log.Entries);
         Plan.Verify();
     }
 

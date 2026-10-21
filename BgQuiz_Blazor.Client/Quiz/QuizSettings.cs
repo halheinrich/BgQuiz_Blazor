@@ -111,10 +111,11 @@ using XgFilter_Razor;
 /// <c>halheinrich/backgammon#360</c>; <see cref="NotesPlacementStore"/>'s
 /// shape). A read the browser refuses leaves every setting at its default; a
 /// write it refuses keeps the new value for the rest of the visit. Each is
-/// logged as a warning with the exception attached and reported to
-/// <see cref="BrowserStorageCondition"/>, the one fact <c>Home</c>'s notice
-/// says; neither <see cref="EnsureHydratedAsync"/> nor any setter throws for
-/// storage. Every storage call goes through <see cref="BrowserStorage"/>,
+/// logged as a warning with the exception attached, in this type's words, and
+/// reported to <see cref="BrowserStorageCondition"/>, the one fact
+/// <c>Home</c>'s notice says, by <see cref="ReportingBrowserStorage"/>;
+/// neither <see cref="EnsureHydratedAsync"/> nor any setter throws for
+/// storage. Every storage call goes through it to <see cref="BrowserStorage"/>,
 /// which answers the browser's refusal as a result and lets anything else —
 /// a serialization fault is not the browser's refusal — still surface; it keeps
 /// no latch, so a refused write never stops the next one, and a later write
@@ -132,7 +133,7 @@ using XgFilter_Razor;
 /// </para>
 /// </summary>
 internal sealed class QuizSettings(
-    BrowserStorage browser, IJSRuntime js, ILogger<QuizSettings> logger, BrowserStorageCondition storage)
+    ReportingBrowserStorage storage, IJSRuntime js, ILogger<QuizSettings> logger)
 {
     /// <summary>
     /// The single localStorage key holding every setting as one JSON object.
@@ -561,15 +562,9 @@ internal sealed class QuizSettings(
 
     private async Task HydrateAsync()
     {
-        var read = await browser.ReadAsync(BrowserStorageArea.Local, StorageKey);
-        if (read.IsRefused)
-        {
-            logger.LogWarning(read.Refusal,
-                "The settings could not be read from browser storage ({Key}); every setting takes its default for this visit.",
-                StorageKey);
-            storage.ReportRefused();
-            return;
-        }
+        var read = await storage.ReadAsync(BrowserStorageArea.Local, StorageKey,
+            "every setting takes its default for this visit");
+        if (read.IsRefused) return;
         Restore(read.Value);
     }
 
@@ -794,14 +789,8 @@ internal sealed class QuizSettings(
     /// </summary>
     private async Task<bool> PersistAsync()
     {
-        var written = await browser.WriteAsync(BrowserStorageArea.Local, StorageKey, ToJson());
-        if (written.IsRefused)
-        {
-            logger.LogWarning(written.Refusal,
-                "The settings could not be saved to browser storage ({Key}); the change is kept for this visit only.",
-                StorageKey);
-            storage.ReportRefused();
-        }
+        var written = await storage.WriteAsync(BrowserStorageArea.Local, StorageKey, ToJson(),
+            "the change is kept for this visit only");
         return written.Succeeded;
     }
 

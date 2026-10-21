@@ -59,9 +59,8 @@ public class DecisionNotesPlacementTests : BunitContext
         _handle = _module.SetupModule("watch", _ => true);
         _handle.Mode = JSRuntimeMode.Loose;
         _handle.Setup<bool>("capture", _ => true).SetResult(true);
-        Services.AddBrowserStorage();
+        Services.AddReportingBrowserStorage();
         Services.AddScoped<NotesPlacementStore>();
-        Services.AddScoped<BrowserStorageCondition>();
 
         // Storage is planned for every test: what is written, and that nothing
         // is, are this suite's statements. Notes() declares the store's one

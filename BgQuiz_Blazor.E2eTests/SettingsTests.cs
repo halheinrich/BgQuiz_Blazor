@@ -404,7 +404,8 @@ public sealed class SettingsTests : E2eTestBase
     private Task<IConsoleMessage> ExpectTheSettingsWriteRefusedAsync() =>
         Page.WaitForConsoleMessageAsync(new()
         {
-            Predicate = m => m.Text.Contains("The settings could not be saved to browser storage", StringComparison.Ordinal),
+            Predicate = m => m.Text.Contains(
+                "The browser refused a storage write of the key xg_quizSettings", StringComparison.Ordinal),
         });
 
     /// <summary>

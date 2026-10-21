@@ -25,8 +25,8 @@ public class MixPanelTests : BunitContext
     public MixPanelTests()
     {
         JSInterop.Mode = JSRuntimeMode.Loose;
-        _draft = new MixDraft(
-            new BrowserStorage(JSInterop.JSRuntime), NullLogger<MixDraft>.Instance, new BrowserStorageCondition());
+        _draft = new MixDraft(new ReportingBrowserStorage(
+            new BrowserStorage(JSInterop.JSRuntime), new BrowserStorageCondition(), NullLogger<ReportingBrowserStorage>.Instance));
         Services.AddSingleton(_draft);
     }
 

@@ -13,12 +13,12 @@
 <div class="container py-3 @(IsBusy ? "app-busy" : null)">
     <h1>BgQuiz</h1>
 
-    @if (StorageCondition.Occurrence is not null && !StorageCondition.IsDismissed)
+    @if (StorageCondition.HasOccurred && !StorageCondition.IsNoticeDismissed)
     {
         <Notice id="storageUnavailableNotice" Kind="NoticeKind.Warning"
                 Announcement="NoticeAnnouncement.Polite" Dismissible="true"
                 @bind-Dismissed:get="false"
-                @bind-Dismissed:set="_ => StorageCondition.Dismiss()">
+                @bind-Dismissed:set="_ => StorageCondition.DismissNotice()">
             BgQuiz had trouble using your browser's storage. You can keep using
             it, but some choices may not be remembered next time.
         </Notice>

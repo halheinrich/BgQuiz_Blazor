@@ -1,9 +1,8 @@
+using BgDataTypes_Lib.TestSupport;
 using BgQuiz_Blazor.Client.Quiz;
 using BgUiPrimitives_Razor;
 using BgUiPrimitives_Razor.TestSupport;
 using Bunit;
-using Microsoft.Extensions.Logging;
-using Microsoft.JSInterop;
 
 namespace BgQuiz_Blazor.Tests;
 
@@ -18,7 +17,11 @@ public class QuizLiveMarkerTests : BunitContext
 {
     private readonly BrowserStoragePlan _plan;
     private readonly BrowserStorageCondition _storage = new();
-    private readonly RecordingLogger<QuizLiveMarker> _log = new();
+    private readonly RecordingLogger<ReportingBrowserStorage> _log = new();
+
+    private const string ReadConsequence = "no reload is reported";
+    private const string WriteConsequence = "a reload during this quiz will not be explained";
+    private const string RemovalConsequence = "the quiz-live mark stays set";
 
     public QuizLiveMarkerTests()
     {
@@ -26,14 +29,13 @@ public class QuizLiveMarkerTests : BunitContext
         _plan = BrowserStoragePlan.On(JSInterop);
     }
 
-    private QuizLiveMarker NewMarker() => new(new BrowserStorage(JSInterop.JSRuntime), _log, _storage);
+    private QuizLiveMarker NewMarker() =>
+        new(new ReportingBrowserStorage(new BrowserStorage(JSInterop.JSRuntime), _storage, _log));
 
-    private void AssertRefusalSaid()
+    private void AssertRefusalSaid(string operation, string consequence)
     {
-        var entry = Assert.Single(_log.Entries);
-        Assert.Equal(LogLevel.Warning, entry.Level);
-        Assert.IsType<JSException>(entry.Exception);
-        Assert.NotNull(_storage.Occurrence);
+        StorageRefusalLog.AssertSaidOnce(_log, operation, QuizLiveMarker.StorageKey, consequence);
+        Assert.True(_storage.HasOccurred);
     }
 
     [Fact]
@@ -76,7 +78,7 @@ public class QuizLiveMarkerTests : BunitContext
 
         Assert.False(await NewMarker().WasLiveAsync());
 
-        AssertRefusalSaid();
+        AssertRefusalSaid("read", ReadConsequence);
         _plan.Verify();
     }
 
@@ -87,12 +89,13 @@ public class QuizLiveMarkerTests : BunitContext
         var marker = NewMarker();
 
         await marker.MarkLiveAsync();
-        AssertRefusalSaid();
+        AssertRefusalSaid("write", WriteConsequence);
 
         _plan.ExpectRemove(BrowserStorageArea.Session, QuizLiveMarker.StorageKey, BrowserStorageWriteAnswer.Refused);
         await marker.ClearAsync();
 
         Assert.Equal(2, _log.Entries.Count);
+        StorageRefusalLog.AssertSaid(_log.Entries[^1], "removal", QuizLiveMarker.StorageKey, RemovalConsequence);
         _plan.Verify();
     }
 }
