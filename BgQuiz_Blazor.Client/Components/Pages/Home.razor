@@ -13,6 +13,10 @@
 <div class="container py-3 @(IsBusy ? "app-busy" : null)">
     <h1>BgQuiz</h1>
 
+    @* What BgQuiz is, in every state, before anything asks for a folder (halheinrich/backgammon#265);
+       Help's lead is the same sentence (AppInfo). *@
+    <p class="lead" id="appDescription">@AppInfo.Description</p>
+
     @if (StorageCondition.HasOccurred && !StorageCondition.IsNoticeDismissed)
     {
         <Notice id="storageUnavailableNotice" Kind="NoticeKind.Warning"

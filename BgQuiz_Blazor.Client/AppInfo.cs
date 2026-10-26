@@ -3,8 +3,8 @@ using System.Reflection;
 namespace BgQuiz_Blazor.Client;
 
 /// <summary>
-/// App-level identity: the version the app reports about itself, and the beta
-/// feedback address that version has to travel with.
+/// App-level identity: what the app is, the version it reports about itself,
+/// and the beta feedback address that version has to travel with.
 ///
 /// <para>
 /// <b>Why it isn't on <c>Home</c> any more.</b> The version began life as
@@ -25,6 +25,14 @@ namespace BgQuiz_Blazor.Client;
 /// </summary>
 internal static class AppInfo
 {
+    /// <summary>
+    /// What BgQuiz is, in one sentence: Home's lead, shown in every state, and
+    /// Help's (halheinrich/backgammon#265).
+    /// </summary>
+    internal const string Description =
+        "BgQuiz turns your own eXtreme Gammon analysis into practice: it shows you a position from one of your "
+        + "files, you answer it, and it scores your answer against XG's evaluation of that position.";
+
     /// <summary>
     /// The running app's version, resolved once from the client assembly's
     /// <see cref="AssemblyInformationalVersionAttribute"/> — declared via

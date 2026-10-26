@@ -346,6 +346,14 @@ internal static class ExpectedText
     /// <summary>Home's heading (<c>Home.razor</c>) — the app's name, matched exactly, since Help's heading contains it.</summary>
     internal const string HomeHeading = "BgQuiz";
 
+    /// <summary>
+    /// What BgQuiz is, the lead under Home's heading and Help's
+    /// (<c>AppInfo.Description</c>; halheinrich/backgammon#265).
+    /// </summary>
+    internal const string AppDescription =
+        "BgQuiz turns your own eXtreme Gammon analysis into practice: it shows you a position from one of your "
+        + "files, you answer it, and it scores your answer against XG's evaluation of that position.";
+
     /// <summary>The Settings page's heading (<c>Settings.razor</c>); the same word as its navigation link, and a different surface.</summary>
     internal const string SettingsHeading = "Settings";
 

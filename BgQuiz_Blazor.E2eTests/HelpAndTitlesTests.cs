@@ -17,6 +17,40 @@ public sealed class HelpAndTitlesTests : E2eTestBase
     public HelpAndTitlesTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
         : base(app, playwright, output) { }
 
+    /// <summary>
+    /// What BgQuiz is, in one sentence (halheinrich/backgammon#265): Home leads
+    /// with it directly under its heading, above the folder line, in each of its
+    /// states — before a folder is picked and after — and Help's lead is the
+    /// same words. A literal here, per this suite's posture: the two pages read
+    /// one constant, which is checked in the code, and this pins what a reader
+    /// reads.
+    /// </summary>
+    [Fact]
+    public async Task HomeAndHelp_LeadWithWhatBgQuizIs_WordForWord()
+    {
+        var lead = Page.Locator("h1 + #appDescription");
+
+        await BootHomeAsync();
+        await Expect(lead).ToHaveTextAsync(ExpectedText.AppDescription);
+        await ExpectAboveAsync(lead, Page.Locator("label[for=pickProblemFolder]"), "the folder line, no folder picked");
+
+        await PickFixtureAsync(CubeFixture);
+        await Expect(Page.Locator(".problem-folder-label")).ToBeVisibleAsync();
+        await Expect(lead).ToHaveTextAsync(ExpectedText.AppDescription);
+        await ExpectAboveAsync(lead, Page.Locator(".problem-folder-label"), "the folder line, a folder picked");
+
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HelpNavLink }).ClickAsync();
+        await Expect(Page.Locator(".help-intro h1 + .lead")).ToHaveTextAsync(ExpectedText.AppDescription);
+    }
+
+    private static Task ExpectAboveAsync(ILocator upper, ILocator lower, string what) => ExpectToPassAsync(async () =>
+    {
+        var top = await LaidOutBoxAsync(upper, "Home's lead");
+        var bottom = await LaidOutBoxAsync(lower, what);
+        Assert.True(top.Y + top.Height <= bottom.Y + 0.5,
+            $"Home's lead should sit above {what}; lead bottom {top.Y + top.Height}, {what} top {bottom.Y}.");
+    });
+
     [Fact]
     public async Task HelpRendersAndTitlesChangeAcrossNavigation()
     {
