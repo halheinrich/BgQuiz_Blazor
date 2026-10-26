@@ -10,14 +10,15 @@ using Microsoft.JSInterop;
 namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
-/// Copying an XGID and confirming it (<see cref="XgidCopy"/>; issue
+/// Copying to the clipboard and confirming it (<see cref="ClipboardCopy"/>; issue
 /// <c>halheinrich/backgammon#334</c>, Hal: "Report success and failure
 /// truthfully: never claim success before the clipboard write succeeds"),
 /// through both controls that offer it — the badge's copy button
 /// (<see cref="XgidLabel"/>) and the "⋯" list's Copy XGID item
 /// (<see cref="TailMenu"/>), which confirms on the toggle. Each fact is
 /// pinned on both, because the two are one statement: a control that drifted
-/// from it fails here by name.
+/// from it fails here by name. The third control on it, the feedback address's
+/// copy button, is <see cref="FeedbackAddressTests"/>'.
 ///
 /// <para>
 /// The clipboard write is held open by the JSInterop double until the test
@@ -26,15 +27,15 @@ namespace BgQuiz_Blazor.Tests;
 /// moment, then back" are each observed at the instant they claim.
 /// </para>
 /// </summary>
-public class XgidCopyTests : BunitContext
+public class ClipboardCopyTests : BunitContext
 {
     private const string Xgid = "XGID=-b----E-C---eE---c-e----B-:0:0:1:52:0:0:0:0:10";
 
     private readonly ManualTimeProvider _clock = new();
-    private readonly RecordingLogger<XgidCopy> _log = new();
+    private readonly RecordingLogger<ClipboardCopy> _log = new();
     private readonly JSRuntimeInvocationHandler _write;
 
-    public XgidCopyTests()
+    public ClipboardCopyTests()
     {
         JSInterop.Mode = JSRuntimeMode.Loose;
         var module = JSInterop.SetupModule(TailMenu.ModulePath);
@@ -42,7 +43,7 @@ public class XgidCopyTests : BunitContext
         module.SetupModule("attach", _ => true).Mode = JSRuntimeMode.Loose;
         _write = JSInterop.SetupVoid("navigator.clipboard.writeText", _ => true);
         Services.AddSingleton<TimeProvider>(_clock);
-        Services.AddSingleton<ILogger<XgidCopy>>(_log);
+        Services.AddSingleton<ILogger<ClipboardCopy>>(_log);
     }
 
     /// <summary>The two places a copy is offered, by what the test drives and reads.</summary>
@@ -87,7 +88,7 @@ public class XgidCopyTests : BunitContext
         var cut = Render<XgidLabel>(p => p.Add(c => c.Xgid, Xgid));
         IElement Button() => cut.Find(".xgid-label-copy");
         return new Control(
-            XgidCopy.CopyLabel,
+            XgidLabel.CopyLabels.Copy,
             () => Task.FromResult(Button().ClickAsync(new())),
             () =>
             {
@@ -116,7 +117,7 @@ public class XgidCopyTests : BunitContext
             {
                 await Toggle().ClickAsync(new());
                 var item = cut.FindAll("[role=menu] [role=menuitem]")[0];
-                Assert.Equal(XgidCopy.CopyLabel, item.TextContent.Trim());
+                Assert.Equal(XgidLabel.CopyLabels.Copy, item.TextContent.Trim());
                 return item.ClickAsync(new());
             },
             () =>
@@ -145,11 +146,11 @@ public class XgidCopyTests : BunitContext
 
         _write.SetVoidResult();
 
-        copy.WaitFor(() => Assert.Equal(XgidCopy.CopiedLabel, copy.Name()));
+        copy.WaitFor(() => Assert.Equal(XgidLabel.CopyLabels.Copied, copy.Name()));
         Assert.Equal("is-copied", copy.Mark());
 
-        _clock.Advance(XgidCopy.ConfirmationTime - TimeSpan.FromTicks(1));
-        Assert.Equal(XgidCopy.CopiedLabel, copy.Name());
+        _clock.Advance(ClipboardCopy.ConfirmationTime - TimeSpan.FromTicks(1));
+        Assert.Equal(XgidLabel.CopyLabels.Copied, copy.Name());
 
         _clock.Advance(TimeSpan.FromTicks(1));
         await FinishedAsync(handler);
@@ -171,10 +172,10 @@ public class XgidCopyTests : BunitContext
         // What a denied permission, or a page without focus, raises in Blazor.
         _write.SetException(new JSException("NotAllowedError: Write permission denied."));
 
-        copy.WaitFor(() => Assert.Equal(XgidCopy.FailedLabel, copy.Name()));
+        copy.WaitFor(() => Assert.Equal(XgidLabel.CopyLabels.Failed, copy.Name()));
         Assert.Equal("is-failed", copy.Mark());
 
-        _clock.Advance(XgidCopy.ConfirmationTime);
+        _clock.Advance(ClipboardCopy.ConfirmationTime);
         await FinishedAsync(handler); // completes, rather than rethrowing the refusal
 
         Assert.Equal(copy.OwnName, copy.Name());
@@ -192,21 +193,21 @@ public class XgidCopyTests : BunitContext
         var copy = Badge();
         var first = await copy.Press();
         _write.SetVoidResult();
-        copy.WaitFor(() => Assert.Equal(XgidCopy.CopiedLabel, copy.Name()));
-        _clock.Advance(XgidCopy.ConfirmationTime / 2);
+        copy.WaitFor(() => Assert.Equal(XgidLabel.CopyLabels.Copied, copy.Name()));
+        _clock.Advance(ClipboardCopy.ConfirmationTime / 2);
 
         var refusal = JSInterop.SetupVoid("navigator.clipboard.writeText", _ => true);
         var second = await copy.Press();
         refusal.SetException(new JSException("NotAllowedError: Document is not focused."));
-        copy.WaitFor(() => Assert.Equal(XgidCopy.FailedLabel, copy.Name()));
+        copy.WaitFor(() => Assert.Equal(XgidLabel.CopyLabels.Failed, copy.Name()));
 
-        _clock.Advance(XgidCopy.ConfirmationTime / 2);
+        _clock.Advance(ClipboardCopy.ConfirmationTime / 2);
         await FinishedAsync(first);
-        Assert.Equal(XgidCopy.FailedLabel, copy.Name());
+        Assert.Equal(XgidLabel.CopyLabels.Failed, copy.Name());
 
-        _clock.Advance(XgidCopy.ConfirmationTime / 2);
+        _clock.Advance(ClipboardCopy.ConfirmationTime / 2);
         await FinishedAsync(second);
-        Assert.Equal(XgidCopy.CopyLabel, copy.Name());
+        Assert.Equal(XgidLabel.CopyLabels.Copy, copy.Name());
     }
 
     [Theory]
@@ -223,8 +224,8 @@ public class XgidCopyTests : BunitContext
         var newer = JSInterop.SetupVoid("navigator.clipboard.writeText", _ => true);
         var second = await copy.Press();                      // B: its write held open by `newer`
         newer.SetVoidResult();
-        copy.WaitFor(() => Assert.Equal(XgidCopy.CopiedLabel, copy.Name()));
-        _clock.Advance(XgidCopy.ConfirmationTime);
+        copy.WaitFor(() => Assert.Equal(XgidLabel.CopyLabels.Copied, copy.Name()));
+        _clock.Advance(ClipboardCopy.ConfirmationTime);
         await FinishedAsync(second);
         Assert.Equal(copy.OwnName, copy.Name());
 
@@ -235,7 +236,7 @@ public class XgidCopyTests : BunitContext
         await FinishedAsync(first);
         Assert.Equal(copy.OwnName, copy.Name());
         Assert.Null(copy.Mark());
-        _clock.Advance(XgidCopy.ConfirmationTime);
+        _clock.Advance(ClipboardCopy.ConfirmationTime);
         Assert.Equal(copy.OwnName, copy.Name());
     }
 
@@ -251,8 +252,8 @@ public class XgidCopyTests : BunitContext
         var copy = Render(control);
         var first = await copy.Press();
         _write.SetVoidResult();
-        copy.WaitFor(() => Assert.Equal(XgidCopy.CopiedLabel, copy.Name()));
-        _clock.Advance(XgidCopy.ConfirmationTime / 3);
+        copy.WaitFor(() => Assert.Equal(XgidLabel.CopyLabels.Copied, copy.Name()));
+        _clock.Advance(ClipboardCopy.ConfirmationTime / 3);
 
         var newer = JSInterop.SetupVoid("navigator.clipboard.writeText", _ => true);
         var second = await copy.Press();
@@ -261,18 +262,18 @@ public class XgidCopyTests : BunitContext
         Assert.Null(copy.Mark());
 
         // A's moment passes while B still waits: nothing shows for B yet.
-        _clock.Advance(XgidCopy.ConfirmationTime);
+        _clock.Advance(ClipboardCopy.ConfirmationTime);
         await FinishedAsync(first);
         Assert.Equal(copy.OwnName, copy.Name());
         Assert.Null(copy.Mark());
         Assert.False(second.IsCompleted, "Premise: B's write must still be waiting.");
 
         newer.SetException(new JSException("NotAllowedError: Document is not focused."));
-        copy.WaitFor(() => Assert.Equal(XgidCopy.FailedLabel, copy.Name()));
+        copy.WaitFor(() => Assert.Equal(XgidLabel.CopyLabels.Failed, copy.Name()));
         Assert.Equal("is-failed", copy.Mark());
 
-        _clock.Advance(XgidCopy.ConfirmationTime - TimeSpan.FromTicks(1));
-        Assert.Equal(XgidCopy.FailedLabel, copy.Name());
+        _clock.Advance(ClipboardCopy.ConfirmationTime - TimeSpan.FromTicks(1));
+        Assert.Equal(XgidLabel.CopyLabels.Failed, copy.Name());
         _clock.Advance(TimeSpan.FromTicks(1));
         await FinishedAsync(second);
         Assert.Equal(copy.OwnName, copy.Name());
@@ -290,16 +291,16 @@ public class XgidCopyTests : BunitContext
         var newer = JSInterop.SetupVoid("navigator.clipboard.writeText", _ => true);
         var second = await copy.Press();
         newer.SetVoidResult();
-        copy.WaitFor(() => Assert.Equal(XgidCopy.CopiedLabel, copy.Name()));
+        copy.WaitFor(() => Assert.Equal(XgidLabel.CopyLabels.Copied, copy.Name()));
 
         _write.SetException(new JSException("NotAllowedError: Document is not focused."));
         await FinishedAsync(first);
-        Assert.Equal(XgidCopy.CopiedLabel, copy.Name());
+        Assert.Equal(XgidLabel.CopyLabels.Copied, copy.Name());
         Assert.Equal("is-copied", copy.Mark());
 
-        _clock.Advance(XgidCopy.ConfirmationTime);
+        _clock.Advance(ClipboardCopy.ConfirmationTime);
         await FinishedAsync(second);
-        Assert.Equal(XgidCopy.CopyLabel, copy.Name());
+        Assert.Equal(XgidLabel.CopyLabels.Copy, copy.Name());
         Assert.Null(copy.Mark());
     }
 }

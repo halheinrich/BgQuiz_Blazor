@@ -1,0 +1,13 @@
+@* The beta feedback address as text, with a copy button — XgidLabel's button
+   pattern: an icon button whose accessible name is real text, which carries the
+   copy's result. Rendered beside each feedback link (Home's footer, Help's
+   feedback paragraph), where the mailto: link stays. *@
+<span class="feedback-address">
+    <code class="feedback-address-text">@AppInfo.FeedbackAddress</code>
+    <button type="button"
+            class="feedback-address-copy @_copy.ShowingClass"
+            title="@Name"
+            @onclick="CopyAsync">
+        <span class="visually-hidden">@Name</span>
+    </button>
+</span>

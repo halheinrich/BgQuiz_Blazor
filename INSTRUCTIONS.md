@@ -50,7 +50,8 @@ condition), BgMoveGen
   (the progress so far), `Done` (the summary and Restart), `Settings`,
   `Help`; `MixPanel`, `ScorePanel`, `ScoreBreakdown`. **`Components`** —
   `DecisionNotes` (the notes overlay and its placement), `TailMenu`,
-  `ProblemLocator`, `XgidLabel` / `XgidCopy`, `ReturnControl`,
+  `ProblemLocator`, `XgidLabel`, `FeedbackAddress`, `ClipboardCopy` (the
+  one copy-and-confirm every copy control shares), `ReturnControl`,
   `ProblemFolderLabel`.
 - **`wwwroot/js`** — `quizKeys.js` (Space), `actionRowFit.js` (the row's
   fit measurement), `decisionNotes.js`, `menuButton.js`.

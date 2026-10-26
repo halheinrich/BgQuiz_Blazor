@@ -33,8 +33,15 @@ public sealed class BetaOnboardingTests : E2eTestBase
     /// <summary>The beta mailbox, restated here as the consumer-side pin.</summary>
     private const string FeedbackAddress = "bgquiz.beta@gmail.com";
 
+    /// <summary>The copy button's name, and its confirmation, restated here as the consumer-side pins.</summary>
+    private const string CopyFeedbackAddressButton = "Copy the feedback address";
+
     public BetaOnboardingTests(PublishedAppFixture app, PlaywrightFixture playwright, ITestOutputHelper output)
         : base(app, playwright, output) { }
+
+    /// <summary>The address's copy button writes the clipboard, and the scenario reads it back.</summary>
+    protected override BrowserNewContextOptions ContextOptions =>
+        new() { Permissions = ["clipboard-read", "clipboard-write"] };
 
     [Fact]
     public async Task RobotsTxt_IsServed_AndDisallowsEveryCrawler()
@@ -84,5 +91,39 @@ public sealed class BetaOnboardingTests : E2eTestBase
         var helpLink = Page.Locator("a[href^='mailto:']");
         await Expect(helpLink).ToHaveCountAsync(1);
         await Expect(helpLink).ToHaveAttributeAsync("href", expected);
+    }
+
+    /// <summary>
+    /// Every place that offers the feedback link also shows the address as
+    /// text, with a copy control, and the link stays (halheinrich/backgammon#267:
+    /// where no mail program handles email links, the link does nothing and the
+    /// address was nowhere on the page). On each page the address is beside the
+    /// link — in the same block — and its copy button puts exactly the address
+    /// on the clipboard and says so.
+    /// </summary>
+    [Fact]
+    public async Task HomeAndHelp_ShowTheFeedbackAddressBesideTheLink_AndCopyIt()
+    {
+        await BootHomeAsync();
+        await ExpectAddressBesideTheLinkCopiesAsync();
+
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.HelpNavLink }).ClickAsync();
+        await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Send feedback" })).ToBeVisibleAsync();
+        await ExpectAddressBesideTheLinkCopiesAsync();
+    }
+
+    private async Task ExpectAddressBesideTheLinkCopiesAsync()
+    {
+        var block = Page.Locator(":is(div, p):has(> a[href^='mailto:'])");
+        await Expect(block).ToHaveCountAsync(1);
+        await Expect(block.Locator(".feedback-address-text")).ToHaveTextAsync(FeedbackAddress);
+        await Expect(block.Locator(".feedback-address-text")).ToBeVisibleAsync();
+
+        await Page.EvaluateAsync("() => navigator.clipboard.writeText('nothing yet')");
+        var copy = block.GetByRole(AriaRole.Button, new() { Name = CopyFeedbackAddressButton });
+        await copy.ClickAsync();
+        await Expect(block.GetByRole(AriaRole.Button, new() { Name = ExpectedText.CopiedConfirmation, Exact = true }))
+            .ToBeVisibleAsync();
+        Assert.Equal(FeedbackAddress, await Page.EvaluateAsync<string>("() => navigator.clipboard.readText()"));
     }
 }

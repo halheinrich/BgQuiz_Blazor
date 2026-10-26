@@ -16,7 +16,7 @@ namespace BgQuiz_Blazor.Client.Components;
 /// <para>
 /// <b>What the list offers</b>, in the tail's own order: Copy XGID, named,
 /// acting and confirming as <see cref="XgidLabel"/>'s copy button does — the
-/// one statement of both, <see cref="XgidCopy"/>;
+/// one statement of both, <see cref="ClipboardCopy"/>, under the badge's labels;
 /// the locator, in its full wording (<see cref="ProblemLocatorForm.Line"/>) —
 /// display only, so a line to read and not an item, labelling the group the
 /// copy item sits in; then the host's <see cref="Actions"/>, in its order, each
@@ -106,10 +106,10 @@ public partial class TailMenu : ComponentBase, IAsyncDisposable
     private TimeProvider Clock { get; set; } = default!;
 
     [Inject]
-    private ILogger<XgidCopy> Logger { get; set; } = default!;
+    private ILogger<ClipboardCopy> Logger { get; set; } = default!;
 
     /// <summary>The Copy XGID item's copies, and the result the toggle is showing.</summary>
-    private XgidCopy _copy = default!;
+    private ClipboardCopy _copy = default!;
 
     /// <summary>The toggle's name and tooltip now: a copy's result while it shows, else <see cref="ToggleName"/>.</summary>
     private string ToggleLabel => _copy.ShowingLabel ?? ToggleName;
@@ -142,7 +142,7 @@ public partial class TailMenu : ComponentBase, IAsyncDisposable
     private bool _disposed;
 
     /// <summary>Give the Copy XGID item its copies, over the injected browser, clock and log.</summary>
-    protected override void OnInitialized() => _copy = new XgidCopy(JS, Clock, Logger);
+    protected override void OnInitialized() => _copy = new ClipboardCopy(JS, Clock, Logger, XgidLabel.CopyLabels);
 
     /// <summary>
     /// Import and attach the module on the first render, then move focus as

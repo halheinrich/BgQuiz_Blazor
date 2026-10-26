@@ -919,15 +919,20 @@
         @* Feedback. Same href as Home's footer link, from the one AppInfo value, so
            the version in the subject can never be the version of some other build.
            Naming the version in the prose too is deliberate: a tester who mails from
-           a different device still knows what to quote. *@
+           a different device still knows what to quote. The address shows as text
+           with a copy control beside the link, as on Home, because where no mail
+           program handles email links the link does nothing at all
+           (halheinrich/backgammon#267). *@
         <h3 class="h4 mt-4" id="@HelpSections.SendFeedback.AnchorId">@HelpSections.SendFeedback.Heading</h3>
         <p>
             BgQuiz is in beta, and the point of this round is to hear what breaks,
             what confuses, and what is missing.
-            <a href="@AppInfo.FeedbackMailto">Email the BgQuiz beta address</a> — the
+            <a href="@AppInfo.FeedbackMailto">Email the BgQuiz beta address</a>,
+            <FeedbackAddress /> — the
             subject line comes pre-filled with the exact build you are running
             (<code>@AppInfo.Version</code>), which is the first thing needed to make
-            sense of a report.
+            sense of a report. If the link opens no mail program, copy the address
+            and write from your own, naming that build.
         </p>
 
         @* The way back, always present: to the running quiz while one is live,

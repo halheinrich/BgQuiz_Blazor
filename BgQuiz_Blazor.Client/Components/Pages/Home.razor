@@ -482,8 +482,10 @@
         </button>
     }
 
+    @* The address shows beside the link, with a copy control, for a machine where the link
+       opens no mail program (halheinrich/backgammon#267). *@
     <div class="text-muted small mt-4">
         <span id="appVersion">v@(AppInfo.Version)</span>
-        · <a href="@AppInfo.FeedbackMailto">Send feedback</a>
+        · <a href="@AppInfo.FeedbackMailto">Send feedback</a> to <FeedbackAddress />
     </div>
 </div>

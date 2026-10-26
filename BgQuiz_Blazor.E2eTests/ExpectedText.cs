@@ -245,7 +245,7 @@ internal static class ExpectedText
 
     /// <summary>
     /// A copy's confirmation once the clipboard took it, as the name and
-    /// tooltip of the control that confirms (<c>XgidCopy</c>): the badge's
+    /// tooltip of the control that confirms (<c>ClipboardCopy</c>, the XGID's labels): the badge's
     /// button, or the "⋯" toggle when the copy was chosen from its list
     /// (halheinrich/backgammon#334).
     /// </summary>
@@ -253,7 +253,7 @@ internal static class ExpectedText
 
     /// <summary>
     /// A copy's report where the browser refused the clipboard write, in the
-    /// same place as <see cref="CopiedConfirmation"/> (<c>XgidCopy</c>;
+    /// same place as <see cref="CopiedConfirmation"/> (<c>ClipboardCopy</c>;
     /// halheinrich/backgammon#334).
     /// </summary>
     internal const string CopyRefused = "Couldn't copy the XGID";

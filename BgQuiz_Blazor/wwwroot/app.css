@@ -646,16 +646,19 @@ h1:focus {
 
 /* Icon-only copy button — a clipboard glyph, swapping for the post-copy beat
    to a ticked clipboard where the copy landed, or a crossed one where the
-   browser refused it (XgidCopy). Icon-only because the row's width is board
-   budget (see the cap above) and "Copy" spelled out cost more of it than the
-   label was worth; the accessible name is a visually-hidden span in the
-   markup, not an aria-label, so the same text carries the result to a screen
-   reader. The glyphs are Bootstrap Icons' clipboard / clipboard-check, and the
-   clipboard with clipboard-x's cross, inlined as data URIs exactly like the
-   nav rail's icons (NavMenu.razor.css) — no icon font is loaded for four
-   shapes. A square, so the hit target stays honest beside the row's Bootstrap
+   browser refused it (ClipboardCopy). The XGID badge's, and the feedback
+   address's (FeedbackAddress), which follows its pattern. Icon-only because
+   the button is the badge's floor, and so the tail's share of the row's
+   measured budget, and "Copy" spelled out cost more of it than the label was
+   worth; the accessible name is a visually-hidden span in the markup, not an
+   aria-label, so the same text carries the result to a screen reader. The
+   glyphs are Bootstrap Icons' clipboard / clipboard-check, and the clipboard
+   with clipboard-x's cross, inlined as data URIs exactly like the nav rail's
+   icons (NavMenu.razor.css) — no icon font is loaded for four shapes. A
+   square, so the hit target stays honest beside the row's Bootstrap
    buttons. */
-.xgid-label-copy {
+.xgid-label-copy,
+.feedback-address-copy {
     flex: none;
     width: 1.75rem;
     height: 1.75rem;
@@ -665,22 +668,39 @@ h1:focus {
     cursor: pointer;
 }
 
-.xgid-label-copy:hover {
+.xgid-label-copy:hover,
+.feedback-address-copy:hover {
     background-color: #e9ecef;
 }
 
-/* The result marks, each spelled once for both places a copy confirms: the
-   badge's button above, and the "⋯" toggle's mark (.xgid-copy-mark), which
+/* The result marks, each spelled once for every place a copy confirms: the
+   copy buttons above, and the "⋯" toggle's mark (.xgid-copy-mark), which
    stands in for its dots for the same beat when the copy was chosen from its
    list (TailMenu). */
 .xgid-label-copy.is-copied,
+.feedback-address-copy.is-copied,
 .xgid-copy-mark.is-copied {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23198754' viewBox='0 0 16 16'%3E%3Cpath d='M10.854 7.146a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 1 1 .708-.708L7.5 9.793l2.646-2.647a.5.5 0 0 1 .708 0z'/%3E%3Cpath d='M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z'/%3E%3Cpath d='M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z'/%3E%3C/svg%3E");
 }
 
 .xgid-label-copy.is-failed,
+.feedback-address-copy.is-failed,
 .xgid-copy-mark.is-failed {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23dc3545' viewBox='0 0 16 16'%3E%3Cpath d='M6.146 7.146a.5.5 0 0 1 .708 0L8 8.293l1.146-1.147a.5.5 0 1 1 .708.708L8.707 9l1.147 1.146a.5.5 0 0 1-.708.708L8 9.707l-1.146 1.147a.5.5 0 0 1-.708-.708L7.293 9 6.146 7.854a.5.5 0 0 1 0-.708z'/%3E%3Cpath d='M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z'/%3E%3Cpath d='M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z'/%3E%3C/svg%3E");
+}
+
+/* The beta feedback address beside each feedback link (FeedbackAddress,
+   halheinrich/backgammon#267): the address as text, one click selecting all of
+   it, and the copy button the XGID badge uses, its gap the badge's. Inline, so
+   it sits in the sentence or the footer line it is placed in. */
+.feedback-address {
+    display: inline-flex;
+    align-items: center;
+    column-gap: 0.4rem;
+}
+
+.feedback-address-text {
+    user-select: all;
 }
 
 /* The toggle's mark: the box its three dots fill (1em square), so swapping one
