@@ -624,7 +624,7 @@ h1:focus {
    2026-10-25 amendment, halheinrich/backgammon#422): the whole XGID where the
    row has width to spare, an end-ellipsis where it has not, nothing at the
    floor. Until then it was capped at 2.5rem ("XGID=…"), a board-size contract
-   from #98, when the row's wrap width depended on the badge. It no longer
+   from halheinrich/backgammon#98, when the row's wrap width depended on the badge. It no longer
    does: since halheinrich/backgammon#264's live measurement (2026-10-03) the
    row's budget is the tail AT ITS FLOOR, read by the row-fit ruler
    (wwwroot/js/actionRowFit.js), and the floor is the copy button and its gap

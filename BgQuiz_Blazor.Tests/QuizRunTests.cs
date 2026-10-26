@@ -569,7 +569,7 @@ public class QuizRunTests
         Assert.NotNull(reviewing.Review);
         Assert.Null(reviewing.GoBack().Review);
         Assert.Null(reviewing.GoToFirst().Review);
-        // Behind the frontier by ⏮: from a review, ◀ reopens the problem on screen (2026-10-25, #365).
+        // Behind the frontier by ⏮: from a review, ◀ reopens the problem on screen (2026-10-25, halheinrich/backgammon#365).
         Assert.Null(reviewing.GoToFirst().GoToLast().Review);
         Assert.Null(MoveOn(reviewing).Review);
         Assert.Null(staged.GoBack().SubmitPlay(Best(), out _).Next(out _).Review);
