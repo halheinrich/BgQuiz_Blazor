@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Components;
 
 namespace BgQuiz_Blazor.Client.Components;
@@ -178,9 +179,45 @@ public partial class ProblemLocator : ComponentBase
         };
 
     /// <summary>
+    /// How many characters (text elements) at the end of the visible file name
+    /// stay whole longest when the row runs short: the end of a match file name
+    /// is usually the half that tells two of them apart (a date, a match
+    /// number), so the head is elided first and these narrow only once it is
+    /// gone (<c>SPEC-quiz-view.md</c> §4, the 2026-10-25 amendment,
+    /// halheinrich/backgammon#422).
+    /// </summary>
+    private const int KeptEndLength = 8;
+
+    /// <summary>The visible file name before its kept end; empty when the name is no longer than the end.</summary>
+    private string FileNameHead { get; set; } = string.Empty;
+
+    /// <summary>The visible file name's last <see cref="KeptEndLength"/> characters, or the whole of a shorter name.</summary>
+    private string FileNameEnd { get; set; } = string.Empty;
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (!HasFileName)
+        {
+            (FileNameHead, FileNameEnd) = (string.Empty, string.Empty);
+            return;
+        }
+
+        // Split by text elements, so a surrogate pair or a combining mark is never cut in two.
+        var name = new StringInfo(DisplayFileName);
+        var headLength = Math.Max(0, name.LengthInTextElements - KeptEndLength);
+        FileNameHead = name.SubstringByTextElements(0, headLength);
+        FileNameEnd = name.SubstringByTextElements(headLength);
+    }
+
+    /// <summary>
     /// The visible file name: the record's name with its last extension
-    /// dropped, then middle-truncated to
-    /// <see cref="NameTruncation.MaxVisibleLength"/>.
+    /// dropped, and nothing else taken from it. The row shows it whole where it
+    /// has width to spare; where it has not, <c>app.css</c> narrows it in the
+    /// shrink order (§4 ruling (i)), eliding <see cref="FileNameHead"/> while
+    /// <see cref="FileNameEnd"/> stays whole, then the end, down to the floor of
+    /// nothing. The XGID badge gives up its text before any of it, and the
+    /// game/move numbers never move.
     ///
     /// <para>
     /// <b>The extension rule, stated here because it is stated nowhere this
@@ -196,18 +233,13 @@ public partial class ProblemLocator : ComponentBase
     /// </para>
     ///
     /// <para>
-    /// The cut is the app's one middle truncation,
-    /// <see cref="NameTruncation.MiddleTruncate"/>, shared with the score
-    /// panel's folder name. The cut length is the chip's <b>widest</b> state,
-    /// not its only one: what keeps the action row one line is the shrink
-    /// order in <c>app.css</c> (§4 ruling (i)) — the XGID badge gives up its
-    /// text first, then this name narrows under CSS, and the game/move numbers
-    /// never move. So the cut governs how much name a reader gets when there
-    /// <i>is</i> room; it is not what the fixed-height contract rests on.
+    /// No cut in C# (until 2026-10-25 the name was middle-truncated to 17
+    /// characters, and CSS capped it at 9rem): the row's budget is the tail
+    /// <b>at its floor</b>, read by the row-fit ruler, which the live name's
+    /// width never enters, so a whole name costs the board nothing.
     /// </para>
     /// </summary>
-    private string DisplayFileName =>
-        NameTruncation.MiddleTruncate(StripLastExtension(SourceFile!));
+    private string DisplayFileName => StripLastExtension(SourceFile!);
 
     /// <summary>See <see cref="DisplayFileName"/> for the rule this states.</summary>
     private static string StripLastExtension(string fileName)

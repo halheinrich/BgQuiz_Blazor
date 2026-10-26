@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
 
@@ -24,9 +25,12 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <b>Literals, not constants</b> — this suite references no app assembly by
 /// design, so the file name the chip renders is spelled out. That is what makes
 /// it a pin on the derivation rather than a restatement of it: the file is
-/// staged as <c>long-money-session-2026-04-12.xgp</c> and the chip must turn
-/// that into <c>long-mon…26-04-12</c> — extension dropped, middle elided — all
-/// on its own. The match scenario keeps the same posture: its labels and
+/// staged as <c>long-money-session-2026-04-12.xgp</c> and, in a wide window,
+/// the chip must show <c>long-money-session-2026-04-12</c> — the extension
+/// dropped and nothing else (<c>SPEC-quiz-view.md</c> §4's 2026-10-25
+/// amendment, halheinrich/backgammon#422; until then a C# middle cut showed
+/// <c>long-mon…26-04-12</c>) — all on its own. The match scenario keeps the
+/// same posture: its labels and
 /// separator are literals here, and its numbers come from what
 /// <see cref="SyntheticXgMatch"/> was told to build.
 /// </para>
@@ -63,23 +67,32 @@ public sealed class ProblemLocatorTests : E2eTestBase
     private const int DesktopHeight = 800;
 
     /// <summary>
+    /// A window wide enough that the row has width to spare for the tail's
+    /// text: the XGID and the long staged name both whole beside the widest
+    /// answer row (measured 2026-10-25, Windows Helvetica/Arial: the money
+    /// fixture's tail 819 px, its contents whole about 590 px).
+    /// </summary>
+    private const int WideWidth = 1920;
+
+    private const int WideHeight = 1000;
+
+    /// <summary>
     /// The committed money cube fixture, staged under a name the length of a
-    /// real eXtreme Gammon export. The length is the point, twice over: it is
-    /// what makes the middle-truncation observable at all, and it is what puts
-    /// the trailing cluster under enough width pressure for §4's ruling (i) to
-    /// have anything to do — under this suite's own short fixture names the
-    /// cluster fits whatever the CSS says, and the first-line assertion below
-    /// would pass on a cluster that could not shrink.
+    /// real eXtreme Gammon export. The length is the point: a name this long is
+    /// what a cut would shorten, so showing it whole is an observation, and it
+    /// puts the trailing cluster under width pressure for §4's ruling (i) to
+    /// have anything to do.
     /// </summary>
     private const string StagedFileName = "long-money-session-2026-04-12.xgp";
 
     /// <summary>
-    /// What the chip must make of that name: the extension dropped, the middle
-    /// elided, the two ends kept. Spelled out rather than derived — this suite
-    /// references no app assembly, so an independent literal is the only way to
-    /// pin a derivation instead of restating it.
+    /// What the chip must make of that name where the row has room: the
+    /// extension dropped, and all the rest. Spelled out rather than derived —
+    /// this suite references no app assembly, so an independent literal is the
+    /// only way to pin a derivation instead of restating it, and a cut made in
+    /// C# cannot pass it.
     /// </summary>
-    private const string ExpectedFileName = "long-mon…26-04-12";
+    private const string ExpectedFileName = "long-money-session-2026-04-12";
 
     /// <summary>
     /// The control the cluster follows in both states: ⏭, the last of the
@@ -150,6 +163,52 @@ public sealed class ProblemLocatorTests : E2eTestBase
     private ILocator ChipCoordinates => Page.Locator(".action-row-tail .problem-locator-where");
 
     /// <summary>
+    /// Whether each text-bearing element of the tail draws its text whole: the
+    /// XGID's text and the file name's two parts, each read on itself (its
+    /// scroll width within its client width).
+    /// </summary>
+    private const string ClippingScript = """
+        () => {
+          const q = s => document.querySelector('.action-row-tail ' + s);
+          const read = (label, e) => !e ? label + ': absent'
+            : e.scrollWidth > e.clientWidth ? `${label}: clipped (${e.clientWidth} of ${e.scrollWidth} px)`
+            : label + ': whole';
+          return [
+            read('xgid', q('.xgid-label-text')),
+            read('head', q('.problem-locator-file-head')),
+            read('end', q('.problem-locator-file-end')),
+          ];
+        }
+        """;
+
+    /// <summary>
+    /// One reading of the file name as the row has narrowed it, or null where
+    /// the tail is folded behind its "⋯" and the chip is not in the row.
+    /// </summary>
+    private const string NameSampleScript = """
+        () => {
+          const q = s => document.querySelector('.action-row-tail ' + s);
+          const file = q('.problem-locator-file'), head = q('.problem-locator-file-head'), end = q('.problem-locator-file-end');
+          if (!file) return null;
+          return JSON.stringify({
+            Viewport: window.innerWidth,
+            FileWidth: file.getBoundingClientRect().width,
+            HeadWidth: head.clientWidth,
+            HeadClipped: head.scrollWidth > head.clientWidth,
+            HeadOverflow: getComputedStyle(head).textOverflow,
+            EndWidth: end.clientWidth,
+            EndClipped: end.scrollWidth > end.clientWidth,
+            EndText: end.textContent,
+          });
+        }
+        """;
+
+    /// <summary>One <see cref="NameSampleScript"/> reading.</summary>
+    private sealed record NameSample(
+        int Viewport, double FileWidth, int HeadWidth, bool HeadClipped, string HeadOverflow,
+        int EndWidth, bool EndClipped, string EndText);
+
+    /// <summary>
     /// The desktop navigation-panel fold, by its accessible name — the same
     /// locator <c>SidebarCollapseTests</c> drives. Folding it is what hands the
     /// tail the width that brings the file name back (§4's 2026-09-03
@@ -158,10 +217,16 @@ public sealed class ProblemLocatorTests : E2eTestBase
     private ILocator CollapseRail =>
         Page.GetByRole(AriaRole.Checkbox, new() { Name = ExpectedText.HideNavigationPanelCheckbox });
 
+    /// <summary>
+    /// The money decision §4's ruling was written for, in a wide window: the
+    /// chip names it by its whole file name, and nothing in the tail's text is
+    /// clipped, the XGID included (§4's 2026-10-25 amendment: a wide row shows
+    /// the XGID and the file name whole).
+    /// </summary>
     [Fact]
-    public async Task MoneyProblem_IsNamedByItsSourceFile_AnsweringAndReview()
+    public async Task MoneyProblem_IsNamedByItsWholeSourceFile_AnsweringAndReview()
     {
-        await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight);
+        await Page.SetViewportSizeAsync(WideWidth, WideHeight);
         await BootHomeAsync();
         await PickFixtureUnderNameAsync(CubeFixture, StagedFileName);
         await ExpectFilterInEffectAsync();
@@ -235,8 +300,8 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// <b>And it pins the shrink order at its floor, which nothing else does.</b>
     /// §4 ruling (i) orders the tail's give: the XGID's text goes first, down
     /// to its copy button, then the locator's file name — <i>the numbers
-    /// never</i>. This is the widest the tail ever gets (a name past the
-    /// visible cap, plus coordinates) beside the widest answer row there is
+    /// never</i>. This is the widest the tail ever gets (a long name, plus
+    /// coordinates) beside the widest answer row there is
     /// (the four-answer cube row, 419 px at its widest selection as measured since
     /// <c>halheinrich/backgammon#187</c>), and at 1280×800 with the navigation
     /// panel showing the tail reaches the <b>floor</b> of that order: the XGID
@@ -352,6 +417,71 @@ public sealed class ProblemLocatorTests : E2eTestBase
     }
 
     /// <summary>
+    /// How the file name gives up width as the row narrows
+    /// (<c>SPEC-quiz-view.md</c> §4's 2026-10-25 amendment,
+    /// halheinrich/backgammon#422): whole where the row has room; then its head
+    /// is elided, with an ellipsis, while its last eight characters stay whole;
+    /// those narrow only once the head is gone; and at the tail's floor the
+    /// name is nothing, the coordinates whole beside it.
+    ///
+    /// <para>
+    /// <b>The window is narrowed in steps</b>, from wide to below the point
+    /// where the tail folds behind its "⋯", and every step that shows the chip
+    /// is read. "The end narrows only once the head is gone" holds at every
+    /// one; the elided head beside a whole end must be seen at one at least,
+    /// so the rule cannot pass on a sweep that never reached it.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The floor is set, not reached by the window.</b> The row folds the
+    /// tail behind its "⋯" where the tail's floor no longer fits, and the
+    /// ruler measures that floor with three-digit coordinates, wider than this
+    /// match's, so the live chip keeps a sliver of name at the switch (measured
+    /// 2026-10-25: 24 px). So the tail is put at its floor as the ruler's own
+    /// floor line is, at its min-content: where the name added anything to the
+    /// floor, it would show here.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task LongName_AsTheRowNarrows_LosesItsHeadFirst_ItsLastEightLast_AndAtTheFloorIsNothing()
+    {
+        const string lastEight = "26-04-12";   // SyntheticXgMatch.StagedFileName's, spelled out
+        await Page.SetViewportSizeAsync(WideWidth, WideHeight);
+        await BootHomeAsync();
+        await PickSynthesizedFileAsync(SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes());
+        await ExpectFilterInEffectAsync();
+        await StartQuizAsync();
+        await Expect(Page.Locator(".action-row .bg-cube-actions")).ToHaveCountAsync(1);
+        await ExpectRowFittedAsync();
+
+        var samples = new List<NameSample>();
+        for (var width = WideWidth; width >= 640; width -= 20)
+        {
+            await Page.SetViewportSizeAsync(width, WideHeight);
+            await Page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))");
+            if (await Page.EvaluateAsync<string?>(NameSampleScript) is { } reading)
+                samples.Add(JsonSerializer.Deserialize<NameSample>(reading)!);
+        }
+
+        Output.WriteLine(string.Join(Environment.NewLine, samples));
+        Assert.False(samples[0].HeadClipped || samples[0].EndClipped, $"whole in the wide window: {samples[0]}");
+        Assert.All(samples, s => Assert.True(
+            !s.EndClipped || s.HeadWidth == 0, $"the end narrowed while the head still had width: {s}"));
+        Assert.Contains(samples, s => s.HeadWidth > 0 && s.HeadClipped && !s.EndClipped);
+        Assert.All(samples.Where(s => s.HeadClipped && !s.EndClipped), s =>
+        {
+            Assert.Equal("ellipsis", s.HeadOverflow);
+            Assert.Equal(lastEight, s.EndText);
+        });
+
+        await Page.SetViewportSizeAsync(WideWidth, WideHeight);
+        await Page.AddStyleTagAsync(new() { Content = ".action-row-tail { flex: none !important; width: min-content !important; }" });
+        await ExpectToPassAsync(async () => Assert.Equal(0d, await ChipFileName.EvaluateAsync<double>(
+            "f => f.getBoundingClientRect().width")));
+        await AssertChipLocatesTheMatchDecisionAtTheTailFloorAsync();
+    }
+
+    /// <summary>
     /// <b>Diagnostic only — asserts nothing.</b> Writes the action row's
     /// geometry and the browser's resolved font situation to the test output,
     /// once per state.
@@ -427,17 +557,24 @@ public sealed class ProblemLocatorTests : E2eTestBase
     }
 
     /// <summary>
-    /// The chip's text, exactly: the staged name with its extension dropped
-    /// and its middle elided, and — because the fixture is a standalone
-    /// position — no game or move number beside it (§4's ruling (ii)). The
-    /// untruncated name, extension and all, is still on the page for a screen
-    /// reader, which is the third assertion: what the truncation hides it must
-    /// not lose.
+    /// The chip's text, exactly: the staged name with its extension dropped,
+    /// its parts read together as they are rendered (raw text, no whitespace
+    /// normalized), and — because the fixture is a standalone position — no
+    /// game or move number beside it (§4's ruling (ii)). Whole means drawn
+    /// whole, too: neither part of the name nor the XGID's text is clipped,
+    /// read on each text-bearing element itself, since a parent's box can be
+    /// wide while a child inside it is clipped. The full name, extension and
+    /// all, is still on the page for a screen reader.
     /// </summary>
     private async Task AssertChipReadsTheFixtureAsync()
     {
         await Expect(Chip).ToBeVisibleAsync();
-        await Expect(ChipFileName).ToHaveTextAsync(ExpectedFileName);
+        await ExpectToPassAsync(async () =>
+            Assert.Equal(ExpectedFileName, await ChipFileName.EvaluateAsync<string>(
+                "f => [...f.children].map(part => part.textContent).join('')")));
+        await ExpectToPassAsync(async () => Assert.Equal(
+            ["xgid: whole", "head: whole", "end: whole"],
+            await Page.EvaluateAsync<string[]>(ClippingScript)));
         await Expect(ChipCoordinates).ToHaveCountAsync(0);
         await Expect(Page.Locator(".action-row-tail .problem-locator .visually-hidden"))
             .ToHaveTextAsync(StagedFileName);
@@ -459,9 +596,10 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// <para>
     /// Deliberately says nothing about the file-name span's visibility: at the
     /// floor it is truncated to nothing by ruling, and the scenario asserts its
-    /// return separately, with the panel folded. The middle-truncation rule is
-    /// the money scenario's pin above, and restating it here would be a second
-    /// source for one fact. Retrying forms throughout — Playwright's
+    /// return separately, with the panel folded. The whole name is the money
+    /// scenario's pin above, and how it narrows is
+    /// <see cref="LongName_AsTheRowNarrows_LosesItsHeadFirst_ItsLastEightLast_AndAtTheFloorIsNothing"/>'s;
+    /// restating either here would be a second source for one fact. Retrying forms throughout — Playwright's
     /// assertions poll, and the box read sits inside
     /// <see cref="E2eTestBase.ExpectToPassAsync"/> — because this runs on the
     /// render that follows a Start or a fold.

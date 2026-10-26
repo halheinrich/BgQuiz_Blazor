@@ -6,8 +6,9 @@ namespace BgQuiz_Blazor.Tests;
 /// <summary>
 /// <see cref="ProblemLocator"/>'s own contract, away from the page that hosts
 /// it (<c>SPEC-quiz-view.md</c> §4, issue <c>halheinrich/backgammon#115</c>):
-/// the file-name derivation, the middle-truncation rule at its boundaries, the
-/// accessible name, and the states in which the chip renders nothing.
+/// the file-name derivation, the name's head/end split at its boundaries, the
+/// accessible name, and the states in which the chip renders nothing. How the
+/// row narrows the name is CSS, and the browser suite's to see.
 ///
 /// <para>
 /// The derivation is pinned here rather than only through the page because it
@@ -33,7 +34,7 @@ public class ProblemLocatorTests : BunitContext
             .Add(c => c.Game, game)
             .Add(c => c.MoveNumber, moveNumber));
 
-    /// <summary>The visible, shortened name — the aria-hidden twin.</summary>
+    /// <summary>The visible name, its parts read together — the aria-hidden twin.</summary>
     private static string VisibleName(IRenderedComponent<ProblemLocator> cut) =>
         cut.Find(".problem-locator-file").TextContent;
 
@@ -50,41 +51,69 @@ public class ProblemLocatorTests : BunitContext
         Assert.Equal(expected, VisibleName(Locator(sourceFile)));
     }
 
-    [Fact]
-    public void ShortName_IsShownWhole()
-    {
-        // 17 characters after the extension goes — the longest name the cap
-        // lets through untouched. One shorter would pass under any cap at or
-        // above it, which is what makes a boundary pin worth writing.
-        const string stem = "abcdefghijklmnopq";
-        Assert.Equal(17, stem.Length);
+    /// <summary>The visible name's head part, or null where it renders none.</summary>
+    private static string? Head(IRenderedComponent<ProblemLocator> cut) =>
+        cut.FindAll(".problem-locator-file > .problem-locator-file-head").SingleOrDefault()?.TextContent;
 
-        Assert.Equal(stem, VisibleName(Locator(stem + ".xg")));
+    /// <summary>The visible name's end part — the characters kept whole longest.</summary>
+    private static string End(IRenderedComponent<ProblemLocator> cut) =>
+        cut.Find(".problem-locator-file > .problem-locator-file-end").TextContent;
+
+    [Fact]
+    public void LongName_IsShownWhole_ItsLastEightCharactersTheEnd()
+    {
+        // SPEC-quiz-view.md §4's 2026-10-25 amendment (halheinrich/backgammon#422):
+        // no cut in C#. Until then this 30-character stem rendered as
+        // "abcdefgh…wxyz1234"; the row now narrows the name in CSS, the head
+        // first, so the markup carries it whole, split where the end begins.
+        const string stem = "abcdefghijklmnopqrstuvwxyz1234";
+
+        var cut = Locator(stem + ".xg");
+
+        Assert.Equal(stem, VisibleName(cut));
+        Assert.Equal("abcdefghijklmnopqrstuv", Head(cut));
+        Assert.Equal("wxyz1234", End(cut));
+        Assert.Equal(2, cut.Find(".problem-locator-file").ChildElementCount);   // nothing but the two parts
+    }
+
+    [Theory]
+    // At most the kept end: all of it is end, and there is no head to elide.
+    // Nine characters is the first name with a head, one character long.
+    [InlineData("abcdefgh.xg", null, "abcdefgh")]
+    [InlineData("abc.xg", null, "abc")]
+    [InlineData("abcdefghi.xg", "a", "bcdefghi")]
+    public void TheSplit_AtItsBoundary(string sourceFile, string? head, string end)
+    {
+        var cut = Locator(sourceFile);
+
+        Assert.Equal(head, Head(cut));
+        Assert.Equal(end, End(cut));
     }
 
     [Fact]
-    public void LongName_IsTruncatedInTheMiddle_ToTheSameWidth()
+    public void TheSplit_KeepsSpaces_AndNeverCutsACharacterInTwo()
     {
-        // One character longer than the case above: the first name the rule
-        // touches. Head and tail survive, the middle goes, and the result is
-        // the same length as the longest untruncated name — the property the
-        // row's width contract actually rests on.
-        const string stem = "abcdefghijklmnopqr";
-        Assert.Equal(18, stem.Length);
+        // The parts read together are the name exactly: a space either side of
+        // the split stays in the text (app.css shows it, white-space: pre), and
+        // the end is eight characters as a reader counts them, so a surrogate
+        // pair is never split between the parts.
+        var spaced = Locator("Opening 32 65 64 31 65.xgp", game: null, moveNumber: null);
+        Assert.Equal("Opening 32 65 ", Head(spaced));
+        Assert.Equal("64 31 65", End(spaced));
 
-        string visible = VisibleName(Locator(stem + ".xg"));
-
-        Assert.Equal("abcdefgh…klmnopqr", visible);
-        Assert.Equal(17, visible.Length);
+        const string face = "\U0001F600";
+        var paired = Locator($"ab{face}cdefghi.xg");
+        Assert.Equal("ab", Head(paired));
+        Assert.Equal($"{face}cdefghi", End(paired));
     }
 
     [Fact]
-    public void TruncatedName_KeepsTheFullNameAsTheAccessibleName()
+    public void LongName_KeepsTheFullNameAsTheAccessibleName()
     {
-        // The whole point of truncating: nothing is lost, it is only hidden.
-        // The untruncated name — extension and all, because that is the file
+        // However the row narrows the visible name, nothing is lost, it is only
+        // hidden. The full name — extension and all, because that is the file
         // the reader goes and looks for — is in the accessibility tree, and
-        // the shortened twin is out of it, so neither is announced twice.
+        // the visible twin is out of it, so neither is announced twice.
         const string sourceFile = "a-very-long-match-file-name-indeed.xg";
 
         var cut = Locator(sourceFile);

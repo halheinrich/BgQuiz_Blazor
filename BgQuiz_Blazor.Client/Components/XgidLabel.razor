@@ -1,14 +1,13 @@
 @* Copyable XGID badge, rendered in normal flow wherever the host places it.
-   The visible text is clipped to the value's own "XGID=" prefix (app.css), so it
-   reads as the label for the icon-only copy button beside it; the full value
-   goes to the clipboard, to the tooltip, to a select-all, and to a screen
+   The visible text takes the width its row leaves and is the first thing there
+   to give it up (app.css), down to the icon-only copy button beside it; the full
+   value goes to the clipboard, to the tooltip, to a select-all, and to a screen
    reader. Renders nothing when the XGID is empty (see the code-behind). *@
 @if (!string.IsNullOrEmpty(Xgid))
 {
     <div class="xgid-label" role="group" aria-label="Position XGID">
-        @* title, because the visible text is clipped to a cap the board's size
-           depends on — the full value stays in the DOM, on the clipboard, and
-           in a select-all. *@
+        @* title, because the visible text can be narrowed to nothing — the full
+           value stays in the DOM, on the clipboard, and in a select-all. *@
         <code class="xgid-label-text" title="@Xgid">@Xgid</code>
         @* Icon-only, and its accessible name is real text rather than an
            aria-label: the same span carries the copy's result — copied, or
