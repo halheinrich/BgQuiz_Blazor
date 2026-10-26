@@ -36,10 +36,13 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
         await ReachReviewAtPhoneWidthAsync();
 
         // What a finger on Continue's centre lands on — the element itself, or
-        // something inside it — not whatever the tail laid over it.
+        // something inside it — not whatever the tail laid over it. A centre
+        // off-screen hits nothing (elementFromPoint returns null), and says so
+        // rather than throwing in the page (halheinrich/backgammon#376).
         var hit = await ContinueButton.EvaluateAsync<string>(@"b => {
             const r = b.getBoundingClientRect();
             const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            if (e === null) return `covered by nothing (off-screen): Continue's centre is outside the viewport`;
             return b.contains(e) ? 'Continue' : `${e.tagName}.${e.className} '${(e.textContent || '').trim()}'`;
         }");
         Assert.Equal("Continue", hit);
@@ -55,7 +58,10 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
     /// What a finger on each navigation button's centre lands on, by name:
     /// the button itself, or what covers it. A dark button's attribute is
     /// lifted for the test — Chromium does not hit-test a disabled button, so
-    /// one that is merely unavailable would otherwise read as covered.
+    /// one that is merely unavailable would otherwise read as covered. A centre
+    /// off-screen hits nothing (elementFromPoint returns null) and reads as
+    /// covered by nothing, rather than throwing in the page
+    /// (halheinrich/backgammon#376).
     /// </summary>
     private Task<string[]> NavigationCentreHitsAsync() =>
         Page.EvaluateAsync<string[]>(@"() =>
@@ -65,6 +71,7 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
               const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
               b.disabled = was;
               const name = b.getAttribute('aria-label');
+              if (e === null) return `${name} covered by nothing (off-screen)`;
               return b.contains(e) ? name : `${name} covered by ${e.tagName}.${e.className}`;
             })");
 
