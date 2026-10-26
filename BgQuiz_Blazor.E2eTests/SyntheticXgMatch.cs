@@ -285,10 +285,99 @@ internal static class SyntheticXgMatch
     internal static byte[] ThreeAnswerBestBytes() =>
         Build(XgFileBuilder.ForMoneySession(Player1, Player2), 0, 0, cubeEquities: ThreeAnswerBestEquities);
 
+    /// <summary>
+    /// The name the shown-play match is staged under — as long as
+    /// <see cref="StagedFileName"/>, for the same reason.
+    /// </summary>
+    internal const string ShownPlayStagedFileName = "synthetic-match-2026-04-16.xg";
+
+    /// <summary>
+    /// The candidates <see cref="ShownPlayBytes"/>' checker play is analysed
+    /// with, in their <b>stored</b> order — each one's index here is its
+    /// <c>data-candidate</c> — from <see cref="XgPlayer.Player1"/>'s 5-4 at the
+    /// position <see cref="PlaysBeforeTheCube"/> reaches. The equities put
+    /// them in the reverse order on screen (24/20 13/8 first, 24/15 last), so
+    /// no candidate's stored index is its row. The played move, 13/8 13/9, is
+    /// among them. None hits (the opponent's blot on the 1-point is out of
+    /// every candidate's way) and none bears off, so all four leave the same
+    /// pip counts and only the arrangement tells them apart —
+    /// <see cref="ShownPlayBytes"/> checks both when it builds the file.
+    /// </summary>
+    internal static readonly IReadOnlyList<XgPlayCandidate> ShownPlayCandidates =
+    [
+        new(Play.Create(new(24, 20), new(20, 15)), equity: -0.080, ply: 3),
+        new(Play.Create(new(13, 9), new(9, 4)), equity: 0.010, ply: 3),
+        new(PlaysBeforeTheCube[^1].Play, equity: 0.060, ply: 3),
+        new(Play.Create(new(24, 20), new(13, 8)), equity: 0.120, ply: 3),
+    ];
+
+    /// <summary>
+    /// <see cref="CheckerFirstBytes"/>, with its first problem — the checker
+    /// play — analysed with <see cref="ShownPlayCandidates"/> rather than with
+    /// the played move alone: the solution view's candidate list has rows to
+    /// show a play from (<c>SPEC-quiz-view.md</c> §1, 2026-10-25), and the
+    /// cube decision after it has none.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The file read back does not have the properties the shown-play
+    /// scenarios rest on (see <see cref="ShownPlayCandidates"/>).
+    /// </exception>
+    internal static byte[] ShownPlayBytes()
+    {
+        var bytes = Build(XgFileBuilder.ForMatch(MatchLength, Player1, Player2), CubeGameScore1, CubeGameScore2,
+            analyseTheLastPlayBeforeTheCube: true, lastPlayBeforeTheCubeCandidates: ShownPlayCandidates);
+        CheckShownPlayDecision(bytes);
+        return bytes;
+    }
+
+    /// <summary>
+    /// Reads <paramref name="bytes"/> back through the converter and checks the
+    /// checker play the shown-play scenarios use: stored in
+    /// <see cref="ShownPlayCandidates"/>' order, the played move among them,
+    /// every candidate's row apart from its stored index, equal pip counts
+    /// after every candidate, and every arrangement distinct.
+    /// </summary>
+    private static void CheckShownPlayDecision(byte[] bytes)
+    {
+        using var stream = new MemoryStream(bytes);
+        var decision = XgDecisionIterator
+            .IterateDiagramRequests(XgFileReader.ReadStream(stream), ShownPlayStagedFileName)
+            .OfType<CheckerPlayDecision>()
+            .First();
+        var data = decision.Decision;
+        int count = ShownPlayCandidates.Count;
+        Check(data.Plays.Count == count, $"{data.Plays.Count} candidates stored, {count} declared");
+        Check(data.UserPlayIndex is not null, "the played move is not among the candidates");
+
+        var afterBoards = new BoardPosition[count];
+        for (int i = 0; i < count; i++)
+        {
+            var applied = new BoardState(decision.Board);
+            applied.ApplyPlay(ShownPlayCandidates[i].Play);
+            afterBoards[i] = decision.AfterBoardOf(i);
+            Check(applied.ToPosition() == afterBoards[i], $"stored candidate {i} is not the declared candidate {i}");
+        }
+
+        var rows = data.RankedBy(PlayRanking.Equity).Select(ranked => ranked.Index).ToList();
+        for (int row = 0; row < count; row++)
+            Check(rows[row] != row, $"candidate {rows[row]} is drawn in row {row}, the row its index names");
+
+        var pips = afterBoards.Select(board => new BoardState(board)).Select(s => (s.PipCount, s.OpponentPipCount)).Distinct();
+        Check(pips.Count() == 1, "the candidates leave different pip counts");
+        Check(afterBoards.Distinct().Count() == count, "two candidates leave the same arrangement");
+
+        static void Check(bool holds, string failure)
+        {
+            if (!holds)
+                throw new InvalidOperationException($"{ShownPlayStagedFileName}: {failure}.");
+        }
+    }
+
     /// <summary>The file's games and decisions, into <paramref name="builder"/>; see <see cref="Bytes"/>.</summary>
     private static byte[] Build(
         XgFileBuilder builder, int cubeGameScore1, int cubeGameScore2, bool analyseTheLastPlayBeforeTheCube = false,
-        string playComment = PlayComment, XgCubeEquities? cubeEquities = null)
+        string playComment = PlayComment, XgCubeEquities? cubeEquities = null,
+        IReadOnlyList<XgPlayCandidate>? lastPlayBeforeTheCubeCandidates = null)
     {
         for (int i = 0; i < GamesBeforeTheCubeGame; i++)
             Replay(builder.AddGame());
@@ -299,7 +388,10 @@ internal static class SyntheticXgMatch
             foreach (var (player, dice, play) in PlaysBeforeTheCube[..^1])
                 cubeGame.UnanalysedPlay(player, dice, play);
             var (lastPlayer, lastDice, lastPlay) = PlaysBeforeTheCube[^1];
-            cubeGame.Play(lastPlayer, lastDice, lastPlay);
+            if (lastPlayBeforeTheCubeCandidates is { } candidates)
+                cubeGame.Play(lastPlayer, lastDice, lastPlay, candidates);
+            else
+                cubeGame.Play(lastPlayer, lastDice, lastPlay);
         }
         else
         {

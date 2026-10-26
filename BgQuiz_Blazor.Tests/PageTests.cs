@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using BackgammonDiagram_Lib;
 using BgDataTypes_Lib;
+using BgDiag_Razor.Components;
 using BgFolderAccess_Razor;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Components;
@@ -622,6 +624,60 @@ public class PageTests : BunitContext
             Assert.Contains("Correct.", text);
             Assert.Contains("Problem 2 of 2", text);
         });
+    }
+
+    /// <summary>The solution board's request: the one diagram a review draws.</summary>
+    private static DiagramRequest SolutionRequest(IRenderedComponent<QuizPage> cut) =>
+        cut.FindComponents<BackgammonDiagram>().Single().Instance.Request!;
+
+    [Fact]
+    public async Task Quiz_AShownPlay_DoesNotSurviveATransition_EvenWithNoClickOnThePage()
+    {
+        // Showing a play (SPEC-quiz-view.md §1, 2026-10-25). The transitions are driven
+        // on the coordinator, not by buttons: in the browser a button's click also
+        // reaches the page's restore handler, which would hide a transition that left
+        // the shown play in place.
+        var app = await StartedAppAsync(Problem(1), Problem(2));
+        await app.SubmitPlayAsync(Alt());
+        var cut = Render<QuizPage>();
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("rect[data-candidate]")));
+        Assert.Null(SolutionRequest(cut).ShownPlayIndex);
+
+        await cut.Find("rect[data-candidate='0']").ClickAsync(new());
+        cut.WaitForAssertion(() => Assert.Equal(0, SolutionRequest(cut).ShownPlayIndex));
+
+        // Back from the first problem's solution reopens its question; a practice
+        // answer opens a new review of the same decision, where index 0 would be
+        // a valid shown play again.
+        app.GoBack();
+        cut.WaitForAssertion(() => Assert.Null(app.Review));
+        Assert.Equal(1, app.ProblemNumber);
+        await app.SubmitPlayAsync(Best());
+        cut.WaitForAssertion(() => Assert.Contains(QuizPage.PracticePrefix, Text(cut)));
+
+        Assert.Null(SolutionRequest(cut).ShownPlayIndex);
+    }
+
+    [Fact]
+    public async Task Quiz_TheRestoreHandler_IsOnThePageOnlyWhileAPlayIsShown()
+    {
+        var app = await StartedAppAsync(Problem(1), Problem(2));
+        await app.SubmitPlayAsync(Alt());
+        var cut = Render<QuizPage>();
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("rect[data-candidate]")));
+
+        // Nothing shown: no handler, so a click on the page re-renders nothing.
+        Assert.False(cut.Find(".board-page").HasAttribute("blazor:onclick"));
+
+        await cut.Find("rect[data-candidate='0']").ClickAsync(new());
+        cut.WaitForAssertion(() => Assert.Equal(0, SolutionRequest(cut).ShownPlayIndex));
+        Assert.True(cut.Find(".board-page").HasAttribute("blazor:onclick"));
+
+        // A click elsewhere on the page bubbles to the root and restores the played position.
+        await cut.Find(".status-strip").ClickAsync(new());
+        cut.WaitForAssertion(() => Assert.Null(SolutionRequest(cut).ShownPlayIndex));
+        Assert.False(cut.Find(".board-page").HasAttribute("blazor:onclick"));
+        Assert.NotNull(app.Review);
     }
 
     [Fact]

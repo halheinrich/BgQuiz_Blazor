@@ -303,6 +303,21 @@ public sealed class HelpAndTitlesTests : E2eTestBase
     }
 
     /// <summary>
+    /// Help's account of showing a play (SPEC-quiz-view.md §1, 2026-10-25;
+    /// halheinrich/backgammon#194): the click that shows one and the click that
+    /// restores the position as played. Independent literal per the copy-pin
+    /// split; the behaviour is pinned in ShownPlayTests.
+    /// </summary>
+    [Fact]
+    public async Task HelpSaysAPlayInTheListCanBeShownOnTheBoard()
+    {
+        await Page.GotoAsync(BaseUrl + "/help");
+
+        await Expect(Page.Locator("body")).ToContainTextAsync(
+            "Click a play in the list to see its position on the board; click anywhere else to see the position as played.");
+    }
+
+    /// <summary>
     /// Help's account of the answer-type breakdown. The zero reading is the part
     /// that has to be in words: a user looking at "Too good: 0" can
     /// read it as a category that failed to load unless the documentation says

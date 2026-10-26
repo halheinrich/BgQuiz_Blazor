@@ -15,8 +15,19 @@
 <PageTitle>BgQuiz — In progress</PageTitle>
 
 @* app-busy: progress cursor while the app works — a Submit's write to the
-   lifetime record (app.css). *@
-<div class="container-fluid py-3 board-page @(App.IsBusy ? "app-busy" : null)">
+   lifetime record (app.css).
+
+   RestoreOnClick: a click anywhere on the quiz page outside the candidate list
+   restores the played position (SPEC-quiz-view.md §1, 2026-10-25, showing a
+   play). A Blazor handler by necessity: a candidate row stops its click within
+   Blazor's event handling only, so a JavaScript listener here would see the
+   very click that showed the play. Every other click on the page reaches it
+   and also does its own work — the board, the dice (which also Continue), the
+   buttons, the status strip, and the open notes overlay too, whose surface is
+   inside this element: a click there is a click on the page outside the list.
+   The layout around the page (the navigation panel) is outside it. Attached
+   only while a play is shown, so no other click re-renders the page. *@
+<div class="container-fluid py-3 board-page @(App.IsBusy ? "app-busy" : null)" @onclick="RestoreOnClick">
     @* The run's stats notices: a retirement is an outcome (polite), an unreadable file an
        outcome the file survives (polite), a failed write a failure mid-quiz (assertive).
        None blocks the quiz. Each dismissal is the run's, so a Show stats round trip does
@@ -141,7 +152,8 @@
             {
                 <BackgammonDiagram Request="BuildSolutionRequest(current, review)"
                                    Options="BoardOptions"
-                                   OnDiceClicked="NextAsync" />
+                                   OnDiceClicked="NextAsync"
+                                   OnCandidateClicked="ShowPlay" />
             }
             else if (current is CubeDecision)
             {

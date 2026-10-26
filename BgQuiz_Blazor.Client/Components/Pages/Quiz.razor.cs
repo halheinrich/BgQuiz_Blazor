@@ -21,6 +21,11 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     private BackgammonPlayEntry? _playEntry;
     private Play? _completedPlay;
     private CubeAnswer? _completedCube;
+    // The shown play (SPEC-quiz-view.md §1, 2026-10-25): the stored index of the
+    // candidate whose position the solution board draws, or none. Page-local review
+    // state, never app-scoped or persisted; HandleStateChanged discards it with the
+    // answer latches, so no shown play survives a transition.
+    private int? _shownPlay;
     private IJSObjectReference? _keys;
     private IJSObjectReference? _rowFit;
     private DotNetObjectReference<Quiz>? _self;
@@ -52,6 +57,7 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     {
         _completedPlay = null;
         _completedCube = null;
+        _shownPlay = null;
         if (App.IsFinished)
         {
             Nav.NavigateTo("/done");
@@ -182,10 +188,28 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
             Mode = DiagramMode.Solution,
             MaximumHiddenCandidateAnalysisLevel = Settings.MaximumHiddenCandidateAnalysisLevel,
         };
+        // A cube decision has no candidate list, so only a play's review shows a play.
         return review is ProblemReview.Play play
-            ? request with { SecondaryPlayIndex = play.CandidateIndex }
+            ? request with { SecondaryPlayIndex = play.CandidateIndex, ShownPlayIndex = _shownPlay }
             : request;
     }
+
+    /// <summary>
+    /// A candidate row's click, with the candidate's stored index: show that play,
+    /// applied to the decision's own position. A click on the shown row sets what is
+    /// already set, so it changes nothing.
+    /// </summary>
+    private void ShowPlay(int candidate) => _shownPlay = candidate;
+
+    /// <summary>
+    /// The page root's click handler: restores the played position while a play is
+    /// shown, and is no handler at all otherwise (a default callback attaches
+    /// nothing), so a click with nothing to restore does not re-render the page.
+    /// </summary>
+    private EventCallback RestoreOnClick =>
+        _shownPlay is null ? default : EventCallback.Factory.Create(this, RestorePlayedPosition);
+
+    private void RestorePlayedPosition() => _shownPlay = null;
 
     internal const string PracticePrefix = "Practice — ";
 

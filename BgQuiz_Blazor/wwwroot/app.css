@@ -150,6 +150,14 @@ h1:focus {
     display: block;
 }
 
+/* The solution view's candidate rows show a play when clicked (SPEC-quiz-view.md
+   §1, 2026-10-25; the pointer ruled by Hal, 2026-10-26): nothing else on screen
+   says the rows are clickable. Zero specificity (:where), so the busy cursor
+   below (.app-busy *) still wins over them while the app works. */
+:where(rect[data-candidate]) {
+    cursor: pointer;
+}
+
 @media (min-width: 641px) {
     /* Desktop: board on top, chrome (score panel, legend, verdict, actions) in
        the full-width region below. Height-bounded so the chrome stays above the
