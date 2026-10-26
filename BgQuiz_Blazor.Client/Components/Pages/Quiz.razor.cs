@@ -22,10 +22,13 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     private Play? _completedPlay;
     private CubeAnswer? _completedCube;
     // The shown play (SPEC-quiz-view.md §1, 2026-10-25): the stored index of the
-    // candidate whose position the solution board draws, or none. Page-local review
-    // state, never app-scoped or persisted; HandleStateChanged discards it with the
-    // answer latches, so no shown play survives a transition.
-    private int? _shownPlay;
+    // candidate whose position the solution board draws, held with the review it was
+    // shown on, or none. Page-local review state, never app-scoped or persisted. It
+    // lives as long as that review is on screen: HandleStateChanged discards it once
+    // App.Review is another instance or none (ProblemReview is reference-equal by
+    // design), and not on a change that keeps the review, such as the stats write a
+    // submission awaits after publishing it.
+    private (int Candidate, ProblemReview Review)? _shownPlay;
     private IJSObjectReference? _keys;
     private IJSObjectReference? _rowFit;
     private DotNetObjectReference<Quiz>? _self;
@@ -57,7 +60,8 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
     {
         _completedPlay = null;
         _completedCube = null;
-        _shownPlay = null;
+        if (_shownPlay is { Review: var shownOn } && !ReferenceEquals(App.Review, shownOn))
+            _shownPlay = null;
         if (App.IsFinished)
         {
             Nav.NavigateTo("/done");
@@ -188,18 +192,23 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
             Mode = DiagramMode.Solution,
             MaximumHiddenCandidateAnalysisLevel = Settings.MaximumHiddenCandidateAnalysisLevel,
         };
-        // A cube decision has no candidate list, so only a play's review shows a play.
+        // A cube decision has no candidate list, so only a play's review shows a play,
+        // and only the review it was shown on.
+        int? shown = _shownPlay is { } held && ReferenceEquals(held.Review, review) ? held.Candidate : null;
         return review is ProblemReview.Play play
-            ? request with { SecondaryPlayIndex = play.CandidateIndex, ShownPlayIndex = _shownPlay }
+            ? request with { SecondaryPlayIndex = play.CandidateIndex, ShownPlayIndex = shown }
             : request;
     }
 
     /// <summary>
     /// A candidate row's click, with the candidate's stored index: show that play,
-    /// applied to the decision's own position. A click on the shown row sets what is
-    /// already set, so it changes nothing.
+    /// applied to the decision's own position, on the review on screen. A click on the
+    /// shown row sets what is already set, so it changes nothing.
     /// </summary>
-    private void ShowPlay(int candidate) => _shownPlay = candidate;
+    private void ShowPlay(int candidate)
+    {
+        if (App.Review is { } review) _shownPlay = (candidate, review);
+    }
 
     /// <summary>
     /// The page root's click handler: restores the played position while a play is

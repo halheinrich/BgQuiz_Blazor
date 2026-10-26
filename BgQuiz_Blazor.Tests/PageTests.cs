@@ -659,6 +659,39 @@ public class PageTests : BunitContext
     }
 
     [Fact]
+    public async Task Quiz_APlayShownDuringTheStatsSave_SurvivesTheSavesEnd()
+    {
+        // A submission publishes its review, then awaits the stats write; the write's
+        // start and end each notify the page while the same review stays on screen
+        // (halheinrich/backgammon#440, leg 4's follow-up).
+        var app = await StartedAppAsync(Problem(1), Problem(2));
+        var folder = NextFolder;   // the folder the pick landed
+        var cut = Render<QuizPage>();
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll(".board-container")));
+        var write = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        folder.OnWriting = () => write.Task;
+
+        var submitting = app.SubmitPlayAsync(Alt());
+        cut.WaitForAssertion(() =>
+        {
+            Assert.True(app.IsBusy);
+            Assert.NotEmpty(cut.FindAll("rect[data-candidate]"));
+        });
+        var review = app.Review;
+        await cut.Find("rect[data-candidate='0']").ClickAsync(new());
+        cut.WaitForAssertion(() => Assert.Equal(0, SolutionRequest(cut).ShownPlayIndex));
+
+        write.SetResult();
+        await submitting;
+
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll(".board-page.app-busy")));
+        Assert.False(app.IsBusy);
+        Assert.Single(folder.Writes);
+        Assert.Same(review, app.Review);
+        Assert.Equal(0, SolutionRequest(cut).ShownPlayIndex);
+    }
+
+    [Fact]
     public async Task Quiz_TheRestoreHandler_IsOnThePageOnlyWhileAPlayIsShown()
     {
         var app = await StartedAppAsync(Problem(1), Problem(2));

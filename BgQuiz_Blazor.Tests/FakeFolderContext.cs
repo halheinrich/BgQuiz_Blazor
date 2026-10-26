@@ -69,6 +69,9 @@ internal sealed class FakeFolderContext(string name, FolderWriteCapability capab
     /// <summary>Called with the file name before a write lands; throw from it to fail that one write.</summary>
     public Action<string>? OnWrite { get; set; }
 
+    /// <summary>Awaited before a write lands, so a test can hold the write there.</summary>
+    public Func<Task>? OnWriting { get; set; }
+
     /// <summary>Every payload successfully written, in order.</summary>
     public List<string> Writes { get; } = [];
 
@@ -119,11 +122,23 @@ internal sealed class FakeFolderContext(string name, FolderWriteCapability capab
         ArgumentNullException.ThrowIfNull(text);
         ObjectDisposedException.ThrowIf(IsReleased, this);
         if (WriteException is { } ex) return Task.FromException(ex);
+        if (OnWriting is { } writing) return LandAfterAsync(writing, fileName, text);
+        Land(fileName, text);
+        return Task.CompletedTask;
+    }
+
+    private async Task LandAfterAsync(Func<Task> writing, string fileName, string text)
+    {
+        await writing();
+        Land(fileName, text);
+    }
+
+    private void Land(string fileName, string text)
+    {
         OnWrite?.Invoke(fileName);
         FileNames.Add(fileName);
         Writes.Add(text);
         _files[fileName] = text;
-        return Task.CompletedTask;
     }
 
     public Task<FileWritability> ProbeFileWritabilityAsync(string fileName)
