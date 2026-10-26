@@ -484,6 +484,72 @@ public class QuizRunTests
     }
 
     [Fact]
+    public void Back_OnTheFirstProblemsReview_ReopensItsQuestion_WhereTheReanswerIsPractice()
+    {
+        var reviewing = Started(Plays(2)).SubmitPlay(Alt(), out _);
+        Assert.True(reviewing.CanGoBack);
+
+        var back = reviewing.GoBack();
+
+        Assert.Same(reviewing.Presented[0], back.Cursor);
+        Assert.Null(back.Review);
+        Assert.True(back.IsAnswering);
+        Assert.False(back.IsLive);
+        Assert.False(back.CanGoBack);   // answering the first problem: nothing precedes it
+        AssertRecordUnchanged(reviewing, back);
+
+        var practised = back.SubmitPlay(Best(), out var made);
+        Assert.Null(made);
+        Assert.True(practised.Review!.IsPractice);
+        AssertRecordUnchanged(reviewing, practised);
+        Assert.Same(AnswerOf(reviewing.Presented[0]), AnswerOf(practised.Presented[0]));
+    }
+
+    [Fact]
+    public void GoToFirst_OnTheFirstProblemsReview_EqualsBack()
+    {
+        var reviewing = Started(Plays(2)).SubmitPlay(Alt(), out _);
+        var first = reviewing.GoToFirst();
+        Assert.Same(reviewing.Presented[0], first.Cursor);
+        Assert.Null(first.Review);
+        Assert.True(first.IsAnswering);
+    }
+
+    [Fact]
+    public void FromALaterProblemsReview_BackReopensThatProblem_AndGoToFirstLandsOnTheFirst()
+    {
+        var reviewing = ThreePresented().SubmitPlay(Best(), out _);
+        Assert.Same(reviewing.Presented[2], reviewing.Cursor);
+
+        var back = reviewing.GoBack();
+        Assert.Same(reviewing.Presented[2], back.Cursor);
+        Assert.Null(back.Review);
+
+        var first = reviewing.GoToFirst();
+        Assert.Same(reviewing.Presented[0], first.Cursor);
+        Assert.Null(first.Review);
+        AssertRecordUnchanged(reviewing, first);
+    }
+
+    [Fact]
+    public void OnAOneProblemRun_TheProblemCanBeReanswered_AsPractice()
+    {
+        var reviewing = Started(CubeProblem(1)).SubmitCubeAnswer(CubeAnswer.NoDouble, out var ofRecord);
+        Assert.NotNull(ofRecord);
+        Assert.False(reviewing.HasMore);
+        Assert.True(reviewing.CanGoBack);
+
+        var practised = reviewing.GoBack().SubmitCubeAnswer(CubeAnswer.DoublePass, out var made);
+
+        Assert.Null(made);
+        Assert.True(practised.Review!.IsPractice);
+        AssertRecordUnchanged(reviewing, practised);
+        var ended = practised.Next(out var brings).PresentNext(false);
+        Assert.True(brings);
+        Assert.Equal(reviewing.Score, ended.ToResult().Score);
+    }
+
+    [Fact]
     public void Navigation_LeavesTheRecordStanding_AndNeverPresentsAProblem()
     {
         var run = ThreePresented().GoBack().SubmitPlay(Best(), out _);   // a practice review on the skipped one
@@ -503,7 +569,8 @@ public class QuizRunTests
         Assert.NotNull(reviewing.Review);
         Assert.Null(reviewing.GoBack().Review);
         Assert.Null(reviewing.GoToFirst().Review);
-        Assert.Null(reviewing.GoBack().GoToLast().Review);
+        // Behind the frontier by ⏮: from a review, ◀ reopens the problem on screen (2026-10-25, #365).
+        Assert.Null(reviewing.GoToFirst().GoToLast().Review);
         Assert.Null(MoveOn(reviewing).Review);
         Assert.Null(staged.GoBack().SubmitPlay(Best(), out _).Next(out _).Review);
     }

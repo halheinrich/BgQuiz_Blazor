@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
 
@@ -51,6 +52,35 @@ public sealed class NavigationTests : E2eTestBase
         await Expect(VerdictBand).Not.ToContainTextAsync("Practice");
         await Expect(Page.GetByText(ExpectedText.Skipped(0))).ToBeVisibleAsync();
         await Expect(Page.GetByText(ExpectedText.Submitted(1))).ToBeVisibleAsync();
+    }
+
+    [Fact]
+    public async Task BackOnTheFirstProblemsSolution_ReopensItsQuestion_AndTheReanswerIsPractice()
+    {
+        // §2, amended 2026-10-25 (halheinrich/backgammon#365): on a solution
+        // view ◀ lands on that same problem's decision, so even the first
+        // problem's answer can be checked again; the re-answer is practice and
+        // the answer of record stands.
+        await StartTwoCubeProblemsInNormalViewAsync();
+        await AnswerCubeNoDoubleAsync();
+        await Expect(VerdictBand).Not.ToContainTextAsync("Practice");
+        var scorePanel = Page.Locator(".score-panel");
+        await Expect(scorePanel).ToContainTextAsync(ExpectedText.Submitted(1));
+        var recorded = await scorePanel.InnerTextAsync();
+        await Expect(NavButton(ExpectedText.BackButton)).ToBeEnabledAsync();
+        await Expect(NavButton(ExpectedText.GoToFirstButton)).ToBeEnabledAsync();
+
+        await NavButton(ExpectedText.BackButton).ClickAsync();
+
+        await ExpectProblemNumberAsync(1);
+        await Expect(SubmitButton).ToBeVisibleAsync();
+        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ContinueButton })).ToHaveCountAsync(0);
+        await Expect(NavButton(ExpectedText.BackButton)).ToBeDisabledAsync();   // answering the first problem
+
+        await AnswerCubeAsync(ExpectedText.DoublePassPill);
+
+        await Expect(VerdictBand).ToHaveTextAsync(new Regex("^" + Regex.Escape(ExpectedText.PracticePrefix)));
+        await Expect(scorePanel).ToHaveTextAsync(recorded);
     }
 
     [Fact]

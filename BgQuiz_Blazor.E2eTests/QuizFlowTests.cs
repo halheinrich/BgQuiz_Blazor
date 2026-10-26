@@ -203,13 +203,15 @@ public sealed class QuizFlowTests : E2eTestBase
             await Expect(Page.GetByText(ExpectedText.Submitted(1))).ToBeVisibleAsync();
 
             // Away and back: from the first problem ▶ then ◀, from the second
-            // ◀ then ▶. Each landing is awaited before the next gesture: a
-            // gesture that met the page still on the problem it was leaving
-            // would act on that one.
+            // ⏮ then ▶ — ⏮, since on a solution ◀ reopens the problem on screen
+            // (SPEC-quiz-history §2, amended 2026-10-25, halheinrich/backgammon#365).
+            // Each landing is awaited before the next gesture: a gesture that
+            // met the page still on the problem it was leaving would act on that
+            // one.
             var other = tooGoodFirst ? 2 : 1;
             var (away, back) = tooGoodFirst
                 ? (ExpectedText.NextButton, ExpectedText.BackButton)
-                : (ExpectedText.BackButton, ExpectedText.NextButton);
+                : (ExpectedText.GoToFirstButton, ExpectedText.NextButton);
             await NavButton(away).ClickAsync();
             Assert.Equal(ExpectedText.NoDoublePassPill, await ExpectCubeProblemAsync(other));
             await NavButton(back).ClickAsync();

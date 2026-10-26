@@ -55,7 +55,12 @@ internal sealed class QuizRun
 
     public bool IsLive => Cursor is { Disposition.IsCompleted: false };
     public bool IsAnswering => Cursor is not null && Review is null;
-    public bool CanGoBack => _cursor > 0;
+    /// <summary>
+    /// Whether ◀ and ⏮ have somewhere to go: a problem is on screen and either an earlier
+    /// problem exists or a review is showing, whose own question ◀ reopens (SPEC-quiz-history §2).
+    /// </summary>
+    public bool CanGoBack => Cursor is not null && (_cursor > 0 || Review is not null);
+
     public bool CanGoToLast => _cursor != NoCursor && _cursor < _presented.Length - 1;
 
     /// <summary>Whether Next would leave the problem on screen unanswered: it is at the frontier and not completed.</summary>
@@ -166,16 +171,21 @@ internal sealed class QuizRun
         return WithCursor(bringsNewProblem ? _cursor : _cursor + 1);
     }
 
+    /// <summary>Land on the first problem's decision; from the first problem's own review, that reopens its question.</summary>
     public QuizRun GoToFirst()
     {
-        RequireEarlierProblem();
+        RequireBackTarget();
         return WithCursor(0);
     }
 
+    /// <summary>
+    /// From a review, reopen the same problem's decision, where a completed problem is answered
+    /// again as practice; while answering, land on the previous problem.
+    /// </summary>
     public QuizRun GoBack()
     {
-        RequireEarlierProblem();
-        return WithCursor(_cursor - 1);
+        RequireBackTarget();
+        return WithCursor(Review is not null ? _cursor : _cursor - 1);
     }
 
     public QuizRun GoToLast()
@@ -237,9 +247,12 @@ internal sealed class QuizRun
         return cursor;
     }
 
-    private void RequireEarlierProblem()
+    private void RequireBackTarget()
     {
         if (!CanGoBack)
-            throw new InvalidOperationException("There is no earlier problem to go back to.");
+        {
+            throw new InvalidOperationException(
+                "There is nothing to go back to: no problem is on screen, or the first problem is being answered.");
+        }
     }
 }

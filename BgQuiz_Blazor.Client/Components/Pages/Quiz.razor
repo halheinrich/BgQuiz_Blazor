@@ -555,8 +555,9 @@
     /// technology. ▶ is called Skip where a press would add to the skip count
     /// and Next elsewhere — the run's rule, read as
     /// App.NextAddsToSkipCount and never rebuilt here. ⏮ and ◀ share one
-    /// gate (unavailable on the first problem), ⏭ is unavailable on the
-    /// frontier, and ▶ only while busy.
+    /// gate, the run's (unavailable only while answering the first problem:
+    /// on a solution view ◀ reopens that problem's question), ⏭ is
+    /// unavailable on the frontier, and ▶ only while busy.
     /// </summary>
     private RenderFragment NavigationControls => @<div class="quiz-nav d-flex gap-1" role="group" aria-label="@NavigationGroupName">
         <button class="btn btn-outline-secondary action-row-icon" disabled="@(!CanGoBack)"
