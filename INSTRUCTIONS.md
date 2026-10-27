@@ -149,7 +149,10 @@ build's output).
 - **The count is keyed by setup, filter and ranking** (`Selection.Describes`);
   a resample changes the setup, Settings the ranking. Never show a selection
   that does not describe what is on screen. The count is filter-only: with a
-  mix in effect it is the pool the mix draws from, and Home says so.
+  mix in effect it is the pool the mix draws from, and Home says so. The
+  selection also supplies the by-error order's reading of XG's error
+  (`Selection.RecordedError`, from the filter set it filtered with), so the
+  order reads the half the filter judged, never a second construction of it.
 - **An active mix contributes each decision id once** (`ProblemSequence`), so
   a fixture whose decisions share the default id composes to one problem.
 - **Nothing expensive runs from a snapshot notification.** The filter
