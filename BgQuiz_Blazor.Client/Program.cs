@@ -26,7 +26,7 @@ builder.Services.AddScoped<IFolderAccess, JsFolderAccess>();
 builder.Services.AddFilterSurface();
 builder.Services.AddScoped<QuizSettings>();
 builder.Services.AddScoped<MixDraft>();
-builder.Services.AddScoped<NotesPlacementStore>();
+builder.Services.AddScoped<NotesPreferencesStore>();
 builder.Services.AddScoped<IQuizLiveMarker, QuizLiveMarker>();
 
 builder.Services.AddScoped<ProblemLoad>(sp =>

@@ -31,7 +31,7 @@ public sealed class NotesPlacementGeometryTests : NotesPlacementTestBase
         await CountPlacementWritesAsync();
         await StartAtTheCubeReviewAsync();
         await OpenNotesAsync();
-        await OpenMoveControlAsync();
+        await OpenAdjustControlAsync();
 
         // A desktop choice off the centre: three steps right.
         for (int i = 0; i < 3; i++) await StepButton(ExpectedText.MoveRightButton).ClickAsync();
@@ -77,7 +77,7 @@ public sealed class NotesPlacementGeometryTests : NotesPlacementTestBase
         await StartAtTheCubeReviewAsync(PhoneWidth, PhoneHeight);
         await OpenNotesAsync();
         await ExpectFillsTheWidthAsync();
-        await OpenMoveControlAsync();
+        await OpenAdjustControlAsync();
 
         await StepButton(ExpectedText.MoveLeftButton).ClickAsync();
         await StepButton(ExpectedText.MoveRightButton).ClickAsync();
@@ -92,7 +92,7 @@ public sealed class NotesPlacementGeometryTests : NotesPlacementTestBase
     {
         await StartAtTheCubeReviewAsync();
         await OpenNotesAsync();
-        await OpenMoveControlAsync();
+        await OpenAdjustControlAsync();
 
         // The far corner: four steps right and four down.
         for (int i = 0; i < 4; i++)
@@ -103,10 +103,11 @@ public sealed class NotesPlacementGeometryTests : NotesPlacementTestBase
         await ExpectAtPositionAsync(1, 1, "in the far corner");
         var stored = await StoredPlacementAsync();
 
-        // Ever smaller windows: the title bar, Move's buttons and the close
-        // control stay inside the window. The last is shorter than the overlay's
-        // own height cap leaves room for, so only the clamp keeps it there.
-        foreach (var (width, height) in new[] { (480, 240), (320, 180), (260, 100) })
+        // Ever smaller windows: the title bar, the Adjust control's buttons and
+        // the close control stay inside the window. The last is shorter than
+        // the overlay's own height cap leaves room for, so only the clamp keeps
+        // it there.
+        foreach (var (width, height) in new[] { (480, 240), (320, 180) })
         {
             await Page.SetViewportSizeAsync(width, height);
             await ExpectToPassAsync(async () =>
@@ -115,6 +116,22 @@ public sealed class NotesPlacementGeometryTests : NotesPlacementTestBase
                 await AssertInsideTheWindowAsync(CloseNotesButton, "the close control", width, height);
             });
         }
+
+        // 260 x 100: since the Adjust group holds eight steps and Reset
+        // (halheinrich/backgammon#414) it wraps to three lines at this width,
+        // and the title bar with it is taller than the window. No placement can
+        // fit it, so the start edge wins: the title bar's top at the window's,
+        // and its first line — the heading, Adjust and the close control —
+        // inside the window.
+        await Page.SetViewportSizeAsync(260, 100);
+        await ExpectToPassAsync(async () =>
+        {
+            var bar = await LaidOutBoxAsync(TitleBar, "the title bar");
+            Assert.True(bar.Y >= -InView && bar.Y <= 1 + InView, $"the title bar's top should be at the window's: {bar.Y:0.#}");
+            await AssertInsideTheWindowAsync(NotesHeading, "the heading", 260, 100);
+            await AssertInsideTheWindowAsync(AdjustButton, "the Adjust control", 260, 100);
+            await AssertInsideTheWindowAsync(CloseNotesButton, "the close control", 260, 100);
+        });
 
         // The clamp changed what was shown, never what is held: grown again,
         // the window shows the overlay in the far corner.
@@ -133,7 +150,7 @@ public sealed class NotesPlacementGeometryTests : NotesPlacementTestBase
 
         // The cube's short note, moved one step right and three down.
         await OpenNotesAsync();
-        await OpenMoveControlAsync();
+        await OpenAdjustControlAsync();
         await StepButton(ExpectedText.MoveRightButton).ClickAsync();
         for (int i = 0; i < 3; i++) await StepButton(ExpectedText.MoveDownButton).ClickAsync();
         await ExpectAtPositionAsync(0.625, 0.875, "the short note");
@@ -172,7 +189,7 @@ public sealed class NotesPlacementGeometryTests : NotesPlacementTestBase
         await CountPlacementWritesAsync();
         await StartAtTheCubeReviewAsync();
         await OpenNotesAsync();
-        await OpenMoveControlAsync();
+        await OpenAdjustControlAsync();
         await StepButton(ExpectedText.MoveLeftButton).ClickAsync();
         await StepButton(ExpectedText.MoveLeftButton).ClickAsync();
         await StepButton(ExpectedText.MoveDownButton).ClickAsync();

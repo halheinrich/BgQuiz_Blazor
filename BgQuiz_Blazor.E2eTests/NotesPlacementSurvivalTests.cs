@@ -4,11 +4,13 @@ using static Microsoft.Playwright.Assertions;
 namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
-/// What the notes overlay's placement survives (<c>SPEC-quiz-view.md</c> §4,
-/// "The notes overlay's placement is a remembered preference", "What it
-/// survives", and §6's table; issue <c>halheinrich/backgammon#344</c>):
-/// closing the notes, the next problem, navigating away and back, End quiz
-/// and the next Start, and a full reload — and Reset, which is what clears it.
+/// What the notes overlay's placement and size survive (<c>SPEC-quiz-view.md</c>
+/// §4, "The notes overlay's placement is a remembered preference" and "The
+/// notes overlay's size is a remembered preference", "What it survives", and
+/// §6's table; issues <c>halheinrich/backgammon#344</c> and
+/// <c>halheinrich/backgammon#414</c>): closing the notes, the next problem,
+/// navigating away and back, End quiz and the next Start, and a full reload —
+/// and Reset, which is what clears both.
 /// </summary>
 public sealed class NotesPlacementSurvivalTests : NotesPlacementTestBase
 {
@@ -17,11 +19,12 @@ public sealed class NotesPlacementSurvivalTests : NotesPlacementTestBase
     {
     }
 
-    /// <summary>The placement the scenario chooses: two steps right, one down.</summary>
-    private const double ChosenHorizontal = 0.75;
-
-    /// <inheritdoc cref="ChosenHorizontal"/>
-    private const double ChosenVertical = 0.625;
+    /// <summary>
+    /// What the scenario chose — a size two steps wider and one taller, then a
+    /// placement two steps right and one down — as stored, which every later
+    /// opening must show by the rules.
+    /// </summary>
+    private StoredPreferences? _chosen;
 
     private ILocator ShowStatsButton =>
         Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.ShowStatsButton, Exact = true });
@@ -30,14 +33,24 @@ public sealed class NotesPlacementSurvivalTests : NotesPlacementTestBase
         Page.GetByRole(AriaRole.Button, new() { Name = ExpectedText.EndQuizButton, Exact = true });
 
     [Fact]
-    public async Task AChosenPlacement_SurvivesClosing_TheNextProblem_StatsAndBack_EndQuizAndANewStart_AndAReload()
+    public async Task AChosenPlacementAndSize_SurviveClosing_TheNextProblem_StatsAndBack_EndQuizAndANewStart_AndAReload()
     {
         await StartAtTheCubeReviewAsync();
         await OpenNotesAsync();
-        await OpenMoveControlAsync();
+        await OpenAdjustControlAsync();
+        await WiderButton.ClickAsync();
+        await WiderButton.ClickAsync();
+        await TallerButton.ClickAsync();
         await StepButton(ExpectedText.MoveRightButton).ClickAsync();
         await StepButton(ExpectedText.MoveRightButton).ClickAsync();
         await StepButton(ExpectedText.MoveDownButton).ClickAsync();
+        await ExpectToPassAsync(async () =>
+        {
+            _chosen = await StoredPreferencesAsync();
+            Assert.NotNull(_chosen?.Width);
+            Assert.NotNull(_chosen?.Height);
+            Assert.True(_chosen!.Horizontal > 0.5 && _chosen.Vertical > 0.5, $"moved right and down: {_chosen}");
+        });
         await ExpectChosenAsync("as chosen");
         var stored = await StoredPlacementAsync();
         Assert.NotNull(stored);
@@ -81,27 +94,29 @@ public sealed class NotesPlacementSurvivalTests : NotesPlacementTestBase
         await OpenNotesAsync();
         await ExpectChosenAsync("in the next quiz");
 
-        // A full reload: the quiz is gone, the placement is not.
+        // A full reload: the quiz is gone, the preferences are not.
         await Page.ReloadAsync();
         await ExpectUrlAsync(AppRoute.Home);
         await StartAtTheCubeReviewAsync();
         await OpenNotesAsync();
         await ExpectChosenAsync("after a reload");
 
-        // None of it wrote anything: what is stored is what the moves wrote.
+        // None of it wrote anything: what is stored is what the gestures wrote.
         Assert.Equal(stored, await StoredPlacementAsync());
     }
 
     [Fact]
-    public async Task Reset_ThenAReload_OpensTheNotesCentred()
+    public async Task Reset_ThenAReload_OpensTheNotesCentred_AtTheirDefaultSize()
     {
         await StartAtTheCubeReviewAsync();
         await OpenNotesAsync();
-        await OpenMoveControlAsync();
+        await OpenAdjustControlAsync();
         await StepButton(ExpectedText.MoveLeftButton).ClickAsync();
         await StepButton(ExpectedText.MoveUpButton).ClickAsync();
         await ExpectAtPositionAsync(0.375, 0.375, "after the steps");
-        Assert.NotNull(await StoredPlacementAsync());
+        await NarrowerButton.ClickAsync();
+        await TallerButton.ClickAsync();
+        await ExpectToPassAsync(async () => Assert.NotNull((await StoredPreferencesAsync())?.Height));
 
         await ResetButton.ClickAsync();
         await ExpectOverlayCentredAsync("after Reset");
@@ -112,8 +127,22 @@ public sealed class NotesPlacementSurvivalTests : NotesPlacementTestBase
         await StartAtTheCubeReviewAsync();
         await OpenNotesAsync();
         await ExpectOverlayCentredAsync("after Reset and a reload");
+        AssertNear(DefaultWidth, (await OverlayBoxAsync()).Width, "the default width after Reset and a reload");
+        await Expect(NotesDialog).Not.ToHaveAttributeAsync("data-set-width", string.Empty);
+        await Expect(NotesDialog).Not.ToHaveAttributeAsync("data-set-height", string.Empty);
         Assert.Null(await StoredPlacementAsync());
     }
 
-    private Task ExpectChosenAsync(string when) => ExpectAtPositionAsync(ChosenHorizontal, ChosenVertical, when);
+    /// <summary>The chosen size shows, and stands where the rule puts the chosen placement with it.</summary>
+    private async Task ExpectChosenAsync(string when)
+    {
+        var chosen = _chosen!;
+        await ExpectAtPositionAsync(chosen.Horizontal!.Value, chosen.Vertical!.Value, when);
+        await ExpectToPassAsync(async () =>
+        {
+            var box = await OverlayBoxAsync();
+            AssertNear(chosen.Width!.Value, box.Width, $"{when}: the chosen width");
+            AssertNear(chosen.Height!.Value, box.Height, $"{when}: the chosen height");
+        });
+    }
 }

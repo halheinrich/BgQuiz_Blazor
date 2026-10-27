@@ -108,7 +108,7 @@ using XgFilter_Razor;
 ///
 /// <para>
 /// <b>Storage that refuses never stops the settings</b> (issue
-/// <c>halheinrich/backgammon#360</c>; <see cref="NotesPlacementStore"/>'s
+/// <c>halheinrich/backgammon#360</c>; <see cref="NotesPreferencesStore"/>'s
 /// shape). A read the browser refuses leaves every setting at its default; a
 /// write it refuses keeps the new value for the rest of the visit. Each is
 /// logged as a warning with the exception attached, in this type's words, and

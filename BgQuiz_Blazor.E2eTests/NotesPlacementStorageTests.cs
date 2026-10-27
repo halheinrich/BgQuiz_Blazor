@@ -45,7 +45,7 @@ public sealed class NotesPlacementStorageTests : NotesPlacementTestBase
 
         // The move still happens, and holds for the session though it cannot
         // be written: closed and reopened, and across a navigation.
-        await OpenMoveControlAsync();
+        await OpenAdjustControlAsync();
         await StepButton(ExpectedText.MoveRightButton).ClickAsync();
         await StepButton(ExpectedText.MoveUpButton).ClickAsync();
         await ExpectAtPositionAsync(0.625, 0.375, "moved with storage that throws");
@@ -64,7 +64,7 @@ public sealed class NotesPlacementStorageTests : NotesPlacementTestBase
         await ExpectAtPositionAsync(0.625, 0.375, "after Show stats and back");
 
         // Reset works the same way, and none of it was ever an error.
-        await OpenMoveControlAsync();
+        await OpenAdjustControlAsync();
         await ResetButton.ClickAsync();
         await ExpectOverlayCentredAsync("after Reset");
         await Expect(Page.Locator("#blazor-error-ui")).ToBeHiddenAsync();
@@ -96,7 +96,7 @@ public sealed class NotesPlacementStorageTests : NotesPlacementTestBase
         await OpenNotesAsync();
         await ExpectOverlayCentredAsync($"with {stored ?? "nothing"} stored");
 
-        await OpenMoveControlAsync();
+        await OpenAdjustControlAsync();
         await StepButton(ExpectedText.MoveDownButton).ClickAsync();
         await ExpectAtPositionAsync(0.5, 0.625, "after a step down");
         var written = await StoredPlacementAsync();
@@ -107,5 +107,29 @@ public sealed class NotesPlacementStorageTests : NotesPlacementTestBase
         await CloseNotesButton.ClickAsync();
         await OpenNotesAsync();
         await ExpectAtPositionAsync(0.5, 0.625, "reopened");
+    }
+
+    /// <summary>
+    /// A placement stored beside a size that is unusable — not a number, not
+    /// positive, out of range (halheinrich/backgammon#414): each preference is
+    /// read on its own, so the placement stands and the size is the default.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"horizontal":0.25,"vertical":0.75,"width":"wide","height":300}""")]
+    [InlineData("""{"horizontal":0.25,"vertical":0.75,"width":0,"height":null}""")]
+    [InlineData("""{"horizontal":0.25,"vertical":0.75,"width":400,"height":-5}""")]
+    [InlineData("""{"horizontal":0.25,"vertical":0.75,"width":1e400}""")]
+    public async Task GarbageInTheSizeFields_LeavesThePlacementStanding_AtTheDefaultSize(string stored)
+    {
+        await Page.AddInitScriptAsync(
+            $"localStorage.setItem({JsonSerializer.Serialize(PlacementKey)}, {JsonSerializer.Serialize(stored)});");
+        await StartAtTheCubeReviewAsync();
+
+        await OpenNotesAsync();
+        await ExpectAtPositionAsync(0.25, 0.75, $"with {stored} stored");
+        AssertNear(DefaultWidth, (await OverlayBoxAsync()).Width, "the default width");
+        await Expect(NotesDialog).Not.ToHaveAttributeAsync("data-set-width", string.Empty);
+        await Expect(NotesDialog).Not.ToHaveAttributeAsync("data-set-height", string.Empty);
+        Assert.Equal(stored, await StoredPlacementAsync());
     }
 }

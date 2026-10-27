@@ -1,8 +1,10 @@
 @* The decision's notes: a control that opens the comment as an overlay above
    the page (SPEC-quiz-view.md §4, amended 2026-09-15; issue
    halheinrich/backgammon#31), which the reader can move out of the way and
-   which opens where they last put it (§4, "The notes overlay's placement is a
-   remembered preference", ruled 2026-10-05; halheinrich/backgammon#344). One
+   resize, and which opens where they last put it and as large as they
+   made it (§4, "The notes overlay's placement is a remembered preference",
+   ruled 2026-10-05, halheinrich/backgammon#344; "The notes overlay's size is
+   a remembered preference", ruled 2026-10-25, halheinrich/backgammon#414). One
    component owns the control, the overlay and whether it is open; the host
    passes the comment and nothing else. Renders nothing when the comment is
    empty (see the code-behind). *@
@@ -23,41 +25,50 @@
         <div class="decision-notes-backdrop" @ref="_backdrop" @onclick="Close"></div>
         @* tabindex -1: focus is moved here on open, and a click on the text
            keeps focus inside, which is what lets Esc reach the handler.
-           data-placed and the two lengths: where the placement shows the
-           overlay, once its stage is measured. Until then the stylesheet
-           centres it, which is where an unset placement shows it too. *@
+           data-placed and the custom properties: the box the preferences
+           show, once the stage is measured — the position always, and a
+           length, with its data-set-* attribute, on each axis whose size is
+           set. Until then the stylesheet centres it at its default size,
+           which is where and how unset preferences show it too. *@
         <dialog open id="@_dialogId" class="decision-notes" tabindex="-1"
                 aria-labelledby="@HeadingId" @ref="_dialog" @onkeydown="HandleKeyDownAsync"
-                data-placed="@(Position is null ? null : string.Empty)" style="@PositionStyle">
-            @* The title bar is the drag handle, and the only one: the text stays
-               selectable and scrollable. Its own buttons never start a drag —
-               their groups stop the press before it reaches the handle. *@
+                data-placed="@(Box is null ? null : string.Empty)"
+                data-set-width="@(Box?.Width is null ? null : string.Empty)"
+                data-set-height="@(Box?.Height is null ? null : string.Empty)"
+                style="@BoxStyle">
+            @* The title bar is the move handle, and the only one: the text
+               stays selectable and scrollable. Its own buttons never start a
+               drag — their groups stop the press before it reaches the handle. *@
             <div class="decision-notes-header" @ref="_titleBar"
-                 @onpointerdown="BeginDragAsync" @onpointermove="ContinueDrag"
+                 @onpointerdown="BeginMoveAsync" @onpointermove="ContinueDrag"
                  @onpointerup="EndDragAsync" @onpointercancel="CancelDrag"
                  @onlostpointercapture="CancelDrag">
                 <h2 class="h6 m-0" id="@HeadingId">@Label</h2>
                 <div class="decision-notes-tools" @onpointerdown:stopPropagation="true">
-                    <button type="button" class="btn btn-sm btn-outline-secondary" title="@MoveTitle"
-                            aria-expanded="@(_moveOpen ? "true" : "false")"
-                            aria-controls="@(_moveOpen ? StepsId : null)" @onclick="ToggleMove">
-                        @MoveLabel
+                    <button type="button" class="btn btn-sm btn-outline-secondary" title="@AdjustTitle"
+                            aria-expanded="@(_adjustOpen ? "true" : "false")"
+                            aria-controls="@(_adjustOpen ? StepsId : null)" @onclick="ToggleAdjust">
+                        @AdjustLabel
                     </button>
                     <button type="button" class="btn-close" aria-label="@CloseLabel"
                             @onclick="Close"></button>
                 </div>
-                @if (_moveOpen)
+                @if (_adjustOpen)
                 {
-                    @* The single-pointer alternative to dragging: ordinary
+                    @* The single-pointer alternative to both drags: ordinary
                        buttons, so a click, a tap and Enter or Space on a
-                       focused one are the same press. *@
+                       focused one are the same press. An arrow is all a move
+                       step shows, so its name is its accessible name and its
+                       tooltip; a size step shows its name as its text. *@
                     <div id="@StepsId" class="decision-notes-steps" role="group" aria-label="@StepsName"
                          @onpointerdown:stopPropagation="true">
-                        @foreach (var (step, glyph, name) in Steps)
+                        @foreach (var step in Steps)
                         {
                             <button type="button" class="btn btn-sm btn-outline-secondary"
-                                    aria-label="@name" title="@name" @onclick="() => StepAsync(step)">
-                                @glyph
+                                    aria-label="@(step.Glyph is null ? null : step.Name)"
+                                    title="@(step.Glyph is null ? null : step.Name)"
+                                    @onclick="() => StepAsync(step.Apply)">
+                                @(step.Glyph ?? step.Name)
                             </button>
                         }
                         <button type="button" class="btn btn-sm btn-outline-secondary" title="@ResetTitle"
@@ -69,7 +80,16 @@
             </div>
             @* The text as the source stored it: rendered as a text node, never
                inspected, whitespace kept by the stylesheet (pre-wrap). *@
-            <div class="decision-notes-text">@Comment</div>
+            <div class="decision-notes-text" @ref="_text">@Comment</div>
+            @* The resize handle: the overlay's bottom-right corner, a pointer
+               target only — hidden from assistive technology and never
+               focused, because the size steps are the way to resize without a
+               pointer. Outside the title bar, so a press on it never reaches
+               the move handle. *@
+            <div class="decision-notes-resize" aria-hidden="true" @ref="_resizeHandle"
+                 @onpointerdown="BeginResizeAsync" @onpointermove="ContinueDrag"
+                 @onpointerup="EndDragAsync" @onpointercancel="CancelDrag"
+                 @onlostpointercapture="CancelDrag"></div>
         </dialog>
     }
 }

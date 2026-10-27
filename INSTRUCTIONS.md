@@ -43,13 +43,13 @@ condition), BgMoveGen
   read at the pick, brought up to date as a run's recording touches it),
   `MixDraft` (the mix builder's edit state, persisted as the
   user types) with `MixDisplay`, `QuizLiveMarker` (the live mark in
-  `sessionStorage` the reload notice reads), `QuizSettings`, `NotesPlacementStore`,
+  `sessionStorage` the reload notice reads), `QuizSettings`, `NotesPreferencesStore`,
   `PickedFileLimits` (the pick caps: this app's policy).
 - **`Components/Pages`** — `Home` (setup, the mix panel and Start), `Quiz`
   (the board, the answer and navigation row, the run's notices), `Stats`
   (the progress so far), `Done` (the summary and Restart), `Settings`,
   `Help`; `MixPanel`, `ScorePanel`, `ScoreBreakdown`. **`Components`** —
-  `DecisionNotes` (the notes overlay and its placement), `TailMenu`,
+  `DecisionNotes` (the notes overlay, its placement and its size), `TailMenu`,
   `ProblemLocator`, `XgidLabel`, `FeedbackAddress`, `ClipboardCopy` (the
   one copy-and-confirm every copy control shares), `ReturnControl`,
   `ProblemFolderLabel`.

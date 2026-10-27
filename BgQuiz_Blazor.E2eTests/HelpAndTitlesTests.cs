@@ -176,6 +176,8 @@ public sealed class HelpAndTitlesTests : E2eTestBase
         await Expect(body).ToContainTextAsync("xg_quizMix");
         await Expect(body).ToContainTextAsync("xg_quizSettings");
         await Expect(body).ToContainTextAsync("xg_notesPlacement");
+        await Expect(body).ToContainTextAsync("where you last moved a problem's notes and how large you made them");
+        await Expect(body).ToContainTextAsync("it is written only when you move or resize the notes");
         await Expect(body).ToContainTextAsync("bgquiz.quizLive");
 
         // ...kept only where the browser allows it, and where to look when it
@@ -283,23 +285,28 @@ public sealed class HelpAndTitlesTests : E2eTestBase
     }
 
     /// <summary>
-    /// Help's account of moving the decision's notes (SPEC-quiz-view.md §4,
-    /// "The notes overlay's placement is a remembered preference";
-    /// halheinrich/backgammon#344): both ways to move them, the way to put
-    /// them back, and that the place is kept. Independent literals per the
-    /// copy-pin split; the behaviour is pinned in the NotesPlacement suites.
+    /// Help's account of moving and resizing the decision's notes
+    /// (SPEC-quiz-view.md §4, "The notes overlay's placement is a remembered
+    /// preference" and "The notes overlay's size is a remembered preference";
+    /// halheinrich/backgammon#344, halheinrich/backgammon#414): both ways to
+    /// move them, both ways to resize them, the way to put them back, and that
+    /// the place and size are kept. Independent literals per the copy-pin
+    /// split; the behaviour is pinned in the NotesPlacement and NotesSize suites.
     /// </summary>
     [Fact]
-    public async Task HelpSaysTheNotesCanBeMoved_AndPutBack()
+    public async Task HelpSaysTheNotesCanBeMovedAndResized_AndPutBack()
     {
         await Page.GotoAsync(BaseUrl + "/help");
 
         var body = Page.Locator("body");
 
         await Expect(body).ToContainTextAsync("drag them by their title bar");
-        await Expect(body).ToContainTextAsync("press Move for buttons that step them up, down, left or right");
-        await Expect(body).ToContainTextAsync("Reset puts them back in the middle");
-        await Expect(body).ToContainTextAsync("They open where you last put them, even after you reload the page");
+        await Expect(body).ToContainTextAsync("press Adjust for buttons that step them up, down, left or right");
+        await Expect(body).ToContainTextAsync("drag the corner at their bottom right");
+        await Expect(body).ToContainTextAsync("use the Wider, Narrower, Taller and Shorter buttons under Adjust");
+        await Expect(body).ToContainTextAsync("Reset puts them back in the middle at their first size");
+        await Expect(body).ToContainTextAsync(
+            "They open where you last put them and as large as you made them, even after you reload the page");
     }
 
     /// <summary>

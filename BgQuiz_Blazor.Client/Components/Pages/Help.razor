@@ -112,7 +112,7 @@
 
            The browser entries are rendered from the constants that write them
            (MixDraft.StorageKey, QuizSettings.StorageKey,
-           NotesPlacementStore.StorageKey, QuizLiveMarker.StorageKey), never typed
+           NotesPreferencesStore.StorageKey, QuizLiveMarker.StorageKey), never typed
            as prose
            literals, so a name a reader checks in devtools cannot drift from the name
            the code stores under — the discipline the file names and pick caps already
@@ -159,11 +159,12 @@
                 closing the browser.
             </li>
             <li>
-                <code>@NotesPlacementStore.StorageKey</code> — where you last moved a
-                problem's notes, also in this site's local storage. It holds that
-                position and nothing else; it is written only when you move the
-                notes, removed when you press <em>Reset</em>, and it too survives
-                reloading and closing the browser.
+                <code>@NotesPreferencesStore.StorageKey</code> — where you last moved a
+                problem's notes and how large you made them, also in this site's
+                local storage. It holds that position and size and nothing else; it
+                is written only when you move or resize the notes, removed when you
+                press <em>Reset</em>, and it too survives reloading and closing the
+                browser.
             </li>
             <li>
                 <code>@QuizLiveMarker.StorageKey</code> — a single mark noting that a
@@ -692,9 +693,12 @@
             its solution. If you saved a comment on the position in eXtreme Gammon, a
             <em>Notes</em> button beside them shows it over the page; Esc or a click outside
             closes it. If the notes are in your way, drag them by their title bar, or press
-            <em>Move</em> for buttons that step them up, down, left or right; <em>Reset</em>
-            puts them back in the middle. They open where you last put them, even after you
-            reload the page.
+            <em>Adjust</em> for buttons that step them up, down, left or right. To make them
+            larger or smaller, drag the corner at their bottom right, or use the
+            <em>Wider</em>, <em>Narrower</em>, <em>Taller</em> and <em>Shorter</em> buttons
+            under <em>Adjust</em>; <em>Reset</em> puts them back in the middle at their first
+            size. They open where you last put them and as large as you made them, even after
+            you reload the page.
         </p>
         @* Practice and the deferred skip (SPEC-quiz-history.md §3, Hal's rulings of
            2026-09-30 and 2026-10-02 on halheinrich/backgammon#8). Returning to a

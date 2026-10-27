@@ -198,26 +198,39 @@ internal static class ExpectedText
     internal const string CloseNotesButton = "Close notes";
 
     /// <summary>
-    /// The notes overlay's Move control, in its title bar, which shows the step
-    /// buttons and Reset (<c>Components/DecisionNotes.razor</c>;
-    /// halheinrich/backgammon#344). Exact-match it: the step buttons' names
-    /// begin with the same word.
+    /// The notes overlay's Adjust control, in its title bar, which shows the
+    /// move and size step buttons and Reset (<c>Components/DecisionNotes.razor</c>;
+    /// halheinrich/backgammon#344, and halheinrich/backgammon#414, which renamed
+    /// it from "Move" when it gained the size steps). Copy proposed for Hal's
+    /// ruling in the candidate.
     /// </summary>
-    internal const string MoveNotesButton = "Move";
+    internal const string AdjustNotesButton = "Adjust";
 
-    /// <summary>The Move control's up step, by its accessible name and tooltip (an arrow is all it shows).</summary>
+    /// <summary>The Adjust control's up step, by its accessible name and tooltip (an arrow is all it shows).</summary>
     internal const string MoveUpButton = "Move up";
 
-    /// <summary>The Move control's down step.</summary>
+    /// <summary>The Adjust control's down step.</summary>
     internal const string MoveDownButton = "Move down";
 
-    /// <summary>The Move control's left step.</summary>
+    /// <summary>The Adjust control's left step.</summary>
     internal const string MoveLeftButton = "Move left";
 
-    /// <summary>The Move control's right step.</summary>
+    /// <summary>The Adjust control's right step.</summary>
     internal const string MoveRightButton = "Move right";
 
-    /// <summary>The Move control's Reset, which puts the notes back in the middle.</summary>
+    /// <summary>The Adjust control's wider step, which shows its name as its text (halheinrich/backgammon#414).</summary>
+    internal const string WiderButton = "Wider";
+
+    /// <summary>The Adjust control's narrower step.</summary>
+    internal const string NarrowerButton = "Narrower";
+
+    /// <summary>The Adjust control's taller step.</summary>
+    internal const string TallerButton = "Taller";
+
+    /// <summary>The Adjust control's shorter step.</summary>
+    internal const string ShorterButton = "Shorter";
+
+    /// <summary>The Adjust control's Reset, which puts the notes back in the middle at their first size.</summary>
     internal const string ResetNotesButton = "Reset";
 
     /// <summary>

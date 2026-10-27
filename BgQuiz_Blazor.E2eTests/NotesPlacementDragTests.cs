@@ -69,13 +69,13 @@ public sealed class NotesPlacementDragTests : NotesPlacementTestBase
     {
         await StartAtTheCubeReviewAsync();
         await OpenNotesAsync();
-        await OpenMoveControlAsync();
+        await OpenAdjustControlAsync();
 
         // The steps make the overlay taller, and it is re-placed for that
         // height a rendering step later (halheinrich/backgammon#402). Nothing
         // is stored here, so the baseline is where an unset placement stands
         // at the new height: centred.
-        await ExpectOverlayCentredAsync("the Move control open, the preference unset");
+        await ExpectOverlayCentredAsync("the Adjust control open, the preference unset");
         var start = await OverlayBoxAsync();
 
         // On the text: the drag selects text, as it always has, and the
@@ -101,7 +101,7 @@ public sealed class NotesPlacementDragTests : NotesPlacementTestBase
         // that wanders off and is released elsewhere is no drag (and no click).
         foreach (var button in new[]
                  {
-                     MoveButton, CloseNotesButton, StepButton(ExpectedText.MoveUpButton),
+                     AdjustButton, CloseNotesButton, StepButton(ExpectedText.MoveUpButton),
                      StepButton(ExpectedText.MoveRightButton), ResetButton,
                  })
         {

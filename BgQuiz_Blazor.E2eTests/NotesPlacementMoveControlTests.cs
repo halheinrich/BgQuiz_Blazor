@@ -4,7 +4,7 @@ using static Microsoft.Playwright.Assertions;
 namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
-/// Moving the notes overlay without dragging: the Move control's four step
+/// Moving the notes overlay without dragging: the Adjust control's four move
 /// buttons and Reset, by mouse and by keyboard (<c>SPEC-quiz-view.md</c> §4,
 /// "The notes overlay's placement is a remembered preference", "Without
 /// dragging"; issue <c>halheinrich/backgammon#344</c>). Each press moves the
@@ -29,7 +29,7 @@ public sealed class NotesPlacementMoveControlTests : NotesPlacementTestBase
         await CountPlacementWritesAsync();
         await StartAtTheCubeReviewAsync();
         await OpenNotesAsync();
-        await OpenMoveControlAsync();
+        await OpenAdjustControlAsync();
 
         // From the centre — unset — each button moves one step its way, and
         // each press is written.
@@ -70,12 +70,12 @@ public sealed class NotesPlacementMoveControlTests : NotesPlacementTestBase
         await Expect(NotesDialog).ToBeFocusedAsync();
         await ExpectKeyboardShortcutReadyAsync();
 
-        // The Move control is the first thing Tab reaches in the notes; Enter
+        // The Adjust control is the first thing Tab reaches in the notes; Enter
         // opens its buttons.
         await Page.Keyboard.PressAsync("Tab");
-        await Expect(MoveButton).ToBeFocusedAsync();
+        await Expect(AdjustButton).ToBeFocusedAsync();
         await Page.Keyboard.PressAsync("Enter");
-        await Expect(MoveButton).ToHaveAttributeAsync("aria-expanded", "true");
+        await Expect(AdjustButton).ToHaveAttributeAsync("aria-expanded", "true");
 
         // Past the close button to each step in turn: Enter steps once, Space
         // steps again — the keyboard presses the same buttons a click does.
@@ -100,16 +100,18 @@ public sealed class NotesPlacementMoveControlTests : NotesPlacementTestBase
         await PressAndExpectAsync(" ", 0.5 + Step, 0.5);
         Assert.NotNull(await StoredPlacementAsync());
 
-        // Reset by Enter...
+        // Reset by Enter, past the four size steps (NotesSizeStepTests')...
+        await TabPastTheSizeStepsAsync();
         await TabToAsync(ExpectedText.ResetNotesButton);
         await Page.Keyboard.PressAsync("Enter");
         await ExpectOverlayCentredAsync("after Reset by Enter");
         Assert.Null(await StoredPlacementAsync());
 
         // ...and by Space, after a step away.
-        await Page.Keyboard.PressAsync("Shift+Tab");
+        for (int i = 0; i < 5; i++) await Page.Keyboard.PressAsync("Shift+Tab");
         await Expect(StepButton(ExpectedText.MoveRightButton)).ToBeFocusedAsync();
         await PressAndExpectAsync("Enter", 0.5 + Step, 0.5);
+        await TabPastTheSizeStepsAsync();
         await TabToAsync(ExpectedText.ResetNotesButton);
         await Page.Keyboard.PressAsync(" ");
         await ExpectOverlayCentredAsync("after Reset by Space");
@@ -119,6 +121,14 @@ public sealed class NotesPlacementMoveControlTests : NotesPlacementTestBase
         // shortcut: the review is still here.
         await Expect(ContinueButton).ToBeVisibleAsync();
         await Expect(NotesDialog).ToBeVisibleAsync();
+    }
+
+    /// <summary>Tab across the four size steps, which sit between the move steps and Reset.</summary>
+    private async Task TabPastTheSizeStepsAsync()
+    {
+        foreach (var name in new[]
+                 { ExpectedText.WiderButton, ExpectedText.NarrowerButton, ExpectedText.TallerButton, ExpectedText.ShorterButton })
+            await TabToAsync(name);
     }
 
     /// <summary>Press Tab once and expect the step (or Reset) button named <paramref name="name"/> to have focus.</summary>

@@ -1,12 +1,6 @@
-using AngleSharp.Dom;
 using BgQuiz_Blazor.Client.Components;
-using BgQuiz_Blazor.Client.Quiz;
-using BgUiPrimitives_Razor;
-using BgUiPrimitives_Razor.TestSupport;
 using Bunit;
 using Microsoft.AspNetCore.Components.Web;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.JSInterop;
 
 namespace BgQuiz_Blazor.Tests;
 
@@ -18,123 +12,12 @@ namespace BgQuiz_Blazor.Tests;
 /// stage is measured, and the state transitions of moving it — a drag that
 /// begins only on the title bar's handle, shows as it goes, commits on release
 /// and is cancelled by a lost capture, a cancelled pointer, Esc, closing or
-/// unmounting; and the Move control's steps and Reset.
-///
-/// <para>
-/// <b>The browser is played by hand here.</b> The module's stage report is
-/// <see cref="DecisionNotes.OnStageMeasured"/> called directly, and pointer
-/// capture is a planned call. What a real pointer, real keys and real storage
-/// do with all of it is the e2e suite's (<c>NotesPlacement*Tests</c>); the
-/// arithmetic behind every number below is <c>NotesStageTests</c>'.
-/// </para>
+/// unmounting; and the Adjust control's move steps and Reset. Resizing is
+/// <c>DecisionNotesResizeTests</c>'; the shared fixture, and what it plays by
+/// hand, is <see cref="DecisionNotesGestureTestBase"/>'s.
 /// </summary>
-public class DecisionNotesPlacementTests : BunitContext
+public class DecisionNotesPlacementTests : DecisionNotesGestureTestBase
 {
-    private const string Note = "Hit loose here; the gammons are worth it.";
-
-    /// <summary>
-    /// The stage reported in these tests: a 1280 × 800 area, the 16 px
-    /// clearance, a 576 × 200 overlay whose title bar ends 56 px down it. Its
-    /// travel is 672 across and 568 down, so the overlay is drawn centred at
-    /// (352, 300), and an eighth of the travel is 84 across and 71 down.
-    /// </summary>
-    private static readonly double[] Desktop = [1280, 800, 16, 576, 200, 56];
-
-    /// <summary>A phone: the overlay fills the width less the clearance, so there is no horizontal travel.</summary>
-    private static readonly double[] Phone = [375, 812, 16, 343, 220, 56];
-
-    private const string Centred = "--notes-left: 352px; --notes-top: 300px";
-
-    private const long Mouse = 1;
-
-    private readonly BunitJSModuleInterop _module;
-
-    private readonly BunitJSModuleInterop _handle;
-
-    public DecisionNotesPlacementTests()
-    {
-        JSInterop.Mode = JSRuntimeMode.Loose;
-        _module = JSInterop.SetupModule(DecisionNotes.ModulePath);
-        _module.Mode = JSRuntimeMode.Loose;
-        _handle = _module.SetupModule("watch", _ => true);
-        _handle.Mode = JSRuntimeMode.Loose;
-        _handle.Setup<bool>("capture", _ => true).SetResult(true);
-        Services.AddReportingBrowserStorage();
-        Services.AddScoped<NotesPlacementStore>();
-
-        // Storage is planned for every test: what is written, and that nothing
-        // is, are this suite's statements. Notes() declares the store's one
-        // load; each test declares the writes it expects, so an undeclared
-        // write fails where it is made and Verify reports a missing one.
-        _plan = BrowserStoragePlan.On(JSInterop);
-    }
-
-    private readonly BrowserStoragePlan _plan;
-
-    /// <summary>The placement the store's load finds; nothing stored unless a test says otherwise.</summary>
-    private BrowserStorageReadAnswer _stored = BrowserStorageReadAnswer.Absent;
-
-    private void StageStored(string json) => _stored = BrowserStorageReadAnswer.Stored(json);
-
-    /// <summary>Expect the move or Reset that writes <paramref name="json"/> — or removes the entry, for <see langword="null"/>.</summary>
-    private void ExpectWritten(string? json)
-    {
-        if (json is null)
-            _plan.ExpectRemove(BrowserStorageArea.Local, NotesPlacementStore.StorageKey, BrowserStorageWriteAnswer.Succeeded);
-        else
-            _plan.ExpectWrite(BrowserStorageArea.Local, NotesPlacementStore.StorageKey, json, BrowserStorageWriteAnswer.Succeeded);
-    }
-
-    /// <summary>The notes, rendered, with the store's one load of this app declared.</summary>
-    private IRenderedComponent<DecisionNotes> Notes()
-    {
-        _plan.ExpectRead(BrowserStorageArea.Local, NotesPlacementStore.StorageKey, _stored);
-        return Render<DecisionNotes>(p => p.Add(c => c.Comment, Note));
-    }
-
-    private static async Task OpenAsync(IRenderedComponent<DecisionNotes> cut) =>
-        await cut.Find("button.decision-notes-toggle").ClickAsync(new());
-
-    private static Task ReportAsync(IRenderedComponent<DecisionNotes> cut, double[] stage) =>
-        cut.InvokeAsync(() => cut.Instance.OnStageMeasured(stage[0], stage[1], stage[2], stage[3], stage[4], stage[5]));
-
-    /// <summary>Open the notes and report the desktop stage: the overlay is placed.</summary>
-    private async Task<IRenderedComponent<DecisionNotes>> PlacedAsync(double[]? stage = null)
-    {
-        var cut = Notes();
-        await OpenAsync(cut);
-        await ReportAsync(cut, stage ?? Desktop);
-        return cut;
-    }
-
-    private static IElement Dialog(IRenderedComponent<DecisionNotes> cut) => cut.Find("dialog");
-
-    private static string? Drawn(IRenderedComponent<DecisionNotes> cut) => Dialog(cut).GetAttribute("style");
-
-    private static IElement Heading(IRenderedComponent<DecisionNotes> cut) => cut.Find(".decision-notes-header h2");
-
-    private static PointerEventArgs Pointer(double x, double y, long id = Mouse, long button = 0, bool primary = true) =>
-        new() { PointerId = id, ClientX = x, ClientY = y, Button = button, IsPrimary = primary, PointerType = "mouse" };
-
-    /// <summary>Press on the title bar's heading — a spot on the handle that is no button — at (400, 330).</summary>
-    private static Task GrabAsync(IRenderedComponent<DecisionNotes> cut, long id = Mouse) =>
-        Heading(cut).TriggerEventAsync("onpointerdown", Pointer(400, 330, id));
-
-    private static Task MoveToAsync(IRenderedComponent<DecisionNotes> cut, double x, double y, long id = Mouse) =>
-        cut.Find(".decision-notes-header").TriggerEventAsync("onpointermove", Pointer(x, y, id));
-
-    private static Task ReleaseAtAsync(IRenderedComponent<DecisionNotes> cut, double x, double y, long id = Mouse) =>
-        cut.Find(".decision-notes-header").TriggerEventAsync("onpointerup", Pointer(x, y, id));
-
-    private int Captures => _handle.Invocations["capture"].Count;
-
-    private static IElement StepButton(IRenderedComponent<DecisionNotes> cut, string name) =>
-        cut.FindAll(".decision-notes-steps button").Single(b =>
-            (b.GetAttribute("aria-label") ?? b.TextContent.Trim()) == name);
-
-    private static async Task OpenMoveAsync(IRenderedComponent<DecisionNotes> cut) =>
-        await cut.Find(".decision-notes-tools button:not(.btn-close)").ClickAsync(new());
-
     // -----------------------------------------------------------------------
     //  Where the overlay is drawn
     // -----------------------------------------------------------------------
@@ -178,7 +61,7 @@ public class DecisionNotesPlacementTests : BunitContext
         await OpenAsync(cut);
         Assert.Null(Drawn(cut));
 
-        await ReportAsync(cut, [1280, 800, 16, 0, 0, 0]);   // an overlay not laid out
+        await ReportAsync(cut, [1280, 800, 16, 0, 0, 0, 24]);   // an overlay not laid out
         Assert.Null(Drawn(cut));
     }
 
@@ -193,7 +76,7 @@ public class DecisionNotesPlacementTests : BunitContext
 
         // No horizontal travel at a phone's width: centred across it.
         Assert.Equal("--notes-left: 16px; --notes-top: 16px", Drawn(cut));
-        _plan.Verify(); // nothing written: every write is declared
+        Plan.Verify(); // nothing written: every write is declared
     }
 
     // -----------------------------------------------------------------------
@@ -206,29 +89,31 @@ public class DecisionNotesPlacementTests : BunitContext
         var cut = await PlacedAsync();
 
         await GrabAsync(cut);
-        Assert.Equal(Mouse, (long)_handle.Invocations["capture"].Single().Arguments[0]!);
+        var capture = Handle.Invocations["capture"].Single();
+        Assert.Equal(Mouse, (long)capture.Arguments[0]!);
+        Assert.Equal(References.TitleBar, ((Microsoft.AspNetCore.Components.ElementReference)capture.Arguments[1]!).Id);
 
         await MoveToAsync(cut, 400 + 84, 330 + 71);
         Assert.Equal("--notes-left: 436px; --notes-top: 371px", Drawn(cut));
-        _plan.Verify(); // nothing written: every write is declared
+        Plan.Verify(); // nothing written: every write is declared
 
-        ExpectWritten("""{"horizontal":0.625,"vertical":0.625}""");
+        ExpectWritten("""{"horizontal":0.625,"vertical":0.625,"width":null,"height":null}""");
         await ReleaseAtAsync(cut, 400 + 84, 330 + 71);
-        _plan.Verify();
+        Plan.Verify();
         Assert.Equal("--notes-left: 436px; --notes-top: 371px", Drawn(cut));
     }
 
     [Fact]
     public async Task ThePressCommitsWhereItIsReleased_NotWhereItWasLastSeen()
     {
-        ExpectWritten("""{"horizontal":0.75,"vertical":null}""");
+        ExpectWritten("""{"horizontal":0.75,"vertical":null,"width":null,"height":null}""");
         var cut = await PlacedAsync();
 
         await GrabAsync(cut);
         await MoveToAsync(cut, 450, 330);
         await ReleaseAtAsync(cut, 400 + 168, 330);
 
-        _plan.Verify();
+        Plan.Verify();
     }
 
     [Fact]
@@ -239,7 +124,7 @@ public class DecisionNotesPlacementTests : BunitContext
         await GrabAsync(cut);
         await ReleaseAtAsync(cut, 400, 330);
 
-        _plan.Verify(); // nothing written: every write is declared
+        Plan.Verify(); // nothing written: every write is declared
         Assert.Equal(Centred, Drawn(cut));
     }
 
@@ -254,10 +139,10 @@ public class DecisionNotesPlacementTests : BunitContext
         // around them has one. Were a button's group to stop stopping it, the
         // press would reach the handle and start a drag here.
         var cut = await PlacedAsync();
-        await OpenMoveAsync(cut);
+        await OpenAdjustAsync(cut);
 
         var buttons = cut.FindAll(".decision-notes-header button");
-        Assert.Equal(7, buttons.Count);    // Move, close, four steps and Reset
+        Assert.Equal(11, buttons.Count);    // Adjust, close, eight steps and Reset
         foreach (var button in buttons)
             await Assert.ThrowsAsync<MissingEventHandlerException>(
                 () => button.TriggerEventAsync("onpointerdown", Pointer(400, 330)));
@@ -297,7 +182,7 @@ public class DecisionNotesPlacementTests : BunitContext
     [Fact]
     public async Task ACaptureTheBrowserRefuses_EndsTheDragAtOnce()
     {
-        _handle.Setup<bool>("capture", _ => true).SetResult(false);
+        Handle.Setup<bool>("capture", _ => true).SetResult(false);
         var cut = await PlacedAsync();
 
         await GrabAsync(cut);
@@ -305,7 +190,7 @@ public class DecisionNotesPlacementTests : BunitContext
         await ReleaseAtAsync(cut, 500, 400);
 
         Assert.Equal(Centred, Drawn(cut));
-        _plan.Verify(); // nothing written: every write is declared
+        Plan.Verify(); // nothing written: every write is declared
     }
 
     [Fact]
@@ -317,7 +202,7 @@ public class DecisionNotesPlacementTests : BunitContext
         await MoveToAsync(cut, 500, 400, id: 7);
         Assert.Equal(Centred, Drawn(cut));
         await ReleaseAtAsync(cut, 500, 400, id: 7);
-        _plan.Verify(); // nothing written: every write is declared
+        Plan.Verify(); // nothing written: every write is declared
 
         // The dragging pointer still drags.
         await MoveToAsync(cut, 400 + 84, 330);
@@ -335,11 +220,13 @@ public class DecisionNotesPlacementTests : BunitContext
 
         Assert.Equal(Centred, Drawn(cut));
         Assert.Single(cut.FindAll("dialog"));
-        Assert.Equal(Mouse, (long)_handle.Invocations["release"].Single().Arguments[0]!);
+        var release = Handle.Invocations["release"].Single();
+        Assert.Equal(Mouse, (long)release.Arguments[0]!);
+        Assert.Equal(References.TitleBar, ((Microsoft.AspNetCore.Components.ElementReference)release.Arguments[1]!).Id);
 
         // The release that follows finds no drag; nothing is written.
         await ReleaseAtAsync(cut, 500, 400);
-        _plan.Verify(); // nothing written: every write is declared
+        Plan.Verify(); // nothing written: every write is declared
 
         await Dialog(cut).KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
         Assert.Empty(cut.FindAll("dialog"));
@@ -359,13 +246,13 @@ public class DecisionNotesPlacementTests : BunitContext
         Assert.Equal(Centred, Drawn(cut));
         Assert.Single(cut.FindAll("dialog"));
         await ReleaseAtAsync(cut, 500, 400);
-        _plan.Verify(); // nothing written: every write is declared
+        Plan.Verify(); // nothing written: every write is declared
     }
 
     [Fact]
     public async Task TheReleasesOwnLossOfCapture_FindsNothingToCancel()
     {
-        ExpectWritten("""{"horizontal":0.625,"vertical":null}"""); // the release's, and only that
+        ExpectWritten("""{"horizontal":0.625,"vertical":null,"width":null,"height":null}"""); // the release's, and only that
         var cut = await PlacedAsync();
         await GrabAsync(cut);
         await MoveToAsync(cut, 400 + 84, 330);
@@ -374,7 +261,7 @@ public class DecisionNotesPlacementTests : BunitContext
         await cut.Find(".decision-notes-header").TriggerEventAsync("onlostpointercapture", Pointer(400 + 84, 330));
 
         Assert.Equal("--notes-left: 436px; --notes-top: 300px", Drawn(cut));
-        _plan.Verify();
+        Plan.Verify();
     }
 
     [Fact]
@@ -386,7 +273,7 @@ public class DecisionNotesPlacementTests : BunitContext
 
         await cut.Find("button.btn-close").ClickAsync(new());
         Assert.Empty(cut.FindAll("dialog"));
-        _plan.Verify(); // nothing written: every write is declared
+        Plan.Verify(); // nothing written: every write is declared
 
         await OpenAsync(cut);
         await ReportAsync(cut, Desktop);
@@ -403,7 +290,7 @@ public class DecisionNotesPlacementTests : BunitContext
         cut.Render(p => p.Add(c => c.Comment, "Another decision's note."));
 
         Assert.Empty(cut.FindAll("dialog"));
-        _plan.Verify(); // nothing written: every write is declared
+        Plan.Verify(); // nothing written: every write is declared
     }
 
     [Fact]
@@ -415,8 +302,8 @@ public class DecisionNotesPlacementTests : BunitContext
 
         await DisposeComponentsAsync();
 
-        _plan.Verify(); // nothing written: every write is declared
-        _handle.VerifyInvoke("stop");
+        Plan.Verify(); // nothing written: every write is declared
+        Handle.VerifyInvoke("stop");
     }
 
     [Fact]
@@ -425,55 +312,66 @@ public class DecisionNotesPlacementTests : BunitContext
         var cut = await PlacedAsync();
 
         await cut.Find("button.btn-close").ClickAsync(new());
-        _handle.VerifyInvoke("stop");
+        Handle.VerifyInvoke("stop");
 
         await OpenAsync(cut);
         Assert.Null(Drawn(cut));    // a fresh opening waits for its own measurement
-        Assert.Equal(2, _module.Invocations["watch"].Count);
+        Assert.Equal(2, Module.Invocations["watch"].Count);
     }
 
     // -----------------------------------------------------------------------
-    //  The Move control
+    //  The Adjust control
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task TheMoveControl_ShowsFourStepsAndReset_AndWritesNothingByItself()
+    public async Task TheAdjustControl_ShowsEightStepsAndReset_InOrder_AndWritesNothingByItself()
     {
         var cut = await PlacedAsync();
-        var move = cut.Find(".decision-notes-tools button:not(.btn-close)");
-        Assert.Equal("Move", move.TextContent.Trim());
-        Assert.Equal("false", move.GetAttribute("aria-expanded"));
+        var adjust = AdjustButton(cut);
+        Assert.Equal("Adjust", adjust.TextContent.Trim());
+        Assert.Equal("Move or resize the notes a step at a time", adjust.GetAttribute("title"));
+        Assert.Equal("false", adjust.GetAttribute("aria-expanded"));
         Assert.Empty(cut.FindAll(".decision-notes-steps"));
 
-        await move.ClickAsync(new());
+        await adjust.ClickAsync(new());
 
-        move = cut.Find(".decision-notes-tools button:not(.btn-close)");
-        Assert.Equal("true", move.GetAttribute("aria-expanded"));
+        adjust = AdjustButton(cut);
+        Assert.Equal("true", adjust.GetAttribute("aria-expanded"));
         var steps = cut.Find(".decision-notes-steps");
-        Assert.Equal(steps.Id, move.GetAttribute("aria-controls"));
+        Assert.Equal(steps.Id, adjust.GetAttribute("aria-controls"));
         Assert.Equal("group", steps.GetAttribute("role"));
+        Assert.Equal("Adjust the notes", steps.GetAttribute("aria-label"));
+        var buttons = steps.QuerySelectorAll("button");
         Assert.Equal(
-            ["Move up", "Move down", "Move left", "Move right", "Reset"],
-            steps.QuerySelectorAll("button").Select(b => b.GetAttribute("aria-label") ?? b.TextContent.Trim()));
-        Assert.All(steps.QuerySelectorAll("button"), b => Assert.Equal("button", b.GetAttribute("type")));
-        _plan.Verify(); // nothing written: every write is declared
+            ["Move up", "Move down", "Move left", "Move right", "Wider", "Narrower", "Taller", "Shorter", "Reset"],
+            buttons.Select(b => b.GetAttribute("aria-label") ?? b.TextContent.Trim()));
+        Assert.All(buttons, b => Assert.Equal("button", b.GetAttribute("type")));
+
+        // The arrows show a glyph, named by their label and tooltip; the size
+        // steps and Reset show their names as text.
+        Assert.Equal(["↑", "↓", "←", "→"], buttons.Take(4).Select(b => b.TextContent.Trim()));
+        Assert.All(buttons.Take(4), b => Assert.Equal(b.GetAttribute("aria-label"), b.GetAttribute("title")));
+        Assert.All(buttons.Skip(4).Take(4), b => Assert.Null(b.GetAttribute("aria-label")));
+        Assert.Equal("Put the notes back in the middle at their first size", buttons.Last().GetAttribute("title"));
+
+        Plan.Verify(); // nothing written: every write is declared
         Assert.Equal(Centred, Drawn(cut));
     }
 
     [Theory]
-    [InlineData("Move up", """{"horizontal":null,"vertical":0.375}""", "--notes-left: 352px; --notes-top: 229px")]
-    [InlineData("Move down", """{"horizontal":null,"vertical":0.625}""", "--notes-left: 352px; --notes-top: 371px")]
-    [InlineData("Move left", """{"horizontal":0.375,"vertical":null}""", "--notes-left: 268px; --notes-top: 300px")]
-    [InlineData("Move right", """{"horizontal":0.625,"vertical":null}""", "--notes-left: 436px; --notes-top: 300px")]
+    [InlineData("Move up", """{"horizontal":null,"vertical":0.375,"width":null,"height":null}""", "--notes-left: 352px; --notes-top: 229px")]
+    [InlineData("Move down", """{"horizontal":null,"vertical":0.625,"width":null,"height":null}""", "--notes-left: 352px; --notes-top: 371px")]
+    [InlineData("Move left", """{"horizontal":0.375,"vertical":null,"width":null,"height":null}""", "--notes-left: 268px; --notes-top: 300px")]
+    [InlineData("Move right", """{"horizontal":0.625,"vertical":null,"width":null,"height":null}""", "--notes-left: 436px; --notes-top: 300px")]
     public async Task EachStep_MovesOneStepOfItsAxis_AndWritesIt(string step, string written, string drawn)
     {
         ExpectWritten(written);
         var cut = await PlacedAsync();
-        await OpenMoveAsync(cut);
+        await OpenAdjustAsync(cut);
 
         await StepButton(cut, step).ClickAsync(new());
 
-        _plan.Verify();
+        Plan.Verify();
         Assert.Equal(drawn, Drawn(cut));
     }
 
@@ -483,15 +381,15 @@ public class DecisionNotesPlacementTests : BunitContext
         // At the edge it would move towards.
         StageStored("""{"horizontal":1,"vertical":null}""");
         var cut = await PlacedAsync();
-        await OpenMoveAsync(cut);
+        await OpenAdjustAsync(cut);
         await StepButton(cut, "Move right").ClickAsync(new());
-        _plan.Verify(); // nothing written: every write is declared
+        Plan.Verify(); // nothing written: every write is declared
 
         // Across an axis with no travel: unset stays unset.
         await ReportAsync(cut, Phone);
         await StepButton(cut, "Move left").ClickAsync(new());
         await StepButton(cut, "Move right").ClickAsync(new());
-        _plan.Verify(); // nothing written: every write is declared
+        Plan.Verify(); // nothing written: every write is declared
     }
 
     [Fact]
@@ -500,11 +398,11 @@ public class DecisionNotesPlacementTests : BunitContext
         StageStored("""{"horizontal":0.25,"vertical":0.75}""");
         ExpectWritten(null); // the removal
         var cut = await PlacedAsync();
-        await OpenMoveAsync(cut);
+        await OpenAdjustAsync(cut);
 
         await StepButton(cut, "Reset").ClickAsync(new());
 
-        _plan.Verify();
+        Plan.Verify();
         Assert.Equal(Centred, Drawn(cut));
     }
 
@@ -512,26 +410,26 @@ public class DecisionNotesPlacementTests : BunitContext
     public async Task StepsAndReset_WhileADragRuns_AreIgnored()
     {
         var cut = await PlacedAsync();
-        await OpenMoveAsync(cut);
+        await OpenAdjustAsync(cut);
         await GrabAsync(cut);
         await MoveToAsync(cut, 500, 400);
 
         await StepButton(cut, "Move up").ClickAsync(new());
         await StepButton(cut, "Reset").ClickAsync(new());
 
-        _plan.Verify(); // nothing written: every write is declared
+        Plan.Verify(); // nothing written: every write is declared
     }
 
     [Fact]
-    public async Task ReopeningTheNotes_ShutsTheMoveControl()
+    public async Task ReopeningTheNotes_ShutsTheAdjustControl()
     {
         var cut = await PlacedAsync();
-        await OpenMoveAsync(cut);
+        await OpenAdjustAsync(cut);
 
         await cut.Find("button.btn-close").ClickAsync(new());
         await OpenAsync(cut);
 
-        Assert.Equal("false", cut.Find(".decision-notes-tools button:not(.btn-close)").GetAttribute("aria-expanded"));
+        Assert.Equal("false", AdjustButton(cut).GetAttribute("aria-expanded"));
         Assert.Empty(cut.FindAll(".decision-notes-steps"));
     }
 }

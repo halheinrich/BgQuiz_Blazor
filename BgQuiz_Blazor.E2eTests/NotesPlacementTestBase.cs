@@ -4,11 +4,13 @@ using static Microsoft.Playwright.Assertions;
 namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
-/// Shared plumbing for the notes overlay's placement scenarios
+/// Shared plumbing for the notes overlay's placement and size scenarios
 /// (<c>SPEC-quiz-view.md</c> §4, "The notes overlay's placement is a remembered
-/// preference", ruled 2026-10-05; issue <c>halheinrich/backgammon#344</c>):
-/// reaching a review whose decision has notes, opening them, reading where the
-/// overlay is, and moving it the ways a reader can.
+/// preference", ruled 2026-10-05, issue <c>halheinrich/backgammon#344</c>; "The
+/// notes overlay's size is a remembered preference", ruled 2026-10-25, issue
+/// <c>halheinrich/backgammon#414</c>): reaching a review whose decision has
+/// notes, opening them, reading where the overlay is and how large, and moving
+/// and resizing it the ways a reader can.
 ///
 /// <para>
 /// <b>What these scenarios prove, and what they leave to the unit suite.</b>
@@ -77,8 +79,8 @@ public abstract class NotesPlacementTestBase : E2eTestBase
     protected ILocator CloseNotesButton =>
         NotesDialog.GetByRole(AriaRole.Button, new() { Name = ExpectedText.CloseNotesButton, Exact = true });
 
-    protected ILocator MoveButton =>
-        NotesDialog.GetByRole(AriaRole.Button, new() { Name = ExpectedText.MoveNotesButton, Exact = true });
+    protected ILocator AdjustButton =>
+        NotesDialog.GetByRole(AriaRole.Button, new() { Name = ExpectedText.AdjustNotesButton, Exact = true });
 
     protected ILocator StepButton(string name) =>
         NotesDialog.GetByRole(AriaRole.Button, new() { Name = name, Exact = true });
@@ -129,14 +131,14 @@ public abstract class NotesPlacementTestBase : E2eTestBase
     }
 
     /// <summary>
-    /// Open the Move control's step buttons. It returns once they show, before
+    /// Open the Adjust control's step buttons. It returns once they show, before
     /// the overlay is re-placed for the height they add, so a caller that reads
     /// geometry next waits for the placement it expects.
     /// </summary>
-    protected async Task OpenMoveControlAsync()
+    protected async Task OpenAdjustControlAsync()
     {
-        await MoveButton.ClickAsync();
-        await Expect(MoveButton).ToHaveAttributeAsync("aria-expanded", "true");
+        await AdjustButton.ClickAsync();
+        await Expect(AdjustButton).ToHaveAttributeAsync("aria-expanded", "true");
         await Expect(StepButton(ExpectedText.MoveUpButton)).ToBeVisibleAsync();
     }
 
@@ -264,4 +266,113 @@ public abstract class NotesPlacementTestBase : E2eTestBase
 
     /// <summary>How many writes <see cref="CountPlacementWritesAsync"/> has counted so far.</summary>
     protected Task<int> PlacementWritesAsync() => Page.EvaluateAsync<int>("() => window.__placementWrites");
+
+    // -----------------------------------------------------------------------
+    //  The size (SPEC-quiz-view.md §4, "The notes overlay's size is a
+    //  remembered preference", issue halheinrich/backgammon#414)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The least width a resize leaves the overlay at — the build's stated
+    /// minimum (<c>NotesStage.MinimumWidth</c>), a literal here as the
+    /// clearance is.
+    /// </summary>
+    protected const double MinimumWidth = 200;
+
+    /// <summary>The lines of text the minimum height adds to the title bar (<c>NotesStage.MinimumTextLines</c>).</summary>
+    protected const int MinimumTextLines = 3;
+
+    /// <summary>The default width the stylesheet gives an unset width: <c>min(36rem, …)</c> at 16 px.</summary>
+    protected const double DefaultWidth = 576;
+
+    /// <summary>The overlay's resize handle, at its bottom-right corner.</summary>
+    protected ILocator ResizeHandle => NotesDialog.Locator(".decision-notes-resize");
+
+    protected ILocator WiderButton => StepButton(ExpectedText.WiderButton);
+
+    protected ILocator NarrowerButton => StepButton(ExpectedText.NarrowerButton);
+
+    protected ILocator TallerButton => StepButton(ExpectedText.TallerButton);
+
+    protected ILocator ShorterButton => StepButton(ExpectedText.ShorterButton);
+
+    /// <summary>The point a resize grabs the handle by: its centre, a fixed offset from the overlay's corner.</summary>
+    protected async Task<(double X, double Y)> CornerGrabPointAsync()
+    {
+        var handle = await LaidOutBoxAsync(ResizeHandle, "the resize handle");
+        return ((double)(handle.X + handle.Width / 2), (double)(handle.Y + handle.Height / 2));
+    }
+
+    /// <summary>Drag the resize handle by (<paramref name="dx"/>, <paramref name="dy"/>) and release.</summary>
+    protected async Task DragCornerAsync(double dx, double dy)
+    {
+        var (x, y) = await CornerGrabPointAsync();
+        await PressAndMoveAsync(x, y, dx, dy);
+        await Page.Mouse.UpAsync();
+    }
+
+    /// <summary>
+    /// One size step on an axis of <paramref name="area"/> whose minimum is
+    /// <paramref name="minimum"/>: an eighth of the range from the minimum to
+    /// the area less the clearance on each side (the build's step, stated
+    /// where <c>NotesStage</c> defines it).
+    /// </summary>
+    protected static double SizeStep(double area, double minimum) => (area - 2 * Clearance - minimum) / 8;
+
+    /// <summary>
+    /// The minimum height as the ruling states it, read off the page as it is
+    /// now: the title bar's bottom, from the overlay's top edge, plus
+    /// <see cref="MinimumTextLines"/> lines at the text's computed line height.
+    /// </summary>
+    protected Task<double> MinimumHeightAsync() => Page.EvaluateAsync<double>($$"""
+        () => {
+          const dialog = document.querySelector('dialog.decision-notes');
+          const bar = dialog.querySelector('.decision-notes-header').getBoundingClientRect();
+          const line = parseFloat(getComputedStyle(dialog.querySelector('.decision-notes-text')).lineHeight);
+          return bar.bottom - dialog.getBoundingClientRect().top + {{MinimumTextLines}} * line;
+        }
+        """);
+
+    /// <summary>
+    /// Wait until the overlay stands at (<paramref name="left"/>,
+    /// <paramref name="top"/>) and is <paramref name="width"/> ×
+    /// <paramref name="height"/>, each within <see cref="Tolerance"/>.
+    /// </summary>
+    protected async Task ExpectBoxAsync(double left, double top, double width, double height, string because)
+    {
+        await ExpectToPassAsync(async () =>
+        {
+            var box = await OverlayBoxAsync();
+            Assert.True(
+                Math.Abs(box.X - left) <= Tolerance && Math.Abs(box.Y - top) <= Tolerance
+                && Math.Abs(box.Width - width) <= Tolerance && Math.Abs(box.Height - height) <= Tolerance,
+                $"{because}: the overlay should be {width:0.#} x {height:0.#} at ({left:0.#}, {top:0.#}); "
+                + $"it is {box.Width:0.#} x {box.Height:0.#} at ({box.X:0.#}, {box.Y:0.#}).");
+        });
+    }
+
+    /// <summary>
+    /// What the browser holds under <see cref="PlacementKey"/>, read as the
+    /// four numbers of the payload — null for an absent field or JSON
+    /// <c>null</c> — or null when nothing is stored.
+    /// </summary>
+    protected async Task<StoredPreferences?> StoredPreferencesAsync()
+    {
+        var json = await StoredPlacementAsync();
+        if (json is null) return null;
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        var root = document.RootElement;
+        double? Read(string name) =>
+            root.TryGetProperty(name, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.Number
+                ? value.GetDouble()
+                : null;
+        return new(Read("horizontal"), Read("vertical"), Read("width"), Read("height"));
+    }
+
+    /// <summary>Assert two lengths are one within <see cref="Tolerance"/>.</summary>
+    protected static void AssertNear(double expected, double actual, string what) =>
+        Assert.True(Math.Abs(expected - actual) <= Tolerance, $"{what}: expected {expected:0.##}, found {actual:0.##}.");
+
+    /// <summary>The stored payload's four fields.</summary>
+    protected sealed record StoredPreferences(double? Horizontal, double? Vertical, double? Width, double? Height);
 }

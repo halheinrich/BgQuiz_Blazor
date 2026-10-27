@@ -4,9 +4,11 @@ namespace BgQuiz_Blazor.Client.Quiz;
 /// Where the decision's notes appear when they are open: the <b>placement
 /// preference</b> of <c>SPEC-quiz-view.md</c> §4, "The notes overlay's
 /// placement is a remembered preference" (ruled 2026-10-05, issue
-/// <c>halheinrich/backgammon#344</c>). One per browser, held by
-/// <see cref="NotesPlacementStore"/>; shown, moved and stepped by
-/// <see cref="NotesStage"/>.
+/// <c>halheinrich/backgammon#344</c>). One per browser, beside the
+/// <see cref="NotesSize"/> in <see cref="NotesPreferences"/>, held by
+/// <see cref="NotesPreferencesStore"/>; shown, moved and stepped by
+/// <see cref="NotesStage"/>, which also rewrites it on a resize so the
+/// overlay's top-left corner stays where it was shown.
 ///
 /// <para>
 /// <b>Each axis is held on its own</b>, as a position within the overlay's

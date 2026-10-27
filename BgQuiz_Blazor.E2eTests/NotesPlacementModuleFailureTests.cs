@@ -39,10 +39,15 @@ public sealed class NotesPlacementModuleFailureTests : NotesPlacementTestBase
         await ExpectOverlayCentredAsync("without the placement module");
         await Expect(NotesDialog).Not.ToHaveAttributeAsync("data-placed", string.Empty);
 
-        // The title bar moves nothing, and nothing is written.
+        // The title bar moves nothing, the corner resizes nothing
+        // (halheinrich/backgammon#414), the default size stands, and nothing
+        // is written.
         var start = await OverlayBoxAsync();
+        AssertNear(DefaultWidth, start.Width, "the default width without the module");
         await DragTitleBarAsync(-150, -60);
         await ExpectOverlayAtAsync(start.X, start.Y, "after a drag without the module");
+        await DragCornerAsync(120, 80);
+        await ExpectBoxAsync(start.X, start.Y, start.Width, start.Height, "after a resize without the module");
         Assert.Null(await StoredPlacementAsync());
 
         // Esc still closes them, and the control opens them again.

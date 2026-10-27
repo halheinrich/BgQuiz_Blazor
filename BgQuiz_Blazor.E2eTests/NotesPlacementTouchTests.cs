@@ -31,8 +31,8 @@ public sealed class NotesPlacementTouchTests : NotesPlacementTestBase
         await StartAtTheCubeReviewAsync();
         await NotesButton.TapAsync();
         await ExpectPlacedAsync();
-        await MoveButton.TapAsync();
-        await Expect(MoveButton).ToHaveAttributeAsync("aria-expanded", "true");
+        await AdjustButton.TapAsync();
+        await Expect(AdjustButton).ToHaveAttributeAsync("aria-expanded", "true");
 
         await TapAndExpectAsync(ExpectedText.MoveUpButton, 0.5, 0.5 - Step);
         await TapAndExpectAsync(ExpectedText.MoveLeftButton, 0.5 - Step, 0.5 - Step);
@@ -76,6 +76,71 @@ public sealed class NotesPlacementTouchTests : NotesPlacementTestBase
         await Expect(NotesDialog).ToBeVisibleAsync();
 
         // The touch was the title bar's, not the page's to pan.
+        Assert.Equal(scrollBefore, await Page.EvaluateAsync<double>("() => window.scrollY"));
+    }
+
+    [Fact]
+    public async Task EachSizeStepAndReset_ByTap_ResizeOneStepFromTheCorner_AndCommit()
+    {
+        // halheinrich/backgammon#414: the size steps are ordinary buttons too.
+        await StartAtTheCubeReviewAsync();
+        await NotesButton.TapAsync();
+        await ExpectPlacedAsync();
+        await AdjustButton.TapAsync();
+        await Expect(AdjustButton).ToHaveAttributeAsync("aria-expanded", "true");
+        await ExpectOverlayCentredAsync("the Adjust control open");
+        var start = await OverlayBoxAsync();
+        var area = await AreaAsync();
+        double across = SizeStep(area.Width, MinimumWidth);
+        double down = SizeStep(area.Height, await MinimumHeightAsync());
+
+        await WiderButton.TapAsync();
+        await ExpectBoxAsync(start.X, start.Y, start.Width + across, start.Height, "after tapping Wider");
+        await TallerButton.TapAsync();
+        await ExpectBoxAsync(start.X, start.Y, start.Width + across, start.Height + down, "after tapping Taller");
+        await NarrowerButton.TapAsync();
+        await ExpectBoxAsync(start.X, start.Y, start.Width, start.Height + down, "after tapping Narrower");
+        await ShorterButton.TapAsync();
+        await ExpectBoxAsync(start.X, start.Y, start.Width, start.Height, "after tapping Shorter");
+        Assert.NotNull(await StoredPlacementAsync());
+
+        await ResetButton.TapAsync();
+        await ExpectOverlayCentredAsync("after Reset");
+        Assert.Null(await StoredPlacementAsync());
+        await Expect(NotesDialog).ToBeVisibleAsync();
+    }
+
+    [Fact]
+    public async Task AResizeByTouch_ResizesAsTheMouseDoes_AndCommitsOnLift()
+    {
+        await StartAtTheCubeReviewAsync();
+        await NotesButton.TapAsync();
+        await ExpectPlacedAsync();
+        var start = await OverlayBoxAsync();
+        double scrollBefore = await Page.EvaluateAsync<double>("() => window.scrollY");
+
+        var touch = await Page.Context.NewCDPSessionAsync(Page);
+        var (x, y) = await CornerGrabPointAsync();
+        await TouchAsync(touch, "touchStart", x, y);
+        for (int i = 1; i <= 8; i++)
+            await TouchAsync(touch, "touchMove", x + 15 * i, y + 10 * i);
+
+        // The finger drags the corner; the top-left stays; no write until it lifts.
+        await ExpectBoxAsync(start.X, start.Y, start.Width + 120, start.Height + 80, "mid-resize, the corner follows the finger");
+        Assert.Null(await StoredPlacementAsync());
+
+        await touch.SendAsync("Input.dispatchTouchEvent", new Dictionary<string, object>
+        {
+            ["type"] = "touchEnd",
+            ["touchPoints"] = Array.Empty<object>(),
+        });
+        await ExpectBoxAsync(start.X, start.Y, start.Width + 120, start.Height + 80, "lifted");
+        var stored = await StoredPreferencesAsync();
+        Assert.NotNull(stored?.Width);
+        Assert.NotNull(stored?.Height);
+        await Expect(NotesDialog).ToBeVisibleAsync();
+
+        // The touch was the handle's, not the page's to pan.
         Assert.Equal(scrollBefore, await Page.EvaluateAsync<double>("() => window.scrollY"));
     }
 

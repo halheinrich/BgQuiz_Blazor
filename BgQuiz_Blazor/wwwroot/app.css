@@ -835,15 +835,18 @@ h1:focus {
 
    WHERE IT IS SHOWN is the reader's remembered placement (SPEC-quiz-view.md §4,
    "The notes overlay's placement is a remembered preference", ruled 2026-10-05,
-   halheinrich/backgammon#344). The arithmetic is NotesStage's, in C#; this sheet
-   only states the clearance it works from and puts the overlay where
-   DecisionNotes says (the [data-placed] rule below). */
+   halheinrich/backgammon#344), and HOW LARGE, where the reader has resized it,
+   is their remembered size (§4, "The notes overlay's size is a remembered
+   preference", ruled 2026-10-25, halheinrich/backgammon#414). The arithmetic is
+   NotesStage's, in C#; this sheet only states the clearance it works from and
+   puts and sizes the overlay as DecisionNotes says (the [data-placed] and
+   [data-set-*] rules below). */
 .decision-notes-backdrop,
 .decision-notes {
     /* THE EDGE CLEARANCE, stated once: the space the overlay keeps from each
-       side of the layout viewport. The size caps below read it, and so does the
-       placement — through the backdrop's padding, a computed length that
-       decisionNotes.js reads in pixels. */
+       side of the layout viewport. The size caps below read it, and so do the
+       placement and the remembered size's show bounds — through the backdrop's
+       padding, a computed length that decisionNotes.js reads in pixels. */
     --notes-edge: 1rem;
 }
 
@@ -868,7 +871,8 @@ h1:focus {
    Centred by inset: 0 plus auto margins against a fit-content height, which the
    max-height caps — a long note scrolls inside .decision-notes-text rather than
    growing past the viewport. Centred is where an unset placement is shown, and
-   it is where the overlay stands until its stage is first measured. */
+   it is where the overlay stands until its stage is first measured. This size
+   is the DEFAULT, shown on each axis whose remembered size is unset. */
 .decision-notes[open] {
     position: fixed;
     inset: 0;
@@ -897,10 +901,31 @@ h1:focus {
     margin: 0;
 }
 
-/* THE TITLE BAR IS THE DRAG HANDLE, and the only one: the text below stays
+/* SIZED: on each axis whose size is set, DecisionNotes states the length to
+   show (the held one through NotesStage's show bounds, which already keep it
+   inside the area less the clearance) and marks the axis. A set height is the
+   overlay's height exactly, so the default's fit-to-note cap is lifted on that
+   axis: a short note shows space below its text, and a long one scrolls inside
+   the text, which takes the height the title bar leaves. Resizing, like moving,
+   changes lengths on the fixed overlay and nothing else, so nothing reflows. */
+.decision-notes[open][data-set-width] {
+    width: var(--notes-width);
+}
+
+.decision-notes[open][data-set-height] {
+    height: var(--notes-height);
+    max-height: none;
+}
+
+.decision-notes[open][data-set-height] .decision-notes-text {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* THE TITLE BAR IS THE MOVE HANDLE, and the only one: the text below stays
    selectable and scrollable. touch-action: none gives a touch drag to the
    notes rather than to the page's own panning, and user-select: none keeps a
-   drag from selecting the heading. It wraps, so the Move control's step
+   drag from selecting the heading. It wraps, so the Adjust control's step
    buttons take a line of their own and nothing in it is pushed outside the
    overlay at a phone's width. */
 .decision-notes-header {
@@ -916,8 +941,8 @@ h1:focus {
     user-select: none;
 }
 
-/* The title bar's own buttons — Move and close — and the Move control's step
-   buttons and Reset. Pressing them never starts a drag (DecisionNotes stops the
+/* The title bar's own buttons — Adjust and close — and the Adjust control's
+   step buttons and Reset. Pressing them never starts a drag (DecisionNotes stops the
    press at these groups), and nothing here looks draggable. */
 .decision-notes-tools {
     display: flex;
@@ -951,6 +976,30 @@ h1:focus {
     overflow-y: auto;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+}
+
+/* THE RESIZE HANDLE: the overlay's bottom-right corner, 24 x 24 CSS pixels —
+   the least pointer target WCAG 2.2 SC 2.5.8 asks for — placed on the fixed
+   overlay, which is its containing block, so it rides the corner whatever the
+   overlay's size. A pointer target only (DecisionNotes hides it from assistive
+   technology; the size steps are the other way to resize). touch-action: none
+   gives a touch drag to the resize rather than to the page's panning. Three
+   short diagonal strokes are the grip a reader recognizes. */
+.decision-notes-resize {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 24px;
+    height: 24px;
+    cursor: nwse-resize;
+    touch-action: none;
+    user-select: none;
+    background: linear-gradient(135deg,
+        transparent 0 49%, #adb5bd 49% 54%,
+        transparent 54% 65%, #adb5bd 65% 70%,
+        transparent 70% 81%, #adb5bd 81% 86%,
+        transparent 86%);
+    border-bottom-right-radius: 0.5rem;
 }
 
 /* Busy (QuizApp.IsBusy): the wait cursor over the whole page region while an

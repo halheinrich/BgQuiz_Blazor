@@ -54,33 +54,42 @@ namespace BgQuiz_Blazor.Client.Components;
 /// </para>
 ///
 /// <para>
-/// <b>Where it opens, and how it moves</b> (§4, "The notes overlay's
-/// placement is a remembered preference", ruled 2026-10-05; issue
-/// <c>halheinrich/backgammon#344</c>). It opens at the reader's
-/// <see cref="NotesPlacement"/>, which <see cref="NotesPlacementStore"/>
-/// holds and nothing here copies: the overlay is drawn at
-/// <see cref="NotesStage.Show"/> of it on the stage <c>decisionNotes.js</c>
-/// measures, and centred by the stylesheet until the first measurement lands
-/// (where an unset placement is shown anyway). Two ways move it, and each
-/// completed move is written through the store:
+/// <b>Where it opens, how large, and how it moves and resizes</b> (§4, "The
+/// notes overlay's placement is a remembered preference", ruled 2026-10-05,
+/// issue <c>halheinrich/backgammon#344</c>; "The notes overlay's size is a
+/// remembered preference", ruled 2026-10-25, issue
+/// <c>halheinrich/backgammon#414</c>). It opens at the reader's
+/// <see cref="NotesPreferences"/>, which <see cref="NotesPreferencesStore"/>
+/// holds and nothing here copies: the overlay is drawn as
+/// <see cref="NotesStage.Show"/> of them on the stage <c>decisionNotes.js</c>
+/// measures, and centred at the stylesheet's size until the first measurement
+/// lands (where and how unset preferences show it anyway). Three ways change
+/// it, and each completed change is written through the store in one write:
 /// </para>
 /// <list type="bullet">
-/// <item><description><b>A drag by the title bar.</b> A primary press on the
-/// title bar — not on its buttons, whose groups stop the press — starts it and
-/// takes pointer capture there, so every move and the release reach the title
-/// bar wherever the pointer is. Each move shows <see cref="NotesStage.Drag"/>
-/// of the starting placement on the stage measured at the start; the release
-/// commits it, wherever it happens, and only if it changed something. A
-/// release over the backdrop is therefore never a click on it. A lost capture
-/// or a cancelled pointer cancels the drag, and so does Esc, which then does
-/// only that; a cancelled drag writes nothing, and the overlay is shown at the
-/// placement it started from. Closing or unmounting mid-drag drops the drag
-/// with the overlay and writes nothing.</description></item>
-/// <item><description><b>The Move control</b>, the single-pointer alternative
-/// WCAG 2.2 SC 2.5.7 asks for: a title-bar button that shows four step
-/// buttons and Reset. A step writes <see cref="NotesStage.Step"/> of the
-/// current placement, or nothing where it cannot move; Reset writes
-/// <see cref="NotesPlacement.Unset"/>.</description></item>
+/// <item><description><b>A drag by the title bar</b>, which moves the overlay
+/// (<see cref="NotesStage.Drag"/>), or <b>by the resize handle</b> at its
+/// bottom-right corner, which resizes it with its top-left corner fixed
+/// (<see cref="NotesStage.Resize(NotesPreferences, double, double)"/>). A
+/// primary press on either — not on the title bar's buttons, whose groups stop
+/// the press — starts it, while no other drag runs, and takes pointer capture
+/// on the element pressed, so every move and the release reach it wherever the
+/// pointer is. Each move shows the gesture applied to the starting preferences
+/// on the stage measured at the start; the release commits it, wherever it
+/// happens, and only if it changed something. A release over the backdrop is
+/// therefore never a click on it. A lost capture or a cancelled pointer
+/// cancels the drag, and so does Esc, which then does only that; a cancelled
+/// drag writes nothing, and the overlay is shown as the preferences it started
+/// from. Closing or unmounting mid-drag drops the drag with the overlay and
+/// writes nothing.</description></item>
+/// <item><description><b>The Adjust control</b>, the single-pointer
+/// alternative WCAG 2.2 SC 2.5.7 asks for: a title-bar button that shows four
+/// move steps, four size steps and Reset. A step writes
+/// <see cref="NotesStage.Step"/> or
+/// <see cref="NotesStage.Resize(NotesPreferences, NotesSizeStep)"/> of the
+/// current preferences, or nothing where it cannot change them; Reset writes
+/// <see cref="NotesPreferences.Unset"/>, both preferences at
+/// once.</description></item>
 /// </list>
 ///
 /// <para>
@@ -92,7 +101,7 @@ namespace BgQuiz_Blazor.Client.Components;
 public partial class DecisionNotes : ComponentBase, IAsyncDisposable
 {
     /// <summary>
-    /// The placement module, imported from this project's static web assets
+    /// The placement and size module, imported from this project's static web assets
     /// (served at the app root), as the quiz page's own modules are. Internal
     /// so the bUnit fixtures plan the very import the component makes.
     /// </summary>
@@ -115,32 +124,36 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
     /// <summary>The close button's accessible name.</summary>
     private const string CloseLabel = "Close notes";
 
-    /// <summary>The Move control's caption, which is also its accessible name.</summary>
-    private const string MoveLabel = "Move";
+    /// <summary>The Adjust control's caption, which is also its accessible name.</summary>
+    private const string AdjustLabel = "Adjust";
 
-    /// <summary>The Move control's tooltip: what it offers, open or shut.</summary>
-    private const string MoveTitle = "Move the notes a step at a time";
+    /// <summary>The Adjust control's tooltip: what it offers, open or shut.</summary>
+    private const string AdjustTitle = "Move or resize the notes a step at a time";
 
     /// <summary>The step buttons' group's accessible name.</summary>
-    private const string StepsName = "Move the notes";
+    private const string StepsName = "Adjust the notes";
 
     /// <summary>The Reset button's caption, which is also its accessible name.</summary>
     private const string ResetLabel = "Reset";
 
-    /// <summary>The Reset button's tooltip: where it puts the notes.</summary>
-    private const string ResetTitle = "Put the notes back in the middle";
+    /// <summary>The Reset button's tooltip: where and how large it puts the notes.</summary>
+    private const string ResetTitle = "Put the notes back in the middle at their first size";
 
     /// <summary>
-    /// The four step buttons, in the ruling's order — up, down, left, right —
-    /// which is their tab order. An arrow is all each shows, so its name is
-    /// both its accessible name and its tooltip.
+    /// The eight step buttons, in the ruling's order — the move steps up, down,
+    /// left, right, then the size steps wider, narrower, taller, shorter —
+    /// which is their tab order, with Reset after them.
     /// </summary>
-    private static readonly (NotesStep Step, string Glyph, string Name)[] Steps =
+    private static readonly StepButton[] Steps =
     [
-        (NotesStep.Up, "↑", "Move up"),
-        (NotesStep.Down, "↓", "Move down"),
-        (NotesStep.Left, "←", "Move left"),
-        (NotesStep.Right, "→", "Move right"),
+        new("↑", "Move up", (stage, from) => stage.Step(from, NotesStep.Up)),
+        new("↓", "Move down", (stage, from) => stage.Step(from, NotesStep.Down)),
+        new("←", "Move left", (stage, from) => stage.Step(from, NotesStep.Left)),
+        new("→", "Move right", (stage, from) => stage.Step(from, NotesStep.Right)),
+        new(null, "Wider", (stage, from) => stage.Resize(from, NotesSizeStep.Wider)),
+        new(null, "Narrower", (stage, from) => stage.Resize(from, NotesSizeStep.Narrower)),
+        new(null, "Taller", (stage, from) => stage.Resize(from, NotesSizeStep.Taller)),
+        new(null, "Shorter", (stage, from) => stage.Resize(from, NotesSizeStep.Shorter)),
     ];
 
     /// <summary>
@@ -154,9 +167,9 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
     [Inject]
     private IJSRuntime JS { get; set; } = default!;
 
-    /// <summary>The placement preference — read for every position drawn, written by every completed move.</summary>
+    /// <summary>The placement and size preferences — read for every box drawn, written by every completed gesture.</summary>
     [Inject]
-    private NotesPlacementStore Placement { get; set; } = default!;
+    private NotesPreferencesStore Preferences { get; set; } = default!;
 
     [Inject]
     private ILogger<DecisionNotes> Logger { get; set; } = default!;
@@ -167,13 +180,15 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
     /// <summary>The dialog heading's id, which names the dialog.</summary>
     private string HeadingId => _dialogId + "-heading";
 
-    /// <summary>The step buttons' group's id — the Move control's <c>aria-controls</c> target.</summary>
+    /// <summary>The step buttons' group's id — the Adjust control's <c>aria-controls</c> target.</summary>
     private string StepsId => _dialogId + "-steps";
 
     private ElementReference _toggle;
     private ElementReference _backdrop;
     private ElementReference _dialog;
     private ElementReference _titleBar;
+    private ElementReference _text;
+    private ElementReference _resizeHandle;
 
     /// <summary>Whether the notes are open.</summary>
     private bool _open;
@@ -189,14 +204,14 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
     /// <summary>Where focus goes after the next render, if anywhere.</summary>
     private PendingFocus _pendingFocus;
 
-    /// <summary>Whether the Move control's step buttons are showing. Shut whenever the notes open.</summary>
-    private bool _moveOpen;
+    /// <summary>Whether the Adjust control's step buttons are showing. Shut whenever the notes open.</summary>
+    private bool _adjustOpen;
 
     /// <summary>The stage as last measured for this opening; null until its first report.</summary>
     private NotesStage? _stage;
 
-    /// <summary>The drag in progress, if any — the one copy of that fact.</summary>
-    private PlacementDrag? _drag;
+    /// <summary>The drag in progress, a move or a resize, if any — the one copy of that fact.</summary>
+    private PreferencesDrag? _drag;
 
     /// <summary>Counts openings, so a watch started for one is never kept for the next.</summary>
     private int _opening;
@@ -219,25 +234,36 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
     /// <summary>The reference the module reports the stage through; created with the module, disposed with the component.</summary>
     private DotNetObjectReference<DecisionNotes>? _self;
 
-    /// <summary>The module's handle on the open overlay: its reports, and pointer capture. Null while closed.</summary>
+    /// <summary>The module's handle on the open overlay: its reports, and pointer capture on either drag's element. Null while closed.</summary>
     private IJSObjectReference? _watch;
 
     /// <summary>Set by <see cref="DisposeAsync"/>, so work still in flight releases what it gets rather than keeping it.</summary>
     private bool _disposed;
 
-    /// <summary>Where the overlay is drawn: the placement — mid-drag, the drag's — on the measured stage; null until measured.</summary>
-    private NotesPosition? Position =>
-        _stage is { } stage ? stage.Show(_drag?.Current ?? Placement.Current) : null;
+    /// <summary>How the overlay is drawn: the preferences — mid-drag, the drag's — on the measured stage; null until measured.</summary>
+    private NotesBox? Box =>
+        _stage is { } stage ? stage.Show(_drag?.Current ?? Preferences.Current) : null;
 
     /// <summary>
-    /// <see cref="Position"/> as the two custom properties the stylesheet places
-    /// a <c>data-placed</c> overlay by. Invariant culture: a comma-decimal
-    /// browser locale must never reach a CSS length.
+    /// <see cref="Box"/> as the custom properties the stylesheet places and
+    /// sizes a <c>data-placed</c> overlay by: the position always, a length only
+    /// on an axis whose size is set. Invariant culture: a comma-decimal browser
+    /// locale must never reach a CSS length.
     /// </summary>
-    private string? PositionStyle => Position is { } position
-        ? string.Create(CultureInfo.InvariantCulture,
-            $"--notes-left: {position.Left:0.##}px; --notes-top: {position.Top:0.##}px")
-        : null;
+    private string? BoxStyle
+    {
+        get
+        {
+            if (Box is not { } box) return null;
+            var style = string.Create(CultureInfo.InvariantCulture,
+                $"--notes-left: {box.Left:0.##}px; --notes-top: {box.Top:0.##}px");
+            if (box.Width is double width)
+                style += string.Create(CultureInfo.InvariantCulture, $"; --notes-width: {width:0.##}px");
+            if (box.Height is double height)
+                style += string.Create(CultureInfo.InvariantCulture, $"; --notes-height: {height:0.##}px");
+            return style;
+        }
+    }
 
     /// <summary>
     /// Close without a focus move when the comment the notes were opened on is
@@ -300,14 +326,15 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
     /// <param name="overlayWidth">The overlay's width.</param>
     /// <param name="overlayHeight">The overlay's height.</param>
     /// <param name="titleBarBottom">The title bar's bottom edge, measured from the overlay's top edge.</param>
+    /// <param name="lineHeight">The text's computed line height.</param>
     [JSInvokable]
     public void OnStageMeasured(
         double areaWidth, double areaHeight, double clearance,
-        double overlayWidth, double overlayHeight, double titleBarBottom)
+        double overlayWidth, double overlayHeight, double titleBarBottom, double lineHeight)
     {
         if (_disposed || !_open) return;
         if (!NotesStage.TryCreate(areaWidth, areaHeight, clearance, overlayWidth, overlayHeight, titleBarBottom,
-                out var stage)) return;
+                lineHeight, out var stage)) return;
         if (_stage == stage) return;
         _stage = stage;
         StateHasChanged();
@@ -338,22 +365,23 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
     }
 
     /// <summary>
-    /// Everything closing discards: the open bit, the Move control's state,
+    /// Everything closing discards: the open bit, the Adjust control's state,
     /// the stage measured for this opening and any drag in progress, which
-    /// writes nothing. The preference is not touched.
+    /// writes nothing. The preferences are not touched.
     /// </summary>
     private void Shut()
     {
         _open = false;
         _openedOn = null;
-        _moveOpen = false;
+        _adjustOpen = false;
         _stage = null;
         _drag = null;
     }
 
     /// <summary>
-    /// Esc cancels a drag in progress — releasing its capture, and nothing
-    /// else — and otherwise closes the notes; every other key is left alone.
+    /// Esc cancels a drag in progress, a move or a resize — releasing its
+    /// capture, and nothing else — and otherwise closes the notes; every other
+    /// key is left alone.
     /// </summary>
     private async Task HandleKeyDownAsync(KeyboardEventArgs e)
     {
@@ -361,30 +389,39 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
         if (_drag is { } drag)
         {
             _drag = null;
-            if (_watch is not null) await _watch.InvokeVoidAsync("release", drag.PointerId);
+            if (_watch is not null) await _watch.InvokeVoidAsync("release", drag.PointerId, drag.Captor);
             return;
         }
         Close();
     }
 
+    /// <summary>A press on the title bar starts a move (see <see cref="BeginDragAsync"/>).</summary>
+    private Task BeginMoveAsync(PointerEventArgs e) =>
+        BeginDragAsync(e, _titleBar, static (stage, from, dx, dy) => stage.Drag(from, dx, dy));
+
+    /// <summary>A press on the resize handle starts a resize (see <see cref="BeginDragAsync"/>).</summary>
+    private Task BeginResizeAsync(PointerEventArgs e) =>
+        BeginDragAsync(e, _resizeHandle, static (stage, from, dx, dy) => stage.Resize(from, dx, dy));
+
     /// <summary>
-    /// A press on the title bar's handle starts a drag — the primary button
-    /// of the primary pointer, once the stage is known and while no drag is
-    /// already running — and captures the pointer there. A capture the browser
+    /// A press on a drag's element starts that drag — the primary button of
+    /// the primary pointer, once the stage is known and while no drag of
+    /// either kind is already running — and captures the pointer on
+    /// <paramref name="captor"/>, the element pressed. A capture the browser
     /// refuses (the pointer was already released) ends the drag at once.
     /// </summary>
-    private async Task BeginDragAsync(PointerEventArgs e)
+    private async Task BeginDragAsync(PointerEventArgs e, ElementReference captor, Func<NotesStage, NotesPreferences, double, double, NotesPreferences> gesture)
     {
         if (e.Button != 0 || !e.IsPrimary || _drag is not null) return;
         if (_stage is not { } stage || _watch is not { } watch) return;
 
-        var drag = new PlacementDrag(e.PointerId, e.ClientX, e.ClientY, Placement.Current, stage);
+        var drag = new PreferencesDrag(e.PointerId, captor, e.ClientX, e.ClientY, Preferences.Current, stage, gesture);
         _drag = drag;
-        if (!await watch.InvokeAsync<bool>("capture", e.PointerId) && _drag == drag)
+        if (!await watch.InvokeAsync<bool>("capture", e.PointerId, captor) && _drag == drag)
             _drag = null;
     }
 
-    /// <summary>A move of the dragging pointer shows the drag's placement.</summary>
+    /// <summary>A move of the dragging pointer shows the drag's preferences.</summary>
     private void ContinueDrag(PointerEventArgs e)
     {
         if (_drag is { } drag && drag.PointerId == e.PointerId)
@@ -392,20 +429,21 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
     }
 
     /// <summary>
-    /// The release commits the drag, wherever it happens: the placement it
-    /// ends on is written if it differs from the one it started from.
+    /// The release commits the drag, wherever it happens: the preferences it
+    /// ends on — for a resize, the size and the placement together — are
+    /// written in one write if they differ from the ones it started from.
     /// </summary>
     private async Task EndDragAsync(PointerEventArgs e)
     {
         if (_drag is not { } drag || drag.PointerId != e.PointerId) return;
         _drag = null;
-        var moved = drag.MoveTo(e.ClientX, e.ClientY);
-        if (moved != drag.From) await Placement.SetAsync(moved);
+        var ended = drag.MoveTo(e.ClientX, e.ClientY);
+        if (ended != drag.From) await Preferences.SetAsync(ended);
     }
 
     /// <summary>
     /// A cancelled pointer or a lost capture cancels the drag: nothing is
-    /// written, and the overlay is drawn at the placement it started from. A
+    /// written, and the overlay is drawn as the preferences it started from. A
     /// release's own loss of capture comes after the release has ended the
     /// drag, and finds nothing to cancel.
     /// </summary>
@@ -414,36 +452,40 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
         if (_drag is { } drag && drag.PointerId == e.PointerId) _drag = null;
     }
 
-    /// <summary>The Move control shows or hides its step buttons. Not a placement: nothing is written.</summary>
-    private void ToggleMove() => _moveOpen = !_moveOpen;
+    /// <summary>The Adjust control shows or hides its step buttons. Not a preference: nothing is written.</summary>
+    private void ToggleAdjust() => _adjustOpen = !_adjustOpen;
 
     /// <summary>
-    /// One step, committed: the placement <see cref="NotesStage.Step"/> makes
-    /// of the current one is written, unless it is the same — a step that
-    /// cannot move writes nothing, so an unset preference stays unset. Not
-    /// while a drag runs, which owns the placement until it ends.
+    /// One step, committed: the preferences <paramref name="step"/> makes of
+    /// the current ones are written, unless they are the same — a step that
+    /// cannot move or resize writes nothing, so an unset preference stays
+    /// unset. Not while a drag runs, which owns the preferences until it ends.
     /// </summary>
-    private async Task StepAsync(NotesStep step)
+    private async Task StepAsync(Func<NotesStage, NotesPreferences, NotesPreferences> step)
     {
         if (_drag is not null || _stage is not { } stage) return;
-        var from = Placement.Current;
-        var to = stage.Step(from, step);
-        if (to != from) await Placement.SetAsync(to);
+        var from = Preferences.Current;
+        var to = step(stage, from);
+        if (to != from) await Preferences.SetAsync(to);
     }
 
-    /// <summary>Reset: the preference back to unset, the overlay back to the centre. Not while a drag runs.</summary>
+    /// <summary>
+    /// Reset: both preferences back to unset — the overlay back in the middle
+    /// at its default size, the entry removed. Not while a drag runs.
+    /// </summary>
     private Task ResetAsync() =>
-        _drag is null ? Placement.SetAsync(NotesPlacement.Unset) : Task.CompletedTask;
+        _drag is null ? Preferences.SetAsync(NotesPreferences.Unset) : Task.CompletedTask;
 
     /// <summary>
     /// The control's first render's preparation: the stored preference, then
     /// the module. A module that cannot be imported is logged and leaves the
-    /// overlay where the stylesheet puts it — centred — and unmovable; it still
-    /// opens and closes. A disposal landing during the import releases it.
+    /// overlay where and as the stylesheet puts it — centred, at its default
+    /// size — unmovable and unresizable; it still opens and closes. A disposal
+    /// landing during the import releases it.
     /// </summary>
     private async Task PrepareAsync()
     {
-        await Placement.EnsureLoadedAsync();
+        await Preferences.EnsureLoadedAsync();
         IJSObjectReference module;
         try
         {
@@ -452,7 +494,7 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
         catch (JSException e)
         {
             Logger.LogWarning(e,
-                "The notes' placement module ({Module}) could not be imported; the notes open centred and cannot be moved.",
+                "The notes' placement and size module ({Module}) could not be imported; the notes open centred at their first size and cannot be moved or resized.",
                 ModulePath);
             return;
         }
@@ -477,7 +519,7 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
         if (_module is null || _self is null || !IsCurrent(opening)) return;
 
         var watch = await _module.InvokeAsync<IJSObjectReference>(
-            "watch", _backdrop, _dialog, _titleBar, _self, nameof(OnStageMeasured));
+            "watch", _backdrop, _dialog, _titleBar, _text, _self, nameof(OnStageMeasured));
         if (!IsCurrent(opening))
         {
             await StopAsync(watch);
@@ -522,21 +564,37 @@ public partial class DecisionNotes : ComponentBase, IAsyncDisposable
     }
 
     /// <summary>
-    /// A drag of the title bar: the pointer that started it, where it started,
-    /// the placement it started from and the stage it is measured on, and the
-    /// placement it shows now.
+    /// A drag of the title bar or of the resize handle: the pointer that
+    /// started it and the element holding its capture, where it started, the
+    /// preferences it started from, the stage it is measured on and the
+    /// gesture it applies — <see cref="NotesStage.Drag"/> or
+    /// <see cref="NotesStage.Resize(NotesPreferences, double, double)"/> — and
+    /// the preferences it shows now. (A <c>Func</c>, not a nested delegate
+    /// type: the render tree keeps every member of a component's nested types
+    /// for the trimmer, and a delegate type's include reflection-only ones.)
     /// </summary>
-    private sealed class PlacementDrag(long pointerId, double startX, double startY, NotesPlacement from, NotesStage stage)
+    private sealed class PreferencesDrag(
+        long pointerId, ElementReference captor, double startX, double startY,
+        NotesPreferences from, NotesStage stage, Func<NotesStage, NotesPreferences, double, double, NotesPreferences> gesture)
     {
         public long PointerId { get; } = pointerId;
 
-        public NotesPlacement From { get; } = from;
+        public ElementReference Captor { get; } = captor;
 
-        public NotesPlacement Current { get; private set; } = from;
+        public NotesPreferences From { get; } = from;
 
-        /// <summary>The placement with the pointer at (<paramref name="x"/>, <paramref name="y"/>): shown now, and returned.</summary>
-        public NotesPlacement MoveTo(double x, double y) => Current = stage.Drag(From, x - startX, y - startY);
+        public NotesPreferences Current { get; private set; } = from;
+
+        /// <summary>The preferences with the pointer at (<paramref name="x"/>, <paramref name="y"/>): shown now, and returned.</summary>
+        public NotesPreferences MoveTo(double x, double y) => Current = gesture(stage, From, x - startX, y - startY);
     }
+
+    /// <summary>
+    /// One of the Adjust control's step buttons: an arrow, or <c>null</c> for
+    /// a button that shows its name as its text; its name; and what a press
+    /// makes of the preferences on the measured stage.
+    /// </summary>
+    private sealed record StepButton(string? Glyph, string Name, Func<NotesStage, NotesPreferences, NotesPreferences> Apply);
 
     private enum PendingFocus
     {

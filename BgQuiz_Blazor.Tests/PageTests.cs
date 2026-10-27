@@ -49,14 +49,14 @@ public class PageTests : BunitContext
         decisionNotes.Mode = JSRuntimeMode.Loose;
         _plan = BrowserStoragePlan.On(JSInterop);
         _plan.ExpectRead(BrowserStorageArea.Local, QuizSettings.StorageKey, BrowserStorageReadAnswer.Absent);
-        _plan.ExpectRead(BrowserStorageArea.Local, NotesPlacementStore.StorageKey, BrowserStorageReadAnswer.Absent);
+        _plan.ExpectRead(BrowserStorageArea.Local, NotesPreferencesStore.StorageKey, BrowserStorageReadAnswer.Absent);
 
         Services.AddSingleton<IFolderAccess>(_folders);
         Services.AddSingleton(TimeProvider.System);
         Services.AddFilterSurface();
         Services.AddScoped<QuizSettings>();
         Services.AddScoped<MixDraft>();
-        Services.AddScoped<NotesPlacementStore>();
+        Services.AddScoped<NotesPreferencesStore>();
         Services.AddScoped<ProblemLoad>(_ => LoadAsync);
         Services.AddSingleton<IQuizLiveMarker>(_marker);
         Services.AddScoped(sp => new QuizApp(
