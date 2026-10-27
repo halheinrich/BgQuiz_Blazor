@@ -12,10 +12,13 @@ using XgFilter_Lib.Filtering;
 /// </summary>
 internal sealed class Selection
 {
+    private readonly DecisionFilterSet _filters;
+
     private Selection(
-        QuizSetup setup, FilterConfig config, PlayRanking ranking,
+        QuizSetup setup, FilterConfig config, PlayRanking ranking, DecisionFilterSet filters,
         IReadOnlyList<BgDecisionData> pool, AnswerTypeDistribution answerTypes, int duplicatesCollapsed)
     {
+        _filters = filters;
         Setup = setup;
         Config = config;
         Ranking = ranking;
@@ -36,6 +39,18 @@ internal sealed class Selection
 
     public bool Describes(QuizSetup setup, FilterConfig config, PlayRanking ranking) =>
         ReferenceEquals(Setup, setup) && Config.Equals(config) && Ranking == ranking;
+
+    /// <summary>
+    /// XG's error for <paramref name="decision"/> as this selection's filter reads it, under its
+    /// ranking: the listed player's half under a name facet, the doubler's otherwise
+    /// (SPEC-filtering.md §8). The by-error order reads it.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="decision"/> is null.</exception>
+    public double? RecordedError(BgDecisionData decision)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        return _filters.ErrorRead(decision.ViewFor(Ranking));
+    }
 
     /// <summary>Filter the setup's problems under the ranking, then deduplicate by position.</summary>
     public static async Task<Selection> ComputeAsync(
@@ -60,6 +75,6 @@ internal sealed class Selection
         var distribution = AnswerTypeDistribution.Empty;
         foreach (var problem in distinct.Problems)
             distribution = distribution.Add(problem);
-        return new Selection(setup, config, ranking, distinct.Problems, distribution, distinct.DuplicatesCollapsed);
+        return new Selection(setup, config, ranking, filters, distinct.Problems, distribution, distinct.DuplicatesCollapsed);
     }
 }

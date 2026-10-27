@@ -731,6 +731,43 @@ public class QuizAppTests : BunitContext
         Assert.Equal(StartOutcome.NothingToRestart, await app.RestartAsync());
     }
 
+    // The selection hands the by-error order its filter's reading (SPEC-filtering.md §8;
+    // halheinrich/backgammon#440, halheinrich/backgammon#423): under a name facet listing the
+    // taker, two doubles whose doublers' errors order them one way are presented in the order
+    // of their takers' errors, the other way.
+    [Fact]
+    public async Task ByError_UnderANameFacetListingTheTaker_PresentsInTheTakersOrder()
+    {
+        var doublerLarger = TestFixtures.RecordedCubeDecision(   // doubler 0.10, taker 0.15
+            0.95, 0.85, CubeAction.Double, CubeAction.Pass, away: 0, location: TestFixtures.SourceLocation.InMatch("a.xg", 1, 4));
+        var takerLarger = TestFixtures.RecordedCubeDecision(     // doubler 0.05, taker 0.25
+            0.80, 0.75, CubeAction.Double, CubeAction.Pass, away: 5, location: TestFixtures.SourceLocation.InMatch("b.xg", 1, 4));
+        Assert.NotEqual(ProblemKey.From(doublerLarger), ProblemKey.From(takerLarger));
+        var config = new FilterConfig { Players = ["Bob"] };
+        _plan.ExpectFilterPanelMount();
+        _plan.ExpectFilterRestore(config);
+        var surface = Render<FilterSurface>();
+        _problems.AddRange([doublerLarger, takerLarger]);
+        _folders.NextPickOutcome = Folder();
+        var app = App;
+        Assert.Equal(FolderOutcomeKind.Landed, (await app.PickFolderAsync(default)).Kind);
+        _plan.ExpectFilterCommit(config, BrowserStorageWriteAnswer.Succeeded);
+        await surface.Find("button.btn-primary").ClickAsync(new());
+        Assert.Equal(config, app.FilterInEffect);
+        await Settings.EnsureHydratedAsync();
+        _plan.ExpectWrite(BrowserStorageArea.Local, QuizSettings.StorageKey,
+            SettingsPayload.Of(problemOrder: nameof(ProblemOrder.ByErrorLargestFirst)), BrowserStorageWriteAnswer.Succeeded);
+        await Settings.SetOrderAsync(ProblemOrder.ByErrorLargestFirst);
+
+        await StartedAsync(app);
+
+        Assert.Equal(2, app.ProblemCount);   // both survive the filter and the deduplication
+        Assert.Same(takerLarger, app.Current);
+        app.Next();
+        Assert.Same(doublerLarger, app.Current);
+        _plan.Verify();
+    }
+
     // ── The run, and its recording ───────────────────────────────────────────────
 
     [Fact]

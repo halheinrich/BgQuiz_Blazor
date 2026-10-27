@@ -269,6 +269,35 @@ internal static class TestFixtures
     }
 
     /// <summary>
+    /// <see cref="CubeDecision"/>'s position with both halves recorded:
+    /// <paramref name="onRoll"/> chose <paramref name="doublerAction"/> and, after a
+    /// double, <paramref name="opp"/> — the taker — answered <paramref name="takerAction"/>.
+    /// Each half's error is the analysis's (<see cref="CubeDecisionData.DoublerActionError"/>,
+    /// <see cref="CubeDecisionData.TakerActionError"/>). With doubling worth
+    /// <c>min(doubleTakeEquity, 1)</c>, a double costs <c>noDoubleEquity</c> less that
+    /// where it is the larger, and a pass where the take is right costs
+    /// <c>1 - doubleTakeEquity</c>: so <c>(0.8, 0.7)</c> doubled and passed is a doubler's
+    /// error of 0.10 and a taker's of 0.30. <paramref name="away"/> picks the score, and with
+    /// it the <see cref="ProblemKey"/>, so records differing in it are distinct problems.
+    /// </summary>
+    public static CubeDecision RecordedCubeDecision(
+        double noDoubleEquity, double doubleTakeEquity,
+        CubeAction doublerAction, CubeAction? takerAction,
+        string onRoll = "Alice", string opp = "Bob", int away = 0, SourceLocation? location = null)
+    {
+        var identity = location?.ToId(isCube: true) ?? DefaultId;
+        return TestRecords.Cube(
+            id: identity,
+            position: TestRecords.Position(cubeSize: 2, cubeOwner: CubeOwner.OnRoll, session: SessionFor(away)),
+            decision: TestRecords.CubeData(
+                noDoubleEquity: noDoubleEquity,
+                doubleTakeEquity: doubleTakeEquity,
+                userDoublerAction: doublerAction,
+                userTakerAction: takerAction),
+            descriptive: Describe(identity, onRoll, opp, comment: null));
+    }
+
+    /// <summary>
     /// One-click checker decision: on-roll checkers on the 12- and 9-points with
     /// dice (6,5), against opponent points on 7, 4 and 1. The 5 plays nowhere
     /// (12/7 and 9/4 are both blocked) and neither 6 leaves a 5 to follow, so

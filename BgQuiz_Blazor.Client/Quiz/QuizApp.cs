@@ -541,7 +541,7 @@ internal sealed class QuizApp : IDisposable
         if (config.Equals(FilterInEffect)) _selection = selection;
 
         var sequence = await ProblemSequence.BuildAsync(
-            selection.Pool, mix, _settings.Order, ranking,
+            selection.Pool, mix, _settings.Order, selection.RecordedError,
             stats.Document, _clock.GetUtcNow(), new Random(), yielder, CancellationToken.None);
         if (sequence.Problems.Count == 0) return StartOutcome.NoProblems;
 
