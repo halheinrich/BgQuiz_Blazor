@@ -402,28 +402,32 @@ public class NotesStageTests
     {
         // Centred, the overlay's left edge is at 352 and its right at 928.
         // Widened by 100 it is 676 wide in a travel of 1248 − 676 = 572, and
-        // the corner stays at 352 only at the position 336 / 572.
+        // the corner stays at 352 only at the position 336 / 572. The unset
+        // height is held at the 200 it shows, its top at 300: 284 / 568 = ½.
         var resized = Desktop.Resize(NotesPreferences.Unset, 100, 0);
 
-        Assert.Equal(P(336.0 / 572, null, 676), resized);
+        Assert.Equal(P(336.0 / 572, 0.5, 676, 200), resized);
         var box = Desktop.Show(resized);
         Assert.Equal(352, box.Left, 9);
         Assert.Equal(928 + 100, box.Left + box.Width!.Value, 9);
         Assert.Equal((800 - 200) / 2.0, box.Top);
+        Assert.Equal(200, box.Height);
     }
 
     [Fact]
     public void Resize_Taller_KeepsTheTopEdge_AndMovesTheBottomEdgeByTheDrag()
     {
         // Centred, the top edge is at 300; 50 taller is 250 in a travel of
-        // 768 − 250 = 518, at the position 284 / 518.
+        // 768 − 250 = 518, at the position 284 / 518. The unset width is held
+        // at the 576 it shows, its left at 352: 336 / 672 = ½.
         var resized = Desktop.Resize(NotesPreferences.Unset, 0, 50);
 
-        Assert.Equal(P(null, 284.0 / 518, null, 250), resized);
+        Assert.Equal(P(0.5, 284.0 / 518, 576, 250), resized);
         var box = Desktop.Show(resized);
         Assert.Equal(300, box.Top, 9);
         Assert.Equal(500 + 50, box.Top + box.Height!.Value, 9);
         Assert.Equal((1280 - 576) / 2.0, box.Left);
+        Assert.Equal(576, box.Width);
     }
 
     [Fact]
@@ -462,18 +466,18 @@ public class NotesStageTests
         // Centred, the room from the corner at 352 to the right clearance is
         // 1280 − 16 − 352 = 912 — not the whole space of 1248. At 912 the
         // travel is 336 and the corner at 352 is its end.
-        Assert.Equal(P(1, null, 912), Desktop.Resize(NotesPreferences.Unset, 5000, 0));
+        Assert.Equal(P(1, 0.5, 912, 200), Desktop.Resize(NotesPreferences.Unset, 5000, 0));
 
         // Down: 800 − 16 − 300 = 484 of room; a travel of 284, its end.
-        Assert.Equal(P(null, 1, null, 484), Desktop.Resize(NotesPreferences.Unset, 0, 5000));
+        Assert.Equal(P(0.5, 1, 576, 484), Desktop.Resize(NotesPreferences.Unset, 0, 5000));
     }
 
     [Fact]
     public void Resize_BelowTheMinimum_StopsAtTheMinimum()
     {
         double width = NotesStage.MinimumWidth;
-        Assert.Equal(P(336 / (SpaceAcross - width), null, width), Desktop.Resize(NotesPreferences.Unset, -5000, 0));
-        Assert.Equal(P(null, 284 / (SpaceDown - MinimumHeight), null, MinimumHeight), Desktop.Resize(NotesPreferences.Unset, 0, -5000));
+        Assert.Equal(P(336 / (SpaceAcross - width), 0.5, width, 200), Desktop.Resize(NotesPreferences.Unset, -5000, 0));
+        Assert.Equal(P(0.5, 284 / (SpaceDown - MinimumHeight), 576, MinimumHeight), Desktop.Resize(NotesPreferences.Unset, 0, -5000));
     }
 
     [Fact]
@@ -500,8 +504,10 @@ public class NotesStageTests
     {
         // From the left of the travel, widened to all the room: the overlay
         // fills the space, so there is no travel to hold a position in.
-        Assert.Equal(P(0, 0.3, SpaceAcross), Desktop.Resize(P(0, 0.3), 5000, 0));
-        Assert.Equal(P(null, 0, null, SpaceDown), Desktop.Resize(P(null, 0), 0, 5000));
+        var widened = Desktop.Resize(P(0, 0.3), 5000, 0);
+        Assert.Equal(0, widened.Placement.Horizontal);
+        Assert.Equal(SpaceAcross, widened.Size.Width);
+        Assert.Equal(P(0.5, 0, 576, SpaceDown), Desktop.Resize(P(null, 0), 0, 5000));
     }
 
     [Fact]
@@ -514,6 +520,90 @@ public class NotesStageTests
         Assert.Equal(5000, resized.Size.Width);
         Assert.Equal(0.25, resized.Placement.Horizontal);
         Assert.Equal(240, resized.Size.Height);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Resize: the first resize chooses the box (§4, amended 2026-10-27)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void AWidthOnlyResize_FromAnUnsetHeight_HoldsTheShownHeight_AndTheTopStays()
+    {
+        // Placed at ¾ down a travel of 568 for the measured 200: the top at
+        // 16 + 426 = 442. Narrowed, the height is held at 200 and the top is
+        // kept by the same position, 426 / 568.
+        var from = P(0.25, 0.75);
+        var resized = Desktop.Resize(from, -100, 0);
+
+        Assert.Equal(200, resized.Size.Height);
+        Assert.Equal(0.75, resized.Placement.Vertical);
+        var box = Desktop.Show(resized);
+        Assert.Equal(442, box.Top, 9);
+        Assert.Equal(200, box.Height);
+
+        // A wider step likewise.
+        Assert.Equal(200, Desktop.Resize(from, NotesSizeStep.Wider).Size.Height);
+    }
+
+    [Fact]
+    public void AHeightOnlyResize_FromAnUnsetWidth_HoldsTheShownWidth_AndTheLeftEdgeStays()
+    {
+        // At ¼ across a travel of 672: the left edge at 16 + 168 = 184.
+        var resized = Desktop.Resize(P(0.25, 0.75), 0, -50);
+
+        Assert.Equal(576, resized.Size.Width);
+        Assert.Equal(0.25, resized.Placement.Horizontal);
+        var box = Desktop.Show(resized);
+        Assert.Equal(184, box.Left, 9);
+        Assert.Equal(576, box.Width);
+    }
+
+    [Fact]
+    public void AShownHeightUnderTheMinimum_IsHeldAtTheMinimum_AndTheTopStays()
+    {
+        // A one-line note's overlay, 100 tall, centred: its top at 350. Held
+        // at the minimum of 128, the top stays at 350 by the position
+        // (350 − 16) / (768 − 128).
+        var oneLine = Stage(1280, 800, 576, 100, titleBarBottom: 56);
+        var resized = oneLine.Resize(NotesPreferences.Unset, 100, 0);
+
+        Assert.Equal(MinimumHeight, resized.Size.Height);
+        Assert.Equal(334.0 / 640, resized.Placement.Vertical);
+        Assert.Equal(350, oneLine.Show(resized).Top, 9);
+    }
+
+    [Fact]
+    public void AChosenLengthOnTheOtherAxis_IsKeptAsHeld_ThroughTheClamp()
+    {
+        // A held height of 5000 shows the space; a width-only resize keeps it
+        // at 5000, and its position as held — the clamp writes nothing.
+        var resized = Desktop.Resize(P(0.5, 0.3, null, 5000), 100, 0);
+
+        Assert.Equal(5000, resized.Size.Height);
+        Assert.Equal(0.3, resized.Placement.Vertical);
+        Assert.Equal(676, resized.Size.Width);
+    }
+
+    [Fact]
+    public void AnUnsetOtherAxisWithLessRoomThanTheMinimum_IsLeftAsItIs()
+    {
+        // 100 tall: a space of 68, under the minimum height. A width-only
+        // resize changes the width and leaves the height unset.
+        var low = Stage(1280, 100, 576, 68, titleBarBottom: 56);
+        var resized = low.Resize(NotesPreferences.Unset, 100, 0);
+
+        Assert.Equal(676, resized.Size.Width);
+        Assert.Null(resized.Size.Height);
+        Assert.Null(resized.Placement.Vertical);
+    }
+
+    [Fact]
+    public void AResizeThatChangesNothing_ReturnsWhatItWasGiven_HoldingNothing()
+    {
+        Assert.Equal(NotesPreferences.Unset, Desktop.Resize(NotesPreferences.Unset, 0, 0));
+        var atTheRight = P(1, null);
+        Assert.Equal(atTheRight, Desktop.Resize(atTheRight, NotesSizeStep.Wider));
+        Assert.Null(Desktop.Resize(atTheRight, 100, 0).Size.Height);
     }
 
     // -----------------------------------------------------------------------
@@ -531,7 +621,7 @@ public class NotesStageTests
 
         Assert.Equal(576 + across, Desktop.Resize(NotesPreferences.Unset, NotesSizeStep.Wider).Size.Width);
         Assert.Equal(576 - across, Desktop.Resize(NotesPreferences.Unset, NotesSizeStep.Narrower).Size.Width);
-        Assert.Equal(P(null, 284 / (SpaceDown - 280), null, 280), Desktop.Resize(NotesPreferences.Unset, NotesSizeStep.Taller));
+        Assert.Equal(P(0.5, 284 / (SpaceDown - 280), 576, 280), Desktop.Resize(NotesPreferences.Unset, NotesSizeStep.Taller));
         // 200 less a step of 80 is under the minimum of 128, which it stops at.
         Assert.Equal(80, down);
         Assert.Equal(MinimumHeight, Desktop.Resize(NotesPreferences.Unset, NotesSizeStep.Shorter).Size.Height);
@@ -564,7 +654,7 @@ public class NotesStageTests
         // At the left clearance and 30 px short of the space: one wider step
         // (more than 30 px) reaches the space and no further.
         var nearlyFull = P(0, null, SpaceAcross - 30);
-        Assert.Equal(P(0, null, SpaceAcross), Desktop.Resize(nearlyFull, NotesSizeStep.Wider));
+        Assert.Equal(P(0, 0.5, SpaceAcross, 200), Desktop.Resize(nearlyFull, NotesSizeStep.Wider));
     }
 
     [Fact]
@@ -616,11 +706,11 @@ public class NotesStageTests
         double step = (space - NotesStage.MinimumWidth) / 8;
 
         var narrower = Phone.Resize(NotesPreferences.Unset, NotesSizeStep.Narrower);
-        Assert.Equal(P(0, null, space - step), narrower);
+        Assert.Equal(P(0, 0.5, space - step, 220), narrower);
         Assert.Equal(Clearance, Phone.Show(narrower).Left, 9);
 
         var wider = Phone.Resize(narrower, NotesSizeStep.Wider);
-        Assert.Equal(P(0, null, space), wider);
+        Assert.Equal(P(0, 0.5, space, 220), wider);
         Assert.Equal(wider, Phone.Resize(wider, NotesSizeStep.Wider));   // at the room
 
         // Narrowed to the minimum by drag, then no further.

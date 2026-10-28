@@ -66,11 +66,25 @@ namespace BgQuiz_Blazor.Client.Quiz;
 /// </para>
 ///
 /// <para>
-/// <b>Gestures start from what is shown</b> and change only an axis they
-/// actually changed: an axis with no travel, a drag with no movement along
-/// it, a step already at that edge or bound leaves both held values as they
-/// were, unset included. So a caller tells a gesture that wrote something
-/// from one that could not by comparing the result with what it passed in.
+/// <b>The first resize chooses the box</b> (§4, amended 2026-10-27). A resize
+/// that changes one axis also holds the other where its length is still
+/// unset — fit to the note — at the length it shows, within the same
+/// gesture's bounds, with the placement that keeps its start edge where it is
+/// shown; so a change of width that would rewrap the note leaves its height,
+/// and the top-left corner, where they were. Where the room on that other
+/// axis is under the minimum, it is left as it is. A length already chosen on
+/// the other axis is kept as held, so the show clamp still writes nothing;
+/// and only Reset returns an axis to fitting the note.
+/// </para>
+///
+/// <para>
+/// <b>Gestures start from what is shown</b>, and a gesture that changes
+/// nothing returns what it was given: an axis with no travel, a drag with no
+/// movement along it, a step already at that edge or bound leaves both held
+/// values as they were, unset included. A move changes only the axes it
+/// moved; a resize also holds an unset other axis, as above. So a caller
+/// tells a gesture that wrote something from one that could not by comparing
+/// the result with what it passed in.
 /// </para>
 /// </summary>
 internal readonly record struct NotesStage
@@ -242,21 +256,30 @@ internal readonly record struct NotesStage
     /// <summary>
     /// The preferences after the overlay, shown as <paramref name="from"/> shows
     /// it, is resized by its bottom-right corner by <paramref name="dx"/> and
-    /// <paramref name="dy"/> pixels: on each axis the drag moved, the size and
-    /// the placement the resize rule makes of them (see the type's remarks);
-    /// on each other axis, both as <paramref name="from"/> holds them.
+    /// <paramref name="dy"/> pixels: on each axis the drag changed, the size and
+    /// the placement the resize rule makes of them; on an axis it did not
+    /// change, a length still unset held at the length it shows with the
+    /// placement that keeps its start edge, and a chosen one kept as held (see
+    /// the type's remarks). <paramref name="from"/> itself where the drag
+    /// changes neither axis.
     /// </summary>
     public NotesPreferences Resize(NotesPreferences from, double dx, double dy)
     {
-        var (width, horizontal) = Horizontal.Resized(from.Size.Width, from.Placement.Horizontal, dx);
-        var (height, vertical) = Vertical.Resized(from.Size.Height, from.Placement.Vertical, dy);
+        var (size, placement) = (from.Size, from.Placement);
+        var across = Horizontal.Resized(size.Width, placement.Horizontal, dx);
+        var down = Vertical.Resized(size.Height, placement.Vertical, dy);
+        if (across is null && down is null) return from;
+
+        var (width, horizontal) = across ?? Horizontal.Held(size.Width, placement.Horizontal);
+        var (height, vertical) = down ?? Vertical.Held(size.Height, placement.Vertical);
         return new(NotesPlacement.Create(horizontal, vertical), NotesSize.Create(width, height));
     }
 
     /// <summary>
     /// The preferences after one press of a size step button: the resize rule
     /// with a delta of <see cref="SizeStepFraction"/> of the axis's range in
-    /// <paramref name="step"/>'s direction. <paramref name="from"/> itself
+    /// <paramref name="step"/>'s direction, holding the other axis as a resize
+    /// does where its length is unset. <paramref name="from"/> itself
     /// where the step cannot change the size — at the minimum, at the room
     /// from the corner, or with no room to resize in — which is how the caller
     /// knows to write nothing.
@@ -324,25 +347,53 @@ internal readonly record struct NotesStage
         /// <summary>
         /// A resize of <paramref name="pixels"/> on this axis: the new length,
         /// within the gesture's bounds, and the position that keeps the start
-        /// edge where it was shown — or both held values where the resize does
-        /// not change this axis: no movement along it, a length already at the
+        /// edge where it was shown — or <c>null</c> where the resize does not
+        /// change this axis: no movement along it, a length already at the
         /// bound it moves towards, or less room than the minimum.
         /// </summary>
-        public (double? Length, double? Position) Resized(double? length, double? position, double pixels)
+        public (double? Length, double? Position)? Resized(double? length, double? position, double pixels)
         {
             double size = Shown(length);
             double corner = On(size).Offset(position);
             double room = Area - Clearance - corner;
-            if (pixels == 0 || room < Minimum) return (length, position);
+            if (pixels == 0 || room < Minimum) return null;
 
             double to = Math.Clamp(size + pixels, Minimum, room);
             // A resize moves the length the gesture's way or not at all: a
             // shorter step from below the minimum (an unset note shorter than
             // it) never grows the overlay to it.
-            if (Math.Sign(to - size) != Math.Sign(pixels) || !(to > 0)) return (length, position);
+            if (Math.Sign(to - size) != Math.Sign(pixels) || !(to > 0)) return null;
 
-            var resized = On(to);
-            return (to, resized.HasTravel ? resized.PositionAt(corner) : position);
+            return (to, KeepingStart(to, corner, position));
+        }
+
+        /// <summary>
+        /// This axis held through a resize of the other: a chosen
+        /// <paramref name="length"/> as it is; an unset one at the length it
+        /// shows, within the gesture's bounds, with the position that keeps
+        /// the start edge where it is shown — or as it is where the room is
+        /// under the minimum.
+        /// </summary>
+        public (double? Length, double? Position) Held(double? length, double? position)
+        {
+            if (length is not null) return (length, position);
+            double corner = On(Measured).Offset(position);
+            double room = Area - Clearance - corner;
+            if (room < Minimum) return (length, position);
+
+            double to = Math.Clamp(Measured, Minimum, room);
+            return (to, KeepingStart(to, corner, position));
+        }
+
+        /// <summary>
+        /// The position that shows an overlay <paramref name="size"/> long with
+        /// its start edge at <paramref name="corner"/>; <paramref name="position"/>
+        /// where the axis then has no travel.
+        /// </summary>
+        private double? KeepingStart(double size, double corner, double? position)
+        {
+            var line = On(size);
+            return line.HasTravel ? line.PositionAt(corner) : position;
         }
 
         /// <summary>The overlay's length on this axis as shown: the rendered one where set, the measured one where not.</summary>

@@ -259,6 +259,32 @@ internal static class SyntheticXgMatch
             playComment: LongPlayComment);
 
     /// <summary>
+    /// The name the medium-note match is staged under — as long as
+    /// <see cref="StagedFileName"/>, for the same reason.
+    /// </summary>
+    internal const string MediumNoteStagedFileName = "synthetic-match-2026-04-17.xg";
+
+    /// <summary>
+    /// A checker play's comment of one paragraph, long enough to wrap to
+    /// several lines and short enough that the notes overlay, at its default
+    /// width or a step narrower, stays under its height cap — so the
+    /// overlay's fit-to-note height changes with its width
+    /// (halheinrich/backgammon#414: the first resize holds the height a
+    /// width change would rewrap). Invented here, like the players.
+    /// </summary>
+    internal static readonly string MediumPlayComment = string.Join(
+        " ",
+        Enumerable.Repeat("Making the 5-point blocks the back checkers and leaves only an indirect shot.", 6));
+
+    /// <summary>
+    /// The match, with the checker play's comment replaced by
+    /// <see cref="MediumPlayComment"/>.
+    /// </summary>
+    internal static byte[] MediumNoteBytes() =>
+        Build(XgFileBuilder.ForMatch(MatchLength, Player1, Player2), CubeGameScore1, CubeGameScore2,
+            playComment: MediumPlayComment);
+
+    /// <summary>
     /// The name the three-answer money session is staged under — as long as
     /// <see cref="StagedFileName"/>, for the same reason.
     /// </summary>

@@ -114,17 +114,20 @@ public class DecisionNotesResizeTests : DecisionNotesGestureTestBase
     }
 
     [Fact]
-    public async Task AResizeAlongOneAxis_WritesThatAxisOnly()
+    public async Task AResizeAlongOneAxis_WritesBothLengths_HoldingTheOtherAtItsShownLength()
     {
-        ExpectWritten(Json(336.0 / 572, null, 676));
+        // §4, amended 2026-10-27: the first resize chooses the box. Widened by
+        // 100, the width is 676 at 336 / 572; the unset height is held at the
+        // 200 it shows, its top at 300 kept by 284 / 568 = ½.
+        ExpectWritten(Json(336.0 / 572, 0.5, 676, 200));
         var cut = await PlacedAsync();
 
         await GrabCornerAsync(cut);
         await ReleaseCornerAtAsync(cut, CornerX + 100, CornerY);
 
         Plan.Verify();
-        Assert.Equal("--notes-left: 352px; --notes-top: 300px; --notes-width: 676px", Drawn(cut));
-        Assert.False(Dialog(cut).HasAttribute("data-set-height"));
+        Assert.Equal("--notes-left: 352px; --notes-top: 300px; --notes-width: 676px; --notes-height: 200px", Drawn(cut));
+        Assert.True(Dialog(cut).HasAttribute("data-set-height"));
     }
 
     [Fact]
@@ -296,15 +299,17 @@ public class DecisionNotesResizeTests : DecisionNotesGestureTestBase
 
     public static TheoryData<string, string, string> SizeSteps => new()
     {
-        { "Wider", Json(336 / (1248 - (576 + WidthStep)), null, 576 + WidthStep),
-            "--notes-left: 352px; --notes-top: 300px; --notes-width: 707px" },
-        { "Narrower", Json(336 / (1248 - (576 - WidthStep)), null, 576 - WidthStep),
-            "--notes-left: 352px; --notes-top: 300px; --notes-width: 445px" },
-        { "Taller", Json(null, 284 / (768 - (200 + HeightStep)), null, 200 + HeightStep),
-            "--notes-left: 352px; --notes-top: 300px; --notes-height: 280px" },
+        // Each holds the other axis at its shown length — 200 tall or 576
+        // wide, centred, so at the position ½ — as the first resize does.
+        { "Wider", Json(336 / (1248 - (576 + WidthStep)), 0.5, 576 + WidthStep, 200),
+            "--notes-left: 352px; --notes-top: 300px; --notes-width: 707px; --notes-height: 200px" },
+        { "Narrower", Json(336 / (1248 - (576 - WidthStep)), 0.5, 576 - WidthStep, 200),
+            "--notes-left: 352px; --notes-top: 300px; --notes-width: 445px; --notes-height: 200px" },
+        { "Taller", Json(0.5, 284 / (768 - (200 + HeightStep)), 576, 200 + HeightStep),
+            "--notes-left: 352px; --notes-top: 300px; --notes-width: 576px; --notes-height: 280px" },
         // 200 less a step of 80 is under the minimum, which it stops at.
-        { "Shorter", Json(null, 284 / (768 - MinimumHeight), null, MinimumHeight),
-            "--notes-left: 352px; --notes-top: 300px; --notes-height: 128px" },
+        { "Shorter", Json(0.5, 284 / (768 - MinimumHeight), 576, MinimumHeight),
+            "--notes-left: 352px; --notes-top: 300px; --notes-width: 576px; --notes-height: 128px" },
     };
 
     [Theory]

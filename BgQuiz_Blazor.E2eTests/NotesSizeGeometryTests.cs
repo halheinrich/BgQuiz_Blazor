@@ -93,6 +93,65 @@ public sealed class NotesSizeGeometryTests : NotesPlacementTestBase
     }
 
     [Fact]
+    public async Task NarrowerOnANoteThatRewraps_KeepsTheLeftAndTopEdges_AndHoldsTheHeight()
+    {
+        // §4, amended 2026-10-27: the first resize chooses the box, so a width
+        // step holds a height that is still fit to the note.
+        await CountPlacementWritesAsync();
+        await StartAtTheCubeReviewAsync(
+            stagedFileName: SyntheticXgMatch.MediumNoteStagedFileName, bytes: SyntheticXgMatch.MediumNoteBytes());
+        await ContinueButton.ClickAsync();
+        await Expect(Page.Locator(".board-container .bg-play-entry")).ToBeVisibleAsync();
+        await ClickBoardPointAsync(8);
+        await ClickBoardPointAsync(6);
+        await Expect(SubmitButton).ToBeEnabledAsync();
+        await SubmitButton.ClickAsync();
+        await Expect(NotesButton).ToBeVisibleAsync();
+        await OpenNotesAsync();
+        await OpenAdjustControlAsync();
+        await ExpectOverlayCentredAsync("the medium note, the Adjust control open");
+        var start = await OverlayBoxAsync();
+        var area = await AreaAsync();
+        double across = SizeStep(area.Width, MinimumWidth);
+
+        // The fixture first: its height is fit to the note under the cap, and
+        // a step narrower the same text is taller — measured on a hidden copy
+        // of the text, so the overlay itself is untouched.
+        Assert.True(start.Height < 512 - Tolerance, $"the medium note fits under the cap: {start.Height:0.#}");
+        Assert.False(await NotesText.EvaluateAsync<bool>("e => e.scrollHeight > e.clientHeight"), "the medium note does not scroll at its default size");
+        var heights = await Page.EvaluateAsync<double[]>("""
+            widths => widths.map(w => {
+              const copy = document.querySelector('.decision-notes-text').cloneNode(true);
+              copy.style.cssText = `position: fixed; visibility: hidden; left: 0; top: 0; width: ${w}px; height: auto; flex: none`;
+              document.body.appendChild(copy);
+              const h = copy.getBoundingClientRect().height;
+              copy.remove();
+              return h;
+            })
+            """, new[] { (double)start.Width - 2, (double)start.Width - across - 2 });
+        Assert.True(heights[1] > heights[0] + 1, $"a step narrower the note rewraps taller: {heights[0]:0.#} → {heights[1]:0.#}");
+        Assert.Equal(0, await PlacementWritesAsync());
+
+        await NarrowerButton.ClickAsync();
+
+        // The left and top edges stay, the width is a step less, the height
+        // stays what it was; the rewrapped text scrolls inside.
+        await ExpectBoxAsync(start.X, start.Y, start.Width - across, start.Height, "a step narrower");
+        Assert.Equal(1, await PlacementWritesAsync());
+        var stored = await StoredPreferencesAsync();
+        Assert.NotNull(stored);
+        AssertNear(start.Width - across, stored!.Width!.Value, "the stored width");
+        AssertNear(start.Height, stored.Height!.Value, "the stored height");
+        AssertNear(start.Y, ExpectedOffset(stored.Vertical!.Value, area.Height, stored.Height.Value), "where the stored placement puts the top");
+        Assert.True(await NotesText.EvaluateAsync<bool>("e => e.scrollHeight > e.clientHeight"), "the rewrapped note overflows its held height");
+        var text = await LaidOutBoxAsync(NotesText, "the notes' text");
+        await Page.Mouse.MoveAsync(text.X + text.Width / 2, text.Y + text.Height / 2);
+        await Page.Mouse.WheelAsync(0, 200);
+        await ExpectToPassAsync(async () =>
+            Assert.True(await NotesText.EvaluateAsync<double>("e => e.scrollTop") > 0, "the rewrapped note scrolls"));
+    }
+
+    [Fact]
     public async Task AWindowSmallerThanTheChosenSize_ClampsWhatIsShown_KeepsTheTitleBarInView_AndNeverWrites()
     {
         await CountPlacementWritesAsync();
