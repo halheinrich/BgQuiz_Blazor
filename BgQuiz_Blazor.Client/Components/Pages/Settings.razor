@@ -103,6 +103,27 @@
                 back when you submit and read the solution, so the board changes
                 size between answering and reading.
             </div>
+
+            @* The blind review (halheinrich/backgammon#448): on a cube decision
+               the rails say which side you were on, since every cube decision is
+               drawn from the doubler's side. Ruled copy (comment 6487470153),
+               pinned word for word in PageTests; the two quoted words render
+               from QuizSettings.AnonymousRailNames, the one statement of what
+               the board draws. *@
+            <div class="form-check mt-3">
+                <input class="form-check-input" type="checkbox" id="settingsAnonymizePlayers"
+                       checked="@UserSettings.AnonymizePlayers"
+                       @onchange="@(e => SetAnonymizePlayersAsync((bool)e.Value!))" />
+                <label class="form-check-label" for="settingsAnonymizePlayers">
+                    Anonymize players
+                </label>
+            </div>
+            <div class="form-text">
+                The board's rails show "@QuizSettings.AnonymousRailNames.OnRollName"
+                and "@QuizSettings.AnonymousRailNames.OpponentName" in place of the
+                players' names, on the problem and on its solution. The Player names
+                filter still matches the real names.
+            </div>
         </fieldset>
 
         @* The depth treatment (issues halheinrich/backgammon#150,

@@ -18,8 +18,9 @@ using XgFilter_Razor;
 /// whether that side is re-rolled per problem, whether the board is maximized
 /// while the user answers, which ranking decides the best checker play (and so
 /// the solution's candidate order) and which shallow evaluations are left out
-/// of the solution's list, whether quizzes are drawn by the weighted mix, and
-/// whether the navigation panel stays folded — and the one <c>Home</c> edits
+/// of the solution's list, whether quizzes are drawn by the weighted mix,
+/// whether the board's rails hide the players' names, and whether the
+/// navigation panel stays folded — and the one <c>Home</c> edits
 /// beside Start, the order problems are presented in
 /// (<see cref="Order"/>). Every setting is recorded and persisted the moment
 /// it is changed — there is no Apply gesture anywhere in this service.
@@ -162,6 +163,7 @@ internal sealed class QuizSettings(
         "maximumHiddenCandidateAnalysisLevel";
     private const string WeightQuizzesByStatsField = "weightQuizzesByStats";
     private const string OrderField = "problemOrder";
+    private const string AnonymizePlayersField = "anonymizePlayers";
 
     // The defaults, named once so the property initializers and the
     // missing-field fallbacks in Restore cannot disagree.
@@ -172,6 +174,7 @@ internal sealed class QuizSettings(
     private const bool DefaultSortAnalysisByDepthFirst = false;
     private const bool DefaultWeightQuizzesByStats = false;
     private const ProblemOrder DefaultOrder = ProblemOrder.AsRead;
+    private const bool DefaultAnonymizePlayers = false;
 
     // static readonly rather than const only because a nullable enum cannot be
     // const; it is named for the same reason its neighbours are.
@@ -349,6 +352,32 @@ internal sealed class QuizSettings(
         DefaultWeightQuizzesByStats;
 
     /// <summary>
+    /// True when the board's rails show <see cref="AnonymousRailNames"/> in
+    /// place of the players' names, on the problem and on its solution
+    /// (halheinrich/backgammon#448). On a cube decision the rails are the one
+    /// place that says which side you were on: every cube decision is drawn
+    /// from the doubler's side, so your name on the on-roll rail means you
+    /// doubled. Display only: the Player names filter still matches the
+    /// record's names. Compose it through <see cref="RailNames"/>, never by
+    /// hand.
+    ///
+    /// <para>
+    /// <b>Default off</b>, and the absent-field rule of
+    /// <see cref="MaximizeBoardWhileAnswering"/> applies unchanged: every
+    /// payload written before this setting existed restores to off.
+    /// </para>
+    /// </summary>
+    public bool AnonymizePlayers { get; private set; } = DefaultAnonymizePlayers;
+
+    /// <summary>
+    /// The words the rails show while <see cref="AnonymizePlayers"/> is on,
+    /// stated once: "On Roll" for the side on roll, "Opponent" for the other.
+    /// The Settings page and Help render their copy from these, so the words
+    /// they promise are the words the board draws.
+    /// </summary>
+    internal static RailNames AnonymousRailNames { get; } = new("On Roll", "Opponent");
+
+    /// <summary>
     /// The deepest evaluation the user wants left out of the solution's
     /// candidate list — the ask behind issue <c>halheinrich/backgammon#66</c>,
     /// and <b>verbatim</b> the review request's
@@ -497,6 +526,18 @@ internal sealed class QuizSettings(
         SortAnalysisByDepthFirst ? PlayRanking.DepthFirst : PlayRanking.Equity;
 
     /// <summary>
+    /// <see cref="AnonymizePlayers"/> as the producer's
+    /// <see cref="DiagramRequest.RailNames"/>: <see cref="AnonymousRailNames"/>
+    /// while it is on, and <c>null</c>, the record's own names, while it is
+    /// off. <c>Quiz</c>'s one request builder reads it, and every board the
+    /// page draws extends that request, so the problem, the solution and the
+    /// play entry's working board cannot disagree. Unlike <see cref="Ranking"/>
+    /// it is read at every render, not where a quiz begins: it changes no
+    /// score, so a change shows on the next board drawn.
+    /// </summary>
+    public RailNames? RailNames => AnonymizePlayers ? AnonymousRailNames : null;
+
+    /// <summary>
     /// The <see cref="MaximumHiddenCandidateAnalysisLevel"/> token vocabulary's
     /// write half: a level as its <b>member name</b>, and "hide nothing" as the
     /// empty string. Two readers share it — the <c>&lt;select&gt;</c> on the
@@ -618,6 +659,16 @@ internal sealed class QuizSettings(
     public Task SetWeightQuizzesByStatsAsync(bool value)
     {
         WeightQuizzesByStats = value;
+        return PersistAsync();
+    }
+
+    /// <summary>
+    /// Record the anonymize-players choice, applying and persisting
+    /// immediately: the next board drawn reads it, and it changes no score.
+    /// </summary>
+    public Task SetAnonymizePlayersAsync(bool value)
+    {
+        AnonymizePlayers = value;
         return PersistAsync();
     }
 
@@ -861,6 +912,7 @@ internal sealed class QuizSettings(
             // declared member name, never an ordinal and never the label.
             writer.WritePropertyName(OrderField);
             JsonSerializer.Serialize(writer, Order, BgGameJsonContext.Default.ProblemOrder);
+            writer.WriteBoolean(AnonymizePlayersField, AnonymizePlayers);
             writer.WriteEndObject();
         }
         return Encoding.UTF8.GetString(buffer.WrittenSpan);
@@ -891,6 +943,7 @@ internal sealed class QuizSettings(
         AnalysisLevel? maximumHiddenCandidateAnalysisLevel;
         bool weightQuizzesByStats;
         ProblemOrder order;
+        bool anonymizePlayers;
         try
         {
             using var document = JsonDocument.Parse(json);
@@ -931,6 +984,11 @@ internal sealed class QuizSettings(
             // Shuffle order checkbox, which was never persisted, so an older
             // entry restores to as read: no migration, no version stamp.
             order = ReadOrder(root, OrderField, DefaultOrder);
+            // Absent from every payload written before this setting existed,
+            // and defaulting to off, so an older entry shows the names as it
+            // always did: no migration, no version stamp.
+            anonymizePlayers =
+                ReadBool(root, AnonymizePlayersField, DefaultAnonymizePlayers);
         }
         catch (JsonException)
         {
@@ -945,6 +1003,7 @@ internal sealed class QuizSettings(
         MaximumHiddenCandidateAnalysisLevel = maximumHiddenCandidateAnalysisLevel;
         WeightQuizzesByStats = weightQuizzesByStats;
         Order = order;
+        AnonymizePlayers = anonymizePlayers;
     }
 
     /// <summary>

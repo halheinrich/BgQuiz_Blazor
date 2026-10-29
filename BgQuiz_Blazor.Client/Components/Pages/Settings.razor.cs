@@ -83,6 +83,9 @@ public partial class Settings : ComponentBase
     private Task SetMaximizeBoardWhileAnsweringAsync(bool value) =>
         UserSettings.SetMaximizeBoardWhileAnsweringAsync(value);
 
+    private Task SetAnonymizePlayersAsync(bool value) =>
+        UserSettings.SetAnonymizePlayersAsync(value);
+
     private Task SetSortAnalysisByDepthFirstAsync(bool value) =>
         UserSettings.SetSortAnalysisByDepthFirstAsync(value);
 

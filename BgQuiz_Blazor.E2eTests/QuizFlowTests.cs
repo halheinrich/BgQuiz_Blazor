@@ -51,6 +51,49 @@ public sealed class QuizFlowTests : E2eTestBase
         await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
     }
 
+    /// <summary>
+    /// The cube path with <i>Anonymize players</i> turned on in Settings
+    /// (halheinrich/backgammon#448): the problem's board and the solution's
+    /// read "On Roll" and "Opponent" on their rails, and neither names a player.
+    /// </summary>
+    [Fact]
+    public async Task CubePath_WithAnonymizePlayersOn_TheRailsNameTheRoles_OnBothBoards()
+    {
+        await BootHomeAsync();
+        await Page.GetByRole(AriaRole.Link, new() { Name = ExpectedText.SettingsNavLink }).ClickAsync();
+        await ExpectUrlAsync(AppRoute.Settings);
+        var box = Page.GetByRole(AriaRole.Checkbox, new() { Name = "Anonymize players", Exact = true });
+        await box.CheckAsync();
+        await Expect(box).ToBeCheckedAsync();
+        await Page.GotoAsync(BaseUrl + "/");
+        await Expect(PickFolderButton).ToBeVisibleAsync();
+
+        await PickFixtureAsync(CubeFixture);
+        await ExpectFilterInEffectAsync();
+        await StartQuizAsync();
+        await Expect(CubePill(ExpectedText.NoDoublePill)).ToBeVisibleAsync();
+        await ExpectRolesOnTheRailsAsync();
+
+        await AnswerCubeNoDoubleAsync();
+        await Expect(Page.Locator(".bg-diagram")).ToContainTextAsync(ExpectedText.SolutionBestNoDouble);
+        await ExpectRolesOnTheRailsAsync();
+
+        await ContinueToDoneAsync();
+        await Expect(Page.GetByText(ExpectedText.TotalProblemsShown(1))).ToBeVisibleAsync();
+    }
+
+    /// <summary>
+    /// The board's two rails, read whole: each role with the money session's label, the
+    /// fixture being money under Jacoby. (The solution's panel uses the word "Opponent"
+    /// in its own text too, so the match is the rail's whole text.)
+    /// </summary>
+    private async Task ExpectRolesOnTheRailsAsync()
+    {
+        var texts = Page.Locator(".board-container .bg-diagram text");
+        await Expect(texts.Filter(new() { HasTextRegex = new("^On Roll \\(Money Game, Jacoby\\)$") })).ToHaveCountAsync(1);
+        await Expect(texts.Filter(new() { HasTextRegex = new("^Opponent \\(Money Game, Jacoby\\)$") })).ToHaveCountAsync(1);
+    }
+
     [Fact]
     public Task TooGoodToDoubleTakePath_TooGoodIsCharged_ThenNoDoubleOnReturnIsPractice() =>
         TooGoodToDoubleTakePathAsync(TooGoodConditions.AsTheFolderComes);

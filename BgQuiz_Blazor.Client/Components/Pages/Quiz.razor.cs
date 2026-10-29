@@ -182,8 +182,18 @@ public partial class Quiz : ComponentBase, IAsyncDisposable
 
     private DiagramOptions BoardOptions => MaximizedAnswering ? BoardOnlyCanvas : FullCanvas;
 
+    /// <summary>
+    /// The problem's request, and the one every board on the page extends: the
+    /// solution's (<see cref="BuildSolutionRequest"/>) and the play entry's
+    /// working board both start from it, so the side and the rail names are
+    /// stated here once for all three.
+    /// </summary>
     private DiagramRequest BuildRenderRequest(BgDecisionData current) =>
-        DiagramRequest.ForDecision(current, App.Ranking) with { HomeBoardOnRight = HomeBoardOnRight };
+        DiagramRequest.ForDecision(current, App.Ranking) with
+        {
+            HomeBoardOnRight = HomeBoardOnRight,
+            RailNames = Settings.RailNames,
+        };
 
     private DiagramRequest BuildSolutionRequest(BgDecisionData current, ProblemReview review)
     {

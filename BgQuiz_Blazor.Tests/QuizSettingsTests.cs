@@ -100,6 +100,7 @@ public class QuizSettingsTests : BunitContext
         Assert.False(settings.SortAnalysisByDepthFirst);
         Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
         Assert.Equal(ProblemOrder.AsRead, settings.Order); // SPEC-filtering.md §7
+        Assert.False(settings.AnonymizePlayers); // halheinrich/backgammon#448
     }
 
     [Fact]
@@ -355,6 +356,79 @@ public class QuizSettingsTests : BunitContext
 
         Assert.Equal(PlayRanking.Equity, settings.Ranking);
         Assert.Null(settings.MaximumHiddenCandidateAnalysisLevel);
+        Assert.Null(settings.RailNames); // the record's own names
+    }
+
+    // -----------------------------------------------------------------------
+    //  Anonymize players (halheinrich/backgammon#448)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task AnonymizeSetting_ProjectsToTheRailNames_OnRollAndOpponent_AndBackToNull()
+    {
+        // The words are the ruled ones, pinned as literals rather than through
+        // AnonymousRailNames, which would agree with any words at all. Both
+        // directions: null is also the producer's default, so the off half
+        // alone could not tell this projection from a caller that never asked.
+        var settings = NewSettings();
+
+        await settings.SetAnonymizePlayersAsync(true);
+        Assert.True(settings.AnonymizePlayers);
+        Assert.Equal(new RailNames("On Roll", "Opponent"), settings.RailNames);
+
+        await settings.SetAnonymizePlayersAsync(false);
+        Assert.False(settings.AnonymizePlayers);
+        Assert.Null(settings.RailNames);
+    }
+
+    [Fact]
+    public async Task AnonymizeSetting_PersistsImmediately_AndTheNextBootReadsItBack()
+    {
+        var written = SettingsPayload.Of(anonymizePlayers: true);
+        ExpectPersisted(written);
+        await NewSettings().SetAnonymizePlayersAsync(true);
+        Plan.Verify();
+
+        StageStored(written);
+        var nextBoot = NewSettings();
+        await nextBoot.EnsureHydratedAsync();
+        Plan.Verify();
+
+        Assert.True(nextBoot.AnonymizePlayers);
+        Assert.Equal(QuizSettings.AnonymousRailNames, nextBoot.RailNames);
+    }
+
+    [Fact]
+    public async Task Hydrate_ADocumentStoredBeforeAnonymize_ReadsWithItOff_AndKeepsTheRest()
+    {
+        // The last payload written before the field existed: every field but
+        // the new one, each away from its default where it has one.
+        StageStored(
+            """{"homeBoardOnRight":false,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":true,"maximizeBoardWhileAnswering":false,"sortAnalysisByDepthFirst":true,"maximumHiddenCandidateAnalysisLevel":"Ply4","weightQuizzesByStats":true,"problemOrder":"ByErrorLargestFirst"}""");
+        var settings = NewSettings();
+
+        await settings.EnsureHydratedAsync();
+
+        Assert.False(settings.AnonymizePlayers);
+        Assert.Null(settings.RailNames);
+        Assert.False(settings.HomeBoardOnRight);
+        Assert.True(settings.WeightQuizzesByStats);
+        Assert.Equal(ProblemOrder.ByErrorLargestFirst, settings.Order);
+    }
+
+    [Theory]
+    [InlineData("\"true\"")]
+    [InlineData("1")]
+    [InlineData("null")]
+    public async Task Hydrate_AnUnusableAnonymizeValue_ReadsAsOff(string stored)
+    {
+        StageStored($$"""{"homeBoardOnRight":false,"anonymizePlayers":{{stored}}}""");
+        var settings = NewSettings();
+
+        await settings.EnsureHydratedAsync();
+
+        Assert.False(settings.AnonymizePlayers);
+        Assert.False(settings.HomeBoardOnRight); // the readable field beside it survives
     }
 
     // -----------------------------------------------------------------------
@@ -425,10 +499,10 @@ public class QuizSettingsTests : BunitContext
         //
         // Field order is append-only (see ToJson): maximizeBoardWhileAnswering
         // joined at the END, after the fold field, the depth-treatment pair
-        // after it in turn, weightQuizzesByStats after those, and problemOrder
-        // last of all — however the properties are grouped on the C# side. That is what makes this
+        // after it in turn, weightQuizzesByStats after those, then problemOrder,
+        // and anonymizePlayers last of all — however the properties are grouped on the C# side. That is what makes this
         // literal's diff read as "fields were added" rather than "the format
-        // moved under the applier". The newest field sits AFTER the ceiling
+        // moved under the applier". weightQuizzesByStats sits AFTER the ceiling
         // even though every other boolean precedes it: append-only beats
         // tidiness, and that is the rule working rather than a slip.
         //
@@ -443,7 +517,7 @@ public class QuizSettingsTests : BunitContext
         // exact value, so any other bytes are an undeclared call that fails at
         // the setter.
         ExpectPersisted(
-            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":null,"weightQuizzesByStats":false,"problemOrder":"AsRead"}""");
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":true,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":null,"weightQuizzesByStats":false,"problemOrder":"AsRead","anonymizePlayers":false}""");
         var settings = NewSettings();
 
         await settings.SetRandomizeSidePerProblemAsync(true);
@@ -463,7 +537,7 @@ public class QuizSettingsTests : BunitContext
         // insertion into the middle of the ladder is the precedent: it moved
         // every later ordinal and no token.
         ExpectPersisted(
-            """{"homeBoardOnRight":true,"randomizeSidePerProblem":false,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":"XgRollerPlusPlus","weightQuizzesByStats":false,"problemOrder":"AsRead"}""");
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":false,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":"XgRollerPlusPlus","weightQuizzesByStats":false,"problemOrder":"AsRead","anonymizePlayers":false}""");
         var settings = NewSettings();
 
         await settings.SetMaximumHiddenCandidateAnalysisLevelAsync(AnalysisLevel.XgRollerPlusPlus);
@@ -743,7 +817,7 @@ public class QuizSettingsTests : BunitContext
 
     /// <summary>Every setter, each driven away from its default.</summary>
     public static TheoryData<string> Setters() =>
-        ["side", "randomize", "maximize", "depthFirst", "hiddenLevel", "weight", "fold"];
+        ["side", "randomize", "maximize", "depthFirst", "hiddenLevel", "weight", "anonymize", "fold"];
 
     [Theory]
     [MemberData(nameof(Setters))]
@@ -783,6 +857,11 @@ public class QuizSettingsTests : BunitContext
                 ExpectPersisted(SettingsPayload.Of(weightQuizzesByStats: true), refused);
                 await settings.SetWeightQuizzesByStatsAsync(true);
                 Assert.True(settings.WeightQuizzesByStats);
+                break;
+            case "anonymize":
+                ExpectPersisted(SettingsPayload.Of(anonymizePlayers: true), refused);
+                await settings.SetAnonymizePlayersAsync(true);
+                Assert.True(settings.AnonymizePlayers);
                 break;
             case "fold":
                 ExpectPersisted(SettingsPayload.Of(keepNavigationPanelFolded: true), refused);
@@ -1102,7 +1181,7 @@ public class QuizSettingsTests : BunitContext
     public async Task SetOrder_PersistsTheMemberName_AndTheNextBootReadsItBack()
     {
         const string written =
-            """{"homeBoardOnRight":true,"randomizeSidePerProblem":false,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":null,"weightQuizzesByStats":false,"problemOrder":"ByErrorLargestFirst"}""";
+            """{"homeBoardOnRight":true,"randomizeSidePerProblem":false,"keepNavigationPanelFolded":false,"maximizeBoardWhileAnswering":true,"sortAnalysisByDepthFirst":false,"maximumHiddenCandidateAnalysisLevel":null,"weightQuizzesByStats":false,"problemOrder":"ByErrorLargestFirst","anonymizePlayers":false}""";
         ExpectPersisted(written);
 
         await NewSettings().SetOrderAsync(ProblemOrder.ByErrorLargestFirst);

@@ -22,6 +22,7 @@ using QuizPage = BgQuiz_Blazor.Client.Components.Pages.Quiz;
 using DonePage = BgQuiz_Blazor.Client.Components.Pages.Done;
 using StatsPage = BgQuiz_Blazor.Client.Components.Pages.Stats;
 using SettingsPage = BgQuiz_Blazor.Client.Components.Pages.Settings;
+using HelpPage = BgQuiz_Blazor.Client.Components.Pages.Help;
 
 namespace BgQuiz_Blazor.Tests;
 
@@ -874,5 +875,108 @@ public class PageTests : BunitContext
         await cut.Find("#settingsWeightQuizzes").ChangeAsync(new() { Value = true });
 
         Assert.True(Settings.WeightQuizzesByStats);
+    }
+
+    [Fact]
+    public async Task Settings_OffersAnonymizePlayers_LastInTheBoard_WithItsRuledLine_AndRecordsTheChoice()
+    {
+        var cut = Render<SettingsPage>();
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("#settingsAnonymizePlayers")));
+        var box = cut.Find("#settingsAnonymizePlayers");
+        Assert.Equal("checkbox", box.GetAttribute("type"));
+        Assert.False(box.HasAttribute("checked"));
+        Assert.Equal("Anonymize players", cut.Find("label[for=settingsAnonymizePlayers]").TextContent.Trim());
+
+        // The last control in "The board", and its help line is the fieldset's last line.
+        var board = cut.FindAll("fieldset").First(f => f.QuerySelector("legend")?.TextContent.Trim() == "The board");
+        Assert.Equal("settingsAnonymizePlayers", board.QuerySelectorAll("input").Last().Id);
+        // Ruled copy (halheinrich/backgammon#448, comment 6487470153), word for word.
+        Assert.Equal(
+            "The board's rails show \"On Roll\" and \"Opponent\" in place of the players' names, on the problem and on its solution. The Player names filter still matches the real names.",
+            Regex.Replace(board.Children.Last().TextContent, @"\s+", " ").Trim());
+
+        _plan.ExpectWrite(BrowserStorageArea.Local, QuizSettings.StorageKey, SettingsPayload.Of(anonymizePlayers: true), BrowserStorageWriteAnswer.Succeeded);
+        await box.ChangeAsync(new() { Value = true });
+
+        // The write is declared exactly, so any other bytes fail at the click; that the
+        // setter writes at all is QuizSettingsTests' pin.
+        Assert.True(Settings.AnonymizePlayers);
+    }
+
+    // ── Help ────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Help_ThingsWorthKnowing_SaysHowToReviewCubeDecisionsBlind()
+    {
+        var cut = Render<HelpPage>();
+
+        // Ruled copy (Hal approved it in chat, 2026-10-28), word for word.
+        var bullet = cut.FindAll("li").Single(li => li.TextContent.Contains("Reviewing your own cube decisions blind", StringComparison.Ordinal));
+        Assert.Equal(
+            "Reviewing your own cube decisions blind. With Anonymize players turned on in Settings, the board shows \"On Roll\" and \"Opponent\" in place of the players' names, so it doesn't tell you whether you doubled or took.",
+            Regex.Replace(bullet.TextContent, @"\s+", " ").Trim());
+        Assert.Equal("Reviewing your own cube decisions blind.", bullet.QuerySelector("strong")!.TextContent);
+        Assert.Equal(["Anonymize players", "Settings"], bullet.QuerySelectorAll("em").Select(e => e.TextContent));
+        // Among the other things worth knowing, in that section's list.
+        Assert.Contains(bullet.ParentElement!.Children, li => li.TextContent.Contains("Under depth-first ranking", StringComparison.Ordinal));
+    }
+
+    // ── Anonymize players on the quiz's boards ──────────────────────────────────
+
+    /// <summary>Turn Anonymize players on, declaring its write.</summary>
+    private async Task TurnAnonymizeOnAsync()
+    {
+        await Settings.EnsureHydratedAsync();
+        _plan.ExpectWrite(BrowserStorageArea.Local, QuizSettings.StorageKey, SettingsPayload.Of(anonymizePlayers: true), BrowserStorageWriteAnswer.Succeeded);
+        await Settings.SetAnonymizePlayersAsync(true);
+    }
+
+    /// <summary>A diagram's rails as drawn: each text that carries a side's score in a 3-point match.</summary>
+    private static string[] Rails(string markup) =>
+        [.. Regex.Matches(markup, @">([^<>]*needs 3)</text>").Select(m => m.Groups[1].Value)];
+
+    /// <summary>What the rails read with the setting off and on: the fixtures' Alice on roll against Bob.</summary>
+    private static string[] ExpectedRails(bool anonymize) =>
+        anonymize ? ["On Roll needs 3", "Opponent needs 3"] : ["Alice needs 3", "Bob needs 3"];
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Quiz_ACubeDecision_TheProblemAndTheSolutionRails_FollowAnonymize(bool anonymize)
+    {
+        var app = await StartedAppAsync(TestFixtures.CubeDecision(away: 3));
+        if (anonymize) await TurnAnonymizeOnAsync();
+        var cut = Render<QuizPage>();
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll(".board-container")));
+
+        var problem = cut.FindComponents<BackgammonDiagram>().Single();
+        Assert.Equal(anonymize ? QuizSettings.AnonymousRailNames : null, problem.Instance.Request!.RailNames);
+        Assert.Equal(ExpectedRails(anonymize), Rails(problem.Markup).Order());
+
+        await app.SubmitCubeAnswerAsync(CubeAnswer.NoDouble);
+        cut.WaitForAssertion(() => Assert.Equal(DiagramMode.Solution, SolutionRequest(cut).Mode));
+        var solution = cut.FindComponents<BackgammonDiagram>().Single();
+        Assert.Equal(ExpectedRails(anonymize), Rails(solution.Markup).Order());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Quiz_ACheckerPlay_ThePlayEntrysWorkingBoardAndTheSolutionRails_FollowAnonymize(bool anonymize)
+    {
+        var app = await StartedAppAsync(Problem(3));
+        if (anonymize) await TurnAnonymizeOnAsync();
+        var cut = Render<QuizPage>();
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindComponents<BackgammonPlayEntry>()));
+
+        // The entry draws its own working board (WithWorkingBoard of the page's request).
+        var working = cut.FindComponent<BackgammonPlayEntry>().FindComponents<BackgammonDiagram>().Single();
+        Assert.Equal(anonymize ? QuizSettings.AnonymousRailNames : null, working.Instance.Request!.RailNames);
+        Assert.Equal(ExpectedRails(anonymize), Rails(working.Markup).Order());
+
+        await app.SubmitPlayAsync(Best());
+        cut.WaitForAssertion(() => Assert.Equal(DiagramMode.Solution, SolutionRequest(cut).Mode));
+        var solution = cut.FindComponents<BackgammonDiagram>().Single();
+        Assert.Equal(ExpectedRails(anonymize), Rails(solution.Markup).Order());
     }
 }

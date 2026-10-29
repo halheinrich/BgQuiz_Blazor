@@ -155,6 +155,12 @@ build's output).
   order reads the half the filter judged, never a second construction of it.
 - **An active mix contributes each decision id once** (`ProblemSequence`), so
   a fixture whose decisions share the default id composes to one problem.
+- **Every board starts from `Quiz.BuildRenderRequest`.** It carries the
+  side and *Anonymize players* (`QuizSettings.RailNames`, display only: the
+  Player names filter still matches the record's names); the solution's
+  request and the play entry's working board extend it. A board built from
+  `DiagramRequest.ForDecision` anywhere else shows the names again
+  (halheinrich/backgammon#448).
 - **Nothing expensive runs from a snapshot notification.** The filter
   owner's `Applied` event is the entry for the count; pages observe
   snapshots for rendering only.
