@@ -14,13 +14,14 @@ namespace BgQuiz_Blazor.E2eTests;
 internal static class ActionRowGeometry
 {
     /// <summary>
-    /// The script finding the controls of a row element a tap at the centre
-    /// would not reach: every button in the row and every cube pill (the
+    /// The script examining the controls of a row element for what a tap at
+    /// the centre would reach: every button in the row and every cube pill (the
     /// producer's <c>.bg-cube-action</c> label, whose radio it carries). Only
     /// the live row's controls: the row-fit ruler beside it is a hidden copy.
     /// An open "⋯" list's items are left out: they lie over the page by
     /// design, and the list is not the row. The one source for that check,
-    /// here and in <c>OneBudgetTests</c>' coverage sampler.
+    /// through <see cref="UnreachableControlsOfRow"/> and
+    /// <see cref="RowReachAsync"/>.
     ///
     /// <para>
     /// <b>Two ways to miss, told apart, neither ignored</b>
@@ -37,12 +38,13 @@ internal static class ActionRowGeometry
     /// </para>
     ///
     /// <para>
-    /// Each miss is <c>{ control, offScreen, text }</c>, the text its
-    /// description: "name &lt;- covered by what" or "name &lt;- off-screen:
-    /// centre (x, y) outside the w×h viewport".
+    /// Each examined control is <c>{ control, reached, offScreen, text }</c>,
+    /// the text its description: "name &lt;- reached at its centre (x, y)",
+    /// "name &lt;- covered by what" or "name &lt;- off-screen: centre (x, y)
+    /// outside the w×h viewport".
     /// </para>
     /// </summary>
-    internal const string UnreachableControlsOfRow = @"row => {
+    private const string ReachOfRowControls = @"row => {
               const out = [];
               const name = c => c.getAttribute('aria-label')
                 || c.querySelector('input')?.getAttribute('aria-label') || c.textContent.trim();
@@ -56,15 +58,27 @@ internal static class ActionRowGeometry
                 const e = offScreen ? null : document.elementFromPoint(x, y);
                 if (c instanceof HTMLButtonElement) c.disabled = was;
                 if (offScreen) {
-                  out.push({ control: name(c), offScreen: true,
+                  out.push({ control: name(c), reached: false, offScreen: true,
                     text: `${name(c)} <- off-screen: centre (${Math.round(x)}, ${Math.round(y)}) outside the ${vw}x${vh} viewport` });
                 } else if (!c.contains(e)) {
-                  out.push({ control: name(c), offScreen: false,
+                  out.push({ control: name(c), reached: false, offScreen: false,
                     text: `${name(c)} <- covered by ${e ? (e.getAttribute('aria-label') || e.className || e.tagName) : 'nothing'}` });
+                } else {
+                  out.push({ control: name(c), reached: true, offScreen: false,
+                    text: `${name(c)} <- reached at its centre (${Math.round(x)}, ${Math.round(y)})` });
                 }
               }
               return out;
             }";
+
+    /// <summary>
+    /// The script finding the controls of a row element a tap at the centre
+    /// would not reach (<see cref="ReachOfRowControls"/>), each
+    /// <c>{ control, offScreen, text }</c>. The check as this file and
+    /// <c>OneBudgetTests</c>' coverage sampler use it.
+    /// </summary>
+    internal const string UnreachableControlsOfRow =
+        "row => (" + ReachOfRowControls + ")(row).filter(c => !c.reached)";
 
     /// <summary>
     /// A control of the row a tap at its centre would not reach, as
@@ -95,6 +109,71 @@ internal static class ActionRowGeometry
     internal static Task<int> RowControlCountAsync(IPage page) =>
         page.EvaluateAsync<int>(@"() => [...document.querySelector('.action-row').querySelectorAll('button, .bg-cube-action')]
             .filter(c => !c.closest('[role=menu]')).length");
+
+    /// <summary>One examined control, as <see cref="ReachOfRowControls"/> found it.</summary>
+    internal sealed record ControlReach(string Control, bool Reached, bool OffScreen, string Text);
+
+    /// <summary>An element's box in viewport coordinates, as the page reports it.</summary>
+    internal sealed record Box(double X, double Y, double Width, double Height)
+    {
+        /// <inheritdoc/>
+        public override string ToString() => $"({X:0.#}, {Y:0.#}) {Width:0.#}x{Height:0.#}";
+    }
+
+    /// <summary>
+    /// The row's reach and everything it depends on, read in one synchronous
+    /// script, so all of it describes one instant of the page. A row or board
+    /// that is not there reads as null, and a row that is not there examines no
+    /// controls. Its string form is the whole reading, for a failure message.
+    /// </summary>
+    internal sealed record RowReach(
+        ControlReach[] Controls,
+        double ScrollX, double ScrollY,
+        double InnerWidth, double InnerHeight,
+        double ClientWidth, double ClientHeight,
+        double ScrollHeight,
+        Box? Row, Box? Board,
+        bool MaximizedAnswering)
+    {
+        /// <inheritdoc/>
+        public override string ToString() => string.Join("\n  ",
+        [
+            $"the row's reach, read at one instant ({Controls.Length} controls examined):",
+            $"scroll ({ScrollX:0.#}, {ScrollY:0.#}); inner {InnerWidth:0.#}x{InnerHeight:0.#}; "
+                + $"client {ClientWidth:0.#}x{ClientHeight:0.#}; document scrollHeight {ScrollHeight:0.#}",
+            $"row {Row?.ToString() ?? "absent"}; board {Board?.ToString() ?? "absent"}; maximized answering {MaximizedAnswering}",
+            .. Controls.Select(c => c.Text),
+        ]);
+    }
+
+    /// <summary>
+    /// Read <see cref="RowReach"/> off the live action row. "Maximized
+    /// answering" is the page's own composition (<c>Quiz.razor</c>): a row with
+    /// no status strip under it.
+    /// </summary>
+    internal static async Task<RowReach> RowReachAsync(IPage page) =>
+        JsonSerializer.Deserialize<RowReach>(
+            await page.EvaluateAsync<string>(@"() => {
+                const reachOf = " + ReachOfRowControls + @";
+                const box = e => {
+                  if (!e) return null;
+                  const r = e.getBoundingClientRect();
+                  return { X: r.x, Y: r.y, Width: r.width, Height: r.height };
+                };
+                const root = document.documentElement;
+                const row = document.querySelector('.action-row');
+                return JSON.stringify({
+                  Controls: row ? reachOf(row) : [],
+                  ScrollX: window.scrollX, ScrollY: window.scrollY,
+                  InnerWidth: window.innerWidth, InnerHeight: window.innerHeight,
+                  ClientWidth: root.clientWidth, ClientHeight: root.clientHeight,
+                  ScrollHeight: root.scrollHeight,
+                  Row: box(row),
+                  Board: box(document.querySelector('.board-container .bg-diagram')),
+                  MaximizedAnswering: row !== null && document.querySelector('.status-strip') === null,
+                });
+              }"),
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
 
     /// <summary>
     /// How far, in CSS pixels, the trailing cluster's first control starts to

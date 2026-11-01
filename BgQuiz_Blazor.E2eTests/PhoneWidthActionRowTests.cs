@@ -130,12 +130,38 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
     }
 
     /// <summary>
+    /// The controls the fitted row offers on <see cref="E2eTestBase.CubeFixture"/>
+    /// at a phone's width, in row order: the four answers (their short form,
+    /// the fourth reading No double / Pass on this fixture), Submit, the four
+    /// navigation buttons and the tail, on its own line.
+    /// </summary>
+    private static readonly string[] AnsweringRowControls =
+    [
+        "ND (No double)", "D/T (Double / Take)", "D/P (Double / Pass)", "NP (No double / Pass)",
+        ExpectedText.SubmitButton,
+        ExpectedText.GoToFirstButton, ExpectedText.BackButton, ExpectedText.SkipButton, ExpectedText.GoToLastButton,
+        "Copy XGID to clipboard", "Show stats", "End quiz",
+    ];
+
+    /// <summary>
+    /// That <paramref name="reach"/> examined the row's controls, so that a
+    /// claim about all of them cannot hold of an empty or a different set.
+    /// </summary>
+    private static void AssertExaminedTheRow(ActionRowGeometry.RowReach reach) =>
+        Assert.True(
+            reach.Controls.Select(c => c.Control).SequenceEqual(AnsweringRowControls),
+            $"examined a set other than the row's {AnsweringRowControls.Length} controls\n  {reach}");
+
+    /// <summary>
     /// <b>A row below the fold is off-screen, not covered, and is not left
     /// out</b> (halheinrich/backgammon#341). At a phone's width and a short
     /// window the measured row lies below the fold, where a tap cannot reach
     /// it until it is scrolled to. The reach check reports every one of the
     /// row's controls, each as off-screen, never as covered by nothing; and
-    /// once the row is scrolled into view, none.
+    /// once the row is scrolled into view, none. Each half reads the controls
+    /// and their reach in one browser evaluation
+    /// (<see cref="ActionRowGeometry.RowReachAsync"/>), and a failure carries
+    /// that whole reading (halheinrich/backgammon#434).
     /// </summary>
     [Fact]
     public async Task BelowTheFold_EveryRowControlIsReportedOffScreen_AndScrolledToNoneIs()
@@ -147,14 +173,17 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
         await StartQuizAsync();
         await ExpectRowFittedAsync();
 
-        var controls = await ActionRowGeometry.RowControlCountAsync(Page);
-        Assert.True(controls >= 4 + 1 + 4, $"the row's controls are there to test ({controls})");
-        var belowTheFold = await ActionRowGeometry.UnreachableControlsAsync(Page);
-        Assert.Equal(controls, belowTheFold.Count);
-        Assert.All(belowTheFold, c => Assert.True(c.OffScreen, c.Text));
+        var belowTheFold = await ActionRowGeometry.RowReachAsync(Page);
+        AssertExaminedTheRow(belowTheFold);
+        Assert.True(belowTheFold.Controls.All(c => c.OffScreen), $"every control is off-screen before the scroll\n  {belowTheFold}");
 
         await Page.Locator(".action-row").ScrollIntoViewIfNeededAsync();
-        await ExpectToPassAsync(async () => Assert.Empty(await ActionRowGeometry.UnreachableControlsAsync(Page)));
+        await ExpectToPassAsync(async () =>
+        {
+            var scrolledTo = await ActionRowGeometry.RowReachAsync(Page);
+            AssertExaminedTheRow(scrolledTo);
+            Assert.True(scrolledTo.Controls.All(c => c.Reached), $"no control is unreachable after the scroll\n  {scrolledTo}");
+        });
     }
 
     [Fact]
