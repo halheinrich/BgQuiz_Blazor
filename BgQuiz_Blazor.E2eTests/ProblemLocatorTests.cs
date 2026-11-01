@@ -712,7 +712,8 @@ public sealed class ProblemLocatorTests : E2eTestBase
     /// font metrics, and it is not this arc's to guarantee — the locator's
     /// contract is that the cluster costs the row no height, which is what the
     /// last-instrument form says. A row-height assertion here was measured and
-    /// declined: under a genuinely wider real font (Verdana) the cube
+    /// declined (7af3515's message has the record): under a genuinely wider
+    /// real font (Verdana) the cube
     /// instruments still need only 589.7px of the 922px available at 1280 with
     /// the nav panel showing — 332px of slack — so whatever made CI's row taller
     /// was not instrument width, and a height pin would be pinning the

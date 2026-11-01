@@ -219,8 +219,8 @@ public class ProblemLocatorTests : BunitContext
     public void DecisionInAGame_ShowsTheFileAndItsCoordinates()
     {
         // The .xg branch of SPEC-quiz-view.md §4's ruling (ii): a decision in a
-        // match has real within-file coordinates, verified against XG's own
-        // <match>_<game>_<move>.xgp export naming, so the chip shows them.
+        // match has real within-file coordinates (MoveNumber's doc has the
+        // verification against XG's export naming), so the chip shows them.
         var cut = Locator("match.xg", game: 3, moveNumber: 12);
 
         Assert.Equal("match", VisibleName(cut));

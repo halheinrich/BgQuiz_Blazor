@@ -49,8 +49,9 @@
 // THE PANEL'S OWNER. Every fit asks navFold.js (window.bgquizNavFold) for the
 // panel — its widths, and its fold. That script is in place before any row
 // exists: Blazor starts at DOMContentLoaded, which the parser-blocking script
-// holds until it has run or failed (measured 2026-10-03; INSTRUCTIONS.md, "The
-// panel's owner, and a page without it"). So an absent owner is never one
+// holds until it has run or failed (measured 2026-10-03,
+// halheinrich/backgammon#8, leg 4c, the e2e suite's PanelOwnerAbsence;
+// INSTRUCTIONS.md, Pitfalls). So an absent owner is never one
 // still to come: that script failed to load, came back empty, or threw. A
 // missing owner is NOT the phone layout — a present owner answering null is —
 // and no fit completes without it: nothing is decided and nothing is

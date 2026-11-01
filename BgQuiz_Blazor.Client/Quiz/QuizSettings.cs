@@ -1010,9 +1010,8 @@ internal sealed class QuizSettings(
     /// <see cref="ReadBool"/>'s counterpart for the Order: the producer's token,
     /// read through the producer's context, which refuses anything but a
     /// declared member name — an ordinal, a label — and every such value, like
-    /// an absent or wrongly-typed field, is the default. (Its match is
-    /// case-insensitive: the producer's converter closes the token's kind, not
-    /// its case.)
+    /// an absent or wrongly-typed field, is the default. (The matching rule is
+    /// BgDataTypes_Lib's <c>StrictJsonStringEnumConverter</c>'s.)
     /// </summary>
     private static ProblemOrder ReadOrder(JsonElement root, string name, ProblemOrder fallback)
     {

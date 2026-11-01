@@ -217,7 +217,7 @@
     // page's row-fit module's (actionRowFit.js; the auto-fold in the header).
     // A page where this line never runs has no owner for the panel: the quiz
     // row then stays pending, and QuizSettings logs the choice it cannot hand
-    // over (INSTRUCTIONS.md, "The panel's owner, and a page without it").
+    // over (MissingPanelOwnerTests; INSTRUCTIONS.md, Pitfalls).
     window.bgquizNavFold = { apply: setFolded, prefer, setAutoFold, panelWidths };
 
     // Initial load: enhancedload does not fire for it. No preference exists

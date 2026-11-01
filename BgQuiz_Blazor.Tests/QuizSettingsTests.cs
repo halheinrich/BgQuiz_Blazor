@@ -209,7 +209,8 @@ public class QuizSettingsTests : BunitContext
         //
         // Unknown's absence is the producer's rule, not a UI preference: clause
         // (a) of the level contract puts it outside the rigor scale, and
-        // DiagramRequest.Builder.Build throws on it. "Hide nothing" is null.
+        // DiagramRequest's MaximumHiddenCandidateAnalysisLevel init throws on
+        // it. "Hide nothing" is null.
         Assert.Equal(
             new[]
             {
@@ -269,8 +270,9 @@ public class QuizSettingsTests : BunitContext
     {
         // The one setter here that can be handed an invalid argument, and the
         // guard that keeps the stored value inside what the producer accepts:
-        // DiagramRequest.Builder.Build throws on both of these, so storing
-        // either would turn a settings write into a crash one review later,
+        // DiagramRequest's MaximumHiddenCandidateAnalysisLevel init throws on
+        // both of these, so storing either would turn a settings write into a
+        // crash one review later,
         // somewhere else entirely.
         //
         // Unknown is not "the shallowest level" — it means the depth was never
@@ -1046,9 +1048,9 @@ public class QuizSettingsTests : BunitContext
     {
         // Per-field tolerance for the one non-boolean field. Every one of these
         // has to land on "hide nothing" rather than throwing or — the failure
-        // that would matter — reaching DiagramRequest.Builder.Build as a value
-        // it rejects, which would take out the review pane rather than this
-        // setting.
+        // that would matter — reaching DiagramRequest's
+        // MaximumHiddenCandidateAnalysisLevel init as a value it rejects, which
+        // would take out the review pane rather than this setting.
         //
         // The "null" row is not a failure but the format's own spelling of an
         // explicit hide-nothing choice; it is here so the tolerant path and the
@@ -1222,9 +1224,9 @@ public class QuizSettingsTests : BunitContext
     /// refuses — an ordinal, as a string or a number, a label, null, another
     /// kind of value — reads as the default, as every unusable field here does,
     /// without costing the user the fields beside it. (The reader is the
-    /// producer's, and it matches a name case-insensitively: BgDataTypes_Lib's
-    /// <c>StrictJsonStringEnumConverter</c> closes the token's kind, not its
-    /// case, so a case variant is not in this list.)
+    /// producer's, and its matching rule is BgDataTypes_Lib's
+    /// <c>StrictJsonStringEnumConverter</c>'s; a case variant is not in this
+    /// list because that rule does not refuse one.)
     /// </summary>
     [Theory]
     [InlineData("\"1\"")]

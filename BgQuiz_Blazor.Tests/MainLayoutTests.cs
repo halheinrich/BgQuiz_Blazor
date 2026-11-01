@@ -95,9 +95,9 @@ public class MainLayoutTests : BunitContext
     /// width and page padding are the largest remaining term in the board's
     /// width, and at those viewports the board is <i>width</i>-bound — at
     /// 768x1024 the region under a 231px-tall board is 699px tall, so height is
-    /// free and width is everything. Measured: the band takes the board from
-    /// 410x231 to 504x284 there (+23% linearly, +50% by area) and from 462x260
-    /// to 556x313 at 820x1180.
+    /// free and width is everything. Measured on the live app (73778b3,
+    /// 2026-08-16): the band takes the board from 410x231 to 504x284 there
+    /// (+23% linearly, +50% by area) and from 462x260 to 556x313 at 820x1180.
     ///
     /// <para>
     /// Both halves are pinned because either one alone loses most of the win,

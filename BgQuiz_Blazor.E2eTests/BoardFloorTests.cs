@@ -15,7 +15,8 @@ namespace BgQuiz_Blazor.E2eTests;
 /// The floor is read from the page's own <c>--board-min-height</c>, never
 /// pasted here: the number is a measurement <c>app.css</c> states and cites,
 /// and this suite's job is that the page honours whatever it states. Measured
-/// at review, where the Normal composition's board is the smaller one — the
+/// at review (9acfebf, 2026-09-22, on the committed cube fixture), where the
+/// Normal composition's board is the smaller one — the
 /// maximized answering board at 720×450 is already above the floor.
 /// </para>
 /// </summary>

@@ -53,10 +53,11 @@ app.MapStaticAssets();
 // UseStatusCodePagesWithReExecute or UseHttpsRedirection; ahead of the
 // Razor-components registration is a statement of precedence to a reader, not
 // a mechanism. What actually keeps those two off it, measured against the
-// published artifact rather than read off the pipeline: the status-code pages
+// published artifact rather than read off the pipeline (2026-08-24, the record
+// and the pin in EnvironmentFidelityTests): the status-code pages
 // engage only on a >= 400 response, and a mapped /healthz answers 200 —
 // unmapped it would come back as the re-executed not-found page, which is how
-// the pin in EnvironmentFidelityTests is mutation-checked; and
+// that pin is mutation-checked; and
 // UseHttpsRedirection resolves no HTTPS port when the app binds http only (the
 // e2e fixture, and App Service, which terminates TLS at the front end), so the
 // probe's plain-HTTP request passes through instead of taking a 307.

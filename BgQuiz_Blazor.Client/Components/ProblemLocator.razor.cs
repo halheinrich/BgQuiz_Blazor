@@ -116,9 +116,10 @@ public partial class ProblemLocator : ComponentBase
     /// <c>BgDecisionData.MoveNumber</c>; <see langword="null"/> for a
     /// standalone position, as <see cref="Game"/> is. A cube decision carries
     /// the number of the play it precedes, which is the number eXtreme Gammon
-    /// shows for that cube — verified against XG's own
+    /// shows for that cube — verified 2026-08-21 against XG's own
     /// <c>match_game_move.xgp</c> export naming rather than against the
-    /// converter that stamps it (see <c>INSTRUCTIONS.md</c>).
+    /// converter that stamps it (6fd7765 names the files). What the chip shows
+    /// for a <c>.xgp</c> is SPEC-quiz-view.md §4's ruling (ii).
     /// </summary>
     [Parameter, EditorRequired]
     public int? MoveNumber { get; set; }
