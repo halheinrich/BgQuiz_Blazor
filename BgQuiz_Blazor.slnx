@@ -10,6 +10,7 @@
   <Project Path="../BgUiPrimitives_Razor/BgUiPrimitives_Razor/BgUiPrimitives_Razor.csproj" />
   <Project Path="../ConvertXgToJson_Lib/ConvertXgToJson_Lib/ConvertXgToJson_Lib.csproj" />
   <Project Path="../XgFilter_Lib/XgFilter_Lib/XgFilter_Lib.csproj" />
+  <Project Path="../XgFilter_Razor/XgFilter_Razor.TestSupport/XgFilter_Razor.TestSupport.csproj" />
   <Project Path="../XgFilter_Razor/XgFilter_Razor/XgFilter_Razor.csproj" />
   <Project Path="BgQuiz_Blazor/BgQuiz_Blazor.csproj" />
   <Project Path="BgQuiz_Blazor.Client/BgQuiz_Blazor.Client.csproj" />
