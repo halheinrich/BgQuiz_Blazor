@@ -129,6 +129,7 @@ internal static class ActionRowGeometry
     internal sealed record RowReach(
         ControlReach[] Controls,
         double ScrollX, double ScrollY,
+        string ScrollBehavior,
         double InnerWidth, double InnerHeight,
         double ClientWidth, double ClientHeight,
         double ScrollHeight,
@@ -139,7 +140,7 @@ internal static class ActionRowGeometry
         public override string ToString() => string.Join("\n  ",
         [
             $"the row's reach, read at one instant ({Controls.Length} controls examined):",
-            $"scroll ({ScrollX:0.#}, {ScrollY:0.#}); inner {InnerWidth:0.#}x{InnerHeight:0.#}; "
+            $"scroll ({ScrollX:0.#}, {ScrollY:0.#}), root scroll-behavior {ScrollBehavior}; inner {InnerWidth:0.#}x{InnerHeight:0.#}; "
                 + $"client {ClientWidth:0.#}x{ClientHeight:0.#}; document scrollHeight {ScrollHeight:0.#}",
             $"row {Row?.ToString() ?? "absent"}; board {Board?.ToString() ?? "absent"}; maximized answering {MaximizedAnswering}",
             .. Controls.Select(c => c.Text),
@@ -165,6 +166,7 @@ internal static class ActionRowGeometry
                 return JSON.stringify({
                   Controls: row ? reachOf(row) : [],
                   ScrollX: window.scrollX, ScrollY: window.scrollY,
+                  ScrollBehavior: getComputedStyle(root).scrollBehavior,
                   InnerWidth: window.innerWidth, InnerHeight: window.innerHeight,
                   ClientWidth: root.clientWidth, ClientHeight: root.clientHeight,
                   ScrollHeight: root.scrollHeight,

@@ -152,100 +152,21 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
             reach.Controls.Select(c => c.Control).SequenceEqual(AnsweringRowControls),
             $"examined a set other than the row's {AnsweringRowControls.Length} controls\n  {reach}");
 
-    /// <summary>That <paramref name="reach"/> found the row's every control off-screen.</summary>
-    private static void AssertEveryControlOffScreen(ActionRowGeometry.RowReach reach)
-    {
-        AssertExaminedTheRow(reach);
-        Assert.True(reach.Controls.All(c => c.OffScreen), $"every control is off-screen before the scroll\n  {reach}");
-    }
-
     /// <summary>
-    /// How many animation frames running the page must hold still for
-    /// <see cref="ExpectPageAtRestAtTheTopAsync"/>. Frames, not a time, because
-    /// what it must outlast is counted in frames: after the fit the page read
-    /// the top for at most 2 frames before it rose, in 132 runs measured for
-    /// halheinrich/backgammon#434 on 24 logical processors and on 2, at up to
-    /// 8× CPU throttling. The count did not grow with the load; only each
-    /// frame's length did.
+    /// The init script turning smooth scrolling off on the root of every
+    /// document the test's page loads. A constructed sheet belongs to the
+    /// document and is no node in it, so enhanced navigation's merge of the
+    /// page's DOM has nothing to take away, as it takes attributes off
+    /// <c>&lt;html&gt;</c>.
     /// </summary>
-    private const int FramesAtRest = 10;
+    private const string SmoothScrollingOff = @"
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync(':root { scroll-behavior: auto !important; }');
+        document.adoptedStyleSheets = [sheet];";
 
-    /// <summary>
-    /// Wait until the page has come to rest at the top of its scroll
-    /// (halheinrich/backgammon#434), failing by name with the positions seen
-    /// if it never does.
-    ///
-    /// <para>
-    /// <b>What settles.</b> In a window this short, Start is far down Home, so
-    /// the click leaves Home scrolled to about 896. Navigating away asks for
-    /// <c>window.scrollTo(0, 0)</c> (blazor.web.js), and Bootstrap's
-    /// <c>scroll-behavior: smooth</c> makes that an animation wherever the
-    /// browser animates scrolls. It outlives Home. The quiz page reads 0 until
-    /// its row makes it taller than the window; in the frames after the fit
-    /// the animation then carries it to the bottom of its range (192 here,
-    /// bringing the whole row into view), and it glides back to the top about
-    /// 400 ms after the fit. So a read straight after the fit decides nothing
-    /// about the fold: it passes in the first frames or once the glide is over,
-    /// and between them finds every control reached, the failure seen in CI.
-    /// The transient breaks no contract, so the page is left alone: the row
-    /// lies below the fold once the page has settled, and that is the state
-    /// the pin is about.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Why this watches the position.</b> Nothing the page exposes marks the
-    /// end. <c>scrollend</c> fires with Home's first tick and at the glide's
-    /// end, and only the first of those where a scroll does not animate, so it
-    /// cannot tell a scroll to come from none. <c>Not.ToBeInViewportAsync</c>
-    /// is met in the frames before the rise. Reduced motion would test a page
-    /// no user gets (<c>HelpAndTitlesTests</c>). So the position itself is
-    /// sampled, frame by frame in one evaluation, until it has held for
-    /// <see cref="FramesAtRest"/>. This polls the state the assertion needs,
-    /// never the assertion.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Where it shows.</b> Not everywhere. Chromium did not animate this
-    /// scroll on the Windows machine it was measured on, whose animation
-    /// effects are off, and there the pin never lost the race until launched
-    /// with <c>--enable-smooth-scrolling</c>. CI's Linux runner lost it. So
-    /// the proof (<see cref="BelowTheFold_TheFirstRead_WaitsOutTheScrollReset"/>)
-    /// replays the scroll itself.
-    /// </para>
-    /// </summary>
-    private Task ExpectPageAtRestAtTheTopAsync() =>
-        ExpectToPassAsync(async () =>
-        {
-            var scrollYs = await Page.EvaluateAsync<double[]>(@"frames => new Promise(done => {
-                const seen = [];
-                const sample = () => {
-                  seen.push(window.scrollY);
-                  if (seen.length === frames) done(seen); else requestAnimationFrame(sample);
-                };
-                requestAnimationFrame(sample);
-              })", FramesAtRest);
-            Assert.True(
-                scrollYs.All(y => y == 0),
-                $"the page has not come to rest at the top: scrollY over {FramesAtRest} frames was {string.Join(", ", scrollYs)}");
-        });
-
-    /// <summary>The row's reach once the page has settled (<see cref="ExpectPageAtRestAtTheTopAsync"/>).</summary>
-    private async Task<ActionRowGeometry.RowReach> RowReachAtRestAsync()
-    {
-        await ExpectPageAtRestAtTheTopAsync();
-        return await ActionRowGeometry.RowReachAsync(Page);
-    }
-
-    /// <summary>The quiz page at a phone's width and a short window, its row fitted.</summary>
-    private async Task ReachFittedRowInAShortWindowAsync()
-    {
-        await Page.SetViewportSizeAsync(375, 400);
-        await BootHomeAsync();
-        await PickFixtureAsync(CubeFixture);
-        await ExpectFilterInEffectAsync();
-        await StartQuizAsync();
-        await ExpectRowFittedAsync();
-    }
+    /// <summary>That the root's scrolling, as <paramref name="reach"/> read it, is not smooth.</summary>
+    private static void AssertSmoothScrollingOff(ActionRowGeometry.RowReach reach) =>
+        Assert.True(reach.ScrollBehavior == "auto", $"smooth scrolling is off on the root\n  {reach}");
 
     /// <summary>
     /// <b>A row below the fold is off-screen, not covered, and is not left
@@ -256,72 +177,56 @@ public sealed class PhoneWidthActionRowTests : E2eTestBase
     /// once the row is scrolled into view, none. Each half reads the controls
     /// and their reach in one browser evaluation
     /// (<see cref="ActionRowGeometry.RowReachAsync"/>), and a failure carries
-    /// that whole reading (halheinrich/backgammon#434). The first waits for
-    /// the page to settle (<see cref="ExpectPageAtRestAtTheTopAsync"/>).
+    /// that whole reading (halheinrich/backgammon#434).
+    ///
+    /// <para>
+    /// <b>Smooth scrolling is off in this test, its own exception.</b> The
+    /// contract here is the reach check on a settled layout, not navigation's
+    /// animation, which is halheinrich/backgammon#515. Start lies far down Home
+    /// in a window this short, so navigating away asks for
+    /// <c>window.scrollTo(0, 0)</c> (blazor.web.js) from about 896, and
+    /// Bootstrap's <c>scroll-behavior: smooth</c> makes that an animation where
+    /// the browser animates scrolls. It outlives Home and carries the fitted
+    /// page down to 192, every control in view, before gliding back. That
+    /// mechanism is reproduced on Windows with Chromium's
+    /// <c>--enable-smooth-scrolling</c>, and gives the same failure shape as
+    /// the CI runs of this test (12 expected, 0 found). No CI reading shows it.
+    /// So this one property is set before Start
+    /// (<see cref="SmoothScrollingOff"/>), and read back there and in both
+    /// halves' readings, so that it cannot silently go. The Help anchor tests
+    /// exercise scrolling itself and keep normal motion
+    /// (<c>HelpAndTitlesTests</c>), and the suite's rule there stands.
+    /// </para>
     /// </summary>
     [Fact]
     public async Task BelowTheFold_EveryRowControlIsReportedOffScreen_AndScrolledToNoneIs()
     {
-        await ReachFittedRowInAShortWindowAsync();
+        await Page.SetViewportSizeAsync(375, 400);
+        await Page.AddInitScriptAsync(SmoothScrollingOff);
+        await BootHomeAsync();
+        await PickFixtureAsync(CubeFixture);
+        await ExpectFilterInEffectAsync();
 
-        AssertEveryControlOffScreen(await RowReachAtRestAsync());
+        var beforeStart = await Page.EvaluateAsync<string>("() => getComputedStyle(document.documentElement).scrollBehavior");
+        Assert.True(beforeStart == "auto", $"smooth scrolling is off on the root before Start: its scroll-behavior computes to {beforeStart}");
+
+        await StartQuizAsync();
+        await ExpectRowFittedAsync();
+
+        var belowTheFold = await ActionRowGeometry.RowReachAsync(Page);
+        AssertSmoothScrollingOff(belowTheFold);
+        Assert.True(belowTheFold is { ScrollX: 0, ScrollY: 0 }, $"the page is at the top of its scroll\n  {belowTheFold}");
+        AssertExaminedTheRow(belowTheFold);
+        Assert.True(belowTheFold.Controls.All(c => c.OffScreen), $"every control is off-screen before the scroll\n  {belowTheFold}");
 
         await Page.Locator(".action-row").ScrollIntoViewIfNeededAsync();
         await ExpectToPassAsync(async () =>
         {
             var scrolledTo = await ActionRowGeometry.RowReachAsync(Page);
+            AssertSmoothScrollingOff(scrolledTo);
             AssertExaminedTheRow(scrolledTo);
             Assert.True(scrolledTo.Controls.All(c => c.Reached), $"no control is unreachable after the scroll\n  {scrolledTo}");
         });
-    }
-
-    /// <summary>
-    /// Replays in the page what the scroll reset does after the fit, as
-    /// measured (see <see cref="ExpectPageAtRestAtTheTopAsync"/>): the top for
-    /// two frames, the bottom of the page's range from the third, the top
-    /// again at the twenty-fourth, about 400 ms at 60 frames a second. Each
-    /// move is instant, so what the page does is this script and not a real
-    /// animation, on a machine that animates scrolls or one that does not.
-    /// <c>window.__scrollResetOver</c> says the replay has finished.
-    /// </summary>
-    private const string ReplayScrollReset = @"() => {
-        window.__scrollResetOver = false;
-        let frame = 0;
-        const step = () => {
-          frame++;
-          if (frame === 3) window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
-          if (frame === 24) {
-            window.scrollTo({ top: 0, behavior: 'instant' });
-            window.__scrollResetOver = true;
-            return;
-          }
-          requestAnimationFrame(step);
-        };
-        requestAnimationFrame(step);
-      }";
-
-    /// <summary>
-    /// <b>The first read waits out the scroll reset</b>
-    /// (halheinrich/backgammon#434). The row-fit holds cannot stage this: they
-    /// hold the row's fit, and the scroll is the browser's, there only where
-    /// it animates scrolls. So the page is put through the scroll the fit is
-    /// followed by (<see cref="ReplayScrollReset"/>), and the read taken during
-    /// it comes back only once it is over. A read that does not wait, or one
-    /// taken at the first frames at the top, returns before the replay has
-    /// finished.
-    /// </summary>
-    [Fact]
-    public async Task BelowTheFold_TheFirstRead_WaitsOutTheScrollReset()
-    {
-        await ReachFittedRowInAShortWindowAsync();
-        await ExpectPageAtRestAtTheTopAsync(); // the real reset, where this browser animates it
-
-        await Page.EvaluateAsync(ReplayScrollReset);
-        var belowTheFold = await RowReachAtRestAsync();
-        var replayOver = await Page.EvaluateAsync<bool>("() => window.__scrollResetOver");
-
-        Assert.True(replayOver, $"the read came back while the page was still scrolling\n  {belowTheFold}");
-        AssertEveryControlOffScreen(belowTheFold);
     }
 
     [Fact]
