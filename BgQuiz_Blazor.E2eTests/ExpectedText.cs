@@ -133,6 +133,35 @@ internal static class ExpectedText
     internal static string DecisionsMatchYourFilters(int count) =>
         count == 1 ? "1 decision matches your filters" : $"{count} decisions match your filters";
 
+    /// <summary>
+    /// The forced-play line in that count — how many plays the walk passed by
+    /// because the roll left no choice, dances included; the singular and
+    /// plural branch is the app's own (<c>Home.razor</c>,
+    /// halheinrich/backgammon#514).
+    /// </summary>
+    internal static string ForcedPlaysSetAside(int count) =>
+        count == 1
+            ? "1 forced play was set aside: a roll with no choice of play asks nothing."
+            : $"{count} forced plays were set aside: a roll with no choice of play asks nothing.";
+
+    /// <summary>
+    /// Home's gate reason when the selected files hold no decision a quiz can
+    /// ask, though a file was read (<c>Home.razor</c>'s
+    /// <c>#noQuizDecisionsNotice</c>; SPEC-notices.md §4).
+    /// </summary>
+    internal const string NoQuizDecisionsAvailable = "No quiz decisions are available from the selected files.";
+
+    /// <summary>Home's Start hint for that state (<c>Home.razor</c>).</summary>
+    internal const string NoQuizDecisionsHint =
+        "No quiz decisions are available from the selected files — pick different problem files to enable Start.";
+
+    /// <summary>
+    /// The headline of Home's record of what a selection lost
+    /// (<c>#rejectedFilesNotice</c>) when the walk skipped one game of a file
+    /// it read and nothing else (<c>Home.razor</c>, halheinrich/backgammon#514).
+    /// </summary>
+    internal const string OneGameSkipped = "1 game was skipped, so this selection is incomplete:";
+
     /// <summary>The answer-type breakdown's heading, beside that count (<c>Home.razor</c>).</summary>
     internal const string AnswerTypeHeading = "By answer type";
 

@@ -12,7 +12,9 @@ namespace BgQuiz_Blazor.E2eTests;
 /// but damaged files read as "0 decisions match your filters". Now Home names
 /// the file and says the selection is incomplete, the quiz runs over the
 /// readable files, and a folder whose every file was refused gets its own
-/// box with Start dark for that reason.
+/// box with Start dark for that reason. Since halheinrich/backgammon#514 the
+/// same record names what the walk skipped of a file it read — a game whose
+/// standing the session refuses — and says it was skipped.
 ///
 /// <para>
 /// <b>Why these scenarios are owed a browser.</b> The record is a product of
@@ -73,6 +75,42 @@ public sealed class RejectedFilesTests : E2eTestBase
         // file contributed none. Read off the location chip rather than the
         // score panel's problem number, which the default maximize mode hides
         // while answering.
+        await StartQuizAsync();
+        await Expect(CubeAnswers).ToHaveCountAsync(4);
+        await Expect(Page.GetByRole(AriaRole.Group, new() { Name = "Problem location" }))
+            .ToContainTextAsync(SyntheticXgMatch.StagedFileName);
+    }
+
+    [Fact]
+    public async Task ARefusedGameBesideAReadableMatch_IsNamedOnHome_AndTheQuizRunsOverWhatIsLeft()
+    {
+        // halheinrich/backgammon#514: the walk reads the file, skips the game whose standing the
+        // session refuses, and names it — a skip, not a file that could not be read. The refused
+        // game holds both of its file's analysed decisions, so everything the quiz asks is the
+        // readable match's.
+        await BootHomeAsync();
+        await PickSynthesizedFilesAsync("refused-beside-readable",
+            (SyntheticXgMatch.StagedFileName, SyntheticXgMatch.Bytes()),
+            (SyntheticXgMatch.RefusedGameStagedFileName, SyntheticXgMatch.RefusedGameBytes()));
+        await ExpectFilterInEffectAsync();
+
+        var record = Page.Locator("#rejectedFilesNotice");
+        await Expect(record).ToBeVisibleAsync();
+        await Expect(record).ToContainTextAsync(ExpectedText.OneGameSkipped);
+        await Expect(record.Locator("li")).ToHaveCountAsync(1);
+        await Expect(record.Locator("li")).ToContainTextAsync(SyntheticXgMatch.RefusedGameStagedFileName);
+        await Expect(record.Locator("li")).ToContainTextAsync($"game {SyntheticXgMatch.CubeGameNumber}:");
+        await Expect(record).ToHaveClassAsync(new Regex(@"\balert-warning\b"));
+        await Expect(record.GetByRole(AriaRole.Button)).ToHaveCountAsync(0);
+
+        // Both files were read; the count is the readable match's two decisions.
+        await Expect(Page.GetByText(ExpectedText.ProblemFiles(2))).ToBeVisibleAsync();
+        await Expect(Page.GetByText(ExpectedText.DecisionsMatchYourFilters(2))).ToBeVisibleAsync();
+        await Expect(Page.Locator("#allRejectedNotice")).ToHaveCountAsync(0);
+        await Expect(Page.Locator("#noMatchNotice")).ToHaveCountAsync(0);
+        await Expect(Page.Locator("#noQuizDecisionsNotice")).ToHaveCountAsync(0);
+
+        // The quiz runs over what is left: the readable match's cube decision comes first.
         await StartQuizAsync();
         await Expect(CubeAnswers).ToHaveCountAsync(4);
         await Expect(Page.GetByRole(AriaRole.Group, new() { Name = "Problem location" }))

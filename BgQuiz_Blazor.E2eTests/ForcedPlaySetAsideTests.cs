@@ -3,7 +3,7 @@ using static Microsoft.Playwright.Assertions;
 namespace BgQuiz_Blazor.E2eTests;
 
 /// <summary>
-/// A checker play whose roll leaves one legal play asks nothing: the load sets it aside, the
+/// A checker play whose roll leaves no choice of play asks nothing: the walk sets it aside, the
 /// count says so, and the quiz holds only the real decision.
 /// </summary>
 public sealed class ForcedPlaySetAsideTests : E2eTestBase
@@ -20,7 +20,7 @@ public sealed class ForcedPlaySetAsideTests : E2eTestBase
         var body = Page.Locator("body");
         await Expect(body).ToContainTextAsync("2 problem files");
         await Expect(body).ToContainTextAsync(ExpectedText.DecisionsMatchYourFilters(1));
-        await Expect(body).ToContainTextAsync("1 forced play was set aside");
+        await Expect(body).ToContainTextAsync(ExpectedText.ForcedPlaysSetAside(1));
         await StartQuizAsync();
         await Expect(Page.Locator(".board-container .bg-play-entry")).ToBeVisibleAsync();
         await ClickBoardPointAsync(24);

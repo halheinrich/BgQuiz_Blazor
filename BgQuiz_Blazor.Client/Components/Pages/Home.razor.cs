@@ -69,10 +69,15 @@ public partial class Home : ComponentBase, IDisposable
     private bool IsCounting =>
         App.Phase == QuizPhase.Preparing && Setup is not null && FilterInEffect is not null && CurrentSelection is null;
 
+    /// <summary>
+    /// Start needs a load with a problem, read from the load and not from the count, so a load
+    /// with none — every file rejected, or nothing to ask — is dark while its count is pending.
+    /// What the walk skipped never darkens it: the decisions that remain are a quiz.
+    /// </summary>
     private bool CanStart =>
         Setup is { } setup
         && FilterInEffect is not null
-        && !setup.Loaded.Report.AllRejected
+        && !setup.Loaded.Problems.IsEmpty
         && CurrentSelection is not { AnswerTypes.Total: 0 }
         && App.MixForStart is not null;
 

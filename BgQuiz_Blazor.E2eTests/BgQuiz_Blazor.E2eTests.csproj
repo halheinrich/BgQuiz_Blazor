@@ -29,16 +29,17 @@
          (the one linked app file below is a readiness handshake, not an
          expectation).
 
-         The two references below are FIXTURE PRODUCERS, and that is the whole
+         The three references below are FIXTURE PRODUCERS, and that is the whole
          of their licence (halheinrich/backgammon#125). A real .xg match file
          carries real players' names and so cannot be committed to a public
          repo; SyntheticXgMatch builds one in memory instead, from
          XgFileBuilder / XgFileWriter in ConvertXgToJson_Lib and the Play /
          Move / DiceRoll / CubeAction vocabulary those take from
          BgDataTypes_Lib. Both are upstream libraries the app already depends
-         on, so the dependency graph gains nothing new — and neither may ever
-         supply an expectation: no scenario reads a displayed string, a
-         selector, or a derived value from them.
+         on, so the dependency graph gains nothing new; the third is the
+         converter's own test support. None may ever supply an expectation: no
+         scenario reads a displayed string, a selector, or a derived value from
+         them.
 
          BgDataTypes_Lib is declared even though ConvertXgToJson_Lib would
          supply it transitively, per the rule Directory.Packages.props states
@@ -46,6 +47,11 @@
          is a latent break. -->
     <ProjectReference Include="..\..\BgDataTypes_Lib\BgDataTypes_Lib\BgDataTypes_Lib.csproj" />
     <ProjectReference Include="..\..\ConvertXgToJson_Lib\ConvertXgToJson_Lib\ConvertXgToJson_Lib.csproj" />
+    <!-- The third: XgFileEdits, the one owner of a refused game
+         (halheinrich/backgammon#514), which SyntheticXgMatch's refused-game
+         variant is made with. It declares itself unsupported on the browser,
+         and this suite runs on the desktop runtime. -->
+    <ProjectReference Include="..\..\ConvertXgToJson_Lib\ConvertXgToJson_Lib.TestSupport\ConvertXgToJson_Lib.TestSupport.csproj" />
     <!-- A HANDSHAKE PRODUCER, on the QuizKeysMark link's licence below, not an
          expectation source: XgFilter_Razor.TestSupport's FilterRestorationMarker
          gives the CSS selector that matches the filter panel once this boot's

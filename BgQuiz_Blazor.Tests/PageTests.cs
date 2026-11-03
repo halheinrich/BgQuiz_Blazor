@@ -8,12 +8,16 @@ using BgFolderAccess_Razor;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Components;
 using BgQuiz_Blazor.Client.Quiz;
+using BgQuiz_Blazor.E2eTests;
 using BgUiPrimitives_Razor;
 using BgUiPrimitives_Razor.TestSupport;
 using Bunit;
 using Bunit.TestDoubles;
+using ConvertXgToJson_Lib;
+using ConvertXgToJson_Lib.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using XgFilter_Lib.Filtering;
 using XgFilter_Razor;
 using XgFilter_Razor.Components;
 using XgFilter_Razor.TestSupport;
@@ -37,6 +41,13 @@ public class PageTests : BunitContext
     private readonly FakeQuizLiveMarker _marker = new();
     private readonly List<BgDecisionData> _problems = [];
     private Exception? _loadFailure;
+
+    /// <summary>
+    /// Whether the pick's files are parsed for real, through <see cref="ProblemLoader"/>, so what
+    /// Home reads off the load — its problems and its walk's report — comes from a real walk of
+    /// the bytes picked. Otherwise every pick parses to <see cref="_problems"/> over an empty walk.
+    /// </summary>
+    private bool _parseThePick;
     private readonly BrowserStoragePlan _plan;
 
     public PageTests()
@@ -69,7 +80,8 @@ public class PageTests : BunitContext
     private Task<LoadedProblems> LoadAsync(ImmutableArray<PickedFile> files, Action<LoadProgress>? progress, CancellationToken ct)
     {
         if (_loadFailure is { } failure) return Task.FromException<LoadedProblems>(failure);
-        return Task.FromResult(new LoadedProblems([.. _problems], TestFixtures.WalkedReport(), forcedPlaysSetAside: 0));
+        if (_parseThePick) return ProblemLoader.LoadAsync(files, NullLoggerFactory.Instance, TimeProvider.System, progress, ct);
+        return Task.FromResult(new LoadedProblems([.. _problems], TestFixtures.WalkedReport()));
     }
 
     private QuizApp App => Services.GetRequiredService<QuizApp>();
@@ -397,6 +409,235 @@ public class PageTests : BunitContext
             var start = cut.FindAll("button").Single(b => b.TextContent.Trim() == "Start Quiz");
             Assert.True(start.HasAttribute("disabled"));
         });
+    }
+
+    // ── Home: what the walk left out (halheinrich/backgammon#514) ───────────────
+    //
+    // Over a real walk of the picked bytes: the load is unfiltered, so an empty load says the
+    // files hold no quiz decision and a zero beside decisions is the filter's; every file
+    // rejected keeps its own box; and what was rejected or skipped beside decisions is listed in
+    // the record, whose headline tells a file not read from a game or decision skipped.
+
+    /// <summary>Home over a pick of <paramref name="files"/>, parsed for real, once its count is in.</summary>
+    private async Task<IRenderedComponent<HomePage>> HomeOverAWalkAsync(params PickedFile[] files)
+    {
+        _plan.ExpectFilterRestore(FilterRestoration.NothingStored);
+        var cut = await HomeOverAWalkLandedAsync(files);
+        cut.WaitForAssertion(() => Assert.NotNull(App.CurrentSelection));
+        return cut;
+    }
+
+    /// <summary>Home over a pick of <paramref name="files"/>, parsed for real, once the pick has landed — for a filter not yet applied, which has no count.</summary>
+    private async Task<IRenderedComponent<HomePage>> HomeOverAWalkLandedAsync(params PickedFile[] files)
+    {
+        _parseThePick = true;
+        _folders.NextPickOutcome = TestFixtures.Picked("Corpus", FolderWriteCapability.Enabled, files);
+        _plan.ExpectFilterPanelMount();
+        var cut = Render<HomePage>();
+        await cut.Find("#pickProblemFolder").ClickAsync(new());
+        cut.WaitForAssertion(() => Assert.True(App.Setup is not null && !App.IsBusy));
+        return cut;
+    }
+
+    private static string Collapsed(string text) => Regex.Replace(text, @"\s+", " ").Trim();
+
+    private static AngleSharp.Dom.IElement StartButton(IRenderedComponent<HomePage> cut) =>
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == ExpectedText.StartQuizButton);
+
+    /// <summary>The non-dismissible, politely announced warning <paramref name="id"/> names — the shape every box here has.</summary>
+    private static NoticeBox Box(IRenderedComponent<HomePage> cut, string id) =>
+        NoticeBox.ById(cut, id).ShouldBe(NoticeKind.Warning, NoticeAnnouncement.Polite, dismissible: false, "id", "class");
+
+    /// <summary>The list items of <paramref name="box"/>, each whitespace-collapsed.</summary>
+    private static string[] Items(NoticeBox box) => [.. box.Content.QuerySelectorAll("li").Select(li => Collapsed(li.TextContent))];
+
+    private static PickedFile RefusedGame2Of3(string name = "refused.xg") =>
+        TestFixtures.PickedXg(XgFileEdits.WithRefusedGames(TestFixtures.OpeningMatch(games: 3), 2), name);
+
+    [Fact]
+    public async Task Home_AnEmptyLoadWithOmissions_SaysNoQuizDecisions_ListsThem_AndStartIsDark()
+    {
+        var cut = await HomeOverAWalkAsync(TestFixtures.PickedXg(
+            XgFileEdits.WithRefusedGames(TestFixtures.OpeningMatch(games: 2), 1, 2), "refused.xg"));
+
+        var box = Box(cut, "noQuizDecisionsNotice");
+        Assert.StartsWith(ExpectedText.NoQuizDecisionsAvailable, Collapsed(box.Content.TextContent));
+        var omissions = App.Setup!.Loaded.Report.Omissions;
+        Assert.Equal(omissions.Select(omission => $"refused.xg — {Collapsed(omission.ToString())}"), Items(box));
+        var text = Text(cut);
+        Assert.DoesNotContain("decisions match", text);
+        Assert.DoesNotContain("Counting matching", text);
+        Assert.Empty(cut.FindAll("#noMatchNotice"));
+        Assert.Empty(cut.FindAll("#rejectedFilesNotice"));   // listed once, in the gate reason
+        Assert.Empty(cut.FindAll("#allRejectedNotice"));
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains(ExpectedText.NoQuizDecisionsHint, text);
+    }
+
+    [Fact]
+    public async Task Home_OnlyForcedOrIllegalPlays_SaysNoQuizDecisions_WithNoList_AndStartIsDark()
+    {
+        // Neither is a problem (Hal's rulings): the box is the neutral gate reason alone, with no
+        // record, and not "0 decisions match your filters", which blamed a filter.
+        var cut = await HomeOverAWalkAsync(
+            TestFixtures.PickedXg(TestFixtures.Match(game => game.WithForcedPlay().WithDance()), "forced.xg"),
+            TestFixtures.PickedXg(TestFixtures.Match(game => game.IllegalPlay(XgPlayer.Player1, new DiceRoll(6, 5))), "illegal.xg"));
+
+        var box = Box(cut, "noQuizDecisionsNotice");
+        Assert.Equal(ExpectedText.NoQuizDecisionsAvailable, Collapsed(box.Content.TextContent));
+        Assert.Empty(box.Content.QuerySelectorAll("ul"));
+        Assert.Empty(cut.FindAll("#rejectedFilesNotice"));
+        Assert.Empty(cut.FindAll("#noMatchNotice"));
+        Assert.DoesNotContain("decisions match", Text(cut));
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains(ExpectedText.NoQuizDecisionsHint, Text(cut));
+    }
+
+    [Fact]
+    public async Task Home_AnEmptyLoad_IsDark_WhileItsCountIsPending()
+    {
+        // The gate reads the load, not the count: a ranking change leaves the count unknown and
+        // nothing in flight, which a gate reading only the count would let through.
+        var cut = await HomeOverAWalkAsync(TestFixtures.PickedXg(TestFixtures.Match(game => game.WithForcedPlay()), "forced.xg"));
+        await Settings.EnsureHydratedAsync();
+        _plan.ExpectWrite(BrowserStorageArea.Local, QuizSettings.StorageKey,
+            SettingsPayload.Of(sortAnalysisByDepthFirst: true), BrowserStorageWriteAnswer.Succeeded);
+        await Settings.SetSortAnalysisByDepthFirstAsync(true);
+        cut.Render();
+
+        Assert.Null(App.CurrentSelection);   // the premise: the count is pending
+        Assert.False(App.IsBusy);            // and nothing holds Start dark but the gate
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains(ExpectedText.NoQuizDecisionsHint, Text(cut));
+    }
+
+    [Fact]
+    public async Task Home_UsableDecisionsBesideOmissions_ShowTheRecord_AndStartIsAvailable()
+    {
+        var cut = await HomeOverAWalkAsync(RefusedGame2Of3());
+
+        Assert.Contains(ExpectedText.DecisionsMatchYourFilters(4), Text(cut));
+        var record = Box(cut, "rejectedFilesNotice");
+        Assert.Equal(ExpectedText.OneGameSkipped, Collapsed(record.Content.Children[0].TextContent));
+        Assert.Single(Items(record));
+        Assert.Empty(cut.FindAll("#noQuizDecisionsNotice"));
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_AFilteredZeroBesideOmissions_SaysTheFilterMatchesNothing_BesideTheRecord()
+    {
+        // The load is unfiltered and holds decisions, so the zero is the filter's: the filter's
+        // box stands, with the record beside it, and Start is dark for the filter.
+        var noOne = new FilterConfig { Players = ["Nobody"] };
+        _plan.ExpectFilterRestore(noOne);
+        var cut = await HomeOverAWalkLandedAsync(RefusedGame2Of3());
+        _plan.ExpectFilterCommit(noOne, BrowserStorageWriteAnswer.Succeeded);
+        await cut.FindAll("button").Single(b => b.TextContent.Trim() == ExpectedText.ApplyFilterButton).ClickAsync(new());
+
+        cut.WaitForAssertion(() => Assert.Equal(0, App.CurrentSelection?.AnswerTypes.Total));
+        Assert.Contains(ExpectedText.DecisionsMatchYourFilters(0), Collapsed(Box(cut, "noMatchNotice").Content.TextContent));
+        Assert.Equal(ExpectedText.OneGameSkipped, Collapsed(Box(cut, "rejectedFilesNotice").Content.Children[0].TextContent));
+        Assert.Empty(cut.FindAll("#noQuizDecisionsNotice"));
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains("No problems match the filters", Text(cut));
+    }
+
+    [Fact]
+    public async Task Home_EveryFileRejected_ShowsTheAllRejectedBox_AsBefore()
+    {
+        var cut = await HomeOverAWalkAsync(TestFixtures.DamagedXg("a.xg"), TestFixtures.DamagedXg("b.xg"));
+
+        var box = Box(cut, "allRejectedNotice");
+        Assert.StartsWith(
+            "None of the selected problem files could be read, so there are no decisions to count:",
+            Collapsed(box.Content.TextContent));
+        Assert.Equal(["a.xg", "b.xg"], Items(box).Select(item => item.Split(' ')[0]));
+        Assert.Empty(cut.FindAll("#noQuizDecisionsNotice"));
+        Assert.Empty(cut.FindAll("#rejectedFilesNotice"));
+        Assert.Empty(cut.FindAll("#noMatchNotice"));
+        Assert.True(StartButton(cut).HasAttribute("disabled"));
+        Assert.Contains("No selected problem file could be read — pick a folder with readable problem files to enable Start.", Text(cut));
+    }
+
+    /// <summary>The picks the headline cases walk, by name: rejected files, omitted games, omitted decisions.</summary>
+    private static PickedFile[] HeadlineCase(string which)
+    {
+        var match = TestFixtures.OpeningMatch(games: 4);
+        PickedFile Edited(Func<ConvertXgToJson_Lib.Models.XgFile, ConvertXgToJson_Lib.Models.XgFile> edit) =>
+            TestFixtures.PickedXg(edit(match), "match.xg");
+        return which switch
+        {
+            "1 file" => [TestFixtures.PickedXg(match, "match.xg"), TestFixtures.DamagedXg()],
+            "1 game" => [Edited(m => XgFileEdits.WithRefusedGames(m, 2))],
+            "2 games" => [Edited(m => XgFileEdits.WithRefusedGames(m, 2, 3))],
+            "1 decision" => [Edited(m => XgFileEdits.WithCorruptCandidate(m, 1, 1))],
+            "2 decisions" => [Edited(m => XgFileEdits.WithCorruptCandidate(XgFileEdits.WithCorruptCandidate(m, 1, 1), 2, 1))],
+            "1 game, 1 decision" => [Edited(m => XgFileEdits.WithCorruptCandidate(XgFileEdits.WithRefusedGames(m, 3), 1, 1))],
+            "2 games, 2 decisions" => [Edited(m =>
+                XgFileEdits.WithCorruptCandidate(XgFileEdits.WithCorruptCandidate(XgFileEdits.WithRefusedGames(m, 3, 4), 1, 1), 2, 1))],
+            "1 file, 1 game" => [Edited(m => XgFileEdits.WithRefusedGames(m, 2)), TestFixtures.DamagedXg()],
+            "2 files, 2 games, 1 decision" => [
+                Edited(m => XgFileEdits.WithCorruptCandidate(XgFileEdits.WithRefusedGames(m, 3, 4), 1, 1)),
+                TestFixtures.DamagedXg("damaged-1.xg"), TestFixtures.DamagedXg("damaged-2.xg")],
+            _ => throw new ArgumentOutOfRangeException(nameof(which), which, null),
+        };
+    }
+
+    [Theory]
+    [InlineData("1 file", "1 of 2 files could not be read, so this selection is incomplete:", "1")]
+    [InlineData("1 game", "1 game was skipped, so this selection is incomplete:", "1")]
+    [InlineData("2 games", "2 games were skipped, so this selection is incomplete:", "2")]
+    [InlineData("1 decision", "1 decision was skipped, so this selection is incomplete:", "1")]
+    [InlineData("2 decisions", "2 decisions were skipped, so this selection is incomplete:", "2")]
+    [InlineData("1 game, 1 decision", "1 game and 1 decision were skipped, so this selection is incomplete:", "1 1")]
+    [InlineData("2 games, 2 decisions", "2 games and 2 decisions were skipped, so this selection is incomplete:", "2 2")]
+    [InlineData("1 file, 1 game", "1 of 2 files could not be read; 1 game was skipped. This selection is incomplete:", "1 1")]
+    [InlineData("2 files, 2 games, 1 decision",
+        "2 of 3 files could not be read; 2 games and 1 decision were skipped. This selection is incomplete:", "2 2 1")]
+    public async Task Home_TheRecordsHeadline_CountsFilesNotRead_ApartFromGamesAndDecisionsSkipped(
+        string which, string headline, string strongNumbers)
+    {
+        var cut = await HomeOverAWalkAsync(HeadlineCase(which));
+
+        var record = Box(cut, "rejectedFilesNotice");
+        var head = record.Content.Children[0];
+        Assert.Equal(headline, Collapsed(head.TextContent));
+        Assert.Equal(strongNumbers, string.Join(' ', head.QuerySelectorAll("strong").Select(strong => strong.TextContent.Trim())));
+        // Rejected files first, then the omissions in the walk's order, one item each.
+        var report = App.Setup!.Loaded.Report;
+        Assert.Equal(
+            [.. report.Rejected.Select(rejection => rejection.SourceName), .. report.Omissions.Select(omission => omission.SourceFile)],
+            Items(record).Select(item => item.Split(' ')[0]));
+        Assert.False(StartButton(cut).HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Home_AnOmissionsReason_IsOneListItem_Whole_WhateverLineBreaksItHolds()
+    {
+        // A refused standing's reason is the rule's message whole: the sentence, the parameter
+        // .NET appends and, for an out-of-range value, the value on a line of its own — the
+        // platform's line break, a CRLF on Windows (XgOmission.Reason). It is shown unparsed and
+        // unshortened, in one item.
+        var cut = await HomeOverAWalkAsync(RefusedGame2Of3("match.xg"));
+        var omission = Assert.Single(App.Setup!.Loaded.Report.Omissions);
+        Assert.Contains(Environment.NewLine, omission.Reason);   // the premise
+
+        var item = Assert.Single(Box(cut, "rejectedFilesNotice").Content.QuerySelectorAll("li"));
+        Assert.Equal("match.xg", item.QuerySelector("code")!.TextContent);
+        // bUnit reads the markup back through an HTML parser, which turns every CRLF into an LF.
+        Assert.Equal($"match.xg — {omission}".ReplaceLineEndings("\n"), item.TextContent);
+    }
+
+    [Fact]
+    public async Task Home_TheForcedLine_IsTheWalksCount_DancesIncluded()
+    {
+        // The count has one owner, the walk's report, and a dance is forced (Hal's ruling).
+        var cut = await HomeOverAWalkAsync(TestFixtures.PickedXg(
+            TestFixtures.Match(game => game.WithOpeningPlays(), game => game.WithForcedPlay().WithDance()), "match.xg"));
+
+        Assert.Contains(ExpectedText.DecisionsMatchYourFilters(2), Text(cut));
+        Assert.Contains(ExpectedText.ForcedPlaysSetAside(2), Text(cut));
     }
 
     // ── Resample, and the reload notice ─────────────────────────────────────────

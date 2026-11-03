@@ -38,10 +38,6 @@ public class TestFixtureContractTests
         { "match play", TestFixtures.TwoChoiceDecision(TestFixtures.OpeningBest(), TestFixtures.OpeningAlternative(), away: 3) },
         { "depth split", TestFixtures.DepthSplitDecision() },
         { "one-click play", TestFixtures.OneClickPlayDecision() },
-        { "forced play", TestFixtures.ForcedPlayDecision() },
-        { "forced double", TestFixtures.ForcedDoubleDecision() },
-        { "forced bear-off", TestFixtures.ForcedBearOffDecision() },
-        { "pass position", TestFixtures.PassDecision() },
     };
 
     [Theory]

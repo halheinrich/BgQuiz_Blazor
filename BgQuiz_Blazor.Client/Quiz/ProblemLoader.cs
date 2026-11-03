@@ -4,7 +4,6 @@ using System.Collections.Immutable;
 using BgDataTypes_Lib;
 using BgFolderAccess_Razor;
 using BgGame_Lib;
-using BgMoveGen;
 using Microsoft.Extensions.Logging;
 using XgFilter_Lib;
 using XgFilter_Lib.Filtering;
@@ -20,9 +19,11 @@ internal delegate Task<LoadedProblems> ProblemLoad(
 internal static class ProblemLoader
 {
     /// <summary>
-    /// Parse <paramref name="files"/> unfiltered, set forced plays aside, and report progress
-    /// per file. Yields to the browser on the clock's budget so the page can paint the
-    /// progress line; the parse itself is the one long operation the app has.
+    /// Parse <paramref name="files"/> unfiltered, keeping every decision the walk yields, and
+    /// report progress per file. What the walk leaves out — rejected files, omitted games and
+    /// plays, forced plays — is its report's, not this loader's (halheinrich/backgammon#514).
+    /// Yields to the browser on the clock's budget so the page can paint the progress line;
+    /// the parse itself is the one long operation the app has.
     /// </summary>
     public static async Task<LoadedProblems> LoadAsync(
         ImmutableArray<PickedFile> files,
@@ -41,7 +42,6 @@ internal static class ProblemLoader
             new FilterConfig().Build(), PlayRanking.Equity, loggerFactory.CreateLogger<FilteredDecisionIterator>());
         var yielder = new CooperativeYielder(clock);
         var problems = ImmutableArray.CreateBuilder<BgDecisionData>();
-        var forced = 0;
         var read = 0;
 
         IEnumerable<XgFileStream> Streams()
@@ -54,23 +54,17 @@ internal static class ProblemLoader
             }
         }
 
+        // The walk is synchronous, so the yield and the cancellation check can only sit between
+        // the decisions it yields: a file's decode, and whatever of a file yields nothing, runs
+        // through without either.
         foreach (var decision in iterator.IterateXgStreamDiagrams(Streams(), report))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (HasNoPlayChoice(decision))
-                forced++;
-            else
-                problems.Add(decision);
+            problems.Add(decision);
             await yielder.YieldIfDueAsync();
         }
 
         progress?.Invoke(new LoadProgress(files.Length, files.Length));
-        return new LoadedProblems(problems.ToImmutable(), report, forced);
+        return new LoadedProblems(problems.ToImmutable(), report);
     }
-
-    /// <summary>A checker play whose roll leaves exactly one legal play asks nothing.</summary>
-    internal static bool HasNoPlayChoice(BgDecisionData decision) =>
-        decision is CheckerPlayDecision checkerPlay
-        && MoveGenerator.GeneratePlays(
-            new BoardState(checkerPlay.Board), checkerPlay.Dice.High, checkerPlay.Dice.Low).Count == 1;
 }

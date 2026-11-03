@@ -5,6 +5,8 @@ using BgFolderAccess_Razor;
 using BgGame_Lib;
 using BgQuiz_Blazor.Client.Quiz;
 using BgQuiz_Blazor.E2eTests;
+using ConvertXgToJson_Lib;
+using ConvertXgToJson_Lib.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 using XgFilter_Lib;
 using XgFilter_Lib.Filtering;
@@ -24,10 +26,7 @@ namespace BgQuiz_Blazor.Tests;
 /// (<c>8/5 8/5</c> on a 3-1), which matched only because play equality was a
 /// comparison of encodings; plays are compared by the position they reach
 /// now, so a fixture's plays must be ones a board could actually be played
-/// into. <c>TestFixtureContractTests</c> holds every fixture to that. The
-/// <i>boards</i> of the auto-skip fixtures are exact too: what
-/// <c>MoveGenerator.GeneratePlays</c> derives from the board and the dice is
-/// the whole fact <c>ProblemLoader.HasNoPlayChoice</c> reads.
+/// into. <c>TestFixtureContractTests</c> holds every fixture to that.
 /// </para>
 ///
 /// <para>
@@ -309,106 +308,22 @@ internal static class TestFixtures
     /// used to exercise the dice-click → submit wire end-to-end.
     ///
     /// <para>
-    /// <b>Two legal plays is the load-bearing property, not a detail.</b> A
-    /// position offering one is auto-skipped before it can reach a page
-    /// (<c>ProblemLoader.HasNoPlayChoice</c>, halheinrich/backgammon#140), so
-    /// the obvious one-click fixture — a lone checker on the 1-pt bearing off —
-    /// can no longer be shown at all. Anything staged here to drive the play
-    /// entry <i>through the controller</i> must offer a choice.
+    /// <b>Two legal plays is the load-bearing property, not a detail.</b> The
+    /// walk passes a position offering one by as forced
+    /// (ConvertXgToJson_Lib's checker-play classification,
+    /// halheinrich/backgammon#514), so a record staged from a real file could
+    /// never hold the obvious one-click fixture — a lone checker on the 1-pt
+    /// bearing off. Anything staged here to drive the play entry <i>through
+    /// the controller</i> offers a choice, as a real problem does.
     /// </para>
     /// </summary>
     public static CheckerPlayDecision OneClickPlayDecision(
-        string onRoll = "Alice", string opp = "Bob") =>
-        OneCandidate(DefaultId, TwoLegalPlaysBoard(), [6, 5], Play.Create(new(12, 6)), onRoll, opp);
-
-    /// <summary>
-    /// The <see cref="OneClickPlayDecision"/> board: two legal plays, 12/6 and
-    /// 9/3. Shared with <see cref="ForcedPlayDecision"/>, which blocks the 3-pt
-    /// to take the second away — one board, one blocker apart, so the pair
-    /// differs in exactly the fact the skip rule reads.
-    /// </summary>
-    private static int[] TwoLegalPlaysCounts()
+        string onRoll = "Alice", string opp = "Bob")
     {
         var m = new int[26];
         m[12] = 1; m[9] = 1;
         m[7] = -2; m[4] = -2; m[1] = -2;
-        return m;
-    }
-
-    private static BoardPosition TwoLegalPlaysBoard() => new(TwoLegalPlaysCounts());
-
-    /// <summary>
-    /// Forced non-double: <see cref="TwoLegalPlaysBoard"/> with the 3-pt blocked
-    /// too, so 9/3 is gone and 12/6 is the only legal play on a (6,5). The play
-    /// <i>moves something</i> — the case halheinrich/backgammon#140 is about,
-    /// and the one <see cref="PassDecision"/> does not cover. The controller
-    /// must auto-skip it exactly as it skips a pass.
-    /// </summary>
-    public static CheckerPlayDecision ForcedPlayDecision()
-    {
-        var m = TwoLegalPlaysCounts();
-        m[3] = -2;
-        return OneCandidate(new XgpDecisionId("forced.xgp"), new BoardPosition(m), [6, 5], Play.Create(new(12, 6)));
-    }
-
-    /// <summary>
-    /// Forced double: a lone on-roll checker on the 24-pt with dice (6,6), the
-    /// 12-pt blocked. 24/18 is the only move and nothing follows it, so the roll
-    /// admits one play even though three of its four dice go unplayed. Doubles
-    /// take a different generation path through BgMoveGen than the non-double
-    /// <see cref="ForcedPlayDecision"/> exercises, which is why both are staged.
-    /// </summary>
-    public static CheckerPlayDecision ForcedDoubleDecision()
-    {
-        var m = new int[26];
-        m[24] = 1;
-        m[12] = -2;
-        return OneCandidate(new XgpDecisionId("forced-double.xgp"), new BoardPosition(m), [6, 6], Play.Create(new(24, 18)));
-    }
-
-    /// <summary>
-    /// A forced bear-off: on-roll checkers on the 5- and 4-points, dice (6,5),
-    /// and an opponent checker back on the on-roll player's 24-point, out of
-    /// the way. Both on-roll checkers come off whichever die pays for which,
-    /// and a bear-off move encodes as <c>(point, 0)</c> either way, so the roll
-    /// admits one legal play — the position offers no choice and must
-    /// auto-skip.
-    ///
-    /// <para>
-    /// Not an arbitrary forced position. It is the one board whose candidate
-    /// <i>count</i> has actually moved: <c>MoveGenerator.GeneratePlays</c>
-    /// returned this single play <b>twice</b> until
-    /// halheinrich/backgammon#141 fixed it, which is why the skip rule spent a
-    /// while counting canonical plays rather than list entries
-    /// (halheinrich/backgammon#140). Kept staged where the controller can be
-    /// driven over it, so the skip is pinned end-to-end on the shape most
-    /// likely to regress. The opponent checker is what makes it a decision
-    /// position — the board it replaced had the opponent borne off entirely,
-    /// which no record can stand on now.
-    /// </para>
-    /// </summary>
-    public static CheckerPlayDecision ForcedBearOffDecision()
-    {
-        var m = new int[26];
-        m[5] = 1; m[4] = 1;
-        m[24] = -1;
-        return OneCandidate(
-            new XgpDecisionId("forced-bearoff.xgp"), new BoardPosition(m), [6, 5],
-            Play.Create(new(5, 0), new(4, 0)));
-    }
-
-    /// <summary>
-    /// Pass-position decision — the controller must auto-skip it silently. The
-    /// on-roll player is on the bar against a fully closed opponent board
-    /// (points 19–24 two each), so no roll enters; the one candidate is the
-    /// pass, the empty play.
-    /// </summary>
-    public static CheckerPlayDecision PassDecision()
-    {
-        var m = new int[26];
-        m[25] = 1;
-        for (int p = 19; p <= 24; p++) m[p] = -2;
-        return OneCandidate(DefaultId, new BoardPosition(m), [1, 2], []);
+        return OneCandidate(DefaultId, new BoardPosition(m), [6, 5], Play.Create(new(12, 6)), onRoll, opp);
     }
 
     /// <summary>
@@ -480,6 +395,79 @@ internal static class TestFixtures
     /// </summary>
     public static PickedFile DamagedXg(string name = "damaged.xg") =>
         new(name, [.. SyntheticXgMatch.Bytes().AsSpan(0, 200)]);
+
+    /// <summary>
+    /// <paramref name="file"/> as a picked <c>.xg</c> under <paramref name="name"/>, in XG's
+    /// binary container, so a load walks it as it walks an export.
+    /// </summary>
+    public static PickedFile PickedXg(XgFile file, string name) => new(name, [.. XgFileWriter.ToBytes(file)]);
+
+    /// <summary>
+    /// A 5-point match between P1 and P2 built through the producer's builder, one game per
+    /// entry of <paramref name="games"/>, each recording its game's plays: game n starts at
+    /// n − 1 to 0, a standing the session accepts for up to four games. For a test whose
+    /// subject is what the walk does with a file — the decisions it yields, what it omits or
+    /// counts — read off the real walk, never off a fabricated report.
+    /// </summary>
+    public static XgFile Match(params Action<XgGameBuilder>[] games)
+    {
+        var builder = XgFileBuilder.ForMatch(5, "P1", "P2");
+        for (int i = 0; i < games.Length; i++)
+            games[i](builder.AddGame(score1: i, score2: 0));
+        return builder.Build();
+    }
+
+    /// <summary>A <see cref="Match"/> of <paramref name="games"/> games, each <see cref="WithOpeningPlays"/>.</summary>
+    public static XgFile OpeningMatch(int games) =>
+        Match([.. Enumerable.Repeat<Action<XgGameBuilder>>(game => game.WithOpeningPlays(), games)]);
+
+    /// <summary>
+    /// The plays <see cref="WithOpeningPlays"/> records, player 1 first and each in the mover's
+    /// own numbering: legal from the standard start, where each roll offers a choice of plays.
+    /// </summary>
+    private static readonly (XgPlayer Player, DiceRoll Dice, Play Played)[] OpeningPlays =
+    [
+        (XgPlayer.Player1, new DiceRoll(3, 1), Play.Create(new(8, 5), new(6, 5))),
+        (XgPlayer.Player2, new DiceRoll(4, 2), Play.Create(new(8, 4), new(6, 4))),
+    ];
+
+    /// <summary>
+    /// Records the two opening plays, each an analysed decision, into <paramref name="game"/>
+    /// from the standard start: the walk yields them as the game's moves 1 and 2.
+    /// </summary>
+    public static XgGameBuilder WithOpeningPlays(this XgGameBuilder game)
+    {
+        foreach (var (player, dice, played) in OpeningPlays)
+            game.Play(player, dice, played);
+        return game;
+    }
+
+    /// <summary>
+    /// Records an analysed forced play into <paramref name="game"/>: one checker of each side,
+    /// player 1's on the 24-point, and a 3-1, which reaches one position however it is played.
+    /// The walk counts it and yields no decision.
+    /// </summary>
+    public static XgGameBuilder WithForcedPlay(this XgGameBuilder game)
+    {
+        var board = new int[26];
+        board[24] = 1;
+        board[1] = -1;
+        return game.AtPosition(board).Play(XgPlayer.Player1, new DiceRoll(3, 1), Play.Create(new(24, 21), new(21, 20)));
+    }
+
+    /// <summary>
+    /// Records a dance into <paramref name="game"/>: player 1 on the bar against a closed board,
+    /// where no roll enters. The walk counts it as forced, since no legal move is one empty
+    /// play, and yields no decision.
+    /// </summary>
+    public static XgGameBuilder WithDance(this XgGameBuilder game)
+    {
+        var board = new int[26];
+        board[25] = 1;
+        for (int point = 19; point <= 24; point++)
+            board[point] = -2;
+        return game.AtPosition(board).Dance(XgPlayer.Player1, new DiceRoll(6, 6));
+    }
 
     /// <summary>
     /// A <see cref="SourceReport"/> as the real

@@ -29,7 +29,7 @@ public class SelectionTests
         var setup = new QuizSetup(
             new FakeFolderContext("Corpus", FolderWriteCapability.Enabled),
             TestFixtures.Sample([TestFixtures.ReadableXg()]),
-            new LoadedProblems([.. problems], TestFixtures.WalkedReport(), forcedPlaysSetAside: 0),
+            new LoadedProblems([.. problems], TestFixtures.WalkedReport()),
             StatsProbe.None,
             FilterSourceToken.FromGeneration(1));
         return await Selection.ComputeAsync(

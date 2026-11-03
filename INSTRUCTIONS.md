@@ -21,7 +21,8 @@ Depends on:
 - **BgDataTypes_Lib** — the decision, position and identity types.
 - **BgGame_Lib** — scoring, lifetime stats, the mix, the run's pool functions
   `DistinctProblems` and `ProblemSequence`, `ProblemOrder`, `QuizScore`.
-- **ConvertXgToJson_Lib**, **XgFilter_Lib** — the parse and the filters.
+- **ConvertXgToJson_Lib**, **XgFilter_Lib** — the parse and the filters, and
+  the walk's report of what it left out, forced plays included.
 - **XgFilter_Razor** — the shared filter surface and its app-scoped
   `FilterSetup`.
 - **BgFolderAccess_Razor** — the browser's folder facilities, as a context per
@@ -29,7 +30,6 @@ Depends on:
 - **BgDiag_Razor**, **BackgammonDiagram_Lib** — the board.
 - **BgUiPrimitives_Razor** — notices, browser storage and its refusal
   condition.
-- **BgMoveGen** — forced-play detection.
 
 ## Layout
 
@@ -89,6 +89,13 @@ so nothing overlaps. `Changed` fires on every move, on the renderer's context.
   2026-10-16 and 2026-10-18, halheinrich/backgammon#421); a folder that landed
   but cannot be read as problems leaves no setup, and a run the landing
   finished stays finished.
+- **What the load left out.** The parse is unfiltered and keeps every
+  decision the walk yields. What the walk left out is its `SourceReport`'s,
+  the one owner: files it could not read, games and plays it skipped
+  (SPEC-notices §7.1), forced plays it passed by, dances included. Home lists
+  the first two and counts the third (SPEC-notices §4). Start needs a load
+  with a problem, read from the load rather than the count, so a zero beside
+  decisions is the filter's (halheinrich/backgammon#514).
 - **Resample.** The setup's own context drawn again at the limits, landing
   as a pick lands — the run ends, the files parse afresh, the stats file is
   re-probed — while the context, the filter source (so the filter in
@@ -190,7 +197,12 @@ only inside an umbrella checkout with its submodules.
   under Filter, above.
 - **The parse is the one long operation** and it yields on BgGame_Lib's
   `CooperativeYielder.DefaultBudget` so the progress line paints. Keep it
-  inside the loading phase.
+  inside the loading phase. The walk is synchronous, so the loader can yield
+  and check cancellation only between the decisions it yields: a file's
+  decode runs through without either. Measured on the desktop runtime over
+  `TestData/xg` (2026-11-02, halheinrich/backgammon#514), that decode is the
+  longest gap, about 50 ms, and the forced plays the walk passes by add
+  microseconds.
 - **A dismissal lives on the thing it is about** (SPEC-notices §2): the
   setup's notices on `QuizSetup`, the run's on `QuizStatsReport` and the
   live run, the storage refusal on BgUiPrimitives_Razor's

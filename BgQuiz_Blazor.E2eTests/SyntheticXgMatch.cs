@@ -1,5 +1,7 @@
 using BgDataTypes_Lib;
 using ConvertXgToJson_Lib;
+using ConvertXgToJson_Lib.Models;
+using ConvertXgToJson_Lib.TestSupport;
 
 namespace BgQuiz_Blazor.E2eTests;
 
@@ -399,8 +401,36 @@ internal static class SyntheticXgMatch
         }
     }
 
-    /// <summary>The file's games and decisions, into <paramref name="builder"/>; see <see cref="Bytes"/>.</summary>
+    /// <summary>
+    /// The name the refused-game match is staged under — as long as
+    /// <see cref="StagedFileName"/>, for the same reason.
+    /// </summary>
+    internal const string RefusedGameStagedFileName = "synthetic-match-2026-04-18.xg";
+
+    /// <summary>
+    /// The match, with the header of game <see cref="CubeGameNumber"/> — the
+    /// one holding both analysed decisions — saying player 1 has already won,
+    /// a standing the session refuses (<see cref="XgFileEdits.WithRefusedGames"/>,
+    /// the one owner of that edit). The walk reads the file, skips that game
+    /// whole and names it (halheinrich/backgammon#514), so the file yields no
+    /// decision: beside the match, every decision a quiz asks is the match's.
+    /// </summary>
+    internal static byte[] RefusedGameBytes() =>
+        XgFileWriter.ToBytes(XgFileEdits.WithRefusedGames(
+            BuildFile(XgFileBuilder.ForMatch(MatchLength, Player1, Player2), CubeGameScore1, CubeGameScore2),
+            CubeGameNumber));
+
+    /// <summary>The file's games and decisions, into <paramref name="builder"/>, as XG binary bytes; see <see cref="Bytes"/>.</summary>
     private static byte[] Build(
+        XgFileBuilder builder, int cubeGameScore1, int cubeGameScore2, bool analyseTheLastPlayBeforeTheCube = false,
+        string playComment = PlayComment, XgCubeEquities? cubeEquities = null,
+        IReadOnlyList<XgPlayCandidate>? lastPlayBeforeTheCubeCandidates = null) =>
+        XgFileWriter.ToBytes(BuildFile(
+            builder, cubeGameScore1, cubeGameScore2, analyseTheLastPlayBeforeTheCube,
+            playComment, cubeEquities, lastPlayBeforeTheCubeCandidates));
+
+    /// <summary>The file's games and decisions, into <paramref name="builder"/>; see <see cref="Bytes"/>.</summary>
+    private static XgFile BuildFile(
         XgFileBuilder builder, int cubeGameScore1, int cubeGameScore2, bool analyseTheLastPlayBeforeTheCube = false,
         string playComment = PlayComment, XgCubeEquities? cubeEquities = null,
         IReadOnlyList<XgPlayCandidate>? lastPlayBeforeTheCubeCandidates = null)
@@ -429,7 +459,7 @@ internal static class SyntheticXgMatch
             comment: CubeComment);
         cubeGame.Play(XgPlayer.Player2, PlayAfterTheCube.Dice, PlayAfterTheCube.Play, comment: playComment);
 
-        return XgFileWriter.ToBytes(builder.Build());
+        return builder.Build();
     }
 
     /// <summary>Plays <see cref="PlaysBeforeTheCube"/> into <paramref name="game"/>.</summary>

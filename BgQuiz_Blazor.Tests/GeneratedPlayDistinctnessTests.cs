@@ -4,23 +4,25 @@ using BgMoveGen;
 namespace BgQuiz_Blazor.Tests;
 
 /// <summary>
-/// What <c>ProblemLoader.HasNoPlayChoice</c> stands on: that
-/// <see cref="MoveGenerator.GeneratePlays"/>' candidate list holds one play
-/// per distinct position a legal play reaches.
+/// The generator contract the converter's forced-play classification relies
+/// on: that <see cref="MoveGenerator.GeneratePlays"/>' candidate list holds one
+/// play per distinct position a legal play reaches.
 ///
 /// <para>
-/// The rule reads "exactly one legal play", and asks it the cheap way, as
+/// The walk this app loads through (ConvertXgToJson_Lib's checker-play
+/// classification, halheinrich/backgammon#514) passes a play by as forced when
+/// its roll leaves exactly one legal play, and asks it the cheap way, as
 /// <c>legal.Count == 1</c>. That is correct only while the generated list is
 /// already distinct — which is <b>BgMoveGen's contract</b>, stated on
 /// <see cref="MoveGenerator.GeneratePlays"/>, not this app's assumption. How
 /// two plays compare is the producer's too: from a starting position, by the
 /// position each reaches, stated once on <see cref="BoardState.IsSamePlay"/>
-/// and not here. These are consumer-side pins on the contract, three facts
-/// wide: die orderings of one play collapse, a hit keeps plays apart, and the
-/// one shape that ever broke distinctness now arrives once. A producer
-/// regression would not throw here — it would quietly quiz a position that
-/// offers no decision — so the wire is worth pinning at the layer that reads
-/// it.
+/// and not here. These tests call the generator directly, not the walk: they
+/// pin the contract, three facts wide — die orderings of one play collapse, a
+/// hit keeps plays apart, and the one shape that ever broke distinctness now
+/// arrives once. A regression would not throw anywhere: the walk would quietly
+/// hand this app a position that offers no decision, or set a real one aside,
+/// so the contract is pinned here too, by the consumer that would quiz it.
 /// </para>
 ///
 /// <para>

@@ -61,6 +61,18 @@
          rather than reached transitively, per the Directory.Packages.props rule.
          Fixture bytes only: no expectation here may come from it. -->
     <ProjectReference Include="..\..\ConvertXgToJson_Lib\ConvertXgToJson_Lib\ConvertXgToJson_Lib.csproj" />
+    <!-- The malformed-file edits (XgFileEdits): a refused game and a corrupt
+         candidate, made from a builder-made file and read back through the
+         public read, so a test meets an omission on the real walk. The one
+         owner of those edits (halheinrich/backgammon#514); test projects only,
+         since the assembly declares itself unsupported on the browser. -->
+    <ProjectReference Include="..\..\ConvertXgToJson_Lib\ConvertXgToJson_Lib.TestSupport\ConvertXgToJson_Lib.TestSupport.csproj" />
+    <!-- The move generator, which GeneratedPlayDistinctnessTests and
+         TestFixtureContractTests call directly. Declared since the client no
+         longer references it (the walk's forced test is the converter's,
+         halheinrich/backgammon#514), per the Directory.Packages.props rule: a
+         compile-time dependency arriving only transitively is a latent break. -->
+    <ProjectReference Include="..\..\BgMoveGen\BgMoveGen\BgMoveGen.csproj" />
   </ItemGroup>
 
   <ItemGroup>

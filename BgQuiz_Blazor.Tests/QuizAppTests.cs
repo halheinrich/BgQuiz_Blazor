@@ -55,7 +55,7 @@ public class QuizAppTests : BunitContext
         progress?.Invoke(new LoadProgress(0, files.Length));
         _onLoad?.Invoke();
         if (_loadFailure is { } failure) return Task.FromException<LoadedProblems>(failure);
-        return Task.FromResult(new LoadedProblems([.. _problems], TestFixtures.WalkedReport(), forcedPlaysSetAside: 0));
+        return Task.FromResult(new LoadedProblems([.. _problems], TestFixtures.WalkedReport()));
     }
 
     private QuizApp App => Services.GetRequiredService<QuizApp>();

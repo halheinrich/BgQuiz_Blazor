@@ -291,13 +291,35 @@
                        CanPersist="loadedSetup.Capability == FolderWriteCapability.Enabled"
                        PersistDisabledReason="@SavedFiltersDisabledReason" />
 
-        RenderFragment<SourceReport> rejectedFiles = report =>
+        @* What the walk lost, in one list for every box that names it: the files it could not
+           read, then what it skipped of the files it read, each with its reason whole
+           (SPEC-notices.md §4 and §7.1, halheinrich/backgammon#514). *@
+        RenderFragment<SourceReport> whatWasLost = report =>
             @<ul class="mb-0">
                 @foreach (var rejection in report.Rejected)
                 {
                     <li><code>@rejection.SourceName</code> — @rejection.Reason.Message</li>
                 }
+                @foreach (var omission in report.Omissions)
+                {
+                    <li><code>@omission.SourceFile</code> — @omission.ToString()</li>
+                }
             </ul>;
+
+        @* "5 games and 1 decision were skipped": a whole game, or one decision of a game. Razor
+           drops whitespace beside a tag or a brace in code, so each space here is in a <text>
+           block or a string. *@
+        RenderFragment<(int Games, int Decisions)> skipped = counts =>
+            @<text>@if (counts.Games > 0)
+                {
+                    <text><strong>@counts.Games</strong> @(counts.Games == 1 ? "game" : "games")</text>
+                }@if (counts.Games > 0 && counts.Decisions > 0)
+                {
+                    <text> and </text>
+                }@if (counts.Decisions > 0)
+                {
+                    <text><strong>@counts.Decisions</strong> @(counts.Decisions == 1 ? "decision" : "decisions")</text>
+                }@(counts.Games + counts.Decisions == 1 ? " was" : " were") skipped</text>;
 
         @* The count is filter-only; with a mix in effect the number is the pool the mix
            draws from, which the quiz can fall far short of, so the line says so. *@
@@ -312,7 +334,21 @@
             <Notice id="allRejectedNotice" class="mb-3" Kind="NoticeKind.Warning"
                     Announcement="NoticeAnnouncement.Polite">
                 <div><strong>None</strong> of the selected problem files could be read, so there are no decisions to count:</div>
-                @rejectedFiles(allRejected)
+                @whatWasLost(allRejected)
+            </Notice>
+        }
+        else if (loadedSetup.Loaded.Problems.IsEmpty)
+        {
+            @* Read from the load, which is unfiltered, so no filter is the cause and no count is
+               shown. Neutral: files of forced or illegal plays alone are no fault. It lists what
+               was rejected or skipped, so the record below stands down. *@
+            <Notice id="noQuizDecisionsNotice" class="mb-3" Kind="NoticeKind.Warning"
+                    Announcement="NoticeAnnouncement.Polite">
+                <div>No quiz decisions are available from the selected files.</div>
+                @if (loadedSetup.Loaded.Report is { } lost && (lost.Rejected.Count > 0 || lost.Omissions.Count > 0))
+                {
+                    @whatWasLost(lost)
+                }
             </Notice>
         }
         else if (IsCounting)
@@ -347,11 +383,11 @@
                     {
                         <text>There are no repeated positions.</text>
                     }
-                    @if (loadedSetup.Loaded.ForcedPlaysSetAside > 0)
+                    @if (loadedSetup.Loaded.Report.ForcedPlayCount is > 0 and var forced)
                     {
                         <text>
-                            @loadedSetup.Loaded.ForcedPlaysSetAside forced
-                            @(loadedSetup.Loaded.ForcedPlaysSetAside == 1 ? "play was" : "plays were") set aside: a roll with one legal play asks nothing.
+                            @forced forced
+                            @(forced == 1 ? "play was" : "plays were") set aside: a roll with no choice of play asks nothing.
                         </text>
                     }
                     @if (MixDrawsFromTheMatches)
@@ -377,15 +413,32 @@
             <div class="text-muted small mb-3" role="status" id="countFollowsCommit">The count follows Apply or Clear.</div>
         }
 
-        @if (loadedSetup.Loaded.Report is { AllRejected: false, Rejected.Count: > 0 } incomplete)
+        @* The record of what the selection lost, beside a load that holds problems; the two boxes
+           above list it themselves. A file not read and a game or decision skipped are told
+           apart: a skipped one's file was read (SPEC-notices.md §7.1). *@
+        @if (!loadedSetup.Loaded.Problems.IsEmpty
+             && loadedSetup.Loaded.Report is var incomplete
+             && (incomplete.Rejected.Count > 0 || incomplete.Omissions.Count > 0))
         {
+            var games = incomplete.Omissions.Count(omission => omission.IsWholeGame);
+            var decisions = incomplete.Omissions.Count - games;
             <Notice id="rejectedFilesNotice" class="mb-3" Kind="NoticeKind.Warning"
                     Announcement="NoticeAnnouncement.Polite">
                 <div>
-                    <strong>@incomplete.Rejected.Count</strong> of @incomplete.AttemptedCount files could not
-                    be read, so this selection is incomplete:
+                    @if (incomplete.Rejected.Count == 0)
+                    {
+                        <text>@skipped((games, decisions)), so this selection is incomplete:</text>
+                    }
+                    else if (incomplete.Omissions.Count == 0)
+                    {
+                        <text><strong>@incomplete.Rejected.Count</strong> of @incomplete.AttemptedCount files could not be read, so this selection is incomplete:</text>
+                    }
+                    else
+                    {
+                        <text><strong>@incomplete.Rejected.Count</strong> of @incomplete.AttemptedCount files could not be read; @skipped((games, decisions)). This selection is incomplete:</text>
+                    }
                 </div>
-                @rejectedFiles(incomplete)
+                @whatWasLost(incomplete)
             </Notice>
         }
 
@@ -427,6 +480,10 @@
     else if (Setup.Loaded.Report.AllRejected)
     {
         <small class="text-muted ms-2">No selected problem file could be read — pick a folder with readable problem files to enable Start.</small>
+    }
+    else if (Setup.Loaded.Problems.IsEmpty)
+    {
+        <small class="text-muted ms-2">No quiz decisions are available from the selected files — pick different problem files to enable Start.</small>
     }
     else if (CurrentSelection is { AnswerTypes.Total: 0 })
     {

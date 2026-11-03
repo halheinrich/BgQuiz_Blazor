@@ -131,8 +131,8 @@
     <!-- The interactive quiz surface runs entirely in the browser-wasm runtime:
          board rendering (BgDiag_Razor -> BackgammonDiagram_Lib core, native-free),
          filter UI (XgFilter_Razor), in-browser .xg/.xgp parsing + filtering
-         (XgFilter_Lib + ConvertXgToJson_Lib), move generation (BgMoveGen), and the
-         quiz/scoring domain (BgGame_Lib). A direct reference to the
+         (XgFilter_Lib + ConvertXgToJson_Lib), and the quiz/scoring domain
+         (BgGame_Lib). A direct reference to the
          BackgammonDiagram_Lib *core* is intentional and safe now that the core is
          native-free (split bdc952f). The native raster/export sibling
          (BackgammonDiagram_Lib.ExportRaster: SkiaSharp / QuestPDF / OpenXml) is
@@ -142,7 +142,6 @@
     <ProjectReference Include="..\..\BgFolderAccess_Razor\BgFolderAccess_Razor\BgFolderAccess_Razor.csproj" />
     <ProjectReference Include="..\..\BgDiag_Razor\BgDiag_Razor\BgDiag_Razor.csproj" />
     <ProjectReference Include="..\..\BgGame_Lib\BgGame_Lib\BgGame_Lib.csproj" />
-    <ProjectReference Include="..\..\BgMoveGen\BgMoveGen\BgMoveGen.csproj" />
     <ProjectReference Include="..\..\ConvertXgToJson_Lib\ConvertXgToJson_Lib\ConvertXgToJson_Lib.csproj" />
     <ProjectReference Include="..\..\XgFilter_Lib\XgFilter_Lib\XgFilter_Lib.csproj" />
     <ProjectReference Include="..\..\XgFilter_Razor\XgFilter_Razor\XgFilter_Razor.csproj" />
