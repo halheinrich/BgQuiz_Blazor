@@ -94,12 +94,14 @@ public abstract class E2eTestBase : IAsyncLifetime
     protected const string CheckerFixture = "Opening 32 65 64 31 65.xgp";
 
     /// <summary>
-    /// Committed <b>forced-play</b> checker fixture — one problem, both
-    /// checkers on the bar against a board where each die has exactly one open
-    /// entry point, so <c>bar/24* bar/20</c> is the only legal play. The whole
-    /// point of it is that the quiz must never show it
+    /// Committed <b>forced-play</b> checker fixture — both checkers on the bar
+    /// against a board where each die has exactly one open entry point, so
+    /// <c>bar/24* bar/20</c> is the only legal play. The whole point of it is
+    /// that the quiz must never show that play
     /// (<c>halheinrich/backgammon#140</c>); a scenario pairs it with a real
-    /// decision and asserts which one the user is asked.
+    /// decision and asserts which one the user is asked. Its cube pane is
+    /// analysed too, and since the walk sets the forced play aside the file's
+    /// one decision is that cube (Hal's ruling on halheinrich/backgammon#514).
     ///
     /// <para>
     /// Sliced out of the umbrella's own <c>Make20Pt.xg</c> with
