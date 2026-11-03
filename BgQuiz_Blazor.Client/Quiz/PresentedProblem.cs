@@ -41,14 +41,13 @@ internal sealed class PresentedProblem
     /// of M" while this problem is on screen (SPEC-quiz-history.md §5).
     ///
     /// <para>
-    /// <b>It counts consumed stream slots, not presentations.</b> A position
-    /// the orchestration passes over silently (one offering no play choice)
-    /// occupies a slot without entering the sequence, so the next problem's
-    /// number skips it and the gap shows. That keeps N commensurable with the
-    /// run's total, <see cref="QuizRun.ProblemCount"/>, which counts the stream
-    /// too: N never exceeds M, and the stream's last slot reads M. The
-    /// accepted trade-off is the visible gap — honest about the slot having
-    /// been in the quiz — rather than a presented-only N that ends below M.
+    /// It is the problem's position in the run's sequence:
+    /// <see cref="QuizRun.PresentNext"/> presents the sequence in order and
+    /// gives each problem the count presented before it plus one, so the
+    /// numbers run 1, 2, 3 with no gap. Nothing in the sequence is passed
+    /// over, since a roll with no choice of play never reaches it (the walk
+    /// sets it aside at the load). So N never exceeds the run's total,
+    /// <see cref="QuizRun.ProblemCount"/>, and the last problem reads M.
     /// </para>
     /// </summary>
     public int StreamSlot { get; }

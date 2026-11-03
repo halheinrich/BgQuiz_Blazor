@@ -7,8 +7,9 @@ namespace BgQuiz_Blazor.E2eTests;
 /// A checker play whose roll leaves no choice of play asks nothing: the walk sets it aside, the
 /// count says so, and the quiz never asks it. <see cref="E2eTestBase.ForcedFixture"/> also holds
 /// an analysed cube pane, and a play the walk set aside does not suppress it, so the file's one
-/// decision is that cube (Hal's ruling, halheinrich/backgammon#514, 2026-11-01: "a forced play
-/// with an analysed cube now yields the cube").
+/// decision is that cube. That is the walk's behaviour since leg 2 of halheinrich/backgammon#514,
+/// a premise read from its code that follows from the ruling that every legitimate decision is
+/// kept.
 /// </summary>
 public sealed class ForcedPlaySetAsideTests : E2eTestBase
 {

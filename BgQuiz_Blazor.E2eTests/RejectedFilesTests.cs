@@ -98,8 +98,11 @@ public sealed class RejectedFilesTests : E2eTestBase
         await Expect(record).ToBeVisibleAsync();
         await Expect(record).ToContainTextAsync(ExpectedText.OneGameSkipped);
         await Expect(record.Locator("li")).ToHaveCountAsync(1);
-        await Expect(record.Locator("li")).ToContainTextAsync(SyntheticXgMatch.RefusedGameStagedFileName);
-        await Expect(record.Locator("li")).ToContainTextAsync($"game {SyntheticXgMatch.CubeGameNumber}:");
+        // The item whole: the file, then the walk's line for the game as this process reads it,
+        // with nothing after. The browser runs the walk on its own runtime, so this is the one
+        // pin on what that runtime renders (XgOmission.Reason's doc says what the line is).
+        await Expect(record.Locator("li")).ToHaveTextAsync(
+            $"{SyntheticXgMatch.RefusedGameStagedFileName} — {SyntheticXgMatch.RefusedGameWalkLine()}");
         await Expect(record).ToHaveClassAsync(new Regex(@"\balert-warning\b"));
         await Expect(record.GetByRole(AriaRole.Button)).ToHaveCountAsync(0);
 

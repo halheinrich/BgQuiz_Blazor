@@ -420,6 +420,22 @@ internal static class SyntheticXgMatch
             BuildFile(XgFileBuilder.ForMatch(MatchLength, Player1, Player2), CubeGameScore1, CubeGameScore2),
             CubeGameNumber));
 
+    /// <summary>
+    /// The walk's own line for the game <see cref="RefusedGameBytes"/> refuses,
+    /// read as <see cref="RefusedGameStagedFileName"/> in this process (as
+    /// <see cref="CheckShownPlayDecision"/> reads its file): the text Home should
+    /// show after the file name, whatever the browser's runtime would add.
+    /// </summary>
+    internal static string RefusedGameWalkLine()
+    {
+        using var stream = new MemoryStream(RefusedGameBytes());
+        var state = new XgIteratorState();
+        _ = XgDecisionIterator
+            .IterateDiagramRequests(XgFileReader.ReadStream(stream), RefusedGameStagedFileName, state)
+            .ToList();
+        return state.Omissions.Single().ToString();
+    }
+
     /// <summary>The file's games and decisions, into <paramref name="builder"/>, as XG binary bytes; see <see cref="Bytes"/>.</summary>
     private static byte[] Build(
         XgFileBuilder builder, int cubeGameScore1, int cubeGameScore2, bool analyseTheLastPlayBeforeTheCube = false,

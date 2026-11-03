@@ -10,9 +10,9 @@
     // Problem-position indicator ("Problem N of M" / "Problem N"), rendered
     // only when ProblemNumber is supplied — the Quiz page passes the
     // controller's stream position and total; the end-of-quiz (Done) and
-    // mid-quiz stats surfaces omit it. Both numbers count stream slots
-    // (auto-skipped no-choice positions included) — see
-    // PresentedProblem.StreamSlot for the convention and its trade-off.
+    // mid-quiz stats surfaces omit it. N is the problem's position in the
+    // run's sequence and M the sequence's length — see
+    // PresentedProblem.StreamSlot.
     [Parameter] public int? ProblemNumber { get; set; }
     [Parameter] public int? ProblemCount { get; set; }
 

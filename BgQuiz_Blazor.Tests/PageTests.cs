@@ -613,20 +613,20 @@ public class PageTests : BunitContext
     }
 
     [Fact]
-    public async Task Home_AnOmissionsReason_IsOneListItem_Whole_WhateverLineBreaksItHolds()
+    public async Task Home_AnOmission_IsOneListItem_ItsFileThenTheWalksLine_WithNothingAfter()
     {
-        // A refused standing's reason is the rule's message whole: the sentence, the parameter
-        // .NET appends and, for an out-of-range value, the value on a line of its own — the
-        // platform's line break, a CRLF on Windows (XgOmission.Reason). It is shown unparsed and
-        // unshortened, in one item.
+        // The item is the file, then the omission's own line exactly as the walk gives it: shown
+        // unparsed and unshortened, with nothing added. XgOmission.Reason's doc says what that
+        // text is; the premise here is only that it holds no line break, so the comparison needs
+        // no fix-up.
         var cut = await HomeOverAWalkAsync(RefusedGame2Of3("match.xg"));
         var omission = Assert.Single(App.Setup!.Loaded.Report.Omissions);
-        Assert.Contains(Environment.NewLine, omission.Reason);   // the premise
+        Assert.DoesNotContain('\n', omission.ToString());   // the premise
+        Assert.DoesNotContain('\r', omission.ToString());
 
         var item = Assert.Single(Box(cut, "rejectedFilesNotice").Content.QuerySelectorAll("li"));
         Assert.Equal("match.xg", item.QuerySelector("code")!.TextContent);
-        // bUnit reads the markup back through an HTML parser, which turns every CRLF into an LF.
-        Assert.Equal($"match.xg — {omission}".ReplaceLineEndings("\n"), item.TextContent);
+        Assert.Equal($"match.xg — {omission}", item.TextContent);
     }
 
     [Fact]
@@ -638,6 +638,16 @@ public class PageTests : BunitContext
 
         Assert.Contains(ExpectedText.DecisionsMatchYourFilters(2), Text(cut));
         Assert.Contains(ExpectedText.ForcedPlaysSetAside(2), Text(cut));
+    }
+
+    [Fact]
+    public async Task Home_OneForcedPlay_IsTheSingularLine()
+    {
+        var cut = await HomeOverAWalkAsync(TestFixtures.PickedXg(
+            TestFixtures.Match(game => game.WithOpeningPlays().WithForcedPlay()), "match.xg"));
+
+        Assert.Contains(ExpectedText.DecisionsMatchYourFilters(2), Text(cut));
+        Assert.Contains(ExpectedText.ForcedPlaysSetAside(1), Text(cut));
     }
 
     // ── Resample, and the reload notice ─────────────────────────────────────────

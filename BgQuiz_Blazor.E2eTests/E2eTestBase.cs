@@ -101,7 +101,9 @@ public abstract class E2eTestBase : IAsyncLifetime
     /// (<c>halheinrich/backgammon#140</c>); a scenario pairs it with a real
     /// decision and asserts which one the user is asked. Its cube pane is
     /// analysed too, and since the walk sets the forced play aside the file's
-    /// one decision is that cube (Hal's ruling on halheinrich/backgammon#514).
+    /// one decision is that cube: the walk's behaviour since leg 2 of
+    /// halheinrich/backgammon#514, following from the ruling that every
+    /// legitimate decision is kept.
     ///
     /// <para>
     /// Sliced out of the umbrella's own <c>Make20Pt.xg</c> with
