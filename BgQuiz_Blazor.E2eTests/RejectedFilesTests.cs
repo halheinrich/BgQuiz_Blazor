@@ -29,7 +29,10 @@ namespace BgQuiz_Blazor.E2eTests;
 ///
 /// <para>
 /// The sentences are pinned here as independent literals, per this suite's
-/// copy-pin split; the wiring — that the facts live with the parse, travel in
+/// copy-pin split. The one exception is a refused game's line, which is the
+/// walk's own: it is expected to equal the walk's line for the same bytes, run
+/// in this process, so the pin is that the browser's runtime agrees with the
+/// desktop's (see the project file). The wiring — that the facts live with the parse, travel in
 /// the summary and survive what the summary does not — is the unit suite's.
 /// </para>
 /// </summary>

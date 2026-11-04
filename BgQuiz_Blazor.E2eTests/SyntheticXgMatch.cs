@@ -36,7 +36,10 @@ namespace BgQuiz_Blazor.E2eTests;
 /// asserting "Game 2 · Move 4" therefore asserts a consequence of this file,
 /// not a transcript of what the app happened to render; if the builder's
 /// emission ever changes, the scenario fails against a stated expectation
-/// instead of quietly agreeing with new output.
+/// instead of quietly agreeing with new output. The one observation is
+/// <see cref="RefusedGameWalkLine"/>, the walk's line for a refused game,
+/// read here so the browser's text can be checked against the desktop
+/// runtime's; its wording is pinned in ConvertXgToJson_Lib's own tests.
 /// </para>
 ///
 /// <para>

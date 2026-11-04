@@ -25,9 +25,9 @@
          published artifact over HTTP in a real browser — the one layer bUnit
          (components in isolation) and the WebApplicationFactory wire tests
          (host pipeline in-process) are both structurally blind to. Every
-         expectation here is an independent literal for that same reason
-         (the one linked app file below is a readiness handshake, not an
-         expectation).
+         expectation of UI copy here is an independent literal for that same
+         reason (the one linked app file below is a readiness handshake, not an
+         expectation); the one expectation that is not is named below.
 
          The three references below are FIXTURE PRODUCERS, and that is the whole
          of their licence (halheinrich/backgammon#125). A real .xg match file
@@ -37,9 +37,18 @@
          Move / DiceRoll / CubeAction vocabulary those take from
          BgDataTypes_Lib. Both are upstream libraries the app already depends
          on, so the dependency graph gains nothing new; the third is the
-         converter's own test support. None may ever supply an expectation: no
-         scenario reads a displayed string, a selector, or a derived value from
-         them.
+         converter's own test support. Apart from one use, none supplies an
+         expectation: no scenario reads a displayed string, a selector, or a
+         derived value from them.
+
+         The one use: SyntheticXgMatch.RefusedGameWalkLine() runs the
+         converter's walk in this process over the bytes the browser is given,
+         and the refused-game scenario expects the browser's whole omission
+         text to equal that line (halheinrich/backgammon#514). That checks the
+         two runtimes agree: the defect it guards against, .NET resource keys
+         in place of the runtime's text, was the browser's alone. What the
+         text says is pinned word for word in ConvertXgToJson_Lib's own tests,
+         not here.
 
          BgDataTypes_Lib is declared even though ConvertXgToJson_Lib would
          supply it transitively, per the rule Directory.Packages.props states

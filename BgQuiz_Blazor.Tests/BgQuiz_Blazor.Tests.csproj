@@ -59,7 +59,11 @@
          .xg — and without naming TestData, which CI never sees. The client already
          depends on this library, so the graph gains nothing; declared directly
          rather than reached transitively, per the Directory.Packages.props rule.
-         Fixture bytes only: no expectation here may come from it. -->
+         Fixture bytes, with one exception: what Home shows of an omission is the
+         walk's own line, so PageTests takes that line from the walk's report
+         (its Omissions, each as XgOmission.ToString()) rather than typing it
+         (halheinrich/backgammon#514). Every expectation of UI copy stays an
+         independent literal. -->
     <ProjectReference Include="..\..\ConvertXgToJson_Lib\ConvertXgToJson_Lib\ConvertXgToJson_Lib.csproj" />
     <!-- The malformed-file edits (XgFileEdits): a refused game and a corrupt
          candidate, made from a builder-made file and read back through the
