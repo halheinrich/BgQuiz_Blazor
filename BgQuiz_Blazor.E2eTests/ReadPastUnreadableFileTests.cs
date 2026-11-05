@@ -27,9 +27,11 @@ namespace BgQuiz_Blazor.E2eTests;
 /// record; none is derived, and none says why the runtime died. On the AOT
 /// build those runs used, the runtime died when the file read right after the
 /// refusal had 833 records or more and the load finished when it had 806 or
-/// fewer, and in the arrangements tried the file before the refusal made no
-/// difference, so an unreadable file read first crashed too when a long one
-/// followed it. That the crash follows from AOT compilation is an inference
+/// fewer. In the e2e arrangements tried, the file before the refusal made no
+/// difference, and an unreadable file read first crashed too when a long one
+/// followed it; the manual Chrome runs recorded on the same issue include a
+/// case where the same next file crashed or loaded depending on what was read
+/// before it. That the crash follows from AOT compilation is an inference
 /// from the AOT-off build loading the same order; it is not proven. With the
 /// unreadable file last nothing is read after it, which is why
 /// <see cref="TheSameFilesWithTheUnreadableOneLast_LoadAsBefore"/> is the
