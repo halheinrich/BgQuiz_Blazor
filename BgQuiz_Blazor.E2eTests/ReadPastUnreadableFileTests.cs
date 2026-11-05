@@ -12,19 +12,28 @@ namespace BgQuiz_Blazor.E2eTests;
 /// <c>* Assertion: should not be reached</c> in <c>sgen-scan-object.h</c>,
 /// just after the walk logged the refused file's skip, and the load never
 /// finished. The same files with the unreadable one last loaded normally, as
-/// did the first order with AOT off. These scenarios fail on such a build
-/// until a remedy lands; nothing here says what the remedy is.
+/// did the first order with AOT off.
 ///
 /// <para>
-/// <b>Why the order matters.</b> What decided it, as measured on
-/// halheinrich/backgammon#523, was the file read next after the refusal: a
-/// following file of 833 records or more crashed the runtime, one of 806 or
-/// fewer loaded, and in every arrangement measured the file before the
-/// refusal made no difference, so an unreadable file read first crashed too
-/// when a long one followed it. With the unreadable file last nothing is read
-/// after it, which is why <see cref="TheSameFilesWithTheUnreadableOneLast_LoadAsBefore"/>
-/// is the order control. That the crash follows from AOT compilation is an
-/// inference from the AOT-off build loading the same order; it is not proven.
+/// <b>The remedy</b> is that a file whose magic number is not XG's is refused
+/// without a throw, on every XG read (ruled on halheinrich/backgammon#523). The first scenario is
+/// its regression: it failed on a build without it. The second is the order
+/// control and is expected to pass either way.
+/// </para>
+///
+/// <para>
+/// <b>What was observed about the order.</b> These are observations from the
+/// runs that made them, recorded on halheinrich/backgammon#523, which is the
+/// record; none is derived, and none says why the runtime died. On the AOT
+/// build those runs used, the runtime died when the file read right after the
+/// refusal had 833 records or more and the load finished when it had 806 or
+/// fewer, and in the arrangements tried the file before the refusal made no
+/// difference, so an unreadable file read first crashed too when a long one
+/// followed it. That the crash follows from AOT compilation is an inference
+/// from the AOT-off build loading the same order; it is not proven. With the
+/// unreadable file last nothing is read after it, which is why
+/// <see cref="TheSameFilesWithTheUnreadableOneLast_LoadAsBefore"/> is the
+/// order control.
 /// </para>
 ///
 /// <para>

@@ -447,12 +447,12 @@ internal static class SyntheticXgMatch
 
     /// <summary>
     /// The unanalysed games ahead of the long match's one analysed game. What
-    /// the number is for is the file's length in records: on the AOT builds
-    /// halheinrich/backgammon#523 found, reading a file of 833 records or more
-    /// just after an unreadable one killed the runtime, and one of 806 or fewer
-    /// loaded. Those bounds were measured on one build, not derived, so the
-    /// count leaves a margin above them: 300 games of four records each, with
-    /// the rest, is 1,206.
+    /// the number is for is the file's length in records. In the runs recorded
+    /// on halheinrich/backgammon#523, which is the record, a file of 833
+    /// records or more read just after an unreadable one killed the runtime on
+    /// the AOT build used, and one of 806 or fewer loaded. Those bounds were
+    /// observed on that build, not derived, so the count leaves a margin above
+    /// them: 300 games of four records each, with the rest, is 1,206.
     /// </summary>
     private const int LongMatchFillerGames = 300;
 
