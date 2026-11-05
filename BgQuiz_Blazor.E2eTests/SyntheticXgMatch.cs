@@ -439,6 +439,54 @@ internal static class SyntheticXgMatch
         return state.Omissions.Single().ToString();
     }
 
+    /// <summary>
+    /// The name the long match is staged under — as long as
+    /// <see cref="StagedFileName"/>, for the same reason.
+    /// </summary>
+    internal const string LongMatchStagedFileName = "synthetic-match-2026-04-19.xg";
+
+    /// <summary>
+    /// The unanalysed games ahead of the long match's one analysed game. What
+    /// the number is for is the file's length in records: on the AOT builds
+    /// halheinrich/backgammon#523 found, reading a file of 833 records or more
+    /// just after an unreadable one killed the runtime, and one of 806 or fewer
+    /// loaded. Those bounds were measured on one build, not derived, so the
+    /// count leaves a margin above them: 300 games of four records each, with
+    /// the rest, is 1,206.
+    /// </summary>
+    private const int LongMatchFillerGames = 300;
+
+    /// <summary>The game holding the long match's one decision: the one after its filler games.</summary>
+    internal const int LongMatchCubeGameNumber = LongMatchFillerGames + 1;
+
+    /// <summary>The long match's cube decision's move number: as the match's, after <see cref="PlaysBeforeTheCube"/>.</summary>
+    internal static int LongMatchCubeMoveNumber => CubeMoveNumber;
+
+    /// <summary>
+    /// A long match with one problem: <see cref="LongMatchFillerGames"/> games
+    /// of <see cref="PlaysBeforeTheCube"/>, unanalysed, then a game holding the
+    /// match's cube decision and nothing after it. Its bulk is records the
+    /// quiz asks nothing about; its one problem is at game
+    /// <see cref="LongMatchCubeGameNumber"/>, move
+    /// <see cref="LongMatchCubeMoveNumber"/>. That game's score is the match's
+    /// cube game's reversed, so the decision is a different problem from the
+    /// match's and is not deduplicated away beside it.
+    /// </summary>
+    internal static byte[] LongMatchBytes()
+    {
+        var builder = XgFileBuilder.ForMatch(MatchLength, Player1, Player2);
+        for (int i = 0; i < LongMatchFillerGames; i++)
+            Replay(builder.AddGame());
+
+        var cubeGame = builder.AddGame(CubeGameScore2, CubeGameScore1);
+        Replay(cubeGame);
+        cubeGame.CubeDecision(
+            XgPlayer.Player2, CubeEquities, CubePly,
+            doublerAction: CubeAction.Double, takerAction: CubeAction.Take);
+
+        return XgFileWriter.ToBytes(builder.Build());
+    }
+
     /// <summary>The file's games and decisions, into <paramref name="builder"/>, as XG binary bytes; see <see cref="Bytes"/>.</summary>
     private static byte[] Build(
         XgFileBuilder builder, int cubeGameScore1, int cubeGameScore2, bool analyseTheLastPlayBeforeTheCube = false,
